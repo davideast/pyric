@@ -215,7 +215,7 @@ describe('/__pyric/ai-proxy', () => {
   });
 });
 
-describe('/__pyric/ai-proxy — terminal diagnostics', () => {
+describe('/__pyric/ai-proxy terminal diagnostics', () => {
   it('warns on the dev logger when the upstream is unreachable', async () => {
     const { logger, notes } = recordingLogger();
     const upstream = closedLoopbackUrl('/v1');
@@ -280,7 +280,7 @@ describe('/__pyric/ai-proxy — terminal diagnostics', () => {
       headers: { 'content-type': 'application/json' },
       body: '{}',
     });
-    // The 429 rides through untouched — nothing here retries or waits.
+    // The 429 rides through untouched. Nothing here retries or waits.
     expect(res.status).toBe(429);
     expect(notes.length).toBe(1);
     const line = notes[0]!;
@@ -312,8 +312,8 @@ describe('/__pyric/ai-proxy — terminal diagnostics', () => {
   it('warns when the upstream aborts mid-stream', async () => {
     // Raw TCP: promise a content-length the upstream never delivers, then hang
     // up. (A `Bun.serve` upstream that `controller.error()`s its body is NOT
-    // enough — Bun's fetch client reports the truncated read as a clean `done`,
-    // so the proxy's stream loop never sees a failure.)
+    // enough, because Bun's fetch client reports the truncated read as a clean
+    // `done`, so the proxy's stream loop never sees a failure.)
     const truncating = createNetServer((sock) => {
       sock.once('data', () => {
         sock.write(

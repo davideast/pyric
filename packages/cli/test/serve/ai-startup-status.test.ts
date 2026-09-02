@@ -1,5 +1,5 @@
 /**
- * The AI startup status line — `pyric dev`'s answer to "is AI configured at
+ * The AI startup status line: `pyric dev`'s answer to "is AI configured at
  * all, and against what?".
  *
  * The boot banner labels hosting, sandbox bundles, rules, Studio, the bridge
@@ -7,7 +7,7 @@
  * a developer could not tell from the terminal whether an engine resolved,
  * which model it binds, or where `/__pyric/ai-proxy` forwards. This asserts:
  *   - `pyric dev` (startServe) prints ONE `ai` line in the aligned column
- *     block, present even when nothing is configured (visible absence — the
+ *     block, present even when nothing is configured (visible absence, the
  *     `• rules    no firestore.rules …` idiom);
  *   - the line names the resolved engine kind, its model binding, and the
  *     proxy endpoint, with credential-bearing URL params redacted the same way

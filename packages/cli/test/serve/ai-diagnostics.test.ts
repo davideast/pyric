@@ -1,5 +1,6 @@
 /**
- * AI broker rejection relay — headless dev visibility for `request_rejected`.
+ * AI broker diagnostics relay: headless dev visibility for the events that
+ * carry a refusal or a silent swap.
  *
  * The broker lands a `service_mutation` event (`service: 'ai'`,
  * `op: 'request_rejected'`) on the sandbox's unified stream whenever it
@@ -10,8 +11,8 @@
  * server prints a compact block through the same `ServeLogger`.
  *
  * The same relay carries the broker's OTHER silent refusal, `response_blocked`
- * — a safety / recitation filter block, which unlike a rejection throws
- * nothing at all (production answers 200 with an empty candidate) — and
+ * (a safety or recitation filter block, which unlike a rejection throws
+ * nothing at all, since production answers 200 with an empty candidate), and
  * `model_substituted`, which is not a refusal at all: the answer arrives, from
  * a model the developer never named.
  *
@@ -112,7 +113,7 @@ const badRoleOp = (model: string) => ({
 
 /** A scripted op whose engine replays the envelope production returns when
  *  a safety / recitation filter fires: HTTP 200, an EMPTY candidate, and the
- *  reason in `finishReason`. Nothing throws — the caller just gets no text. */
+ *  reason in `finishReason`. Nothing throws: the caller just gets no text. */
 const blockedOp = (model: string, finishReason: string, finishMessage?: string) => ({
   t: 'op' as const,
   id: `ai-${Math.random()}`,
@@ -157,7 +158,7 @@ describe('AI broker request_rejected → dev terminal', () => {
     expect(notes[0]).toContain('models/gemini-flash-lite-latest');
   });
 
-  it('throttles an agent retry loop — identical rejections print once', async () => {
+  it('throttles an agent retry loop: identical rejections print once', async () => {
     const { logger, notes } = recordingLogger();
     const h = await startServe(logger);
     const relay = originFetch(h.url);
@@ -185,7 +186,7 @@ describe('AI broker request_rejected → dev terminal', () => {
     await handleMessage(ctx, port, badRoleOp('models/gemini-2.5-pro'));
     await relay.settled();
 
-    // Two concurrent fire-and-forget POSTs — assert on the set, not the order.
+    // Two concurrent fire-and-forget POSTs, so assert on the set, not the order.
     expect(notes.length).toBe(2);
     expect(notes.some((n) => n.includes('models/gemini-flash-lite-latest'))).toBe(true);
     expect(notes.some((n) => n.includes('models/gemini-2.5-pro'))).toBe(true);
@@ -451,7 +452,7 @@ describe('formatAiBlockedBlock', () => {
 // `model_substituted`; the same relay carries it over the same route with its
 // own `kind`, formatted by `formatAiModelSubstitutionBlock`.
 
-/** A tiny OpenAI-compatible upstream — enough for the openai engine to
+/** A tiny OpenAI-compatible upstream, enough for the openai engine to
  *  translate one unary answer, and it records the model it was asked for. */
 function stubOpenAiUpstream(): { url: string; models: string[]; stop(): void } {
   const models: string[] = [];

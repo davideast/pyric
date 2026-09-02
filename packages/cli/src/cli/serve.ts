@@ -509,7 +509,7 @@ export async function startServe(opts: {
   // AI is a mounted service like the bridge: `/__pyric/ai-proxy` answers from
   // the first request on, whether or not anything is configured. `pyric
   // sandbox` has no AI flag, so the ENGINE is always the page's own `getAI()`
-  // choice (resolved lazily in the browser — nothing here instantiates a
+  // choice (resolved lazily in the browser, since nothing here instantiates a
   // broker to find out); what this server does decide is where the proxy
   // forwards, and that is what the line reports.
   logger.info(formatAiStatusLine({}));
