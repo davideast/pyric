@@ -25,6 +25,7 @@ Console to ship rules, indexes, hosting, and functions to a real project.
 | `pyric verify` | Replay a captured sandbox session against candidate rules (`--engine sandbox\|rules-test-api\|both`). Hosted Rules Test API needs SA/ADC via `FIREBASE_SA_BASE64` / `GOOGLE_APPLICATION_CREDENTIALS` |
 | `pyric can-i-use <feature>` | Query the canonical conformance model for availability, behaviour fidelity, assurance eligibility, caveats, and evidence. Only an exact canonical feature name exits 0; ambiguous names, spelling suggestions, and missing features exit 1. Accepts `--json`. |
 | `pyric mcp` | Start the stdio MCP server. It attaches to `pyric sandbox --bridge` when available or hosts a headless sandbox. |
+| `pyric call <tool> <op>` | Call one MCP tool operation from the terminal and print its result envelope as JSON. Fields come from `--args <json>` or `--stdin`. Attaches to `pyric sandbox --bridge` when available; without one, in-process operations run headless and sandbox operations exit 2. Accepts `--port` and `--json`. |
 | `pyric firestore rules lint <path>` | Lint a Firestore rules file |
 | `pyric firestore rules validate <path>` | Validate Firestore rules structure |
 | `pyric firestore rules simulate` | Run the local Firestore rules simulator |
