@@ -37,10 +37,10 @@ export function createCanIUseTool<R extends CanIUseResultLike>(options: CanIUseT
     async execute(args) {
       const { feature, importPath } = args as { feature?: unknown; importPath?: unknown };
       if (typeof feature !== 'string' || feature.trim() === '') {
-        return { ok: false, summary: 'pyric_can_i_use requires a non-empty feature name' };
+        return { ok: false, summary: 'pyric can_i_use requires a non-empty feature name' };
       }
       if (importPath !== undefined && (typeof importPath !== 'string' || importPath.trim() === '')) {
-        return { ok: false, summary: 'pyric_can_i_use importPath must be a non-empty string when provided' };
+        return { ok: false, summary: 'pyric can_i_use importPath must be a non-empty string when provided' };
       }
       const result = options.query(feature, {
         importPath: typeof importPath === 'string' ? importPath : undefined,
