@@ -1,4 +1,5 @@
 import { assertExactOpKeys, opKey, toolOps, toolRecords } from '../tool-records.js';
+import type { InProcessContext } from './tool-factories.js';
 import { composeMcpTools, type McpTool } from './tool-surface.js';
 
 /**
@@ -29,10 +30,11 @@ export const DEFAULT_MCP_IN_PROCESS_OP_KEYS: readonly string[] = toolOps('in-pro
 
 /**
  * Assemble the default MCP surface and fail closed if the composed
- * operations differ from the records in either transport.
+ * operations differ from the records in either transport. `context` is
+ * what the entry point resolved for the in-process handlers.
  */
-export function getDefaultMcpToolSurface(): McpTool[] {
-  const tools = composeMcpTools();
+export function getDefaultMcpToolSurface(context: InProcessContext = {}): McpTool[] {
+  const tools = composeMcpTools(context);
   const keys = (transport?: 'forwarded' | 'in-process') =>
     tools.flatMap((tool) =>
       tool.ops

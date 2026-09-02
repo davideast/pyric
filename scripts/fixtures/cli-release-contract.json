@@ -88,9 +88,12 @@
     "firestore_rules.lint",
     "firestore_rules.simulate",
     "firestore_rules.resolve",
+    "firestore_rules.test",
     "rules_stdlib.list",
     "rules_stdlib.get",
     "storage_rules.resolve",
-    "pyric.can_i_use"
+    "pyric.can_i_use",
+    "pyric.verify",
+    "pyric.verify_cases"
   ]
 }

@@ -16,6 +16,8 @@ import {
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
 import { createConformanceTools } from '../../conformance/tools.js';
+import { createVerifyTools } from '../../verify/tools.js';
+import type { ProjectScope } from '../../credentials/core/types.js';
 import type { ForwardedFactoryKey, InProcessFactoryKey } from '../tool-records.js';
 
 /** A resolver that must never run: forwarded operations are executed by the browser peer, not here. */
@@ -30,11 +32,23 @@ export const FORWARDED_FACTORIES = {
 } satisfies Record<ForwardedFactoryKey, (stub: StubResolver) => ToolHandler[]>;
 
 /**
+ * What an in-process factory receives from the entry point that composes
+ * the bridge. `scope` is the project credentials resolved once at startup
+ * (`server/scope.ts`); it is absent when none resolved, and the handlers
+ * that need it then return their explicit credentials error on use.
+ */
+export interface InProcessContext {
+  scope?: ProjectScope;
+}
+
+/**
  * Factories behind in-process operations, returned as live handlers the MCP
- * server executes directly. The default surface carries no project scope, so
- * the rules factory yields only its local handlers.
+ * server executes directly. Every factory yields the same handler names with
+ * or without a scope, so the manifest never depends on credentials.
  */
 export const IN_PROCESS_FACTORIES = {
-  'firestore-rules': () => createFirestoreRulesTools(),
+  'firestore-rules': ({ scope }: InProcessContext = {}) =>
+    createFirestoreRulesTools(scope ? { scope } : {}),
   conformance: () => createConformanceTools(),
-} satisfies Record<InProcessFactoryKey, () => ToolHandler[]>;
+  verify: ({ scope }: InProcessContext = {}) => createVerifyTools(scope ? { scope } : {}),
+} satisfies Record<InProcessFactoryKey, (context?: InProcessContext) => ToolHandler[]>;

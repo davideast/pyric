@@ -131,6 +131,7 @@ const MCP_FACTORIES = {
   // createConformanceTools registers the shared createCanIUseTool factory,
   // which owns the name literal for both the MCP and Playground surfaces.
   conformance: [{ file: `${TOOLS}/conformance/can-i-use-tool.ts`, factory: 'createCanIUseTool' }],
+  verify: [{ file: `${TOOLS}/verify/tools.ts`, factory: 'createVerifyTools' }],
 };
 
 /**
