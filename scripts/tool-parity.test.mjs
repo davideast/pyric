@@ -38,7 +38,7 @@ describe('tool-parity extraction against the real codebase', () => {
   });
 
   test('each surface finds a sane minimum', () => {
-    expect(mcp.size).toBe(27); // the ratified operation count
+    expect(mcp.size).toBe(35); // the ratified operation count
     expect(playground.size).toBeGreaterThanOrEqual(15); // 27 at time of writing
   });
 

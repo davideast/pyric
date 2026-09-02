@@ -125,6 +125,38 @@
       "decision": "deliberate",
       "reason": "bounded attached-sandbox inspection belongs in MCP; the Playground reads its own session state directly"
     },
+    "database_data.get": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.set": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.update": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.remove": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.push": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.transaction": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.query": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.seed": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox fixture loading belongs in MCP; the Playground seeds its own session state directly"
+    },
     "database_rules.simulate": {
       "decision": "deliberate",
       "reason": "attached-sandbox rules inspection belongs in MCP; the Playground uses its own session rules engine"

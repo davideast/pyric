@@ -52,9 +52,9 @@ describe('ratified @pyric/cli release contract', () => {
     for (const removed of contract.removedExports) expect(actual).not.toContain(removed);
   });
 
-  it('pins the ratified nine-tool, 27-operation MCP inventory independently of its implementation', () => {
+  it('pins the ratified nine-tool, 35-operation MCP inventory independently of its implementation', () => {
     expect(contract.mcpTools).toHaveLength(9);
-    expect(contract.mcpOps).toHaveLength(27);
+    expect(contract.mcpOps).toHaveLength(35);
     expect([...DEFAULT_MCP_TOOL_NAMES].sort()).toEqual([...contract.mcpTools].sort());
     expect([...DEFAULT_MCP_OP_KEYS].sort()).toEqual([...contract.mcpOps].sort());
   });
