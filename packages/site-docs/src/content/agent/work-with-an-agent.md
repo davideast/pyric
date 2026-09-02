@@ -70,12 +70,7 @@ The agent uses `database_data.crawl` to discover the current paths and `database
 
 ## Know which side runs each tool
 
-There are two execution paths:
-
-| Tool kind | Examples | Where it runs |
-|---|---|---|
-| Browser sandbox | `sandbox`, `firestore_data`, `firestore_simulator`, `database_data`, `storage_data`, `auth_users`, `database_rules.simulate` | Forwarded through `/__pyric/mcp` to the open tab |
-| Rules source | `firestore_rules`, `firestore_indexes`, `storage_rules`, `rules_stdlib`, `pyric`, and the `lint`, `validate`, and `generate` operations of `database_rules` | In the local `pyric mcp` process |
+The [MCP tool reference](../reference/mcp-tools.md) lists every tool and operation with the side that runs it: forwarded through `/__pyric/mcp` to the open browser tab, or run locally in the `pyric mcp` process.
 
 If a Firestore document tool reports that no browser peer is connected, open the served app and retry. Do not start a second dev server: that creates a second sandbox, and the agent may modify the one you are not looking at.
 
