@@ -17,6 +17,7 @@ import {
 } from 'pyric/firestore';
 import { createStorageDataTools, type StorageDataToolDeps } from 'pyric/storage';
 import { createDatabaseDataTools, type DatabaseDataToolDeps } from 'pyric/database';
+import { createAuthUserTools } from 'pyric/auth';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { getInternalEnv } from 'pyric/sandbox/internal';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
@@ -40,4 +41,5 @@ export const SANDBOX_FACTORIES = {
   'storage-data': ({ resolveStorage }) => createStorageDataTools({ resolveStorage }),
   'sandbox-snapshot': ({ sandbox }) => createSandboxSnapshotTools({ resolveSandbox: () => sandbox }),
   'database-data': ({ resolveDatabase }) => createDatabaseDataTools({ resolveDatabase }),
+  'auth-users': ({ sandbox }) => createAuthUserTools({ resolveSandbox: () => sandbox }),
 } satisfies Record<ForwardedFactoryKey, (binding: SandboxBinding) => ToolHandler[]>;

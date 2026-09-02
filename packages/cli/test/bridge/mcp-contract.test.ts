@@ -25,16 +25,17 @@ const RATIFIED_TOOLS: Record<string, readonly string[]> = {
   rules_stdlib: ['list', 'get'],
   storage_rules: ['resolve'],
   storage_data: ['upload', 'download', 'list', 'metadata', 'delete'],
+  auth_users: ['create', 'import', 'get', 'list', 'update', 'delete', 'set_claims', 'custom_token'],
   pyric: ['can_i_use', 'verify', 'verify_cases'],
 };
 
-const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data', 'database_rules', 'storage_data'];
+const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data', 'database_rules', 'storage_data', 'auth_users'];
 
 describe('default MCP tool contract', () => {
-  it('ratifies the exact public tools/list surface: eleven tools and their 45 ops, in order', () => {
+  it('ratifies the exact public tools/list surface: twelve tools and their 53 ops, in order', () => {
     expect(DEFAULT_MCP_TOOL_NAMES).toEqual(Object.keys(RATIFIED_TOOLS));
     expect(DEFAULT_MCP_TOOL_OPS).toEqual(RATIFIED_TOOLS);
-    expect(DEFAULT_MCP_OP_KEYS).toHaveLength(45);
+    expect(DEFAULT_MCP_OP_KEYS).toHaveLength(53);
     expect(DEFAULT_MCP_OP_KEYS).toEqual(
       Object.entries(RATIFIED_TOOLS).flatMap(([tool, ops]) => ops.map((op) => `${tool}.${op}`)),
     );

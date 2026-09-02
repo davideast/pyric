@@ -144,6 +144,15 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       'storage_data.list',
       'storage_data.metadata',
       'storage_data.delete',
+      // auth user store
+      'auth_users.create',
+      'auth_users.import',
+      'auth_users.get',
+      'auth_users.list',
+      'auth_users.update',
+      'auth_users.delete',
+      'auth_users.set_claims',
+      'auth_users.custom_token',
     ]);
   });
 });

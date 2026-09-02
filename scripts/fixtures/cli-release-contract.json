@@ -64,6 +64,7 @@
     "rules_stdlib",
     "storage_rules",
     "storage_data",
+    "auth_users",
     "pyric"
   ],
   "mcpOps": [
@@ -109,6 +110,14 @@
     "storage_data.list",
     "storage_data.metadata",
     "storage_data.delete",
+    "auth_users.create",
+    "auth_users.import",
+    "auth_users.get",
+    "auth_users.list",
+    "auth_users.update",
+    "auth_users.delete",
+    "auth_users.set_claims",
+    "auth_users.custom_token",
     "pyric.can_i_use",
     "pyric.verify",
     "pyric.verify_cases"

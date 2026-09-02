@@ -116,3 +116,12 @@ export {
   useDeviceLanguage,
 } from './user-lifecycle.js';
 export { sandbox } from './sandbox/driver.js';
+export {
+  createAuthUserTools,
+  mintSandboxCustomToken,
+  toUserView,
+  type AuthImportError,
+  type AuthImportUser,
+  type AuthUserToolDeps,
+  type AuthUserView,
+} from './tools.js';

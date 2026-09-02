@@ -127,6 +127,7 @@ const MCP_FACTORIES = {
   'storage-data': [{ file: `${PYRIC}/storage/tools.ts`, factory: 'createStorageDataTools' }],
   'sandbox-snapshot': [{ file: `${TOOLS}/sandbox/tools.ts`, factory: 'createSandboxSnapshotTools' }],
   'database-data': [{ file: `${PYRIC}/database/tools.ts`, factory: 'createDatabaseDataTools' }],
+  'auth-users': [{ file: `${PYRIC}/auth/tools.ts`, factory: 'createAuthUserTools' }],
   'firestore-rules': [
     { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools' },
     { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools' },
