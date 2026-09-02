@@ -100,12 +100,12 @@ export async function startServer(
     onToolEvent: (event: BridgeToolEvent) => {
       auditWriter?.write(event);
       logger.verbose(
-        `tool ${event.tool} → ${event.result.ok ? 'ok' : 'fail'} (${event.durationMs}ms) [${event.mode}]`,
+        `tool ${event.tool}.${event.op} → ${event.result.ok ? 'ok' : 'fail'} (${event.durationMs}ms) [${event.mode}]`,
       );
     },
   });
 
-  const { forwarded, inProcess } = getDefaultMcpToolSurface();
+  const tools = getDefaultMcpToolSurface();
 
   // Per-session transport+server map. Each MCP client connection
   // gets its own pair; cleared on DELETE / idle / transport close.
@@ -155,7 +155,7 @@ export async function startServer(
         logger.verbose(`session ${id.slice(0, 8)}… initialized`);
       },
     });
-    const server = buildMcpServer(bridge, { forwarded, inProcess });
+    const server = buildMcpServer(bridge, tools);
     session.close = async () => {
       if (session.idleTimer) clearTimeout(session.idleTimer);
       session.idleTimer = null;
@@ -304,7 +304,7 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
       helloed = true;
       sandboxId = msg.sandboxId;
       logger.info(
-        `peer connected — sandboxId=${sandboxId.slice(0, 12)} tools=${msg.tools.length}`,
+        `peer connected — sandboxId=${sandboxId.slice(0, 12)} ops=${msg.tools.length}`,
       );
       disconnect = bridge.registerSandboxPeer(
         (out: BridgeMessage) => {

@@ -1,57 +1,65 @@
+/**
+ * The deliberate gate on the public MCP surface. The map below is written by
+ * hand: a tool or operation appears here only by decision, and the records
+ * must match it exactly.
+ */
 import { describe, expect, it } from 'bun:test';
-import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
+import { SANDBOX_OP_KEYS } from '../../src/bridge/client/dispatch.js';
 import {
-  DEFAULT_MCP_FORWARDED_TOOL_NAMES,
-  DEFAULT_MCP_IN_PROCESS_TOOL_NAMES,
+  DEFAULT_MCP_FORWARDED_OP_KEYS,
+  DEFAULT_MCP_IN_PROCESS_OP_KEYS,
+  DEFAULT_MCP_OP_KEYS,
   DEFAULT_MCP_TOOL_NAMES,
+  DEFAULT_MCP_TOOL_OPS,
   getDefaultMcpToolSurface,
 } from '../../src/bridge/server/mcp-contract.js';
 
+const RATIFIED_TOOLS: Record<string, readonly string[]> = {
+  firestore_simulator: ['create', 'execute', 'read', 'batch', 'add', 'undo', 'redo', 'events', 'transaction'],
+  firestore_data: ['get', 'list', 'set', 'add', 'update', 'delete', 'batch_write', 'query'],
+  sandbox: ['inspect'],
+  database_data: ['crawl'],
+  database_rules: ['simulate'],
+  firestore_rules: ['lint', 'simulate', 'resolve'],
+  rules_stdlib: ['list', 'get'],
+  storage_rules: ['resolve'],
+  pyric: ['can_i_use'],
+};
+
+const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data', 'database_rules'];
+
 describe('default MCP tool contract', () => {
-  it('ratifies the exact public tools/list surface', () => {
-    expect(DEFAULT_MCP_TOOL_NAMES).toEqual([
-      'firestore_simulator_create',
-      'firestore_simulator_execute',
-      'firestore_simulator_read',
-      'firestore_simulator_batch',
-      'firestore_create_with_auto_id',
-      'firestore_simulator_undo',
-      'firestore_simulator_redo',
-      'firestore_simulator_events',
-      'firestore_simulator_transaction',
-      'firestore_get_document',
-      'firestore_list_documents',
-      'firestore_create_document',
-      'firestore_add_document',
-      'firestore_update_document',
-      'firestore_delete_document',
-      'firestore_batch_write',
-      'firestore_query_where',
-      'sandbox_inspect',
-      'rtdb_simulate_access',
-      'rtdb_crawl_structure',
-      'firestore_simulate_rules',
-      'firestore_rules_stdlib_list',
-      'firestore_rules_stdlib_get',
-      'firestore_lint_rules',
-      'firestore_resolve_modules',
-      'rules_stdlib_list',
-      'rules_stdlib_get',
-      'rules_resolve_modules',
-      'pyric_can_i_use',
-    ]);
+  it('ratifies the exact public tools/list surface: nine tools and their 27 ops, in order', () => {
+    expect(DEFAULT_MCP_TOOL_NAMES).toEqual(Object.keys(RATIFIED_TOOLS));
+    expect(DEFAULT_MCP_TOOL_OPS).toEqual(RATIFIED_TOOLS);
+    expect(DEFAULT_MCP_OP_KEYS).toHaveLength(27);
+    expect(DEFAULT_MCP_OP_KEYS).toEqual(
+      Object.entries(RATIFIED_TOOLS).flatMap(([tool, ops]) => ops.map((op) => `${tool}.${op}`)),
+    );
   });
 
-  it('matches the browser dispatcher and live in-process handlers exactly', () => {
-    const surface = getDefaultMcpToolSurface();
-    expect(surface.forwarded.map((tool) => tool.name).sort()).toEqual(
-      [...DEFAULT_MCP_FORWARDED_TOOL_NAMES].sort(),
+  it('splits the ops by transport exactly as ratified', () => {
+    const expectedForwarded = RATIFIED_FORWARDED_TOOLS.flatMap((tool) =>
+      RATIFIED_TOOLS[tool]!.map((op) => `${tool}.${op}`),
     );
-    expect([...SANDBOX_TOOL_NAMES].sort()).toEqual(
-      [...DEFAULT_MCP_FORWARDED_TOOL_NAMES].sort(),
+    expect(DEFAULT_MCP_FORWARDED_OP_KEYS).toEqual(expectedForwarded);
+    expect(DEFAULT_MCP_IN_PROCESS_OP_KEYS).toEqual(
+      DEFAULT_MCP_OP_KEYS.filter((key) => !expectedForwarded.includes(key)),
     );
-    expect(surface.inProcess.map((tool) => tool.name).sort()).toEqual(
-      [...DEFAULT_MCP_IN_PROCESS_TOOL_NAMES].sort(),
+  });
+
+  it('matches the composed surface and the browser dispatcher exactly', () => {
+    const tools = getDefaultMcpToolSurface();
+    expect(tools.map((tool) => tool.name)).toEqual([...DEFAULT_MCP_TOOL_NAMES]);
+    const keys = tools.flatMap((tool) => tool.ops.map((op) => `${tool.name}.${op.op}`));
+    expect(keys).toEqual([...DEFAULT_MCP_OP_KEYS]);
+    expect([...SANDBOX_OP_KEYS].sort()).toEqual([...DEFAULT_MCP_FORWARDED_OP_KEYS].sort());
+  });
+
+  it('opens the rules_stdlib description with the ratified sentence', () => {
+    const stdlib = getDefaultMcpToolSurface().find((tool) => tool.name === 'rules_stdlib')!;
+    expect(stdlib.description).toStartWith(
+      'Firebase Security Rules standard library for Firestore and Cloud Storage',
     );
   });
 });

@@ -878,7 +878,10 @@ export interface AppConfigMessage {
 export interface ToolMessage {
   t: 'tool';
   id: string;
+  /** Tool name, e.g. `firestore_data`. */
   name: string;
+  /** Operation of the tool, e.g. `get`. */
+  op: string;
   args: Record<string, unknown>;
 }
 

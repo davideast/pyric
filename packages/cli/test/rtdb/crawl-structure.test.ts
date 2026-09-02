@@ -4,7 +4,7 @@ import { setData } from 'pyric/sandbox/database';
 
 import { buildSandboxDispatcher } from '../../src/bridge/client/dispatch.js';
 
-describe('rtdb_crawl_structure', () => {
+describe('database_data.crawl', () => {
   test('describes the current local tree without returning leaf values', async () => {
     const sandbox = initializeSandbox();
     const dispatch = buildSandboxDispatcher(sandbox);
@@ -14,7 +14,7 @@ describe('rtdb_crawl_structure', () => {
       '/version': 3,
     });
 
-    const result = await dispatch('rtdb_crawl_structure', {});
+    const result = await dispatch('database_data', 'crawl', {});
 
     expect(result).toEqual({
       ok: true,
@@ -60,7 +60,7 @@ describe('rtdb_crawl_structure', () => {
       '/groups/alpha': { owner: 'alice', users: { alice: true } },
     });
 
-    const result = await dispatch('rtdb_crawl_structure', {
+    const result = await dispatch('database_data', 'crawl', {
       path: '/groups',
       maxDepth: 1,
       maxChildren: 1,

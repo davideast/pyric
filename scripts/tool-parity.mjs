@@ -6,24 +6,28 @@
  * exposure matrix mechanically, so drift is detected rather than
  * remembered:
  *
- *   1. MCP bridge (sandbox mode) — what
- *      packages/cli/src/bridge/server/tool-family-factories.ts composes:
- *      forwarded sandbox tools + in-process rules tools.
+ *   1. MCP bridge (sandbox mode) — the folded tools under
+ *      packages/cli/src/bridge/tool-records/: one record per tool, each
+ *      operation naming the handler that implements it. Rows are keyed
+ *      `tool.op`; the handler name joins them to the playground surface.
  *   2. Playground agent — what
  *      packages/playground/src/lib/tools/index.ts's buildToolRegistry()
  *      registers: core / auth / git / checkpoints always-on, diagnostics
  *      flag-gated, skill tools skill-gated. Profile filtering
  *      (AUTHORING_TOOL_NAMES) is parsed from source, not restated here.
- * Extraction is static: tool `name: '...'` literals are read out of the
- * factory function bodies that each composition file references. The
- * per-surface manifests below MIRROR the composition files; a freshness
- * guard re-reads those files and fails if they reference a factory the
- * manifest does not cover, so additions break the audit loudly instead
- * of silently vanishing from the matrix.
+ *
+ * Extraction is static: records are read for their `name`, `op`, `factory`
+ * and `handler` literals; handler `name: '...'` literals are read out of the
+ * factory function bodies that each factory key points at. The factory
+ * manifest below MIRRORS packages/cli/src/bridge/server/tool-factories.ts; a
+ * freshness guard re-reads that file and fails if it references a factory
+ * the manifest does not cover, and every record handler must be one its
+ * factory defines, so additions break the audit loudly instead of silently
+ * vanishing from the matrix.
  *
  * Classification comes from scripts/tool-parity.annotations.json —
- * every tool's exposure decision must be recorded there ("gap" or
- * "deliberate"). Unannotated tools report as "unclassified", and
+ * every row's exposure decision must be recorded there ("gap" or
+ * "deliberate"). Unannotated rows report as "unclassified", and
  * `--check` exits nonzero if any exist, so CI can force a recorded
  * decision for every new tool.
  *
@@ -104,35 +108,30 @@ const PYRIC = 'packages/pyric/src';
 const TOOLS = 'packages/cli/src';
 const PLAY = 'packages/playground/src/lib';
 
-/** The one bridge file that names every MCP tool factory; the freshness guard reads it. */
-export const MCP_COMPOSITION_FILE = `${TOOLS}/bridge/server/tool-family-factories.ts`;
+/** The one bridge file that names every MCP handler factory; the freshness guard reads it. */
+export const MCP_COMPOSITION_FILE = `${TOOLS}/bridge/server/tool-factories.ts`;
 
-/** MCP bridge, sandbox mode — mirrors bridge/server/tool-family-factories.ts. */
-const MCP_CONTRIBUTIONS = [
-  { file: `${PYRIC}/rules/simulator-tools-impl.ts`, factory: 'createFirestoreSimulatorTools', gate: 'forwarded' },
-  { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'forwarded' },
-  { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools', gate: 'forwarded' },
-  { file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools', gate: 'forwarded' },
-  // getRulesToolHandlers → createFirestoreRulesTools, which spreads the
-  // stdlib factory and adds firestore_test_rules only when a scope is
-  // supplied (the default sandbox bridge supplies none).
-  {
-    file: `${PYRIC}/rules/tools.ts`,
-    factory: 'createFirestoreRulesTools',
-    gate: 'in-process',
-    gates: { firestore_test_rules: 'in-process, scope-gated' },
-  },
-  { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
+/** Directory of one record per folded MCP tool. */
+export const MCP_RECORDS_DIR = `${TOOLS}/bridge/tool-records`;
+
+/**
+ * MCP handler factories keyed as the records name them — mirrors
+ * bridge/server/tool-factories.ts. Each entry lists every factory whose
+ * handlers the key yields (the rules factory spreads the stdlib factory).
+ */
+const MCP_FACTORIES = {
+  'firestore-simulator': [{ file: `${PYRIC}/rules/simulator-tools-impl.ts`, factory: 'createFirestoreSimulatorTools' }],
+  'firestore-data': [{ file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools' }],
+  'firestore-inspect': [{ file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools' }],
+  'rtdb-inspection': [{ file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools' }],
+  'firestore-rules': [
+    { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools' },
+    { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools' },
+  ],
   // createConformanceTools registers the shared createCanIUseTool factory,
-  // which owns the name literal for both the MCP and Playground surfaces;
-  // `via` points name extraction at it.
-  {
-    file: `${TOOLS}/conformance/tools.ts`,
-    factory: 'createConformanceTools',
-    via: { file: `${TOOLS}/conformance/can-i-use-tool.ts`, factory: 'createCanIUseTool' },
-    gate: 'in-process',
-  },
-];
+  // which owns the name literal for both the MCP and Playground surfaces.
+  conformance: [{ file: `${TOOLS}/conformance/can-i-use-tool.ts`, factory: 'createCanIUseTool' }],
+};
 
 /**
  * Playground agent — mirrors lib/tools/index.ts buildToolRegistry().
@@ -211,10 +210,13 @@ function assertCovered(rel, covered, { ignore = [] } = {}) {
 }
 
 function checkFreshness() {
-  assertCovered(
-    MCP_COMPOSITION_FILE,
-    new Set(MCP_CONTRIBUTIONS.map((c) => c.factory)),
+  const covered = new Set(
+    Object.values(MCP_FACTORIES).flatMap((sources) => sources.map((s) => s.factory)),
   );
+  // The bridge composes createConformanceTools, which delegates its one name
+  // literal to createCanIUseTool; the manifest points at the owner.
+  covered.add('createConformanceTools');
+  assertCovered(MCP_COMPOSITION_FILE, covered);
   // Playground: every wrapper-style tool module (builder export, no name
   // literal) must have an explicit entry, or its tools would be missed.
   for (const { dir } of PLAYGROUND_DIRS) {
@@ -250,11 +252,50 @@ function addTool(surface, name, gate) {
   surface.set(name, prior && prior !== gate ? `${prior}; ${gate}` : gate);
 }
 
+const RECORD_NAME_RE = /^\s*name:\s*'([a-z][a-z0-9_]*)'/m;
+const RECORD_OP_RE =
+  /^\s{4}([a-z][a-z0-9_]*):\s*\{[^}]*?transport:\s*'(forwarded|in-process)'[^}]*?factory:\s*'([a-z0-9-]+)'[^}]*?handler:\s*'([a-z][a-z0-9_]*)'/gms;
+
+/**
+ * Read one tool record statically: its tool name and, per op, transport,
+ * factory key and handler name.
+ */
+export function readToolRecord(rel) {
+  const source = read(rel);
+  const name = RECORD_NAME_RE.exec(source)?.[1];
+  if (!name) throw new Error(`tool-parity: ${rel} declares no tool name`);
+  const ops = [...source.matchAll(RECORD_OP_RE)].map((m) => ({
+    op: m[1],
+    transport: m[2],
+    factory: m[3],
+    handler: m[4],
+  }));
+  if (ops.length === 0) throw new Error(`tool-parity: ${rel} declares no ops — extraction broke`);
+  return { name, ops };
+}
+
+/**
+ * MCP surface: `tool.op` → { gate, handler }. Every op's handler must be a
+ * name its factory defines, so a record that drifts from its factory fails
+ * the audit.
+ */
 export function enumerateMcp() {
+  const handlersByFactory = new Map();
+  for (const [key, sources] of Object.entries(MCP_FACTORIES)) {
+    handlersByFactory.set(key, new Set(sources.flatMap((s) => factoryNames(s.file, s.factory))));
+  }
   const surface = new Map();
-  for (const c of MCP_CONTRIBUTIONS) {
-    for (const name of factoryNames((c.via ?? c).file, (c.via ?? c).factory)) {
-      addTool(surface, name, c.gates?.[name] ?? c.gate);
+  for (const rel of sweepFiles(MCP_RECORDS_DIR)) {
+    const record = readToolRecord(rel);
+    for (const op of record.ops) {
+      const handlers = handlersByFactory.get(op.factory);
+      if (!handlers) {
+        throw new Error(`tool-parity: ${rel} op ${op.op} names factory '${op.factory}', which the manifest does not cover`);
+      }
+      if (!handlers.has(op.handler)) {
+        throw new Error(`tool-parity: ${rel} op ${op.op} names handler '${op.handler}', which factory '${op.factory}' does not define`);
+      }
+      surface.set(`${record.name}.${op.op}`, { gate: op.transport, handler: op.handler });
     }
   }
   return surface;
@@ -294,25 +335,38 @@ export function loadAnnotations() {
   return parsed.tools ?? {};
 }
 
+/**
+ * One row per exposed capability. An MCP operation and a playground tool
+ * that share a handler are one row, keyed by the MCP `tool.op`; a
+ * playground-only tool is keyed by its own name.
+ */
 export function audit() {
   checkFreshness();
   const mcp = enumerateMcp();
   const playground = enumeratePlayground();
   const annotations = loadAnnotations();
 
-  const names = [...new Set([...mcp.keys(), ...playground.keys()])].sort();
+  const rows = [];
+  const joined = new Set();
+  for (const [key, { gate, handler }] of mcp) {
+    const playgroundGate = playground.get(handler) ?? null;
+    if (playgroundGate !== null) joined.add(handler);
+    rows.push({ name: key, handler, mcp: gate, playground: playgroundGate });
+  }
+  for (const [name, gate] of playground) {
+    if (joined.has(name)) continue;
+    rows.push({ name, handler: name, mcp: null, playground: gate });
+  }
+  rows.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+  const names = rows.map((r) => r.name);
   const staleAnnotations = Object.keys(annotations).filter((n) => !names.includes(n));
 
-  const rows = names.map((name) => {
-    const annotation = annotations[name];
-    return {
-      name,
-      mcp: mcp.get(name) ?? null,
-      playground: playground.get(name) ?? null,
-      decision: annotation?.decision ?? 'unclassified',
-      reason: annotation?.reason ?? '(no recorded decision — annotate in scripts/tool-parity.annotations.json)',
-    };
-  });
+  for (const row of rows) {
+    const annotation = annotations[row.name];
+    row.decision = annotation?.decision ?? 'unclassified';
+    row.reason = annotation?.reason ?? '(no recorded decision — annotate in scripts/tool-parity.annotations.json)';
+  }
   return { rows, staleAnnotations };
 }
 
@@ -327,22 +381,22 @@ export function renderMatrix(rows) {
   const lines = [
     '# Tool exposure parity matrix',
     '',
-    `Generated by \`bun run tool:parity\` from ${rows.length} tools across the MCP bridge`,
-    '(sandbox mode) and the playground agent registry. Classification source:',
-    'scripts/tool-parity.annotations.json.',
+    `Generated by \`bun run tool:parity\` from ${rows.length} rows across the MCP bridge`,
+    '(sandbox mode, one row per `tool.op`) and the playground agent registry.',
+    'Classification source: scripts/tool-parity.annotations.json.',
     '',
-    '| Tool | MCP bridge | Playground agent | Classification |',
-    '|---|---|---|---|',
+    '| Row | Handler | MCP bridge | Playground agent | Classification |',
+    '|---|---|---|---|---|',
   ];
   for (const r of rows) {
     counts[r.decision] = (counts[r.decision] ?? 0) + 1;
     lines.push(
-      `| \`${r.name}\` | ${cell(r.mcp)} | ${cell(r.playground)} | **${r.decision}** — ${r.reason} |`,
+      `| \`${r.name}\` | \`${r.handler}\` | ${cell(r.mcp)} | ${cell(r.playground)} | **${r.decision}** — ${r.reason} |`,
     );
   }
   lines.push(
     '',
-    `Totals: ${rows.length} tools — ${counts.gap} gap, ${counts.deliberate} deliberate, ${counts.unclassified} unclassified.`,
+    `Totals: ${rows.length} rows — ${counts.gap} gap, ${counts.deliberate} deliberate, ${counts.unclassified} unclassified.`,
     '',
   );
   return { markdown: lines.join('\n'), counts };
@@ -367,14 +421,14 @@ function main(argv) {
   let failed = false;
   if (staleAnnotations.length > 0) {
     console.error(
-      `tool-parity: ${ANNOTATIONS_PATH} annotates tools no surface defines (stale or typo): ${staleAnnotations.join(', ')}`,
+      `tool-parity: ${ANNOTATIONS_PATH} annotates rows no surface defines (stale or typo): ${staleAnnotations.join(', ')}`,
     );
     failed = true;
   }
   if (check && counts.unclassified > 0) {
     const unclassified = rows.filter((r) => r.decision === 'unclassified').map((r) => r.name);
     console.error(
-      `tool-parity --check: ${counts.unclassified} tool(s) have no recorded exposure decision:\n` +
+      `tool-parity --check: ${counts.unclassified} row(s) have no recorded exposure decision:\n` +
         unclassified.map((n) => `  - ${n}`).join('\n') +
         `\nRecord each as "gap" or "deliberate" (with a reason) in ${ANNOTATIONS_PATH}.`,
     );

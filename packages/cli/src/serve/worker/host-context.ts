@@ -207,7 +207,8 @@ export interface HostCtx {
    * backend. Cached so the handler array is built once.
    */
   toolDispatch?: (
-    name: string,
+    tool: string,
+    op: string,
     args: Record<string, unknown>,
   ) => Promise<{ ok: boolean; summary: string; data?: unknown }>;
   /**

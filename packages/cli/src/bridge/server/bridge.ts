@@ -8,9 +8,10 @@
  * Multi-tab is naive: last-connection-wins. New peer replaces the
  * old, pending calls against the old peer reject with a clear error.
  *
- * Every tool call is forwarded over WS to the browser. The bridge does not
- * execute data-plane tools itself; it acts as a relay with a tool-name
- * allow-list pinned by the peer's `hello`.
+ * Every forwarded operation is sent over WS to the browser as
+ * `(tool, op, args)`. The bridge does not execute data-plane tools itself; it
+ * acts as a relay with an operation allow-list (`tool.op` keys) pinned by the
+ * peer's `hello`.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -63,6 +64,8 @@ export interface BridgeToolEvent {
   mode: 'sandbox';
   project: string;
   tool: string;
+  /** Operation of `tool` the call named; empty when the call named none. */
+  op: string;
   args: Record<string, unknown>;
   result: BridgeToolResult | { ok: false; summary: string; error?: { code: string; message: string } };
   durationMs: number;
@@ -86,6 +89,8 @@ export interface Bridge {
    * registration disconnects the previous peer (its pending calls
    * fail with a clear error).
    *
+   * `ops` are the `tool.op` keys the peer can execute, from its `hello`.
+   *
    * `capabilities` come from the peer's `hello` — the bridge only sends
    * `worker-*` frames to a peer that declared `'worker-relay'`.
    *
@@ -97,7 +102,7 @@ export interface Bridge {
    */
   registerSandboxPeer(
     send: SendToPeer,
-    tools: string[],
+    ops: string[],
     sandboxId: string,
     capabilities?: string[],
     onReplaced?: () => void,
@@ -115,11 +120,11 @@ export interface Bridge {
    */
   peerGeneration(): number;
 
-  /** Tool names the bridge currently exposes to MCP. */
-  toolNames(): string[];
+  /** `tool.op` keys the connected peer can execute, sorted. Empty without a peer. */
+  opKeys(): string[];
 
-  /** Dispatch a tool call to the connected sandbox peer. */
-  dispatch(name: string, args: Record<string, unknown>): Promise<BridgeToolResult>;
+  /** Dispatch one operation of a tool to the connected sandbox peer. */
+  dispatch(tool: string, op: string, args: Record<string, unknown>): Promise<BridgeToolResult>;
 
   /**
    * Relay a generic worker op to the peer's SharedWorker. Resolves with the
@@ -155,12 +160,12 @@ interface PendingCall {
   id: string;
   resolve: (result: BridgeToolResult) => void;
   timer: ReturnType<typeof setTimeout>;
-  tool: string;
+  key: string;
 }
 
 interface ActivePeer {
   send: SendToPeer;
-  tools: Set<string>;
+  ops: Set<string>;
   sandboxId: string;
   capabilities: Set<string>;
   onReplaced?: () => void;
@@ -260,7 +265,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
 
   function registerSandboxPeer(
     send: SendToPeer,
-    tools: string[],
+    ops: string[],
     sandboxId: string,
     capabilities: string[] = [],
     onReplaced?: () => void,
@@ -282,7 +287,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     generation += 1;
     const myPeer: ActivePeer = {
       send,
-      tools: new Set(tools),
+      ops: new Set(ops),
       sandboxId,
       capabilities: new Set(capabilities),
       onReplaced,
@@ -321,18 +326,19 @@ export function createBridge(opts: BridgeOptions): Bridge {
     return generation;
   }
 
-  function toolNames(): string[] {
-    return peer ? Array.from(peer.tools).sort() : [];
+  function opKeys(): string[] {
+    return peer ? Array.from(peer.ops).sort() : [];
   }
 
   async function dispatch(
-    name: string,
+    tool: string,
+    op: string,
     args: Record<string, unknown>,
   ): Promise<BridgeToolResult> {
     const startedAtMs = Date.now();
     let result: BridgeToolResult;
     try {
-      result = await dispatchSandbox(name, args);
+      result = await dispatchSandbox(tool, op, args);
     } catch (err) {
       result = {
         ok: false,
@@ -345,7 +351,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
           timestamp: new Date(startedAtMs).toISOString(),
           mode: 'sandbox',
           project,
-          tool: name,
+          tool,
+          op,
           args,
           result,
           durationMs: Date.now() - startedAtMs,
@@ -358,16 +365,18 @@ export function createBridge(opts: BridgeOptions): Bridge {
   }
 
   function dispatchSandbox(
-    name: string,
+    tool: string,
+    op: string,
     args: Record<string, unknown>,
   ): Promise<BridgeToolResult> {
+    const key = `${tool}.${op}`;
     if (!peer) {
       return Promise.resolve({ ok: false, summary: NO_SANDBOX_ERROR_MESSAGE });
     }
-    if (!peer.tools.has(name)) {
+    if (!peer.ops.has(key)) {
       return Promise.resolve({
         ok: false,
-        summary: `tool '${name}' is not registered with the connected sandbox peer`,
+        summary: `operation '${key}' is not registered with the connected sandbox peer`,
       });
     }
     return new Promise<BridgeToolResult>((resolve) => {
@@ -377,16 +386,17 @@ export function createBridge(opts: BridgeOptions): Bridge {
           pending.delete(id);
           resolve({
             ok: false,
-            summary: `sandbox call timed out after ${callTimeoutMs}ms (tool: ${name})`,
+            summary: `sandbox call timed out after ${callTimeoutMs}ms (operation: ${key})`,
           });
         }
       }, callTimeoutMs);
-      pending.set(id, { id, resolve, timer, tool: name });
+      pending.set(id, { id, resolve, timer, key });
       try {
         peer!.send({
           type: 'tool-call',
           id,
-          name,
+          name: tool,
+          op,
           args,
         });
       } catch (err) {
@@ -590,7 +600,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     registerSandboxPeer,
     isSandboxConnected,
     peerGeneration,
-    toolNames,
+    opKeys,
     dispatch,
     dispatchWorkerOp,
     subscribeWorker,

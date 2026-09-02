@@ -40,7 +40,7 @@ describe('sandbox-only bridge contract', () => {
           result: { ok: true, summary: 'sandbox response' },
         });
       },
-      ['sandbox_inspect'],
+      ['sandbox.inspect'],
       'contract-peer',
     );
 
@@ -50,12 +50,13 @@ describe('sandbox-only bridge contract', () => {
       project: 'contract-test',
       sandboxConnected: true,
     });
-    expect(await bridge.dispatch('sandbox_inspect', {})).toMatchObject({ ok: true });
+    expect(await bridge.dispatch('sandbox', 'inspect', {})).toMatchObject({ ok: true });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       mode: 'sandbox',
       project: 'contract-test',
-      tool: 'sandbox_inspect',
+      tool: 'sandbox',
+      op: 'inspect',
       result: { ok: true },
     });
     expect(events[0]).not.toHaveProperty('confirmation');

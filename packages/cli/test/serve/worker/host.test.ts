@@ -1303,7 +1303,7 @@ describe('agent tool dispatch (worker hosts the canonical tools)', () => {
 
   it('routes a tool call to the sandbox dispatcher and replies with the result', async () => {
     const res = await sendOp(ctx, port, {
-      t: 'tool', id: 'tool-list', name: 'firestore_list_documents', args: { collection: 'posts' },
+      t: 'tool', id: 'tool-list', name: 'firestore_data', op: 'list', args: { collection: 'posts' },
     });
     expect(res.ok).toBe(true);
     expect((res as ResMessage & { ok: true }).value).toMatchObject({ ok: true });
@@ -1318,14 +1318,14 @@ describe('agent tool dispatch (worker hosts the canonical tools)', () => {
 
   it('agent write lands in the SAME sandbox the app reads (one shared backend)', async () => {
     const write = await sendOp(ctx, port, {
-      t: 'tool', id: 'tool-write', name: 'firestore_create_document',
+      t: 'tool', id: 'tool-write', name: 'firestore_data', op: 'set',
       args: { path: 'posts/p1', data: { title: 'from the agent' } },
     });
     expect((write as ResMessage & { ok: true }).value).toMatchObject({ ok: true });
 
     // Read it back through the tool dispatcher — same authoritative sandbox.
     const read = await sendOp(ctx, port, {
-      t: 'tool', id: 'tool-read', name: 'firestore_get_document', args: { path: 'posts/p1' },
+      t: 'tool', id: 'tool-read', name: 'firestore_data', op: 'get', args: { path: 'posts/p1' },
     });
     const result = (read as ResMessage & { ok: true }).value as {
       ok: boolean; data: { exists: boolean; data: { title: string } };
@@ -1350,7 +1350,7 @@ describe('agent tool dispatch (worker hosts the canonical tools)', () => {
       spot: new GeoPoint(37.77, -122.41),
     });
     const read = await sendOp(ctx, port, {
-      t: 'tool', id: 'tool-wrap', name: 'firestore_get_document', args: { path: 'docs/wrap' },
+      t: 'tool', id: 'tool-wrap', name: 'firestore_data', op: 'get', args: { path: 'docs/wrap' },
     });
     const value = (read as ResMessage & { ok: true }).value;
     // Cloning the posted value (what the port does) must NOT change its JSON
@@ -1373,7 +1373,7 @@ describe('agent tool dispatch (worker hosts the canonical tools)', () => {
 
     // The agent writes via a tool (admin-bypass path) on the SAME worker sandbox.
     await sendOp(ctx, port, {
-      t: 'tool', id: 'agent-live-write', name: 'firestore_create_document',
+      t: 'tool', id: 'agent-live-write', name: 'firestore_data', op: 'set',
       args: { path: 'posts/live', data: { title: 'agent live write' } },
     });
     await tick();

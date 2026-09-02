@@ -170,11 +170,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (session.sessionId) sessions.delete(session.sessionId);
       pendingSessions.delete(session);
     };
-    const surface = getDefaultMcpToolSurface();
-    const server = buildMcpServer(bridge, {
-      forwarded: surface.forwarded,
-      inProcess: surface.inProcess,
-    });
+    const server = buildMcpServer(bridge, getDefaultMcpToolSurface());
     session.close = () => {
       session.closing ??= (async () => {
         if (session.idle) clearTimeout(session.idle);

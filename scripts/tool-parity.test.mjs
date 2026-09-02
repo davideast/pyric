@@ -25,39 +25,53 @@ describe('tool-parity extraction against the real codebase', () => {
 
   test('the freshness guard reads the file that names every MCP factory', () => {
     // A guard pointed at a file that references no factory passes vacuously,
-    // so the target must be the side map that wires each family.
-    expect(MCP_COMPOSITION_FILE).toBe('packages/cli/src/bridge/server/tool-family-factories.ts');
+    // so the target must be the side map that wires each factory key.
+    expect(MCP_COMPOSITION_FILE).toBe('packages/cli/src/bridge/server/tool-factories.ts');
     const source = readFileSync(join(REPO_ROOT, MCP_COMPOSITION_FILE), 'utf8');
     expect(source.match(/\bcreate[A-Z][A-Za-z]*Tool(?:s)?\b/g)?.length ?? 0).toBeGreaterThan(0);
   });
 
-  test('finds a sane minimum of tools overall', () => {
-    // 78 at time of writing; a hard floor of 20 catches "extraction
-    // silently found almost nothing" without churning on every add.
+  test('finds a sane minimum of rows overall', () => {
+    // A hard floor of 20 catches "extraction silently found almost nothing"
+    // without churning on every add.
     expect(rows.length).toBeGreaterThanOrEqual(20);
   });
 
   test('each surface finds a sane minimum', () => {
-    expect(mcp.size).toBeGreaterThanOrEqual(15); // 24 at time of writing
+    expect(mcp.size).toBe(27); // the ratified operation count
     expect(playground.size).toBeGreaterThanOrEqual(15); // 27 at time of writing
   });
 
-  test('known bridge tools are present (forwarded + in-process)', () => {
-    for (const name of [
-      'firestore_simulator_create',
-      'firestore_simulator_execute',
-      'firestore_get_document',
-      'firestore_batch_write',
-      'sandbox_inspect',
-      'rtdb_simulate_access',
-      'rtdb_crawl_structure',
-      'firestore_simulate_rules',
-      'firestore_lint_rules',
-      'firestore_rules_stdlib_list',
-      'firestore_test_rules',
+  test('known bridge operations are present (forwarded + in-process) with their handlers', () => {
+    for (const [key, handler, gate] of [
+      ['firestore_simulator.create', 'firestore_simulator_create', 'forwarded'],
+      ['firestore_simulator.add', 'firestore_create_with_auto_id', 'forwarded'],
+      ['firestore_data.get', 'firestore_get_document', 'forwarded'],
+      ['firestore_data.batch_write', 'firestore_batch_write', 'forwarded'],
+      ['sandbox.inspect', 'sandbox_inspect', 'forwarded'],
+      ['database_rules.simulate', 'rtdb_simulate_access', 'forwarded'],
+      ['database_data.crawl', 'rtdb_crawl_structure', 'forwarded'],
+      ['firestore_rules.simulate', 'firestore_simulate_rules', 'in-process'],
+      ['firestore_rules.lint', 'firestore_lint_rules', 'in-process'],
+      ['firestore_rules.resolve', 'rules_resolve_modules', 'in-process'],
+      ['storage_rules.resolve', 'rules_resolve_modules', 'in-process'],
+      ['rules_stdlib.list', 'rules_stdlib_list', 'in-process'],
+      ['pyric.can_i_use', 'pyric_can_i_use', 'in-process'],
     ]) {
-      expect(mcp.has(name)).toBe(true);
+      expect(mcp.get(key)).toEqual({ gate, handler });
     }
+  });
+
+  test('a shared handler joins the MCP operation and the playground tool into one row', () => {
+    const shared = rows.find((r) => r.name === 'pyric.can_i_use');
+    expect(shared.handler).toBe('pyric_can_i_use');
+    expect(shared.mcp).toBe('in-process');
+    expect(shared.playground).toBe('always-on');
+    expect(rows.find((r) => r.name === 'pyric_can_i_use')).toBeUndefined();
+    // The Firestore-only stdlib spellings stay playground-only.
+    const firestoreOnly = rows.find((r) => r.name === 'firestore_rules_stdlib_get');
+    expect(firestoreOnly.mcp).toBeNull();
+    expect(firestoreOnly.playground).toBe('always-on');
   });
 
   test('known playground tools are present with the right gating', () => {
@@ -128,7 +142,7 @@ describe('tool-parity extraction against the real codebase', () => {
     }
   });
 
-  test('matrix renders one row per tool and reports counts', () => {
+  test('matrix renders one row per capability and reports counts', () => {
     const { markdown, counts } = renderMatrix(rows);
     for (const r of rows) expect(markdown).toContain(`| \`${r.name}\` |`);
     expect(counts.gap + counts.deliberate + counts.unclassified).toBe(rows.length);
