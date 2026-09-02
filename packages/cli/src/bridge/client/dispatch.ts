@@ -21,7 +21,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import { getFirestore, getAdminFirestore, type As } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
-import { toolFamilies } from '../tool-families.js';
+import { assertExactToolNames, toolFamilies } from '../tool-families.js';
 import { SANDBOX_HANDLER_FACTORIES, type SandboxBinding } from './tool-family-factories.js';
 
 export interface DispatchResult {
@@ -58,11 +58,21 @@ function buildSandboxHandlers(sandbox: LocalSandbox): ToolHandler[] {
  * Build a dispatcher for the supplied `Sandbox`. The returned function
  * looks up tools by name across every family and invokes the
  * canonical handler. Throws `UnknownToolError` on unknown names.
+ *
+ * Fails closed before any dispatch if the bound handlers do not yield exactly
+ * the names the family records pin, so a factory that drifts from its record
+ * surfaces when the sandbox connects rather than at the first call.
  */
 export function buildSandboxDispatcher(
   sandbox: LocalSandbox,
 ): (name: string, args: Record<string, unknown>) => Promise<DispatchResult> {
-  const byName = new Map(buildSandboxHandlers(sandbox).map((h) => [h.name, h]));
+  const handlers = buildSandboxHandlers(sandbox);
+  assertExactToolNames(
+    'sandbox dispatcher tools',
+    handlers.map((h) => h.name),
+    SANDBOX_TOOL_NAMES,
+  );
+  const byName = new Map(handlers.map((h) => [h.name, h]));
   return async (name, args) => {
     const handler = byName.get(name);
     if (!handler) throw new UnknownToolError(name);
