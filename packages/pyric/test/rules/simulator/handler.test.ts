@@ -1435,14 +1435,14 @@ service cloud.firestore {
   });
 });
 
-// ─── T2.4A — debug() fails evaluation as function-not-found ───────────
+// ─── debug() fails evaluation as function-not-found ──────────────────
 //
-// Production rejects debug() at compile ("Function not found error:
-// Name: [debug]"). The simulator can't reject at compile (it evaluates
-// per-case), so the parity point is evaluation: debug() must fail as an
-// unknown function — the exact message the conformance rejection-signature
-// normalizer maps to `function-not-found:debug` — never pass its argument
-// through.
+// Production rejects a ruleset that calls debug() at compile time
+// ("Function not found error: Name: [debug]"). The simulator cannot
+// reject at compile time, because it evaluates per case, so the parity
+// point is evaluation: debug() must fail as an unknown function, the
+// exact message the conformance rejection-signature normalizer maps to
+// `function-not-found:debug`, and must never pass its argument through.
 
 describe('debug() is not a builtin (production parity)', () => {
   const DEBUG_RULES = `rules_version = '2';

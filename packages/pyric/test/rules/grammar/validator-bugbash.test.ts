@@ -191,15 +191,16 @@ service cloud.firestore {
   });
 });
 
-// ─── T2.4C — duplicate function declarations are a compile-blocking error ───
+// ─── duplicate function declarations are a compile-blocking error ───
 //
-// Production rejects duplicate function definitions at compile time, and the
-// write gate (write/handler.ts) blocks only CRITICAL validator findings —
-// the old 'medium' severity folded to a warning that deployed anyway. Scope
-// is the MERGED lexical scope: a child match block redeclaring a parent-scope
-// function is just as rejected as two siblings in one block.
+// Production rejects two declarations of one name in the SAME scope at
+// compile time, and the write gate (write/handler.ts) blocks only CRITICAL
+// validator findings, so the old 'medium' severity folded to a warning that
+// deployed anyway. A nested match block that redeclares an enclosing name
+// SHADOWS it, which the simulator implements and a production capture pins
+// as accepted, so it is not a finding.
 
-describe('QUA-3 — production severity and merged scope', () => {
+describe('QUA-3: production severity, one declaration list per scope', () => {
   test('sibling duplicates are critical', () => {
     const findings = validateRules(wrap(`
       function helper() { return true; }
@@ -211,11 +212,11 @@ describe('QUA-3 — production severity and merged scope', () => {
     expect(dups[0].severity).toBe('critical');
   });
 
-  test('child match redeclaring a parent-scope function is caught', () => {
+  test('duplicates inside one nested match block are critical', () => {
     const findings = validateRules(wrap(`
-      function isOk() { return request.auth != null; }
       match /items/{id} {
         function isOk() { return true; }
+        function isOk() { return false; }
         allow read: if isOk();
       }
     `));
@@ -223,10 +224,35 @@ describe('QUA-3 — production severity and merged scope', () => {
     expect(dups.length).toBe(1);
     expect(dups[0].severity).toBe('critical');
     expect(dups[0].message).toContain('isOk');
-    expect(dups[0].message).toContain('enclosing');
   });
 
-  test('grandchild redeclaration across two levels is caught', () => {
+  test('duplicates at global scope, above the service block, are critical', () => {
+    const findings = validateRules(`rules_version = '2';
+function isOk() { return true; }
+function isOk() { return false; }
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} { allow read: if isOk(); }
+  }
+}`);
+    const dups = findings.filter(f => f.code === 'QUA-3');
+    expect(dups.length).toBe(1);
+    expect(dups[0].severity).toBe('critical');
+    expect(dups[0].path).toContain('global');
+  });
+
+  test('a child match redeclaring a parent-scope function is legal shadowing', () => {
+    const findings = validateRules(wrap(`
+      function isOk() { return request.auth != null; }
+      match /items/{id} {
+        function isOk() { return true; }
+        allow read: if isOk();
+      }
+    `));
+    expect(findings.filter(f => f.code === 'QUA-3').length).toBe(0);
+  });
+
+  test('shadowing across two nesting levels is legal too', () => {
     const findings = validateRules(wrap(`
       function isOk() { return request.auth != null; }
       match /teams/{teamId} {
@@ -237,7 +263,7 @@ describe('QUA-3 — production severity and merged scope', () => {
         }
       }
     `));
-    expect(findings.filter(f => f.code === 'QUA-3').length).toBe(1);
+    expect(findings.filter(f => f.code === 'QUA-3').length).toBe(0);
   });
 
   test('same name in two SIBLING match blocks is legal (disjoint scopes)', () => {

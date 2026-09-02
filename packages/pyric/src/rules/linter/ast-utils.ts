@@ -219,52 +219,9 @@ export function maxCallDepth(start: string, graph: Map<string, string[]>, visite
 }
 
 /**
- * Count document access calls (get/exists/getAfter/existsAfter) reachable
- * from an expression, expanding user-defined functions once PER CALL SITE
- * (T2.1 — twin of FirestoreValidator's countDocReads; keep in sync).
- * `callStack` guards recursion only and unwinds on return, so
- * `isOwner(a) && isOwner(b)` charges the helper's reads twice — production
- * performs each call's reads (different args → different paths). Static
- * over-approximation: production caches repeated SAME-path reads within a
- * request, which is not statically decidable — the fix text points authors
- * at the caching idiom.
- */
-export function countGetCalls(expr: Expression, functions: Map<string, FunctionDef>, callStack = new Set<string>()): number {
-  let count = 0;
-  const walk = (e: Expression) => {
-    switch (e.type) {
-      case 'functionCall':
-        if (e.name === 'get' || e.name === 'exists' || e.name === 'getAfter' || e.name === 'existsAfter') {
-          count++;
-        } else if (functions.has(e.name) && !callStack.has(e.name)) {
-          callStack.add(e.name);
-          const fn = functions.get(e.name)!;
-          for (const b of fn.lets) walk(b.value);
-          walk(fn.body);
-          callStack.delete(e.name); // unwind — count once per call site, not once per rule
-        }
-        e.args.forEach(walk);
-        break;
-      case 'binaryOp': walk(e.left); walk(e.right); break;
-      case 'unaryOp': walk(e.operand); break;
-      case 'methodCall': walk(e.object); e.args.forEach(walk); break;
-      case 'memberAccess': walk(e.object); break;
-      case 'bracketAccess': walk(e.object); walk(e.index); break;
-      case 'ternary': walk(e.condition); walk(e.consequent); walk(e.alternate); break;
-      case 'inExpr': walk(e.element); walk(e.collection); break;
-      case 'isExpr': walk(e.value); break;
-      case 'listLiteral': e.elements.forEach(walk); break;
-      case 'mapLiteral': e.entries.forEach(en => { walk(en.key); walk(en.value); }); break;
-    }
-  };
-  walk(expr);
-  return count;
-}
-
-/**
  * Count how many times each user-defined function is called in an expression.
- * Counts raw call-site occurrences (top-level only — it does not expand
- * nested user-function bodies the way countGetCalls does).
+ * Counts raw call-site occurrences at the top level only: it does not expand
+ * nested user-function bodies the way countDocumentAccessCalls does.
  */
 export function countFunctionCallSites(expr: Expression, fnNames: Set<string>): Map<string, number> {
   const counts = new Map<string, number>();

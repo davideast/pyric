@@ -474,13 +474,15 @@ service cloud.firestore {
   });
 });
 
-// ─── debug() rejection (T2.4A) ────────────────────────────────────────
+// ─── debug() rejection ────────────────────────────────────────────────
 //
-// Production Firestore rejects debug() at compile time
-// ("Function not found error: Name: [debug]"). The linter must reject it
-// by default — including when the caller supplies testCases, which used
-// to silently imply allowDebug and disable the check in exactly the
-// lint-with-suite authoring path that feeds the write gate.
+// Production Firestore rejects a ruleset that calls debug() at compile
+// time ("Function not found error: Name: [debug]"). The linter must
+// reject it by default, including when the caller supplies testCases,
+// which used to silently imply allowDebug and disable the check in
+// exactly the lint-with-suite authoring path that feeds the write gate.
+// A ruleset that declares its own `function debug(...)` resolves it like
+// any user function and is never flagged.
 
 describe('debug() rejection', () => {
   const debugSource = wrap('debug(request.auth != null)');
@@ -511,9 +513,45 @@ describe('debug() rejection', () => {
     const f = findings(r, 'HALLUCINATED_GLOBAL').filter(w => w.message.includes('debug'));
     expect(f.length).toBe(0);
   });
+
+  test('a user-defined function named debug resolves and is not flagged', () => {
+    // The simulator evaluates this ruleset through that function, so
+    // flagging the call would block a ruleset production accepts.
+    const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function debug(v) { return v; }
+    match /things/{id} {
+      allow read: if debug(request.auth != null);
+    }
+  }
+}`;
+    const r = lint(source);
+    const f = findings(r, 'HALLUCINATED_GLOBAL').filter(w => w.message.includes('debug'));
+    expect(f.length).toBe(0);
+  });
+
+  test('a debug() call in a sibling scope that cannot see the declaration is still flagged', () => {
+    const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /a/{id} {
+      function debug(v) { return v; }
+      allow read: if debug(request.auth != null);
+    }
+    match /b/{id} {
+      allow read: if debug(request.auth != null);
+    }
+  }
+}`;
+    const r = lint(source);
+    const f = findings(r, 'HALLUCINATED_GLOBAL').filter(w => w.message.includes('debug'));
+    expect(f.length).toBe(1);
+    expect(f[0].message).toContain('Function not found error');
+  });
 });
 
-// ─── BOOL_TOKEN_CLAIM (T2.4D) ─────────────────────────────────────────
+// ─── BOOL_TOKEN_CLAIM ─────────────────────────────────────────────────
 
 describe('BOOL_TOKEN_CLAIM', () => {
   test('catches email_verified == "true"', () => {

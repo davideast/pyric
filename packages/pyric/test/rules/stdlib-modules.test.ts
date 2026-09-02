@@ -97,17 +97,17 @@ describe('STDLIB_MODULES — drift check against runtime constants', () => {
     }
   });
 
-  it('never documents a math-namespace function the linter rejects (T2.4B drift guard)', () => {
+  it('never documents a math-namespace function the linter rejects', () => {
     // The math.isInfinite incident: the catalog documented (and exemplified)
-    // a function production rejects at compile. Guard the whole catalog text —
-    // signatures, descriptions, examples, notes — so any `math.<fn>(` mention
+    // a function production rejects at compile. Guard the whole catalog text:
+    // signatures, descriptions, examples, notes, so any `math.<fn>(` mention
     // must name a function in the validator's accept-set.
     const catalogText = JSON.stringify(STDLIB_MODULES);
     const mentioned = new Set<string>();
     for (const m of catalogText.matchAll(/\bmath\.([A-Za-z_]\w*)\(/g)) {
       mentioned.add(m[1]!);
     }
-    expect(mentioned.size, 'math drift guard parsed zero mentions — regex regressed').toBeGreaterThan(0);
+    expect(mentioned.size, 'math drift guard parsed zero mentions, the regex regressed').toBeGreaterThan(0);
     for (const fn of mentioned) {
       expect(
         VALID_MATH_METHODS.has(fn),
@@ -123,6 +123,27 @@ describe('STDLIB_MODULES — drift check against runtime constants', () => {
     );
     for (const fn of VALID_MATH_METHODS) {
       expect(documented.has(fn), `VALID_MATH_METHODS has ${fn} but the math module does not document it`).toBe(true);
+    }
+  });
+
+  it('marks debug() rejected through the acceptance field, not the signature', () => {
+    // The signature field stays a signature. Production's refusal to compile
+    // a ruleset that calls debug() is carried by `acceptance` and spelled out
+    // in the description.
+    const builtins = findModuleByKey('builtins')!;
+    const debugEntry = builtins.entries.find((e) => e.signature.startsWith('debug('))!;
+    expect(debugEntry.acceptance).toBe('rejected');
+    expect(debugEntry.signature).not.toContain('REJECTED');
+    expect(debugEntry.description).toContain('Function not found error');
+    for (const m of STDLIB_MODULES) {
+      for (const e of m.entries) {
+        const isRejected = e.acceptance === 'rejected';
+        if (!isRejected) continue;
+        expect(
+          e.description.toUpperCase().includes('DO NOT USE'),
+          `rejected entry "${e.signature}" must say so in its description`,
+        ).toBe(true);
+      }
     }
   });
 

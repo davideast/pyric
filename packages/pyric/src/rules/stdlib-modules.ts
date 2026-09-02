@@ -46,6 +46,13 @@ export type RulesService = 'firestore' | 'storage';
 export interface StdlibEntry {
   /** Surface signature, e.g. `math.ceil(x: number): int`. */
   signature: string;
+  /**
+   * Whether production accepts a ruleset that calls this entry. Omitted
+   * means accepted. `'rejected'` documents a name that Firebase reference
+   * material lists but production's compiler refuses, so the catalog can
+   * carry the correction while the signature field stays a signature.
+   */
+  acceptance?: 'rejected';
   /** One-line summary the agent reads first. */
   description: string;
   /** ~1–3 lines of real rule fragments. Optional. */
@@ -85,9 +92,9 @@ const BUILTINS_MODULE: StdlibModuleDefinition = {
   key: 'builtins',
   kind: 'language-namespace',
   description:
-    'Top-level functions always in scope inside rules — get, exists, getAfter. Called bare, no namespace prefix. (debug() is docs-only: production rejects it at compile.)',
+    'Top-level functions always in scope inside rules: get, exists, getAfter. Called bare, no namespace prefix. (debug() is docs-only: production rejects it at compile.)',
   purpose:
-    'The built-in functions Firestore Rules ships with at the top level. They are NOT inside a namespace — call `get(path)`, not `firestore.get(path)`. Used to read other documents (cross-document gates), check existence, and peek at post-write state.',
+    'The built-in functions Firestore Rules ships with at the top level. They are NOT inside a namespace: call `get(path)`, not `firestore.get(path)`. Used to read other documents (cross-document gates), check existence, and peek at post-write state.',
   whenToUse:
     'Reach for `builtins` any time a rule needs information that isn\'t already on `request` or `resource`. Most common: `get(path)` to read another document\'s fields inside a predicate.',
   entries: [
@@ -116,11 +123,12 @@ const BUILTINS_MODULE: StdlibModuleDefinition = {
         'Only meaningful inside transactions / batched writes. Outside a batch, equivalent to `get`.',
     },
     {
-      signature: 'debug(value: any): REJECTED',
+      signature: 'debug(value: any): bool',
+      acceptance: 'rejected',
       description:
         'DO NOT USE. Although Firebase reference docs list `debug()`, production Firestore REJECTS rulesets that call it at compile time (`Function not found error: Name: [debug]`). The linter and local simulator reject it for the same reason.',
       notes:
-        'Remove any debug() wrapper before deploying — evaluate the inner expression directly. There is no deployable logging primitive in rules.',
+        'Remove any debug() wrapper before deploying and evaluate the inner expression directly. There is no deployable logging primitive in rules.',
     },
   ],
   relatedKeys: ['request', 'resource', 'path'],
@@ -132,7 +140,7 @@ const MATH: StdlibModuleDefinition = {
   key: 'math',
   kind: 'language-namespace',
   description:
-    'Numeric helpers — abs, ceil, floor, round, sqrt, pow, isNaN. Use when rules need to coerce or bound numbers.',
+    'Numeric helpers: abs, ceil, floor, round, sqrt, pow, isNaN. Use when rules need to coerce or bound numbers.',
   purpose:
     'The `math` namespace exposes a small set of numeric utilities for use inside rule predicates. Functions are called as `math.<fn>(...)`. Always in scope; no import needed.',
   whenToUse:
@@ -148,7 +156,7 @@ const MATH: StdlibModuleDefinition = {
       signature: 'math.isNaN(n: number): bool',
       description: 'True if `n` is NaN.',
       notes:
-        'There is NO isInfinite function in the math namespace — production Firestore rejects it at compile time (`Function not found error: Name: [math.isInfinite]`), despite it appearing in some Firebase reference material.',
+        'There is NO isInfinite function in the math namespace. Production Firestore rejects it at compile time (`Function not found error: Name: [math.isInfinite]`), despite it appearing in some Firebase reference material.',
     },
   ],
   examples: [

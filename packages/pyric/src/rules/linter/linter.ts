@@ -18,7 +18,6 @@ import {
   extractFirstExpression,
   buildCallGraph,
   maxCallDepth,
-  countGetCalls,
   countFunctionCallSites,
   functionContainsGet,
   referencesRequestTime,
@@ -26,6 +25,7 @@ import {
   collectAllRules,
 } from './ast-utils.js';
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
+import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
 
 // ═══ Types ═══
 
@@ -95,8 +95,8 @@ const THRESHOLDS = {
   GET_COUNT_WARN: 5,
   // Production allows EXACTLY 10 document access calls per request
   // evaluation; the 11th fails (site-docs secure/firestore-rules-limits.md).
-  // Error fires strictly ABOVE this value — same boundary as SEM-3 and the
-  // simulator's runtime LookupBudget (T2.1 threshold parity).
+  // Error fires strictly ABOVE this value, the same boundary as SEM-3 and
+  // the simulator's runtime LookupBudget.
   GET_COUNT_ERROR: 10,
 };
 
@@ -354,7 +354,7 @@ function checkGetCount(
   for (const fn of allFunctions) fnMap.set(fn.name, fn);
 
   for (let i = 0; i < rules.length; i++) {
-    const count = countGetCalls(rules[i].rule.condition, fnMap);
+    const count = countDocumentAccessCalls(rules[i].rule.condition, fnMap);
     // Error only ABOVE the limit: production allows exactly 10 and fails
     // the 11th, so a rule at exactly 10 is legal (still worth the WARN).
     if (count > THRESHOLDS.GET_COUNT_ERROR) {
@@ -774,12 +774,14 @@ export interface LintOptions {
    */
   previousSource?: string;
   /**
-   * Set to true ONLY when linting sources that will never deploy (e.g. an
-   * emulator-only scratch ruleset) and `debug()` should be tolerated.
-   * Production Firestore rejects `debug()` at compile time
-   * (`Function not found error: Name: [debug]`), so the linter rejects it
-   * by default — including when `testCases` is supplied. This flag is an
-   * explicit caller choice; it is never inferred from other options.
+   * Set to true ONLY when linting a scratch ruleset that will never be
+   * deployed and an unresolved `debug()` call should be tolerated.
+   * Production Firestore rejects a ruleset that calls `debug()` at compile
+   * time (`Function not found error: Name: [debug]`), so the linter rejects
+   * it by default, including when `testCases` is supplied. A ruleset that
+   * declares its own `function debug(...)` is never flagged, with or
+   * without this flag. This flag is an explicit caller choice; it is never
+   * inferred from other options.
    */
   allowDebug?: boolean;
 }
@@ -849,13 +851,13 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   // Rule 8: Get duplication (same get()-containing function called multiple times)
   checkGetDuplication(allRules, allFunctions, warnings);
 
-  // Rule 9: Hallucinations — JS-style code that parses but fails at runtime.
+  // Rule 9: Hallucinations, JS-style code that parses but fails at runtime.
   // `allowDebug` is an EXPLICIT caller opt-in only. It used to be implied by
   // a non-empty `testCases` array, which silently disabled the debug()
-  // rejection in any lint run that also carried a test suite — exactly the
+  // rejection in any lint run that also carried a test suite, exactly the
   // authoring path that feeds the write gate. Production rejects debug() at
-  // compile (`Function not found error: Name: [debug]`), so the default must
-  // reject; a caller that genuinely lints emulator-only sources can still
+  // compile time (`Function not found error: Name: [debug]`), so the default
+  // must reject; a caller linting a ruleset that will never deploy can still
   // pass `allowDebug: true`.
   warnings.push(...checkHallucinations(ast, { allowDebug: options.allowDebug }));
 
@@ -904,7 +906,7 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   let maxExprs = 0;
   let maxGets = 0;
   for (const r of allRules) {
-    const gets = countGetCalls(r.rule.condition, fnMap);
+    const gets = countDocumentAccessCalls(r.rule.condition, fnMap);
     if (gets > maxGets) maxGets = gets;
   }
 
