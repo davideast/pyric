@@ -1,6 +1,6 @@
 # 0012: One naming grammar for CLI commands and MCP tools
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-09-02
 
@@ -47,6 +47,13 @@ Playground without three hand-maintained lists. That derivation needs a
 grammar first.
 
 ## Decisions
+
+Decisions 1 to 7 record the naming grammar as proposed and ratified without
+change. Resolution 2 below amends two of their mechanics: the MCP tool name is
+no longer the full path from Decision 1, and the file-per-record convention
+from Decision 6 becomes a file per folded tool with its operations enumerated
+inside. The grammar itself — the path words, the closed service set, and
+transport as a property rather than a name segment — is unchanged.
 
 1. **One grammar, service first.** Every operation has a path of words:
    a service word, an optional artifact word, and an operation word. The CLI
@@ -105,258 +112,251 @@ grammar first.
    change of meaning and belongs to a later decision with its own
    characterisation tests.
 
-## Open questions
+## Resolutions
 
-Each question below has one recommendation. The alternative is stated so the
-maintainer can ratify either.
+Each entry below records a ruling made against the open questions and the
+further decisions the fold required to state precisely. The rejected
+alternative is kept to one sentence.
 
-### 1. Does `rules` stand as a service?
+### 1. The service word grammar is confirmed as closed
 
-**Recommendation: yes, for the shared standard library only.** `rules_stdlib_list`
-and `rules_stdlib_get` stay. `firestore_rules_stdlib_list` and
-`firestore_rules_stdlib_get` are deleted, because their behaviour is the
-service-neutral tool with the `service` parameter fixed to `firestore`.
+Every operation keeps the service, optional artifact, operation path from
+Decision 1. The CLI spells it with spaces. The service word set is closed to
+`firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`, `pyric`;
+`rtdb` and `firebase` remain excluded. This is Decision 4 restated because
+every other ruling below builds its tool names from this set.
 
-Rationale. The standard library is one catalogue with per-module service
-compatibility. A service prefix would misdescribe it: there is no Firestore
-standard library and a separate Storage one, there is one library and a
-filter. Prefixing would also reintroduce the duplication the current inventory
-carries, two records per module tool, one per service, which is exactly what
-the alpha policy deletes. The `service` argument on the neutral tools is the
-right place for the filter because it is optional on `list` and required on
-`get`, and a name cannot express "optional".
+Alternative: leave the set open and let each new family add its own word;
+rejected because an open set is exactly the drift the grammar exists to close.
 
-Module resolution is different. `pyric firestore rules resolve` and
-`pyric storage rules resolve` are two CLI records already, so the grammar gives
-them two tool names: `firestore_rules_resolve` and `storage_rules_resolve`.
-`rules_resolve_modules` splits into those two and its `service` parameter goes
-away because the name carries it. `firestore_resolve_modules` becomes
-`firestore_rules_resolve`. The `rules` service therefore holds only what has no
-per-service CLI counterpart.
+### 2. MCP exposure folds operations into one tool per service and artifact
 
-Alternative. Prefix every shared tool with a service, giving
-`firestore_rules_stdlib_get` and `storage_rules_stdlib_get`. This keeps the
-service word set to Firebase services plus `sandbox` and `pyric`, and an agent
-choosing by name never has to know that `rules` is cross-service. The cost is
-two records for one catalogue, a `storage_` twin for every future shared
-rules tool, and a `rules` argument that still has to exist inside the record
-for the shared implementation. The recommendation judges one cross-service
-word cheaper than permanent duplication.
+A tool is named `service_artifact`, for example `firestore_data`, or by the
+service alone when there is no artifact, for example `sandbox`. The operation
+becomes a required `op` field whose schema is an enum of the tool's
+operations rather than a name segment. The tool description lists each op
+with its fields. A call with an unknown op, or valid op with invalid fields,
+returns an error naming the valid ops and the fields for the attempted op.
 
-### 2. What artifact word do the Firestore data-plane tools take?
+Records move from one file per operation to one file per tool, with the ops
+enumerated inside; each op declares its own transport, forwarded to the
+browser sandbox or in-process in Node, and the bridge routes each call by its
+op. Per-op transport within one tool is therefore allowed and expected — a
+folded tool is not required to run entirely on one side. The CLI is
+unchanged: `pyric <service> <artifact> <op>` still resolves one command to
+one operation; folding is an MCP exposure decision, not a grammar change.
 
-**Recommendation: `documents`.** The eight data-plane tools become
-`firestore_documents_get`, `firestore_documents_list`,
-`firestore_documents_create`, `firestore_documents_add`,
-`firestore_documents_update`, `firestore_documents_delete`,
-`firestore_documents_batch_write`, and `firestore_documents_query`. There is
-no CLI counterpart today; when one is added it is
-`pyric firestore documents <operation>` with `batch-write` as the hyphenated
-form.
+Alternative: keep one MCP tool per operation, giving the bridge a literal
+name for each of the twenty-eight-odd operations the unfolded proposal
+produced; rejected because it leaves an agent scanning nearly thirty flat
+names instead of twelve tools with self-describing schemas, and it does not
+shrink the list as new operations are added.
 
-Rationale. The CLI's existing artifact words are collective nouns, `rules` and
-`indexes`, and `documents` follows the pattern. It is Firestore's own word for
-the thing every one of these tools reads or writes, and `list` and `query`
-return many of them. `data` was considered and rejected for Firestore because
-it does not distinguish documents from collections, though it is the right
-word for Realtime Database, where the artifact is one JSON tree:
-`rtdb_crawl_structure` becomes `database_data_crawl`.
+### 3. `rules` stands as a service for the shared standard library only
 
-Simulator family. `firestore_simulator_*` already conforms: `simulator` is the
-artifact and each operation word stays. The one outlier,
-`firestore_create_with_auto_id`, is the simulator's mirror of `addDoc` and
-becomes `firestore_simulator_add`, parallel to `firestore_documents_add`. The
-two families overlap in capability and a later decision may fold the
-simulator's per-call `auth` context into the documents family's `as`
-parameter; this ADR only gives each family a consistent name.
+Tool `rules_stdlib` with ops `list` and `get`. Its description opens with
+"Firebase Security Rules standard library for Firestore and Cloud Storage" so
+an agent scanning for a service finds it without already knowing it is
+cross-service. The Firestore-only twins, `firestore_rules_stdlib_list` and
+`firestore_rules_stdlib_get`, are deleted. Module resolution is per service
+rather than shared: op `resolve` on `firestore_rules` and op `resolve` on
+`storage_rules`, not a third cross-service tool.
 
-Alternative. `firestore_document_*` in the singular, matching the SDK's
-`getDoc` and `setDoc`. It reads well for `get` and `delete` and poorly for
-`list`, `query`, and `batch_write`, and it would be the only singular artifact
-word beside `rules`, `indexes`, and `simulator`. A second alternative keeps the
-verb-first names and treats the data plane as its own dialect; that is the
-status quo and it leaves the grammar with a permanent exception in its most
-used family.
+Alternative: prefix every shared tool with a service, giving
+`firestore_rules_stdlib_get` and a `storage_` twin; rejected because it
+duplicates one catalogue as two tools per module, which is the duplication
+the alpha policy removes elsewhere.
 
-### 3. Where do `sandbox_inspect` and `pyric_can_i_use` sit?
+### 4. The Firestore data tool is `firestore_data`, and `set` replaces `create`
 
-**Recommendation: `sandbox` is a service and `pyric` is the general-command
-word.** `sandbox_inspect` stays and a future snapshot tool is
-`sandbox_snapshot`. `pyric_can_i_use` stays. `pyric_verify_fixture` becomes
-`pyric_verify` and `pyric_derive_rules_test_cases` becomes `pyric_verify_cases`,
-because those are the CLI paths `pyric verify` and `pyric verify cases` joined
-under Decision 2.
+Ops: `get`, `list`, `set`, `add`, `update`, `delete`, `batch_write`, `query`,
+with a common `as` field naming a user identity with claims, or admin. `set`
+replaces the proposal's `create` because it has set-document semantics and an
+op name is not a tool name, so Decision 7's "keep operation words" does not
+bind it once the operation lives inside a tool's enum rather than as its own
+name. The simulator keeps its own tool, `firestore_simulator`, with ops
+`create`, `execute`, `read`, `batch`, `add`, `undo`, `redo`, `events`,
+`transaction`.
 
-Rationale. The sandbox is the backend every forwarded tool runs against, so
-tools whose subject is the sandbox as a whole, its rules, state, event log,
-and snapshots, form a real family with a natural home, and `pyric sandbox`
-already exists as the command that starts it. Treating `sandbox` as a service
-also removes the temptation to prefix a tool with `sandbox_` to say where it
-runs, which Decision 5 forbids. The `pyric` word is reserved for commands
-about Pyric or spanning services; `can-i-use` asks about Pyric's own
-conformance and `verify` replays a session across Firestore and Realtime
-Database, so both belong there.
+Alternative: keep `create`, following Decision 7 literally; rejected because
+that rule protects the tool and artifact words agents key off, not every
+verb inside one tool's operation enum, and `set` names the operation's actual
+semantics.
 
-For `verify`, two other candidates were considered and this ADR recommends
-neither. Keeping `pyric_verify_fixture` names the input rather than the
-command and breaks the derivation rule for the one general command that has a
-CLI path. A `session` artifact, `pyric_session_verify` and
-`pyric_session_cases`, is the better description of what is verified, but it
-only derives if the CLI also moves to `pyric session verify`, and that is a
-CLI contract change outside this decision. If the CLI adopts `session` later,
-both names re-derive under Decision 1 without a further naming decision.
+### 5. Realtime Database takes the CLI's word `database`
 
-Alternative. Fold the sandbox tools under `pyric`, giving `pyric_sandbox_inspect`,
-on the ground that the sandbox is a Pyric concept, not a Firebase service.
-That matches the CLI, where `sandbox` is a general command, and it keeps the
-service word set to Firebase services plus `rules` and `pyric`. The cost is a
-three-word name for every sandbox tool where two carry the meaning, and a
-`pyric_` family that grows with every sandbox operation until it no longer
-means "about Pyric itself". The recommendation prefers the shorter family.
+Tool `database_data` with ops `get`, `set`, `update`, `remove`, `push`,
+`transaction`, `query`, `seed`, `crawl`, a common `as` field, and the
+`serverTimestamp` and `increment` sentinels accepted by `set`, `update`, and
+`push`. Tool `database_rules` with ops `lint`, `validate`, `simulate`,
+`generate`. `simulate` with `rules` omitted evaluates against the connected
+sandbox's live rules and is forwarded; with `rules` supplied it runs
+in-process, so this one op carries two transports selected by its input
+rather than a fixed declaration.
 
-## Rename table
+Alternative: keep `rtdb` as the tool prefix to match the current bridge
+vocabulary; rejected because the CLI, the package subpath, and
+`firebase.json` all already say `database`, and Decision 4 settled this.
 
-Transport is recorded for context and takes no part in the name. "CLI path"
-is the command whose words the tool name is derived from, or "none" when the
-record has no CLI counterpart today.
+### 6. `sandbox` and `pyric` keep their proposed homes
 
-### Registered on the bridge contract
+Tool `sandbox` with ops `inspect` and `snapshot`. `pyric` is reserved for
+operations about Pyric itself or spanning services: tool `pyric` with ops
+`can_i_use`, `verify`, `verify_cases`.
 
-| Current name | Proposed name | Transport | CLI path |
+Alternative: fold the sandbox ops under `pyric`, giving `pyric_sandbox_*`;
+rejected because the sandbox is a real family with its own backend, and
+folding it into `pyric` would make that word grow with every sandbox
+operation until it no longer means "about Pyric itself".
+
+### 7. The remaining tool boundaries are fixed
+
+`firestore_rules` with ops `lint`, `validate`, `simulate`, `resolve`, `test`
+(`test` only when project credentials resolve). `firestore_indexes` with op
+`generate`. `storage_rules` with ops `lint`, `simulate`, `resolve`.
+`storage_data` with ops `upload`, `download`, `list`, `metadata`, `delete`.
+`auth_users` with ops `create`, `import`, `get`, `list`, `update`, `delete`,
+`set_claims`, `custom_token`.
+
+Alternative: fold Storage and Auth into fewer, broader tools alongside
+Firestore's; rejected because each service's operations share no schema, and
+one tool per service and artifact keeps a tool's op enum a coherent family.
+
+### 8. Old names are deleted in the same change that introduces the fold
+
+Alpha policy applies: no aliases, no compatibility spellings. The bridge
+contract becomes twelve tools.
+
+Alternative: keep the unfolded names resolving alongside the folded ones for
+one release; rejected under the standing alpha policy against deprecation
+shims.
+
+### 9. The contract test becomes a tool-to-ops map
+
+The pinned contract test moves from a flat list of tool names to a
+hand-written map of each tool name to its ops, and stays the deliberate gate
+a new tool or op must edit. The drift test keys on tool names and, wherever a
+document writes one, on `tool.op` references, rather than on flat operation
+names.
+
+Alternative: keep the flat pinned list and add a second list for ops;
+rejected because two lists reintroduce the lockstep the fold is meant to
+remove.
+
+## Fold table
+
+One row per operation. Transport is in-process or forwarded, or both where an
+op's input selects it. Source is the current registered name the operation
+replaces, `unregistered: <name>` for a handler that exists in source but was
+never on the bridge contract, or `new` for capability being added.
+
+| Tool | Op | Transport | Source |
 | --- | --- | --- | --- |
-| `firestore_simulator_create` | `firestore_simulator_create` (unchanged) | forwarded | none |
-| `firestore_simulator_execute` | `firestore_simulator_execute` (unchanged) | forwarded | none |
-| `firestore_simulator_read` | `firestore_simulator_read` (unchanged) | forwarded | none |
-| `firestore_simulator_batch` | `firestore_simulator_batch` (unchanged) | forwarded | none |
-| `firestore_create_with_auto_id` | `firestore_simulator_add` | forwarded | none |
-| `firestore_simulator_undo` | `firestore_simulator_undo` (unchanged) | forwarded | none |
-| `firestore_simulator_redo` | `firestore_simulator_redo` (unchanged) | forwarded | none |
-| `firestore_simulator_events` | `firestore_simulator_events` (unchanged) | forwarded | none |
-| `firestore_simulator_transaction` | `firestore_simulator_transaction` (unchanged) | forwarded | none |
-| `firestore_get_document` | `firestore_documents_get` | forwarded | none |
-| `firestore_list_documents` | `firestore_documents_list` | forwarded | none |
-| `firestore_create_document` | `firestore_documents_create` | forwarded | none |
-| `firestore_add_document` | `firestore_documents_add` | forwarded | none |
-| `firestore_update_document` | `firestore_documents_update` | forwarded | none |
-| `firestore_delete_document` | `firestore_documents_delete` | forwarded | none |
-| `firestore_batch_write` | `firestore_documents_batch_write` | forwarded | none |
-| `firestore_query_where` | `firestore_documents_query` | forwarded | none |
-| `sandbox_inspect` | `sandbox_inspect` (unchanged) | forwarded | none |
-| `rtdb_simulate_access` | `database_rules_simulate` | forwarded | `database rules simulate` |
-| `rtdb_crawl_structure` | `database_data_crawl` | forwarded | none |
-| `firestore_simulate_rules` | `firestore_rules_simulate` | in-process | `firestore rules simulate` |
-| `firestore_rules_stdlib_list` | deleted; `rules_stdlib_list` with `service: firestore` | in-process | none |
-| `firestore_rules_stdlib_get` | deleted; `rules_stdlib_get` with `service: firestore` | in-process | none |
-| `firestore_lint_rules` | `firestore_rules_lint` | in-process | `firestore rules lint` |
-| `firestore_resolve_modules` | `firestore_rules_resolve` | in-process | `firestore rules resolve` |
-| `rules_stdlib_list` | `rules_stdlib_list` (unchanged) | in-process | none |
-| `rules_stdlib_get` | `rules_stdlib_get` (unchanged) | in-process | none |
-| `rules_resolve_modules` | split: `firestore_rules_resolve` and `storage_rules_resolve` | in-process | `firestore rules resolve`, `storage rules resolve` |
-| `pyric_can_i_use` | `pyric_can_i_use` (unchanged) | in-process | `can-i-use` |
+| `firestore_data` | `get` | forwarded | `firestore_get_document` |
+| `firestore_data` | `list` | forwarded | `firestore_list_documents` |
+| `firestore_data` | `set` | forwarded | `firestore_create_document` |
+| `firestore_data` | `add` | forwarded | `firestore_add_document` |
+| `firestore_data` | `update` | forwarded | `firestore_update_document` |
+| `firestore_data` | `delete` | forwarded | `firestore_delete_document` |
+| `firestore_data` | `batch_write` | forwarded | `firestore_batch_write` |
+| `firestore_data` | `query` | forwarded | `firestore_query_where` |
+| `firestore_simulator` | `create` | forwarded | `firestore_simulator_create` |
+| `firestore_simulator` | `execute` | forwarded | `firestore_simulator_execute` |
+| `firestore_simulator` | `read` | forwarded | `firestore_simulator_read` |
+| `firestore_simulator` | `batch` | forwarded | `firestore_simulator_batch` |
+| `firestore_simulator` | `add` | forwarded | `firestore_create_with_auto_id` |
+| `firestore_simulator` | `undo` | forwarded | `firestore_simulator_undo` |
+| `firestore_simulator` | `redo` | forwarded | `firestore_simulator_redo` |
+| `firestore_simulator` | `events` | forwarded | `firestore_simulator_events` |
+| `firestore_simulator` | `transaction` | forwarded | `firestore_simulator_transaction` |
+| `firestore_rules` | `lint` | in-process | `firestore_lint_rules` |
+| `firestore_rules` | `simulate` | in-process | `firestore_simulate_rules` |
+| `firestore_rules` | `resolve` | in-process | `firestore_resolve_modules`; the Firestore half of `rules_resolve_modules` |
+| `firestore_rules` | `validate` | in-process | new (CLI has it) |
+| `firestore_rules` | `test` | in-process | unregistered: `firestore_test_rules` |
+| `firestore_indexes` | `generate` | in-process | unregistered: `firestore_extract_indexes` (CLI `firestore indexes generate`) |
+| `rules_stdlib` | `list` | in-process | `rules_stdlib_list` (`firestore_rules_stdlib_list` deleted) |
+| `rules_stdlib` | `get` | in-process | `rules_stdlib_get` (`firestore_rules_stdlib_get` deleted) |
+| `database_data` | `crawl` | forwarded | `rtdb_crawl_structure` |
+| `database_data` | `get` | forwarded | new |
+| `database_data` | `set` | forwarded | new |
+| `database_data` | `update` | forwarded | new |
+| `database_data` | `remove` | forwarded | new |
+| `database_data` | `push` | forwarded | new |
+| `database_data` | `transaction` | forwarded | new |
+| `database_data` | `query` | forwarded | new |
+| `database_data` | `seed` | forwarded | new |
+| `database_rules` | `simulate` | forwarded when `rules` is omitted, in-process when `rules` is supplied | `rtdb_simulate_access` (omitted); new (supplied) |
+| `database_rules` | `lint` | in-process | new |
+| `database_rules` | `validate` | in-process | new |
+| `database_rules` | `generate` | in-process | unregistered: `rtdb_generate_rules` |
+| `storage_rules` | `lint` | in-process | new |
+| `storage_rules` | `simulate` | in-process | new |
+| `storage_rules` | `resolve` | in-process | the Storage half of `rules_resolve_modules` |
+| `storage_data` | `upload` | forwarded | new |
+| `storage_data` | `download` | forwarded | new |
+| `storage_data` | `list` | forwarded | new |
+| `storage_data` | `metadata` | forwarded | new |
+| `storage_data` | `delete` | forwarded | new |
+| `auth_users` | `create` | forwarded | new |
+| `auth_users` | `import` | forwarded | new |
+| `auth_users` | `get` | forwarded | new |
+| `auth_users` | `list` | forwarded | new |
+| `auth_users` | `update` | forwarded | new |
+| `auth_users` | `delete` | forwarded | new |
+| `auth_users` | `set_claims` | forwarded | new |
+| `auth_users` | `custom_token` | forwarded | new |
+| `sandbox` | `inspect` | forwarded | `sandbox_inspect` |
+| `sandbox` | `snapshot` | forwarded | new |
+| `pyric` | `can_i_use` | in-process | `pyric_can_i_use` |
+| `pyric` | `verify` | in-process | unregistered: `pyric_verify_fixture` |
+| `pyric` | `verify_cases` | in-process | unregistered: `pyric_derive_rules_test_cases` |
 
-Twenty-nine current names become twenty-eight: fifteen are renamed (one of
-them by splitting into two records), twelve are unchanged, and two are
-deleted because their target name already exists.
-
-### Unregistered handlers
-
-These exist in source but are not on the bridge contract. Transport is what
-the handler would declare if registered.
-
-| Current name | Proposed name | Transport | CLI path |
-| --- | --- | --- | --- |
-| `pyric_verify_fixture` | `pyric_verify` | in-process | `verify` |
-| `pyric_derive_rules_test_cases` | `pyric_verify_cases` | in-process | `verify cases` |
-| `rtdb_generate_rules` | `database_rules_generate` | in-process | `database rules generate` |
-| `firestore_test_rules` | `firestore_rules_test` | in-process | none |
-| `firestore_discover_paths` | `firestore_paths_discover` | in-process | none |
-| `firestore_find_collection_group` | `firestore_paths_find` | in-process | none |
-| `firestore_inspect_rules` | `firestore_rules_inspect` | in-process | none |
-| `firestore_extract_indexes` | `firestore_indexes_generate` | in-process | `firestore indexes generate` |
-| `storage_get_status` | `storage_status` | in-process | none |
-| `storage_provision` | `storage_provision` (unchanged) | in-process | none |
-| `firebase_assurance_attach` | `pyric_assurance_attach` | in-process | none |
-| `firebase_assurance_start` | `pyric_assurance_start` | in-process | none |
-| `firebase_assurance_map` | `pyric_assurance_map` | in-process | none |
-| `firebase_assurance_define` | `pyric_assurance_define` | in-process | none |
-| `firebase_assurance_propose` | `pyric_assurance_propose` | in-process | none |
-| `firebase_assurance_run` | `pyric_assurance_run` | in-process | none |
-| `firebase_assurance_inspect` | `pyric_assurance_inspect` | in-process | none |
-| `firebase_assurance_minimize` | `pyric_assurance_minimize` | in-process | none |
-| `firebase_assurance_verify` | `pyric_assurance_verify` | in-process | none |
-| `firebase_assurance_export` | `pyric_assurance_export` | in-process | none |
-
-The assurance family takes `pyric` because assurance is Pyric's own workflow
-across services, not a Firebase service, and `firebase` is not a service word.
-`firestore_extract_indexes` takes the CLI's operation word because
-`pyric firestore indexes generate` runs the same extractor over the same
-sources. `firestore_paths_discover` and `firestore_paths_find` share an
-artifact because both return template paths; one walks the tree and the other
-probes a collection group.
-
-### Playground-only handlers
-
-The Playground registers its own handlers today. Under Decision 6 they become
-records like any other and take the grammar; the Playground exposes the
-subset it needs. Where a Playground handler is the sandbox-bound twin of a
-Node handler, it takes the same name and differs only in the handle it binds.
-
-| Current name | Proposed name | CLI path |
-| --- | --- | --- |
-| `sandbox_discover_paths` | `firestore_paths_discover` (sandbox-bound record) | none |
-| `firestore_extract_indexes` (wrapper) | `firestore_indexes_generate` | `firestore indexes generate` |
-| `simulate_firestore_write` | `firestore_rules_evaluate` | none |
-| `debug_firestore_rules` | `firestore_rules_debug` | none |
-| `seed_firestore_data_as_admin` | `firestore_documents_seed` | none |
-| `inspect_firestore_traffic` | `firestore_traffic_inspect` | none |
-| `try_rules_edit` | `firestore_rules_try` | none |
-| `generate_fixture_from_session` | `sandbox_session_export` | none |
-| `inspect_auth_users` | `auth_users_inspect` | none |
-| `seed_auth_users` | `auth_users_seed` | none |
-| `inspect_denial` | `firestore_denials_inspect` | none |
-| `build_game_rules` | `firestore_rules_build_game` | none |
-
-`simulate_firestore_write` evaluates one request against the deployed ruleset
-without a case list, so it does not take the `simulate` word that
-`firestore_rules_simulate` owns; whether the two merge is a later decision.
-`sandbox_discover_paths` stops carrying a transport in its name, which is the
-first concrete application of Decision 5.
-
-### Records the CLI has and the bridge does not
-
-`firestore rules validate`, `storage rules lint`, `storage rules simulate`,
-`database rules lint`, and `database rules validate` exist as CLI records with
-no tool. Once they are shared records their tool names derive automatically
-(`storage_rules_lint` and so on). Whether the bridge exposes them is an
-exposure decision and is not made here.
+Twelve tools carry fifty-nine operations. The Playground's own handlers take
+the same grammar as these records once it registers them under the fold; they
+are not counted here because the Playground's exposure of a record remains
+its own decision under Decision 6. The assurance family also maps under
+`pyric` once it is registered — a single `pyric_assurance` tool with ops
+`attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`,
+`verify`, `export` — and is likewise left out of this table until that
+registration happens.
 
 ## Consequences
 
-- Old names are deleted, not aliased. The alpha policy admits no
-  compatibility spellings, so `firestore_get_document` stops resolving on the
-  day `firestore_documents_get` starts. A tool name is deleted in the same
-  change that introduces its replacement.
-- The name drift test pins every place a tool name is written outside the
-  records: the plugin skills and agent, the agent tool inventory, the site's
-  agent pages, the CLI README, and the release-contract fixture. Each of
-  those is updated in the change that renames the tool, and the test fails
-  the change if one is missed.
-- The pinned contract list is edited once. The default contract in the bridge
-  contract module and its ratifying test move to the proposed names in a
-  single change, and the count drops from 29 to 28. No intermediate state
-  carries both spellings.
-- Transport moves from the shape of the contract list into a field on each
-  record. The forwarded and in-process lists become two computed views of the
-  records, and the fail-closed assertion checks the derived names rather than
-  a hand-typed pair of arrays.
-- The tool-parity annotations are re-keyed to the new names in the same
-  change, since every record keeps its exposure decision.
-- A future tool is named by writing its path. A name that cannot be written
-  as `service`, optional `artifact`, `operation` with words from the closed
-  service set is a signal that the tool's home has not been decided, and that
-  decision precedes the record.
+- The bridge contract carries twelve tools in place of the current
+  twenty-nine, folding fifty-nine operations behind them. Old names are
+  deleted, not aliased: the alpha policy admits no compatibility spellings,
+  so a flat name such as `firestore_get_document` stops resolving on the day
+  `firestore_data` with `op: 'get'` starts, in the same change.
+- The pinned contract test moves from a flat list of names to a hand-written
+  map of each tool to its ops. It stays the deliberate gate: a new tool or a
+  new op on an existing tool edits this map, and the test fails the change if
+  it does not.
+- The name drift test keys on tool names and, wherever a document writes one,
+  on `tool.op` references, rather than on twenty-nine independent flat names.
+  The plugin skills and agent, the agent tool inventory, the site's agent
+  pages, the CLI README, and the release-contract fixture are each updated in
+  the change that folds a family, and the test fails the change if one is
+  missed.
+- Transport is a property of each op rather than of the tool or the name. A
+  single folded tool may carry ops with different transports — `database_rules`
+  carries an op whose transport depends on whether `rules` is supplied — and
+  the bridge routes each call by reading the op's declared transport, not by
+  which tool the call arrived on.
+- Records move from one file per operation to one file per tool, with the
+  ops enumerated inside; the MCP tool list, the CLI dispatch table, and the
+  Playground registry stay three views of the same records, now folded on
+  the MCP side.
+- A future tool is named by writing its service and, where the subject is
+  not the whole service, its artifact; a new operation is added to that
+  tool's op enum rather than becoming a new tool name. A name that cannot be
+  written as `service` or `service_artifact` from the closed service set is a
+  signal that the tool's home has not been decided, and that decision
+  precedes the record.
 - The CLI contract does not change. No command is added, moved, or renamed by
-  this decision; the CLI is the fixed side of the derivation.
+  this decision; `pyric <service> <artifact> <op>` remains the fixed side of
+  the derivation, and folding is an MCP exposure decision layered on top of
+  it.
 
 ## Credential resolution at bridge startup
 
