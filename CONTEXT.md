@@ -262,12 +262,12 @@ the same sandbox as the open application and Studio. `pyric bridge` provides a
 standalone sandbox bridge. `pyric mcp` is the stdio editor front: it attaches to
 a running development bridge when possible or hosts a headless sandbox.
 
-The default bridge contract is exactly nine tools carrying 27 operations. A
+The default bridge contract is exactly nine tools carrying 30 operations. A
 tool is named for a service and, where one applies, an artifact
 (`firestore_data`, `firestore_rules`, `sandbox`); its required `op` field
 selects the operation. Twenty operations are forwarded to the sandbox
 (`firestore_simulator`, `firestore_data`, `sandbox`, `database_data`,
-`database_rules`) and seven run in the MCP process without a browser peer
+`database_rules`) and ten run in the MCP process without a browser peer
 (`firestore_rules`, `rules_stdlib`, `storage_rules`, `pyric`). Each tool is one
 record under `packages/cli/src/bridge/tool-records/` (name, order,
 description, and per-operation transport, factory, and handler);

@@ -126,10 +126,10 @@ Assurance campaign tools remain available programmatically from
 **In-process** — run on the bridge process itself (`createFirestoreRulesTools`
 without a live `ProjectScope`, so no Rules Test API operation):
 
-- `firestore_rules`: `lint`, `simulate`, `resolve`
+- `firestore_rules`: `lint`, `simulate`, `resolve`, `test`
 - `rules_stdlib`: `list`, `get` (Firestore or Cloud Storage, by `service`)
 - `storage_rules`: `resolve`
-- `pyric`: `can_i_use`
+- `pyric`: `can_i_use`, `verify`, `verify_cases`
 
 ### Gaps from the playground tool surface
 

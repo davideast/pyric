@@ -321,11 +321,14 @@ registration happens.
 
 ## Consequences
 
-- The bridge contract carries twelve tools in place of the current
-  twenty-nine, folding fifty-nine operations behind them. Old names are
-  deleted, not aliased: the alpha policy admits no compatibility spellings,
-  so a flat name such as `firestore_get_document` stops resolving on the day
-  `firestore_data` with `op: 'get'` starts, in the same change.
+- The bridge contract's target is twelve tools in place of the original
+  twenty-nine, folding fifty-nine operations behind them. Phase 1b landed
+  nine of those tools, carrying thirty operations; `firestore_indexes`,
+  `storage_data`, `auth_users`, and `pyric_assurance` remain to land in later
+  lanes. Old names are deleted, not aliased: the alpha policy admits no
+  compatibility spellings, so a flat name such as `firestore_get_document`
+  stops resolving on the day `firestore_data` with `op: 'get'` starts, in the
+  same change.
 - The pinned contract test moves from a flat list of names to a hand-written
   map of each tool to its ops. It stays the deliberate gate: a new tool or a
   new op on an existing tool edits this map, and the test fails the change if

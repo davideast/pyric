@@ -8,7 +8,7 @@ into whatever runtime you use. They reach an agent two ways:
    surface**; the [Pyric agent plugin](../pyric-plugin/README.md) auto-wires
    it. Each MCP tool is one record under
    `packages/cli/src/bridge/tool-records/` and is pinned by
-   `packages/cli/src/bridge/server/mcp-contract.ts` (**9** tools, **27**
+   `packages/cli/src/bridge/server/mcp-contract.ts` (**9** tools, **30**
    operations today).
 2. **Programmatic** — import a factory and register the handlers with any agent
    framework (the playground does this with `@inbrowser/agent`).
@@ -30,10 +30,10 @@ naming the valid operations and the fields of the attempted one.
 | `sandbox` | `inspect` | in the connected sandbox | `createFirestoreInspectTools` (`pyric/firestore`) |
 | `database_data` | `crawl` | in the connected sandbox | `createRtdbInspectionTools` (`@pyric/cli`) |
 | `database_rules` | `simulate` | in the connected sandbox | `createRtdbInspectionTools` (`@pyric/cli`) |
-| `firestore_rules` | `lint`, `simulate`, `resolve` | in the MCP process | `createFirestoreRulesTools` (`pyric/rules/internal/node`) |
+| `firestore_rules` | `lint`, `simulate`, `resolve`, `test` | in the MCP process | `createFirestoreRulesTools` (`pyric/rules/internal/node`) |
 | `rules_stdlib` | `list`, `get` | in the MCP process | `createFirestoreRulesStdlibTools` (`pyric/rules`) |
 | `storage_rules` | `resolve` | in the MCP process | `createFirestoreRulesStdlibTools` (`pyric/rules`) |
-| `pyric` | `can_i_use` | in the MCP process | `createConformanceTools` (`@pyric/cli`) |
+| `pyric` | `can_i_use`, `verify`, `verify_cases` | in the MCP process | `createConformanceTools` (`@pyric/cli`), `createVerifyTools` (`@pyric/cli`) |
 
 `firestore_data` shares one `as` field across its operations: omitted or
 `'admin'` bypasses rules for seeding; `{ uid, claims? }` runs the operation as
@@ -70,6 +70,16 @@ supplied; build one with `@pyric/cli/credentials/node`)
 The Firestore-only `firestore_rules_stdlib_list`, `firestore_rules_stdlib_get`,
 and `firestore_resolve_modules` handlers remain in the factory for the
 playground registry and are not mapped by any record.
+
+### Session verification — `createVerifyTools` (`@pyric/cli`)
+
+`pyric_verify_fixture` · `pyric_derive_rules_test_cases`
+
+`pyric.verify` replays a captured sandbox session against candidate Firestore
+or RTDB rules. It uses local sandbox replay by default; the Firestore-only
+`rulesTestApi` engine requires a resolved `ProjectScope`. `pyric.verify_cases`
+derives Rules Test API cases from that same session; it is inspection-only
+and never calls Firebase.
 
 ### Firestore simulator session — `createFirestoreSimulatorTools` (`pyric/rules`)
 
@@ -133,6 +143,6 @@ registered on the default `pyric bridge` / `pyric sandbox --bridge` surface:
 
 ---
 
-**Default MCP bridge: 9 tools, 27 operations** (see `DEFAULT_MCP_TOOL_OPS` in
+**Default MCP bridge: 9 tools, 30 operations** (see `DEFAULT_MCP_TOOL_OPS` in
 `mcp-contract.ts`). Production shipping (rules, indexes, hosting, functions) is
 owned by `firebase-tools` or the Firebase Console.
