@@ -1,6 +1,6 @@
 # Firebase audit playbook
 
-Use this reference to select evidence, not to force every possible probe. Inspect the installed Pyric surface first; tool availability differs between the default MCP bridge, CLI, and programmatic registries.
+Use this reference to select evidence, not to force every possible probe. Inspect the installed Pyric surface first; tool availability differs between the default MCP bridge, CLI, and programmatic registries. Tool references are written `tool.op`: call the tool and set its `op` field to the operation.
 
 ## Contents
 
@@ -19,16 +19,16 @@ Use this reference to select evidence, not to force every possible probe. Inspec
 |---|---|---|---|
 | E0 Pyric configuration | Package/lockfile, build configuration, scripts, environment-key names, and installed exports/types | Which integration and local/production switches the source declares | That a server started, a sandbox connected, or a production build/deploy used those settings |
 | E0 AI Logic configuration | `firebase/ai` and `pyric/ai` call sites, model/settings/schema declarations, and Pyric AI mode | Declared request flow, data boundaries, and configuration conflicts | Model behavior, cloud API enablement, production quality, latency, quota, billing, or availability |
-| E1 static rules | `firestore_lint_rules`; `pyric firestore rules lint`; Storage/RTDB lint and validate commands | Parseability, budgets, known unsafe constructs and smells | Runtime authorization for a concrete identity/state/query |
-| E1 Standard Library | `rules_stdlib_list`; `rules_stdlib_get`; Firestore compatibility aliases on older versions | Available tested helpers, exact signatures, and service compatibility | That a helper fits the product model or proves a complete policy |
-| E1 modular build | `rules_resolve_modules`; `pyric firestore rules resolve`; `pyric storage rules resolve` | Imports resolve to a deployable version 2 artifact; source/artifact comparison exposes drift | Runtime authorization or deployment state |
+| E1 static rules | `firestore_rules.lint`; `pyric firestore rules lint`; Storage/RTDB lint and validate commands | Parseability, budgets, known unsafe constructs and smells | Runtime authorization for a concrete identity/state/query |
+| E1 Standard Library | `rules_stdlib.list`; `rules_stdlib.get` with `service` | Available tested helpers, exact signatures, and service compatibility | That a helper fits the product model or proves a complete policy |
+| E1 modular build | `firestore_rules.resolve`; `storage_rules.resolve`; `pyric firestore rules resolve`; `pyric storage rules resolve` | Imports resolve to a deployable version 2 artifact; source/artifact comparison exposes drift | Runtime authorization or deployment state |
 | E1 index extraction | `pyric firestore indexes generate <sources...> --out <temp>` | Composite shapes statically visible in supported query syntax | Runtime frequency, production build status, dynamic/admin-chain queries, necessity of every overshot branch |
-| E2 sandbox census | `sandbox_inspect` | Active local Firestore rules, document counts, recent requests and denials | Production rules, production traffic, complete schema |
-| E2 Firestore simulation | `firestore_simulate_rules` | Local decision for explicit rules, identity, operation, data/query, and mocks | Exact Firebase behavior where Pyric reports an unsupported/gap surface |
-| E2 Firestore data plane | `firestore_query_where` and CRUD tools with `as` | Observable local query/data behavior under Rules for supported shapes | Production indexes, latency, scale, unseen data distributions |
-| E2 RTDB structure | `rtdb_crawl_structure` | Bounded local tree shape without leaf values | Production tree shape or frequency |
-| E2 RTDB authorization | `rtdb_simulate_access` | Local read/write/validate decision against active rules and state | Unsupported expressions or exact production parity outside the conformance contract |
-| E2 simulator history | `firestore_simulator_*`, undo/redo/events | State transitions, transactions, and event ordering in an isolated local session | Production contention or network timing |
+| E2 sandbox census | `sandbox.inspect` | Active local Firestore rules, document counts, recent requests and denials | Production rules, production traffic, complete schema |
+| E2 Firestore simulation | `firestore_rules.simulate` | Local decision for explicit rules, identity, operation, data/query, and mocks | Exact Firebase behavior where Pyric reports an unsupported/gap surface |
+| E2 Firestore data plane | `firestore_data.query` and the other `firestore_data` ops with `as` | Observable local query/data behavior under Rules for supported shapes | Production indexes, latency, scale, unseen data distributions |
+| E2 RTDB structure | `database_data.crawl` | Bounded local tree shape without leaf values | Production tree shape or frequency |
+| E2 RTDB authorization | `database_rules.simulate` | Local read/write/validate decision against active rules and state | Unsupported expressions or exact production parity outside the conformance contract |
+| E2 simulator history | `firestore_simulator` ops, including undo, redo, and events | State transitions, transactions, and event ordering in an isolated local session | Production contention or network timing |
 | E2 scripted AI path | An observed Firebase AI Logic request against Pyric's scripted engine | Request plumbing and application behavior for the exact deterministic response or failure | Production model quality, safety policy, latency, quota, billing, or cloud availability |
 | E2 loopback AI path | An observed request through an already configured loopback OpenAI-compatible model | Local proxy wiring and application handling for that engine/model/run | Deterministic behavior or parity with Google AI and Vertex AI models |
 | E3 journey replay | `pyric verify [fixture]` | Candidate Rules preserve captured Firestore/RTDB requests and resulting state | Journeys never captured; Storage verification; general proof over all inputs |
@@ -164,8 +164,8 @@ Treat `pyric verify` as regression evidence, not a universal security proof. Cov
 ## 7. Capability boundaries
 
 - The default MCP bridge does not expose every programmatic Pyric tool. Index extraction is a CLI/library surface; discovery and assurance may require a custom registry.
-- Service-neutral Standard Library tools may be absent on older Pyric versions. Use the Firestore aliases or bundled skill reference; do not invent a Storage tool.
-- `sandbox_inspect`, RTDB crawl, and data-plane tools describe the connected local sandbox, not production.
+- `rules_stdlib` serves Firestore and Cloud Storage through its `service` field. The bundled skill reference summarises the installed catalogue and does not replace it.
+- `sandbox.inspect`, RTDB crawl, and data-plane tools describe the connected local sandbox, not production.
 - The Firestore Rules Test API requires existing credentials and project scope. Never solicit secrets into chat or create credentials.
 - Production deployment and index build status belong to Firebase CLI/Console. Keep this audit non-mutating.
 - Storage can be linted/simulated locally, but captured-session verification currently targets Firestore/RTDB.

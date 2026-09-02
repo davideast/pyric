@@ -113,7 +113,7 @@ Do not ask an agent to guess a helper name. Ask it to inspect the library first:
 
 > Find the standard-library functions for an author-owned post with a server-timestamp cooldown. Show the signatures, compose the rule, resolve it, lint it, and simulate one allowed edit and one too-fast edit.
 
-The agent calls `firestore_rules_stdlib_list`, then `firestore_rules_stdlib_get` for `content`, `lifecycle`, and `timing`. It resolves the source with `firestore_resolve_modules`, checks it with `firestore_lint_rules`, and runs the two cases with `firestore_simulate_rules`.
+The agent calls `rules_stdlib.list` with `service` set to `firestore`, then `rules_stdlib.get` for `content`, `lifecycle`, and `timing`. It resolves the source with `firestore_rules.resolve`, checks it with `firestore_rules.lint`, and runs the two cases with `firestore_rules.simulate`.
 
 ## Deploy the resolved file
 

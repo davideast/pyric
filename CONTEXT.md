@@ -262,18 +262,22 @@ the same sandbox as the open application and Studio. `pyric bridge` provides a
 standalone sandbox bridge. `pyric mcp` is the stdio editor front: it attaches to
 a running development bridge when possible or hosts a headless sandbox.
 
-The default bridge contract is exactly 29 tool names: 20 forwarded to the
-sandbox and 9 rules tools that run in the MCP process without a browser peer.
-Each tool family is one record under
-`packages/cli/src/bridge/tool-family-records/` (transport, order, and exact
-tool names); `packages/cli/scripts/generate-tool-family-registry.ts` renders
-the aggregate that `packages/cli/src/bridge/server/mcp-contract.ts` pins and
-that both the MCP process and the browser dispatcher compose from. The
-in-process set includes both the Firestore-specific spellings and the
-service-neutral `rules_stdlib_list`, `rules_stdlib_get`, and
-`rules_resolve_modules`, plus `pyric_can_i_use`. `getDefaultMcpToolSurface()`
-fails closed when a factory drifts, and `scripts/tool-parity.mjs` checks that
-exposed tool registries stay explicit.
+The default bridge contract is exactly nine tools carrying 27 operations. A
+tool is named for a service and, where one applies, an artifact
+(`firestore_data`, `firestore_rules`, `sandbox`); its required `op` field
+selects the operation. Twenty operations are forwarded to the sandbox
+(`firestore_simulator`, `firestore_data`, `sandbox`, `database_data`,
+`database_rules`) and seven run in the MCP process without a browser peer
+(`firestore_rules`, `rules_stdlib`, `storage_rules`, `pyric`). Each tool is one
+record under `packages/cli/src/bridge/tool-records/` (name, order,
+description, and per-operation transport, factory, and handler);
+`packages/cli/scripts/generate-tool-registry.ts` renders the aggregate that
+`packages/cli/src/bridge/server/mcp-contract.ts` pins and that both the MCP
+process and the browser dispatcher compose from. The bridge validates each
+call against the schema of the operation it names and returns a structured
+error naming the valid operations and fields. `getDefaultMcpToolSurface()`
+fails closed when a record names a handler its factory does not yield, and
+`scripts/tool-parity.mjs` checks that exposed tool registries stay explicit.
 
 ### Firestore sandbox engine
 

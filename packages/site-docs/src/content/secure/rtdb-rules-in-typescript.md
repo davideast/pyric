@@ -90,7 +90,7 @@ Three constraints carry the whole game. `turnGuard` reads stored state, never th
 
 ## And from an agent
 
-An agent authors and checks the same way you do: lint and simulate locally (`pyric database rules lint`, `pyric database rules simulate`, or `rtdb_simulate_access` against the connected sandbox), generate JSON with `pyric database rules generate`, then ship with `firebase-tools`. See the RTDB task in [Work with an agent](../agent/work-with-an-agent.md).
+An agent authors and checks the same way you do: lint and simulate locally (`pyric database rules lint`, `pyric database rules simulate`, or `database_rules.simulate` against the connected sandbox), generate JSON with `pyric database rules generate`, then ship with `firebase-tools`. See the RTDB task in [Work with an agent](../agent/work-with-an-agent.md).
 
 ## Where to go next
 

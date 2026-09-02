@@ -124,7 +124,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
 async function handleTool(ctx: HostCtx, port: PortLike, msg: ToolMessage): Promise<void> {
   try {
     ctx.toolDispatch ??= buildSandboxDispatcher(ctx.sandbox);
-    const result = await ctx.toolDispatch(msg.name, msg.args ?? {});
+    const result = await ctx.toolDispatch(msg.name, msg.op, msg.args ?? {});
     // Pre-serialize via JSON BEFORE the structured-clone hop over the port. Read
     // results carry real firebase wrapper instances (Timestamp/GeoPoint/Bytes/
     // VectorValue) whose toJSON() produces the canonical agent-facing shapes.

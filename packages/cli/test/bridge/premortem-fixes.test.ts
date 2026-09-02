@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { startServer } from '../../src/bridge/server.js';
-import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
+import { SANDBOX_OP_KEYS } from '../../src/bridge/client/dispatch.js';
 
 function withServer<T>(
   startPort: number,
@@ -102,32 +102,32 @@ describe('Premortem fixes — A2 (session leak)', () => {
 });
 
 describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
-  test('SANDBOX_TOOL_NAMES covers every sandbox tool factory (no advertise/execute drift)', () => {
-    expect(SANDBOX_TOOL_NAMES).toEqual([
-      // simulator family
-      'firestore_simulator_create',
-      'firestore_simulator_execute',
-      'firestore_simulator_read',
-      'firestore_simulator_batch',
-      'firestore_create_with_auto_id',
-      'firestore_simulator_undo',
-      'firestore_simulator_redo',
-      'firestore_simulator_events',
-      'firestore_simulator_transaction',
-      // data-plane family (now executable on the page peer, not just advertised)
-      'firestore_get_document',
-      'firestore_list_documents',
-      'firestore_create_document',
-      'firestore_add_document',
-      'firestore_update_document',
-      'firestore_delete_document',
-      'firestore_batch_write',
-      'firestore_query_where',
+  test('SANDBOX_OP_KEYS covers every forwarded operation (no advertise/execute drift)', () => {
+    expect(SANDBOX_OP_KEYS).toEqual([
+      // simulator session
+      'firestore_simulator.create',
+      'firestore_simulator.execute',
+      'firestore_simulator.read',
+      'firestore_simulator.batch',
+      'firestore_simulator.add',
+      'firestore_simulator.undo',
+      'firestore_simulator.redo',
+      'firestore_simulator.events',
+      'firestore_simulator.transaction',
+      // data plane (executable on the page peer, not just advertised)
+      'firestore_data.get',
+      'firestore_data.list',
+      'firestore_data.set',
+      'firestore_data.add',
+      'firestore_data.update',
+      'firestore_data.delete',
+      'firestore_data.batch_write',
+      'firestore_data.query',
       // inspect
-      'sandbox_inspect',
-      // local RTDB inspection
-      'rtdb_simulate_access',
-      'rtdb_crawl_structure',
+      'sandbox.inspect',
+      // local Realtime Database inspection
+      'database_data.crawl',
+      'database_rules.simulate',
     ]);
   });
 });

@@ -443,7 +443,7 @@ async function connectBridgePeer(rawUrl: string): Promise<void> {
     const wdb = workerDb;
     connectBridge(sandbox, {
       url,
-      dispatcher: (_sandbox, name, args) => workerCallTool(wdb, name, args),
+      dispatcher: (_sandbox, tool, op, args) => workerCallTool(wdb, tool, op, args),
       // Generic worker relay (remote sandbox, slice 1): server-side Node code
       // (`connectRemoteSandbox`) reaches THIS page's SharedWorker through the
       // bridge — ops and snap-delivering subscriptions pass straight through

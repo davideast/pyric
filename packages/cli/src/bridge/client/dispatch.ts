@@ -1,28 +1,33 @@
 /**
- * Browser-side tool dispatcher. Composes the forwarded tool families from the
- * same records the bridge advertises over MCP (`getSandboxToolMetadata`), so
- * the set the bridge LISTS and the set the page EXECUTES are identical by
- * construction: the records under `../tool-family-records/` pin the names,
- * and `./tool-family-factories.ts` supplies one browser-safe factory per
- * family.
+ * Browser-side tool dispatcher. Resolves every forwarded `(tool, op)` from
+ * the same records the bridge advertises over MCP (`composeMcpTools`), so the
+ * set the bridge LISTS and the set the page EXECUTES are identical by
+ * construction: the records under `../tool-records/` pin the operations, and
+ * `./tool-factories.ts` supplies one browser-safe factory per factory key.
  *
  * History of the trap this guards against: earlier this file delegated to
  * ONLY the simulator factory, while the bridge advertised the simulator,
- * data-plane and inspect families. The bridge therefore LISTED
- * `firestore_create_document` / `sandbox_inspect` etc., but a `callTool`
- * failed at dispatch with "tool 'X' is not registered with the connected
- * sandbox peer" (succeed-at-list, fail-at-dispatch). Composing every family
- * from the records, and deriving `SANDBOX_TOOL_NAMES` from the same records,
- * closes the gap. The parity is pinned by `test/bridge/tool-parity.test.ts`
- * and `test/bridge/tool-families.test.ts`.
+ * data-plane and inspect families. The bridge therefore LISTED operations a
+ * `callTool` failed to dispatch with "not registered with the connected
+ * sandbox peer" (succeed-at-list, fail-at-dispatch). Composing every
+ * operation from the records, and deriving `SANDBOX_OP_KEYS` from the same
+ * records, closes the gap. The parity is pinned by
+ * `test/bridge/tool-parity.test.ts` and `test/bridge/tool-records.test.ts`.
  */
 
 import type { ToolHandler } from '@inbrowser/agent';
 import { getFirestore, getAdminFirestore, type As } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
-import { assertExactToolNames, toolFamilies } from '../tool-families.js';
-import { SANDBOX_HANDLER_FACTORIES, type SandboxBinding } from './tool-family-factories.js';
+import {
+  assertExactOpKeys,
+  bindOpArgs,
+  opKey,
+  resolveOpHandlers,
+  toolOps,
+  type ToolOp,
+} from '../tool-records.js';
+import { SANDBOX_FACTORIES, type SandboxBinding } from './tool-factories.js';
 
 export interface DispatchResult {
   ok: boolean;
@@ -30,9 +35,15 @@ export interface DispatchResult {
   data?: unknown;
 }
 
+export type SandboxDispatcher = (
+  tool: string,
+  op: string,
+  args: Record<string, unknown>,
+) => Promise<DispatchResult>;
+
 /**
- * The full handler set for a sandbox: every forwarded family bound to one
- * `SandboxBinding` built here.
+ * The handler behind every forwarded operation for a sandbox, keyed by
+ * `tool.op`, each factory bound to one `SandboxBinding` built here.
  *
  * Auth: `resolveDb('admin')` / `resolveDb(undefined)` is an admin-bypass handle
  * (no rules); `resolveDb({ uid, claims })` is a rules-enforcing client acting as
@@ -40,7 +51,9 @@ export interface DispatchResult {
  * `request.auth.token` shape. This is a SANDBOX dispatcher, so the admin default
  * is intended; a dispatcher wired to a real backend must reject `'admin'`.
  */
-function buildSandboxHandlers(sandbox: LocalSandbox): ToolHandler[] {
+function buildSandboxHandlers(
+  sandbox: LocalSandbox,
+): Map<string, { spec: ToolOp; handler: ToolHandler }> {
   const binding: SandboxBinding = {
     sandbox,
     env: getInternalEnv(sandbox),
@@ -49,39 +62,33 @@ function buildSandboxHandlers(sandbox: LocalSandbox): ToolHandler[] {
         ? getFirestore(sandbox.withAuth({ uid: actor.uid, token: actor.claims }))
         : getAdminFirestore(sandbox),
   };
-  return toolFamilies('forwarded').flatMap((family) =>
-    SANDBOX_HANDLER_FACTORIES[family.key](binding),
+  return resolveOpHandlers(toolOps('forwarded'), (spec) =>
+    SANDBOX_FACTORIES[spec.factory as keyof typeof SANDBOX_FACTORIES](binding),
   );
 }
 
 /**
  * Build a dispatcher for the supplied `Sandbox`. The returned function
- * looks up tools by name across every family and invokes the
- * canonical handler. Throws `UnknownToolError` on unknown names.
+ * resolves `(tool, op)` across every forwarded operation and invokes the
+ * canonical handler with the record's pinned fields applied. Throws
+ * `UnknownToolError` on an unknown pair.
  *
  * Fails closed before any dispatch if the bound handlers do not yield exactly
- * the names the family records pin, so a factory that drifts from its record
+ * the operations the records pin, so a factory that drifts from its record
  * surfaces when the sandbox connects rather than at the first call.
  */
-export function buildSandboxDispatcher(
-  sandbox: LocalSandbox,
-): (name: string, args: Record<string, unknown>) => Promise<DispatchResult> {
+export function buildSandboxDispatcher(sandbox: LocalSandbox): SandboxDispatcher {
   const handlers = buildSandboxHandlers(sandbox);
-  assertExactToolNames(
-    'sandbox dispatcher tools',
-    handlers.map((h) => h.name),
-    SANDBOX_TOOL_NAMES,
-  );
-  const byName = new Map(handlers.map((h) => [h.name, h]));
-  return async (name, args) => {
-    const handler = byName.get(name);
-    if (!handler) throw new UnknownToolError(name);
+  assertExactOpKeys('sandbox dispatcher operations', [...handlers.keys()], SANDBOX_OP_KEYS);
+  return async (tool, op, args) => {
+    const entry = handlers.get(opKey(tool, op));
+    if (!entry) throw new UnknownToolError(tool, op);
     // ToolContext is supplied minimally; these handlers only read the
     // signal field (and our factory handlers don't use it).
     const ctx = {
       signal: new AbortController().signal,
     } as never;
-    const result = await handler.execute(args, ctx);
+    const result = await entry.handler.execute(bindOpArgs(entry.spec, args), ctx);
     return {
       ok: result.ok,
       summary: result.summary,
@@ -97,14 +104,12 @@ export function buildSandboxDispatcher(
  * Dispatchers are cached per sandbox so repeated bridge requests reuse the
  * same bound handler set.
  */
-const sandboxDispatchers = new WeakMap<
-  LocalSandbox,
-  ReturnType<typeof buildSandboxDispatcher>
->();
+const sandboxDispatchers = new WeakMap<LocalSandbox, SandboxDispatcher>();
 
 export async function dispatchSandboxTool(
   sandbox: LocalSandbox,
-  name: string,
+  tool: string,
+  op: string,
   args: Record<string, unknown>,
 ): Promise<DispatchResult> {
   let dispatcher = sandboxDispatchers.get(sandbox);
@@ -112,22 +117,25 @@ export async function dispatchSandboxTool(
     dispatcher = buildSandboxDispatcher(sandbox);
     sandboxDispatchers.set(sandbox, dispatcher);
   }
-  return dispatcher(name, args);
+  return dispatcher(tool, op, args);
 }
 
 /**
- * Tool names this dispatcher recognises, read from the forwarded family
- * records in family order, so it equals what the page executes AND what the
- * bridge advertises. `connectBridge` sends this as the `hello.tools` payload
- * so the bridge advertises exactly the executable set.
+ * `tool.op` keys this dispatcher recognises, read from the forwarded
+ * operations of the records in record order, so it equals what the page
+ * executes AND what the bridge advertises. `connectBridge` sends this as the
+ * `hello.tools` payload so the bridge forwards exactly the executable set.
  */
-export const SANDBOX_TOOL_NAMES: readonly string[] = toolFamilies('forwarded').flatMap(
-  (family) => family.tools,
+export const SANDBOX_OP_KEYS: readonly string[] = toolOps('forwarded').map((op) =>
+  opKey(op.tool, op.op),
 );
 
 export class UnknownToolError extends Error {
-  constructor(public readonly tool: string) {
-    super(`unknown sandbox tool: ${tool}`);
+  constructor(
+    public readonly tool: string,
+    public readonly op: string,
+  ) {
+    super(`unknown sandbox tool operation: ${tool}.${op}`);
     this.name = 'UnknownToolError';
   }
 }

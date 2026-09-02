@@ -20,7 +20,7 @@ import {
   saveSandboxSnapshot,
   loadSandboxSnapshot,
 } from '../../src/bridge/server/headless.js';
-import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
+import { SANDBOX_OP_KEYS } from '../../src/bridge/client/dispatch.js';
 
 const RULES = `rules_version = '2';
 service cloud.firestore {
@@ -38,7 +38,7 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
     const bridge = createLocalBridge(initializeSandbox());
     expect(bridge.health().mode).toBe('sandbox');
     expect(bridge.isSandboxConnected()).toBe(true);
-    expect(bridge.toolNames()).toEqual([...SANDBOX_TOOL_NAMES]);
+    expect(bridge.opKeys()).toEqual([...SANDBOX_OP_KEYS]);
   });
 
   it('dispatches firestore tools in-process, acting as a distinct user with rules enforced', async () => {
@@ -47,7 +47,7 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
     const bridge = createLocalBridge(sandbox);
 
     // Acting as alice: her own message is allowed.
-    const r1 = await bridge.dispatch('firestore_create_document', {
+    const r1 = await bridge.dispatch('firestore_data', 'set', {
       path: 'rooms/r1/msgs/m1',
       data: { author: 'alice', body: 'hi' },
       as: { uid: 'alice' },
@@ -56,7 +56,7 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
 
     // Acting as bob, forging a message authored by alice: rules deny it, and the
     // bridge surfaces that as ok:false (it does not reject).
-    const r2 = await bridge.dispatch('firestore_create_document', {
+    const r2 = await bridge.dispatch('firestore_data', 'set', {
       path: 'rooms/r1/msgs/m2',
       data: { author: 'alice', body: 'forged' },
       as: { uid: 'bob' },
@@ -64,7 +64,7 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
     expect(r2.ok).toBe(false);
 
     // Reading back as bob (read allowed for any signed-in user) sees alice's doc.
-    const r3 = await bridge.dispatch('firestore_get_document', {
+    const r3 = await bridge.dispatch('firestore_data', 'get', {
       path: 'rooms/r1/msgs/m1',
       as: { uid: 'bob' },
     });
@@ -82,7 +82,7 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
     try {
       // Seed a doc (admin write) and persist.
       const s1 = initializeSandbox();
-      const w = await createLocalBridge(s1).dispatch('firestore_create_document', {
+      const w = await createLocalBridge(s1).dispatch('firestore_data', 'set', {
         path: 'rooms/r/msgs/m1',
         data: { author: 'alice', body: 'persisted' },
       });
@@ -92,7 +92,7 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
       // A fresh sandbox restores the same data from disk.
       const s2 = initializeSandbox();
       expect(loadSandboxSnapshot(s2, dir)).toBe(1);
-      const r = await createLocalBridge(s2).dispatch('firestore_get_document', {
+      const r = await createLocalBridge(s2).dispatch('firestore_data', 'get', {
         path: 'rooms/r/msgs/m1',
       });
       expect(r.ok).toBe(true);

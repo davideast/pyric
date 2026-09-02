@@ -476,14 +476,14 @@ for (;;) {
       const mcp = new McpHttpClient(serve.info.mcpUrl!);
       await mcp.initialize();
       const tools = await mcp.toolsList();
-      expect(tools).toContain('firestore_get_document');
-      expect(tools).toContain('firestore_list_documents');
+      expect(tools).toContain('firestore_data');
+      expect(tools).toContain('sandbox');
 
       // Both callers concurrently against the one sandbox: the MCP tool call
       // must round-trip the doc the Node client wrote, WHILE a Node-side op
       // is in flight on the same bridge.
       const [mcpResult, nodeResult] = await Promise.all([
-        mcp.toolCall('firestore_get_document', { path: 'soak/mcp' }),
+        mcp.toolCall('firestore_data', { op: 'get', path: 'soak/mcp' }),
         sb.channel.op({ method: 'getDoc', path: 'soak/mcp', actAs: { mode: 'admin' } }),
       ]);
       expect(mcpResult.ok, `MCP tool call failed: ${mcpResult.summary}`).toBe(true);
@@ -493,7 +493,8 @@ for (;;) {
       expect(parseDocSnap(nodeResult).data).toEqual({ answer: 42 });
 
       // And the reverse direction: an MCP write is visible to the Node client.
-      const write = await mcp.toolCall('firestore_update_document', {
+      const write = await mcp.toolCall('firestore_data', {
+        op: 'update',
         path: 'soak/mcp',
         data: { answer: 42, via: 'mcp' },
       });

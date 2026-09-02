@@ -10,10 +10,11 @@
  *
  * Asserts:
  *  - /health reports `sandboxConnected: true` after peer registration.
- *  - listTools returns the sandbox tool surface (forwarded + in-process).
- *  - firestore_simulator_create seeds the sandbox.
- *  - firestore_simulator_execute writes through.
- *  - firestore_simulator_undo reverses; redo re-applies.
+ *  - listTools returns the folded tool surface (forwarded + in-process).
+ *  - firestore_simulator.create seeds the sandbox.
+ *  - firestore_simulator.execute writes through.
+ *  - firestore_simulator.undo reverses; redo re-applies.
+ *  - An unknown op and invalid fields return the structured error.
  *  - Disconnecting the peer yields the "sandbox not connected" error
  *    on subsequent tool calls.
  *  - Re-connecting a fresh peer resumes the round-trip.
@@ -28,7 +29,7 @@ import { getInternalEnv } from 'pyric/sandbox/internal';
 import { startServer, type ServerHandle } from '../../src/bridge/server.js';
 import {
   dispatchSandboxTool,
-  SANDBOX_TOOL_NAMES,
+  SANDBOX_OP_KEYS,
 } from '../../src/bridge/client/dispatch.js';
 import {
   isBridgeMessage,
@@ -71,7 +72,7 @@ function connectFakePeer(): Promise<{ disconnect: () => void; env: ReturnType<ty
         JSON.stringify({
           type: 'hello',
           protocol: 1,
-          tools: [...SANDBOX_TOOL_NAMES],
+          tools: [...SANDBOX_OP_KEYS],
           sandboxId: 'test-peer',
         }),
       );
@@ -99,7 +100,7 @@ function connectFakePeer(): Promise<{ disconnect: () => void; env: ReturnType<ty
       }
       if (msg.type === 'tool-call') {
         try {
-          const result = await dispatchSandboxTool(sandbox, msg.name, msg.args ?? {});
+          const result = await dispatchSandboxTool(sandbox, msg.name, msg.op, msg.args ?? {});
           ws.send(
             JSON.stringify({
               type: 'tool-result',
@@ -209,7 +210,8 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
     const { client, close } = await makeMcpClient();
     try {
       // Seed
-      const create = await callToolText(client, 'firestore_simulator_create', {
+      const create = await callToolText(client, 'firestore_simulator', {
+        op: 'create',
         rules: `rules_version = '2';\nservice cloud.firestore { match /databases/{db}/documents { match /{doc=**} { allow read, write: if true; } } }`,
         documents: { 'users/u1': { name: 'Alice' } },
       });
@@ -221,7 +223,8 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
       expect(beforeWrite?.name).toBe('Alice');
 
       // Write
-      const write = await callToolText(client, 'firestore_simulator_execute', {
+      const write = await callToolText(client, 'firestore_simulator', {
+        op: 'execute',
         method: 'update',
         path: 'users/u1',
         auth: null,
@@ -235,13 +238,13 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
       expect(afterWrite?.age).toBe(30);
 
       // Undo
-      const undo = await callToolText(client, 'firestore_simulator_undo', {});
+      const undo = await callToolText(client, 'firestore_simulator', { op: 'undo' });
       expect(undo.ok).toBe(true);
       const undone = peer.env.getDocument('users/u1');
       expect(undone?.age).toBeUndefined();
 
       // Redo (the previously half-wired tool)
-      const redo = await callToolText(client, 'firestore_simulator_redo', {});
+      const redo = await callToolText(client, 'firestore_simulator', { op: 'redo' });
       expect(redo.ok).toBe(true);
       const redone = peer.env.getDocument('users/u1');
       expect(redone?.age).toBe(30);
@@ -256,7 +259,7 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
     // No peer connected for this test.
     const { client, close } = await makeMcpClient();
     try {
-      const result = await callToolText(client, 'firestore_simulator_undo', {});
+      const result = await callToolText(client, 'firestore_simulator', { op: 'undo' });
       // The MCP HTTP transport wraps the bridge's error result in
       // a successful HTTP response with isError=true.
       expect(result.payload.ok).toBe(false);
@@ -275,7 +278,8 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
     const peer2 = await connectFakePeer();
     const { client, close } = await makeMcpClient();
     try {
-      const result = await callToolText(client, 'firestore_simulator_create', {
+      const result = await callToolText(client, 'firestore_simulator', {
+        op: 'create',
         rules: `rules_version = '2';\nservice cloud.firestore { match /databases/{db}/documents { match /{doc=**} { allow read, write: if true; } } }`,
         documents: { 'pings/p1': { ok: true } },
       });
@@ -289,11 +293,12 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
     }
   });
 
-  test('rules in-process tool executes without a peer (firestore_lint_rules)', async () => {
+  test('rules in-process op executes without a peer (firestore_rules.lint)', async () => {
     // No peer needed — rules tools execute in Node.
     const { client, close } = await makeMcpClient();
     try {
-      const result = await callToolText(client, 'firestore_lint_rules', {
+      const result = await callToolText(client, 'firestore_rules', {
+        op: 'lint',
         source: `rules_version = '2';\nservice cloud.firestore { match /databases/{db}/documents { match /{doc=**} { allow read; } } }`,
       });
       // The lint tool may report warnings or pass; assert it RAN to
@@ -301,6 +306,42 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
       // a specific outcome. The bridge round-trip is what's under test.
       expect(result.payload).toBeDefined();
       expect(typeof result.payload.summary).toBe('string');
+    } finally {
+      await close();
+    }
+  });
+
+  test('an unknown op or invalid fields return the structured error, not a protocol error', async () => {
+    const { client, close } = await makeMcpClient();
+    try {
+      const listed = await client.listTools();
+      const rules = listed.tools.find((tool) => tool.name === 'firestore_rules')!;
+      expect(rules.inputSchema.required).toEqual(['op']);
+      expect((rules.inputSchema.properties as { op: { enum: string[] } }).op.enum).toEqual([
+        'lint',
+        'simulate',
+        'resolve',
+      ]);
+
+      const unknown = await callToolText(client, 'firestore_rules', { op: 'validate', source: '' });
+      expect(unknown.ok).toBe(false);
+      expect(unknown.payload.ok).toBe(false);
+      expect(unknown.payload.data).toMatchObject({
+        error: 'unknown_op',
+        tool: 'firestore_rules',
+        op: 'validate',
+        validOps: ['lint', 'simulate', 'resolve'],
+      });
+
+      const invalid = await callToolText(client, 'firestore_rules', { op: 'lint', testCases: [] });
+      expect(invalid.ok).toBe(false);
+      expect(invalid.payload.summary).toBe(
+        "firestore_rules.lint: invalid fields: 'source' is required; 'testCases' is not a field of op 'lint'",
+      );
+      expect(invalid.payload.data).toMatchObject({
+        error: 'invalid_fields',
+        fields: [{ name: 'source', required: true, type: 'string' }],
+      });
     } finally {
       await close();
     }

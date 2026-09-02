@@ -56,10 +56,10 @@ Do not start a server merely to make the audit look thorough. If runtime evidenc
 
 ### Phase 2 — Collect Pyric evidence
 
-Run only the applicable probes from [references/AUDIT.md](references/AUDIT.md):
+Run only the applicable probes from [references/AUDIT.md](references/AUDIT.md). Tool references are written `tool.op`: call the tool and set its `op` field to the operation.
 
-- Before judging a Firestore or Storage model, query the installed Rules Standard Library for that service. Read the exact signatures and compatibility of every candidate module. Use the bundled reference when the installed tool surface lacks service-neutral catalog tools. Do not copy library function bodies into project Rules.
-- Start with `sandbox_inspect` when a sandbox is connected.
+- Before judging a Firestore or Storage model, query the installed Rules Standard Library for that service with `rules_stdlib.list` and `rules_stdlib.get`. Read the exact signatures and compatibility of every candidate module. Do not copy library function bodies into project Rules.
+- Start with `sandbox.inspect` when a sandbox is connected.
 - Resolve each in-scope modular source to a temporary artifact, compare it with the committed generated artifact, and lint or simulate the resolved output. Do not overwrite the committed artifact during an audit.
 - Extract Firestore indexes from real application query sources into a temporary path; compare the result with committed `firestore.indexes.json`. Do not overwrite the committed file.
 - Simulate representative ALLOW controls and nearby DENY mutations for each important authorization boundary: signed out, owner, other user, and relevant claim-holder.

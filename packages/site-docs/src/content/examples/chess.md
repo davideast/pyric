@@ -41,7 +41,7 @@ import { isPlaying, moveIncremented, participantsUnchanged } from 'state';
 import { isMyTurn, turnFlipped } from 'turns';
 ```
 
-Before using a helper, an agent can ask `firestore_rules_stdlib_list` and `firestore_rules_stdlib_get` for its exact name, arguments, and examples. The imports above come from that library. `firestore_resolve_modules` then turns them into ordinary version 2 Rules.
+Before using a helper, an agent can ask `rules_stdlib.list` and `rules_stdlib.get`, with `service` set to `firestore`, for its exact name, arguments, and examples. The imports above come from that library. `firestore_rules.resolve` then turns them into ordinary version 2 Rules.
 
 The shared helpers cover authentication, participants, turns, move counts, and movement across a grid. The functions left in this file deal with chess: blocked paths, captures, castling, and king safety.
 
@@ -78,7 +78,7 @@ allow update: if request.resource.data.moveType == 'capture'
 
 The `normal` branch requires an empty destination and no captured piece. The `capture` branch requires a captured piece, and `captureValid()` checks that the proposed document removes it. Both branches check the player and turn, the piece's movement, the changed board fields, and king safety. Pawn moves have separate branches.
 
-The first comparison in each branch is deliberately cheap. A capture skips the normal-move checks, and a normal move skips the capture checks. `firestore_lint_rules` warns the agent when branches share a gate and may waste the evaluation budget, as well as when a branch calls too many functions or reads too many documents.
+The first comparison in each branch is deliberately cheap. A capture skips the normal-move checks, and a normal move skips the capture checks. `firestore_rules.lint` warns the agent when branches share a gate and may waste the evaluation budget, as well as when a branch calls too many functions or reads too many documents.
 
 ## Derive checkmate from the board
 
@@ -88,7 +88,7 @@ The write contains the move and the next board state. After it commits, the brow
 
 ## Test specific moves
 
-After changing the Rules, the agent uses `firestore_simulate_rules` to try specific moves with a player and a board state. Stateful sandbox sessions run longer sequences. If a move is denied unexpectedly, `sandbox_inspect` shows the request, identity, active Rules, and denial.
+After changing the Rules, the agent uses `firestore_rules.simulate` to try specific moves with a player and a board state. Stateful sandbox sessions run longer sequences. If a move is denied unexpectedly, `sandbox.inspect` shows the request, identity, active Rules, and denial.
 
 The local suite covers allowed and denied geometry, blocked paths, captures, pins, check, turn ownership, resignation, and checkmate. It also checks that a rejected move leaves the Firestore document unchanged.
 

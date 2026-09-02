@@ -157,4 +157,4 @@ Linting reports the function, chain, or repeated gate that crosses a threshold:
 ```bash
 pyric firestore rules lint firestore.rules
 ```
-Then run explicit allow and deny cases with `firestoreRules(source).simulate(cases)` or the `firestore_simulate_rules` MCP tool. The Firebase emulator does not reproduce all of these production thresholds, so an emulator pass is not evidence that the rules fit the production compiler and evaluator.
+Then run explicit allow and deny cases with `firestoreRules(source).simulate(cases)` or the `firestore_rules.simulate` MCP tool. The Firebase emulator does not reproduce all of these production thresholds, so an emulator pass is not evidence that the rules fit the production compiler and evaluator.

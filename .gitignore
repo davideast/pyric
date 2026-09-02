@@ -53,7 +53,7 @@ docs/design/
 packages/cli/src/assurance/.generated/
 packages/cli/src/conformance/.generated/
 packages/cli/src/cli/service-commands.generated.ts
-packages/cli/src/bridge/tool-families.generated.ts
+packages/cli/src/bridge/tool-records.generated.ts
 packages/conformance/rules-language/*-report.json
 
 # Disposable conformance documentation projections. The site build derives

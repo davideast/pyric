@@ -35,7 +35,7 @@ describe('agent-as-a-distinct-user via the tool dispatcher (Slice D)', () => {
     const dispatch = buildSandboxDispatcher(sandbox);
 
     // Agent acting as alice creates her own message: allowed.
-    const r1 = await dispatch('firestore_create_document', {
+    const r1 = await dispatch('firestore_data', 'set', {
       path: 'rooms/r1/msgs/m1',
       data: { author: 'alice', body: 'hi' },
       as: { uid: 'alice' },
@@ -44,7 +44,7 @@ describe('agent-as-a-distinct-user via the tool dispatcher (Slice D)', () => {
 
     // Agent acting as bob, forging a message authored by alice: denied.
     await expect(
-      dispatch('firestore_create_document', {
+      dispatch('firestore_data', 'set', {
         path: 'rooms/r1/msgs/m2',
         data: { author: 'alice', body: 'forged' },
         as: { uid: 'bob' },
@@ -52,7 +52,7 @@ describe('agent-as-a-distinct-user via the tool dispatcher (Slice D)', () => {
     ).rejects.toThrow();
 
     // Agent acting as bob, his own message: allowed.
-    const r3 = await dispatch('firestore_create_document', {
+    const r3 = await dispatch('firestore_data', 'set', {
       path: 'rooms/r1/msgs/m3',
       data: { author: 'bob', body: 'hey' },
       as: { uid: 'bob' },
@@ -60,7 +60,7 @@ describe('agent-as-a-distinct-user via the tool dispatcher (Slice D)', () => {
     expect(r3.ok).toBe(true);
 
     // Agent acting as bob reads alice's message (read allowed for any signed-in user).
-    const r4 = await dispatch('firestore_get_document', {
+    const r4 = await dispatch('firestore_data', 'get', {
       path: 'rooms/r1/msgs/m1',
       as: { uid: 'bob' },
     });
@@ -68,7 +68,7 @@ describe('agent-as-a-distinct-user via the tool dispatcher (Slice D)', () => {
     expect((r4.data as { data: unknown }).data).toEqual({ author: 'alice', body: 'hi' });
 
     // Custom claims ride the `as` arg: a role:admin claim satisfies a token-gated rule.
-    const r5 = await dispatch('firestore_create_document', {
+    const r5 = await dispatch('firestore_data', 'set', {
       path: 'admin/x',
       data: { v: 1 },
       as: { uid: 'a', claims: { role: 'admin' } },
@@ -77,7 +77,7 @@ describe('agent-as-a-distinct-user via the tool dispatcher (Slice D)', () => {
 
     // The same op without the claim is denied.
     await expect(
-      dispatch('firestore_create_document', {
+      dispatch('firestore_data', 'set', {
         path: 'admin/y',
         data: { v: 1 },
         as: { uid: 'b' },
@@ -85,7 +85,7 @@ describe('agent-as-a-distinct-user via the tool dispatcher (Slice D)', () => {
     ).rejects.toThrow();
 
     // No `as` (admin default) bypasses rules: seeding writes any author.
-    const r6 = await dispatch('firestore_create_document', {
+    const r6 = await dispatch('firestore_data', 'set', {
       path: 'rooms/r1/msgs/seed',
       data: { author: 'system' },
     });
