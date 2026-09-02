@@ -5,21 +5,22 @@ import { validateFirestoreRules } from '../../src/rules/grammar/FirestoreValidat
 import { lintFirestoreRules } from '../../src/rules/linter/linter.js';
 
 // ═══════════════════════════════════════════════════════════════
-// TIER 2 — F7: Firestore 10-read document-lookup budget
+// Firestore 10-read document-lookup budget
 //
 // Production hard-limits security-rule document access calls
 // (get/exists/getAfter/existsAfter) to 10 per single-document request
-// evaluation (20 for multi-document transactions/batched writes — not
-// modeled here; each batched op is checked against the per-op 10).
-// Repeated reads of the SAME path are cached and do not re-charge the
-// budget (site-docs: secure/firestore-rules-limits.md "More than 10
-// document access calls"; rules/stdlib-modules.ts spaces guidance).
+// evaluation (20 for multi-document transactions and batched writes,
+// which is not modeled here: each batched op is checked against the
+// per-op 10). Repeated reads of the SAME path are cached and do not
+// re-charge the budget (site-docs: secure/firestore-rules-limits.md
+// "More than 10 document access calls"; rules/stdlib-modules.ts spaces
+// guidance).
 //
 // Three engines must agree at the boundary: production allows exactly
 // 10 distinct reads and fails the 11th.
-//   - SEM-3 (FirestoreValidator)  — static, per-call-path expansion
-//   - GET_COUNT (linter)          — static twin, same boundary
-//   - simulator                   — runtime counter, fail-closed DENY
+//   - SEM-3 (FirestoreValidator): static, per-call-path expansion
+//   - GET_COUNT (linter): the same static count, same boundary
+//   - simulator: runtime counter, fail-closed DENY
 // ═══════════════════════════════════════════════════════════════
 
 const handler = new SimulateFirestoreRulesHandler();
@@ -105,88 +106,88 @@ function getCountErrors(rules: string) {
   return warnings.filter(w => w.rule === 'GET_COUNT' && w.severity === 'error');
 }
 
-describe('F7: Firestore 10-read lookup budget', () => {
+describe('Firestore 10-read lookup budget', () => {
 
-  // ─── F7.a: helper fan-out — per-call-path counting ────────────
-  describe('F7.a: helper fan-out counts once per call site', () => {
-    test('F7.a1: 9 effective gets via fan-out — runtime ALLOW', () => {
+  // ─── helper fan-out: per-call-path counting ───────────────────
+  describe('helper fan-out counts once per call site', () => {
+    test('9 effective gets via fan-out are allowed at runtime', () => {
       expect(simulateDecision(fanoutRule(9))).toBe('ALLOW');
     });
 
-    test('F7.a2: 11 effective gets via fan-out — runtime DENY (fail-closed)', () => {
+    test('11 effective gets via fan-out deny at runtime, fail-closed', () => {
       expect(simulateDecision(fanoutRule(11))).toBe('DENY');
     });
 
-    test('F7.a3: SEM-3 counts fan-out per call path (11 effective gets flagged)', () => {
+    test('SEM-3 counts fan-out per call path (11 effective gets flagged)', () => {
       expect(sem3Findings(fanoutRule(11)).length).toBeGreaterThan(0);
     });
 
-    test('F7.a4: SEM-3 does not flag 9 effective gets via fan-out', () => {
+    test('SEM-3 does not flag 9 effective gets via fan-out', () => {
       expect(sem3Findings(fanoutRule(9))).toHaveLength(0);
     });
 
-    test('F7.a5: linter GET_COUNT errors on 11 effective gets via fan-out', () => {
+    test('linter GET_COUNT errors on 11 effective gets via fan-out', () => {
       expect(getCountErrors(fanoutRule(11)).length).toBeGreaterThan(0);
     });
   });
 
-  // ─── F7.b: existsAfter() counts against the budget ────────────
-  describe('F7.b: existsAfter() counts', () => {
+  // ─── existsAfter() counts against the budget ──────────────────
+  describe('existsAfter() counts', () => {
     // No getDoc resolver here: the probed g/p* docs must NOT exist, so every
     // `!existsAfter(...)` clause is true and the verdict isolates the budget.
-    test('F7.b1: 11 distinct existsAfter() calls — runtime DENY', () => {
+    test('11 distinct existsAfter() calls deny at runtime', () => {
       expect(simulateDecision(existsAfterRule(11), 'create', null)).toBe('DENY');
     });
 
-    test('F7.b2: 10 distinct existsAfter() calls — runtime ALLOW', () => {
+    test('10 distinct existsAfter() calls allow at runtime', () => {
       expect(simulateDecision(existsAfterRule(10), 'create', null)).toBe('ALLOW');
     });
 
-    test('F7.b3: SEM-3 counts existsAfter() (11 calls flagged)', () => {
+    test('SEM-3 counts existsAfter() (11 calls flagged)', () => {
       expect(sem3Findings(existsAfterRule(11)).length).toBeGreaterThan(0);
     });
 
-    test('F7.b4: linter GET_COUNT counts existsAfter() (11 calls error)', () => {
+    test('linter GET_COUNT counts existsAfter() (11 calls error)', () => {
       expect(getCountErrors(existsAfterRule(11)).length).toBeGreaterThan(0);
     });
   });
 
-  // ─── F7.c: let-bound gets are visible to SEM-3 ────────────────
-  describe('F7.c: let-bound get() counts', () => {
-    test('F7.c1: SEM-3 counts gets inside let bindings (11 flagged)', () => {
+  // ─── let-bound gets are visible to SEM-3 ──────────────────────
+  describe('let-bound get() counts', () => {
+    test('SEM-3 counts gets inside let bindings (11 flagged)', () => {
       expect(sem3Findings(letBoundRule(11)).length).toBeGreaterThan(0);
     });
 
-    test('F7.c2: SEM-3 does not flag 10 let-bound gets', () => {
+    test('SEM-3 does not flag 10 let-bound gets', () => {
       expect(sem3Findings(letBoundRule(10))).toHaveLength(0);
     });
 
-    test('F7.c3: runtime DENIES 11 let-bound gets', () => {
+    test('runtime DENIES 11 let-bound gets', () => {
       expect(simulateDecision(letBoundRule(11))).toBe('DENY');
     });
   });
 
-  // ─── F7.d: exactly-10 boundary parity across all three engines ─
-  describe('F7.d: exactly 10 allowed, 11 denied — engine parity', () => {
+  // ─── exactly-10 boundary parity across all three engines ──────
+  describe('exactly 10 allowed, 11 denied: engine parity', () => {
     const ten = inlineGetsRule(10);
     const eleven = inlineGetsRule(11);
 
-    test('F7.d1: exactly 10 distinct gets — SEM-3 silent, linter no error, runtime ALLOW', () => {
+    test('exactly 10 distinct gets: SEM-3 silent, linter no error, runtime ALLOW', () => {
       expect(sem3Findings(ten)).toHaveLength(0);
       expect(getCountErrors(ten)).toHaveLength(0);
       expect(simulateDecision(ten)).toBe('ALLOW');
     });
 
-    test('F7.d2: 11 distinct gets — SEM-3 fires, linter errors, runtime DENY', () => {
+    test('11 distinct gets: SEM-3 fires, linter errors, runtime DENY', () => {
       expect(sem3Findings(eleven).length).toBeGreaterThan(0);
       expect(getCountErrors(eleven).length).toBeGreaterThan(0);
       expect(simulateDecision(eleven)).toBe('DENY');
     });
   });
 
-  // ─── F7.e: production budget semantics the counter must honor ──
-  describe('F7.e: budget semantics (caching + non-absorption)', () => {
-    test('F7.e1: repeated reads of the SAME path are cached — 12 same-path gets ALLOW', () => {
+  // ─── production budget semantics the counter must honor ───────
+  describe('budget semantics: caching and non-absorption', () => {
+    test('repeated reads of the SAME path are cached, so 12 same-path gets allow', () => {
       // site-docs/secure/firestore-rules-limits.md: "Repeated reads of the
       // same path are cached; reads of different paths are not."
       const clauses = Array.from({ length: 12 }, () =>
@@ -197,7 +198,7 @@ describe('F7: Firestore 10-read lookup budget', () => {
       expect(simulateDecision(rules)).toBe('ALLOW');
     });
 
-    test('F7.e2: budget exhaustion is NOT absorbed by a determining || operand', () => {
+    test('budget exhaustion is NOT absorbed by a determining || operand', () => {
       // 10 distinct gets, then the 11th inside `(get(...) || true)`. CEL
       // error absorption would swallow an ordinary eval error here; budget
       // exhaustion fails the whole evaluation closed instead.
@@ -210,7 +211,53 @@ describe('F7: Firestore 10-read lookup budget', () => {
       expect(simulateDecision(rules)).toBe('DENY');
     });
 
-    test('F7.e3: budget resets between requests — two sequential 9-get requests both ALLOW', () => {
+    test('a get-free sibling allow rule cannot rescue an exhausted budget', () => {
+      // Production fails the WHOLE request closed once the budget is
+      // exceeded, so the later `allow read: if true` never runs. Evaluating
+      // siblings past the limit would turn an 11-get ruleset into an ALLOW.
+      const clauses = Array.from({ length: 11 }, (_, i) =>
+        `get(/databases/$(database)/documents/g/p${i}).data.ok == true`);
+      const rules = wrap(`    match /items/{id} {
+      allow read: if ${clauses.join('\n        && ')};
+      allow read: if true;
+    }`);
+      expect(simulateDecision(rules)).toBe('DENY');
+    });
+
+    test('a get-free allow rule in an overlapping match block cannot rescue it either', () => {
+      const clauses = Array.from({ length: 11 }, (_, i) =>
+        `get(/databases/$(database)/documents/g/p${i}).data.ok == true`);
+      const rules = wrap(`    match /items/{id} {
+      allow read: if ${clauses.join('\n        && ')};
+    }
+    match /items/{anything} {
+      allow read: if true;
+    }`);
+      expect(simulateDecision(rules)).toBe('DENY');
+    });
+
+    test('the denial trace names the resource limit that ended the request', () => {
+      const clauses = Array.from({ length: 11 }, (_, i) =>
+        `get(/databases/$(database)/documents/g/p${i}).data.ok == true`);
+      const rules = wrap(`    match /items/{id} {
+      allow read: if ${clauses.join('\n        && ')};
+      allow read: if true;
+    }`);
+      const res = handler.simulate(rules, [{
+        description: 'budget probe',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'items/x',
+      }], anyDoc);
+      expect(res.success).toBe(true);
+      if (!res.success) return;
+      const result = res.data.results[0]!;
+      expect(result.decision).toBe('DENY');
+      expect(result.notes.join(' ')).toContain('resource limit');
+      expect(result.notes.join(' ')).toContain('document access limit exceeded');
+    });
+
+    test('the budget resets between requests, so two sequential 9-get requests both allow', () => {
       const res = handler.simulate(inlineGetsRule(9), [
         { description: 'first', expectation: 'ALLOW', method: 'get', path: 'items/x' },
         { description: 'second', expectation: 'ALLOW', method: 'get', path: 'items/y' },

@@ -11,7 +11,8 @@ import { Path } from './wrappers/path.js';
 import { RulesFloat } from './wrappers/float.js';
 import { EvalError } from './eval-error.js';
 import { UnsupportedError } from './unsupported-error.js';
-import { chargeLookup, isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
+import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
+import { chargeLookup } from './lookup-budget.js';
 import type { SimulationContext } from './evaluation-context.js';
 import { evaluate, isKnownGlobal, resolveIdentifier } from './evaluator.js';
 import { evaluateHashingMethod } from './hashing-builtins.js';
@@ -53,14 +54,14 @@ export function evaluateFunctionCall(
   switch (name) {
     case 'get': {
       const path = String(evaluate(args[0], ctx, scope));
-      // T2.1 — charge the per-request lookup budget BEFORE resolving so the
-      // 11th distinct access fails closed even when the doc would resolve.
+      // Charge the per-request lookup budget BEFORE resolving so the 11th
+      // distinct access fails closed even when the doc would resolve.
       chargeLookup(ctx, 'doc', path);
       return resolveGet(path, ctx);
     }
     case 'exists': {
       const path = String(evaluate(args[0], ctx, scope));
-      chargeLookup(ctx, 'doc', path); // T2.1 — exists() shares get()'s per-path cache slot
+      chargeLookup(ctx, 'doc', path); // exists() shares get()'s per-path slot
       return resolveExists(path, ctx);
     }
     case 'getAfter': {
@@ -82,11 +83,12 @@ export function evaluateFunctionCall(
           `getAfter() requires a path pointing to a document (even segment count), got '${normalized}'`,
         );
       }
-      // T2.1 — getAfter() is a document access call and counts against the
-      // per-request budget. 'after' namespace: the post-write projection is
-      // a different snapshot than get()'s pre-write read. The fall-through
-      // resolveGet below does NOT re-charge (charging lives only here).
-      ctx.lookupBudget?.charge('after', normalized);
+      // getAfter() is a document access call and counts against the
+      // per-request budget. 'after' keying: the post-write projection is a
+      // different snapshot than get()'s pre-write read, so a path read by
+      // both charges two slots. The fall-through resolveGet below does NOT
+      // re-charge, because charging lives only here.
+      chargeLookup(ctx, 'after', normalized);
       if (pathStr === ctx.afterStatePath.toString()) {
         // RULES-B8: getAfter() of a doc that won't exist post-write (delete,
         // or projected-null) ERRORS like get() — guard with existsAfter().
@@ -116,9 +118,9 @@ export function evaluateFunctionCall(
       if (!isDocumentPath(segments)) {
         return false;
       }
-      // T2.1 — existsAfter() counts against the per-request lookup budget
-      // (it shares getAfter()'s post-write cache slot per path).
-      ctx.lookupBudget?.charge('after', normalized);
+      // existsAfter() counts against the per-request lookup budget and
+      // shares getAfter()'s post-write slot for the same path.
+      chargeLookup(ctx, 'after', normalized);
       if (pathStr === ctx.afterStatePath.toString()) {
         return ctx.existsAfter;
       }
@@ -128,7 +130,7 @@ export function evaluateFunctionCall(
       return resolveExists(pathStr, ctx);
     }
     // NOTE: `debug()` is deliberately NOT handled here. Production Firestore
-    // rejects it at compile ("Function not found error: Name: [debug]" —
+    // rejects it at compile ("Function not found error: Name: [debug]", the
     // captured acceptance probe for firestore.function.debug), so the local
     // evaluator must fail it the same way. Falling through to the
     // user-defined lookup below yields `EvalError('Unknown function: debug')`,
