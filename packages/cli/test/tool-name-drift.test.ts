@@ -32,9 +32,6 @@ const NON_TOOL_TOKENS = new Set<string>([
  * removal instead of letting the list go stale.
  */
 const KNOWN_UNREGISTERED: Record<string, string> = {
-  'auth.configure_provider': 'no handler exists',
-  'auth.get_config': 'no handler exists',
-  'auth.manage_domains': 'no handler exists',
   'database_data.get': 'no handler exists',
   'database_data.push': 'no handler exists',
   'database_data.set': 'no handler exists',

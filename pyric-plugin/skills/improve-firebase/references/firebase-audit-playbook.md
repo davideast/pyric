@@ -20,8 +20,8 @@ user asks.
    `firestore_data.list`; for RTDB use `database_data.crawl`. Complete
    when each top-level collection/path has a known shape and sample.
 
-3. **Collect auth posture.** Read provider configuration with
-   `auth.get_config`. Note which identities the rules assume (anonymous,
+3. **Collect auth posture.** List the identities the sandbox holds with
+   `auth_users.list`. Note which identities the rules assume (anonymous,
    signed-in, owner, custom claims) and whether the enabled providers can
    actually produce them. Complete when every `request.auth` assumption in the
    rules maps to a real provider or a finding.
