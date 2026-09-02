@@ -25,6 +25,7 @@ export type { ResolveResult, ResolveOptions } from '../modules/resolver.js';
 export {
   createFirestoreRulesTools,
   createFirestoreSimulatorTools,
+  FIRESTORE_TEST_RULES_SCOPE_REQUIRED,
 } from '../tools.js';
 export type {
   FirestoreRulesToolDeps,
