@@ -20,10 +20,11 @@ revoke it. Lock the root, then open the smallest useful paths.
 
 ## Steps
 
-1. **Read current rules.** From `database.rules.json` in the project, or
-   `database_rules.get` for deployed state. Complete when you can state the
-   effective access at every path a client touches (walk each cascade from
-   root).
+1. **Read current rules.** The Realtime Database rules in effect are the
+   `database.rules.json` file the sandbox loaded from the project (the path
+   comes from `firebase.json` or `pyric.json`) — read that file directly.
+   Complete when you can state the effective access at every path a client
+   touches (walk each cascade from root).
 
 2. **Identify paths and identities.** List each path clients read or write
    and the identity that should reach it (anonymous, any signed-in user,
@@ -36,9 +37,11 @@ revoke it. Lock the root, then open the smallest useful paths.
    `.validate` for every user-controlled write: type checks
    (`newData.isString()`, `.isNumber()`), bounds, required children
    (`newData.hasChildren([...])`), and transition checks comparing `data` to
-   `newData`. `database_rules.build_expression` composes correct expressions for common
-   patterns. Complete when every open path has both an access rule and a
-   shape rule.
+   `newData`. For common patterns, author the rules as a constraints module
+   (`defineRtdbRules` from `pyric/rules`) and compile it with
+   `database_rules.generate`; check any rules document with
+   `database_rules.lint` and `database_rules.validate`. Complete when every
+   open path has both an access rule and a shape rule.
 
 4. **Simulate before shipping.** Run `database_rules.simulate` for each path
    with four case families: the intended actor allowed, anonymous denied,
@@ -46,10 +49,12 @@ revoke it. Lock the root, then open the smallest useful paths.
    pass per path.
 
 5. **Deploy.** Write the full `database.rules.json` — a deploy replaces the
-   entire ruleset — and apply with `database_rules.deploy`. To prove a write's
-   shape at runtime, run `database_data.set` or `database_data.update` as the
-   user (`as: { uid }`); the write applies only if the current rules allow it.
-   Complete when deployed rules re-read (`database_rules.get`) match the file.
+   entire ruleset — and deploy it with the Firebase CLI, a step outside the
+   sandbox. To prove a write's shape at runtime, run `database_data.set` or
+   `database_data.update` as the user (`as: { uid }`); the write applies only
+   if the current rules allow it. Complete when `database.rules.json` matches
+   what you deployed and `database_rules.validate` and `database_rules.lint`
+   pass against it.
 
 ## Reference — pitfalls
 

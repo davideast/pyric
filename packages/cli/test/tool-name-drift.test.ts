@@ -32,10 +32,6 @@ const NON_TOOL_TOKENS = new Set<string>([
  * removal instead of letting the list go stale.
  */
 const KNOWN_UNREGISTERED: Record<string, string> = {
-  'database_rules.build_expression': 'no handler exists',
-  'database_rules.deploy': 'no handler exists',
-  'database_rules.get': 'no handler exists',
-  'firestore_rules.get': 'no handler exists',
   firestore_discover_paths: 'handler in packages/cli/src/discover/tools.ts',
   firestore_extract_indexes:
     'Playground-only tool name (packages/pyric/src/rules/indexes/extractTool.ts); the MCP equivalent is firestore_indexes.generate',

@@ -4,6 +4,7 @@ import { rtdbRules, type RtdbCase } from 'pyric/rules';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getActiveRules, snapshotState } from 'pyric/sandbox/database';
 import { countDescendantObjects, crawlSnapshot } from './crawl-snapshot.js';
+import { isRtdbRulesJson } from './rules-json.js';
 
 export interface RtdbInspectionToolDeps {
   resolveSandbox(): LocalSandbox | Promise<LocalSandbox>;
@@ -14,6 +15,7 @@ interface SimulateAccessArgs {
   path: string;
   auth?: { uid: string; claims?: Record<string, unknown> } | null;
   newData?: unknown;
+  rules?: unknown;
 }
 
 interface CrawlStructureArgs {
@@ -29,7 +31,7 @@ export function createRtdbInspectionTools(
     {
       name: 'rtdb_simulate_access',
       description:
-        'Simulate one read, write, or validate operation against the RTDB rules and data currently loaded in the local sandbox. No production database is contacted and no prior rules-loading tool call is required.',
+        'Simulate one read, write, or validate operation against the RTDB data currently loaded in the local sandbox, using the rules loaded in the sandbox or, when `rules` is supplied, that rules document instead. No production database is contacted and no prior rules-loading tool call is required.',
       parameters: {
         type: 'object',
         properties: {
@@ -52,19 +54,36 @@ export function createRtdbInspectionTools(
             ],
           },
           newData: {},
+          rules: {
+            type: 'object',
+            description:
+              'Rules document to evaluate instead of the rules loaded in the sandbox: a JSON object with a top-level `rules` key, the shape of database.rules.json. The data still comes from the sandbox.',
+          },
         },
         required: ['operation', 'path'],
       },
       async execute(rawArgs) {
         const args = rawArgs as SimulateAccessArgs;
         const sandbox = await deps.resolveSandbox();
-        const rules = getActiveRules(sandbox);
-        if (!rules) {
-          return {
-            ok: false,
-            summary: 'No RTDB rules are loaded in the local sandbox.',
-            data: { code: 'NO_ACTIVE_RULES' },
-          };
+        let rules;
+        if (args.rules !== undefined) {
+          if (!isRtdbRulesJson(args.rules)) {
+            return {
+              ok: false,
+              summary: 'Supplied rules must be an object with a top-level `rules` object.',
+              data: { code: 'INVALID_RULES_JSON' },
+            };
+          }
+          rules = args.rules;
+        } else {
+          rules = getActiveRules(sandbox);
+          if (!rules) {
+            return {
+              ok: false,
+              summary: 'No RTDB rules are loaded in the local sandbox.',
+              data: { code: 'NO_ACTIVE_RULES' },
+            };
+          }
         }
 
         const state = snapshotState(sandbox);

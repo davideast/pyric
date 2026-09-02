@@ -15,10 +15,11 @@ import {
   createFirestoreIndexesTools,
 } from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
-import { createStorageDataTools } from 'pyric/storage';
+import { createStorageDataTools, createStorageRulesTools } from 'pyric/storage';
 import { createDatabaseDataTools } from 'pyric/database';
 import { createAuthUserTools } from 'pyric/auth';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
+import { createRtdbRulesTools } from '../../rtdb/rules-tools.js';
 import { createSandboxSnapshotTools } from '../../sandbox/tools.js';
 import { createConformanceTools } from '../../conformance/tools.js';
 import { createVerifyTools } from '../../verify/tools.js';
@@ -61,4 +62,6 @@ export const IN_PROCESS_FACTORIES = {
   'firestore-indexes': () => createFirestoreIndexesTools(),
   conformance: () => createConformanceTools(),
   verify: ({ scope }: InProcessContext = {}) => createVerifyTools(scope ? { scope } : {}),
+  'storage-rules': () => createStorageRulesTools(),
+  'rtdb-rules': () => createRtdbRulesTools(),
 } satisfies Record<InProcessFactoryKey, (context?: InProcessContext) => ToolHandler[]>;

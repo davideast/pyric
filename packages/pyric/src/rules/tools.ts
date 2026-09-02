@@ -21,6 +21,8 @@
 
 import type { ToolHandler } from '@inbrowser/agent';
 import type { ProjectScope } from '../project-scope.js';
+import { parseToAST } from './grammar/FirestoreParser.js';
+import { validateFirestoreRules } from './grammar/FirestoreValidator.js';
 import { resolveModules } from './modules/resolver.js';
 import { SimulateFirestoreRulesHandler } from './simulator/handler.js';
 import { createFirestoreRulesStdlibTools } from './stdlib-tools.js';
@@ -58,6 +60,7 @@ export const FIRESTORE_TEST_RULES_SCOPE_REQUIRED =
  *   - `firestore_lint_rules`
  *   - `firestore_resolve_modules`
  *   - `firestore_simulate_rules`
+ *   - `firestore_validate_rules`
  *   - `firestore_test_rules` (returns the credentials error without `scope`)
  */
 export function createFirestoreRulesTools(
@@ -96,6 +99,44 @@ export function createFirestoreRulesTools(
             ? `${result.data.results.filter((r) => r.state === 'PASSED').length}/${result.data.results.length} test cases passed`
             : `Simulation failed: ${result.error.message}`,
           data: result,
+        };
+      },
+    },
+    {
+      name: 'firestore_validate_rules',
+      description:
+        'Validate a Firestore Security Rules source: parse it and run the structural validator, which reports security findings (open reads or writes, missing auth checks) and semantic findings (undefined functions, wrong arity) with a severity of critical, high, medium, or low. Pure-local — no auth, no network. Complements the lint op, which checks syntax, budgets, and smells.',
+      parameters: {
+        type: 'object',
+        properties: {
+          source: {
+            type: 'string',
+            description: 'Firestore security rules source text to validate.',
+          },
+        },
+        required: ['source'],
+      },
+      async execute(args) {
+        const { source } = args as { source: string };
+        const ast = parseToAST(source);
+        if (!ast) {
+          return {
+            ok: false,
+            summary: 'Parse failed — the source does not parse as Firestore rules',
+            data: { findings: [], parseError: true },
+          };
+        }
+        const findings = validateFirestoreRules(ast);
+        const blocking = findings.filter(
+          (finding) => finding.severity === 'critical' || finding.severity === 'high',
+        ).length;
+        return {
+          ok: blocking === 0,
+          summary:
+            findings.length === 0
+              ? 'Validation clean'
+              : `Validation found ${findings.length} finding${findings.length === 1 ? '' : 's'} (${blocking} critical or high)`,
+          data: { findings },
         };
       },
     },

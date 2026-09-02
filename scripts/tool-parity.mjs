@@ -137,6 +137,8 @@ const MCP_FACTORIES = {
   // which owns the name literal for both the MCP and Playground surfaces.
   conformance: [{ file: `${TOOLS}/conformance/can-i-use-tool.ts`, factory: 'createCanIUseTool' }],
   verify: [{ file: `${TOOLS}/verify/tools.ts`, factory: 'createVerifyTools' }],
+  'storage-rules': [{ file: `${PYRIC}/storage/rules-tools.ts`, factory: 'createStorageRulesTools' }],
+  'rtdb-rules': [{ file: `${TOOLS}/rtdb/rules-tools.ts`, factory: 'createRtdbRulesTools' }],
 };
 
 /**
