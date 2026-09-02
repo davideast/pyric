@@ -129,6 +129,26 @@
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
+    "storage_data.upload": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "storage_data.download": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "storage_data.list": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "storage_data.metadata": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "storage_data.delete": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
     "inspect_auth_users": {
       "decision": "deliberate",
       "reason": "Playground session-inspection affordance; the default MCP contract currently exposes only ratified attached-sandbox tools"

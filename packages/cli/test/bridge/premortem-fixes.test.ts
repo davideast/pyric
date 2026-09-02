@@ -128,6 +128,12 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       // local Realtime Database inspection
       'database_data.crawl',
       'database_rules.simulate',
+      // storage data plane
+      'storage_data.upload',
+      'storage_data.download',
+      'storage_data.list',
+      'storage_data.metadata',
+      'storage_data.delete',
     ]);
   });
 });

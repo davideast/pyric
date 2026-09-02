@@ -63,6 +63,7 @@
     "firestore_indexes",
     "rules_stdlib",
     "storage_rules",
+    "storage_data",
     "pyric"
   ],
   "mcpOps": [
@@ -94,6 +95,11 @@
     "rules_stdlib.list",
     "rules_stdlib.get",
     "storage_rules.resolve",
+    "storage_data.upload",
+    "storage_data.download",
+    "storage_data.list",
+    "storage_data.metadata",
+    "storage_data.delete",
     "pyric.can_i_use",
     "pyric.verify",
     "pyric.verify_cases"

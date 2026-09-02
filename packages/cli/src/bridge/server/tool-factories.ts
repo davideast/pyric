@@ -15,6 +15,7 @@ import {
   createFirestoreIndexesTools,
 } from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
+import { createStorageDataTools } from 'pyric/storage';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
 import { createConformanceTools } from '../../conformance/tools.js';
 import { createVerifyTools } from '../../verify/tools.js';
@@ -30,6 +31,7 @@ export const FORWARDED_FACTORIES = {
   'firestore-data': (stub) => createFirestoreDataTools({ resolveDb: stub as never }),
   'firestore-inspect': (stub) => createFirestoreInspectTools({ resolveSandbox: stub as never }),
   'rtdb-inspection': (stub) => createRtdbInspectionTools({ resolveSandbox: stub as never }),
+  'storage-data': (stub) => createStorageDataTools({ resolveStorage: stub as never }),
 } satisfies Record<ForwardedFactoryKey, (stub: StubResolver) => ToolHandler[]>;
 
 /**
