@@ -12,7 +12,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { join, relative, resolve } from 'node:path';
-import { existsSync, readdirSync, readFileSync, statSync, watch as watchFile } from 'node:fs';
+import { existsSync, watch as watchFile } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
@@ -43,17 +43,11 @@ import {
   type SandboxChildHandle,
 } from './sandbox-runner.js';
 import {
-  describeInterlock,
-  formatInterlockLine,
+  reportLaunchChecks,
   startBeaconWatchdog,
   type BeaconWatchdog,
 } from './sandbox-interlock.js';
-import { formatInlinedArtifactWarnings, scanBackendArtifacts } from './sandbox-preflight.js';
 import { scanInlinedFirebaseHits } from './inlined-sdk-scanner.js';
-import {
-  detectUnsupportedRuntime,
-  formatUnsupportedRuntimeWarning,
-} from './unsupported-runtime.js';
 import {
   createFunctionsDevelopmentRuntime,
   createHttpFunctionsPeerReadiness,
@@ -104,11 +98,11 @@ export interface ServeRuntime {
   uiUrl: string | null;
   /** Persistence summary (null when `--persist` is off). */
   persist: { restoredDocs: number; restoredUsers: number } | null;
-  /** How many handshake beacons pyric-launched children have posted to
-   *  `/__pyric/beacon` so far, the interlock watchdog's only input. */
+  /** Handshake beacons posted to `/__pyric/beacon` so far, the interlock
+   *  watchdog's only input. */
   beaconCount: () => number;
-  /** The per-launch secret a beacon must present. Placed in every child's
-   *  `PYRIC_BEACON_TOKEN` and printed with the host-only export block. */
+  /** The per-launch secret a beacon must present, placed in every child's
+   *  `PYRIC_BEACON_TOKEN`. */
   beaconToken: string;
 }
 
@@ -174,12 +168,10 @@ export async function startServe(opts: {
 }): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
 
-  // Handshake beacons received from pyric-launched children. Counted here
-  // because the namespace route lives in this server; `runServe`'s watchdog
-  // reads it back off the returned runtime.
+  // Handshake beacons from pyric-launched children, plus the per-launch secret
+  // that authorizes one. Both live here because the route does.
   let beaconsSeen = 0;
-  // The per-launch secret that authorizes a beacon. Generated here, given to
-  // the route and to every child this launch starts, and to nobody else.
+  const beaconCount = (): number => beaconsSeen;
   const beaconToken = randomBytes(24).toString('base64url');
 
   // --fresh only means anything against the state.json file `--persist`
@@ -248,11 +240,9 @@ export async function startServe(opts: {
   // rather than serving it. A pyric SANDBOX build (`vite build --mode
   // development`) carries the marker and bundles pyric's in-page adapters, so it
   // is trusted and the scan is skipped (marker present, no real SDK to find).
-  //
   // Only the SDK fingerprint hosts feed this check, never the full catalog:
-  // this one throws, and a dist may legitimately carry a bare callable URL, a
-  // public Cloud Storage asset URL, or a `databaseURL` literal without ever
-  // touching the Firebase SDK.
+  // this one throws, and a dist can legitimately carry a bare callable URL, a
+  // public asset URL, or a `databaseURL` literal with no Firebase SDK in it.
   if (!hasSandboxBuildMarker(publicDir)) {
     const inlined = scanInlinedFirebaseHits(publicDir, { hosts: SDK_FINGERPRINT_HOSTS });
     if (inlined.length > 0) {
@@ -600,16 +590,8 @@ export async function startServe(opts: {
   logger.note('');
   logger.note('  ⚠ the pyric sandbox runs IN the served page — keep the browser tab open.');
   logger.note('    Firestore/auth data and persistence stop when no page is open.');
-  return {
-    handle,
-    publicDir,
-    payload,
-    uiUrl,
-    mcpUrl: mount ? mount.mcpUrl(origin) : null,
-    persist: persistSummary,
-    beaconCount: () => beaconsSeen,
-    beaconToken,
-  };
+  const mcpUrl = mount ? mount.mcpUrl(origin) : null;
+  return { handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken };
 }
 
 /**
@@ -974,47 +956,19 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       registerUrl: registerModuleUrl(),
       beaconToken: runtime.beaconToken,
     });
-    // The interlock status line: what we are handing the child, stated before
-    // it starts. Guard mode and whether NODE_OPTIONS really carries the
-    // register import are both knowable from the env we just assembled, so
-    // this prints alongside the other startup checks rather than waiting on
-    // the child.
-    const interlock = describeInterlock(childEnv, registerModuleUrl());
-    info.write(formatInterlockLine(interlock));
-
-    // Pre-flight: the loader swap only reaches code that still IMPORTS
-    // firebase/firebase-admin. A backend bundle that compiled the SDK in has
-    // no such import left, so it sails past register untouched and talks to
-    // LIVE Google. Grep the plausible backend build dirs for the shared
-    // endpoint catalog and say so. Warn-only (see
-    // `formatInlinedArtifactWarnings`): a stale `dist/` must never block a
-    // launch, and a clean project prints nothing. This runs ONLY here, on the
-    // launched-child path: with no child there is nothing to pre-flight.
-    for (const line of formatInlinedArtifactWarnings(scanBackendArtifacts(cwd))) {
-      info.write(`${line}\n`);
-    }
-
-    // The other way interception can be absent: a child runtime that never
-    // evaluates Node loader hooks at all.
-    const unsupportedRuntime = detectUnsupportedRuntime(plan.argv);
-    if (unsupportedRuntime !== null) info.write(formatUnsupportedRuntimeWarning(unsupportedRuntime));
+    // What we are handing the child, stated before it starts: the interlock
+    // line, the warn-only pre-flight scan, and the unsupported-runtime check.
+    const interlock = reportLaunchChecks({
+      childEnv,
+      registerUrl: registerModuleUrl(),
+      argv: plan.argv,
+      cwd,
+      write: (line) => info.write(line),
+    });
 
     devChild = spawnSandboxChild(plan, { cwd, json, env: childEnv });
-    // The warn-only watchdog for the other half: a child that is still alive
-    // well after launch and has never posted a beacon is very likely NOT
-    // intercepted. It says so once and does nothing else. See
-    // `startBeaconWatchdog` for why this never escalates to a kill.
-    //
-    // The signal is a COUNT DELTA rather than a pid match, deliberately. The
-    // process that loads register is often a grandchild (`npm run dev` starts
-    // node, `next dev` starts its worker), so `devChild.child.pid` is
-    // frequently not the pid in the beacon; matching on it would warn about
-    // perfectly healthy launches. The delta's known imprecision is the other
-    // direction: the functions runtime's own register-preloaded child also
-    // beacons, and it starts BEFORE this line, so its beacon is already inside
-    // the baseline; only one restarting inside the grace window could mask a
-    // real miss. Erring toward silence is the right bias for a warn-only
-    // check.
+    // A child still alive well after launch that never posted a beacon is very
+    // likely not intercepted. `startBeaconWatchdog` says why this only warns.
     const beaconsAtSpawn = runtime.beaconCount();
     beaconWatchdog = startBeaconWatchdog({
       label: plan.label,
@@ -1078,4 +1032,3 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     void signal.then(shutdown);
   });
 }
-

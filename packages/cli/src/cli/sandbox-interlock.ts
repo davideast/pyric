@@ -10,6 +10,8 @@
  */
 import { beaconEndpoint } from '../register/beacon.js';
 import { parseGuardMode, type GuardMode } from '../register/net-guard.js';
+import { formatInlinedArtifactWarnings, scanBackendArtifacts } from './sandbox-preflight.js';
+import { detectUnsupportedRuntime, formatUnsupportedRuntimeWarning } from './unsupported-runtime.js';
 
 /**
  * What `pyric sandbox` can say about the interception it is about to hand the
@@ -56,6 +58,46 @@ export function formatInterlockLine(status: InterlockStatus): string {
     );
   }
   return `✔ interlock guard=${status.guard}, register loaded via NODE_OPTIONS\n`;
+}
+
+export interface LaunchCheckOptions {
+  /** The environment the child is about to receive. */
+  readonly childEnv: NodeJS.ProcessEnv;
+  /** Absolute `file:` URL of the register module, to look for in NODE_OPTIONS. */
+  readonly registerUrl: string;
+  /** The child's argv, for the unsupported-runtime check. */
+  readonly argv: readonly string[];
+  /** Project root whose backend build dirs are pre-flighted. */
+  readonly cwd: string;
+  readonly write: (line: string) => void;
+}
+
+/**
+ * Every statement the launcher makes about the child, printed in one block
+ * before the spawn, and the interlock status it derived on the way.
+ *
+ * Three checks, in order:
+ *
+ *  1. The interlock status line, from the env alone.
+ *  2. The pre-flight artifact scan. The loader swap only reaches code that
+ *     still imports firebase or firebase-admin, so a backend bundle that
+ *     compiled the SDK in sails past register untouched and talks to live
+ *     Google. Warn-only, and silent on a clean project.
+ *  3. The unsupported-runtime warning, for the other way interception can be
+ *     absent: a child runtime that never evaluates Node loader hooks at all.
+ *
+ * The pre-flight scan runs only here, on the launched-child path. With no
+ * child there is nothing to pre-flight.
+ */
+export function reportLaunchChecks(opts: LaunchCheckOptions): InterlockStatus {
+  const interlock = describeInterlock(opts.childEnv, opts.registerUrl);
+  opts.write(formatInterlockLine(interlock));
+  for (const line of formatInlinedArtifactWarnings(scanBackendArtifacts(opts.cwd))) {
+    opts.write(`${line}\n`);
+  }
+  const unsupportedRuntime = detectUnsupportedRuntime(opts.argv);
+  if (unsupportedRuntime !== null) opts.write(formatUnsupportedRuntimeWarning(unsupportedRuntime));
+  return interlock;
 }
 
 /** How long a child may live without its beacon before we say something. */
@@ -114,6 +156,14 @@ export function formatMissingBeaconWarning(opts: {
  * landed has already proved the point. One warning per child, guaranteed by
  * the one-shot timer; the timer is unref'd so a watchdog can never be the
  * reason a process stays up.
+ *
+ * `sawBeacon` is a count delta rather than a pid match, deliberately. The
+ * process that loads register is often a grandchild (`npm run dev` starts
+ * node, `next dev` starts its worker), so the spawned child's own pid is
+ * frequently not the pid in the beacon, and matching on it would warn about
+ * perfectly healthy launches. The delta's known imprecision runs the other
+ * way: a sibling runtime's beacon that lands inside the grace window can mask
+ * a real miss. Erring toward silence is the right bias for a warn-only check.
  */
 export function startBeaconWatchdog(opts: BeaconWatchdogOptions): BeaconWatchdog {
   const beacon = opts.beacon;

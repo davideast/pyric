@@ -1,6 +1,6 @@
 /**
- * TA.2 — the `sideEffects` contract that keeps `@pyric/cli/register` and the
- * `pyric` swap entries out of a bundler's tree-shaking pass.
+ * The `sideEffects` contract that keeps `@pyric/cli/register` and the `pyric`
+ * swap entries out of a bundler's tree-shaking pass.
  *
  * `@pyric/cli/register` installs Node resolution hooks and the sandbox-factory
  * global purely at import time; app code imports it for effect only
@@ -10,9 +10,9 @@
  *
  * Measured with esbuild 0.28 (`packages/cli/node_modules/esbuild`, a direct
  * dependency, so this runs for real rather than as a documented manual check):
- *   - no `sideEffects` field  → import SURVIVES (esbuild assumes side effects)
- *   - `"sideEffects": false`  → import PRUNED (bundle collapses to 46 bytes)
- *   - explicit allowlist      → import SURVIVES
+ *   - no `sideEffects` field: import SURVIVES (esbuild assumes side effects)
+ *   - `"sideEffects": false`: import PRUNED (bundle collapses to 46 bytes)
+ *   - explicit allowlist:     import SURVIVES
  * So the field is defence-in-depth: it pins the contract before someone adds
  * `"sideEffects": false` for bundle-size wins and silently disarms the sandbox.
  *
@@ -21,10 +21,17 @@
  * is starker: with the entry omitted from the allowlist the 184 KB graph
  * collapses to ZERO bytes, because `auth.*`'s `import './init.js'` is its only
  * edge to the sign-in helper and the runtime chip. That is why the globs below
- * cover `serve/entries/` in BOTH `dist/` and `src/` — `files` publishes both,
+ * cover `serve/entries/` in BOTH `dist/` and `src/`: `files` publishes both,
  * and `defaultSdkEntries()` resolves the `.ts` entries in workspace mode.
  *
- * (`bundleSdk`'s own esbuild pass is unaffected either way — with
+ * Every manifest entry is listed for `dist/` and for `src/`, because esbuild's
+ * `sideEffects` matcher understands `*` and nothing else: brace expansion such
+ * as `./{dist,src}/app/registry.js` matches no file, and esbuild then prunes
+ * the import. So the duplication stays, and the two lists below are its single
+ * source: the manifests are asserted to equal exactly what these produce, so a
+ * new registration module is one edit here and one paired edit in the manifest.
+ *
+ * (`bundleSdk`'s own esbuild pass is unaffected either way: with
  * `splitting: true` every entry, `init` included, is an explicit entry point,
  * so its output is byte-identical across all four manifest states.)
  *
@@ -35,7 +42,15 @@
  */
 import { describe, expect, it } from 'bun:test';
 import * as esbuild from 'esbuild';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,9 +73,51 @@ function sideEffectsOf(packageRoot: string): string[] {
   return declared as string[];
 }
 
-/** Externalize everything the probed entry pulls in, so the bundle is the
+/** `./dist/<stem>.js` and `./src/<stem>.ts` for each stem, which is the shape
+ *  every entry has to take because esbuild matches no brace expansion. */
+function bothLayouts(stems: readonly string[]): string[] {
+  const patterns: string[] = [];
+  for (const stem of stems) patterns.push(`./dist/${stem}.js`);
+  for (const stem of stems) patterns.push(`./src/${stem}.ts`);
+  return patterns.sort();
+}
+
+/**
+ * The one place `@pyric/cli`'s allowlist is written down.
+ *
+ * `register/index` installs `module.registerHooks` and the
+ * `pyric.remote.sandboxFactory` global at import time. `serve/entries/*` are
+ * the browser-injected swap entries served for `firebase/*`: `auth`,
+ * `firestore`, `database` and `storage` each carry a bare `import './init.js'`
+ * whose only purpose is the effect, and the CLI's own esbuild pass over that
+ * directory would drop it under a tighter list.
+ */
+const CLI_SIDE_EFFECT_STEMS = ['register/index', 'serve/entries/*'];
+
+/**
+ * The one place `pyric`'s allowlist is written down: every module that
+ * registers something at import time.
+ */
+const PYRIC_SIDE_EFFECT_STEMS = [
+  // Declared swap entry (`pyric/app/register` in the exports map).
+  'app/register',
+  // `installDefaultAppResolver(getApp)` at module scope.
+  'app/registry',
+  // `installClientAppAdapter({ ... })` at module scope.
+  'app/runtime',
+  // `registerDefaultConverters()` at module scope.
+  'firestore/sandbox/write-runtime',
+  // `semantics.addOperation('toAST', ...)` at module scope.
+  'rules/grammar/FirestoreParser',
+  // `registerOnSnapshotImpl` / `registerRemoteOnSnapshotImpl` at module scope.
+  'sandbox/admin-firestore/listeners',
+  // `Object.defineProperty(FirebaseError, 'name', ...)` at module scope.
+  'sandbox/internal/firebase-error',
+];
+
+/** Externalize everything the bundled entry pulls in, so the bundle is the
  *  entry's own graph and needs no installed dependencies. Package-internal
- *  specifiers still resolve normally — that is what the `sideEffects` lookup
+ *  specifiers still resolve normally, which is what the `sideEffects` lookup
  *  keys off. */
 function externalizeBare(
   keep: readonly string[],
@@ -76,9 +133,9 @@ function externalizeBare(
         return { external: true };
       });
       if (externalizeRelativeFrom !== undefined) {
-        // The negative-control probe is one file copied out of its package, so
-        // its relative siblings do not exist. Only the probe's OWN module body
-        // matters — whether the import edge to it survives.
+        // The negative control is one file copied out of its package, so its
+        // relative siblings do not exist. Only that file's OWN module body
+        // matters, meaning whether the import edge to it survives.
         build.onResolve({ filter: /^\./ }, (args) =>
           args.importer.startsWith(externalizeRelativeFrom) ? { external: true } : null,
         );
@@ -116,7 +173,7 @@ async function bundleSideEffectOnlyImport(options: {
 }
 
 /** A scratch dir whose `node_modules` links the workspace package under test,
- *  so the probe resolves through the real exports map and the real manifest. */
+ *  so the bundle resolves through the real exports map and real manifest. */
 function scratchLinking(packageName: string, target: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-side-effects-'));
   const linkPath = join(dir, 'node_modules', packageName);
@@ -126,41 +183,12 @@ function scratchLinking(packageName: string, target: string): string {
 }
 
 describe('sideEffects manifest contract', () => {
-  it('@pyric/cli declares the register seam and the served swap entries', () => {
-    const declared = sideEffectsOf(CLI_ROOT);
-    // The Node substitution seam: installs module.registerHooks + the
-    // `pyric.remote.sandboxFactory` global at import time.
-    expect(declared).toContain('./dist/register/index.js');
-    expect(declared).toContain('./src/register/index.ts');
-    // The browser-injected swap entries `pyric dev` serves for `firebase/*`.
-    // `auth`/`firestore`/`database`/`storage` each carry a bare
-    // `import './init.js'` whose only purpose is the effect, and the CLI's own
-    // esbuild pass over this directory would drop it under a tighter list.
-    expect(declared).toContain('./dist/serve/entries/*.js');
-    expect(declared).toContain('./src/serve/entries/*.ts');
+  it('@pyric/cli declares exactly the register seam and the served swap entries', () => {
+    expect([...sideEffectsOf(CLI_ROOT)].sort()).toEqual(bothLayouts(CLI_SIDE_EFFECT_STEMS));
   });
 
-  it('pyric declares the register entry and every import-time registration module', () => {
-    const declared = sideEffectsOf(PYRIC_ROOT);
-    for (const entry of [
-      // Declared swap entry (`pyric/app/register` in the exports map).
-      'app/register',
-      // `installDefaultAppResolver(getApp)` at module scope.
-      'app/registry',
-      // `installClientAppAdapter({ ... })` at module scope.
-      'app/runtime',
-      // `registerDefaultConverters()` at module scope.
-      'firestore/sandbox/write-runtime',
-      // `semantics.addOperation('toAST', ...)` at module scope.
-      'rules/grammar/FirestoreParser',
-      // `registerOnSnapshotImpl` / `registerRemoteOnSnapshotImpl` at module scope.
-      'sandbox/admin-firestore/listeners',
-      // `Object.defineProperty(FirebaseError, 'name', ...)` at module scope.
-      'sandbox/internal/firebase-error',
-    ]) {
-      expect(declared).toContain(`./dist/${entry}.js`);
-      expect(declared).toContain(`./src/${entry}.ts`);
-    }
+  it('pyric declares exactly the register entry and every import-time registration module', () => {
+    expect([...sideEffectsOf(PYRIC_ROOT)].sort()).toEqual(bothLayouts(PYRIC_SIDE_EFFECT_STEMS));
   });
 
   it('never regresses to the blanket "sideEffects": false', () => {
@@ -169,7 +197,7 @@ describe('sideEffects manifest contract', () => {
     }
   });
 
-  it('lists no dead paths — every declared glob matches a real file', () => {
+  it('lists no dead paths: every declared glob matches a real file', () => {
     for (const root of [CLI_ROOT, PYRIC_ROOT]) {
       for (const pattern of sideEffectsOf(root)) {
         expect(pattern.startsWith('./')).toBe(true);
@@ -196,10 +224,10 @@ describe('sideEffects survives a real tree-shaking pass', () => {
     expect(output).toContain('registerHooks');
     expect(output).toContain('PYRIC_SANDBOX');
     expect(output).toContain('pyric.remote.sandboxFactory');
-    // TA.4: the handshake beacon lives in `register/beacon.ts`, reached only
-    // by a static import from the listed entry. That edge is what keeps it
-    // inside the allowlist's protection — a beacon pruned out of the bundle
-    // would leave `pyric dev`'s watchdog warning about every child forever.
+    // The handshake beacon lives in `register/beacon.ts`, reached only by a
+    // static import from the listed entry. That edge is what keeps it inside
+    // the allowlist's protection: a beacon pruned out of the bundle would
+    // leave the launch watchdog warning about every child forever.
     expect(output).toContain('register: beacon');
     expect(output).toContain('/__pyric/beacon');
     expect(output).toContain('emitBeacon');
@@ -215,9 +243,9 @@ describe('sideEffects survives a real tree-shaking pass', () => {
     expect(output).toContain('installDefaultAppResolver');
   }, 60_000);
 
-  // The swap entries are aliased in as `firebase/*` (vite-module-swap /
+  // The swap entries are aliased in as `firebase/*` (vite-module-swap and the
   // next client aliases), so app code reaches them through a bare
-  // `import 'firebase/auth'` with no bindings used — a single-entry,
+  // `import 'firebase/auth'` with no bindings used: a single-entry,
   // no-splitting graph where an unlisted entry collapses to ZERO bytes.
   for (const [layout, entry] of [
     ['dist', 'dist/serve/entries/auth.js'],
@@ -230,37 +258,39 @@ describe('sideEffects survives a real tree-shaking pass', () => {
         specifier: 'firebase/auth',
         // Let only the aliased specifier through to esbuild's own resolver
         // (which applies `alias`); everything else the entry pulls in is
-        // externalized so the probe needs no installed dependencies.
+        // externalized so the bundle needs no installed dependencies.
         keep: ['firebase/auth'],
         alias: { 'firebase/auth': join(CLI_ROOT, entry) },
         platform: 'browser',
       });
       expect(output.length).toBeGreaterThan(1_000);
-      // `./init.js` is imported for effect only — it mounts the sign-in helper
+      // `./init.js` is imported for effect only: it mounts the sign-in helper
       // and the runtime chip. Its graph must not be shaken out.
       expect(output).toMatch(/auth-helper|pyric-auth|installPyricRuntimeChip|runtime-chip/i);
     }, 60_000);
   }
 
   it('NEGATIVE CONTROL: the same register module is pruned under "sideEffects": false', async () => {
-    // Same module bytes, throwaway package, only the manifest field differs —
-    // this is the future footgun the declarations above exist to prevent.
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-side-effects-neg-'));
-    const probe = join(dir, 'node_modules', 'probe-register');
-    mkdirSync(probe, { recursive: true });
+    // Same module bytes, throwaway package, only the manifest field differs.
+    // This is the future footgun the declarations above exist to prevent.
+    // `realpathSync` because macOS hands back `/var/...` while esbuild reports
+    // the resolved `/private/var/...`, and the prefix test below compares them.
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-side-effects-neg-')));
+    const copied = join(dir, 'node_modules', 'copied-register');
+    mkdirSync(copied, { recursive: true });
     const registerSource = readFileSync(join(CLI_ROOT, 'dist/register/index.js'), 'utf8');
-    writeFileSync(join(probe, 'index.js'), registerSource);
+    writeFileSync(join(copied, 'index.js'), registerSource);
 
     const bundleWith = async (sideEffects: unknown): Promise<string> => {
       writeFileSync(
-        join(probe, 'package.json'),
-        JSON.stringify({ name: 'probe-register', type: 'module', main: 'index.js', sideEffects }),
+        join(copied, 'package.json'),
+        JSON.stringify({ name: 'copied-register', type: 'module', main: 'index.js', sideEffects }),
       );
       return bundleSideEffectOnlyImport({
         dir,
-        specifier: 'probe-register',
-        keep: ['probe-register'],
-        externalizeRelativeFrom: probe,
+        specifier: 'copied-register',
+        keep: ['copied-register'],
+        externalizeRelativeFrom: copied,
       });
     };
 
@@ -276,7 +306,7 @@ describe('sideEffects survives a real tree-shaking pass', () => {
 
 // Keep the resolved roots honest: a moved test file must fail loudly, not
 // silently assert against an empty manifest.
-describe('probe roots', () => {
+describe('resolved package roots', () => {
   it('points at the two publishable manifests', () => {
     expect(manifestAt(CLI_ROOT).name).toBe('@pyric/cli');
     expect(manifestAt(PYRIC_ROOT).name).toBe('pyric');

@@ -197,9 +197,8 @@ describe('pyric sandbox command execution', () => {
 });
 
 /**
- * TA.5 — what the launcher says about the child BEFORE it starts. Both checks
- * are warn-only by adopted decision: a finding never changes the exit code and
- * never stops the spawn.
+ * What the launcher says about the child before it starts. Both checks are
+ * warn-only: a finding never changes the exit code and never stops the spawn.
  */
 describe('pyric sandbox pre-flight artifact scan', () => {
   it('warns about an inlined-SDK artifact in .next/server and still launches', () => {
@@ -243,7 +242,7 @@ describe('pyric sandbox pre-flight artifact scan', () => {
     }
   }, 60_000);
 
-  it('does not scan on the host-only path — no child, nothing to pre-flight', async () => {
+  it('does not scan on the host-only path, where there is no child', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-preflight-hostonly-'));
     try {
       mkdirSync(join(dir, '.next', 'server'), { recursive: true });

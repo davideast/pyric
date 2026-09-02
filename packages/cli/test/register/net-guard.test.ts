@@ -1,5 +1,5 @@
 /**
- * TA.3 — the runtime network guard (`src/register/net-guard.ts`).
+ * The runtime network guard (`src/register/net-guard.ts`).
  *
  * The production-leak invariant's ENFORCEMENT layer: once `PYRIC_SANDBOX` is
  * set, a pyric-launched Node process that still reaches a LIVE Google/Firebase
@@ -13,10 +13,11 @@
  *    directly, with the same catalog the production path uses.
  *  - The dispatcher hook itself only works on a real Node undici (Bun serves
  *    `fetch` natively and never reads
- *    `Symbol.for('undici.globalDispatcher.1')`), so the two end-to-end facts —
- *    "installing the guard does not break an ordinary child" and "block mode
- *    fails the fetch with the GUARD's cause, not DNS's" — are proven in
- *    `node --import` subprocesses.
+ *    `Symbol.for('undici.globalDispatcher.1')`), so the end-to-end facts are
+ *    proven in `node --import` subprocesses: installing the guard does not
+ *    break an ordinary child, block mode fails a fetch with the GUARD's
+ *    cause rather than DNS's, and a plain `http.request` is refused before
+ *    it connects even when `node:http` loaded first.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -79,7 +80,7 @@ describe('parseAllowHosts', () => {
   });
 });
 
-// ─── the decision (catalog + allowlist + alwaysBlock) ───────────────────────
+// ─── the verdict: catalog, then alwaysBlock, then allowlist, then mode ─────
 
 const warn = { mode: 'warn' as const, allow: [] as string[] };
 const block = { mode: 'block' as const, allow: [] as string[] };
@@ -121,7 +122,7 @@ describe('evaluateEgress', () => {
   it('is silent for every host when the guard is off', () => {
     const off = { mode: 'off' as const, allow: [] };
     expect(evaluateEgress('firestore.googleapis.com', off)).toBeNull();
-    // "off is off" — even the metadata IP.
+    // "off is off", even the metadata IP.
     expect(evaluateEgress('169.254.169.254', off)).toBeNull();
   });
 
@@ -212,7 +213,7 @@ describe('wrapDispatcher', () => {
     expect(log.lines[0]).toContain('Cloud Firestore');
     expect(log.lines[0]).toContain('from next');
     expect(log.lines[0]!.endsWith('\n')).toBe(true);
-    // The request path can carry tokens/ids — it must never be logged.
+    // The request path can carry tokens and ids, so it must never be logged.
     expect(log.lines[0]).not.toContain('/v1/x');
   });
 
@@ -270,7 +271,7 @@ describe('wrapDispatcher', () => {
     expect(log.lines[0]).toContain('PYRIC_GUARD_ALLOW');
   });
 
-  it('logs each host only once — a dev server retries constantly', () => {
+  it('logs each host only once, since a dev server retries constantly', () => {
     const real = mockDispatcher();
     const log = collector();
     const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write });
@@ -460,6 +461,47 @@ describe('installNetGuard', () => {
     ]);
     expect(log.lines[0]).toContain('via socket');
   });
+
+  it('guards an Agent prototype that snapshotted createConnection before install', () => {
+    const scope = fakeScope(mockDispatcher());
+    const log = collector();
+    const netCalls: unknown[][] = [];
+    const realCreateConnection = (...args: unknown[]): unknown => {
+      netCalls.push(args);
+      return { sock: true };
+    };
+    const net = { connect: realCreateConnection, createConnection: realCreateConnection };
+    // What `_http_agent` does at load time: copy the CURRENT
+    // `net.createConnection` onto the Agent prototype. Patching `net` later
+    // never reaches this copy, which is why the prototype is patched too.
+    const httpAgentPrototype = { createConnection: net.createConnection };
+
+    installNetGuard({
+      scope,
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
+      write: log.write,
+      net,
+      tls: { connect: () => ({}) },
+      agentPrototypes: [httpAgentPrototype],
+    });
+
+    // The prototype's own copy now refuses a catalog host.
+    expect(() =>
+      (httpAgentPrototype.createConnection as (o: unknown) => unknown)({
+        host: 'firestore.googleapis.com',
+        port: 443,
+      }),
+    ).toThrow(/firestore\.googleapis\.com/);
+    expect(netCalls).toHaveLength(0);
+    // And an ordinary local connection still goes through.
+    expect(
+      (httpAgentPrototype.createConnection as (o: unknown) => unknown)({
+        host: '127.0.0.1',
+        port: 5000,
+      }),
+    ).toEqual({ sock: true });
+    expect(netCalls).toHaveLength(1);
+  });
 });
 
 // ─── end to end, in a real node child ───────────────────────────────────────
@@ -473,8 +515,14 @@ let fixtureDir: string;
 function runNode(
   script: string,
   env: Record<string, string | undefined>,
+  preload?: string,
 ): { status: number | null; stdout: string; stderr: string } {
-  const res = spawnSync('node', ['--import', registerUrl, script], {
+  const args: string[] = [];
+  // A preload is `--import`ed BEFORE register, which is how a child ends up
+  // with `node:http` already loaded when the guard installs.
+  if (preload !== undefined) args.push('--import', pathToFileURL(join(fixtureDir, preload)).href);
+  args.push('--import', registerUrl, script);
+  const res = spawnSync('node', args, {
     cwd: fixtureDir,
     encoding: 'utf8',
     env: {
@@ -493,7 +541,7 @@ function runNode(
 describe('net-guard under `node --import @pyric/cli/register`', () => {
   beforeAll(() => {
     if (!existsSync(registerDist)) {
-      throw new Error(`dist/register/index.js missing — run \`bun run build\` first (${registerDist})`);
+      throw new Error(`dist/register/index.js missing, run \`bun run build\` first (${registerDist})`);
     }
     fixtureDir = mkdtempSync(join(tmpdir(), 'pyric-net-guard-'));
     writeFileSync(
@@ -511,7 +559,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const { port } = server.address();
 const res = await fetch('http://127.0.0.1:' + port + '/ping');
 assert.strictEqual(await res.text(), 'pong');
-// http.request goes through the net.connect backstop — it must be untouched.
+// http.request goes through the net.connect backstop and must be untouched.
 const { request } = await import('node:http');
 const raw = await new Promise((resolve, reject) => {
   const req = request({ host: '127.0.0.1', port, path: '/raw' }, (r) => {
@@ -529,9 +577,42 @@ console.log('LOCAL_OK');
 `,
     );
 
-    // 2. Block mode against a real catalog host: the fetch must fail with the
-    //    GUARD's cause, never DNS/ENOTFOUND — proof the guard, not the network,
-    //    stopped it.
+    // 2. A plain `http.request` (no undici, no fetch) to the metadata IP.
+    //    This is the egress that escaped the guard while the dispatcher was
+    //    materialized first: `_http_agent` had already copied the unpatched
+    //    `net.createConnection` onto `http.Agent.prototype`.
+    writeFileSync(
+      join(fixtureDir, 'metadata.mjs'),
+      `import { request } from 'node:http';
+const started = Date.now();
+let err;
+try {
+  await new Promise((resolve, reject) => {
+    const req = request(
+      { host: '169.254.169.254', port: 80, path: '/computeMetadata/v1/', timeout: 4000 },
+      (res) => { res.resume(); resolve(); },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+} catch (e) {
+  err = e;
+}
+console.log(JSON.stringify({
+  code: err?.code ?? null,
+  message: err?.message ?? null,
+  elapsed: Date.now() - started,
+}));
+`,
+    );
+
+    // 3. A preload that loads `node:http` BEFORE the register module runs, so
+    //    the Agent prototype's snapshot is taken from the unpatched `net`.
+    writeFileSync(join(fixtureDir, 'preload-http.mjs'), `import 'node:http';\n`);
+
+    // 4. Block mode against a real catalog host: the fetch must fail with the
+    //    GUARD's cause, never DNS/ENOTFOUND. That is proof the guard, not the
+    //    network, stopped it.
     writeFileSync(
       join(fixtureDir, 'blocked.mjs'),
       `let err;
@@ -604,6 +685,34 @@ console.log(JSON.stringify(err === undefined ? { rejected: false, causeCode: nul
     const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
     expect(seen.causeCode).not.toBe(GUARD_BLOCKED_CODE);
   });
+
+  it('refuses a plain http.request to the metadata server before it connects', () => {
+    const res = runNode('metadata.mjs', {
+      PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000',
+      PYRIC_GUARD: 'block',
+    });
+    expect(res.status).toBe(0);
+    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
+    expect(seen.code).toBe(GUARD_BLOCKED_CODE);
+    expect(seen.message).toContain('169.254.169.254');
+    // Refused at the call, not after a connect attempt timed out.
+    expect(seen.elapsed as number).toBeLessThan(2_000);
+    expect(res.stderr).toContain('net-guard BLOCK 169.254.169.254');
+    expect(res.stderr).toContain('via socket');
+  }, 30_000);
+
+  it('still intercepts http.request when node:http loaded before the guard', () => {
+    const res = runNode(
+      'metadata.mjs',
+      { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', PYRIC_GUARD: 'block' },
+      'preload-http.mjs',
+    );
+    expect(res.status).toBe(0);
+    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
+    expect(seen.code).toBe(GUARD_BLOCKED_CODE);
+    expect(seen.elapsed as number).toBeLessThan(2_000);
+    expect(res.stderr).toContain('net-guard BLOCK 169.254.169.254');
+  }, 30_000);
 
   it('stays inert without PYRIC_SANDBOX', () => {
     const res = runNode('local.mjs', { PYRIC_GUARD: 'block' });

@@ -227,11 +227,17 @@ export async function collectBody(
   if (req.method === 'GET' || req.method === 'DELETE') return undefined;
   return await new Promise<unknown>((resolve, reject) => {
     let raw = '';
+    let overLimit = false;
     req.setEncoding('utf8');
     req.on('data', (chunk) => {
+      // Past the limit the rest of the upload is read and discarded rather
+      // than the socket being destroyed. Destroying resets the connection, so
+      // the caller's 413 would never reach the client.
+      if (overLimit) return;
       raw += chunk;
       if (limitBytes === undefined || Buffer.byteLength(raw) <= limitBytes) return;
-      req.destroy();
+      overLimit = true;
+      raw = '';
       reject(Object.assign(new Error('request body too large'), { code: BODY_TOO_LARGE_CODE }));
     });
     req.on('end', () => {

@@ -52,8 +52,8 @@ function runNode(
   return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
 }
 
-/** Same launch, non-blocking — required whenever this process must SERVE the
- *  child while it runs (the beacon POST). */
+/** Same launch, non-blocking. Required whenever this process must SERVE the
+ *  child while it runs, as the beacon POST needs. */
 function runNodeAsync(
   script: string,
   env: Record<string, string | undefined>,
@@ -248,16 +248,16 @@ console.log(JSON.stringify({
   writeFileSync(join(fixtureDir, 'probe.mjs'), probeSource);
   writeFileSync(join(inactiveFixtureDir, 'probe.mjs'), probeSource);
 
-  // Beacon fixture (TA.4-A): touches nothing, just lingers long enough for
-  // the fire-and-forget POST to land before the process exits.
+  // Beacon fixture: touches nothing, just lingers long enough for the
+  // fire-and-forget POST to land before the process exits.
   const beaconSource = `await new Promise((r) => setTimeout(r, 1200));
 console.log('BEACON_FIXTURE_OK');
 `;
   writeFileSync(join(fixtureDir, 'beacon.mjs'), beaconSource);
   writeFileSync(join(inactiveFixtureDir, 'beacon.mjs'), beaconSource);
 
-  // A plain CJS entry point with NO Next.js anywhere in sight — the
-  // entry-point-agnostic production refusal (TA.4-C) has to hold here too.
+  // A plain CJS entry point with NO Next.js anywhere in sight: the
+  // entry-point-agnostic production refusal has to hold here too.
   writeFileSync(
     join(inactiveFixtureDir, 'plain.cjs'),
     `console.log('PLAIN_CJS_OK:' + (globalThis[Symbol.for('pyric.remote.sandboxFactory')] === undefined));
@@ -357,12 +357,12 @@ describe('@pyric/cli/register (child process)', () => {
   });
 
   /**
-   * TA.4-C — the NODE_ENV=production refusal is a property of the ACTIVATOR,
-   * not of any entry point: it is gated on `PYRIC_SANDBOX` alone, so it holds
-   * for a bare CJS script with no Next.js, no bundler and no framework config
-   * in the picture. The passthrough is the single existing
-   * `PYRIC_SANDBOX_FORCE=1` flag that `next/guard.ts:isProductionPassthrough`
-   * also reads — there is deliberately no second override.
+   * The NODE_ENV=production refusal is a property of the ACTIVATOR, not of any
+   * entry point: it is gated on `PYRIC_SANDBOX` alone, so it holds for a bare
+   * CJS script with no Next.js, no bundler and no framework config in the
+   * picture. The passthrough is the single existing `PYRIC_SANDBOX_FORCE=1`
+   * flag that `next/guard.ts:isProductionPassthrough` also reads. There is
+   * deliberately no second override.
    */
   it('refuses NODE_ENV=production for a plain CJS entry point too (no Next anywhere)', () => {
     const res = runNode(
@@ -383,6 +383,7 @@ describe('@pyric/cli/register (child process)', () => {
         PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000',
         NODE_ENV: 'production',
         PYRIC_SANDBOX_FORCE: '1',
+        PYRIC_DEBUG: '1',
       },
       inactiveFixtureDir,
     );
@@ -393,13 +394,19 @@ describe('@pyric/cli/register (child process)', () => {
 });
 
 /**
- * TA.4-A — the handshake beacon. Two channels: the structured stderr line
- * (always) and the POST to `/__pyric/beacon` (whenever the child env carries
- * a bridge URL). Both prove the same thing — interception is installed in
- * THIS process — so the parent can observe it without guessing.
+ * The handshake beacon. Two channels: the POST to `/__pyric/beacon` whenever
+ * the child env carries a bridge URL, and the structured stderr line when the
+ * developer asked for detail. Both prove the same thing, that interception is
+ * installed in THIS process, so the parent can observe it without guessing.
  */
 describe('@pyric/cli/register beacon (child process)', () => {
-  it('writes one structured beacon line on activation', () => {
+  it('stays quiet on the default first run: the POST is the machine channel', () => {
+    const res = runNode('beacon.mjs', { PYRIC_SANDBOX: 'local' });
+    expect(res.status).toBe(0);
+    expect(res.stderr).not.toContain('@pyric/cli/register: beacon');
+  });
+
+  it('writes one structured beacon line when PYRIC_GUARD is set explicitly', () => {
     const res = runNode('beacon.mjs', { PYRIC_SANDBOX: 'local', PYRIC_GUARD: 'block' });
     expect(res.status).toBe(0);
     const line = res.stderr.split('\n').find((l) => l.includes('@pyric/cli/register: beacon'));
@@ -408,7 +415,7 @@ describe('@pyric/cli/register beacon (child process)', () => {
     expect(line).toMatch(/pid=\d+/);
     expect(line).toContain('guard=block');
     expect(line).toContain('hooks=1');
-    // `local` carries no bridge URL — the line says so rather than guessing.
+    // `local` carries no bridge URL, so the line says so rather than guessing.
     expect(line).toContain('bridge=none');
   });
 
@@ -459,9 +466,12 @@ describe('@pyric/cli/register beacon (child process)', () => {
     }
   }, 30_000);
 
-  it('survives a bridge that refuses the beacon — the child still runs', () => {
+  it('survives a bridge that refuses the beacon, and the child still runs', () => {
     // Port 1 is reliably not listening; the POST must fail silently.
-    const res = runNode('beacon.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:1' });
+    const res = runNode('beacon.mjs', {
+      PYRIC_SANDBOX: 'remote:http://127.0.0.1:1',
+      PYRIC_DEBUG: '1',
+    });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('BEACON_FIXTURE_OK');
     expect(res.stderr).toContain('@pyric/cli/register: beacon ACTIVE');
