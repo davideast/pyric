@@ -6,6 +6,7 @@
     "init",
     "vendor",
     "mcp",
+    "call",
     "snapshot",
     "verify",
     "can-i-use",
