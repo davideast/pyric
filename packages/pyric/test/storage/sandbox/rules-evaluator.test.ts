@@ -497,7 +497,7 @@ type StorageResourceLike = { size: number; contentType?: string; metadata?: Reco
 // DENY either way (false denies too), so every distinguishing case below
 // CONSUMES the operator's result (`!(...)`, `(...) == false`).
 //
-// Absorption applies to genuine rule-evaluation errors — RuleError values
+// Absorption applies to genuine rule-evaluation errors: RuleError values
 // AND thrown RuleEvalErrors (e.g. firestore.get without a capability).
 // It must NOT apply to:
 //   - resource-limit exhaustion (the 2-lookup Firestore cap, call depth):
@@ -505,7 +505,7 @@ type StorageResourceLike = { size: number; contentType?: string; metadata?: Reco
 //   - unsupported / compile-reject constructs (undefined function, wrong
 //     arity, unresolved import): production rejects the ruleset at deploy,
 //     so no local verdict may absorb them into an allow.
-describe('evaluateStorageRules — CEL error absorption in && / ||', () => {
+describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
   const path = 'b/pyric-default/o/docs/d1.json';
 
   function evalCond(
@@ -583,7 +583,7 @@ describe('evaluateStorageRules — CEL error absorption in && / ||', () => {
   });
 
   // (f) A thrown RuleEvalError participates in absorption. With NO lookup
-  // capability injected, firestore.exists() throws — a local capability
+  // capability injected, firestore.exists() throws, a local capability
   // limitation whose production evaluation is position-local, so a
   // determining operand absorbs it exactly like a RuleError value.
   it('(f) thrown RuleEvalError absorbs: !(firestore.exists(...) && false) with no capability → ALLOW', () => {
@@ -634,7 +634,7 @@ describe('evaluateStorageRules — CEL error absorption in && / ||', () => {
 
   // Strict-boolean operands (RULES-B6, captured:
   // rules-firestore-strict-boolean-control-flow): a non-boolean &&/||
-  // operand is a TYPE ERROR — absorbable like any evaluation error, never
+  // operand is a TYPE ERROR, absorbable like any evaluation error, never
   // silently coerced truthy/falsy.
   it('non-boolean && operand is an absorbable type error: !(1 && false) → ALLOW', () => {
     expect(evalCond('!(1 && false)').allowed).toBe(true);

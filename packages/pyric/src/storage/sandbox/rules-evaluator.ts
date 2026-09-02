@@ -97,6 +97,10 @@ export function evaluateStorageRules(
             );
             continue;
           }
+          // Unverified: production's behavior for a non-boolean allow
+          // condition (a CEL type error there, rather than this truthiness
+          // coercion) has not been captured. The coercion stays as written
+          // until a production capture settles it.
           result = truthy(value);
         } catch (err) {
           // Any function-evaluation failure (undefined function, wrong
@@ -193,7 +197,7 @@ export interface EvalCtx {
  * members and invalid operations produce `RuleError` values. They propagate
  * unless a `&&`/`||` operand that uniquely determines the result absorbs
  * them COMMUTATIVELY, CEL-style (`<error> || true` → true, and
- * `<error> && false` → false — see the binary case). Any `RuleError` that
+ * `<error> && false` → false, see the binary case). Any `RuleError` that
  * reaches an allow boundary denies with its production-shaped reason.
  *
  * Function-evaluation failures throw `RuleEvalError`; at a `&&`/`||`
@@ -246,7 +250,7 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
     case 'path':
       // A path literal is only meaningful as a `firestore.get()/exists()`
       // argument (handled directly there). Reaching it anywhere else means
-      // the rule used it out of position — a compile-reject-class failure
+      // the rule used it out of position, a compile-reject-class failure
       // (never absorbed): deny rather than coerce.
       throw new RuleUnsupportedError('a Firestore path literal is only valid as an argument to firestore.get()/exists()');
     case 'unary': {
@@ -273,6 +277,10 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // An error condition denies the whole conditional; it must not fall
       // through to the alternate branch and potentially allow.
       if (isErr(c)) return c;
+      // Unverified: production's behavior for a non-boolean ternary
+      // condition (a CEL type error there, rather than this truthiness
+      // coercion) has not been captured. The coercion stays as written
+      // until a production capture settles it.
       return truthy(c) ? evalExpr(expr.then, ctx) : evalExpr(expr.else, ctx);
     }
     case 'in': {
@@ -337,36 +345,11 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
     }
     case 'binary': {
       // RULES-B3: && and || are COMMUTATIVE error-absorbing operators in
-      // CEL, not JS left-to-right short-circuit. If either operand uniquely
-      // determines the result (false for &&, true for ||), an error in the
-      // other operand is absorbed — regardless of position. So
-      // `error && false` → false and `error || true` → true, while
-      // `error && true` / `error || false` propagate the error (→ deny).
-      // Laziness is preserved in the no-error path: a determining LHS
-      // skips the RHS entirely.
-      //
-      // Operands are tri-state (true | false | error) via
-      // {@link evalLogicalOperand}: RuleError values, absorbable thrown
-      // RuleEvalErrors, and non-boolean operands (a CEL type error,
-      // RULES-B6) all become error operands; unsupported/compile-reject and
-      // resource-limit errors re-throw past absorption (budget precedent —
-      // production fails those closed evaluation-wide).
-      if (expr.op === '&&') {
-        const l = evalLogicalOperand(expr.left, ctx);
-        if (l === false) return false; // LHS determines; RHS unevaluated
-        const r = evalLogicalOperand(expr.right, ctx);
-        if (r === false) return false; // RHS false absorbs any LHS error
-        if (isErr(l)) return l;        // LHS error, RHS did not determine
-        return r;                      // LHS true → RHS's true-or-error
-      }
-      if (expr.op === '||') {
-        const l = evalLogicalOperand(expr.left, ctx);
-        if (l === true) return true;   // LHS determines; RHS unevaluated
-        const r = evalLogicalOperand(expr.right, ctx);
-        if (r === true) return true;   // RHS true absorbs any LHS error
-        if (isErr(l)) return l;        // LHS error, RHS did not determine
-        return r;                      // LHS false → RHS's false-or-error
-      }
+      // CEL, not JS left-to-right short-circuit. The two operators differ
+      // only in which operand value uniquely determines the result: false
+      // for &&, true for ||. Both are evaluated by the one helper below.
+      if (expr.op === '&&') return evalAbsorbingOperator(expr.left, expr.right, false, ctx);
+      if (expr.op === '||') return evalAbsorbingOperator(expr.left, expr.right, true, ctx);
       const l = evalExpr(expr.left, ctx);
       if (isErr(l)) return l;
       const r = evalExpr(expr.right, ctx);
@@ -405,17 +388,44 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
 }
 
 /**
+ * Evaluate one commutative error-absorbing operator, `&&` or `||`. The two
+ * differ only in `determining`, the operand value that fixes the result on
+ * its own: `false` for `&&`, `true` for `||`.
+ *
+ * If either operand evaluates to `determining`, that is the result and an
+ * error in the other operand is absorbed, whichever side it sits on. So
+ * `error && false` evaluates to false and `error || true` to true, while
+ * `error && true` and `error || false` propagate the error and deny.
+ * Laziness is preserved in the no-error path: a determining left operand
+ * skips the right one entirely.
+ */
+function evalAbsorbingOperator(
+  left: Expr,
+  right: Expr,
+  determining: boolean,
+  ctx: EvalCtx,
+): boolean | RuleError {
+  const l = evalLogicalOperand(left, ctx);
+  if (l === determining) return determining; // left determines; right unevaluated
+  const r = evalLogicalOperand(right, ctx);
+  if (r === determining) return determining; // right determines and absorbs any left error
+  if (isErr(l)) return l;                    // left errored and nothing determined
+  return r;                                  // left was non-determining; right decides
+}
+
+/**
  * Evaluate one `&&`/`||` operand tri-state: `true`, `false`, or a
  * {@link RuleError} value the operator may absorb commutatively.
  *
- *   - A thrown ABSORBABLE {@link RuleEvalError} (e.g. `firestore.get()`
- *     without an injected capability, `!` on an error) is converted to an
- *     error VALUE here so a determining sibling operand can absorb it —
- *     production evaluates these positions to a position-local error.
- *   - {@link RuleUnsupportedError} (compile-reject / unmodelable) and
+ *   - A thrown ABSORBABLE {@link RuleEvalError} (for example
+ *     `firestore.get()` without an injected capability, or `!` on an error)
+ *     is converted to an error VALUE here so a determining sibling operand
+ *     can absorb it: production evaluates these positions to a
+ *     position-local error.
+ *   - {@link RuleUnsupportedError} (compile-reject or unmodelable) and
  *     {@link RuleResourceLimitError} (lookup cap, call depth) re-throw:
  *     production fails those closed for the WHOLE evaluation, so no
- *     determining operand may rescue them (LookupBudgetError precedent).
+ *     determining operand may rescue them (the lookup-budget precedent).
  *   - A non-boolean, non-error operand is a CEL TYPE error (RULES-B6,
  *     captured by rules-firestore-strict-boolean-control-flow): it becomes
  *     an absorbable error value, never a truthy/falsy coercion.

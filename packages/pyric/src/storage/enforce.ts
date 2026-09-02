@@ -166,7 +166,7 @@ function emitOperation(
  * `crossServiceIam: 'denied'` models the production project state WITHOUT
  * `roles/firebaserules.firestoreServiceAgent` on the Storage service agent:
  * the lookup capability is still injected (so path validation and laziness
- * behave identically), but every EXECUTED get/exists fails — see
+ * behave identically), but every EXECUTED get/exists fails. See
  * {@link crossServiceIamDeniedLookup}.
  */
 function firestoreLookupFor(
@@ -185,7 +185,7 @@ function firestoreLookupFor(
 /**
  * The `crossServiceIam: 'denied'` lookup: every executed
  * `firestore.get()/exists()` throws a {@link RuleEvalError} naming the
- * missing service-agent role, so the rule denies with that reason —
+ * missing service-agent role, so the rule denies with that reason,
  * mirroring production's IAM-disabled boundary captured by conformance
  * observation `stdlib-realstorage-p3-lookup-budget` (row storage-rules#134):
  * every lookup-executing family DENIES while a short-circuited lookup is
@@ -198,12 +198,12 @@ function firestoreLookupFor(
  * Exported for the conformance replay test
  * (`packages/conformance/test/src/storage-stdlib-real-replay.test.ts`),
  * which runs the captured IAM-disabled matrix against the evaluator with
- * THIS production lookup — not a hand-rolled twin.
+ * THIS production lookup, not a hand-rolled twin.
  */
 export function crossServiceIamDeniedLookup(): FirestoreLookup {
   const fail = (method: 'get' | 'exists'): never => {
     throw new RuleEvalError(
-      `firestore.${method}() failed: cross-service Firestore access is not authorized — ` +
+      `firestore.${method}() failed: cross-service Firestore access is not authorized: ` +
         "the Storage service agent lacks roles/firebaserules.firestoreServiceAgent (crossServiceIam: 'denied')",
     );
   };

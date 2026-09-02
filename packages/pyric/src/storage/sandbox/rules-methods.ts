@@ -91,7 +91,7 @@ export function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx:
   }
 
   // An unknown method name is either unmodeled here or rejected by
-  // production's compiler — its verdict is unknowable locally, so it is
+  // production's compiler. Its verdict is unknowable locally, so it is
   // unabsorbable (fails closed even under a determining &&/|| operand).
   throw new RuleUnsupportedError(`unsupported method .${expr.method}()`);
 }
@@ -118,7 +118,7 @@ function evalFirestoreBuiltin(
   ctx: EvalCtx,
 ): unknown {
   if (expr.method !== 'get' && expr.method !== 'exists') {
-    // Unknown namespace method — compile-reject class, never absorbed.
+    // Unknown namespace method, compile-reject class, never absorbed.
     throw new RuleUnsupportedError(`unsupported method firestore.${expr.method}()`);
   }
   if (!ctx.firestoreLookup) {
@@ -129,7 +129,7 @@ function evalFirestoreBuiltin(
     );
   }
   if (expr.args.length !== 1) {
-    // Wrong call shape — production rejects at compile; never absorbed.
+    // Wrong call shape: production rejects at compile; never absorbed.
     throw new RuleUnsupportedError(`firestore.${expr.method}() expects a single path argument`);
   }
   const arg = expr.args[0];
@@ -139,9 +139,9 @@ function evalFirestoreBuiltin(
   const docPath = buildFirestoreDocPath(arg, ctx);
   if (!ctx.firestoreAccesses.has(docPath)) {
     if (ctx.firestoreAccesses.size >= 2) {
-      // Resource-limit class (T2.1 budget precedent): production fails the
-      // whole evaluation closed — a determining &&/|| operand must NOT
-      // absorb this into an allow.
+      // Resource-limit class, the same posture as the Firestore lookup
+      // budget: production fails the whole evaluation closed, so a
+      // determining &&/|| operand must NOT absorb this into an allow.
       throw new RuleResourceLimitError('firestore access limit exceeded: at most two distinct documents');
     }
     ctx.firestoreAccesses.add(docPath);
@@ -153,7 +153,7 @@ function evalFirestoreBuiltin(
   if (fields === null) {
     // A missing get is a Rules error VALUE: it denies at the allow boundary,
     // but participates in COMMUTATIVE CEL error absorption in `&&`/`||`
-    // (`error || true` allows, and `error && false` evaluates to false —
+    // (`error || true` allows, and `error && false` evaluates to false,
     // see the tri-state operand handling in rules-evaluator.ts).
     return new RuleError(`firestore.get() targeted a nonexistent document: ${docPath}`);
   }
