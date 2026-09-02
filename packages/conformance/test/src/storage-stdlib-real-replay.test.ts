@@ -120,7 +120,7 @@ describe('real-resource Storage stdlib observation replay', () => {
     // `roles/firebaserules.firestoreServiceAgent` grant REMOVED: every
     // lookup-executing family DENIES and the short-circuited family still
     // ALLOWS. The local twin is the EXACT production denied-mode lookup
-    // (`crossServiceIamDeniedLookup` — what `enforce.ts` injects for
+    // (`crossServiceIamDeniedLookup`, what `enforce.ts` injects for
     // `crossServiceIam: 'denied'`), not a hand-rolled stand-in.
     const observed = behavior('stdlib-realstorage-p3-lookup-budget');
     const families = ['one', 'two', 'three', 'repeat', 'get-exists', 'short', 'missing-exists', 'missing-get'];

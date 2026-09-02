@@ -1,12 +1,13 @@
 /**
- * ─── Scenario: error-absorption-and-or ───────────────────────────────────────
+ * ─── Scenario: error-absorption-and-direction ────────────────────────────────
  * CEL's && is a COMMUTATIVE error-absorbing operator in Storage rules, same as
  * the captured Firestore truth (RULES-B3): `error && false` evaluates cleanly
- * to false — the determining operand absorbs the error — while `error && true`
- * propagates the error → DENY. Top-level `error && false` denies either way,
- * so every distinguishing case CONSUMES the absorbed result (negation or ==)
- * to separate clean-false from error. The && direction was never captured for
- * Storage before this scenario (row #119 pins only `error || true`).
+ * to false, because the determining operand absorbs the error, while
+ * `error && true` propagates the error and denies. Top-level `error && false`
+ * denies either way, so every distinguishing case CONSUMES the absorbed result
+ * (negation or ==) to separate clean-false from error. The && direction was
+ * never captured for Storage before this scenario (row #119 pins only
+ * `error || true`).
  * Error generator: division by zero, per the ternary-and-error-absorption idiom.
  */
 import type { StorageScenarioRecord } from './types.ts';

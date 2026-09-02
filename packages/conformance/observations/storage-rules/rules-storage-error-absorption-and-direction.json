@@ -4,7 +4,7 @@
   "rowIds": [
     "storage-rules#133"
   ],
-  "description": "Storage Rules Test API verdicts for corpus scenario \"error-absorption-and-or\" (STORAGE-P4-ERROR-ABSORPTION). Storage && absorbs commutatively like Firestore: !(error && false) allows; (error && false) == false allows; error && true and true && error propagate to DENY.",
+  "description": "Storage Rules Test API verdicts for corpus scenario \"error-absorption-and-direction\" (STORAGE-P4-ERROR-ABSORPTION). Storage && absorbs commutatively like Firestore: !(error && false) allows; (error && false) == false allows; error && true and true && error propagate to DENY.",
   "observedAt": "2026-09-01T05:01:30.031Z",
   "fbSdkVersion": "12.13.0",
   "projectId": "digame-mas",

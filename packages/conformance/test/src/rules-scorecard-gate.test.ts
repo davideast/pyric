@@ -20,8 +20,9 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).toContain('--- Firestore Rules Breakdown ---');
     expect(out).toContain('--- Storage Rules Breakdown ---');
     expect(out).toContain('--- RTDB Rules Breakdown ---');
-    // debug() flipped to conformant (d1aec0b4); Firestore's breakdown now lists
-    // only its three unprobeable resource-limit/semantic constructs.
+    // The linter and evaluator now reject debug() the way production does,
+    // so the construct is conformant and no longer an acceptance mismatch.
+    // Firestore's breakdown lists only its three unprobeable constructs.
     expect(out).not.toContain('acceptance-mismatch] firestore.function.debug');
     expect(out).toContain('[unprobeable] firestore.semantic.get-budget');
     expect(out).toContain('[diverged] storage.function.firestore.get');
