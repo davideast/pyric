@@ -22,7 +22,8 @@ import {
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
-import { formatAiStatusLine, type InitPayload } from '../serve/namespace.js';
+import type { InitPayload } from '../serve/namespace.js';
+import { formatAiStatusLine } from '../serve/ai-status.js';
 import { injectServeTags } from '../serve/html-injection.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';

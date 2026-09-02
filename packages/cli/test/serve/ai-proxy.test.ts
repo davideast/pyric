@@ -15,7 +15,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPyricNamespace, formatAiProxyWarning } from '../../src/serve/namespace.js';
+import { createPyricNamespace } from '../../src/serve/namespace.js';
+import { formatAiProxyWarning } from '../../src/serve/ai-proxy.js';
 import { silentServeLogger, startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 
 function fixture() {

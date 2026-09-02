@@ -18,11 +18,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
-import {
-  AI_PROXY_DEFAULT_UPSTREAM,
-  formatAiStatusLine,
-  formatAiStatusNote,
-} from '../../src/serve/namespace.js';
+import { AI_PROXY_DEFAULT_UPSTREAM } from '../../src/serve/ai-proxy.js';
+import { formatAiStatusLine, formatAiStatusNote } from '../../src/serve/ai-status.js';
 import type { ServeLogger } from '../../src/serve/server.js';
 
 function project(): string {

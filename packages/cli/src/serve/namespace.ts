@@ -20,8 +20,9 @@ import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
 import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
-import type { AiEngineConfigWire } from './worker/protocol.js';
 import { handleActivity } from './activity-route.js';
+import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
+import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
 import { createSiteTreeHandler } from './site-tree.js';
 export type { InitPayload } from './init-payload.js';
 
@@ -125,402 +126,6 @@ export interface NamespaceOptions {
    *  are dropped (a caller that wires no logger opts out silently rather than
    *  falling back to raw `console`). */
   logger?: ServeLogger;
-}
-
-// ─── AI proxy (`/__pyric/ai-proxy` — pyric/ai, cdd-deltas #98.2) ───────────
-
-/** Default upstream: local Ollama's OpenAI-compatible endpoint. */
-export const AI_PROXY_DEFAULT_UPSTREAM = 'http://localhost:11434/v1';
-
-/**
- * Request headers that must NOT be forwarded upstream: origin-sensitive
- * browser context (`origin`/`referer`/`cookie` — the upstream is a different
- * origin and must never see the page's), hop-by-hop headers, and the two the
- * proxy re-derives (`host`, `content-length`). `accept-encoding` is dropped
- * so fetch negotiates its own compression and the streamed body needs no
- * length fixups.
- */
-const AI_PROXY_STRIPPED_HEADERS = new Set([
-  'host',
-  'origin',
-  'referer',
-  'cookie',
-  'connection',
-  'content-length',
-  'accept-encoding',
-  'keep-alive',
-  'proxy-authorization',
-  'te',
-  'trailer',
-  'transfer-encoding',
-  'upgrade',
-]);
-
-/**
- * Credential-bearing query-string params masked before an upstream URL (or a
- * raw fetch error embedding one) reaches the terminal.
- *
- * Replicated — deliberately, not imported — from `redactUrl` in
- * `packages/pyric/src/ai/broker/synthesizer.ts`: that helper is internal to
- * the broker (re-exported only from `ai/broker/index.ts`) and `pyric`'s
- * package `exports` map publishes no subpath that reaches it, so the CLI
- * cannot import it across the package boundary. Keep the two in sync.
- */
-const AI_PROXY_SENSITIVE_URL_PARAM = /([?&](?:key|apiKey|api_key|access_token)=)[^&\s]*/gi;
-
-/** Mask credential VALUES, keeping host + path readable for diagnosis. */
-function redactProxyUrl(text: string): string {
-  return text.replace(AI_PROXY_SENSITIVE_URL_PARAM, '$1***');
-}
-
-/**
- * Flatten an upstream-authored string into ONE terminal-safe line.
- *
- * Broker rejection reasons are production's own messages, and several are
- * multi-line (`ai-error-empty-contents` is a bulleted list) — pasted verbatim
- * they shred the indented block into fragments. Control/bidi characters get
- * dropped for the same reason `activity-warning.ts` drops them: the text can
- * originate from a remote model server, and the terminal is not a sandbox.
- */
-function terminalReason(text: string): string {
-  return text
-    .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** The upstream-failure shapes the proxy surfaces to the terminal. */
-type AiProxyFailure =
-  | { kind: 'unreachable'; target: string; latencyMs: number; cause: string }
-  | {
-      kind: 'status';
-      target: string;
-      latencyMs: number;
-      status: number;
-      /** The upstream's raw `Retry-After` header, when it sent one. */
-      retryAfter?: string;
-    }
-  | { kind: 'stream-abort'; target: string; latencyMs: number; cause: string };
-
-/** Longest `Retry-After` value echoed to the terminal (delta-seconds and
- *  HTTP-dates are both far shorter; anything longer is upstream noise). */
-const AI_PROXY_RETRY_AFTER_MAX = 64;
-
-/**
- * Render a `Retry-After` value for the terminal, or `null` when there is
- * nothing worth printing.
- *
- * The header is remote-authored — sanitized and length-capped like every other
- * upstream string that reaches the terminal. Delta-seconds (the common form)
- * get an `s` suffix so the wait reads as a duration; the HTTP-date form is
- * echoed verbatim, since `Wed, 21 Oct 2026 07:28:00 GMTs` would be nonsense.
- */
-function formatRetryAfter(raw: string): string | null {
-  const clean = terminalReason(raw).slice(0, AI_PROXY_RETRY_AFTER_MAX).trim();
-  if (clean === '') return null;
-  return /^\d+$/.test(clean) ? `${clean}s` : clean;
-}
-
-/**
- * Format an upstream failure into the compact terminal block — the same
- * `  ⚠ [pyric] …` idiom the denial relay prints, so ai-proxy trouble reads
- * like every other dev-server diagnostic. Two lines: what went wrong, then
- * the (redacted) upstream URL with the elapsed time. Exported for unit tests.
- *
- * A 429 says so in words (`rate limited`): the bare number reads as one more
- * failed request, when it actually means the upstream is shedding load or the
- * key is out of quota. When the upstream sent a `Retry-After`, a third line
- * prints the wait it asked for — and states that NOTHING here waits on the
- * developer's behalf. The proxy has no retry loop (the status rides straight
- * through to the caller), so the backoff is the app's decision, not pyric's.
- */
-export function formatAiProxyWarning(failure: AiProxyFailure): string {
-  const target = redactProxyUrl(failure.target);
-  let headline: string;
-  if (failure.kind === 'unreachable') {
-    headline = `upstream unreachable: ${redactProxyUrl(failure.cause)}`;
-  } else if (failure.kind === 'status') {
-    const rateLimited = failure.status === 429;
-    headline = `upstream returned ${failure.status}${rateLimited ? ' (rate limited / quota exhausted)' : ''}`;
-  } else {
-    headline = `upstream stream aborted mid-response: ${redactProxyUrl(failure.cause)}`;
-  }
-  const lines = [
-    `  ⚠ [pyric] ai-proxy: ${headline}`,
-    `      POST ${target} (${failure.latencyMs}ms)`,
-  ];
-  if (failure.kind === 'unreachable') {
-    lines.push(
-      `      set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL (default ${AI_PROXY_DEFAULT_UPSTREAM})`,
-    );
-  }
-  if (failure.kind === 'status' && failure.retryAfter !== undefined) {
-    const wait = formatRetryAfter(failure.retryAfter);
-    if (wait !== null) {
-      lines.push(`      Retry-After: ${wait} — no automatic retry; the status went to the caller`);
-    }
-  }
-  return lines.join('\n');
-}
-
-// ─── AI startup status (the boot banner's `ai` line) ───────────────────────
-
-/** The route the dev server mounts for OpenAI-compatible traffic. */
-const AI_PROXY_ROUTE = '/__pyric/ai-proxy';
-
-/** Where the gemini engine talks when no `baseUrl` overrides it (mirrors
- *  `DEFAULT_BASE_URL` in `pyric/ai`'s gemini-engine — same cross-package
- *  boundary that forces {@link redactProxyUrl} to be replicated). */
-const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
-
-/**
- * Resolve the upstream `/__pyric/ai-proxy` forwards to, and say WHERE that
- * value came from. One resolution shared by the proxy handler (which needs
- * the target) and the startup line (which needs the provenance, so a
- * developer can tell a deliberate `PYRIC_AI_PROXY_UPSTREAM` from the Ollama
- * default nobody chose).
- */
-function resolveAiProxyUpstream(
-  configured: string | undefined,
-): { target: string; source: 'option' | 'env' | 'default' } {
-  const envUpstream = process.env.PYRIC_AI_PROXY_UPSTREAM;
-  let raw = AI_PROXY_DEFAULT_UPSTREAM;
-  let source: 'option' | 'env' | 'default' = 'default';
-  if (configured !== undefined) {
-    raw = configured;
-    source = 'option';
-  } else if (envUpstream !== undefined) {
-    raw = envUpstream;
-    source = 'env';
-  }
-  return { target: raw.replace(/\/$/, ''), source };
-}
-
-/**
- * What the dev server itself knows about AI by the time it finishes booting.
- *
- * Everything here is resolved SYNCHRONOUSLY at bootstrap — the plugin's
- * `ai.engine`/`ai.model` (already reduced to the worker wire shape) and the
- * proxy upstream. Nothing in this shape forces a broker, a page, or an
- * upstream connection into existence just to be reported: the engine is
- * instantiated lazily, on the first `ai.*` op, in the page or the worker.
- */
-export interface AiStartupStatus {
-  /** Engine resolved by the dev server (the Vite plugin's `ai.engine` /
-   *  `ai.model`). Absent ⇒ nothing server-side: the served page's own
-   *  `getAI(...)` chooses the engine at runtime, and the server cannot know
-   *  which (there is no CLI surface for it under `pyric dev`). */
-  engine?: AiEngineConfigWire;
-  /** `ai.mode` — `production` passes through to Google AI instead of mirroring. */
-  mode?: 'sandbox' | 'production';
-  /** Configured OpenAI-compatible upstream (`ai.proxyUpstream`). Absent falls
-   *  back to `PYRIC_AI_PROXY_UPSTREAM`, then the local-Ollama default. */
-  proxyUpstream?: string;
-}
-
-/** Mark + body for one AI status line, in both terminal flavors. */
-function describeAiStatus(status: AiStartupStatus): { mark: string; body: string } {
-  const upstream = resolveAiProxyUpstream(status.proxyUpstream);
-  let provenance = '';
-  if (upstream.source === 'default') provenance = ' (default)';
-  else if (upstream.source === 'env') provenance = ' (PYRIC_AI_PROXY_UPSTREAM)';
-  const proxyChain = `${AI_PROXY_ROUTE} → ${redactProxyUrl(upstream.target)}${provenance}`;
-
-  const engine = status.engine;
-  if (engine === undefined) {
-    // Visible absence, the `• rules    no firestore.rules …` idiom: AI silence
-    // used to be indistinguishable from AI-not-wired-up.
-    return {
-      mark: '•',
-      body: `no engine configured — the served page's getAI() picks one; ${proxyChain}`,
-    };
-  }
-  if (engine.kind === 'openai') {
-    const model = engine.model === undefined
-      ? 'no model pinned'
-      : `model ${terminalReason(engine.model)}`;
-    const baseUrl = engine.baseUrl ?? AI_PROXY_ROUTE;
-    const endpoint = baseUrl === AI_PROXY_ROUTE
-      ? proxyChain
-      : `${redactProxyUrl(baseUrl)} (direct — bypasses ${AI_PROXY_ROUTE})`;
-    return { mark: '✔', body: `openai (${model}) → ${endpoint}` };
-  }
-  if (engine.kind === 'gemini') {
-    const passthrough = status.mode === 'production' ? 'production passthrough, ' : '';
-    const hasKey = engine.apiKey !== undefined && engine.apiKey !== '';
-    const key = hasKey ? 'API key set' : 'no API key — set GEMINI_API_KEY';
-    const endpoint = engine.baseUrl === undefined
-      ? GEMINI_DEFAULT_BASE_URL
-      : redactProxyUrl(engine.baseUrl);
-    return { mark: '✔', body: `gemini (${passthrough}${key}) → ${endpoint}` };
-  }
-  const responses = engine.script?.length ?? 0;
-  return { mark: '✔', body: `scripted (${responses} canned response(s), no network)` };
-}
-
-/**
- * The banner line for `pyric dev`'s aligned status column (`✔ hosting  …`).
- * AI is the only live service that used to boot silently: hosting, sandbox
- * bundles, rules, Studio, the bridge and persistence all announce themselves,
- * so "nothing about AI" read as "AI isn't part of this server" rather than
- * "AI is here, unconfigured". Exported for unit tests.
- */
-export function formatAiStatusLine(status: AiStartupStatus): string {
-  const { mark, body } = describeAiStatus(status);
-  return `${mark} ai       ${body}`;
-}
-
-/**
- * The same report in the Vite dev server's flavor (`  ✔ [pyric] …`, the idiom
- * `vite-functions-development.ts` prints). Same content, so the two dev-server
- * front doors never disagree about what AI resolved to.
- */
-export function formatAiStatusNote(status: AiStartupStatus): string {
-  const { mark, body } = describeAiStatus(status);
-  return `  ${mark} [pyric] ai: ${body}`;
-}
-
-/**
- * Handle `POST /__pyric/ai-proxy/<suffix>` — a same-origin passthrough to the
- * configured OpenAI-compatible upstream, so the browser openai engine
- * (running in the served page or the SharedWorker host) reaches a localhost
- * upstream like Ollama with ZERO CORS setup (no `OLLAMA_ORIGINS`, ever).
- *
- * Behavior:
- *   - POST only (the OpenAI chat-completions surface is POST); 405 otherwise.
- *   - the path suffix + query ride through verbatim
- *     (`/__pyric/ai-proxy/chat/completions` → `<upstream>/chat/completions`).
- *   - the request body is forwarded verbatim; headers minus the
- *     origin-sensitive/hop-by-hop set above (`authorization` DOES forward —
- *     upstreams may require a key).
- *   - the response body is STREAMED through chunk-by-chunk — SSE passthrough
- *     must never buffer, or `stream: true` completions would arrive all at
- *     once at the end.
- *   - an unreachable upstream answers 502 with a plain-text explanation.
- *   - every upstream failure (unreachable/timeout, non-2xx status, mid-stream
- *     abort) ALSO prints a structured warning on the dev server's terminal
- *     logger — a stopped Ollama used to fail in total silence. Diagnostics
- *     only: nothing here changes what the caller receives. No logger wired ⇒
- *     dropped silently (same opt-out contract as the denial relay).
- */
-async function handleAiProxy(
-  configuredUpstream: string | undefined,
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-  logger?: ServeLogger,
-): Promise<void> {
-  if (req.method !== 'POST') {
-    res.writeHead(405, { allow: 'POST' }).end('method not allowed');
-    return;
-  }
-  const upstreamBase = resolveAiProxyUpstream(configuredUpstream).target;
-  const suffix = url.pathname.slice(AI_PROXY_ROUTE.length);
-  const target = `${upstreamBase}${suffix}${url.search}`;
-
-  // Buffer the REQUEST body (small JSON payloads); the RESPONSE streams.
-  const raw = await new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-  // Copy into a plain-ArrayBuffer view — fetch's BodyInit typing rejects
-  // Buffer's ArrayBufferLike backing.
-  const body = new Uint8Array(raw.byteLength);
-  body.set(raw);
-
-  const headers: Record<string, string> = {};
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value === undefined) continue;
-    if (AI_PROXY_STRIPPED_HEADERS.has(key.toLowerCase())) continue;
-    headers[key] = Array.isArray(value) ? value.join(', ') : value;
-  }
-
-  const startedAt = Date.now();
-  let upstream: Response;
-  try {
-    upstream = await fetch(target, { method: 'POST', headers, body });
-  } catch (e) {
-    logger?.note(
-      formatAiProxyWarning({
-        kind: 'unreachable',
-        target,
-        latencyMs: Date.now() - startedAt,
-        cause: e instanceof Error ? e.message : String(e),
-      }),
-    );
-    res.writeHead(502, { 'content-type': 'text/plain' });
-    res.end(
-      `pyric dev ai-proxy: upstream ${target} unreachable: ` +
-        `${e instanceof Error ? e.message : String(e)}\n` +
-        'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
-        `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
-    );
-    return;
-  }
-
-  // A refusal from a reachable upstream (bad model, missing key, rate limit)
-  // is just as invisible to a headless developer as a dead socket — the
-  // status rides through to the caller untouched, and is ALSO announced here.
-  // `Retry-After` rides along when the upstream sent one (429s and 503s carry
-  // it): it is the only place the requested backoff appears, since nothing in
-  // this path retries or sleeps.
-  if (!upstream.ok) {
-    const retryAfter = upstream.headers.get('retry-after');
-    logger?.note(
-      formatAiProxyWarning({
-        kind: 'status',
-        target,
-        latencyMs: Date.now() - startedAt,
-        status: upstream.status,
-        ...(retryAfter === null ? {} : { retryAfter }),
-      }),
-    );
-  }
-
-  const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
-  const contentType = upstream.headers.get('content-type');
-  if (contentType) responseHeaders['content-type'] = contentType;
-  res.writeHead(upstream.status, responseHeaders);
-  if (!upstream.body) {
-    res.end();
-    return;
-  }
-  (res as ServerResponse & { flushHeaders?: () => void }).flushHeaders?.();
-
-  // Chunk-by-chunk passthrough. A dropped client cancels the upstream read
-  // so an abandoned SSE stream doesn't keep the upstream generating.
-  const reader = upstream.body.getReader();
-  let clientGone = false;
-  res.on('close', () => {
-    clientGone = true;
-    void reader.cancel().catch(() => {});
-  });
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(value);
-    }
-  } catch (e) {
-    // Nothing to salvage for the caller — the response is already committed
-    // with the upstream's status, so a truncated body is all it gets. But a
-    // half-delivered completion is exactly the failure that used to vanish:
-    // announce it, unless the CLIENT is the one who walked away (a closed tab
-    // cancelling an SSE stream is normal, not a fault worth a warning).
-    if (!clientGone) {
-      logger?.note(
-        formatAiProxyWarning({
-          kind: 'stream-abort',
-          target,
-          latencyMs: Date.now() - startedAt,
-          cause: e instanceof Error ? e.message : String(e),
-        }),
-      );
-    }
-  }
-  res.end();
 }
 
 /** The page's persistence backend speaks this route:
@@ -662,15 +267,17 @@ async function handleCapture(
 // An agent driving `pyric dev` headlessly has no browser console to watch;
 // this is that visibility, printed to the terminal instead.
 //
-// The route carries the AI broker's refusal shapes on the same channel,
-// relayed by `serve/ai-rejection-relay.ts` off the sandbox event stream:
-// `request_rejected` (a malformed request) and `response_blocked` (a safety /
-// recitation filter withheld the answer). Same category ("the sandbox refused
-// your operation"), same terminal treatment, same throttle — so they ride
-// here rather than opening parallel diagnostics channels. `model_substituted`
-// (an engine answered as a model the code never named) rides along too: not a
-// refusal, but the same "the sandbox quietly did something else" category.
-// The payload's `kind` discriminates the four.
+// The route carries the AI broker's diagnostics on the same channel, relayed
+// by `serve/ai-diagnostics-relay.ts` off the sandbox event stream:
+// `request_rejected` (a malformed request) and `response_blocked` (a safety
+// or recitation filter withheld the answer). Same category ("the sandbox
+// refused your operation"), same terminal treatment, same throttle, so they
+// ride here rather than opening parallel diagnostics channels.
+// `model_substituted` (an engine answered as a model the code never named)
+// rides along too: not a refusal, but the same "the sandbox quietly did
+// something else" category. The payload's `kind` discriminates the four, and
+// `ai-terminal-blocks.ts` holds one record per AI kind so this route
+// dispatches through a table instead of a cascade.
 //
 // A denied listener re-fires on every auth/rules change, so printing is
 // throttled per (path, message) pair — at most one line per window, and
@@ -694,62 +301,6 @@ interface DenialRelayPayload {
     /** Fallback position, in case a denial path nests it in the context. */
     remediation?: string;
   } | null;
-}
-
-/** Loosely-typed mirror of the AI rejection relay payload POSTed by
- *  `serve/ai-rejection-relay.ts` (the wire shape lives there). Same
- *  read-defensively contract as {@link DenialRelayPayload}: this is JSON from
- *  the served page, and nothing here enforces it. */
-interface AiRejectionPayload {
-  /** `'ai-rejection'` — what tells this route the body is NOT a rules denial. */
-  kind?: unknown;
-  /** Model resource the rejected op targeted. */
-  model?: unknown;
-  /** Resolved broker engine (`scripted` | `openai` | `gemini` | `custom`). */
-  engine?: unknown;
-  /** Wire error status (e.g. `INVALID_ARGUMENT`) and HTTP-ish code. */
-  status?: unknown;
-  code?: unknown;
-  /** The rejection reason — production's own message for shape errors. */
-  message?: unknown;
-}
-
-/** Loosely-typed mirror of the AI blocked-response relay payload POSTed by
- *  `serve/ai-rejection-relay.ts`. Same read-defensively contract as its
- *  siblings above. Unlike a rejection this carries no `message`: a filter
- *  block has no error envelope at all (HTTP 200, empty candidate), only the
- *  wire's reason enums, so the phrasing is this file's job. */
-interface AiBlockedPayload {
-  /** `'ai-blocked'` — what tells this route the body is a filter block. */
-  kind?: unknown;
-  /** Model resource the blocked op targeted. */
-  model?: unknown;
-  /** Resolved broker engine (`scripted` | `openai` | `gemini` | `custom`). */
-  engine?: unknown;
-  /** Candidate-level block: `SAFETY`, `RECITATION`, `BLOCKLIST`, … */
-  finishReason?: unknown;
-  /** Production's own explanatory text for the block, when it sent one. */
-  finishMessage?: unknown;
-  /** Prompt-level block: `promptFeedback.blockReason`. */
-  blockReason?: unknown;
-}
-
-/** Loosely-typed mirror of the AI model-substitution relay payload POSTed by
- *  `serve/ai-rejection-relay.ts`. Same read-defensively contract as its
- *  siblings above. Not a refusal: the request SUCCEEDED, answered by a model
- *  the developer never named, which is why nothing else in the stack reports
- *  it. */
-interface AiModelSubstitutionPayload {
-  /** `'ai-model-substituted'` — what tells this route the body is a swap. */
-  kind?: unknown;
-  /** The model the request asked for. */
-  requestedModel?: unknown;
-  /** The model the engine actually calls. */
-  effectiveModel?: unknown;
-  /** Resolved broker engine (`openai` | `gemini` | …). */
-  engine?: unknown;
-  /** Why it differs — e.g. `engine modelMap`, `experimental alias`. */
-  reason?: unknown;
 }
 
 /** Per-dev-server-instance throttle: at most one printed line per (path,
@@ -788,108 +339,20 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
 }
 
 /**
- * Format a relayed AI broker rejection into the compact terminal block — the
- * same `  ⚠ [pyric] …` idiom the denial relay and the ai-proxy warning print.
- * Three lines at most: the reason production itself gives, then the model
- * (with the resolved engine — a rejection reads very differently for
- * `scripted` than for a real upstream), then the wire status. The reason can
- * quote an engine's upstream URL, so it goes through the same
- * {@link redactProxyUrl} the ai-proxy warning uses. Exported for unit tests.
+ * The throttle key separator: a NUL byte, written as an escape so the file
+ * stays greppable. It cannot occur in a Firestore path, a model id, or a
+ * rejection reason, so no (target, reason) pair can be spelled two ways.
  */
-export function formatAiRejectionBlock(payload: AiRejectionPayload): string {
-  const message = typeof payload.message === 'string' ? payload.message : 'request rejected';
-  const lines = [`  ⚠ [pyric] ai request rejected: ${terminalReason(redactProxyUrl(message))}`];
-  const model = typeof payload.model === 'string' && payload.model !== '' ? payload.model : null;
-  const engine = typeof payload.engine === 'string' ? payload.engine : null;
-  if (model !== null) {
-    const flatModel = terminalReason(redactProxyUrl(model));
-    lines.push(`      model: ${flatModel}${engine !== null ? ` (engine: ${terminalReason(engine)})` : ''}`);
-  } else if (engine !== null) {
-    lines.push(`      engine: ${terminalReason(engine)}`);
-  }
-  const status = typeof payload.status === 'string' ? payload.status : null;
-  const code = typeof payload.code === 'number' ? payload.code : null;
-  if (status !== null || code !== null) {
-    lines.push(`      ${status !== null ? terminalReason(status) : 'ERROR'}${code !== null ? ` (${code})` : ''}`);
-  }
-  return lines.join('\n');
-}
+const THROTTLE_KEY_SEPARATOR = '\x00';
 
-/**
- * Format a relayed AI filter block into the compact terminal block — the same
- * `  ⚠ [pyric] …` idiom as {@link formatAiRejectionBlock}, in the same three
- * lines: the wire's own reason, the model + resolved engine, then WHY there
- * is no content. That third line matters more here than for a rejection: a
- * block throws nothing, so the only symptom a developer sees is an empty
- * answer, and production's `finishMessage` (when it sent one) is the whole
- * explanation. Upstream-authored text goes through the same
- * {@link redactProxyUrl} / {@link terminalReason} pass. Exported for unit tests.
- */
-export function formatAiBlockedBlock(payload: AiBlockedPayload): string {
-  const finishReason = typeof payload.finishReason === 'string' ? payload.finishReason : null;
-  const blockReason = typeof payload.blockReason === 'string' ? payload.blockReason : null;
-  const reason = finishReason ?? blockReason;
-  const lines = [
-    `  ⚠ [pyric] ai response blocked: ${reason !== null ? terminalReason(reason) : 'unknown'}`,
-  ];
-  const model = typeof payload.model === 'string' && payload.model !== '' ? payload.model : null;
-  const engine = typeof payload.engine === 'string' ? payload.engine : null;
-  if (model !== null) {
-    const flatModel = terminalReason(redactProxyUrl(model));
-    lines.push(`      model: ${flatModel}${engine !== null ? ` (engine: ${terminalReason(engine)})` : ''}`);
-  } else if (engine !== null) {
-    lines.push(`      engine: ${terminalReason(engine)}`);
-  }
-  const finishMessage = typeof payload.finishMessage === 'string' && payload.finishMessage !== ''
-    ? payload.finishMessage
-    : null;
-  if (finishMessage !== null) {
-    lines.push(`      ${terminalReason(redactProxyUrl(finishMessage))}`);
-  } else if (finishReason === null && blockReason !== null) {
-    lines.push('      the prompt was blocked before generation — no candidates were returned');
-  } else {
-    lines.push('      no content was returned; text() and functionCalls() throw for this finish reason');
-  }
-  return lines.join('\n');
-}
-
-/**
- * Format a relayed AI model substitution into ONE terminal line — the same
- * `  ⚠ [pyric] …` idiom as its siblings, but a single line on purpose: there
- * is no error, no status, and no missing content to explain. The whole fact
- * IS the arrow, and the parenthetical says which engine did it and why
- * (`engine modelMap`, `experimental alias`, …). Model ids are engine- and
- * config-authored strings, so they go through the same
- * {@link redactProxyUrl} / {@link terminalReason} pass as every other
- * relayed text. Exported for unit tests.
- */
-export function formatAiModelSubstitutionBlock(payload: AiModelSubstitutionPayload): string {
-  const requested = typeof payload.requestedModel === 'string' && payload.requestedModel !== ''
-    ? terminalReason(redactProxyUrl(payload.requestedModel))
-    : 'unknown';
-  const effective = typeof payload.effectiveModel === 'string' && payload.effectiveModel !== ''
-    ? terminalReason(redactProxyUrl(payload.effectiveModel))
-    : 'unknown';
-  const engine = typeof payload.engine === 'string' && payload.engine !== ''
-    ? terminalReason(payload.engine)
-    : null;
-  const reason = typeof payload.reason === 'string' && payload.reason !== ''
-    ? terminalReason(redactProxyUrl(payload.reason))
-    : null;
-  const attribution = [engine, reason].filter((part) => part !== null);
-  const suffix = attribution.length > 0 ? ` (${attribution.join(', ')})` : '';
-  return `  ⚠ [pyric] ai model substituted: ${requested} → ${effective}${suffix}`;
-}
-
-/** Handle `POST /__pyric/denials` — a rules denial, or (discriminated by
+/** Handle `POST /__pyric/denials`: a rules denial, or (discriminated by
  *  `kind`) an AI broker rejection, blocked response, or model substitution
  *  relayed off the sandbox event stream. All four share the throttle map: an
- *  agent retry loop
- *  re-sends the SAME malformed (or filter-tripping) AI request exactly the way
- *  a denied listener re-fires, so one line per (target, reason) per window is
- *  the right volume for every one of them. Always 204s
- *  (best-effort diagnostics — a malformed body or a caller with no logger
- *  wired must never fail the page that reported the refusal). */
+ *  agent retry loop re-sends the SAME malformed (or filter-tripping) AI
+ *  request exactly the way a denied listener re-fires, so one line per
+ *  (target, reason) per window is the right volume for every one of them.
+ *  Always 204s (best-effort diagnostics: a malformed body or a caller with no
+ *  logger wired must never fail the page that reported the refusal). */
 async function handleDenials(
   throttle: DenialThrottle,
   logger: ServeLogger | undefined,
@@ -901,59 +364,26 @@ async function handleDenials(
     return;
   }
   try {
-    const payload = (await collectBody(req)) as DenialRelayPayload &
-      AiRejectionPayload &
-      AiBlockedPayload &
-      AiModelSubstitutionPayload;
-    const isAiRejection = payload.kind === 'ai-rejection';
-    const isAiBlocked = payload.kind === 'ai-blocked';
-    const isAiModelSubstituted = payload.kind === 'ai-model-substituted';
-    // A block carries no `message` of its own — a filter answers 200, not an
-    // error envelope. Its reason enum IS its identity, and is exactly what
-    // should collapse an agent's retry loop into a single line.
-    const blockedReason = typeof payload.finishReason === 'string'
-      ? payload.finishReason
-      : typeof payload.blockReason === 'string' ? payload.blockReason : 'unknown';
-    // A substitution has no message either; the model it actually called is
-    // its identity, so a loop of the same swap collapses while a swap onto a
-    // DIFFERENT model still prints.
-    const effectiveModel = typeof payload.effectiveModel === 'string'
-      ? payload.effectiveModel
-      : 'unknown';
-    const message = isAiBlocked
-      ? blockedReason
-      : isAiModelSubstituted
-        ? effectiveModel
-        : typeof payload.message === 'string'
-          ? payload.message
-          : isAiRejection ? 'request rejected' : 'permission denied';
-    // The `ai-rejection ` / `ai-blocked ` / `ai-model ` prefixes keep an AI key
-    // from ever colliding with a rules-denial key built from a Firestore path —
-    // or with each other: a rejection, a block, and a substitution on the same
-    // model are three different problems.
-    const model = typeof payload.model === 'string' ? payload.model : '';
-    const requestedModel = typeof payload.requestedModel === 'string' ? payload.requestedModel : '';
-    const path = isAiRejection
-      ? `ai-rejection ${model}`
-      : isAiBlocked
-        ? `ai-blocked ${model}`
-        : isAiModelSubstituted
-          ? `ai-model ${requestedModel}`
-          : payload.denialContext?.request?.path ?? '';
-    const key = `${path} ${message}`;
+    const payload = (await collectBody(req)) as DenialRelayPayload & AiDiagnosticPayload;
+    const aiBlock = aiTerminalBlockFor(payload.kind);
+    let target: string;
+    let reason: string;
+    let render: () => string;
+    if (aiBlock === null) {
+      target = payload.denialContext?.request?.path ?? '';
+      reason = typeof payload.message === 'string' ? payload.message : 'permission denied';
+      render = () => formatDenialBlock(payload);
+    } else {
+      target = aiBlock.throttleTarget(payload);
+      reason = aiBlock.throttleReason(payload);
+      render = () => aiBlock.format(payload);
+    }
+    const key = `${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
     if (logger && throttle.shouldPrint(key, Date.now())) {
-      logger.note(
-        isAiRejection
-          ? formatAiRejectionBlock(payload)
-          : isAiBlocked
-            ? formatAiBlockedBlock(payload)
-            : isAiModelSubstituted
-              ? formatAiModelSubstitutionBlock(payload)
-              : formatDenialBlock(payload),
-      );
+      logger.note(render());
     }
   } catch {
-    /* malformed body — drop it; this is a diagnostics side channel */
+    /* malformed body: drop it; this is a diagnostics side channel */
   }
   res.writeHead(204).end();
 }
@@ -1016,7 +446,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       opts.events.handle(req, res);
       return true;
     }
-    if (url.pathname === '/__pyric/ai-proxy' || url.pathname.startsWith('/__pyric/ai-proxy/')) {
+    if (url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`)) {
       return handleAiProxy(opts.aiProxyUpstream, req, res, url, opts.logger).then(() => true);
     }
     if (url.pathname === '/__pyric/denials') {

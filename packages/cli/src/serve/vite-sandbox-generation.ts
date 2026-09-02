@@ -7,7 +7,7 @@ import {
   type FunctionsRtdbProject,
 } from '../functions-rtdb/project.js';
 import { formatActivityWarning } from './activity-warning.js';
-import { formatAiStatusNote } from './namespace.js';
+import { formatAiStatusNote } from './ai-status.js';
 import {
   createBridgeMount,
   type BridgeHostAttachment,

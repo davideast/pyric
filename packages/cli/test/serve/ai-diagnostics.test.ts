@@ -26,13 +26,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
+import { createPyricNamespace } from '../../src/serve/namespace.js';
 import {
-  createPyricNamespace,
   formatAiBlockedBlock,
   formatAiModelSubstitutionBlock,
   formatAiRejectionBlock,
-} from '../../src/serve/namespace.js';
-import { setupAiRejectionRelay } from '../../src/serve/ai-rejection-relay.js';
+} from '../../src/serve/ai-terminal-blocks.js';
+import { setupAiDiagnosticsRelay } from '../../src/serve/ai-diagnostics-relay.js';
 import { handleMessage, type HostCtx, type PortLike } from '../../src/serve/worker/host.js';
 import type { OutboundMessage } from '../../src/serve/worker/protocol.js';
 import { startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
@@ -145,7 +145,7 @@ describe('AI broker request_rejected → dev terminal', () => {
     const h = await startServe(logger);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     await handleMessage(ctx, fakePort(), badRoleOp('models/gemini-flash-lite-latest'));
     await relay.settled();
@@ -161,7 +161,7 @@ describe('AI broker request_rejected → dev terminal', () => {
     const h = await startServe(logger);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     const port = fakePort();
     for (let i = 0; i < 5; i += 1) {
@@ -177,7 +177,7 @@ describe('AI broker request_rejected → dev terminal', () => {
     const h = await startServe(logger);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     const port = fakePort();
     await handleMessage(ctx, port, badRoleOp('models/gemini-flash-lite-latest'));
@@ -197,7 +197,7 @@ describe('AI broker request_rejected → dev terminal', () => {
       return Promise.resolve({ ok: true, status: 204 } as Response);
     }) as typeof fetch;
     let emit: (event: unknown) => void = () => {};
-    setupAiRejectionRelay({ subscribe: (l) => { emit = l as (e: unknown) => void; } }, spyFetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => { emit = l as (e: unknown) => void; } }, spyFetch);
 
     emit({ kind: 'service_mutation', id: '1', at: 0, service: 'ai', op: 'generate_content', path: 'm', auth: null });
     emit({ kind: 'service_mutation', id: '2', at: 0, service: 'auth', op: 'sign_in', path: 'u', auth: null });
@@ -214,7 +214,7 @@ describe('AI broker request_rejected → dev terminal', () => {
   it('never lets a relay failure escape (fire-and-forget diagnostics)', () => {
     const throwingFetch = (() => { throw new Error('no network'); }) as unknown as typeof fetch;
     let emit: (event: unknown) => void = () => {};
-    setupAiRejectionRelay({ subscribe: (l) => { emit = l as (e: unknown) => void; } }, throwingFetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => { emit = l as (e: unknown) => void; } }, throwingFetch);
     expect(() => emit({
       kind: 'service_mutation', id: '1', at: 0, service: 'ai', op: 'request_rejected',
       path: 'models/x', auth: null, detail: { code: 400, status: 'INVALID_ARGUMENT', message: 'nope' },
@@ -291,7 +291,7 @@ describe('AI blocked responses → dev terminal', () => {
     const h = await startServe(logger);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     await handleMessage(ctx, fakePort(), blockedOp('models/gemini-flash-lite-latest', 'SAFETY'));
     await relay.settled();
@@ -307,7 +307,7 @@ describe('AI blocked responses → dev terminal', () => {
     const h = await startServe(logger);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     await handleMessage(
       ctx,
@@ -326,7 +326,7 @@ describe('AI blocked responses → dev terminal', () => {
     const h = await startServe(logger);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     await handleMessage(ctx, fakePort(), {
       t: 'op' as const,
@@ -345,7 +345,7 @@ describe('AI blocked responses → dev terminal', () => {
     const h = await startServe(logger);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     const port = fakePort();
     for (let i = 0; i < 4; i += 1) {
@@ -454,7 +454,7 @@ describe('AI model substitutions → dev terminal', () => {
     upstreams.push(upstream);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     await handleMessage(
       ctx,
@@ -478,7 +478,7 @@ describe('AI model substitutions → dev terminal', () => {
     upstreams.push(upstream);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     await handleMessage(
       ctx,
@@ -498,7 +498,7 @@ describe('AI model substitutions → dev terminal', () => {
     upstreams.push(upstream);
     const relay = originFetch(h.url);
     const ctx = makeCtx();
-    setupAiRejectionRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => ctx.sandbox.onEvent(l) }, relay.fetch);
 
     const port = fakePort();
     for (let i = 0; i < 4; i += 1) {
@@ -519,7 +519,7 @@ describe('AI model substitutions → dev terminal', () => {
       return Promise.resolve({ ok: true, status: 204 } as Response);
     }) as typeof fetch;
     let emit: (event: unknown) => void = () => {};
-    setupAiRejectionRelay({ subscribe: (l) => { emit = l as (e: unknown) => void; } }, spyFetch);
+    setupAiDiagnosticsRelay({ subscribe: (l) => { emit = l as (e: unknown) => void; } }, spyFetch);
 
     emit({
       kind: 'service_mutation', id: '1', at: 0, service: 'ai', op: 'model_substituted',
