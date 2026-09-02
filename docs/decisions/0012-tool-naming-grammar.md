@@ -48,35 +48,31 @@ grammar first.
 
 ## Decisions
 
-Decisions 1 to 7 record the naming grammar as proposed and ratified without
-change. Resolution 2 below amends two of their mechanics: the MCP tool name is
-no longer the full path from Decision 1, and the file-per-record convention
-from Decision 6 becomes a file per folded tool with its operations enumerated
-inside. The grammar itself — the path words, the closed service set, and
-transport as a property rather than a name segment — is unchanged.
-
 1. **One grammar, service first.** Every operation has a path of words:
    a service word, an optional artifact word, and an operation word. The CLI
-   spells the path with spaces, `pyric firestore rules lint`. An MCP tool name
-   is the same path joined with underscores, `firestore_rules_lint`. Hyphens
-   inside a CLI word become underscores in the tool name, so `can-i-use`
-   becomes `can_i_use` and a future `batch-write` becomes `batch_write`. The
-   record stores the path as an array of words. The flat name is derived from
-   it and never parsed back, which is why a compound operation word such as
-   `batch_write` is allowed: it is one word in the record even though it
+   spells the path with spaces, `pyric firestore rules lint`. The MCP bridge
+   exposes one tool per service and artifact, named by joining those two words
+   with an underscore, `firestore_rules`, or by the service word alone when
+   there is no artifact, `sandbox`. The operation word is the value of a
+   required `op` field on the call, `lint`. Hyphens inside a CLI word become
+   underscores in the tool name or the op value, so `can-i-use` becomes the op
+   `can_i_use` and a future `batch-write` becomes `batch_write`. The record
+   stores the path as an array of words. Tool names and op values are derived
+   from it and never parsed back, which is why a compound operation word such
+   as `batch_write` is allowed: it is one word in the record even though it
    contains an underscore.
 
 2. **The binary name is the service word for general commands.** Commands
    that are not service-first, `pyric verify`, `pyric verify cases`, and
-   `pyric can-i-use`, take `pyric` as their service word on the bridge:
-   `pyric_verify`, `pyric_verify_cases`, `pyric_can_i_use`. The `pyric` word is
-   therefore reserved for operations about Pyric itself or that span more than
-   one Firebase service. Nothing else may use it.
+   `pyric can-i-use`, take `pyric` as their service word on the bridge: the
+   tool `pyric` with ops `verify`, `verify_cases`, and `can_i_use`. The `pyric`
+   word is therefore reserved for operations about Pyric itself or that span
+   more than one Firebase service. Nothing else may use it.
 
 3. **The artifact word is omitted when the subject is the service itself.**
-   `sandbox_inspect` inspects the sandbox, `storage_provision` provisions
-   Storage, `pyric_verify` verifies a session. A two-word name is the grammar
-   applied to a whole service, not an exception to it.
+   The tool `sandbox` with op `inspect` inspects the sandbox; the tool `pyric`
+   with op `verify` verifies a session. A tool named by a service word alone
+   is the grammar applied to a whole service, not an exception to it.
 
 4. **The service word set is closed and matches the CLI.** The service words
    are `firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`, and
@@ -86,31 +82,33 @@ transport as a property rather than a name segment — is unchanged.
    parameter value where a record needs to enumerate services. Adding a
    service word is a decision recorded here, not a local choice.
 
-5. **Transport is a property of the record, never part of the name.** A
-   record declares `transport: 'forwarded' | 'in-process'` alongside its path.
-   The bridge reads the property to decide whether to relay the call to the
-   browser peer or execute it in Node. Two records with the same operation on
-   different backends share a name and differ in the handle they bind, which
-   is the arrangement ADR-0011 already adopted for the worker transport. No
-   name says `sandbox_` to mean "runs in the browser" and no name says
-   `local_` to mean "runs in Node".
+5. **Transport is a property of the operation, never part of the name.** Each
+   op in a record declares `transport: 'forwarded' | 'in-process'`. The bridge
+   reads the property to decide whether to relay the call to the browser peer
+   or execute it in Node, so one tool may hold ops of both transports. Two ops
+   with the same words on different backends share a name and differ in the
+   handle they bind, which is the arrangement ADR-0011 already adopted for the
+   worker transport. No name says `sandbox_` to mean "runs in the browser" and
+   no name says `local_` to mean "runs in Node".
 
 6. **Every tool is declared once as a record; both surfaces derive from it.**
-   The CLI's `ServiceCommandPath` and file-per-record layout become the shape
-   for tools as well: one file per record, the filename is the path joined
-   with hyphens, and a generated manifest that names its generator computes the
-   registry. The MCP tool list, the CLI dispatch table, and the Playground
+   One file per tool, the filename is the tool name, and the record enumerates
+   the tool's ops, each with its transport, its input schema, and the handler
+   that implements it. A generated manifest that names its generator computes
+   the registry. The MCP tool list, the CLI dispatch table, and the Playground
    registry are three views of the same records. Which records a given surface
    exposes remains an exposure decision recorded in the tool-parity
    annotations; the grammar settles only what a record is called.
 
-7. **This ADR moves words; it does not change them.** Operation words are
-   kept wherever a current name already has one. `firestore_create_document`
-   becomes `firestore_documents_create`, not `firestore_documents_set`, even
-   though the operation mirrors `setDoc`. A new word is chosen only where a
-   name had no artifact or the wrong one. Renaming an operation word is a
-   change of meaning and belongs to a later decision with its own
-   characterisation tests.
+7. **This ADR moves words; it changes one.** Operation words are kept wherever
+   a current name already has one, so `firestore_get_document` becomes
+   `firestore_data` with op `get`. The one exception is the set-document
+   operation: `firestore_create_document` becomes op `set`, because the op
+   mirrors `setDoc` and an op value inside one tool's enum can carry the
+   operation's real meaning where a flat tool name could not. Every other new
+   word is chosen only where a name had no artifact or the wrong one.
+   Renaming any other operation word is a change of meaning and belongs to a
+   later decision with its own characterisation tests.
 
 ## Resolutions
 
