@@ -17,3 +17,5 @@ export * from './sentinels.js';
 export * from './on-disconnect.js';
 export * from './controls.js';
 export * from './sandbox-namespace.js';
+export { createDatabaseDataTools } from './tools.js';
+export type { DatabaseAs, DatabaseDataToolDeps, DatabaseUserAuth } from './tools.js';

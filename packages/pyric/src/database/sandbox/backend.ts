@@ -106,6 +106,15 @@ export class RtdbBackend {
     return this.transactions.run(auth, path, updateFn, options);
   }
 
+  /** Rules-bypass read-modify-write for the admin handle. */
+  adminRunTransaction(
+    path: string,
+    updateFn: (current: JsonValue) => JsonValue | undefined,
+    options?: { applyLocally?: boolean },
+  ): { committed: boolean; val: JsonValue; key: string | null } {
+    return this.transactions.run(null, path, updateFn, options, true);
+  }
+
   onChild(
     auth: AuthState,
     event: ChildListener['event'],
