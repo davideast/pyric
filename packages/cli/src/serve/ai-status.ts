@@ -35,11 +35,14 @@ export interface AiStartupStatus {
   proxyUpstream?: string;
 }
 
-/** Where the resolved proxy upstream came from, in the terminal's words. */
+/** Where the resolved proxy upstream came from, in the terminal's words. The
+ *  provenance is the point of the line: a developer has to be able to tell a
+ *  deliberate upstream from the Ollama default nobody chose, so every source
+ *  names the knob that set it. */
 function describeUpstreamProvenance(source: 'option' | 'env' | 'default'): string {
-  if (source === 'default') return ' (default)';
+  if (source === 'option') return ' (ai.proxyUpstream)';
   if (source === 'env') return ' (PYRIC_AI_PROXY_UPSTREAM)';
-  return '';
+  return ' (default)';
 }
 
 /** The openai engine's model binding, which may not be pinned at all. */

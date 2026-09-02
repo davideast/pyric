@@ -360,6 +360,35 @@ describe('/__pyric/ai-proxy — terminal diagnostics', () => {
     expect(notes[0]!).toContain('key=***');
   });
 
+  it('throttles a failing upstream: repeated identical failures print once', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(closedLoopbackUrl('/v1'), logger);
+    for (let i = 0; i < 4; i += 1) {
+      const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(502);
+    }
+    // A dead upstream fails on every request; the terminal says so once per
+    // window, the same volume a denied listener gets.
+    expect(notes.length).toBe(1);
+  });
+
+  it('redacts key-bearing query params from the 502 body, not just the log', async () => {
+    const h = await startServe(closedLoopbackUrl('/v1'));
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions?key=AIzaSuperSecretValue`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(502);
+    const text = await res.text();
+    expect(text).not.toContain('AIzaSuperSecretValue');
+    expect(text).toContain('key=***');
+  });
+
   it('drops diagnostics entirely when no logger is wired (never throws)', async () => {
     const h = await startServe(closedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
@@ -456,6 +485,20 @@ describe('formatAiProxyWarning', () => {
     expect(block).toContain('stream aborted mid-response');
     expect(block).toContain('socket hang up');
     expect(block).toContain('(1200ms)');
+  });
+
+  it('caps and flattens a hostile upstream cause (no forged lines, no wall of text)', () => {
+    const block = formatAiProxyWarning({
+      kind: 'unreachable',
+      target,
+      latencyMs: 3,
+      cause: `boom\n  ⚠ [pyric] forged line\u001b[31m${'x'.repeat(4000)}`,
+    });
+    // Three real lines: headline, POST target, env-var pointer. A remote
+    // message cannot forge a fourth, and cannot push the rest off the screen.
+    expect(block.split('\n').length).toBe(3);
+    expect(block).not.toContain('\u001b');
+    expect(block.split('\n')[0]!.length).toBeLessThan(600);
   });
 
   it('masks credential query params in BOTH the target and the cause', () => {

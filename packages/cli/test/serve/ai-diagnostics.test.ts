@@ -33,6 +33,7 @@ import {
   formatAiRejectionBlock,
 } from '../../src/serve/ai-terminal-blocks.js';
 import { setupAiDiagnosticsRelay } from '../../src/serve/ai-diagnostics-relay.js';
+import { AI_TERMINAL_TEXT_MAX } from '../../src/serve/ai-terminal-text.js';
 import { handleMessage, type HostCtx, type PortLike } from '../../src/serve/worker/host.js';
 import type { OutboundMessage } from '../../src/serve/worker/protocol.js';
 import { startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
@@ -211,6 +212,27 @@ describe('AI broker request_rejected → dev terminal', () => {
     expect(calls).toEqual(['/__pyric/denials']);
   });
 
+  it('caps a huge upstream message before it crosses the POST', () => {
+    const bodies: string[] = [];
+    const spyFetch = ((_url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      return Promise.resolve({ ok: true, status: 204 } as Response);
+    }) as typeof fetch;
+    let emit: (event: unknown) => void = () => {};
+    setupAiDiagnosticsRelay({ subscribe: (l) => { emit = l as (e: unknown) => void; } }, spyFetch);
+
+    emit({
+      kind: 'service_mutation', id: '1', at: 0, service: 'ai', op: 'request_rejected',
+      path: 'models/x', auth: null,
+      detail: { code: 400, status: 'INVALID_ARGUMENT', message: 'x'.repeat(20_000) },
+    });
+
+    expect(bodies.length).toBe(1);
+    const relayed = JSON.parse(bodies[0]!) as { message: string };
+    expect(relayed.message.length).toBeLessThanOrEqual(AI_TERMINAL_TEXT_MAX + 1);
+    expect(relayed.message.endsWith('\u2026')).toBe(true);
+  });
+
   it('never lets a relay failure escape (fire-and-forget diagnostics)', () => {
     const throwingFetch = (() => { throw new Error('no network'); }) as unknown as typeof fetch;
     let emit: (event: unknown) => void = () => {};
@@ -275,6 +297,21 @@ describe('formatAiRejectionBlock', () => {
   it('falls back to a generic reason for a malformed payload', () => {
     const block = formatAiRejectionBlock({ kind: 'ai-rejection' } as never);
     expect(block).toContain('ai request rejected: request rejected');
+  });
+
+  it('caps every remote-authored field it prints', () => {
+    const block = formatAiRejectionBlock({
+      kind: 'ai-rejection',
+      model: 'm'.repeat(5_000),
+      engine: 'e'.repeat(5_000),
+      status: 'S'.repeat(5_000),
+      code: 400,
+      message: 'boom '.repeat(2_000),
+    });
+    for (const line of block.split('\n')) {
+      // Each line is one capped field plus a short label, never a payload.
+      expect(line.length).toBeLessThan(AI_TERMINAL_TEXT_MAX * 2 + 64);
+    }
   });
 });
 

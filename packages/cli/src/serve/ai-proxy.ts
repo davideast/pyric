@@ -13,6 +13,13 @@ import type { ServeLogger } from './server.js';
 import { redactUrl } from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 
+/** The dev server's diagnostics throttle, as this module needs it: the
+ *  denials route owns the instance, and the proxy shares it so a failing
+ *  upstream cannot out-shout a denied listener. */
+export interface AiDiagnosticThrottle {
+  shouldPrint(key: string, now: number): boolean;
+}
+
 /** Default upstream: local Ollama's OpenAI-compatible endpoint. */
 export const AI_PROXY_DEFAULT_UPSTREAM = 'http://localhost:11434/v1';
 
@@ -78,6 +85,38 @@ function formatRetryAfter(raw: string): string | null {
 }
 
 /**
+ * Mask credentials, then flatten and cap, in that order. Both the target and
+ * a raw fetch error message are remote-influenced: the URL carries whatever
+ * the page put in the query string, and an error message can quote it back.
+ */
+function safeUpstreamText(text: string): string {
+  return sanitizeForTerminal(redactUrl(text));
+}
+
+/**
+ * The throttle key for one upstream failure. A failing upstream fails on
+ * every request, so the key is the failure itself (kind, status, and the
+ * redacted target) rather than anything per-request: one line per window,
+ * exactly like a denied listener that re-fires.
+ */
+function aiProxyThrottleKey(failure: AiProxyFailure): string {
+  const target = redactUrl(failure.target);
+  if (failure.kind === 'status') return `ai-proxy status ${failure.status} ${target}`;
+  return `ai-proxy ${failure.kind} ${target}`;
+}
+
+/** Print one upstream failure, unless the throttle already printed it. */
+function noteAiProxyFailure(
+  failure: AiProxyFailure,
+  throttle: AiDiagnosticThrottle,
+  logger?: ServeLogger,
+): void {
+  if (logger === undefined) return;
+  if (!throttle.shouldPrint(aiProxyThrottleKey(failure), Date.now())) return;
+  logger.note(formatAiProxyWarning(failure));
+}
+
+/**
  * Format an upstream failure into the compact terminal block, the same
  * `  [pyric] ...` idiom the denial relay prints, so ai-proxy trouble reads
  * like every other dev-server diagnostic. Two lines: what went wrong, then
@@ -91,15 +130,15 @@ function formatRetryAfter(raw: string): string | null {
  * through to the caller), so the backoff is the app's decision, not pyric's.
  */
 export function formatAiProxyWarning(failure: AiProxyFailure): string {
-  const target = redactUrl(failure.target);
+  const target = safeUpstreamText(failure.target);
   let headline: string;
   if (failure.kind === 'unreachable') {
-    headline = `upstream unreachable: ${redactUrl(failure.cause)}`;
+    headline = `upstream unreachable: ${safeUpstreamText(failure.cause)}`;
   } else if (failure.kind === 'status') {
     const rateLimited = failure.status === 429;
     headline = `upstream returned ${failure.status}${rateLimited ? ' (rate limited / quota exhausted)' : ''}`;
   } else {
-    headline = `upstream stream aborted mid-response: ${redactUrl(failure.cause)}`;
+    headline = `upstream stream aborted mid-response: ${safeUpstreamText(failure.cause)}`;
   }
   const lines = [
     `  ⚠ [pyric] ai-proxy: ${headline}`,
@@ -167,6 +206,7 @@ export function resolveAiProxyUpstream(
  */
 export async function handleAiProxy(
   configuredUpstream: string | undefined,
+  throttle: AiDiagnosticThrottle,
   req: IncomingMessage,
   res: ServerResponse,
   url: URL,
@@ -205,17 +245,17 @@ export async function handleAiProxy(
     upstream = await fetch(target, { method: 'POST', headers, body });
   } catch (e) {
     const cause = e instanceof Error ? e.message : String(e);
-    logger?.note(
-      formatAiProxyWarning({
-        kind: 'unreachable',
-        target,
-        latencyMs: Date.now() - startedAt,
-        cause,
-      }),
+    noteAiProxyFailure(
+      { kind: 'unreachable', target, latencyMs: Date.now() - startedAt, cause },
+      throttle,
+      logger,
     );
+    // The 502 body quotes the same two strings the terminal block does, so it
+    // gets the same masking: the target carries the page's own query string,
+    // and a fetch error routinely echoes the URL back.
     res.writeHead(502, { 'content-type': 'text/plain' });
     res.end(
-      `pyric dev ai-proxy: upstream ${target} unreachable: ${cause}\n` +
+      `pyric dev ai-proxy: upstream ${redactUrl(target)} unreachable: ${redactUrl(cause)}\n` +
         'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
         `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
     );
@@ -237,7 +277,7 @@ export async function handleAiProxy(
       status: upstream.status,
     };
     if (retryAfter !== null) failure.retryAfter = retryAfter;
-    logger?.note(formatAiProxyWarning(failure));
+    noteAiProxyFailure(failure, throttle, logger);
   }
 
   const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
@@ -271,13 +311,15 @@ export async function handleAiProxy(
     // so announce it, unless the CLIENT is the one who walked away (a closed
     // tab cancelling an SSE stream is normal, not a fault worth a warning).
     if (!clientGone) {
-      logger?.note(
-        formatAiProxyWarning({
+      noteAiProxyFailure(
+        {
           kind: 'stream-abort',
           target,
           latencyMs: Date.now() - startedAt,
           cause: e instanceof Error ? e.message : String(e),
-        }),
+        },
+        throttle,
+        logger,
       );
     }
   }

@@ -226,8 +226,11 @@ describe('active Vite sandbox generation', () => {
     const h = harness();
     h.input.ai = { mode: 'sandbox', engineWire: { kind: 'openai', model: 'llama3.1' }, proxyUpstream: 'http://127.0.0.1:9999/v1' };
     const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+    // The provenance names the knob that set the upstream, so a plugin option
+    // is distinguishable from the env var and from the Ollama default.
     expect(h.events).toContain(
-      'info:  ✔ [pyric] ai: openai (model llama3.1) → /__pyric/ai-proxy → http://127.0.0.1:9999/v1',
+      'info:  ✔ [pyric] ai: openai (model llama3.1) → /__pyric/ai-proxy → ' +
+        'http://127.0.0.1:9999/v1 (ai.proxyUpstream)',
     );
     await generation.close();
   });

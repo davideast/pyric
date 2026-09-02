@@ -1,4 +1,5 @@
 import type { SandboxEvent } from 'pyric/sandbox';
+import { capTerminalText } from './ai-terminal-text.js';
 
 /**
  * AI diagnostics relay: headless dev visibility for the three things the
@@ -112,19 +113,24 @@ type AiDiagnosticRelayPayload =
   | AiBlockedRelayPayload
   | AiModelSubstitutionRelayPayload;
 
-/** A string field off the event's free-form `detail` record, or `undefined`
- *  when the emitter did not set it. `detail` is a public contract anyone can
- *  post onto, so every field is re-checked. */
+/**
+ * A string field off the event's free-form `detail` record, or `undefined`
+ * when the emitter did not set it. `detail` is a public contract anyone can
+ * post onto, so every field is re-checked, and every value is length-capped
+ * here rather than on the far side: a model server that answers with a
+ * megabyte in its `finishMessage` must not push a megabyte through the
+ * fire-and-forget POST just to have the terminal cut it.
+ */
 function detailText(detail: Record<string, unknown>, field: string): string | undefined {
   const value = detail[field];
   if (typeof value !== 'string') return undefined;
-  return value;
+  return capTerminalText(value);
 }
 
 /** The event's `path` when it names a model, or `undefined`. */
 function eventModel(event: ServiceMutation): string | undefined {
   if (typeof event.path !== 'string' || event.path === '') return undefined;
-  return event.path;
+  return capTerminalText(event.path);
 }
 
 function detailOf(event: ServiceMutation): Record<string, unknown> {

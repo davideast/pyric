@@ -604,9 +604,11 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // populate a report without replaying an old warning into a fresh terminal.
   setupFirebaseActivityGuard(ctx, env, payload?.activityToken);
 
-  // Same seam, AI's refusals: relay every broker `request_rejected` event to
-  // the dev server's denial relay so a headless developer sees WHY the broker
-  // said no. Live events only, so it is safe on either side of hydration.
+  // Same seam, AI's diagnostics: relay every broker `request_rejected`,
+  // `response_blocked`, and `model_substituted` event to the dev server's
+  // denial relay so a headless developer sees why the broker said no, why an
+  // answer came back empty, or which model actually answered. Live events
+  // only, so it is safe on either side of hydration.
   setupAiDiagnosticsRelay({ subscribe: (listener) => ctx.sandbox.onEvent(listener) }, env.fetch);
 
   // Apply rules / seed / authUsers / capture BEFORE any port op runs (so

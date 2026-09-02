@@ -122,7 +122,7 @@ export interface NamespaceOptions {
    *  when a request arrives. */
   aiProxyUpstream?: string;
   /** Where hot-reload/diagnostic lines print (rules reload, denial relay,
-   *  AI broker rejections, ai-proxy upstream failures). Absent ⇒ diagnostics
+   *  AI broker diagnostics, ai-proxy upstream failures). Absent ⇒ diagnostics
    *  are dropped (a caller that wires no logger opts out silently rather than
    *  falling back to raw `console`). */
   logger?: ServeLogger;
@@ -447,7 +447,9 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return true;
     }
     if (url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`)) {
-      return handleAiProxy(opts.aiProxyUpstream, req, res, url, opts.logger).then(() => true);
+      return handleAiProxy(opts.aiProxyUpstream, denialThrottle, req, res, url, opts.logger).then(
+        () => true,
+      );
     }
     if (url.pathname === '/__pyric/denials') {
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);

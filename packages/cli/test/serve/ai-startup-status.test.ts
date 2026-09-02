@@ -103,6 +103,15 @@ describe('pyric dev AI startup status', () => {
     expect(line).toContain(`(${UPSTREAM_ENV})`);
   });
 
+  it('names the option that set an explicitly configured upstream', () => {
+    // A plugin-configured upstream is neither the env var nor the default, and
+    // used to render with no provenance at all.
+    process.env[UPSTREAM_ENV] = 'http://from-the-env:1234/v1';
+    const line = formatAiStatusLine({ proxyUpstream: 'http://from-the-plugin:9999/v1' });
+    expect(line).toContain('http://from-the-plugin:9999/v1 (ai.proxyUpstream)');
+    expect(line).not.toContain('from-the-env');
+  });
+
   it('offers the Vite dev-server flavor of the same report', () => {
     delete process.env[UPSTREAM_ENV];
     expect(formatAiStatusNote({ engine: { kind: 'openai', model: 'llama3.1' } })).toBe(

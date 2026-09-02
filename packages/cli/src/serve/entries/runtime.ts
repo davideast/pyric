@@ -392,10 +392,11 @@ if (!useWorker && activityTokenFromPayload) {
   );
 }
 
-// Same plane split for the AI broker's refusals: an in-page sandbox runs its
-// own broker, so its `request_rejected` events need the same relay to reach
-// the dev terminal. Unlike the activity guard this needs no capability token
-// (the denial relay it rides carries none).
+// Same plane split for the AI broker's diagnostics: an in-page sandbox runs
+// its own broker, so its `request_rejected`, `response_blocked`, and
+// `model_substituted` events need the same relay to reach the dev terminal.
+// Unlike the activity guard this needs no capability token (the denial relay
+// it rides carries none).
 if (!useWorker) {
   setupAiDiagnosticsRelay({ subscribe: (listener) => sandbox.onEvent(listener) }, fetch);
 }
