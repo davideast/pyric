@@ -1,31 +1,28 @@
 /**
- * Browser-side tool dispatcher. Consumes the SAME tool factories the
- * bridge advertises over MCP (`getSandboxToolMetadata`), so the set the
- * bridge LISTS and the set the page EXECUTES are identical. There is one
- * source of truth: the factories in `buildSandboxHandlers`.
+ * Browser-side tool dispatcher. Composes the forwarded tool families from the
+ * same records the bridge advertises over MCP (`getSandboxToolMetadata`), so
+ * the set the bridge LISTS and the set the page EXECUTES are identical by
+ * construction: the records under `../tool-family-records/` pin the names,
+ * and `./tool-family-factories.ts` supplies one browser-safe factory per
+ * family.
  *
- * History of the trap this guards against: earlier this file delegated
- * to ONLY `createFirestoreSimulatorTools`, while `getSandboxToolMetadata`
- * advertised the simulator + data-plane + inspect families. The bridge
- * therefore LISTED `firestore_create_document` / `sandbox_inspect`
- * etc., but a `callTool` failed at dispatch with "tool 'X' is not
- * registered with the connected sandbox peer" — succeed-at-list,
- * fail-at-dispatch. Registering every family here (and deriving
- * `SANDBOX_TOOL_NAMES` from the same set) closes the gap. The parity is
- * pinned by `test/bridge/tool-parity.test.ts`.
+ * History of the trap this guards against: earlier this file delegated to
+ * ONLY the simulator factory, while the bridge advertised the simulator,
+ * data-plane and inspect families. The bridge therefore LISTED
+ * `firestore_create_document` / `sandbox_inspect` etc., but a `callTool`
+ * failed at dispatch with "tool 'X' is not registered with the connected
+ * sandbox peer" (succeed-at-list, fail-at-dispatch). Composing every family
+ * from the records, and deriving `SANDBOX_TOOL_NAMES` from the same records,
+ * closes the gap. The parity is pinned by `test/bridge/tool-parity.test.ts`
+ * and `test/bridge/tool-families.test.ts`.
  */
 
-import { createFirestoreSimulatorTools } from 'pyric/rules/internal';
-import {
-  createFirestoreDataTools,
-  createFirestoreInspectTools,
-  getFirestore,
-  getAdminFirestore,
-  type As,
-} from 'pyric/firestore';
+import type { ToolHandler } from '@inbrowser/agent';
+import { getFirestore, getAdminFirestore, type As } from 'pyric/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
-import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
+import { toolFamilies } from '../tool-families.js';
+import { SANDBOX_HANDLER_FACTORIES, type SandboxBinding } from './tool-family-factories.js';
 
 export interface DispatchResult {
   ok: boolean;
@@ -34,11 +31,8 @@ export interface DispatchResult {
 }
 
 /**
- * The full handler set for a sandbox: the simulator family (bound to the
- * internal env) plus the modular data-plane and inspect families (bound
- * to a per-call `resolveDb`). This is the single source of truth shared
- * by `buildSandboxDispatcher` and `SANDBOX_TOOL_NAMES`, and it MUST stay
- * aligned with `getSandboxToolMetadata` (asserted by tool-parity.test.ts).
+ * The full handler set for a sandbox: every forwarded family bound to one
+ * `SandboxBinding` built here.
  *
  * Auth: `resolveDb('admin')` / `resolveDb(undefined)` is an admin-bypass handle
  * (no rules); `resolveDb({ uid, claims })` is a rules-enforcing client acting as
@@ -46,23 +40,23 @@ export interface DispatchResult {
  * `request.auth.token` shape. This is a SANDBOX dispatcher, so the admin default
  * is intended; a dispatcher wired to a real backend must reject `'admin'`.
  */
-function buildSandboxHandlers(sandbox: LocalSandbox) {
-  const env = getInternalEnv(sandbox);
-  const resolveDb = (actor?: As) =>
-    actor && actor !== 'admin'
-      ? getFirestore(sandbox.withAuth({ uid: actor.uid, token: actor.claims }))
-      : getAdminFirestore(sandbox);
-  return [
-    ...createFirestoreSimulatorTools({ resolveSandbox: () => env }),
-    ...createFirestoreDataTools({ resolveDb }),
-    ...createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
-    ...createRtdbInspectionTools({ resolveSandbox: () => sandbox }),
-  ];
+function buildSandboxHandlers(sandbox: LocalSandbox): ToolHandler[] {
+  const binding: SandboxBinding = {
+    sandbox,
+    env: getInternalEnv(sandbox),
+    resolveDb: (actor?: As) =>
+      actor && actor !== 'admin'
+        ? getFirestore(sandbox.withAuth({ uid: actor.uid, token: actor.claims }))
+        : getAdminFirestore(sandbox),
+  };
+  return toolFamilies('forwarded').flatMap((family) =>
+    SANDBOX_HANDLER_FACTORIES[family.key](binding),
+  );
 }
 
 /**
  * Build a dispatcher for the supplied `Sandbox`. The returned function
- * looks up tools by name across every factory and invokes the
+ * looks up tools by name across every family and invokes the
  * canonical handler. Throws `UnknownToolError` on unknown names.
  */
 export function buildSandboxDispatcher(
@@ -112,22 +106,14 @@ export async function dispatchSandboxTool(
 }
 
 /**
- * Tool names this dispatcher recognises, derived at load time from the
- * SAME factories — so it equals what the page executes AND what the
- * bridge advertises. `connectBridge` sends this as the `hello.tools`
- * payload so the bridge advertises exactly the executable set.
+ * Tool names this dispatcher recognises, read from the forwarded family
+ * records in family order, so it equals what the page executes AND what the
+ * bridge advertises. `connectBridge` sends this as the `hello.tools` payload
+ * so the bridge advertises exactly the executable set.
  */
-export const SANDBOX_TOOL_NAMES: string[] = (() => {
-  const stub = async () => {
-    throw new Error('SANDBOX_TOOL_NAMES: stub resolver should never be invoked');
-  };
-  return [
-    ...createFirestoreSimulatorTools({ resolveSandbox: stub as never }),
-    ...createFirestoreDataTools({ resolveDb: stub as never }),
-    ...createFirestoreInspectTools({ resolveSandbox: stub as never }),
-    ...createRtdbInspectionTools({ resolveSandbox: stub as never }),
-  ].map((h) => h.name);
-})();
+export const SANDBOX_TOOL_NAMES: readonly string[] = toolFamilies('forwarded').flatMap(
+  (family) => family.tools,
+);
 
 export class UnknownToolError extends Error {
   constructor(public readonly tool: string) {

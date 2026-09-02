@@ -1,26 +1,27 @@
 /**
- * Extract tool metadata (name + description + parameters) from the
- * existing `pyric/rules` factories without running any
- * tool logic. Used by the bridge to register MCP tools whose actual
- * dispatch happens against the connected browser peer.
+ * Node-side composition of the tool families the bridge serves over MCP.
  *
- * Why: `createFirestoreSimulatorTools` returns `ToolHandler[]` with
- * `execute` bound to a `LocalEnvironment`. The bridge process doesn't
- * have a `LocalEnvironment` — it forwards. But it does need the
- * metadata to populate the MCP server's tool list. This module calls
- * the factory with a stub resolver and reads only the metadata; the
- * stub never gets invoked because the bridge replaces `execute`
- * before dispatch.
+ * Forwarded families are executed by the browser sandbox peer, so this
+ * process never holds a `LocalEnvironment`. It still needs each tool's
+ * metadata (name, description, parameters) to populate the MCP tool list, so
+ * it calls the family factories with a stub resolver and reads only the
+ * metadata; the bridge replaces `execute` with forward-to-peer dispatch
+ * before any call reaches a handler.
+ *
+ * In-process families run here without a browser peer and are returned as
+ * live handlers.
+ *
+ * Family order comes from the records under `../tool-family-records/`; the
+ * factories come from `./tool-family-factories.ts`.
  */
 
 import type { ToolHandler } from '@inbrowser/agent';
+import { toolFamilies } from '../tool-families.js';
 import {
-  createFirestoreSimulatorTools,
-  createFirestoreRulesTools,
-} from 'pyric/rules/internal/node';
-import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
-import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
-import { createConformanceTools } from '../../conformance/tools.js';
+  FORWARDED_METADATA_FACTORIES,
+  IN_PROCESS_HANDLER_FACTORIES,
+  type StubResolver,
+} from './tool-family-factories.js';
 
 export interface ToolMetadata {
   name: string;
@@ -37,63 +38,30 @@ function toMetadata(handler: ToolHandler): ToolMetadata {
 }
 
 /**
- * Tool metadata for the sandbox bridge. Includes the
- * data-plane / sandbox-management tools that the browser dispatches
- * via `LocalEnvironment`. Rules tooling (lint, validate, simulate,
- * test) is NOT included here — those execute in Node and are
- * registered separately, since they don't need the browser sandbox.
+ * Tool metadata for every forwarded family, in family order. The stub
+ * resolver never runs: the bridge replaces `execute()` with its own
+ * forward-to-peer dispatch.
  */
 export function getSandboxToolMetadata(): ToolMetadata[] {
-  // The resolver stub never runs: the bridge replaces execute() with
-  // its own forward-to-peer dispatch.
-  const stubResolver = async () => {
+  const stub: StubResolver = () => {
     throw new Error(
       'BUG: sandbox-tool factory executor invoked on the bridge side — should have been replaced',
     );
   };
-  const handlers: ToolHandler[] = [
-    // Simulator / write / batch / undo / redo / events / transaction —
-    // 8 tools that mutate or read the in-browser sandbox state.
-    ...createFirestoreSimulatorTools({
-      resolveSandbox: stubResolver as never,
-    }),
-    // Data plane — addDoc / setDoc / getDoc / updateDoc / deleteDoc /
-    // collection / query / where — the modular Firestore CRUD surface
-    // routed through the browser sandbox so agents can drive a real app
-    // session rather than only the simulator.
-    ...createFirestoreDataTools({
-      resolveDb: stubResolver as never,
-    }),
-    // `sandbox_inspect` — single-call diagnostic that answers
-    // "what state is the sandbox in?" Born out of CLAUDE_DEBUG_SESSION.md
-    // (a real agent needing 51 tool calls + 72k tokens to figure out
-    // that rules weren't loaded). Routes to the browser sandbox like
-    // the other forwarded tools.
-    ...createFirestoreInspectTools({
-      resolveSandbox: stubResolver as never,
-    }),
-    ...createRtdbInspectionTools({
-      resolveSandbox: stubResolver as never,
-    }),
-  ];
-  return handlers.map(toMetadata);
+  return toolFamilies('forwarded')
+    .flatMap((family) => FORWARDED_METADATA_FACTORIES[family.key](stub))
+    .map(toMetadata);
 }
 
 /**
- * Tooling factories that execute in-process on the bridge
- * (no browser needed). Returned as live ToolHandlers — the bridge
+ * Live handlers for every in-process family, in family order. The bridge
  * registers each handler's `execute` directly.
  *
  * `scope` is forwarded so the hosted Rules Test API verification tool can
  * authenticate without changing the bridge's sandbox-only execution model.
  */
 export function getInProcessToolHandlers(scope?: unknown): ToolHandler[] {
-  // Factory accepts { scope } per packages/pyric/src/rules/tools.ts.
-  // The bridge does not need to own the structurally compatible type.
-  // Includes the rules tool surface plus the Node-only conformance query.
-  // No browser is needed.
-  return [
-    ...createFirestoreRulesTools({ scope } as never),
-    ...createConformanceTools(),
-  ];
+  return toolFamilies('in-process').flatMap((family) =>
+    IN_PROCESS_HANDLER_FACTORIES[family.key](scope),
+  );
 }
