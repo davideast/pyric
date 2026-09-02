@@ -85,12 +85,10 @@ export async function runTransaction<T>(
   options?: TransactionOptions,
 ): Promise<TransactionResult> {
   const target = targetOf(r as unknown as object);
-  const result = target.backend.runTransaction(
-    authFor(target),
-    r._path,
-    transactionUpdate as (current: JsonValue) => JsonValue | undefined,
-    options,
-  );
+  const updateFn = transactionUpdate as (current: JsonValue) => JsonValue | undefined;
+  const result = target.admin
+    ? target.backend.adminRunTransaction(r._path, updateFn, options)
+    : target.backend.runTransaction(authFor(target), r._path, updateFn, options);
   const snap = buildSandboxSnapFromRaw(target, r, result.val);
   return new TransactionResult(result.committed, snap) as TransactionResult & {
     committed: boolean;

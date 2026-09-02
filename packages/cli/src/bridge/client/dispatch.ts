@@ -19,6 +19,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import { getFirestore, getAdminFirestore, type As } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import { getDatabase, getAdminDatabase, type DatabaseAs } from 'pyric/database';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import type { LocalSandbox } from 'pyric/sandbox';
 import {
@@ -67,6 +68,10 @@ function buildSandboxHandlers(
       actor && actor !== 'admin'
         ? getStorageSandbox(sandbox.withAuth({ uid: actor.uid, token: actor.claims }))
         : getAdminStorageSandbox(sandbox),
+    resolveDatabase: (actor?: DatabaseAs) =>
+      actor && actor !== 'admin'
+        ? getDatabase(sandbox.withAuth({ uid: actor.uid, token: actor.claims }))
+        : getAdminDatabase(sandbox),
   };
   return resolveOpHandlers(toolOps('forwarded'), (spec) =>
     SANDBOX_FACTORIES[spec.factory as keyof typeof SANDBOX_FACTORIES](binding),

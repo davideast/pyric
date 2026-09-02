@@ -128,6 +128,15 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       'sandbox.snapshot',
       // local Realtime Database inspection
       'database_data.crawl',
+      // local Realtime Database data plane
+      'database_data.get',
+      'database_data.set',
+      'database_data.update',
+      'database_data.remove',
+      'database_data.push',
+      'database_data.transaction',
+      'database_data.query',
+      'database_data.seed',
       'database_rules.simulate',
       // storage data plane
       'storage_data.upload',

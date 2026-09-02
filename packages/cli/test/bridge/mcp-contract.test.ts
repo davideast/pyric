@@ -18,7 +18,7 @@ const RATIFIED_TOOLS: Record<string, readonly string[]> = {
   firestore_simulator: ['create', 'execute', 'read', 'batch', 'add', 'undo', 'redo', 'events', 'transaction'],
   firestore_data: ['get', 'list', 'set', 'add', 'update', 'delete', 'batch_write', 'query'],
   sandbox: ['inspect', 'snapshot'],
-  database_data: ['crawl'],
+  database_data: ['crawl', 'get', 'set', 'update', 'remove', 'push', 'transaction', 'query', 'seed'],
   database_rules: ['simulate'],
   firestore_rules: ['lint', 'simulate', 'resolve', 'test'],
   firestore_indexes: ['generate'],
@@ -31,10 +31,10 @@ const RATIFIED_TOOLS: Record<string, readonly string[]> = {
 const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data', 'database_rules', 'storage_data'];
 
 describe('default MCP tool contract', () => {
-  it('ratifies the exact public tools/list surface: eleven tools and their 37 ops, in order', () => {
+  it('ratifies the exact public tools/list surface: eleven tools and their 45 ops, in order', () => {
     expect(DEFAULT_MCP_TOOL_NAMES).toEqual(Object.keys(RATIFIED_TOOLS));
     expect(DEFAULT_MCP_TOOL_OPS).toEqual(RATIFIED_TOOLS);
-    expect(DEFAULT_MCP_OP_KEYS).toHaveLength(37);
+    expect(DEFAULT_MCP_OP_KEYS).toHaveLength(45);
     expect(DEFAULT_MCP_OP_KEYS).toEqual(
       Object.entries(RATIFIED_TOOLS).flatMap(([tool, ops]) => ops.map((op) => `${tool}.${op}`)),
     );

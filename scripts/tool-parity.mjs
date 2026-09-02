@@ -126,6 +126,7 @@ const MCP_FACTORIES = {
   'rtdb-inspection': [{ file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools' }],
   'storage-data': [{ file: `${PYRIC}/storage/tools.ts`, factory: 'createStorageDataTools' }],
   'sandbox-snapshot': [{ file: `${TOOLS}/sandbox/tools.ts`, factory: 'createSandboxSnapshotTools' }],
+  'database-data': [{ file: `${PYRIC}/database/tools.ts`, factory: 'createDatabaseDataTools' }],
   'firestore-rules': [
     { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools' },
     { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools' },
