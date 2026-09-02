@@ -1,74 +1,88 @@
 /**
- * The runtime NETWORK GUARD — enforcement half of the production-leak
+ * The runtime network guard: the enforcement half of the production-leak
  * invariant.
  *
  * A sandboxed app's Firebase traffic all routes to the local `/__pyric/*`
- * namespace. So a pyric-launched process that opens a connection to a REAL
+ * namespace. So a pyric-launched process that opens a connection to a real
  * Google/Firebase endpoint has escaped the sandbox: it is reading or writing
  * live production data with the developer believing otherwise. This module
  * detects that egress and, depending on one knob, warns about it or fails it.
  *
- * ── Where it hooks, and why exactly there ─────────────────────────────────
- * 1. `Symbol.for('undici.globalDispatcher.1')` — the undici GLOBAL DISPATCHER.
- *    Measured against Next 15.5 / Node 24 / undici 7: this one seam covers
- *    Node route handlers, EDGE route handlers and middleware, under both the
- *    webpack and turbopack dev servers. Patching `globalThis.fetch` does NOT:
- *    the Edge sandbox bundles its own undici, and that copy's
- *    `getGlobalDispatcher()` reads the HOST realm's symbol — which is precisely
+ * Where it hooks, and why exactly there
+ * -------------------------------------
+ * 1. `Symbol.for('undici.globalDispatcher.1')`, the undici global dispatcher.
+ *    Measured against Next 15.5 / Node 24 / undici 7, this one seam covers
+ *    Node route handlers, edge route handlers and middleware, under both the
+ *    webpack and turbopack dev servers. Patching `globalThis.fetch` does not:
+ *    the edge sandbox bundles its own undici, and that copy's
+ *    `getGlobalDispatcher()` reads the host realm's symbol, which is precisely
  *    why hooking the dispatcher reaches it and hooking `fetch` does not.
  *
- *    Three hard-won mechanics:
+ *    Three mechanics the seam depends on:
  *      - undici installs the property `configurable: false, writable: true`, so
- *        we install by PLAIN ASSIGNMENT. A `defineProperty` with
+ *        we install by plain assignment. A `defineProperty` with
  *        `configurable: true` throws a TypeError and takes the dev server down
- *        with it. Accessor traps are useless anyway — `setGlobalDispatcher`
- *        uses `defineProperty`, which bypasses setters.
+ *        with it. Accessor traps are useless anyway, because
+ *        `setGlobalDispatcher` uses `defineProperty`, which bypasses setters.
  *      - The property does not exist until undici is first touched, and undici
- *        only installs a default agent when it finds the slot EMPTY. So we
+ *        only installs a default agent when it finds the slot empty. So we
  *        materialize it first with `new Headers()` (loads undici, zero
  *        network) and wrap whatever real Agent that produces.
  *      - The `handler` argument of `dispatch(opts, handler)` must pass through
- *        OPAQUE and by identity. Edge hands a v6-shaped handler to the host's
+ *        opaque and by identity. Edge hands a v6-shaped handler to the host's
  *        v7 Agent and that cross-version handoff only survives untouched. We
  *        read `opts.origin` and nothing else.
  *
- * 2. `net.connect` / `net.createConnection` / `tls.connect` — the BACKSTOP for
- *    traffic that never goes through undici: `http.request`, gRPC, database
- *    drivers, anything holding a raw socket. Same catalog, same policy. (undici
- *    itself connects through `net.connect`, so a warn-mode fetch would report
- *    twice; the once-per-host dedupe below collapses that.)
+ * 2. `net.connect` / `net.createConnection` / `tls.connect`, plus the
+ *    `createConnection` on the `http.Agent` and `https.Agent` prototypes: the
+ *    backstop for traffic that never goes through undici, such as
+ *    `http.request`, gRPC, database drivers, anything holding a raw socket.
+ *    Same catalog, same policy. (undici itself connects through `net.connect`,
+ *    so a warn-mode fetch would report twice; the once-per-host dedupe below
+ *    collapses that.)
  *
- * ── Policy ────────────────────────────────────────────────────────────────
+ *    The Agent prototypes need their own patch because
+ *    `http.Agent.prototype.createConnection` is a copied reference to
+ *    `net.createConnection`, taken when `_http_agent` first loaded. If anything
+ *    loaded `node:http` before this module ran, that copy is the unpatched
+ *    function and every plain `http.request` would sail past the backstop,
+ *    including a request to the metadata server. It is also why the socket
+ *    patches are installed BEFORE the dispatcher is materialized: materializing
+ *    loads undici, which loads `_http_agent`.
+ *
+ * Policy
+ * ------
  * One knob, `PYRIC_GUARD=warn|block|off`, default `warn`:
  *   warn   report the egress, let it through
  *   block  report it and fail the request
  *   off    no hooks at all, one notice line at install time
  * The GCE metadata IP (`169.254.169.254`, `alwaysBlock` in the catalog) is
- * refused in warn mode and cannot be allowlisted — its only use from a dev
- * process is credential theft. `off` is genuinely off, metadata IP included;
- * the off notice says so out loud.
+ * refused in warn mode and cannot be allowlisted, since its only use from a
+ * dev process is credential theft. `off` is genuinely off, metadata IP
+ * included; the off notice says so out loud.
  *
  * A blocked fetch surfaces to app code as a bare `TypeError: fetch failed`
- * (the reason is buried on `error.cause`), so the guard must LOG its own
- * denial — the app's error will never explain itself.
+ * (the reason is buried on `error.cause`), so the guard must log its own
+ * denial: the app's error will never explain itself.
  *
- * ── The allowlist seam ────────────────────────────────────────────────────
- * `PYRIC_GUARD_ALLOW` — a comma/whitespace separated list of hosts or URLs,
+ * The allowlist seam
+ * ------------------
+ * `PYRIC_GUARD_ALLOW` is a comma/whitespace separated list of hosts or URLs,
  * matched on label boundaries, permitting an otherwise-flagged catalog host
- * (an allowlisted hit is still reported once). Env is the seam BY DESIGN:
+ * (an allowlisted hit is still reported once). Env is the seam by design:
  *   - the AI engine baseUrls live in the user's Vite config
  *     (`PyricAiOptions.engine.baseUrl`, `serve/vite-ai-config.ts`), which is
- *     read by the Vite plugin inside the serve host — a different process from
+ *     read by the Vite plugin inside the serve host, a different process from
  *     the one this module loads into, and not parsed by the CLI at all;
  *   - `pyric.json` is read asynchronously by `runServe` (`cli/pyric-config.ts`)
  *     and this module runs on the `--import` hot path of every child, where a
  *     synchronous config-file read has no business being.
  * `cli/sandbox-runner.ts:buildChildEnv` spreads the parent env into the child,
  * so anything the pyric process exports reaches every descendant for free
- * (`NODE_OPTIONS` already propagates the register import the same way). To wire
- * a `pyric.json` `guardAllow` through, the whole change is: add the field to
- * `PyricConfig`, and have `buildChildEnv` set `PYRIC_GUARD_ALLOW` from it at
- * the `cli/serve.ts` call site, where `pyricConfig` is already in scope.
+ * (`NODE_OPTIONS` already propagates the register import the same way). To
+ * wire a `pyric.json` `guardAllow` through, the whole change is: add the field
+ * to `PyricConfig`, and have `buildChildEnv` set `PYRIC_GUARD_ALLOW` from it
+ * at the `cli/serve.ts` call site, where `pyricConfig` is already in scope.
  *
  * Bun and Deno are out of scope: neither evaluates Node loader hooks (the
  * register module never loads there) and neither routes `fetch` through
@@ -76,13 +90,18 @@
  * backstop instead of throwing.
  */
 import { createRequire } from 'node:module';
-import { lookupGoogleEndpoint, type GoogleEndpoint } from '../google-endpoints.js';
+import {
+  lookupGoogleEndpoint,
+  matchesHostSuffix,
+  normalizeHostname,
+  type GoogleEndpoint,
+} from '../google-endpoints.js';
 
 /** undici's global-dispatcher slot. Version-suffixed by undici itself. */
 const UNDICI_GLOBAL_DISPATCHER = Symbol.for('undici.globalDispatcher.1');
 
 /** Marks a rejection as the guard's, so callers can tell it from a DNS/TLS
- *  failure — a blocked `fetch` only exposes it as `error.cause.code`. */
+ *  failure. A blocked `fetch` only exposes it as `error.cause.code`. */
 export const GUARD_BLOCKED_CODE = 'PYRIC_GUARD_BLOCKED';
 
 const LOG_PREFIX = '@pyric/cli/register: net-guard';
@@ -99,9 +118,9 @@ export interface EgressVerdict {
   /** Whether the connection may proceed. */
   readonly permitted: boolean;
   /**
-   * The hostname actually being contacted — what the developer needs in order
-   * to find the call. Not the catalog suffix: `cloudfunctions.net` does not
-   * tell you which region/project a callable went to.
+   * The hostname actually being contacted, which is what the developer needs
+   * in order to find the call. Not the catalog suffix: `cloudfunctions.net`
+   * does not tell you which region or project a callable went to.
    */
   readonly host: string;
   /** The catalog suffix that matched (`host` when the match was exact). */
@@ -110,11 +129,6 @@ export interface EgressVerdict {
   readonly service: string;
   /** Present only for catalog entries that can never be a false positive. */
   readonly alwaysBlock?: true;
-}
-
-export interface GuardPolicy {
-  readonly mode: GuardMode;
-  readonly allow: readonly string[];
 }
 
 /** `PYRIC_GUARD` → mode. Unset, empty or unrecognised all mean the safe
@@ -139,35 +153,38 @@ export function parseAllowHosts(raw: string | undefined): string[] {
   return out;
 }
 
-/** Best-effort hostname from a host, `host:port`, or full URL. */
+/** Only a trailing `:port` is stripped; a bare IPv6 address is left alone. */
+const HOST_WITH_PORT = /^(.+):\d+$/;
+
+/**
+ * Best-effort hostname from a host, `host:port`, or full URL. Normalization
+ * and suffix matching are the catalog's, so the guard and the catalog can
+ * never disagree about what a hostname is.
+ */
 function hostnameOf(value: string): string {
   const trimmed = value.trim();
   if (trimmed.includes('://')) {
     try {
-      return new URL(trimmed).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+      return normalizeHostname(new URL(trimmed).hostname).replace(/^\[|\]$/g, '');
     } catch {
-      // fall through to the textual forms
+      // Not a parseable URL: fall through to the textual forms.
     }
   }
   const withoutPath = trimmed.split('/')[0] ?? trimmed;
-  // Only strip a trailing `:port`; leave bare IPv6 alone.
-  const port = /^(.+):\d+$/.exec(withoutPath);
-  return (port?.[1] ?? withoutPath).toLowerCase().replace(/\.$/, '');
+  const portMatch = HOST_WITH_PORT.exec(withoutPath);
+  let hostPart: string;
+  if (portMatch === null) {
+    hostPart = withoutPath;
+  } else {
+    hostPart = portMatch[1]!;
+  }
+  return normalizeHostname(hostPart);
 }
 
 /**
- * Label-boundary suffix match, the same rule
- * {@link lookupGoogleEndpoint} applies to the catalog: `x.example.com` matches
- * `example.com`, `notexample.com` does not.
- */
-function matchesHost(hostname: string, suffix: string): boolean {
-  return hostname === suffix || hostname.endsWith(`.${suffix}`);
-}
-
-/**
- * The whole decision, pure: catalog lookup, then allowlist, then `alwaysBlock`,
- * then the mode. `null` means "nothing to say" — not a production endpoint, or
- * the guard is off.
+ * The whole verdict, pure: catalog lookup, then `alwaysBlock`, then the
+ * allowlist, then the mode. `null` means nothing to say: either not a
+ * production endpoint, or the guard is off.
  */
 export function evaluateEgress(
   hostname: string,
@@ -193,16 +210,23 @@ export function evaluateEgress(
     };
   }
 
-  if (policy.allow.some((allowed) => matchesHost(host, allowed))) {
+  if (policy.allow.some((allowed) => matchesHostSuffix(host, allowed))) {
     return { verdict: 'allow', permitted: true, host, endpoint: entry.host, service: entry.service };
   }
 
-  return policy.mode === 'block'
-    ? { verdict: 'block', permitted: false, host, endpoint: entry.host, service: entry.service }
-    : { verdict: 'warn', permitted: true, host, endpoint: entry.host, service: entry.service };
+  if (policy.mode === 'block') {
+    return {
+      verdict: 'block',
+      permitted: false,
+      host,
+      endpoint: entry.host,
+      service: entry.service,
+    };
+  }
+  return { verdict: 'warn', permitted: true, host, endpoint: entry.host, service: entry.service };
 }
 
-/** One stderr line per verdict — structured (fixed leading fields, so it is
+/** One stderr line per verdict: structured (fixed leading fields, so it is
  *  greppable) and attributable (service + transport + initiating command).
  *  The request PATH is deliberately never logged: it carries ids and tokens. */
 export function formatGuardLine(
@@ -210,36 +234,41 @@ export function formatGuardLine(
   transport: 'fetch' | 'socket',
   context: string | undefined,
 ): string {
-  const where = `via ${transport}${context !== undefined && context.length > 0 ? ` from ${context}` : ''}`;
-  const head = `${LOG_PREFIX} ${verdict.verdict.toUpperCase()} ${verdict.host} (${verdict.service}) ${where} —`;
+  let where = `via ${transport}`;
+  if (context !== undefined && context.length > 0) where = `${where} from ${context}`;
+  const head = `${LOG_PREFIX} ${verdict.verdict.toUpperCase()} ${verdict.host} (${verdict.service}) ${where}:`;
   const tail = 'Further attempts to this host are not logged.';
   if (verdict.verdict === 'allow') {
     return `${head} live production egress permitted by PYRIC_GUARD_ALLOW. ${tail}\n`;
   }
   if (verdict.verdict === 'warn') {
     return (
-      `${head} LIVE production egress — a sandboxed app routes Firebase traffic to /__pyric/*, ` +
+      `${head} LIVE production egress. A sandboxed app routes Firebase traffic to /__pyric/*, ` +
       `so this is reaching real data. Set PYRIC_GUARD=block to fail these requests instead. ${tail}\n`
     );
   }
-  const why =
-    verdict.alwaysBlock === true
-      ? 'the credential metadata server is refused in every mode except PYRIC_GUARD=off'
-      : 'live production egress refused (PYRIC_GUARD=block)';
+  let why: string;
+  if (verdict.alwaysBlock === true) {
+    why = 'the credential metadata server is refused in every mode except PYRIC_GUARD=off';
+  } else {
+    why = 'live production egress refused (PYRIC_GUARD=block)';
+  }
   // What the app actually observes differs by seam: undici swallows our throw
   // into the opaque `TypeError: fetch failed`, while a raw socket caller gets
   // the error itself. Say which, or the developer cannot connect the two.
-  const surfaces =
-    transport === 'fetch'
-      ? `the caller sees \`TypeError: fetch failed\` with cause ${GUARD_BLOCKED_CODE}`
-      : `the caller sees an error with code ${GUARD_BLOCKED_CODE}`;
+  let surfaces: string;
+  if (transport === 'fetch') {
+    surfaces = `the caller sees \`TypeError: fetch failed\` with cause ${GUARD_BLOCKED_CODE}`;
+  } else {
+    surfaces = `the caller sees an error with code ${GUARD_BLOCKED_CODE}`;
+  }
   return `${head} ${why}; ${surfaces}. ${tail}\n`;
 }
 
 function blockedError(verdict: EgressVerdict, transport: 'fetch' | 'socket'): Error {
   return Object.assign(
     new Error(
-      `pyric net-guard blocked ${transport} egress to ${verdict.host} (${verdict.service}) — ` +
+      `pyric net-guard blocked ${transport} egress to ${verdict.host} (${verdict.service}): ` +
         `this is LIVE production, not the pyric sandbox. ` +
         `Set PYRIC_GUARD=warn to allow it, or PYRIC_GUARD_ALLOW to permit this host.`,
     ),
@@ -247,7 +276,7 @@ function blockedError(verdict: EgressVerdict, transport: 'fetch' | 'socket'): Er
   );
 }
 
-// ─── the reporter (decide → log once → permit/refuse) ──────────────────────
+// ─── the reporter: evaluate, log once, permit or refuse ───────────────────────
 
 export interface ReporterOptions {
   readonly mode: GuardMode;
@@ -328,7 +357,7 @@ export function wrapDispatcher<T extends Dispatcher>(real: T, options: ReporterO
   const reporter = createReporter(options);
   const guardedDispatch = (opts: unknown, handler: unknown): unknown => {
     reporter.check(originHost(opts), 'fetch');
-    // Both arguments cross UNTOUCHED — Edge hands a v6 handler to the host's
+    // Both arguments cross UNTOUCHED. Edge hands a v6 handler to the host's
     // v7 Agent, and that handoff only survives by identity.
     return real.dispatch(opts, handler);
   };
@@ -345,6 +374,10 @@ export function wrapDispatcher<T extends Dispatcher>(real: T, options: ReporterO
 
 type ConnectFn = (...args: unknown[]) => unknown;
 
+/** A `createConnection`-bearing object: an `http.Agent`/`https.Agent`
+ *  prototype in production, a stand-in under test. */
+type AgentPrototype = { createConnection?: unknown };
+
 export interface NetGuardHooks {
   /** Object carrying the undici dispatcher symbol. Defaults to `globalThis`. */
   scope?: Record<symbol, unknown>;
@@ -353,6 +386,9 @@ export interface NetGuardHooks {
   write?: (line: string) => void;
   net?: { connect: ConnectFn; createConnection: ConnectFn };
   tls?: { connect: ConnectFn };
+  /** Prototypes whose `createConnection` is patched. Defaults to the
+   *  `http.Agent` and `https.Agent` prototypes. */
+  agentPrototypes?: readonly AgentPrototype[];
 }
 
 export interface NetGuard {
@@ -376,16 +412,41 @@ function contextFrom(argv: readonly string[] | undefined): string | undefined {
 /**
  * Materialize undici's lazy global dispatcher without touching the network.
  * `new Headers()` loads Node's undici, whose module body installs a default
- * Agent into the symbol only if the slot is still empty — so this must run
- * BEFORE we put anything there.
+ * Agent into the symbol only if the slot is still empty, so this must run
+ * before we put anything there. It also loads `_http_agent`, which is why the
+ * socket patches go in first.
  */
 function materializeGlobalDispatcher(): void {
   try {
     new Headers();
   } catch {
-    // No WHATWG Headers (or a runtime that never had undici) — the socket
+    // No WHATWG Headers, or a runtime that never had undici. The socket
     // backstop still applies.
   }
+}
+
+/**
+ * The `http.Agent` and `https.Agent` prototypes, or an empty list on a runtime
+ * without them. Each carries its own `createConnection`: `http`'s is a copied
+ * reference to `net.createConnection` snapshotted at `_http_agent` load time,
+ * so patching `net` alone leaves it unguarded whenever `node:http` loaded
+ * first.
+ */
+function nodeAgentPrototypes(): AgentPrototype[] {
+  const require = createRequire(import.meta.url);
+  const prototypes: AgentPrototype[] = [];
+  for (const id of ['node:http', 'node:https']) {
+    try {
+      const mod = require(id) as { Agent?: { prototype?: unknown } };
+      const prototype = mod.Agent?.prototype;
+      if (typeof prototype === 'object' && prototype !== null) {
+        prototypes.push(prototype as AgentPrototype);
+      }
+    } catch {
+      // Runtime without that module: the other seams still apply.
+    }
+  }
+  return prototypes;
 }
 
 /**
@@ -402,7 +463,7 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 
   if (mode === 'off') {
     write(
-      `${LOG_PREFIX} disabled (PYRIC_GUARD=off) — egress from this process to live ` +
+      `${LOG_PREFIX} disabled (PYRIC_GUARD=off): egress from this process to live ` +
         `Google/Firebase endpoints is neither reported nor blocked, not even the GCE ` +
         `metadata server (169.254.169.254).\n`,
     );
@@ -414,23 +475,14 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   const reporterOptions: ReporterOptions = { mode, allow, write, context, reported: new Set() };
 
   const scope = hooks.scope ?? (globalThis as unknown as Record<symbol, unknown>);
-  if (hooks.scope === undefined) materializeGlobalDispatcher();
-
-  let installed: unknown;
-  const wrapGlobalDispatcher = (): void => {
-    const current = scope[UNDICI_GLOBAL_DISPATCHER];
-    if (current === undefined || current === null) return;
-    if (current === installed) return;
-    if (typeof (current as Dispatcher).dispatch !== 'function') return;
-    // PLAIN ASSIGNMENT. undici's own property is
-    // `configurable: false, writable: true`; a `defineProperty` that tries to
-    // make it configurable throws and takes the process down.
-    installed = wrapDispatcher(current as Dispatcher, reporterOptions);
-    scope[UNDICI_GLOBAL_DISPATCHER] = installed;
-  };
-  wrapGlobalDispatcher();
 
   // ── socket backstop: http.request, gRPC, DB drivers, raw sockets ──
+  //
+  // This runs FIRST, before the dispatcher is materialized. Materializing
+  // loads undici, which loads `_http_agent`, which snapshots
+  // `net.createConnection` onto `http.Agent.prototype.createConnection`. With
+  // the order reversed, that snapshot is the unpatched function and every
+  // plain `http.request` escapes the guard, the metadata server included.
   const require = createRequire(import.meta.url);
   const netModule =
     hooks.net ?? (require('node:net') as { connect: ConnectFn; createConnection: ConnectFn });
@@ -449,11 +501,33 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   guardConnect(netModule as unknown as { [k: string]: unknown }, 'connect');
   guardConnect(netModule as unknown as { [k: string]: unknown }, 'createConnection');
   guardConnect(tlsModule as unknown as { [k: string]: unknown }, 'connect');
+  // And the Agent prototypes, so a `node:http` that loaded before this module
+  // is still covered. `https.Agent` also reaches the patched `tls.connect`, so
+  // its own patch is a second check on the same egress; the once-per-host
+  // dedupe keeps that from printing twice.
+  for (const prototype of hooks.agentPrototypes ?? nodeAgentPrototypes()) {
+    guardConnect(prototype as { [k: string]: unknown }, 'createConnection');
+  }
+
+  let installed: unknown;
+  const wrapGlobalDispatcher = (): void => {
+    const current = scope[UNDICI_GLOBAL_DISPATCHER];
+    if (current === undefined || current === null) return;
+    if (current === installed) return;
+    if (typeof (current as Dispatcher).dispatch !== 'function') return;
+    // PLAIN ASSIGNMENT. undici's own property is
+    // `configurable: false, writable: true`; a `defineProperty` that tries to
+    // make it configurable throws and takes the process down.
+    installed = wrapDispatcher(current as Dispatcher, reporterOptions);
+    scope[UNDICI_GLOBAL_DISPATCHER] = installed;
+  };
+  if (hooks.scope === undefined) materializeGlobalDispatcher();
+  wrapGlobalDispatcher();
 
   let timer: ReturnType<typeof setInterval> | undefined;
   if (hooks.scope === undefined) {
     timer = setInterval(wrapGlobalDispatcher, REASSERT_INTERVAL_MS);
-    // Never hold the event loop open — a guarded child must still exit.
+    // Never hold the event loop open: a guarded child must still exit.
     timer.unref?.();
   }
 
@@ -481,7 +555,7 @@ function connectHost(args: readonly unknown[]): string | undefined {
     return typeof host === 'string' ? host : undefined;
   }
   if (typeof first === 'number' || (typeof first === 'string' && /^\d+$/.test(first))) {
-    // (port, host?, ...) — the host, when given, is the next string argument.
+    // (port, host?, ...): the host, when given, is the next string argument.
     const second = args[1];
     if (typeof second === 'string') return second;
     if (typeof second === 'object' && second !== null) {

@@ -16,11 +16,7 @@
  * only `spawnDevChild` touches the process table.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { beaconEndpoint } from '../register/beacon.js';
-import { parseGuardMode, type GuardMode } from '../register/net-guard.js';
-// Type-only: erased at compile, so this never closes a cycle with serve.ts
-// (which imports this module for the child plan and spawn).
-import type { InlinedFirebaseHit } from './serve.js';
+import { SHELL_OPERATORS } from './unsupported-runtime.js';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
 
@@ -157,278 +153,61 @@ export function registerModuleUrl(): string {
   return new URL('../register/index.js', import.meta.url).href;
 }
 
+/** What the launcher has to put in a child's environment for interception. */
+export interface ChildActivation {
+  /** The serve host the child's sandbox calls reach. */
+  readonly serveUrl: string;
+  /** Absolute `file:` URL of the register module. */
+  readonly registerUrl: string;
+  /** The per-launch secret the child's handshake beacon must present.
+   *  Absent when the launcher runs no beacon receiver, as the Vite plugin's
+   *  Functions runtime does; the child then reports on stderr only. */
+  readonly beaconToken?: string | undefined;
+}
+
 /**
- * Child env: sets the activator and APPENDS the loader to NODE_OPTIONS —
- * never replaces it (the user's own --inspect / --max-old-space-size etc.
- * must survive). `file:` URLs are percent-encoded, so no quoting is needed
- * even for paths with spaces.
+ * Child env: sets the activator and the beacon secret, and APPENDS the loader
+ * to NODE_OPTIONS rather than replacing it (the user's own --inspect /
+ * --max-old-space-size and so on must survive). `file:` URLs are
+ * percent-encoded, so no quoting is needed even for paths with spaces.
  */
 export function buildChildEnv(
   base: NodeJS.ProcessEnv,
-  opts: { serveUrl: string; registerUrl: string },
+  opts: ChildActivation,
 ): NodeJS.ProcessEnv {
   const importFlag = `--import ${opts.registerUrl}`;
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...base,
     PYRIC_SANDBOX: `remote:${opts.serveUrl}`,
     NODE_OPTIONS: base.NODE_OPTIONS ? `${base.NODE_OPTIONS} ${importFlag}` : importFlag,
   };
+  if (opts.beaconToken !== undefined) env.PYRIC_BEACON_TOKEN = opts.beaconToken;
+  return env;
 }
 
 /**
  * Format copy-pasteable POSIX export statements for host-only startup.
  * Grouped in a cleanly formatted console block for easy selection and copying
  * into a separate terminal (for example, when running Next.js independently).
+ *
+ * The beacon secret is part of the block: without it a process started this
+ * way still intercepts, but the dev server cannot confirm that it did.
  */
-export function formatStartupEnvExport(opts: { serveUrl: string; registerUrl: string }): string {
-  const pyricSandbox = `remote:${opts.serveUrl}`;
-  const nodeOptions = `--import ${opts.registerUrl}`;
-  const line1 = `export PYRIC_SANDBOX="${pyricSandbox}"`;
-  const line2 = `export NODE_OPTIONS="${nodeOptions}"`;
-  const divider = '─'.repeat(Math.max(line1.length, line2.length) + 4);
+export function formatStartupEnvExport(opts: ChildActivation): string {
+  const lines = [`export PYRIC_SANDBOX="remote:${opts.serveUrl}"`];
+  if (opts.beaconToken !== undefined) {
+    lines.push(`export PYRIC_BEACON_TOKEN="${opts.beaconToken}"`);
+  }
+  lines.push(`export NODE_OPTIONS="--import ${opts.registerUrl}"`);
+  const width = Math.max(...lines.map((line) => line.length));
+  const divider = '─'.repeat(width + 4);
+  const body = lines.map((line) => `  ${line}\n`).join('');
   return (
     '\n' +
     '  To run external commands against this sandbox, paste in another terminal:\n' +
     `  ${divider}\n` +
-    `  ${line1}\n` +
-    `  ${line2}\n` +
+    body +
     `  ${divider}\n`
-  );
-}
-
-// ─── The interlock: status line + warn-only beacon watchdog ────────────────
-
-/**
- * What `pyric sandbox` can say about the interception it is ABOUT to hand the
- * child, entirely from the env it just assembled — no waiting, no probing.
- */
-export interface InterlockStatus {
-  /** Net-guard mode the child will run under (`PYRIC_GUARD`, default warn). */
-  readonly guard: GuardMode;
-  /** Whether `NODE_OPTIONS` actually carries the register `--import`. */
-  readonly registerImported: boolean;
-  /** Where the child's handshake beacon will land, or null when the
-   *  activator carries no bridge URL. */
-  readonly beacon: string | null;
-}
-
-/**
- * Read the interlock off the child env. Everything here is synchronous by
- * construction: it is a statement about the LAUNCH (what we set), printed
- * before anything at runtime has had a chance to go wrong.
- */
-export function describeInterlock(
-  childEnv: NodeJS.ProcessEnv,
-  registerUrl: string,
-): InterlockStatus {
-  return {
-    guard: parseGuardMode(childEnv.PYRIC_GUARD),
-    registerImported: (childEnv.NODE_OPTIONS ?? '').includes(`--import ${registerUrl}`),
-    beacon: beaconEndpoint(childEnv.PYRIC_SANDBOX),
-  };
-}
-
-/** The startup status line, alongside the other `✔ <service>` checks. */
-export function formatInterlockLine(status: InterlockStatus): string {
-  const beacon = status.beacon ?? 'none';
-  if (!status.registerImported) {
-    return (
-      `⚠ interlock guard=${status.guard} · register is NOT in the child's NODE_OPTIONS — ` +
-      `its firebase-admin/firebase imports will NOT be rewritten and would reach LIVE Firebase · ` +
-      `beacon=${beacon}\n`
-    );
-  }
-  return (
-    `✔ interlock guard=${status.guard} · register loaded via NODE_OPTIONS · beacon=${beacon}\n`
-  );
-}
-
-/** How long a child may live without its beacon before we say something. */
-const BEACON_GRACE_MS = 15_000;
-
-export interface BeaconWatchdogOptions {
-  /** The child command, for attribution in the warning. */
-  readonly label: string;
-  /** The endpoint the child would post to; null ⇒ nothing to watch. */
-  readonly beacon: string | null;
-  /** Whether a beacon from this child has been recorded. */
-  readonly sawBeacon: () => boolean;
-  /** Whether the child is still running. */
-  readonly isAlive: () => boolean;
-  readonly warn: (line: string) => void;
-  readonly graceMs?: number;
-}
-
-export interface BeaconWatchdog {
-  /** Cancel a pending check. Idempotent. */
-  stop(): void;
-}
-
-/** The warning itself — one paragraph, naming what the silence means and what
- *  to check. Kept separate so its exact wording is testable. */
-export function formatMissingBeaconWarning(opts: {
-  label: string;
-  graceMs: number;
-  beacon: string;
-}): string {
-  const seconds = Math.round(opts.graceMs / 1000);
-  return (
-    `  ⚠ interlock: \`${opts.label}\` has been running ${seconds}s without posting a register ` +
-    `beacon to ${opts.beacon} — its firebase-admin/firebase imports are probably NOT routed to ` +
-    `the pyric sandbox, which means they would reach LIVE Firebase. Check that the command starts ` +
-    `a Node process (bun and deno do not evaluate Node loader hooks), that it does not overwrite ` +
-    `NODE_OPTIONS, and that NODE_ENV is not production. Warning only — nothing was blocked, and ` +
-    `this is reported once per child.`
-  );
-}
-
-/**
- * The warn-only interlock watchdog.
- *
- * PERMANENTLY warn-only, by adopted decision: it never kills the child and
- * never blocks a request. The reason is the signal's own honesty — beacon
- * delivery is best-effort (see `register/beacon.ts`), and a plausible silent
- * child is not the same thing as a broken one. A short-lived script that
- * exits before its POST lands, a child that reaches the sandbox only through
- * a grandchild, a dev server slow to boot: each would be killed by a
- * fail-closed version of this check, and each is fine.
- *
- * So the heuristic is deliberately the simple, attributable one: the child is
- * STILL ALIVE `graceMs` after launch and no beacon has arrived. Both halves
- * matter — an exited child was never expected to say anything, and a child
- * whose beacon landed has already proved the point. One warning per child,
- * guaranteed by the one-shot timer; the timer is unref'd so a watchdog can
- * never be the reason a process stays up.
- */
-export function startBeaconWatchdog(opts: BeaconWatchdogOptions): BeaconWatchdog {
-  const beacon = opts.beacon;
-  if (beacon === null) return { stop: () => {} };
-  const graceMs = opts.graceMs ?? BEACON_GRACE_MS;
-  const timer = setTimeout(() => {
-    if (opts.sawBeacon() || !opts.isAlive()) return;
-    opts.warn(formatMissingBeaconWarning({ label: opts.label, graceMs, beacon }));
-  }, graceMs);
-  timer.unref?.();
-  return {
-    stop(): void {
-      clearTimeout(timer);
-    },
-  };
-}
-
-// ─── Pre-flight artifact scan (pure formatting half) ───────────────────────
-
-/**
- * The backend build outputs a launched child plausibly loads, relative to the
- * project root. `dist` and `build` are the generic bundler outputs, `functions`
- * the Cloud Functions source/output dir, and `.next/server` the Next.js server
- * bundle — the one that lives behind a dot-directory the default (frontend)
- * scan deliberately skips, and the one most likely to carry an inlined
- * firebase-admin. Missing dirs are skipped by the scanner, so an unbuilt
- * project costs a handful of `existsSync` calls.
- */
-export const BACKEND_ARTIFACT_DIRS: readonly string[] = [
-  'dist',
-  'build',
-  '.next/server',
-  'functions',
-];
-
-/** How many per-file findings print before the rest collapse into a count. */
-const PREFLIGHT_MAX_FILE_LINES = 10;
-
-/**
- * Render the pre-flight findings, in the interlock's line style.
- *
- * WARN-ONLY, by adopted decision: a hit is evidence, not proof. The scanner
- * greps for a host literal, and a stale `dist/` from last month or a vendored
- * copy of someone else's bundle is a false positive that must never stop a
- * launch. So this returns lines to print and nothing else — no throw, no
- * refusal, no exit-code change. (The *served frontend* check in `serve.ts`
- * still throws; that one gates what pyric itself is about to serve, which is a
- * claim pyric makes, not a guess about the user's child process.)
- *
- * One line per file naming the catalog service and host, then one line saying
- * what a finding means and that nothing was blocked.
- */
-export function formatInlinedArtifactWarnings(hits: readonly InlinedFirebaseHit[]): string[] {
-  if (hits.length === 0) return [];
-  const lines = hits
-    .slice(0, PREFLIGHT_MAX_FILE_LINES)
-    .map((h) => `  ⚠ preflight: ${h.file} inlines ${h.service} (${h.host})`);
-  const remaining = hits.length - lines.length;
-  if (remaining > 0) lines.push(`  ⚠ preflight: …and ${remaining} more file(s)`);
-  const noun = hits.length === 1 ? 'build artifact contains' : 'build artifacts contain';
-  lines.push(
-    `  ⚠ preflight: ${hits.length} ${noun} inlined production Firebase SDK code, which bypasses ` +
-      `pyric's module swap — the SDK is compiled INTO the artifact, so there is no ` +
-      `firebase/firebase-admin import left for the loader to rewrite and those calls would reach ` +
-      `LIVE Firebase. Rebuild with firebase and firebase-admin marked external. Warning only — ` +
-      `nothing was blocked.`,
-  );
-  return lines;
-}
-
-// ─── Unsupported child runtimes (pure) ─────────────────────────────────────
-
-/** Tokens that end one command and begin the next inside a shell string. */
-const SHELL_OPERATORS = new Set(['&&', '||', '|', ';', '&']);
-
-/** Command basenames that cannot evaluate Node loader hooks, → the runtime. */
-const UNSUPPORTED_RUNTIME_BINARIES = new Map<string, string>([
-  ['bun', 'bun'],
-  ['bunx', 'bun'],
-  ['deno', 'deno'],
-]);
-
-/** Strip directory and a Windows `.exe` suffix from a command token. */
-function commandBasename(token: string): string {
-  const base = token.split(/[\\/]/).pop() ?? token;
-  return base.toLowerCase().replace(/\.exe$/, '');
-}
-
-/**
- * Decide whether the child command starts a runtime that cannot intercept.
- *
- * Adopted decision 4. Detection is by COMMAND NAME, deliberately: argv[0] (and
- * any token that begins a new command after a shell operator), with leading
- * `KEY=VAL` assignments skipped and the path/`.exe` decoration stripped. That
- * is the honest 90% — `npm run dev` whose package script shells out to bun is
- * undetectable from here, and guessing would cost false positives on names
- * that merely start with the same letters (`bundle exec`).
- *
- * Returns the canonical runtime name (`bun` for `bunx` too) or null.
- */
-export function detectUnsupportedRuntime(argv: readonly string[]): string | null {
-  let atCommandStart = true;
-  for (const token of argv) {
-    if (atCommandStart && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) continue;
-    if (SHELL_OPERATORS.has(token)) {
-      atCommandStart = true;
-      continue;
-    }
-    if (atCommandStart) {
-      const runtime = UNSUPPORTED_RUNTIME_BINARIES.get(commandBasename(token));
-      if (runtime !== undefined) return runtime;
-      atCommandStart = false;
-    }
-  }
-  return null;
-}
-
-/**
- * The one warning. It has to say BOTH halves of what is lost: the loader swap
- * (interception itself) and the net guard (the socket backstop that would
- * otherwise catch the egress), because the guard is installed by the same
- * `--import`ed register module and is therefore just as absent.
- */
-export function formatUnsupportedRuntimeWarning(runtime: string): string {
-  return (
-    `  ⚠ runtime: pyric interception is not supported under \`${runtime}\` — it does not evaluate ` +
-    `Node loader hooks, so the child's firebase/firebase-admin imports will NOT be rewritten and ` +
-    `may reach LIVE Firebase. The net-guard socket backstop also only applies under Node, so it ` +
-    `will not catch that egress either. Run the command under \`node\` (or \`npx tsx\`) for the ` +
-    `sandbox swap. Warning only — nothing was blocked.\n`
   );
 }
 
@@ -498,9 +277,9 @@ export function spawnSandboxChild(
   // 2. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
   const hasShellOperators = parts.some((token) => SHELL_OPERATORS.has(token));
 
-  // (The unsupported-runtime warning for bun/deno is emitted by the launch
-  // seam in serve.ts, alongside the interlock and pre-flight lines, so every
-  // pre-spawn statement about the child prints in one block and in order.)
+  // The bun/deno warning is emitted by the launch seam in serve.ts, alongside
+  // the interlock and pre-flight lines, so every pre-spawn statement about the
+  // child prints in one block and in order.
 
   const [command, ...args] = parts;
   let child: ChildProcess;

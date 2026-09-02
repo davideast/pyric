@@ -39,9 +39,12 @@ export interface SandboxSessionOptions {
   permissive?: boolean;
   logger?: ServeLogger;
   activity?: (incident: ActivityIncident) => void;
-  /** Receives one handshake beacon per pyric-launched child — the dev
+  /** Receives one handshake beacon per pyric-launched child, the dev
    *  server's only positive proof that the register module reached it. */
   beacon?: (report: BeaconReport) => void;
+  /** The per-launch secret a beacon must present, also placed in the child's
+   *  `PYRIC_BEACON_TOKEN`. */
+  beaconToken?: string;
 }
 
 export interface SandboxSessionSummary {
@@ -217,6 +220,7 @@ export async function createSandboxSession(
     aiProxyUpstream: options.aiProxyUpstream,
     activity: options.activity,
     beacon: options.beacon,
+    beaconToken: options.beaconToken,
     logger: options.logger,
   });
 

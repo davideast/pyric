@@ -10,6 +10,7 @@
  * rules load (fail fast on broken rules) → SDK bundle (cached per pyric
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
+import { randomBytes } from 'node:crypto';
 import { join, relative, resolve } from 'node:path';
 import { existsSync, readdirSync, readFileSync, statSync, watch as watchFile } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
@@ -22,8 +23,9 @@ import {
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
-import { INLINE_FINGERPRINT_HOSTS, lookupGoogleEndpoint } from '../google-endpoints.js';
-import { formatBeaconReceipt, type InitPayload } from '../serve/namespace.js';
+import { SDK_FINGERPRINT_HOSTS } from '../google-endpoints.js';
+import { formatBeaconReceipt } from '../serve/beacon-route.js';
+import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { injectServeTags } from '../serve/html-injection.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
@@ -32,22 +34,26 @@ import { createBridgeMount } from '../serve/bridge-mount.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
 import {
-  BACKEND_ARTIFACT_DIRS,
   buildChildEnv,
-  describeInterlock,
-  detectUnsupportedRuntime,
-  formatInlinedArtifactWarnings,
-  formatInterlockLine,
   formatStartupEnvExport,
-  formatUnsupportedRuntimeWarning,
   registerModuleUrl,
   resolveSandboxChild,
   spawnSandboxChild,
-  startBeaconWatchdog,
   waitForSandboxPeer,
-  type BeaconWatchdog,
   type SandboxChildHandle,
 } from './sandbox-runner.js';
+import {
+  describeInterlock,
+  formatInterlockLine,
+  startBeaconWatchdog,
+  type BeaconWatchdog,
+} from './sandbox-interlock.js';
+import { formatInlinedArtifactWarnings, scanBackendArtifacts } from './sandbox-preflight.js';
+import { scanInlinedFirebaseHits } from './inlined-sdk-scanner.js';
+import {
+  detectUnsupportedRuntime,
+  formatUnsupportedRuntimeWarning,
+} from './unsupported-runtime.js';
 import {
   createFunctionsDevelopmentRuntime,
   createHttpFunctionsPeerReadiness,
@@ -99,8 +105,11 @@ export interface ServeRuntime {
   /** Persistence summary (null when `--persist` is off). */
   persist: { restoredDocs: number; restoredUsers: number } | null;
   /** How many handshake beacons pyric-launched children have posted to
-   *  `/__pyric/beacon` so far — the interlock watchdog's only input. */
+   *  `/__pyric/beacon` so far, the interlock watchdog's only input. */
   beaconCount: () => number;
+  /** The per-launch secret a beacon must present. Placed in every child's
+   *  `PYRIC_BEACON_TOKEN` and printed with the host-only export block. */
+  beaconToken: string;
 }
 
 /** The `--json` stdout contract — one line, keep stable; agents parse this.
@@ -165,10 +174,13 @@ export async function startServe(opts: {
 }): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
 
-  // Handshake beacons received from pyric-launched children (TA.4). Counted
-  // here because the namespace route lives in this server; `runServe`'s
-  // watchdog reads it back off the returned runtime.
+  // Handshake beacons received from pyric-launched children. Counted here
+  // because the namespace route lives in this server; `runServe`'s watchdog
+  // reads it back off the returned runtime.
   let beaconsSeen = 0;
+  // The per-launch secret that authorizes a beacon. Generated here, given to
+  // the route and to every child this launch starts, and to nobody else.
+  const beaconToken = randomBytes(24).toString('base64url');
 
   // --fresh only means anything against the state.json file `--persist`
   // maintains — without `--persist` there is no file to discard, so
@@ -230,17 +242,22 @@ export async function startServe(opts: {
 
   // The import map can only remap BARE `firebase/*` specifiers. A plain bundler
   // build (`vite build`) inlines the real SDK into the app chunk, leaving
-  // nothing to intercept — the page would then talk to REAL Firebase endpoints
+  // nothing to intercept: the page would then talk to REAL Firebase endpoints
   // with the sandbox's fake credentials while the injected banner claims
   // otherwise. That hole is structural, so `pyric sandbox` refuses such a dist
   // rather than serving it. A pyric SANDBOX build (`vite build --mode
   // development`) carries the marker and bundles pyric's in-page adapters, so it
-  // is trusted and the scan is skipped (marker present → no real SDK to find).
+  // is trusted and the scan is skipped (marker present, no real SDK to find).
+  //
+  // Only the SDK fingerprint hosts feed this check, never the full catalog:
+  // this one throws, and a dist may legitimately carry a bare callable URL, a
+  // public Cloud Storage asset URL, or a `databaseURL` literal without ever
+  // touching the Firebase SDK.
   if (!hasSandboxBuildMarker(publicDir)) {
-    const inlined = scanForInlinedFirebase(publicDir);
+    const inlined = scanInlinedFirebaseHits(publicDir, { hosts: SDK_FINGERPRINT_HOSTS });
     if (inlined.length > 0) {
       throw new Error(
-        `pyric sandbox: ${inlined[0]} bundles the real Firebase SDK, so this dist cannot be ` +
+        `pyric sandbox: ${inlined[0]!.file} bundles the real Firebase SDK, so this dist cannot be ` +
           `sandboxed — its firebase/* calls would reach LIVE Google endpoints, not the ` +
           `pyric sandbox. Two ways forward:\n` +
           `  (a) \`pyric sandbox -- <command>\` runs the child server with the @pyric/cli/vite ` +
@@ -324,6 +341,7 @@ export async function startServe(opts: {
       studio: opts.ui ? { siteUiDir } : false,
       bridgeUrl: () => mount && origin.port > 0 ? mount.wsUrl(origin) : null,
       activity: (incident) => logger.note(formatActivityWarning(incident)),
+      beaconToken,
       beacon: (report) => {
         beaconsSeen += 1;
         logger.note(formatBeaconReceipt(report));
@@ -590,6 +608,7 @@ export async function startServe(opts: {
     mcpUrl: mount ? mount.mcpUrl(origin) : null,
     persist: persistSummary,
     beaconCount: () => beaconsSeen,
+    beaconToken,
   };
 }
 
@@ -884,6 +903,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       baseEnv: process.env,
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
+      beaconToken: runtime.beaconToken,
       instance: `${functionsProjectId}-default-rtdb`,
       location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
       projectId: functionsProjectId ?? 'demo-project',
@@ -952,12 +972,13 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     const childEnv = buildChildEnv(process.env, {
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
+      beaconToken: runtime.beaconToken,
     });
     // The interlock status line: what we are handing the child, stated before
-    // it starts — guard mode, whether NODE_OPTIONS really carries the register
-    // import, and where the child's handshake beacon will land. All of it is
-    // knowable from the env we just assembled, so it prints alongside the
-    // other startup checks rather than waiting on the child.
+    // it starts. Guard mode and whether NODE_OPTIONS really carries the
+    // register import are both knowable from the env we just assembled, so
+    // this prints alongside the other startup checks rather than waiting on
+    // the child.
     const interlock = describeInterlock(childEnv, registerModuleUrl());
     info.write(formatInterlockLine(interlock));
 
@@ -965,36 +986,35 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     // firebase/firebase-admin. A backend bundle that compiled the SDK in has
     // no such import left, so it sails past register untouched and talks to
     // LIVE Google. Grep the plausible backend build dirs for the shared
-    // endpoint catalog's fingerprints and say so. WARN-ONLY (see
-    // `formatInlinedArtifactWarnings`) — a stale `dist/` must never block a
-    // launch. This runs ONLY here, on the launched-child path: with no child
-    // there is nothing whose artifacts we would be pre-flighting.
-    for (const line of formatInlinedArtifactWarnings(
-      scanInlinedFirebaseHits(cwd, { dirs: BACKEND_ARTIFACT_DIRS }),
-    )) {
+    // endpoint catalog and say so. Warn-only (see
+    // `formatInlinedArtifactWarnings`): a stale `dist/` must never block a
+    // launch, and a clean project prints nothing. This runs ONLY here, on the
+    // launched-child path: with no child there is nothing to pre-flight.
+    for (const line of formatInlinedArtifactWarnings(scanBackendArtifacts(cwd))) {
       info.write(`${line}\n`);
     }
 
-    // …and the other way interception can be absent: a child runtime that
-    // never evaluates Node loader hooks at all.
+    // The other way interception can be absent: a child runtime that never
+    // evaluates Node loader hooks at all.
     const unsupportedRuntime = detectUnsupportedRuntime(plan.argv);
     if (unsupportedRuntime !== null) info.write(formatUnsupportedRuntimeWarning(unsupportedRuntime));
 
     devChild = spawnSandboxChild(plan, { cwd, json, env: childEnv });
-    // …and the warn-only watchdog for the other half: a child that is still
-    // alive well after launch and has never posted a beacon is very likely
-    // NOT intercepted. It says so once and does nothing else — see
+    // The warn-only watchdog for the other half: a child that is still alive
+    // well after launch and has never posted a beacon is very likely NOT
+    // intercepted. It says so once and does nothing else. See
     // `startBeaconWatchdog` for why this never escalates to a kill.
     //
     // The signal is a COUNT DELTA rather than a pid match, deliberately. The
-    // process that loads register is often a grandchild (`npm run dev` → node,
-    // `next dev` → its worker), so `devChild.child.pid` is frequently not the
-    // pid in the beacon; matching on it would warn about perfectly healthy
-    // launches. The delta's known imprecision is the other direction — the
-    // functions runtime's own register-preloaded child also beacons, and it
-    // starts BEFORE this line, so its beacon is already inside the baseline;
-    // only one restarting inside the grace window could mask a real miss.
-    // Erring toward silence is the right bias for a warn-only check.
+    // process that loads register is often a grandchild (`npm run dev` starts
+    // node, `next dev` starts its worker), so `devChild.child.pid` is
+    // frequently not the pid in the beacon; matching on it would warn about
+    // perfectly healthy launches. The delta's known imprecision is the other
+    // direction: the functions runtime's own register-preloaded child also
+    // beacons, and it starts BEFORE this line, so its beacon is already inside
+    // the baseline; only one restarting inside the grace window could mask a
+    // real miss. Erring toward silence is the right bias for a warn-only
+    // check.
     const beaconsAtSpawn = runtime.beaconCount();
     beaconWatchdog = startBeaconWatchdog({
       label: plan.label,
@@ -1008,6 +1028,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       formatStartupEnvExport({
         serveUrl: runtime.handle.url,
         registerUrl: registerModuleUrl(),
+        beaconToken: runtime.beaconToken,
       }),
     );
   }
@@ -1058,117 +1079,3 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   });
 }
 
-/** Options for {@link scanForInlinedFirebase}. */
-export interface InlinedScanOptions {
-  /**
-   * Explicit subdirectories of `root` to scan instead of `root` itself —
-   * how a pre-flight check points the scanner at BACKEND build output
-   * (`dist`, `.next/server`, `functions`), which the default frontend scan
-   * never reaches because those live outside `hosting.public` and, for
-   * `.next`, behind a dot-directory. Entries are `root`-relative; missing
-   * ones are skipped silently (an unbuilt project is not a finding).
-   * Omitted → the historical behavior: scan `root` itself.
-   */
-  readonly dirs?: readonly string[];
-}
-
-/** One offending artifact, with the catalog labels that identify the finding. */
-export interface InlinedFirebaseHit {
-  /** `root`-relative path of the file, in the caller's own spelling. */
-  readonly file: string;
-  /** The first catalog fingerprint host found in it. */
-  readonly host: string;
-  /** That host's catalog service label, used verbatim in messages. */
-  readonly service: string;
-}
-
-/**
- * Detect a build that INLINED the real firebase SDK into an artifact. For the
- * served frontend (`vite build` output) the served import map remaps only bare
- * `firebase/*` specifiers, so such a build cannot be sandboxed — its calls
- * reach real Google endpoints; the same fingerprint identifies a backend
- * bundle whose SDK was compiled in past the loader's reach.
- *
- * Fingerprints come from the shared `google-endpoints` catalog: real-SDK-only
- * hosts that never appear in a sandbox-clean app (whose calls all route to
- * `/__pyric/*`). The runtime net guard matches the SAME table, so a build that
- * scans clean and a process that runs clean agree on what "clean" means.
- *
- * Bounded: depth ≤ 4 per scanned dir, ≤ 200 script files total, first hit per
- * file. Extensions: `.js`/`.mjs`/`.cjs` — `.cjs` is what a CommonJS backend
- * build emits, and omitting it made every such artifact invisible. Not `.ts`:
- * no build path in scope emits executable TypeScript, and sourcemaps are
- * deliberately out of scope here.
- *
- * The host is reported as well as the file because the pre-flight check at
- * child launch names the SERVICE ("Cloud Firestore") rather than just the
- * path — the catalog is ordered most-specific-first, so the first match is
- * the narrowest one.
- */
-export function scanInlinedFirebaseHits(
-  root: string,
-  opts: InlinedScanOptions = {},
-): InlinedFirebaseHit[] {
-  const hits: InlinedFirebaseHit[] = [];
-  let scanned = 0;
-  const walk = (d: string, rel: string, depth: number): void => {
-    if (depth > 4 || scanned >= 200) return;
-    let names: string[];
-    try {
-      names = readdirSync(d);
-    } catch {
-      return;
-    }
-    for (const name of names) {
-      if (scanned >= 200) return;
-      const p = join(d, name);
-      const r = rel ? `${rel}/${name}` : name;
-      let st;
-      try {
-        st = statSync(p);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        // The pyric namespace itself never lands in hosting.public, but a
-        // node_modules inside a served dir would be a scan-cost trap.
-        // Dot-directories (.next, .git, .pyric) are internal caches and must be ignored.
-        // (An explicitly requested dir is scanned even if dot-prefixed — the
-        // caller named it, so it is a target, not an incidental cache.)
-        if (name === 'node_modules' || name.startsWith('.')) continue;
-        walk(p, r, depth + 1);
-      } else if (/\.(js|mjs|cjs)$/.test(name)) {
-        scanned++;
-        try {
-          const text = readFileSync(p, 'utf8');
-          const host = INLINE_FINGERPRINT_HOSTS.find((f) => text.includes(f));
-          if (host !== undefined) {
-            hits.push({ file: r, host, service: lookupGoogleEndpoint(host)?.service ?? host });
-          }
-        } catch {
-          // unreadable asset: skip
-        }
-      }
-    }
-  };
-  if (opts.dirs) {
-    for (const sub of opts.dirs) {
-      const target = resolve(root, sub);
-      if (!existsSync(target)) continue;
-      // `rel` seeds with the caller's own spelling so hits read back as the
-      // path they asked about (`.next/server/chunk.js`).
-      walk(target, sub.replace(/[\\/]+$/, '').replace(/\\/g, '/'), 0);
-    }
-  } else {
-    walk(root, '', 0);
-  }
-  return hits;
-}
-
-/**
- * {@link scanInlinedFirebaseHits} projected to just the offending paths — the
- * shape the throwing build check has always consumed.
- */
-export function scanForInlinedFirebase(root: string, opts: InlinedScanOptions = {}): string[] {
-  return scanInlinedFirebaseHits(root, opts).map((h) => h.file);
-}

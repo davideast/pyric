@@ -27,6 +27,7 @@ import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
 import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
 import { createSiteTreeHandler } from './site-tree.js';
 import { BEACON_PATH, type BeaconReport } from '../register/beacon.js';
+import { handleBeacon } from './beacon-route.js';
 export type { InitPayload } from './init-payload.js';
 
 /**
@@ -126,9 +127,13 @@ export interface NamespaceOptions {
   aiProxyUpstream?: string;
   /** Receives one handshake beacon per pyric-launched child (`POST
    *  /__pyric/beacon`, sent by `@pyric/cli/register` once its hooks and
-   *  net-guard are installed). Absent ⇒ the route still 204s; the child must
-   *  never be able to fail on its own proof-of-life. */
+   *  net-guard are installed). Absent means the route still 204s; the child
+   *  must never be able to fail on its own proof-of-life. */
   beacon?: (report: BeaconReport) => void;
+  /** The per-launch secret a beacon must present in `x-pyric-beacon-token`,
+   *  which the launcher puts in the child's `PYRIC_BEACON_TOKEN`. Absent means
+   *  one is generated that nobody holds, so the route accepts nothing. */
+  beaconToken?: string;
   /** Where hot-reload/diagnostic lines print (rules reload, denial relay,
    *  AI broker diagnostics, ai-proxy upstream failures). Absent ⇒ diagnostics
    *  are dropped (a caller that wires no logger opts out silently rather than
@@ -396,74 +401,13 @@ async function handleDenials(
   res.writeHead(204).end();
 }
 
-// ─── Handshake beacon (`POST /__pyric/beacon` — the interlock's other end) ──
-//
-// `@pyric/cli/register` posts here once, per activated child, after its module
-// hooks and net-guard are installed. Receiving it is the ONLY positive proof
-// the dev server has that `NODE_OPTIONS=--import @pyric/cli/register` actually
-// reached that process — everything else about the launch is an assumption.
-// See `register/beacon.ts` for why the child sends it twice (here and stderr).
-//
-// Same contract as the denial relay: best-effort, always 204. A child whose
-// beacon is malformed, or whose server has no callback wired, must not learn
-// about it — the consequence of an absent beacon is a WARNING from the
-// watchdog on the parent side, never a failure on the child's.
-
-/** Read a beacon body defensively — it is JSON off a socket, and the only
- *  fields that matter are the three the parent reports. `null` for anything
- *  that does not carry a plausible report. */
-function parseBeaconReport(value: unknown): BeaconReport | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const raw = value as Record<string, unknown>;
-  if (typeof raw.pid !== 'number' || !Number.isFinite(raw.pid)) return null;
-  const guard = raw.guard;
-  if (guard !== 'warn' && guard !== 'block' && guard !== 'off') return null;
-  if (typeof raw.hooks !== 'boolean') return null;
-  return {
-    pid: raw.pid,
-    guard,
-    hooks: raw.hooks,
-    sandbox: typeof raw.sandbox === 'string' ? raw.sandbox : '',
-  };
-}
-
-/** The one terminal line confirming a child is interlocked. A beacon that
- *  reports `hooks: false` is the interesting case — the child IS running the
- *  register module, and it is telling us the rewrite did not install. */
-export function formatBeaconReceipt(report: BeaconReport): string {
-  if (!report.hooks) {
-    return (
-      `  ⚠ interlock pid=${report.pid}: register loaded but module hooks did NOT install — ` +
-      `that process's firebase-admin/firebase imports are NOT routed to the sandbox ` +
-      `(Node >= 22.15 is required for full coverage). Net-guard mode ${report.guard}.`
-    );
-  }
-  return `  ⓘ interlock pid=${report.pid}: sandbox interception confirmed live (guard=${report.guard})`;
-}
-
-/** Handle `POST /__pyric/beacon`. Always 204s. */
-async function handleBeacon(
-  onBeacon: ((report: BeaconReport) => void) | undefined,
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  if (req.method !== 'POST') {
-    res.writeHead(405, { allow: 'POST' }).end('method not allowed');
-    return;
-  }
-  try {
-    const report = parseBeaconReport(await collectBody(req));
-    if (report !== null) onBeacon?.(report);
-  } catch {
-    /* malformed body — drop it; proof-of-life is a side channel */
-  }
-  res.writeHead(204).end();
-}
-
 export function createPyricNamespace(opts: NamespaceOptions) {
   const stateWriterLock = createWriterLock();
   const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();
   const sessionToken = opts.sessionToken ?? randomBytes(24).toString('base64url');
+  // Fail closed: with no launcher-supplied secret the generated one is held by
+  // nobody, so `/__pyric/beacon` accepts nothing rather than everything.
+  const beaconToken = opts.beaconToken ?? randomBytes(24).toString('base64url');
   let studioRoutes: ((req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>) | null = null;
   if (opts.studio) {
     const studioOptions: StudioRouteOptions = {
@@ -524,7 +468,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       );
     }
     if (url.pathname === BEACON_PATH) {
-      return handleBeacon(opts.beacon, req, res).then(() => true);
+      return handleBeacon({ token: beaconToken, onBeacon: opts.beacon }, req, res).then(() => true);
     }
     if (url.pathname === '/__pyric/denials') {
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
