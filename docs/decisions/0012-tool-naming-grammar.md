@@ -187,10 +187,10 @@ Tool `database_data` with ops `get`, `set`, `update`, `remove`, `push`,
 `transaction`, `query`, `seed`, `crawl`, a common `as` field, and the
 `serverTimestamp` and `increment` sentinels accepted by `set`, `update`, and
 `push`. Tool `database_rules` with ops `lint`, `validate`, `simulate`,
-`generate`. `simulate` with `rules` omitted evaluates against the connected
-sandbox's live rules and is forwarded; with `rules` supplied it runs
-in-process, so this one op carries two transports selected by its input
-rather than a fixed declaration.
+`generate`. `simulate` is forwarded: with `rules` omitted it evaluates against
+the connected sandbox's live rules; with `rules` supplied it evaluates that
+document in the same sandbox, against the sandbox's data, so one op keeps one
+transport and its input selects only which rules are read.
 
 Alternative: keep `rtdb` as the tool prefix to match the current bridge
 vocabulary; rejected because the CLI, the package subpath, and
@@ -284,7 +284,7 @@ never on the bridge contract, or `new` for capability being added.
 | `database_data` | `transaction` | forwarded | new |
 | `database_data` | `query` | forwarded | new |
 | `database_data` | `seed` | forwarded | new |
-| `database_rules` | `simulate` | forwarded when `rules` is omitted, in-process when `rules` is supplied | `rtdb_simulate_access` (omitted); new (supplied) |
+| `database_rules` | `simulate` | forwarded; evaluates the sandbox's live rules, or a supplied `rules` document, in the sandbox | `rtdb_simulate_access` (omitted); new (supplied) |
 | `database_rules` | `lint` | in-process | new |
 | `database_rules` | `validate` | in-process | new |
 | `database_rules` | `generate` | in-process | unregistered: `rtdb_generate_rules` |
@@ -338,9 +338,9 @@ registration happens.
   missed.
 - Transport is a property of each op rather than of the tool or the name. A
   single folded tool may carry ops with different transports — `database_rules`
-  carries an op whose transport depends on whether `rules` is supplied — and
-  the bridge routes each call by reading the op's declared transport, not by
-  which tool the call arrived on.
+  forwards `simulate` and runs `lint`, `validate`, and `generate` in-process —
+  and the bridge routes each call by reading the op's declared transport, not
+  by which tool the call arrived on.
 - Records move from one file per operation to one file per tool, with the
   ops enumerated inside; the MCP tool list, the CLI dispatch table, and the
   Playground registry stay three views of the same records, now folded on

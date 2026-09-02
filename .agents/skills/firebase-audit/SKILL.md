@@ -17,8 +17,8 @@ user asks.
 ## Steps
 
 1. **Collect rules.** Read `firestore.rules` and `database.rules.json` from the
-   project, or pull deployed state with `firestore_rules.get` and
-   `database_rules.get`. Complete when every service in scope has a ruleset in hand
+   project, or read the rules loaded in the connected sandbox with
+   `sandbox.inspect`. Complete when every service in scope has a ruleset in hand
    (or a finding that none exists — that is itself critical).
 
 2. **Collect data shape.** Map real paths with `firestore_discover_paths` and

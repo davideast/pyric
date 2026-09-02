@@ -14,7 +14,7 @@ Answer three questions about a ruleset, with evidence:
 ## Steps
 
 1. **Read the ruleset.** Use the project's `firestore.rules`, or
-   `firestore_rules.get` for deployed state. Complete when you can list every
+   `sandbox.inspect` for the rules loaded in the connected sandbox. Complete when you can list every
    match block and the operations each allows.
 
 2. **Lint.** Run `firestore_rules.lint`. Complete when every lint finding is

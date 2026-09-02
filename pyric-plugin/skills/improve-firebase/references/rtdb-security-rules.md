@@ -16,7 +16,7 @@ revoke it. Lock the root, then open the smallest useful paths.
 ## Steps
 
 1. **Read current rules.** From `database.rules.json` in the project, or
-   `database_rules.get` for deployed state. Complete when you can state the
+   `sandbox.inspect` for the rules loaded in the connected sandbox. Complete when you can state the
    effective access at every path a client touches (walk each cascade from
    root).
 
@@ -31,9 +31,11 @@ revoke it. Lock the root, then open the smallest useful paths.
    `.validate` for every user-controlled write: type checks
    (`newData.isString()`, `.isNumber()`), bounds, required children
    (`newData.hasChildren([...])`), and transition checks comparing `data` to
-   `newData`. `database_rules.build_expression` composes correct expressions for common
-   patterns. Complete when every open path has both an access rule and a
-   shape rule.
+   `newData`. For common patterns, author the rules as a constraints module
+   (`defineRtdbRules` from `pyric/rules`) and compile it with
+   `database_rules.generate`; check any rules document with
+   `database_rules.lint` and `database_rules.validate`. Complete when every
+   open path has both an access rule and a shape rule.
 
 4. **Simulate before shipping.** Run `database_rules.simulate` for each path
    with four case families: the intended actor allowed, anonymous denied,
@@ -41,10 +43,11 @@ revoke it. Lock the root, then open the smallest useful paths.
    pass per path.
 
 5. **Deploy.** Write the full `database.rules.json` — a deploy replaces the
-   entire ruleset — and apply with `database_rules.deploy`. For writes that must
-   prove their shape at runtime, `database_data.validated_write` applies a write only
-   if the current rules allow it. Complete when deployed rules re-read
-   (`database_rules.get`) match the file.
+   entire ruleset — and apply it with firebase-tools, a step outside the
+   sandbox. For writes that must prove their shape at runtime,
+   `database_data.validated_write` applies a write only if the current rules
+   allow it. Complete when the rules the sandbox reports (`sandbox.inspect`)
+   match the file.
 
 ## Reference — pitfalls
 
