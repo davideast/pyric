@@ -23,6 +23,7 @@ import {
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import type { InitPayload } from '../serve/namespace.js';
+import { formatAiStatusLine } from '../serve/ai-status.js';
 import { injectServeTags } from '../serve/html-injection.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
@@ -505,6 +506,13 @@ export async function startServe(opts: {
   if (mount) {
     logger.info(`✔ bridge   MCP endpoint: ${mount.mcpUrl(origin)} (sandbox peers over ws at /__pyric/sandbox)`);
   }
+  // AI is a mounted service like the bridge: `/__pyric/ai-proxy` answers from
+  // the first request on, whether or not anything is configured. `pyric
+  // sandbox` has no AI flag, so the ENGINE is always the page's own `getAI()`
+  // choice (resolved lazily in the browser, since nothing here instantiates a
+  // broker to find out); what this server does decide is where the proxy
+  // forwards, and that is what the line reports.
+  logger.info(formatAiStatusLine({}));
   let persistSummary: ServeRuntime['persist'] = null;
   const persistence = session.summary.persistence;
   if (persistence) {

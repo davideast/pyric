@@ -21,7 +21,7 @@
 
 import type { WireCandidate, WirePart, WireResponse } from './broker/index.js';
 import { AIError, AIErrorCode } from './errors.js';
-import { FinishReason } from './enums.js';
+import { isBlockingFinishReason } from './blocked.js';
 
 /** The wire envelope plus the SDK's helper methods. */
 export interface EnhancedResponse extends WireResponse {
@@ -31,28 +31,9 @@ export interface EnhancedResponse extends WireResponse {
   functionCalls(): Array<NonNullable<WirePart['functionCall']>> | undefined;
 }
 
-const badFinishReasons: string[] = [
-  FinishReason.RECITATION,
-  FinishReason.SAFETY,
-  FinishReason.BLOCKLIST,
-  FinishReason.PROHIBITED_CONTENT,
-  FinishReason.SPII,
-  FinishReason.MALFORMED_FUNCTION_CALL,
-  FinishReason.IMAGE_SAFETY,
-  FinishReason.IMAGE_PROHIBITED_CONTENT,
-  FinishReason.IMAGE_OTHER,
-  FinishReason.NO_IMAGE,
-  FinishReason.IMAGE_RECITATION,
-  FinishReason.LANGUAGE,
-  FinishReason.UNEXPECTED_TOOL_CALL,
-  FinishReason.TOO_MANY_TOOL_CALLS,
-  FinishReason.MISSING_THOUGHT_SIGNATURE,
-  FinishReason.MALFORMED_RESPONSE,
-];
-
-function hadBadFinishReason(candidate: WireCandidate): boolean {
-  return !!candidate.finishReason && badFinishReasons.some((r) => r === candidate.finishReason);
-}
+// Upstream's `badFinishReasons` set lives in `blocked.ts`: the broker
+// announces the SAME set on the event stream (`response_blocked`), and the
+// two must never drift apart.
 
 export function formatBlockErrorMessage(response: WireResponse): string {
   let message = '';
@@ -63,7 +44,7 @@ export function formatBlockErrorMessage(response: WireResponse): string {
     }
   } else if (response.candidates?.[0]) {
     const firstCandidate = response.candidates[0];
-    if (hadBadFinishReason(firstCandidate)) {
+    if (isBlockingFinishReason(firstCandidate.finishReason)) {
       message += `Candidate was blocked due to ${firstCandidate.finishReason}`;
       if (firstCandidate.finishMessage) {
         message += `: ${firstCandidate.finishMessage}`;
@@ -76,7 +57,7 @@ export function formatBlockErrorMessage(response: WireResponse): string {
 /** At least one candidate exists and the first has no bad finish reason. */
 function hasValidCandidates(response: WireResponse): boolean {
   if (response.candidates && response.candidates.length > 0) {
-    if (hadBadFinishReason(response.candidates[0]!)) {
+    if (isBlockingFinishReason(response.candidates[0]!.finishReason)) {
       throw new AIError(
         AIErrorCode.RESPONSE_ERROR,
         `Response error: ${formatBlockErrorMessage(response)}. Response body stored in error.response`,

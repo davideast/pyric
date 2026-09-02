@@ -16,11 +16,15 @@ import type {
   CountTokensRequest,
   CountTokensResponse,
   GenerateContentRequest,
+  ModelResolution,
   WireChunk,
   WireResponse,
 } from './types.js';
 
-const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
+/** Where the gemini engine talks when no `baseUrl` overrides it. Published
+ *  through `pyric/ai/internal` so the CLI's startup banner can name the same
+ *  endpoint instead of keeping its own copy. */
+export const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
 
 /**
  * BROWSER-CLEAN: acquires `node:child_process` lazily via `process.getBuiltinModule`
@@ -58,7 +62,7 @@ export class GeminiEngine implements AnswerEngine {
   private readonly explicitKey?: string;
 
   constructor(options?: GeminiEngineOptions) {
-    this.baseUrl = (options?.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
+    this.baseUrl = (options?.baseUrl ?? GEMINI_DEFAULT_BASE_URL).replace(/\/$/, '');
     this.fetchImpl = options?.fetch ?? ((input, init) => fetch(input, init));
     this.explicitKey = options?.apiKey;
   }
@@ -114,15 +118,29 @@ export class GeminiEngine implements AnswerEngine {
     );
   }
 
-  private normalizeModel(model: string): string {
+  /**
+   * Which model this engine ACTUALLY calls upstream, and why it differs.
+   * Experimental and superseded flash aliases are redirected onto the served
+   * `gemini-flash-lite-latest`; everything else passes through. Reported so
+   * the broker can announce the redirect rather than let a developer believe
+   * `gemini-2.5-flash` answered when `gemini-flash-lite-latest` did
+   * ({@link AnswerEngine.resolveEffectiveModel}).
+   */
+  resolveEffectiveModel(model: string): ModelResolution {
     const stripped = model.replace(/^models\//, '');
     const isExperimentalFlashLite =
       stripped === 'gemini-3.5-flash-lite' ||
       stripped === 'gemini-2.5-flash' ||
       stripped === 'gemini-2.5-flash-lite' ||
       stripped === 'gemini-1.5-flash';
-    const resolved = isExperimentalFlashLite ? 'gemini-flash-lite-latest' : stripped;
-    return `models/${resolved}`;
+    if (isExperimentalFlashLite) {
+      return { model: 'gemini-flash-lite-latest', reason: 'experimental alias' };
+    }
+    return { model: stripped, reason: 'passthrough' };
+  }
+
+  private normalizeModel(model: string): string {
+    return `models/${this.resolveEffectiveModel(model).model}`;
   }
 
   /**

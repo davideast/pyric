@@ -80,6 +80,12 @@ The two settings have different jobs:
 
 Your browser still calls Pyric on the same origin at `/__pyric/ai-proxy`. The Vite server forwards that request to the upstream server's `/chat/completions` endpoint. This server-side hop avoids browser CORS configuration. An upstream URL alone does not select a model or replace the scripted engine, which is why `PYRIC_AI_MODEL` is still required.
 
+The proxy forwards once. It performs no retry and no backoff. When the upstream
+answers `429`, that status and its response body go straight to the calling
+code, and the Pyric terminal prints the failure along with the `Retry-After`
+value the upstream asked for. Deciding whether to wait and try again is the
+application's job.
+
 ## Set the variables for one command
 
 On macOS, Linux, and other POSIX shells, prefix the same command with both variables:

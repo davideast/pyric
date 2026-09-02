@@ -21,6 +21,8 @@ import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
 import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
 import { handleActivity } from './activity-route.js';
+import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
+import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
 import { createSiteTreeHandler } from './site-tree.js';
 export type { InitPayload } from './init-payload.js';
 
@@ -119,136 +121,11 @@ export interface NamespaceOptions {
    *  (local Ollama). Always mounted — the route only touches the network
    *  when a request arrives. */
   aiProxyUpstream?: string;
-  /** Where hot-reload/diagnostic lines print (rules reload, denial relay).
-   *  Absent ⇒ diagnostics are dropped (a caller that wires no logger opts out
-   *  silently rather than falling back to raw `console`). */
+  /** Where hot-reload/diagnostic lines print (rules reload, denial relay,
+   *  AI broker diagnostics, ai-proxy upstream failures). Absent ⇒ diagnostics
+   *  are dropped (a caller that wires no logger opts out silently rather than
+   *  falling back to raw `console`). */
   logger?: ServeLogger;
-}
-
-// ─── AI proxy (`/__pyric/ai-proxy` — pyric/ai, cdd-deltas #98.2) ───────────
-
-/** Default upstream: local Ollama's OpenAI-compatible endpoint. */
-export const AI_PROXY_DEFAULT_UPSTREAM = 'http://localhost:11434/v1';
-
-/**
- * Request headers that must NOT be forwarded upstream: origin-sensitive
- * browser context (`origin`/`referer`/`cookie` — the upstream is a different
- * origin and must never see the page's), hop-by-hop headers, and the two the
- * proxy re-derives (`host`, `content-length`). `accept-encoding` is dropped
- * so fetch negotiates its own compression and the streamed body needs no
- * length fixups.
- */
-const AI_PROXY_STRIPPED_HEADERS = new Set([
-  'host',
-  'origin',
-  'referer',
-  'cookie',
-  'connection',
-  'content-length',
-  'accept-encoding',
-  'keep-alive',
-  'proxy-authorization',
-  'te',
-  'trailer',
-  'transfer-encoding',
-  'upgrade',
-]);
-
-/**
- * Handle `POST /__pyric/ai-proxy/<suffix>` — a same-origin passthrough to the
- * configured OpenAI-compatible upstream, so the browser openai engine
- * (running in the served page or the SharedWorker host) reaches a localhost
- * upstream like Ollama with ZERO CORS setup (no `OLLAMA_ORIGINS`, ever).
- *
- * Behavior:
- *   - POST only (the OpenAI chat-completions surface is POST); 405 otherwise.
- *   - the path suffix + query ride through verbatim
- *     (`/__pyric/ai-proxy/chat/completions` → `<upstream>/chat/completions`).
- *   - the request body is forwarded verbatim; headers minus the
- *     origin-sensitive/hop-by-hop set above (`authorization` DOES forward —
- *     upstreams may require a key).
- *   - the response body is STREAMED through chunk-by-chunk — SSE passthrough
- *     must never buffer, or `stream: true` completions would arrive all at
- *     once at the end.
- *   - an unreachable upstream answers 502 with a plain-text explanation.
- */
-async function handleAiProxy(
-  configuredUpstream: string | undefined,
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-): Promise<void> {
-  if (req.method !== 'POST') {
-    res.writeHead(405, { allow: 'POST' }).end('method not allowed');
-    return;
-  }
-  const upstreamBase = (
-    configuredUpstream ??
-    process.env.PYRIC_AI_PROXY_UPSTREAM ??
-    AI_PROXY_DEFAULT_UPSTREAM
-  ).replace(/\/$/, '');
-  const suffix = url.pathname.slice('/__pyric/ai-proxy'.length);
-  const target = `${upstreamBase}${suffix}${url.search}`;
-
-  // Buffer the REQUEST body (small JSON payloads); the RESPONSE streams.
-  const raw = await new Promise<Buffer>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-  // Copy into a plain-ArrayBuffer view — fetch's BodyInit typing rejects
-  // Buffer's ArrayBufferLike backing.
-  const body = new Uint8Array(raw.byteLength);
-  body.set(raw);
-
-  const headers: Record<string, string> = {};
-  for (const [key, value] of Object.entries(req.headers)) {
-    if (value === undefined) continue;
-    if (AI_PROXY_STRIPPED_HEADERS.has(key.toLowerCase())) continue;
-    headers[key] = Array.isArray(value) ? value.join(', ') : value;
-  }
-
-  let upstream: Response;
-  try {
-    upstream = await fetch(target, { method: 'POST', headers, body });
-  } catch (e) {
-    res.writeHead(502, { 'content-type': 'text/plain' });
-    res.end(
-      `pyric dev ai-proxy: upstream ${target} unreachable: ` +
-        `${e instanceof Error ? e.message : String(e)}\n` +
-        'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
-        `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
-    );
-    return;
-  }
-
-  const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
-  const contentType = upstream.headers.get('content-type');
-  if (contentType) responseHeaders['content-type'] = contentType;
-  res.writeHead(upstream.status, responseHeaders);
-  if (!upstream.body) {
-    res.end();
-    return;
-  }
-  (res as ServerResponse & { flushHeaders?: () => void }).flushHeaders?.();
-
-  // Chunk-by-chunk passthrough. A dropped client cancels the upstream read
-  // so an abandoned SSE stream doesn't keep the upstream generating.
-  const reader = upstream.body.getReader();
-  res.on('close', () => {
-    void reader.cancel().catch(() => {});
-  });
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(value);
-    }
-  } catch {
-    // Upstream or client dropped mid-stream — nothing to salvage.
-  }
-  res.end();
 }
 
 /** The page's persistence backend speaks this route:
@@ -390,6 +267,18 @@ async function handleCapture(
 // An agent driving `pyric dev` headlessly has no browser console to watch;
 // this is that visibility, printed to the terminal instead.
 //
+// The route carries the AI broker's diagnostics on the same channel, relayed
+// by `serve/ai-diagnostics-relay.ts` off the sandbox event stream:
+// `request_rejected` (a malformed request) and `response_blocked` (a safety
+// or recitation filter withheld the answer). Same category ("the sandbox
+// refused your operation"), same terminal treatment, same throttle, so they
+// ride here rather than opening parallel diagnostics channels.
+// `model_substituted` (an engine answered as a model the code never named)
+// rides along too: not a refusal, but the same "the sandbox quietly did
+// something else" category. The payload's `kind` discriminates the four, and
+// `ai-terminal-blocks.ts` holds one record per AI kind so this route
+// dispatches through a table instead of a cascade.
+//
 // A denied listener re-fires on every auth/rules change, so printing is
 // throttled per (path, message) pair — at most one line per window, and
 // silent (no output at all) on suppression rather than a "suppressed N more"
@@ -449,9 +338,21 @@ export function formatDenialBlock(payload: DenialRelayPayload): string {
   return lines.join('\n');
 }
 
-/** Handle `POST /__pyric/denials`. Always 204s (best-effort diagnostics —
- *  a malformed body or a caller with no logger wired must never fail the
- *  page that reported the denial). */
+/**
+ * The throttle key separator: a NUL byte, written as an escape so the file
+ * stays greppable. It cannot occur in a Firestore path, a model id, or a
+ * rejection reason, so no (target, reason) pair can be spelled two ways.
+ */
+const THROTTLE_KEY_SEPARATOR = '\x00';
+
+/** Handle `POST /__pyric/denials`: a rules denial, or (discriminated by
+ *  `kind`) an AI broker rejection, blocked response, or model substitution
+ *  relayed off the sandbox event stream. All four share the throttle map: an
+ *  agent retry loop re-sends the SAME malformed (or filter-tripping) AI
+ *  request exactly the way a denied listener re-fires, so one line per
+ *  (target, reason) per window is the right volume for every one of them.
+ *  Always 204s (best-effort diagnostics: a malformed body or a caller with no
+ *  logger wired must never fail the page that reported the refusal). */
 async function handleDenials(
   throttle: DenialThrottle,
   logger: ServeLogger | undefined,
@@ -463,15 +364,26 @@ async function handleDenials(
     return;
   }
   try {
-    const payload = (await collectBody(req)) as DenialRelayPayload;
-    const message = typeof payload.message === 'string' ? payload.message : 'permission denied';
-    const path = payload.denialContext?.request?.path ?? '';
-    const key = `${path} ${message}`;
+    const payload = (await collectBody(req)) as DenialRelayPayload & AiDiagnosticPayload;
+    const aiBlock = aiTerminalBlockFor(payload.kind);
+    let target: string;
+    let reason: string;
+    let render: () => string;
+    if (aiBlock === null) {
+      target = payload.denialContext?.request?.path ?? '';
+      reason = typeof payload.message === 'string' ? payload.message : 'permission denied';
+      render = () => formatDenialBlock(payload);
+    } else {
+      target = aiBlock.throttleTarget(payload);
+      reason = aiBlock.throttleReason(payload);
+      render = () => aiBlock.format(payload);
+    }
+    const key = `${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
     if (logger && throttle.shouldPrint(key, Date.now())) {
-      logger.note(formatDenialBlock(payload));
+      logger.note(render());
     }
   } catch {
-    /* malformed body — drop it; this is a diagnostics side channel */
+    /* malformed body: drop it; this is a diagnostics side channel */
   }
   res.writeHead(204).end();
 }
@@ -534,8 +446,10 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       opts.events.handle(req, res);
       return true;
     }
-    if (url.pathname === '/__pyric/ai-proxy' || url.pathname.startsWith('/__pyric/ai-proxy/')) {
-      return handleAiProxy(opts.aiProxyUpstream, req, res, url).then(() => true);
+    if (url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`)) {
+      return handleAiProxy(opts.aiProxyUpstream, denialThrottle, req, res, url, opts.logger).then(
+        () => true,
+      );
     }
     if (url.pathname === '/__pyric/denials') {
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);

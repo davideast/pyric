@@ -38,6 +38,7 @@ import type {
   CountTokensRequest,
   CountTokensResponse,
   GenerateContentRequest,
+  ModelResolution,
   WireChunk,
   WirePart,
   WireResponse,
@@ -488,10 +489,27 @@ export class OpenAiEngine implements AnswerEngine {
     );
   }
 
+  /**
+   * Gemini model id to upstream model, WITH the reason: `modelMap[model]` ??
+   * `config.model` ?? passthrough. The reason is what makes the redirect
+   * legible in the dev terminal: "which of my three knobs sent this
+   * elsewhere?" is the whole question when the answer came from a model the
+   * developer never named. Bare (never `models/`-prefixed), per
+   * {@link AnswerEngine.resolveEffectiveModel}.
+   */
+  resolveEffectiveModel(model: string): ModelResolution {
+    const bare = model.startsWith('models/') ? model.slice('models/'.length) : model;
+    const mapped = this.modelMap[bare] ?? this.modelMap[model];
+    if (mapped !== undefined) return { model: mapped, reason: 'engine modelMap' };
+    if (this.defaultModel !== undefined) {
+      return { model: this.defaultModel, reason: 'engine catch-all model' };
+    }
+    return { model: bare, reason: 'passthrough' };
+  }
+
   /** Gemini model id → upstream model: modelMap[model] ?? config.model ?? passthrough. */
   resolveUpstreamModel(model: string): string {
-    const bare = model.startsWith('models/') ? model.slice('models/'.length) : model;
-    return this.modelMap[bare] ?? this.modelMap[model] ?? this.defaultModel ?? bare;
+    return this.resolveEffectiveModel(model).model;
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {

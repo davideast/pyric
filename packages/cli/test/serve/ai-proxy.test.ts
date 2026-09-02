@@ -7,13 +7,17 @@
  *   - the response body STREAMS through — the client sees the first SSE event
  *     while the upstream is still holding the stream open (no buffering)
  *   - POST-only (405), unreachable upstream → 502
+ *   - upstream failures (unreachable / non-2xx / mid-stream abort) reach the
+ *     dev server's terminal logger as structured warnings
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
-import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
+import { formatAiProxyWarning } from '../../src/serve/ai-proxy.js';
+import { silentServeLogger, startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-aiproxy-'));
@@ -31,19 +35,25 @@ afterEach(async () => {
   while (upstreams.length) upstreams.pop()!.stop();
 });
 
-async function startServe(aiProxyUpstream?: string): Promise<ServeHandle> {
+function recordingLogger(): { logger: ServeLogger; notes: string[] } {
+  const notes: string[] = [];
+  return { logger: { info: () => {}, note: (m) => notes.push(m) }, notes };
+}
+
+async function startServe(aiProxyUpstream?: string, logger?: ServeLogger): Promise<ServeHandle> {
   const { site, sdk } = fixture();
   const ns = createPyricNamespace({
     sdkDir: sdk,
     initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
     aiProxyUpstream,
+    ...(logger ? { logger } : {}),
   });
   const h = await startStaticServer({
     publicDir: site,
     port: 0,
     host: '127.0.0.1',
     portScanLimit: 200,
-    logger: silentServeLogger(),
+    logger: logger ?? silentServeLogger(),
     namespaceHandler: ns,
   });
   handles.push(h);
@@ -202,5 +212,308 @@ describe('/__pyric/ai-proxy', () => {
     const text = await res.text();
     expect(text).toContain('ai-proxy');
     expect(text).toContain('PYRIC_AI_PROXY_UPSTREAM');
+  });
+});
+
+describe('/__pyric/ai-proxy terminal diagnostics', () => {
+  it('warns on the dev logger when the upstream is unreachable', async () => {
+    const { logger, notes } = recordingLogger();
+    const upstream = closedLoopbackUrl('/v1');
+    const h = await startServe(upstream, logger);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(502);
+
+    expect(notes.length).toBe(1);
+    const line = notes[0]!;
+    expect(line).toContain('ai-proxy');
+    expect(line).toContain('unreachable');
+    // The upstream host must be identifiable in the terminal.
+    expect(line).toContain(new URL(upstream).host);
+    // …with the underlying cause and a cheap latency stamp.
+    expect(line).toMatch(/ECONNREFUSED|refused|Unable to connect|fetch failed/i);
+    expect(line).toMatch(/\d+ms/);
+  });
+
+  it('warns on the dev logger when the upstream answers non-2xx', async () => {
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () => new Response('model not found', { status: 404 }),
+    });
+    upstreams.push(upstream);
+
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`, logger);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    // The status still passes through to the caller untouched…
+    expect(res.status).toBe(404);
+    // …and it is ALSO surfaced in the terminal.
+    expect(notes.length).toBe(1);
+    const line = notes[0]!;
+    expect(line).toContain('ai-proxy');
+    expect(line).toContain('404');
+    expect(line).toContain(`127.0.0.1:${upstream.port}`);
+    expect(line).toMatch(/\d+ms/);
+  });
+
+  it('surfaces the upstream Retry-After backoff on a 429', async () => {
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () =>
+        new Response('rate limit exceeded', { status: 429, headers: { 'retry-after': '12' } }),
+    });
+    upstreams.push(upstream);
+
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`, logger);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    // The 429 rides through untouched. Nothing here retries or waits.
+    expect(res.status).toBe(429);
+    expect(notes.length).toBe(1);
+    const line = notes[0]!;
+    expect(line).toContain('429');
+    expect(line).toContain('Retry-After: 12s');
+    expect(line).toMatch(/no automatic retry/i);
+  });
+
+  it('stays quiet on a 2xx upstream', async () => {
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch: () => Response.json({ choices: [] }),
+    });
+    upstreams.push(upstream);
+
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(`http://127.0.0.1:${upstream.port}/v1`, logger);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(notes).toEqual([]);
+  });
+
+  it('warns when the upstream aborts mid-stream', async () => {
+    // Raw TCP: promise a content-length the upstream never delivers, then hang
+    // up. (A `Bun.serve` upstream that `controller.error()`s its body is NOT
+    // enough, because Bun's fetch client reports the truncated read as a clean
+    // `done`, so the proxy's stream loop never sees a failure.)
+    const truncating = createNetServer((sock) => {
+      sock.once('data', () => {
+        sock.write(
+          'HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: 100\r\n\r\n',
+        );
+        sock.write('data: {"n":1}\n\n');
+        setTimeout(() => sock.destroy(), 30);
+      });
+    });
+    await new Promise<void>((r) => truncating.listen(0, '127.0.0.1', r));
+    const upstreamPort = (truncating.address() as AddressInfo).port;
+    upstreams.push({ stop: () => truncating.close() });
+
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(`http://127.0.0.1:${upstreamPort}/v1`, logger);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{"stream":true}',
+    });
+    expect(res.status).toBe(200);
+    try {
+      await res.text();
+    } catch {
+      /* the truncated stream may surface as a read error on the client too */
+    }
+    expect(notes.length).toBe(1);
+    expect(notes[0]!).toContain('ai-proxy');
+    expect(notes[0]!).toMatch(/stream/i);
+    expect(notes[0]!).toContain(`127.0.0.1:${upstreamPort}`);
+  });
+
+  it('redacts key-bearing query params from the logged upstream URL', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(closedLoopbackUrl('/v1'), logger);
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions?key=AIzaSuperSecretValue`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(502);
+    expect(notes.length).toBe(1);
+    expect(notes[0]!).not.toContain('AIzaSuperSecretValue');
+    expect(notes[0]!).toContain('key=***');
+  });
+
+  it('throttles a failing upstream: repeated identical failures print once', async () => {
+    const { logger, notes } = recordingLogger();
+    const h = await startServe(closedLoopbackUrl('/v1'), logger);
+    for (let i = 0; i < 4; i += 1) {
+      const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(res.status).toBe(502);
+    }
+    // A dead upstream fails on every request; the terminal says so once per
+    // window, the same volume a denied listener gets.
+    expect(notes.length).toBe(1);
+  });
+
+  it('redacts key-bearing query params from the 502 body, not just the log', async () => {
+    const h = await startServe(closedLoopbackUrl('/v1'));
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions?key=AIzaSuperSecretValue`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(502);
+    const text = await res.text();
+    expect(text).not.toContain('AIzaSuperSecretValue');
+    expect(text).toContain('key=***');
+  });
+
+  it('drops diagnostics entirely when no logger is wired (never throws)', async () => {
+    const h = await startServe(closedLoopbackUrl('/v1'));
+    const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(res.status).toBe(502);
+  });
+});
+
+describe('formatAiProxyWarning', () => {
+  const target = 'http://localhost:11434/v1/chat/completions';
+
+  it('renders the unreachable block: cause, POST target + latency, the env-var pointer', () => {
+    const lines = formatAiProxyWarning({
+      kind: 'unreachable',
+      target,
+      latencyMs: 7,
+      cause: 'connect ECONNREFUSED 127.0.0.1:11434',
+    }).split('\n');
+    expect(lines.length).toBe(3);
+    expect(lines[0]).toContain('ai-proxy');
+    expect(lines[0]).toContain('connect ECONNREFUSED 127.0.0.1:11434');
+    expect(lines[1]).toBe(`      POST ${target} (7ms)`);
+    expect(lines[2]).toContain('PYRIC_AI_PROXY_UPSTREAM');
+  });
+
+  it('renders the status block with the upstream status code (two lines, no pointer)', () => {
+    const lines = formatAiProxyWarning({ kind: 'status', target, latencyMs: 42, status: 503 }).split('\n');
+    expect(lines.length).toBe(2);
+    expect(lines[0]).toContain('503');
+    expect(lines[1]).toContain('(42ms)');
+  });
+
+  it('renders a rate-limit block: 429 headline, the Retry-After backoff, no-retry note', () => {
+    const lines = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 42,
+      status: 429,
+      retryAfter: '30',
+    }).split('\n');
+    expect(lines.length).toBe(3);
+    expect(lines[0]).toContain('429');
+    expect(lines[0]).toMatch(/rate limit/i);
+    expect(lines[1]).toContain('(42ms)');
+    // Delta-seconds render as a duration, and the terminal states plainly that
+    // nothing backs off on the developer's behalf.
+    expect(lines[2]).toContain('Retry-After: 30s');
+    expect(lines[2]).toMatch(/no automatic retry/i);
+  });
+
+  it('keeps a Retry-After-less 429 at two lines', () => {
+    const lines = formatAiProxyWarning({ kind: 'status', target, latencyMs: 5, status: 429 }).split('\n');
+    expect(lines.length).toBe(2);
+    expect(lines[0]).toContain('429');
+  });
+
+  it('prints an HTTP-date Retry-After verbatim (no bogus seconds suffix)', () => {
+    const block = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 5,
+      status: 503,
+      retryAfter: 'Wed, 21 Oct 2026 07:28:00 GMT',
+    });
+    expect(block).toContain('Retry-After: Wed, 21 Oct 2026 07:28:00 GMT');
+    expect(block).not.toContain('GMTs');
+  });
+
+  it('sanitizes a hostile Retry-After header (control chars, newlines, length)', () => {
+    const block = formatAiProxyWarning({
+      kind: 'status',
+      target,
+      latencyMs: 5,
+      status: 429,
+      retryAfter: `30\n  ⚠ [pyric] forged line\u001b[31m${'x'.repeat(200)}`,
+    });
+    // One block-line per real line: headline, POST, Retry-After. A header
+    // authored by a remote model server cannot forge a fourth.
+    expect(block.split('\n').length).toBe(3);
+    expect(block).not.toContain('\u001b');
+    expect(block.length).toBeLessThan(320);
+  });
+
+  it('renders the mid-stream abort block', () => {
+    const block = formatAiProxyWarning({
+      kind: 'stream-abort',
+      target,
+      latencyMs: 1200,
+      cause: 'socket hang up',
+    });
+    expect(block).toContain('stream aborted mid-response');
+    expect(block).toContain('socket hang up');
+    expect(block).toContain('(1200ms)');
+  });
+
+  it('caps and flattens a hostile upstream cause (no forged lines, no wall of text)', () => {
+    const block = formatAiProxyWarning({
+      kind: 'unreachable',
+      target,
+      latencyMs: 3,
+      cause: `boom\n  ⚠ [pyric] forged line\u001b[31m${'x'.repeat(4000)}`,
+    });
+    // Three real lines: headline, POST target, env-var pointer. A remote
+    // message cannot forge a fourth, and cannot push the rest off the screen.
+    expect(block.split('\n').length).toBe(3);
+    expect(block).not.toContain('\u001b');
+    expect(block.split('\n')[0]!.length).toBeLessThan(600);
+  });
+
+  it('masks credential query params in BOTH the target and the cause', () => {
+    const block = formatAiProxyWarning({
+      kind: 'unreachable',
+      target: 'http://up.example/v1/chat?api_key=sk-live-1&model=x',
+      latencyMs: 1,
+      cause: 'fetch to http://up.example/v1/chat?access_token=tok-2 failed',
+    });
+    expect(block).not.toContain('sk-live-1');
+    expect(block).not.toContain('tok-2');
+    expect(block).toContain('api_key=***');
+    expect(block).toContain('access_token=***');
+    // Non-secret params and the host/path stay readable.
+    expect(block).toContain('model=x');
+    expect(block).toContain('up.example/v1/chat');
   });
 });
