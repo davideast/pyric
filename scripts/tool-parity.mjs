@@ -7,7 +7,7 @@
  * remembered:
  *
  *   1. MCP bridge (sandbox mode) — what
- *      packages/cli/src/bridge/server/tool-metadata.ts composes:
+ *      packages/cli/src/bridge/server/tool-family-factories.ts composes:
  *      forwarded sandbox tools + in-process rules tools.
  *   2. Playground agent — what
  *      packages/playground/src/lib/tools/index.ts's buildToolRegistry()
@@ -104,7 +104,10 @@ const PYRIC = 'packages/pyric/src';
 const TOOLS = 'packages/cli/src';
 const PLAY = 'packages/playground/src/lib';
 
-/** MCP bridge, sandbox mode — mirrors bridge/server/tool-metadata.ts. */
+/** The one bridge file that names every MCP tool factory; the freshness guard reads it. */
+export const MCP_COMPOSITION_FILE = `${TOOLS}/bridge/server/tool-family-factories.ts`;
+
+/** MCP bridge, sandbox mode — mirrors bridge/server/tool-family-factories.ts. */
 const MCP_CONTRIBUTIONS = [
   { file: `${PYRIC}/rules/simulator-tools-impl.ts`, factory: 'createFirestoreSimulatorTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'forwarded' },
@@ -193,6 +196,11 @@ const FACTORY_CALL_RE = /\bcreate[A-Z][A-Za-z]*Tool(?:s)?\b/g;
 function assertCovered(rel, covered, { ignore = [] } = {}) {
   const referenced = new Set(read(rel).match(FACTORY_CALL_RE) ?? []);
   for (const name of ignore) referenced.delete(name);
+  if (referenced.size === 0) {
+    throw new Error(
+      `tool-parity: ${rel} references no tool factory — the freshness guard target is stale`,
+    );
+  }
   const missing = [...referenced].filter((f) => !covered.has(f));
   if (missing.length > 0) {
     throw new Error(
@@ -204,7 +212,7 @@ function assertCovered(rel, covered, { ignore = [] } = {}) {
 
 function checkFreshness() {
   assertCovered(
-    `${TOOLS}/bridge/server/tool-metadata.ts`,
+    MCP_COMPOSITION_FILE,
     new Set(MCP_CONTRIBUTIONS.map((c) => c.factory)),
   );
   // Playground: every wrapper-style tool module (builder export, no name

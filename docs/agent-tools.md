@@ -6,7 +6,8 @@ into whatever runtime you use. They reach an agent two ways:
 
 1. **`pyric sandbox --bridge`** (or `pyric bridge`) exposes the **default sandbox
    registry** over MCP; the [Pyric agent plugin](../pyric-plugin/README.md)
-   auto-wires it. Forwarded + in-process names are pinned in
+   auto-wires it. Forwarded + in-process names are authored per family in
+   `packages/cli/src/bridge/tool-family-records/` and pinned by
    `packages/cli/src/bridge/server/mcp-contract.ts` (**29** tools today).
 2. **Programmatic** — import a factory and register the handlers with any agent
    framework (the playground does this with `@inbrowser/agent`).
