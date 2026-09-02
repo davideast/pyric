@@ -45,6 +45,9 @@ export type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js
 export { listAll } from './list.js';
 export type { ListResult } from './list.js';
 
+export { createStorageDataTools } from './tools.js';
+export type { StorageDataToolDeps, As as StorageAs } from './tools.js';
+
 export { parseStorageRules, evaluateStorageRules } from './rules.js';
 export type {
   StorageRules,
