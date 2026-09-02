@@ -118,3 +118,32 @@ Run an explicit command while keeping machine-readable output:
 ```bash
 pyric sandbox --bridge --json -- npm run dev
 ```
+
+## Calling a tool operation
+
+`pyric call` runs one MCP tool operation from the terminal and prints the same result envelope an agent receives. Operations are written as `tool.op` elsewhere in the documentation; on the command line the tool and the op are two arguments.
+
+```text
+pyric call <tool> <op> [--args <json>] [--stdin] [--port <number>] [--json]
+```
+
+The command attaches to the running `pyric sandbox --bridge` through `.pyric/serve.json`, or through the port named by `--port`. With no sandbox running, an operation that runs in the CLI process executes against a headless sandbox, and an operation that runs in the sandbox exits with code 2 and asks you to start `pyric sandbox --bridge`.
+
+| Flag | Meaning |
+|---|---|
+| `--args <json>` | A JSON object holding the op's fields. The op itself is the second argument, so a JSON `op` field is a usage error. |
+| `--stdin` | Read the same JSON object from standard input instead of `--args`. |
+| `--port <number>` | Use the sandbox on this port instead of the one `.pyric/serve.json` names. |
+| `--json` | Print the envelope on one line instead of pretty-printed. |
+
+| Code | Meaning |
+|---|---|
+| `0` | The tool reported `ok: true`. The envelope is on stdout. |
+| `1` | Unknown tool or op, malformed JSON, or conflicting flags. An unknown op lists the valid ones. |
+| `2` | The tool reported `ok: false`, including invalid fields, or no sandbox was reachable for a sandbox operation. The envelope, when there is one, is on stderr. |
+
+Read one document as a signed-in user:
+
+```bash
+pyric call firestore_data get --args '{"path": "rooms/r1/msgs/m1", "as": {"uid": "alice"}}'
+```

@@ -194,6 +194,7 @@ pyric snapshot
 pyric verify
 pyric verify cases
 pyric mcp
+pyric call <tool> <op> [--args <json>] [--stdin] [--port <n>] [--json]
 ```
 
 Artifact commands use one service-first grammar:
@@ -233,6 +234,13 @@ and writes the session capture unless disabled.
 developer-facing feature. It is discovery, not a rules-verification subcommand.
 A surface prefix such as `firestore-rules/getAfter` disambiguates a name, and
 the query runs against the same model MCP serves.
+
+`pyric call <tool> <op>` reaches every bridge operation from the terminal. It
+attaches to the running `pyric sandbox --bridge` the way `pyric mcp` does and
+sends one MCP call; with no sandbox running, an in-process operation runs
+against a headless server and a forwarded operation exits 2. The op's fields
+come from `--args <json>` or `--stdin`, and the result envelope prints as JSON
+on stdout, or on stderr with exit 2 when the tool reports `ok: false`.
 
 `pyric verify` replays captured sandbox sessions against candidate Firestore or
 RTDB rules. `--engine` selects `sandbox` (default), `rules-test-api`, or
