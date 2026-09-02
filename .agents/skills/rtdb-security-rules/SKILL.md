@@ -46,10 +46,10 @@ revoke it. Lock the root, then open the smallest useful paths.
    pass per path.
 
 5. **Deploy.** Write the full `database.rules.json` — a deploy replaces the
-   entire ruleset — and apply with `database_rules.deploy`. For writes that must
-   prove their shape at runtime, `database_data.validated_write` applies a write only
-   if the current rules allow it. Complete when deployed rules re-read
-   (`database_rules.get`) match the file.
+   entire ruleset — and apply with `database_rules.deploy`. To prove a write's
+   shape at runtime, run `database_data.set` or `database_data.update` as the
+   user (`as: { uid }`); the write applies only if the current rules allow it.
+   Complete when deployed rules re-read (`database_rules.get`) match the file.
 
 ## Reference — pitfalls
 
