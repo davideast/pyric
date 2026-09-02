@@ -14,10 +14,10 @@ Answer three questions about a ruleset, with evidence:
 ## Steps
 
 1. **Read the ruleset.** Use the project's `firestore.rules`, or
-   `firestore_get_rules` for deployed state. Complete when you can list every
+   `firestore_rules.get` for deployed state. Complete when you can list every
    match block and the operations each allows.
 
-2. **Lint.** Run `firestore_lint_rules`. Complete when every lint finding is
+2. **Lint.** Run `firestore_rules.lint`. Complete when every lint finding is
    either carried into the report or explained away.
 
 3. **Access analysis.** For each match block, record identity × operation
@@ -44,8 +44,8 @@ Answer three questions about a ruleset, with evidence:
    every wildcard's reach is stated.
 
 6. **Prove the findings.** Back each critical/high finding with
-   `firestore_simulate_rules` (vary auth context and operation) or a
-   `firestore_test_rules` suite; `pyric_derive_rules_test_cases` can generate
+   `firestore_rules.simulate` (vary auth context and operation) or a
+   `firestore_rules.test` suite; `pyric.verify_cases` can generate
    the case list. Complete when each such finding cites a passing
    simulation/test demonstrating the problem.
 

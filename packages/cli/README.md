@@ -101,31 +101,35 @@ dispatcher so advertised and executable tools cannot drift. The canonical,
 always-current list is the
 [agent tool inventory](../../docs/agent-tools.md).
 
+Each tool is named for a service and, where one applies, an artifact, and
+takes a required `op` field that selects the operation. A call with an unknown
+`op`, or with fields the operation does not accept, returns a structured error
+naming the valid operations and the fields of the attempted one.
+
 **Sandbox-routed** — dispatched against the connected browser sandbox
 (`createFirestoreDataTools` + `createFirestoreSimulatorTools` +
 `createFirestoreInspectTools` + local RTDB inspection):
 
-- data: `firestore_get_document` / `_list_documents` / `_create_document` / `_add_document` / `_update_document` / `_delete_document` / `_batch_write` / `_query_where` / `firestore_create_with_auto_id`
-- stateful simulator session: `firestore_simulator_create` / `_execute` / `_read` / `_batch` / `_undo` / `_redo` / `_events` / `_transaction`
-- diagnostics: `sandbox_inspect` — single-call sandbox state/rules snapshot
-- RTDB authorization: `rtdb_simulate_access` — evaluates one operation against
-  the rules and data currently installed in the connected sandbox
-- RTDB structure: `rtdb_crawl_structure` — returns a bounded structural view of
-  current sandbox data without leaf values
+- `firestore_data`: `get`, `list`, `set`, `add`, `update`, `delete`,
+  `batch_write`, `query`; one shared `as` field selects admin or a user
+- `firestore_simulator`: `create`, `execute`, `read`, `batch`, `add`, `undo`,
+  `redo`, `events`, `transaction`
+- `sandbox`: `inspect` — single-call sandbox state/rules snapshot
+- `database_rules`: `simulate` — evaluates one operation against the rules and
+  data currently installed in the connected sandbox
+- `database_data`: `crawl` — returns a bounded structural view of current
+  sandbox data without leaf values
 
 Assurance campaign tools remain available programmatically from
 `@pyric/cli/assurance`, but are not registered on the default MCP bridge.
 
 **In-process** — run on the bridge process itself (`createFirestoreRulesTools`
-without a live `ProjectScope`, so no Rules Test API tool):
+without a live `ProjectScope`, so no Rules Test API operation):
 
-- `firestore_simulate_rules`
-- `rules_stdlib_list` / `_get` (Firestore or Storage), with
-  `firestore_rules_stdlib_list` / `_get` retained as compatibility aliases
-- `rules_resolve_modules` (Firestore or Storage), with
-  `firestore_resolve_modules` retained as a compatibility alias
-- `firestore_lint_rules`
-- `firestore_resolve_modules`
+- `firestore_rules`: `lint`, `simulate`, `resolve`
+- `rules_stdlib`: `list`, `get` (Firestore or Cloud Storage, by `service`)
+- `storage_rules`: `resolve`
+- `pyric`: `can_i_use`
 
 ### Gaps from the playground tool surface
 

@@ -75,7 +75,7 @@ The place this pays off is the deploy gate, where the same replay runs against t
 
 ## Seed and reset through an agent
 
-Seed, reset, and snapshot are tools on the same MCP surface your editor connects to, so an agent can stand up a scenario, run its checks, and reset to a clean slate without your help. For scratch work it can open a stateful simulator session with its own undo stack, and `sandbox_inspect` tells it what state it's actually in. See [Set up your agent](../agent/set-up-your-agent.md).
+Seed, reset, and snapshot are tools on the same MCP surface your editor connects to, so an agent can stand up a scenario, run its checks, and reset to a clean slate without your help. For scratch work it can open a stateful simulator session with its own undo stack, and `sandbox.inspect` tells it what state it's actually in. See [Set up your agent](../agent/set-up-your-agent.md).
 
 ## Where to go next
 

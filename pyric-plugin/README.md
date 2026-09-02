@@ -12,8 +12,9 @@ protocol. There is no fixed port to configure.
 ## What it provides
 
 - **`pyric` MCP server** (`.mcp.json`) auto-connects to the running sandbox
-  via the stdio proxy. Gives the agent the sandbox tools (data plane, rules
-  lint/simulate, `pyric_sandbox_inspect`).
+  via the stdio proxy. Gives the agent the folded sandbox tools
+  (`firestore_data`, `firestore_simulator`, `firestore_rules`, `rules_stdlib`,
+  `sandbox`, and the rest), each taking an `op` field.
 - **`pyric` skill** installs `@pyric/cli@latest`, configures the
   current `pyric` Vite plugin, starts one bridge, and opens the app so the
   in-page sandbox connects.

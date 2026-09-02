@@ -10,8 +10,8 @@ pagination, and query shape — so design paths around the reads.
    order, what filters, how many items. Complete when every read is listed
    with its expected payload size.
 
-2. **Survey existing data** (when a database exists). `rtdb_crawl_structure`
-   maps the tree; `rtdb_get` samples nodes. Complete when current shape and
+2. **Survey existing data** (when a database exists). `database_data.crawl`
+   maps the tree; `database_data.get` samples nodes. Complete when current shape and
    sizes are known.
 
 3. **Design paths around the reads.** Defaults that work:
@@ -26,7 +26,7 @@ pagination, and query shape — so design paths around the reads.
    payload is what the screen needs.
 
 4. **Plan writes for duplicated data.** Every denormalized copy gets a
-   multi-path fan-out write — a single `rtdb_update` with several full paths
+   multi-path fan-out write — a single `database_data.update` with several full paths
    as keys updates all copies atomically. Complete when each duplicated field
    lists the paths one logical write touches.
 
@@ -39,9 +39,9 @@ pagination, and query shape — so design paths around the reads.
    reads. Hand the path map to the rules work (see the `rtdb-security-rules`
    skill). Complete when each path names who may read/write it.
 
-7. **Seed and prove.** Write representative data with `rtdb_set` /
-   `rtdb_push` / `rtdb_update`, then read each inventoried path with
-   `rtdb_get` and confirm the payload matches step 1. Complete when reads
+7. **Seed and prove.** Write representative data with `database_data.set` /
+   `database_data.push` / `database_data.update`, then read each inventoried path with
+   `database_data.get` and confirm the payload matches step 1. Complete when reads
    return exactly the modeled shape.
 
 ## Reference — anti-patterns

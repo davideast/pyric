@@ -11,14 +11,16 @@ import { DEFAULT_MCP_TOOL_OPS } from '../src/bridge/server/mcp-contract.js';
  */
 const NON_TOOL_TOKENS = new Set<string>([
   'rules_version', // Firestore/RTDB rules file schema field, not a tool.
+  'auth.rules', // Standard library module file.
+  'auth.test', // Standard library module test file.
   'auth.token', // Rules expression (`request.auth.token`, RTDB `auth.token`).
+  'auth.ts', // Source file name.
   'auth.uid', // Rules expression (`request.auth.uid`, RTDB `auth.uid`).
-  'database.rules', // `database.rules.json`, the RTDB rules artifact.
-  'firestore.indexes', // `firestore.indexes.json`, the index artifact.
-  'firestore.modules', // `firestore.modules.rules`, the authored source.
-  'firestore.rules', // The Firestore rules artifact.
-  'storage.modules', // `storage.modules.rules`, the authored source.
-  'storage.rules', // The Cloud Storage rules artifact.
+  'pyric.dev', // The site domain.
+  'pyric.json', // The project configuration file.
+  'sandbox.admin', // `LocalSandbox` API member.
+  'sandbox.history', // `LocalSandbox` API member.
+  'sandbox.reset', // `LocalSandbox` API member.
 ]);
 
 /**
@@ -56,16 +58,23 @@ const SKIP_DIR_NAMES = new Set(['node_modules', 'dist']);
 
 /**
  * A tool name in the ratified grammar, optionally followed by `.op`. A tool
- * name is a service word plus at most one artifact word; a bare service word
- * (`sandbox`, `pyric`) counts only in the dotted form, since the word alone
- * is ordinary prose. A token preceded by `.` is a member access
- * (`request.auth.uid`), not a tool.
+ * name is a service word plus at most one artifact word. A bare service word
+ * (`sandbox`, `pyric`) counts only in the dotted form, and only when that
+ * word names a registered tool or one listed in KNOWN_UNREGISTERED; other
+ * `word.word` pairs are file names or member accesses. A token preceded by
+ * `.`, `-` or `/` (`request.auth.uid`, `firestore-rules.md`) or followed by
+ * `(` (a method call) is not a tool either.
  */
 const SERVICE_WORDS = 'firestore|database|storage|auth|rules|sandbox|pyric';
 const TOOL_TOKEN_PATTERN = new RegExp(
-  `(?<![.\\w])(?:(${SERVICE_WORDS})_([a-z][a-z0-9_]*)|(${SERVICE_WORDS}))(?:\\.([a-z][a-z0-9_]*))?\\b`,
+  `(?<![.\\w/-])(?:(${SERVICE_WORDS})_([a-z][a-z0-9_]*)|(${SERVICE_WORDS}))(?:\\.([a-z][a-z0-9_]*))?\\b(?!\\()`,
   'g',
 );
+
+const BARE_TOOLS = new Set([
+  ...Object.keys(DEFAULT_MCP_TOOL_OPS),
+  ...Object.keys(KNOWN_UNREGISTERED).map((key) => key.split('.')[0]!),
+].filter((tool) => !tool.includes('_')));
 
 const repoRoot = resolve(import.meta.dir, '../../..');
 
@@ -118,7 +127,7 @@ function collectReferences(): Reference[] {
     const relFile = file.startsWith(repoRoot) ? file.slice(repoRoot.length + 1) : file;
     for (const match of text.matchAll(TOOL_TOKEN_PATTERN)) {
       const [, service, artifact, bareService, op] = match;
-      if (bareService && !op) continue; // A service word alone is prose.
+      if (bareService && (!op || !BARE_TOOLS.has(bareService))) continue; // Prose, a file, or a member.
       const tool = bareService ?? `${service}_${artifact}`;
       if (NON_TOOL_TOKENS.has(tool) || NON_TOOL_TOKENS.has(referenceKey({ tool, op }))) continue;
       references.push({ file: relFile, tool, ...(op ? { op } : {}) });
@@ -160,8 +169,8 @@ describe('tool name drift', () => {
 
   test('the token pattern reads both a bare tool and a tool with an op', () => {
     const sample =
-      'Call `firestore_data.get`, then `sandbox.inspect`; the sandbox and pyric words alone are prose, as is rules_version and request.auth.uid.';
+      'Call `firestore_data.get`, then `sandbox.inspect`; the sandbox and pyric words alone are prose, as are rules_version, request.auth.uid, firestore-rules.md and sandbox.reset().';
     const found = [...sample.matchAll(TOOL_TOKEN_PATTERN)].map((match) => match[0]);
-    expect(found).toEqual(['firestore_data.get', 'sandbox.inspect', 'sandbox', 'pyric', 'rules_version']);
+    expect(found).toEqual(['firestore_data.get', 'sandbox.inspect', 'sandbox', 'pyric', 'rules_version', 'firestore', 'sandbox']);
   });
 });
