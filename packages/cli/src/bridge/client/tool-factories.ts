@@ -15,6 +15,7 @@ import {
   createFirestoreInspectTools,
   type FirestoreDataToolDeps,
 } from 'pyric/firestore';
+import { createStorageDataTools, type StorageDataToolDeps } from 'pyric/storage';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { getInternalEnv } from 'pyric/sandbox/internal';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
@@ -25,6 +26,7 @@ export interface SandboxBinding {
   sandbox: LocalSandbox;
   env: ReturnType<typeof getInternalEnv>;
   resolveDb: FirestoreDataToolDeps['resolveDb'];
+  resolveStorage: StorageDataToolDeps['resolveStorage'];
 }
 
 export const SANDBOX_FACTORIES = {
@@ -32,4 +34,5 @@ export const SANDBOX_FACTORIES = {
   'firestore-data': ({ resolveDb }) => createFirestoreDataTools({ resolveDb }),
   'firestore-inspect': ({ sandbox }) => createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
   'rtdb-inspection': ({ sandbox }) => createRtdbInspectionTools({ resolveSandbox: () => sandbox }),
+  'storage-data': ({ resolveStorage }) => createStorageDataTools({ resolveStorage }),
 } satisfies Record<ForwardedFactoryKey, (binding: SandboxBinding) => ToolHandler[]>;
