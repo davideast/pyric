@@ -17,6 +17,10 @@
       "decision": "deliberate",
       "reason": "Rules Test API client that needs project credentials resolved by the MCP process; the Playground holds no project credentials"
     },
+    "firestore_indexes.generate": {
+      "decision": "deliberate",
+      "reason": "shared MCP and Playground static extractor; the folded MCP op and the Playground's firestore_extract_indexes tool call the same handler"
+    },
     "build_game_rules": {
       "decision": "deliberate",
       "reason": "Playground skill-specific authoring workflow, activated only by its skill; not a general MCP primitive"
@@ -44,10 +48,6 @@
     "firestore_data.delete": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_extract_indexes": {
-      "decision": "deliberate",
-      "reason": "artifact generation is exposed through `pyric firestore indexes generate`; external agents can invoke the CLI without a duplicate MCP tool"
     },
     "firestore_data.get": {
       "decision": "deliberate",

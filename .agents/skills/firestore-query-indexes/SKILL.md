@@ -34,7 +34,7 @@ documents, not scan too many.
    `query(collection(db, ...), where(...), orderBy(...))` — so the extractor
    can see it. Complete when each inventory row has code.
 
-5. **Extract indexes.** Run `firestore_extract_indexes` over the query code
+5. **Extract indexes.** Run `firestore_indexes.generate` over the query code
    after every change. It returns `firestore.indexes.json`-shaped config plus
    warnings. Zero extracted shapes means the source didn't expose a pattern
    (missing file, admin-chain syntax, no composite query) — report that and

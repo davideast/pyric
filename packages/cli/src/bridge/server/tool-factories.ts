@@ -12,6 +12,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import {
   createFirestoreSimulatorTools,
   createFirestoreRulesTools,
+  createFirestoreIndexesTools,
 } from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
@@ -49,6 +50,7 @@ export interface InProcessContext {
 export const IN_PROCESS_FACTORIES = {
   'firestore-rules': ({ scope }: InProcessContext = {}) =>
     createFirestoreRulesTools(scope ? { scope } : {}),
+  'firestore-indexes': () => createFirestoreIndexesTools(),
   conformance: () => createConformanceTools(),
   verify: ({ scope }: InProcessContext = {}) => createVerifyTools(scope ? { scope } : {}),
 } satisfies Record<InProcessFactoryKey, (context?: InProcessContext) => ToolHandler[]>;
