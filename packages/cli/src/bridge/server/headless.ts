@@ -31,10 +31,19 @@ import { setRules } from 'pyric/sandbox/firestore';
 import { buildMcpServer } from './mcp.js';
 import { getDefaultMcpToolSurface } from './mcp-contract.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
+import { resolveBridgeScope } from './scope.js';
+import type { ProjectScope } from '../../credentials/core/types.js';
 
 /** Where the headless sandbox snapshot is persisted (relative to the project
  *  dir). Deliberately separate from serve's `state.json` (different format). */
 export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
+
+export interface HeadlessMcpOptions extends LocalBridgeOptions {
+  /** Project credentials for the Rules Test API operations; `runHeadlessMcp`
+   *  resolves them once from the environment. Absent means those operations
+   *  return their credentials error on use. */
+  scope?: ProjectScope;
+}
 
 /**
  * Build the headless MCP server around an in-process sandbox. Pure: no I/O and
@@ -42,9 +51,10 @@ export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
  * the served bridge's construction (forwarded data-plane + in-process rules
  * tools), with `dispatch` bound to the local sandbox instead of a ws peer.
  */
-export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: LocalBridgeOptions) {
-  const bridge = createLocalBridge(sandbox, opts);
-  return buildMcpServer(bridge, getDefaultMcpToolSurface());
+export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts: HeadlessMcpOptions = {}) {
+  const { scope, ...bridgeOptions } = opts;
+  const bridge = createLocalBridge(sandbox, bridgeOptions);
+  return buildMcpServer(bridge, getDefaultMcpToolSurface(scope ? { scope } : {}));
 }
 
 /**
@@ -122,7 +132,17 @@ export async function runHeadlessMcp(cwd: string = process.cwd()): Promise<numbe
     saveTimer = setTimeout(flush, 750);
   };
 
-  const server = buildHeadlessMcpServer(sandbox, { onAfterDispatch: scheduleSave });
+  const credentials = await resolveBridgeScope();
+  log(
+    credentials.scope
+      ? `project credentials resolved from ${credentials.source} (${credentials.scope.projectId})`
+      : `no project credentials: ${credentials.reason}`,
+  );
+
+  const server = buildHeadlessMcpServer(sandbox, {
+    onAfterDispatch: scheduleSave,
+    ...(credentials.scope ? { scope: credentials.scope } : {}),
+  });
   const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
   const transport = new StdioServerTransport();
 

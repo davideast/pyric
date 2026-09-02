@@ -321,6 +321,7 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
         'lint',
         'simulate',
         'resolve',
+        'test',
       ]);
 
       const unknown = await callToolText(client, 'firestore_rules', { op: 'validate', source: '' });
@@ -330,7 +331,7 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
         error: 'unknown_op',
         tool: 'firestore_rules',
         op: 'validate',
-        validOps: ['lint', 'simulate', 'resolve'],
+        validOps: ['lint', 'simulate', 'resolve', 'test'],
       });
 
       const invalid = await callToolText(client, 'firestore_rules', { op: 'lint', testCases: [] });

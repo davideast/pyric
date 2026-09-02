@@ -21,7 +21,9 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createBridge, type Bridge, type BridgeToolEvent } from './bridge.js';
 import { buildMcpServer } from './mcp.js';
 import { getDefaultMcpToolSurface } from './mcp-contract.js';
+import { resolveBridgeScope } from './scope.js';
 import { createAuditWriter, type AuditWriter } from './audit.js';
+import type { ProjectScope } from '../../credentials/core/types.js';
 import {
   createConsoleLogger,
   createSilentLogger,
@@ -63,7 +65,10 @@ export interface StartServerOptions {
   logger?: BridgeLogger;
   /** Convenience: install a silent logger (tests). */
   silent?: boolean;
-
+  /** Project credentials for the Rules Test API operations. Resolved once
+   *  from the environment when omitted; the operations return their
+   *  credentials error on use when none resolve. */
+  scope?: ProjectScope;
 }
 
 export interface ServerHandle {
@@ -105,7 +110,15 @@ export async function startServer(
     },
   });
 
-  const tools = getDefaultMcpToolSurface();
+  const credentials = opts.scope
+    ? { scope: opts.scope, source: 'caller' as const }
+    : await resolveBridgeScope({ projectId: opts.project });
+  if (credentials.scope) {
+    logger.verbose(`project credentials resolved from ${credentials.source} (${credentials.scope.projectId})`);
+  } else {
+    logger.verbose(`no project credentials: ${credentials.reason}`);
+  }
+  const tools = getDefaultMcpToolSurface(credentials.scope ? { scope: credentials.scope } : {});
 
   // Per-session transport+server map. Each MCP client connection
   // gets its own pair; cleared on DELETE / idle / transport close.

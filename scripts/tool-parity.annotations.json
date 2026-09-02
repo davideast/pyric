@@ -5,6 +5,18 @@
       "decision": "deliberate",
       "reason": "Shared MCP and Playground trust query; the CLI/MCP retain full claims while the browser receives only the measured compact projection"
     },
+    "pyric.verify": {
+      "decision": "deliberate",
+      "reason": "replays a captured session fixture against candidate rules for external agents; the Playground verifies through its own session workflow"
+    },
+    "pyric.verify_cases": {
+      "decision": "deliberate",
+      "reason": "derives Rules Test API cases from a captured session fixture for external agents; the Playground has no fixture capture of its own"
+    },
+    "firestore_rules.test": {
+      "decision": "deliberate",
+      "reason": "Rules Test API client that needs project credentials resolved by the MCP process; the Playground holds no project credentials"
+    },
     "build_game_rules": {
       "decision": "deliberate",
       "reason": "Playground skill-specific authoring workflow, activated only by its skill; not a general MCP primitive"

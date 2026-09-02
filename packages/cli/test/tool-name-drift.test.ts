@@ -44,8 +44,6 @@ const KNOWN_UNREGISTERED: Record<string, string> = {
   'database_rules.deploy': 'no handler exists',
   'database_rules.get': 'no handler exists',
   'firestore_rules.get': 'no handler exists',
-  'firestore_rules.test': 'handler in packages/pyric/src/rules/tools.ts',
-  'pyric.verify_cases': 'handler in packages/cli/src/verify/tools.ts',
   firestore_discover_paths: 'handler in packages/cli/src/discover/tools.ts',
   firestore_extract_indexes:
     'handler in packages/pyric/src/rules/indexes/extractTool.ts (also a Playground-only wrapper of the same name)',

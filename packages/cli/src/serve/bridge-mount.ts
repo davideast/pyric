@@ -25,7 +25,10 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { createBridge, type BridgeToolEvent } from '../bridge/server/bridge.js';
 import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getDefaultMcpToolSurface } from '../bridge/server/mcp-contract.js';
+import { resolveBridgeScope } from '../bridge/server/scope.js';
+import type { McpTool } from '../bridge/server/tool-surface.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
+import type { ProjectScope } from '../credentials/core/types.js';
 import { attachPeer } from '../bridge/server/peer.js';
 import { pyricVersion } from './standalone-assets.js';
 import { isAllowedUpgrade } from './server.js';
@@ -44,6 +47,10 @@ export interface BridgeMountOptions {
    *  `allowedHosts: true` = the caller (vite `server.allowedHosts: true`) opted
    *  into all hosts. Omit ⇒ loopback-only. */
   upgradeGuard?: { boundHost: string; allowedHosts?: string[] | true };
+  /** Project credentials for the Rules Test API operations. Resolved once
+   *  from the environment when omitted; the operations return their
+   *  credentials error on use when none resolve. */
+  scope?: ProjectScope;
 }
 
 export interface BridgeMount {
@@ -102,6 +109,15 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     version: BRIDGE_VERSION,
     onToolEvent: auditWriter ? (event: BridgeToolEvent) => auditWriter.write(event) : undefined,
   });
+
+  // The in-process handlers are composed once per mount, after project
+  // credentials resolve. Sessions await the same surface; the trailing
+  // catch marks a composition failure handled until a session observes it.
+  const toolSurface: Promise<McpTool[]> = (opts.scope
+    ? Promise.resolve(opts.scope)
+    : resolveBridgeScope({ projectId: opts.project }).then((credentials) => credentials.scope)
+  ).then((scope) => getDefaultMcpToolSurface(scope ? { scope } : {}));
+  void toolSurface.catch(() => {});
 
   // STATEFUL MCP: a per-session transport+server map, mirroring the standalone
   // bridge (`bridge/server/standalone.ts`). Each Streamable-HTTP client gets an
@@ -170,7 +186,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (session.sessionId) sessions.delete(session.sessionId);
       pendingSessions.delete(session);
     };
-    const server = buildMcpServer(bridge, getDefaultMcpToolSurface());
+    const server = buildMcpServer(bridge, await toolSurface);
     session.close = () => {
       session.closing ??= (async () => {
         if (session.idle) clearTimeout(session.idle);

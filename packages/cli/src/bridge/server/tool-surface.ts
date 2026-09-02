@@ -24,7 +24,12 @@ import {
   type ToolTransport,
 } from '../tool-records.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
-import { FORWARDED_FACTORIES, IN_PROCESS_FACTORIES, type StubResolver } from './tool-factories.js';
+import {
+  FORWARDED_FACTORIES,
+  IN_PROCESS_FACTORIES,
+  type InProcessContext,
+  type StubResolver,
+} from './tool-factories.js';
 
 export interface JsonSchema {
   type?: string | string[];
@@ -228,9 +233,11 @@ function composeOp(spec: ToolOp, handler: ToolHandler): McpToolOp {
 
 /**
  * The MCP tools of the default surface, in record order. Fails closed when a
- * record names a handler its factory does not yield.
+ * record names a handler its factory does not yield. `context` carries what
+ * the entry point resolved for the in-process factories, such as project
+ * credentials; the tool list is the same with or without it.
  */
-export function composeMcpTools(): McpTool[] {
+export function composeMcpTools(context: InProcessContext = {}): McpTool[] {
   const stub: StubResolver = () => {
     throw new Error(
       'BUG: sandbox-tool factory executor invoked on the bridge side — should have been replaced',
@@ -239,7 +246,7 @@ export function composeMcpTools(): McpTool[] {
   const handlers = resolveOpHandlers(toolOps(), (spec) =>
     spec.transport === 'forwarded'
       ? FORWARDED_FACTORIES[spec.factory as keyof typeof FORWARDED_FACTORIES](stub)
-      : IN_PROCESS_FACTORIES[spec.factory as keyof typeof IN_PROCESS_FACTORIES](),
+      : IN_PROCESS_FACTORIES[spec.factory as keyof typeof IN_PROCESS_FACTORIES](context),
   );
   return toolRecords().map((record) => {
     const ops = Object.keys(record.ops).map((op) => {

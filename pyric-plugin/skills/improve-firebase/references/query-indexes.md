@@ -21,8 +21,9 @@ documents, not scan too many.
 3. **Prove rules compatibility.** Rules are not filters: a list query must be
    constrained (`where` on owner/membership fields) so it can only return
    documents its identity may read. Verify with `firestore_rules.simulate`
-   per identity, or a `firestore_rules.test` case per query. Complete when
-   every list query has a matching rule + constraint pair.
+   per identity, or a `firestore_rules.test` case per query on the Rules Test
+   API (needs project credentials). Complete when every list query has a
+   matching rule + constraint pair.
 
 4. **Write the query code** in modular SDK shape inside a function body —
    `query(collection(db, ...), where(...), orderBy(...))` — so the extractor
