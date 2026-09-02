@@ -137,16 +137,29 @@ describe('buildChildEnv', () => {
   it('sets the activator and appends --import to an existing NODE_OPTIONS', () => {
     const env = buildChildEnv(
       { NODE_OPTIONS: '--max-old-space-size=4096', PATH: '/bin' },
-      { serveUrl: 'http://localhost:5000', registerUrl: 'file:///x/register/index.js' },
+      {
+        serveUrl: 'http://localhost:5000',
+        registerUrl: 'file:///x/register/index.js',
+        beaconToken: 'launch-secret',
+      },
     );
     expect(env.PYRIC_SANDBOX).toBe('remote:http://localhost:5000');
+    expect(env.PYRIC_BEACON_TOKEN).toBe('launch-secret');
     expect(env.NODE_OPTIONS).toBe('--max-old-space-size=4096 --import file:///x/register/index.js');
     expect(env.PATH).toBe('/bin');
   });
 
   it('creates NODE_OPTIONS when absent', () => {
-    const env = buildChildEnv({}, { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' });
+    const env = buildChildEnv(
+      {},
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', beaconToken: 't' },
+    );
     expect(env.NODE_OPTIONS).toBe('--import file:///r.js');
+  });
+
+  it('omits the beacon secret when the launcher runs no beacon receiver', () => {
+    const env = buildChildEnv({}, { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' });
+    expect('PYRIC_BEACON_TOKEN' in env).toBe(false);
   });
 });
 
@@ -226,11 +239,21 @@ describe('formatStartupEnvExport', () => {
     const output = formatStartupEnvExport({
       serveUrl: 'http://localhost:3473',
       registerUrl: 'file:///usr/local/pyric/dist/register/index.js',
+      beaconToken: 'launch-secret',
     });
     expect(output).toContain('export PYRIC_SANDBOX="remote:http://localhost:3473"');
+    expect(output).toContain('export PYRIC_BEACON_TOKEN="launch-secret"');
     expect(output).toContain(
       'export NODE_OPTIONS="--import file:///usr/local/pyric/dist/register/index.js"',
     );
     expect(output).toContain('To run external commands against this sandbox');
+  });
+
+  it('omits the beacon secret line when there is none to export', () => {
+    const output = formatStartupEnvExport({
+      serveUrl: 'http://localhost:3473',
+      registerUrl: 'file:///r.js',
+    });
+    expect(output).not.toContain('PYRIC_BEACON_TOKEN');
   });
 });

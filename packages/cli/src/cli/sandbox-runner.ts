@@ -16,6 +16,7 @@
  * only `spawnDevChild` touches the process table.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { SHELL_OPERATORS } from './unsupported-runtime.js';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
 
@@ -152,41 +153,60 @@ export function registerModuleUrl(): string {
   return new URL('../register/index.js', import.meta.url).href;
 }
 
+/** What the launcher has to put in a child's environment for interception. */
+export interface ChildActivation {
+  /** The serve host the child's sandbox calls reach. */
+  readonly serveUrl: string;
+  /** Absolute `file:` URL of the register module. */
+  readonly registerUrl: string;
+  /** The per-launch secret the child's handshake beacon must present.
+   *  Absent when the launcher runs no beacon receiver, as the Vite plugin's
+   *  Functions runtime does; the child then reports on stderr only. */
+  readonly beaconToken?: string | undefined;
+}
+
 /**
- * Child env: sets the activator and APPENDS the loader to NODE_OPTIONS —
- * never replaces it (the user's own --inspect / --max-old-space-size etc.
- * must survive). `file:` URLs are percent-encoded, so no quoting is needed
- * even for paths with spaces.
+ * Child env: sets the activator and the beacon secret, and APPENDS the loader
+ * to NODE_OPTIONS rather than replacing it (the user's own --inspect /
+ * --max-old-space-size and so on must survive). `file:` URLs are
+ * percent-encoded, so no quoting is needed even for paths with spaces.
  */
 export function buildChildEnv(
   base: NodeJS.ProcessEnv,
-  opts: { serveUrl: string; registerUrl: string },
+  opts: ChildActivation,
 ): NodeJS.ProcessEnv {
   const importFlag = `--import ${opts.registerUrl}`;
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...base,
     PYRIC_SANDBOX: `remote:${opts.serveUrl}`,
     NODE_OPTIONS: base.NODE_OPTIONS ? `${base.NODE_OPTIONS} ${importFlag}` : importFlag,
   };
+  if (opts.beaconToken !== undefined) env.PYRIC_BEACON_TOKEN = opts.beaconToken;
+  return env;
 }
 
 /**
  * Format copy-pasteable POSIX export statements for host-only startup.
  * Grouped in a cleanly formatted console block for easy selection and copying
  * into a separate terminal (for example, when running Next.js independently).
+ *
+ * The beacon secret is part of the block: without it a process started this
+ * way still intercepts, but the dev server cannot confirm that it did.
  */
-export function formatStartupEnvExport(opts: { serveUrl: string; registerUrl: string }): string {
-  const pyricSandbox = `remote:${opts.serveUrl}`;
-  const nodeOptions = `--import ${opts.registerUrl}`;
-  const line1 = `export PYRIC_SANDBOX="${pyricSandbox}"`;
-  const line2 = `export NODE_OPTIONS="${nodeOptions}"`;
-  const divider = '─'.repeat(Math.max(line1.length, line2.length) + 4);
+export function formatStartupEnvExport(opts: ChildActivation): string {
+  const lines = [`export PYRIC_SANDBOX="remote:${opts.serveUrl}"`];
+  if (opts.beaconToken !== undefined) {
+    lines.push(`export PYRIC_BEACON_TOKEN="${opts.beaconToken}"`);
+  }
+  lines.push(`export NODE_OPTIONS="--import ${opts.registerUrl}"`);
+  const width = Math.max(...lines.map((line) => line.length));
+  const divider = '─'.repeat(width + 4);
+  const body = lines.map((line) => `  ${line}\n`).join('');
   return (
     '\n' +
     '  To run external commands against this sandbox, paste in another terminal:\n' +
     `  ${divider}\n` +
-    `  ${line1}\n` +
-    `  ${line2}\n` +
+    body +
     `  ${divider}\n`
   );
 }
@@ -225,8 +245,6 @@ export function createLinePrefixer(
 /** How long a signalled child may linger before SIGKILL. */
 const FORCE_KILL_AFTER_MS = 2_000;
 
-const SHELL_OPERATORS = new Set(['&&', '||', '|', ';', '&']);
-
 export interface SandboxChildHandle {
   exited: Promise<number>;
   signal(sig: NodeJS.Signals): void;
@@ -259,16 +277,9 @@ export function spawnSandboxChild(
   // 2. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
   const hasShellOperators = parts.some((token) => SHELL_OPERATORS.has(token));
 
-  // 3. Warn if runtime is bun or deno
-  if (parts.length > 0 && (parts[0] === 'bun' || parts[0] === 'deno')) {
-    const runner = parts[0];
-    const target = opts.json ? process.stderr : process.stdout;
-    target.write(
-      `  ⚠ ${runner} detected: pyric intercepts Firebase imports via Node.js module loader hooks (NODE_OPTIONS="--import ..."). ` +
-        `${runner} does not evaluate Node loader hooks — SDK calls in this process will not reach the pyric sandbox. ` +
-        `Use \`node\` (or \`npx tsx\`) to run with the sandbox swap.\n`,
-    );
-  }
+  // The bun/deno warning is emitted by the launch seam in serve.ts, alongside
+  // the interlock line, so every pre-spawn statement about the child prints in
+  // one block and in order.
 
   const [command, ...args] = parts;
   let child: ChildProcess;

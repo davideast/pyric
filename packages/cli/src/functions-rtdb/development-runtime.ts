@@ -38,6 +38,9 @@ export interface FunctionsDevelopmentRuntimeOptions {
   baseEnv: NodeJS.ProcessEnv;
   serveUrl: string;
   registerUrl: string;
+  /** The per-launch secret this child's handshake beacon must present.
+   *  Absent when the host runs no beacon receiver. */
+  beaconToken?: string | undefined;
   instance: string;
   location: string;
   projectId?: string;
@@ -216,6 +219,7 @@ export function createFunctionsDevelopmentRuntime(
         env: buildChildEnv(options.baseEnv, {
           serveUrl: options.serveUrl,
           registerUrl: options.registerUrl,
+          beaconToken: options.beaconToken,
         }),
         instance: options.instance,
         location: options.location,

@@ -1,9 +1,9 @@
 /**
  * `@pyric/cli/register` — the Node substitution seam (adoption layer 2).
  *
- * Loaded via `node --import @pyric/cli/register` (which `pyric dev` injects
- * through NODE_OPTIONS), it makes the user's UNCHANGED `firebase-admin` /
- * `firebase` imports resolve to `pyric-admin` / `pyric`, every subpath 1:1,
+ * Loaded via `node --import @pyric/cli/register` (which `pyric sandbox`
+ * injects through NODE_OPTIONS), it makes the user's UNCHANGED `firebase-admin`
+ * and `firebase` imports resolve to `pyric-admin` and `pyric`, every subpath 1:1,
  * and installs the sandbox-factory global that `pyric-admin`'s ambient
  * `initializeApp()` consumes.
  *
@@ -17,6 +17,17 @@
  * `require()` and `import`. On older 22.x it falls back to
  * `module.register()` (ESM-only) with a warning that CJS require() is not
  * rewritten.
+ *
+ * On activation it also installs the NETWORK GUARD (`./net-guard.js`), which
+ * reports egress from this process to live Google/Firebase endpoints, or
+ * refuses it under `PYRIC_GUARD=block`. See that module for the policy and the
+ * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs.
+ *
+ * Finally it emits the HANDSHAKE BEACON (`./beacon.js`): a fire-and-forget
+ * `POST /__pyric/beacon` when the activator carries a bridge URL, plus a
+ * stderr line when the developer asked for detail. That is how `pyric sandbox`
+ * learns that interception actually reached this child rather than assuming
+ * it did.
  */
 import Module from 'node:module';
 import { readFileSync } from 'node:fs';
@@ -24,6 +35,8 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mapFirebaseSpecifier } from './mapping.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
+import { installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
+import { emitBeacon } from './beacon.js';
 import { remoteSandbox } from '../remote/index.js';
 
 /** The shared seam with pyric-admin's ambient init: a synchronous factory
@@ -89,7 +102,30 @@ function resolveEsmOnlyForRequire(mapped: string): string | null {
 }
 
 function activate(): void {
+  // FIRST, before any hook or global: the network guard.
+  //
+  // Order matters in one direction only. Everything after this line makes the
+  // process load MORE code (the resolution hooks pull in the pyric mirrors,
+  // the factory global pulls in the remote sandbox) and any of it could open
+  // a socket. Installing the guard first leaves no window in which
+  // sandbox-substituted code runs unguarded. The reverse ordering buys
+  // nothing: the guard mutates globals only (`undici.globalDispatcher.1`,
+  // `net`/`tls` connect) and depends on nothing the hooks establish.
+  //
+  // It stays BELOW the NODE_ENV=production refusal, deliberately. A refused
+  // process is a real production run that we declined to touch, and warning
+  // about its perfectly legitimate Google traffic, let alone blocking it,
+  // would be actively harmful. `PYRIC_SANDBOX` plus no refusal is the only
+  // state in which "traffic to live Google is a bug" is a true statement.
+  const guard = installNetGuard();
+
+  // Whether module resolution is actually being intercepted. Both branches
+  // below install SOMETHING, but a runtime with neither API installs nothing,
+  // which is precisely the state the beacon exists to make visible.
+  let hooksInstalled = false;
+
   if (typeof moduleApi.registerHooks === 'function') {
+    hooksInstalled = true;
     moduleApi.registerHooks({
       resolve(specifier, context, nextResolve) {
         const mapped = mapFirebaseSpecifier(specifier, context.parentURL);
@@ -112,10 +148,11 @@ function activate(): void {
     });
   } else {
     process.stderr.write(
-      '@pyric/cli/register: this Node version lacks module.registerHooks (needs >= 22.15) — ' +
-        'falling back to module.register: ESM imports of firebase-admin/firebase are rewritten, ' +
+      '@pyric/cli/register: this Node version lacks module.registerHooks (needs >= 22.15). ' +
+        'Falling back to module.register: ESM imports of firebase-admin/firebase are rewritten, ' +
         "but CJS require('firebase-admin') is NOT intercepted. Upgrade Node to >= 22.15 for full coverage.\n",
     );
+    hooksInstalled = typeof moduleApi.register === 'function';
     moduleApi.register?.(new URL('./hooks.js', import.meta.url));
   }
 
@@ -125,9 +162,34 @@ function activate(): void {
     remoteSandbox(opts);
 
   process.stderr.write(
-    `@pyric/cli/register: active — firebase-admin/firebase imports now resolve to the ` +
+    `@pyric/cli/register: active. firebase-admin/firebase imports now resolve to the ` +
       `pyric sandbox (PYRIC_SANDBOX=${process.env.PYRIC_SANDBOX}).\n`,
   );
+
+  // LAST: the handshake beacon, after the guard, the hooks and the factory
+  // global are all in place. Its whole claim is "interception is live in this
+  // process", so it must not be able to run before that is true. See
+  // `./beacon.js` for the two channels and why the POST is fire-and-forget.
+  emitBeacon({
+    pid: process.pid,
+    guard: installedGuardMode(guard),
+    hooks: hooksInstalled,
+    sandbox: process.env.PYRIC_SANDBOX ?? '',
+  });
+}
+
+/**
+ * The net-guard mode actually in force, for the beacon to report.
+ *
+ * Policy: the installed guard is the authority when there is one. There is no
+ * guard object in exactly one case, `PYRIC_GUARD=off` (the `PYRIC_SANDBOX`
+ * gate `installNetGuard` shares with this module has already passed by the
+ * time it runs), and re-parsing the env is how that case names itself rather
+ * than guessing a default.
+ */
+function installedGuardMode(guard: { mode: GuardMode } | null): GuardMode {
+  if (guard !== null) return guard.mode;
+  return parseGuardMode(process.env.PYRIC_GUARD);
 }
 
 /** Whether this process's firebase-admin/firebase imports are being rewritten

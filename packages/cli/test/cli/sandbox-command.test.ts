@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -194,4 +194,73 @@ describe('pyric sandbox command execution', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 15_000);
+});
+
+/**
+ * The launcher makes no claim about the child's build output. `withPyric`
+ * externalizes firebase and firebase-admin, the backend-bundler docs say to
+ * mark them external, and the net guard reports real egress at runtime with
+ * attribution. Grepping .next/server or dist at launch only warned about
+ * production or stale artifacts the child never loads.
+ */
+describe('pyric sandbox does not scan build output', () => {
+  it('says nothing about an inlined-SDK artifact under .next/server', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-artifacts-'));
+    try {
+      mkdirSync(join(dir, '.next', 'server'), { recursive: true });
+      writeFileSync(
+        join(dir, '.next', 'server', 'chunk.js'),
+        'fetch("https://firestore.googleapis.com/v1/projects/p/databases/(default)/documents")',
+      );
+      const { code, stdout, stderr } = runCli(
+        ['sandbox', '--no-open', '--port', '4941', 'node', '-e', 'console.log("ARTIFACT_CHILD")'],
+        dir,
+      );
+      const all = stdout + stderr;
+      expect(all).not.toContain('.next/server/chunk.js');
+      expect(all).not.toContain('preflight');
+      expect(stdout).toContain('ARTIFACT_CHILD');
+      expect(code).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
+describe('pyric sandbox unsupported-runtime warning', () => {
+  it('warns that interception is unsupported under bun and still launches', () => {
+    const { code, stdout, stderr } = runCli([
+      'sandbox',
+      '--no-open',
+      '--port',
+      '4944',
+      'bun',
+      '-e',
+      'console.log("BUN_CHILD")',
+    ]);
+    const all = stdout + stderr;
+    expect(all).toContain('⚠ runtime');
+    expect(all).toContain('bun');
+    expect(all).toContain('not supported');
+    expect(all).toContain('LIVE Firebase');
+    // The net-guard backstop is Node-only, and the warning has to say so.
+    expect(all).toContain('net-guard');
+    expect(stdout).toContain('BUN_CHILD');
+    expect(code).toBe(0);
+  }, 60_000);
+
+  it('stays silent for a node child', () => {
+    const { code, stdout, stderr } = runCli([
+      'sandbox',
+      '--no-open',
+      '--port',
+      '4945',
+      'node',
+      '-e',
+      'console.log("NODE_CHILD")',
+    ]);
+    expect(stdout + stderr).not.toContain('⚠ runtime');
+    expect(stdout).toContain('NODE_CHILD');
+    expect(code).toBe(0);
+  }, 60_000);
 });

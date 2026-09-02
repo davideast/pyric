@@ -209,13 +209,36 @@ export function createConsumerSession(
   };
 }
 
-export async function collectBody(req: IncomingMessage): Promise<unknown> {
+/** Thrown by {@link collectBody} when a body exceeds the caller's limit. The
+ *  code lets a route answer 413 instead of treating it as malformed JSON. */
+export const BODY_TOO_LARGE_CODE = 'PYRIC_BODY_TOO_LARGE';
+
+/**
+ * Read a request body and parse it as JSON.
+ *
+ * `limitBytes` caps how much is buffered. A route that is reachable by
+ * anything other than a trusted local caller must pass one: without it a
+ * single request can grow the string until the process dies.
+ */
+export async function collectBody(
+  req: IncomingMessage,
+  limitBytes?: number,
+): Promise<unknown> {
   if (req.method === 'GET' || req.method === 'DELETE') return undefined;
   return await new Promise<unknown>((resolve, reject) => {
     let raw = '';
+    let overLimit = false;
     req.setEncoding('utf8');
     req.on('data', (chunk) => {
+      // Past the limit the rest of the upload is read and discarded rather
+      // than the socket being destroyed. Destroying resets the connection, so
+      // the caller's 413 would never reach the client.
+      if (overLimit) return;
       raw += chunk;
+      if (limitBytes === undefined || Buffer.byteLength(raw) <= limitBytes) return;
+      overLimit = true;
+      raw = '';
+      reject(Object.assign(new Error('request body too large'), { code: BODY_TOO_LARGE_CODE }));
     });
     req.on('end', () => {
       if (!raw) {

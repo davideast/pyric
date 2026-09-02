@@ -13,6 +13,22 @@
   },
   "description": "Firebase for agents \u2014 modular Web SDK adapters (firestore, auth, database, storage) with swappable sandbox/prod backends, plus rules tooling and in-process sandbox. Mirrors firebase.",
   "type": "module",
+  "sideEffects": [
+    "./dist/app/register.js",
+    "./dist/app/registry.js",
+    "./dist/app/runtime.js",
+    "./dist/firestore/sandbox/write-runtime.js",
+    "./dist/rules/grammar/FirestoreParser.js",
+    "./dist/sandbox/admin-firestore/listeners.js",
+    "./dist/sandbox/internal/firebase-error.js",
+    "./src/app/register.ts",
+    "./src/app/registry.ts",
+    "./src/app/runtime.ts",
+    "./src/firestore/sandbox/write-runtime.ts",
+    "./src/rules/grammar/FirestoreParser.ts",
+    "./src/sandbox/admin-firestore/listeners.ts",
+    "./src/sandbox/internal/firebase-error.ts"
+  ],
   "exports": {
     "./app": {
       "types": "./dist/app/index.d.ts",

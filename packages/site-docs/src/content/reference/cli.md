@@ -79,6 +79,14 @@ Create `pyric.json` in the project root to define defaults:
 
 Command-line values override `pyric.json`. `--project` overrides `PYRIC_PROJECT`, and `PYRIC_PROJECT` overrides the configured project.
 
+## Environment variables
+
+`PYRIC_GUARD` selects what the network guard does when a Pyric-launched process opens a connection to a live Google or Firebase endpoint. A sandboxed app routes all of its Firebase traffic to the local `/__pyric/*` namespace, so such a connection means that process escaped the sandbox and is reading or writing production data. The value is `warn` (the default: report the connection on stderr, let it through), `block` (report it and fail the request), or `off` (install no hooks at all and print one notice saying so). The GCE metadata server is refused under `warn` and `block` in every case, because a development process has no legitimate reason to fetch credentials from it.
+
+`PYRIC_GUARD_ALLOW` permits specific hosts that the guard would otherwise flag. It takes a comma-separated or whitespace-separated list of hostnames or URLs, matched on label boundaries, so `cloudfunctions.net` also permits `us-central1-demo.cloudfunctions.net`. Set it when a project deliberately calls a Google endpoint that Pyric does not mirror, such as a Vertex AI base URL. An allowed host is still reported once. The GCE metadata server cannot be allowed.
+
+`PYRIC_BEACON_TOKEN` is set by `pyric sandbox` on every child it starts. A child that has loaded `@pyric/cli/register` presents it when it reports that interception is installed, and the server rejects a report without it. Export it alongside `PYRIC_SANDBOX` when you start a process yourself, using the block `pyric sandbox` prints for that purpose.
+
 ## Output and readiness
 
 With `--json`, stdout contains one JSON object with the URL, port, MCP URL, rules hash, persistence state, and restored item counts. The normal banner is written to stderr.

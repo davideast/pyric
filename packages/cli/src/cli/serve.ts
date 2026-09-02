@@ -10,8 +10,9 @@
  * rules load (fail fast on broken rules) → SDK bundle (cached per pyric
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
+import { randomBytes } from 'node:crypto';
 import { join, relative, resolve } from 'node:path';
-import { existsSync, readdirSync, readFileSync, statSync, watch as watchFile } from 'node:fs';
+import { existsSync, watch as watchFile } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, resolveSiteUiDir } from '../serve/bundler.js';
@@ -22,6 +23,7 @@ import {
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
+import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
 import { injectServeTags } from '../serve/html-injection.js';
@@ -39,6 +41,12 @@ import {
   waitForSandboxPeer,
   type SandboxChildHandle,
 } from './sandbox-runner.js';
+import {
+  reportLaunchChecks,
+  startBeaconWatchdog,
+  type BeaconWatchdog,
+} from './sandbox-interlock.js';
+import { scanForInlinedFirebase } from './inlined-sdk-scanner.js';
 import {
   createFunctionsDevelopmentRuntime,
   createHttpFunctionsPeerReadiness,
@@ -89,6 +97,12 @@ export interface ServeRuntime {
   uiUrl: string | null;
   /** Persistence summary (null when `--persist` is off). */
   persist: { restoredDocs: number; restoredUsers: number } | null;
+  /** Handshake beacons posted to `/__pyric/beacon` so far, the interlock
+   *  watchdog's only input. */
+  beaconCount: () => number;
+  /** The per-launch secret a beacon must present, placed in every child's
+   *  `PYRIC_BEACON_TOKEN`. */
+  beaconToken: string;
 }
 
 /** The `--json` stdout contract — one line, keep stable; agents parse this.
@@ -153,6 +167,12 @@ export async function startServe(opts: {
 }): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
 
+  // Handshake beacons from pyric-launched children, plus the per-launch secret
+  // that authorizes one. Both live here because the route does.
+  let beaconsSeen = 0;
+  const beaconCount = (): number => beaconsSeen;
+  const beaconToken = randomBytes(24).toString('base64url');
+
   // --fresh only means anything against the state.json file `--persist`
   // maintains — without `--persist` there is no file to discard, so
   // `--fresh` alone was a silent no-op (nothing happened, nothing said so).
@@ -213,12 +233,12 @@ export async function startServe(opts: {
 
   // The import map can only remap BARE `firebase/*` specifiers. A plain bundler
   // build (`vite build`) inlines the real SDK into the app chunk, leaving
-  // nothing to intercept — the page would then talk to REAL Firebase endpoints
+  // nothing to intercept: the page would then talk to REAL Firebase endpoints
   // with the sandbox's fake credentials while the injected banner claims
   // otherwise. That hole is structural, so `pyric sandbox` refuses such a dist
   // rather than serving it. A pyric SANDBOX build (`vite build --mode
   // development`) carries the marker and bundles pyric's in-page adapters, so it
-  // is trusted and the scan is skipped (marker present → no real SDK to find).
+  // is trusted and the scan is skipped (marker present, no real SDK to find).
   if (!hasSandboxBuildMarker(publicDir)) {
     const inlined = scanForInlinedFirebase(publicDir);
     if (inlined.length > 0) {
@@ -307,6 +327,11 @@ export async function startServe(opts: {
       studio: opts.ui ? { siteUiDir } : false,
       bridgeUrl: () => mount && origin.port > 0 ? mount.wsUrl(origin) : null,
       activity: (incident) => logger.note(formatActivityWarning(incident)),
+      beaconToken,
+      beacon: (report) => {
+        beaconsSeen += 1;
+        logger.note(formatBeaconReceipt(report));
+      },
       permissive: opts.permissive,
       logger,
     });
@@ -561,7 +586,8 @@ export async function startServe(opts: {
   logger.note('');
   logger.note('  ⚠ the pyric sandbox runs IN the served page — keep the browser tab open.');
   logger.note('    Firestore/auth data and persistence stop when no page is open.');
-  return { handle, publicDir, payload, uiUrl, mcpUrl: mount ? mount.mcpUrl(origin) : null, persist: persistSummary };
+  const mcpUrl = mount ? mount.mcpUrl(origin) : null;
+  return { handle, publicDir, payload, uiUrl, mcpUrl, persist: persistSummary, beaconCount, beaconToken };
 }
 
 /**
@@ -787,6 +813,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
   }
 
   let devChild: SandboxChildHandle | null = null;
+  let beaconWatchdog: BeaconWatchdog | null = null;
   let functionsRuntime: FunctionsDevelopmentRuntime | null = null;
   let resolveFunctionsExit!: (code: number) => void;
   const functionsExited = new Promise<number>((resolve) => { resolveFunctionsExit = resolve; });
@@ -809,6 +836,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     ]);
   const stopAfterSignal = async (): Promise<number> => {
     (json ? process.stderr : process.stdout).write('\nShutting down...\n');
+    beaconWatchdog?.stop();
     if (devChild && devChild.child.exitCode === null) devChild.signal(await signal);
     await functionsRuntime?.close().catch(() => undefined);
     await runtime.handle.stop().catch(() => undefined);
@@ -853,6 +881,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       baseEnv: process.env,
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
+      beaconToken: runtime.beaconToken,
       instance: `${functionsProjectId}-default-rtdb`,
       location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
       projectId: functionsProjectId ?? 'demo-project',
@@ -918,19 +947,37 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     info.write(
       `✔ run      \`${plan.label}\` — firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
     );
-    devChild = spawnSandboxChild(plan, {
-      cwd,
-      json,
-      env: buildChildEnv(process.env, {
-        serveUrl: runtime.handle.url,
-        registerUrl: registerModuleUrl(),
-      }),
+    const childEnv = buildChildEnv(process.env, {
+      serveUrl: runtime.handle.url,
+      registerUrl: registerModuleUrl(),
+      beaconToken: runtime.beaconToken,
+    });
+    // What we are handing the child, stated before it starts: the interlock
+    // line and the unsupported-runtime check.
+    const interlock = reportLaunchChecks({
+      childEnv,
+      registerUrl: registerModuleUrl(),
+      argv: plan.argv,
+      write: (line) => info.write(line),
+    });
+
+    devChild = spawnSandboxChild(plan, { cwd, json, env: childEnv });
+    // A child still alive well after launch that never posted a beacon is very
+    // likely not intercepted. `startBeaconWatchdog` says why this only warns.
+    const beaconsAtSpawn = runtime.beaconCount();
+    beaconWatchdog = startBeaconWatchdog({
+      label: plan.label,
+      beacon: interlock.beacon,
+      sawBeacon: () => runtime.beaconCount() > beaconsAtSpawn,
+      isAlive: () => devChild !== null && devChild.child.exitCode === null,
+      warn: (line) => void process.stderr.write(`${line}\n`),
     });
   } else if (!json) {
     process.stdout.write(
       formatStartupEnvExport({
         serveUrl: runtime.handle.url,
         registerUrl: registerModuleUrl(),
+        beaconToken: runtime.beaconToken,
       }),
     );
   }
@@ -942,6 +989,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       if (settled) return;
       settled = true;
       void (async () => {
+        beaconWatchdog?.stop();
         await functionsRuntime?.close().catch(() => undefined);
         if (devChild && devChild.child.exitCode === null) {
           devChild.signal('SIGTERM');
@@ -978,61 +1026,4 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     }
     void signal.then(shutdown);
   });
-}
-
-/**
- * Detect a bundler build that INLINED the real firebase SDK into its served
- * assets (`vite build` output). The served import map remaps only bare
- * `firebase/*` specifiers, so such a build cannot be sandboxed — its calls
- * reach real Google endpoints. Fingerprints are real-SDK-only endpoint hosts
- * that never appear in a sandbox-clean app (whose calls all route to
- * `/__pyric/*`). Bounded: depth ≤ 4, ≤ 200 script files, first hit per file.
- * Returns publicDir-relative paths of offending assets.
- */
-export function scanForInlinedFirebase(dir: string): string[] {
-  const FINGERPRINTS = [
-    'identitytoolkit.googleapis.com',
-    'firestore.googleapis.com',
-    'securetoken.googleapis.com',
-    'firebasedatabase.app',
-  ];
-  const hits: string[] = [];
-  let scanned = 0;
-  const walk = (d: string, rel: string, depth: number): void => {
-    if (depth > 4 || scanned >= 200) return;
-    let names: string[];
-    try {
-      names = readdirSync(d);
-    } catch {
-      return;
-    }
-    for (const name of names) {
-      if (scanned >= 200) return;
-      const p = join(d, name);
-      const r = rel ? `${rel}/${name}` : name;
-      let st;
-      try {
-        st = statSync(p);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        // The pyric namespace itself never lands in hosting.public, but a
-        // node_modules inside a served dir would be a scan-cost trap.
-        // Dot-directories (.next, .git, .pyric) are internal caches and must be ignored.
-        if (name === 'node_modules' || name.startsWith('.')) continue;
-        walk(p, r, depth + 1);
-      } else if (/\.(js|mjs)$/.test(name)) {
-        scanned++;
-        try {
-          const text = readFileSync(p, 'utf8');
-          if (FINGERPRINTS.some((f) => text.includes(f))) hits.push(r);
-        } catch {
-          // unreadable asset: skip
-        }
-      }
-    }
-  };
-  walk(dir, '', 0);
-  return hits;
 }

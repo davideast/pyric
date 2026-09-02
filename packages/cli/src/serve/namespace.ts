@@ -6,6 +6,8 @@
  *                            the injected init script + shared chunks)
  *   /__pyric/init.json       the page init payload (rules, bridge URL) —
  *                            fetched by the runtime chunk at module init
+ *   /__pyric/beacon          the handshake beacon a pyric-launched child
+ *                            POSTs once its interception is installed
  *
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
@@ -24,6 +26,8 @@ import { handleActivity } from './activity-route.js';
 import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
 import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
 import { createSiteTreeHandler } from './site-tree.js';
+import { BEACON_PATH, type BeaconReport } from '../register/beacon.js';
+import { handleBeacon } from './beacon-route.js';
 export type { InitPayload } from './init-payload.js';
 
 /**
@@ -121,6 +125,15 @@ export interface NamespaceOptions {
    *  (local Ollama). Always mounted — the route only touches the network
    *  when a request arrives. */
   aiProxyUpstream?: string;
+  /** Receives one handshake beacon per pyric-launched child (`POST
+   *  /__pyric/beacon`, sent by `@pyric/cli/register` once its hooks and
+   *  net-guard are installed). Absent means the route still 204s; the child
+   *  must never be able to fail on its own proof-of-life. */
+  beacon?: (report: BeaconReport) => void;
+  /** The per-launch secret a beacon must present in `x-pyric-beacon-token`,
+   *  which the launcher puts in the child's `PYRIC_BEACON_TOKEN`. Absent means
+   *  one is generated that nobody holds, so the route accepts nothing. */
+  beaconToken?: string;
   /** Where hot-reload/diagnostic lines print (rules reload, denial relay,
    *  AI broker diagnostics, ai-proxy upstream failures). Absent ⇒ diagnostics
    *  are dropped (a caller that wires no logger opts out silently rather than
@@ -392,6 +405,9 @@ export function createPyricNamespace(opts: NamespaceOptions) {
   const stateWriterLock = createWriterLock();
   const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();
   const sessionToken = opts.sessionToken ?? randomBytes(24).toString('base64url');
+  // Fail closed: with no launcher-supplied secret the generated one is held by
+  // nobody, so `/__pyric/beacon` accepts nothing rather than everything.
+  const beaconToken = opts.beaconToken ?? randomBytes(24).toString('base64url');
   let studioRoutes: ((req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>) | null = null;
   if (opts.studio) {
     const studioOptions: StudioRouteOptions = {
@@ -450,6 +466,9 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return handleAiProxy(opts.aiProxyUpstream, denialThrottle, req, res, url, opts.logger).then(
         () => true,
       );
+    }
+    if (url.pathname === BEACON_PATH) {
+      return handleBeacon({ token: beaconToken, onBeacon: opts.beacon }, req, res).then(() => true);
     }
     if (url.pathname === '/__pyric/denials') {
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
