@@ -100,7 +100,7 @@ export function createFirestoreRulesTools(
     {
       name: 'firestore_validate_rules',
       description:
-        'Validate a Firestore Security Rules source: parse it and run the structural validator, which reports security findings (open reads or writes, missing auth checks) and semantic findings (undefined functions, wrong arity) with a severity of critical, high, medium, or low. Pure-local — no auth, no network. Complements `firestore_lint_rules`, which checks syntax, budgets, and smells.',
+        'Validate a Firestore Security Rules source: parse it and run the structural validator, which reports security findings (open reads or writes, missing auth checks) and semantic findings (undefined functions, wrong arity) with a severity of critical, high, medium, or low. Pure-local — no auth, no network. Complements the lint op, which checks syntax, budgets, and smells.',
       parameters: {
         type: 'object',
         properties: {

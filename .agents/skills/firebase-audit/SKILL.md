@@ -17,9 +17,11 @@ user asks.
 ## Steps
 
 1. **Collect rules.** Read `firestore.rules` and `database.rules.json` from the
-   project, or read the rules loaded in the connected sandbox with
-   `sandbox.inspect`. Complete when every service in scope has a ruleset in hand
-   (or a finding that none exists — that is itself critical).
+   project — these are the rules the sandbox loaded. For Firestore,
+   `sandbox.inspect` reports the same rules from the connected sandbox; it
+   does not report Realtime Database rules, so read `database.rules.json`
+   directly for those. Complete when every service in scope has a ruleset in
+   hand (or a finding that none exists — that is itself critical).
 
 2. **Collect data shape.** Map real paths with `firestore_discover_paths` and
    `firestore_data.list`; for RTDB use `database_data.crawl`. Complete

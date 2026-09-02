@@ -20,10 +20,11 @@ revoke it. Lock the root, then open the smallest useful paths.
 
 ## Steps
 
-1. **Read current rules.** From `database.rules.json` in the project, or
-   `sandbox.inspect` for the rules loaded in the connected sandbox. Complete when you can state the
-   effective access at every path a client touches (walk each cascade from
-   root).
+1. **Read current rules.** The Realtime Database rules in effect are the
+   `database.rules.json` file the sandbox loaded from the project (the path
+   comes from `firebase.json` or `pyric.json`) — read that file directly.
+   Complete when you can state the effective access at every path a client
+   touches (walk each cascade from root).
 
 2. **Identify paths and identities.** List each path clients read or write
    and the identity that should reach it (anonymous, any signed-in user,
@@ -48,11 +49,11 @@ revoke it. Lock the root, then open the smallest useful paths.
    pass per path.
 
 5. **Deploy.** Write the full `database.rules.json` — a deploy replaces the
-   entire ruleset — and apply it with firebase-tools, a step outside the
+   entire ruleset — and deploy it with the Firebase CLI, a step outside the
    sandbox. For writes that must prove their shape at runtime,
    `database_data.validated_write` applies a write only if the current rules
-   allow it. Complete when the rules the sandbox reports (`sandbox.inspect`)
-   match the file.
+   allow it. Complete when `database.rules.json` matches what you deployed
+   and `database_rules.validate` and `database_rules.lint` pass against it.
 
 ## Reference — pitfalls
 
