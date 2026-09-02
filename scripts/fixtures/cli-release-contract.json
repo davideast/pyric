@@ -60,6 +60,7 @@
     "database_data",
     "database_rules",
     "firestore_rules",
+    "firestore_indexes",
     "rules_stdlib",
     "storage_rules",
     "pyric"
@@ -88,6 +89,7 @@
     "firestore_rules.lint",
     "firestore_rules.simulate",
     "firestore_rules.resolve",
+    "firestore_indexes.generate",
     "rules_stdlib.list",
     "rules_stdlib.get",
     "storage_rules.resolve",

@@ -12,6 +12,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import {
   createFirestoreSimulatorTools,
   createFirestoreRulesTools,
+  createFirestoreIndexesTools,
 } from 'pyric/rules/internal/node';
 import { createFirestoreDataTools, createFirestoreInspectTools } from 'pyric/firestore';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
@@ -36,5 +37,6 @@ export const FORWARDED_FACTORIES = {
  */
 export const IN_PROCESS_FACTORIES = {
   'firestore-rules': () => createFirestoreRulesTools(),
+  'firestore-indexes': () => createFirestoreIndexesTools(),
   conformance: () => createConformanceTools(),
 } satisfies Record<InProcessFactoryKey, () => ToolHandler[]>;

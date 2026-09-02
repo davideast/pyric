@@ -128,6 +128,7 @@ const MCP_FACTORIES = {
     { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools' },
     { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools' },
   ],
+  'firestore-indexes': [{ file: `${PYRIC}/rules/indexes/tools.ts`, factory: 'createFirestoreIndexesTools' }],
   // createConformanceTools registers the shared createCanIUseTool factory,
   // which owns the name literal for both the MCP and Playground surfaces.
   conformance: [{ file: `${TOOLS}/conformance/can-i-use-tool.ts`, factory: 'createCanIUseTool' }],
