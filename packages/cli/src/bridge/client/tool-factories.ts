@@ -19,6 +19,7 @@ import { createStorageDataTools, type StorageDataToolDeps } from 'pyric/storage'
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { getInternalEnv } from 'pyric/sandbox/internal';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
+import { createSandboxSnapshotTools } from '../../sandbox/tools.js';
 import type { ForwardedFactoryKey } from '../tool-records.js';
 
 /** Everything a forwarded factory needs from one sandbox, built once per sandbox. */
@@ -35,4 +36,5 @@ export const SANDBOX_FACTORIES = {
   'firestore-inspect': ({ sandbox }) => createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
   'rtdb-inspection': ({ sandbox }) => createRtdbInspectionTools({ resolveSandbox: () => sandbox }),
   'storage-data': ({ resolveStorage }) => createStorageDataTools({ resolveStorage }),
+  'sandbox-snapshot': ({ sandbox }) => createSandboxSnapshotTools({ resolveSandbox: () => sandbox }),
 } satisfies Record<ForwardedFactoryKey, (binding: SandboxBinding) => ToolHandler[]>;
