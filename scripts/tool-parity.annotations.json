@@ -216,6 +216,38 @@
     "github_create_pull_request": {
       "decision": "deliberate",
       "reason": "session-workspace publish flow, playground-only — external agents use real git/GitHub directly"
+    },
+    "auth_users.create": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.import": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.get": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.list": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.update": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.delete": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.set_claims": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.custom_token": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
     }
   }
 }

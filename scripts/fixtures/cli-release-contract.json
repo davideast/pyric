@@ -62,7 +62,8 @@
     "firestore_rules",
     "rules_stdlib",
     "storage_rules",
-    "pyric"
+    "pyric",
+    "auth_users"
   ],
   "mcpOps": [
     "firestore_simulator.create",
@@ -91,6 +92,14 @@
     "rules_stdlib.list",
     "rules_stdlib.get",
     "storage_rules.resolve",
-    "pyric.can_i_use"
+    "pyric.can_i_use",
+    "auth_users.create",
+    "auth_users.import",
+    "auth_users.get",
+    "auth_users.list",
+    "auth_users.update",
+    "auth_users.delete",
+    "auth_users.set_claims",
+    "auth_users.custom_token"
   ]
 }

@@ -23,10 +23,11 @@ const RATIFIED_TOOLS: Record<string, readonly string[]> = {
   firestore_rules: ['lint', 'simulate', 'resolve'],
   rules_stdlib: ['list', 'get'],
   storage_rules: ['resolve'],
+  auth_users: ['create', 'import', 'get', 'list', 'update', 'delete', 'set_claims', 'custom_token'],
   pyric: ['can_i_use'],
 };
 
-const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data', 'database_rules'];
+const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data', 'database_rules', 'auth_users'];
 
 describe('default MCP tool contract', () => {
   it('ratifies the exact public tools/list surface: nine tools and their 27 ops, in order', () => {

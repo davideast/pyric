@@ -124,6 +124,7 @@ const MCP_FACTORIES = {
   'firestore-data': [{ file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools' }],
   'firestore-inspect': [{ file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools' }],
   'rtdb-inspection': [{ file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools' }],
+  'auth-users': [{ file: `${PYRIC}/auth/tools.ts`, factory: 'createAuthUserTools' }],
   'firestore-rules': [
     { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools' },
     { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools' },

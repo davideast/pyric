@@ -128,6 +128,15 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       // local Realtime Database inspection
       'database_data.crawl',
       'database_rules.simulate',
+      // auth user store
+      'auth_users.create',
+      'auth_users.import',
+      'auth_users.get',
+      'auth_users.list',
+      'auth_users.update',
+      'auth_users.delete',
+      'auth_users.set_claims',
+      'auth_users.custom_token',
     ]);
   });
 });

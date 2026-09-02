@@ -15,6 +15,7 @@ import {
   createFirestoreInspectTools,
   type FirestoreDataToolDeps,
 } from 'pyric/firestore';
+import { createAuthUserTools } from 'pyric/auth';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { getInternalEnv } from 'pyric/sandbox/internal';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
@@ -32,4 +33,5 @@ export const SANDBOX_FACTORIES = {
   'firestore-data': ({ resolveDb }) => createFirestoreDataTools({ resolveDb }),
   'firestore-inspect': ({ sandbox }) => createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
   'rtdb-inspection': ({ sandbox }) => createRtdbInspectionTools({ resolveSandbox: () => sandbox }),
+  'auth-users': ({ sandbox }) => createAuthUserTools({ resolveSandbox: () => sandbox }),
 } satisfies Record<ForwardedFactoryKey, (binding: SandboxBinding) => ToolHandler[]>;
