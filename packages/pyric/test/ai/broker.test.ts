@@ -857,7 +857,7 @@ describe('broker sandbox event emission', () => {
 
 // ── Blocked responses: SAFETY / RECITATION land on the event stream ─────────
 
-/** A raw envelope whose single candidate carries a blocking finish reason —
+/** A raw envelope whose single candidate carries a blocking finish reason:
  *  what production returns when the safety or recitation filter fires: HTTP
  *  200, an empty candidate, and the reason in `finishReason`. */
 function blockedEnvelope(finishReason: string, finishMessage?: string): WireResponse {
@@ -972,7 +972,7 @@ describe('broker blocked-response emission', () => {
 // developer believe they tested model X when model Y answered. The broker
 // announces the swap on the event stream the same way it announces a block.
 
-/** Minimal upstream OpenAI answer — enough for the engine to translate. */
+/** Minimal upstream OpenAI answer, enough for the engine to translate. */
 const substitutionUpstream: OpenAIResponse = {
   id: 'chatcmpl-sub',
   model: 'whatever',
@@ -1039,7 +1039,7 @@ describe('broker model-substitution emission', () => {
     expect(substituted.detail.effectiveModel).toBe('llama3');
   });
 
-  it('stays silent for openai passthrough — the `models/` prefix is not a substitution', async () => {
+  it('stays silent for openai passthrough: the `models/` prefix is not a substitution', async () => {
     const sandbox = initializeSandbox();
     const events = aiEvents(sandbox);
     const broker = new AiBroker({

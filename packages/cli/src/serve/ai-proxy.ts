@@ -10,7 +10,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ServeLogger } from './server.js';
-import { redactProxyUrl, sanitizeForTerminal } from './ai-terminal-text.js';
+import { redactUrl } from 'pyric/ai/internal';
+import { sanitizeForTerminal } from './ai-terminal-text.js';
 
 /** Default upstream: local Ollama's OpenAI-compatible endpoint. */
 export const AI_PROXY_DEFAULT_UPSTREAM = 'http://localhost:11434/v1';
@@ -90,15 +91,15 @@ function formatRetryAfter(raw: string): string | null {
  * through to the caller), so the backoff is the app's decision, not pyric's.
  */
 export function formatAiProxyWarning(failure: AiProxyFailure): string {
-  const target = redactProxyUrl(failure.target);
+  const target = redactUrl(failure.target);
   let headline: string;
   if (failure.kind === 'unreachable') {
-    headline = `upstream unreachable: ${redactProxyUrl(failure.cause)}`;
+    headline = `upstream unreachable: ${redactUrl(failure.cause)}`;
   } else if (failure.kind === 'status') {
     const rateLimited = failure.status === 429;
     headline = `upstream returned ${failure.status}${rateLimited ? ' (rate limited / quota exhausted)' : ''}`;
   } else {
-    headline = `upstream stream aborted mid-response: ${redactProxyUrl(failure.cause)}`;
+    headline = `upstream stream aborted mid-response: ${redactUrl(failure.cause)}`;
   }
   const lines = [
     `  ⚠ [pyric] ai-proxy: ${headline}`,

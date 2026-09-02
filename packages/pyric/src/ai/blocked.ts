@@ -1,5 +1,5 @@
 /**
- * Blocked-response detection — the ONE definition of "this envelope carries
+ * Blocked-response detection: the ONE definition of "this envelope carries
  * no usable content because a filter fired", shared by the two places that
  * need it:
  *
@@ -14,13 +14,13 @@
  *
  * A block is not a rejection: production answers HTTP 200 with an empty
  * candidate and the reason in `finishReason` (SAFETY, RECITATION,
- * BLOCKLIST, PROHIBITED_CONTENT, SPII, the IMAGE_* variants …), or — when
- * the PROMPT itself was refused — with no candidates at all and a
+ * BLOCKLIST, PROHIBITED_CONTENT, SPII, the IMAGE_* variants), or, when the
+ * PROMPT itself was refused, with no candidates at all and a
  * `promptFeedback.blockReason`. Nothing throws on the wire path.
  *
  * Leaf module by construction: it imports only `./enums.js` (which imports
  * nothing) and a type. `broker/` must NOT reach into `response-helpers.ts`
- * for this — that file pulls `./errors.js`, which imports `./broker/index.js`
+ * for this: that file pulls `./errors.js`, which imports `./broker/index.js`
  * as a value, and the round trip would be a real runtime cycle.
  */
 
@@ -28,7 +28,7 @@ import type { WireResponse } from './broker/types.js';
 import { FinishReason } from './enums.js';
 
 /**
- * Finish reasons that mean "no usable content" — the installed
+ * Finish reasons that mean "no usable content": the installed
  * `@firebase/ai@2.12.0` `badFinishReasons` set, verbatim and in upstream's
  * order. Every one of these makes the response helpers throw instead of
  * returning text, which is exactly the set worth announcing to a developer.
@@ -78,22 +78,20 @@ export interface ResponseBlock {
  * candidate 0 at all plus any `promptFeedback` is a block; everything else
  * (including a plain `STOP` or `MAX_TOKENS`) is not.
  *
- * Returns `null` when the response is fine — so a caller reads as
+ * Returns `null` when the response is fine, so a caller reads as
  * `const block = describeResponseBlock(res); if (block !== null) …`.
  */
 export function describeResponseBlock(response: WireResponse): ResponseBlock | null {
   const firstCandidate = response.candidates?.[0];
   if (firstCandidate !== undefined) {
     if (!isBlockingFinishReason(firstCandidate.finishReason)) return null;
-    return {
-      ...(firstCandidate.finishReason !== undefined ? { finishReason: firstCandidate.finishReason } : {}),
-      ...(firstCandidate.finishMessage !== undefined ? { finishMessage: firstCandidate.finishMessage } : {}),
-    };
+    const candidateBlock: ResponseBlock = {};
+    candidateBlock.finishReason = firstCandidate.finishReason;
+    candidateBlock.finishMessage = firstCandidate.finishMessage;
+    return candidateBlock;
   }
   if (response.promptFeedback === undefined) return null;
-  return {
-    ...(response.promptFeedback.blockReason !== undefined
-      ? { blockReason: response.promptFeedback.blockReason }
-      : {}),
-  };
+  const promptBlock: ResponseBlock = {};
+  promptBlock.blockReason = response.promptFeedback.blockReason;
+  return promptBlock;
 }

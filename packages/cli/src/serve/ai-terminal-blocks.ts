@@ -13,7 +13,8 @@
  * through the URL redaction and terminal sanitizing in `ai-terminal-text.ts`.
  */
 import type { AiDiagnosticKind } from './ai-diagnostics-relay.js';
-import { redactProxyUrl, sanitizeForTerminal } from './ai-terminal-text.js';
+import { redactUrl } from 'pyric/ai/internal';
+import { sanitizeForTerminal } from './ai-terminal-text.js';
 
 /** Loosely-typed mirror of the AI rejection payload POSTed by
  *  `ai-diagnostics-relay.ts` (the wire shape lives there). */
@@ -72,7 +73,7 @@ export type AiDiagnosticPayload = AiRejectionPayload & AiBlockedPayload & AiMode
 /** A non-empty string field, sanitized, or `null` when the wire omitted it. */
 function readText(value: unknown): string | null {
   if (typeof value !== 'string' || value === '') return null;
-  return sanitizeForTerminal(redactProxyUrl(value));
+  return sanitizeForTerminal(redactUrl(value));
 }
 
 /** A raw (unsanitized) string field, for throttle keys that never print. */

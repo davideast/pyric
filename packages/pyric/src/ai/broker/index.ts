@@ -7,7 +7,7 @@
 
 export { AiBroker, loadObservationEnvelope, type AiBrokerOptions } from './broker.js';
 export { ScriptedEngine, lastUserText, promptTextOf } from './scripted-engine.js';
-export { GeminiEngine, type GeminiEngineOptions } from './gemini-engine.js';
+export { GeminiEngine, GEMINI_DEFAULT_BASE_URL, type GeminiEngineOptions } from './gemini-engine.js';
 export {
   OpenAiEngine,
   ToolCallBuffer,

@@ -25,8 +25,8 @@
  * indistinguishable from a model that simply had nothing to say.
  *
  * The same goes for a model SUBSTITUTION ({@link emitModelSubstitution}): an
- * engine that redirects the requested model — an openai `modelMap` entry or
- * catch-all `model`, a gemini experimental alias — answers normally, so
+ * engine that redirects the requested model (an openai `modelMap` entry or
+ * catch-all `model`, a gemini experimental alias) answers normally, so
  * nothing anywhere says the developer tested a model they never named.
  *
  * Event emission is best-effort behind one small choke-point ({@link emit}):
@@ -50,6 +50,7 @@ import type {
   CountTokensResponse,
   EngineConfig,
   GenerateContentRequest,
+  ModelResolution,
   RawEnvelope,
   WireChunk,
   WireResponse,
@@ -157,7 +158,7 @@ export class AiBroker {
    * Announce a SAFETY / RECITATION / BLOCKLIST / … block on the event stream.
    *
    * A block is the broker's SILENT refusal: unlike `request_rejected` nothing
-   * throws — production answers 200 with an empty candidate — so an app that
+   * throws (production answers 200 with an empty candidate), so an app that
    * renders whatever `text()` gave it just shows nothing, and the developer
    * gets no signal anywhere. Emitting at RESPONSE time (not from the response
    * helpers, which only fire if someone reaches for content) means the event
@@ -189,8 +190,8 @@ export class AiBroker {
    *
    * Fired at REQUEST time, before delegating: the swap is a property of the
    * call about to go out, so it lands even when that call then fails.
-   * Comparison is bare-vs-bare — `models/x` → `x` is the wire's prefix
-   * convention, not a substitution — and an exact match emits nothing.
+   * Comparison is bare-vs-bare, since `models/x` to `x` is the wire's prefix
+   * convention rather than a substitution, and an exact match emits nothing.
    *
    * `countTokens` is deliberately not announced: the openai engine never
    * sends a model there at all (the count is synthesized locally), so an
@@ -199,7 +200,7 @@ export class AiBroker {
   private emitModelSubstitution(model: string): void {
     const resolve = this.engine.resolveEffectiveModel;
     if (typeof resolve !== 'function') return;
-    let effective: { model: string; reason: string };
+    let effective: ModelResolution;
     try {
       effective = resolve.call(this.engine, model);
     } catch {
@@ -260,7 +261,7 @@ export class AiBroker {
       });
     const emitRejection = (err: unknown) => this.emitRejectionIfBrokerError(model, err);
     // A block surfaces on whichever chunk carries the finish reason (the last
-    // one, per the captured framing), so it is announced DURING iteration —
+    // one, per the captured framing), so it is announced DURING iteration:
     // an abandoned stream still reports why it produced nothing. At most one
     // per stream: the aggregate has a single blocking reason, not one per chunk.
     let announcedBlock = false;

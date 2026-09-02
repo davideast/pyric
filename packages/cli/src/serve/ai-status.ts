@@ -9,13 +9,9 @@
  * Vite plugin can never disagree about what AI resolved to.
  */
 import type { AiEngineConfigWire } from './worker/protocol.js';
+import { GEMINI_DEFAULT_BASE_URL, redactUrl } from 'pyric/ai/internal';
 import { AI_PROXY_ROUTE, resolveAiProxyUpstream } from './ai-proxy.js';
-import { redactProxyUrl, sanitizeForTerminal } from './ai-terminal-text.js';
-
-/** Where the gemini engine talks when no `baseUrl` overrides it (mirrors
- *  `DEFAULT_BASE_URL` in `pyric/ai`'s gemini-engine, the same cross-package
- *  boundary that forces {@link redactProxyUrl} to be replicated). */
-const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
+import { sanitizeForTerminal } from './ai-terminal-text.js';
 
 /**
  * What the dev server itself knows about AI by the time it finishes booting.
@@ -56,7 +52,7 @@ function describeOpenAiModel(model: string | undefined): string {
 function describeAiStatus(status: AiStartupStatus): { mark: string; body: string } {
   const upstream = resolveAiProxyUpstream(status.proxyUpstream);
   const provenance = describeUpstreamProvenance(upstream.source);
-  const proxyChain = `${AI_PROXY_ROUTE} → ${redactProxyUrl(upstream.target)}${provenance}`;
+  const proxyChain = `${AI_PROXY_ROUTE} → ${redactUrl(upstream.target)}${provenance}`;
 
   const engine = status.engine;
   if (engine === undefined) {
@@ -72,7 +68,7 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     const baseUrl = engine.baseUrl ?? AI_PROXY_ROUTE;
     let endpoint = proxyChain;
     if (baseUrl !== AI_PROXY_ROUTE) {
-      endpoint = `${redactProxyUrl(baseUrl)} (direct, bypasses ${AI_PROXY_ROUTE})`;
+      endpoint = `${redactUrl(baseUrl)} (direct, bypasses ${AI_PROXY_ROUTE})`;
     }
     return { mark: '✔', body: `openai (${model}) → ${endpoint}` };
   }
@@ -83,7 +79,7 @@ function describeAiStatus(status: AiStartupStatus): { mark: string; body: string
     let key = 'no API key; set GEMINI_API_KEY';
     if (hasKey) key = 'API key set';
     let endpoint = GEMINI_DEFAULT_BASE_URL;
-    if (engine.baseUrl !== undefined) endpoint = redactProxyUrl(engine.baseUrl);
+    if (engine.baseUrl !== undefined) endpoint = redactUrl(engine.baseUrl);
     return { mark: '✔', body: `gemini (${passthrough}${key}) → ${endpoint}` };
   }
   const responses = engine.script?.length ?? 0;

@@ -6,6 +6,11 @@ import { TARGET_SYMBOL } from './target.js';
 import type { AI, AIOptions, TransportTarget } from './types.js';
 
 export { aiErrorFromEnvelope } from './errors.js';
+/** Host-only seam for the dev server's terminal diagnostics: the credential
+ *  masking every printed upstream URL goes through, and the gemini endpoint
+ *  the startup banner names when no `baseUrl` overrides it. Published here so
+ *  `@pyric/cli` reads one definition instead of copying both. */
+export { GEMINI_DEFAULT_BASE_URL, redactUrl } from './broker/index.js';
 
 const transportHandles = new WeakMap<FirebaseApp, Map<string, AI>>();
 
