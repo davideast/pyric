@@ -113,7 +113,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "prebuild": "bun run scripts/generate-service-command-registry.ts && bun run scripts/generate-tool-registry.ts && (test \"${PYRIC_CONFORMANCE_READY:-0}\" = \"1\" || bun run ../../packages/conformance/src/generate-projections.ts --write)",
+    "prebuild": "bun run scripts/generate-service-command-registry.ts && bun run scripts/generate-tool-registry.ts && (test \"${PYRIC_CONFORMANCE_READY:-0}\" = \"1\" || bun run ../../packages/conformance/src/generate-projections.ts --write) && bun run scripts/generate-tool-reference.ts",
     "build": "tsc && bun run scripts/postbuild.ts",
     "pretest": "bash ../../scripts/build.sh --packages-only",
     "test": "bun test",

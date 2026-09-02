@@ -6,7 +6,13 @@ export default {
     'Firestore Security Rules source tooling that runs in the MCP process without a sandbox: lint, simulate against test cases, resolve `2+modules` imports, validate structure, and test on the Rules Test API when project credentials are configured.',
   ops: {
     lint: { transport: 'in-process', factory: 'firestore-rules', handler: 'firestore_lint_rules' },
-    simulate: { transport: 'in-process', factory: 'firestore-rules', handler: 'firestore_simulate_rules' },
+    simulate: {
+      transport: 'in-process',
+      factory: 'firestore-rules',
+      handler: 'firestore_simulate_rules',
+      description:
+        'Simulate Firestore security rules locally against a list of test cases. Same shape as this tool\'s `test` operation but in-process — no propagation wait, no side effects. Supports get()/exists() via functionMocks.',
+    },
     resolve: {
       transport: 'in-process',
       factory: 'firestore-rules',
