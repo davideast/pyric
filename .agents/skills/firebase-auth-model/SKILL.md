@@ -46,8 +46,9 @@ profile data, and rule behavior — not just SDK call names.
 7. **Verify auth-dependent rules.** Exercise signed-out, owner, other-user,
    member, claim-holder, invalid-claim, missing-profile, and disabled cases
    with `firestore_rules.simulate` (set the auth context per case) and a
-   `firestore_rules.test` suite — `pyric.verify_cases` generates
-   the case list; use `database_rules.simulate` for RTDB paths. Complete when
+   `firestore_rules.test` suite on the Rules Test API (needs project
+   credentials); `pyric.verify_cases` derives the case list from a captured
+   session fixture. Use `database_rules.simulate` for RTDB paths. Complete when
    the answer names verified behavior and remaining unverified assumptions.
 
 ## Reference — auth design rules

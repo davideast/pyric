@@ -43,9 +43,11 @@ user asks.
 
 5. **Verify the sharp findings.** Prove each critical/high finding with
    `firestore_rules.lint`, `firestore_rules.simulate` (vary the auth context:
-   signed-out, owner, other user, claim-holder), `firestore_rules.test`, or
-   `database_rules.simulate`. Complete when every critical/high finding cites a
-   simulation, test, or lint result — not just a reading of the rules.
+   signed-out, owner, other user, claim-holder), `firestore_rules.test` (Rules
+   Test API, needs project credentials), `pyric.verify` (replay a captured
+   session against the candidate rules), or `database_rules.simulate`.
+   Complete when every critical/high finding cites a simulation, test, or lint
+   result, not just a reading of the rules.
 
 6. **Report by severity.**
 
