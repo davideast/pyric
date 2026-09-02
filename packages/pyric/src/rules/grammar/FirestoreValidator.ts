@@ -2,6 +2,7 @@ import type {
   FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation,
 } from './FirestoreAST.js';
 import { RULES_BUILTIN_FUNCTIONS } from './builtin-functions.js';
+import { countDocumentAccessCalls } from './document-access-count.js';
 
 export interface ValidationFinding {
   code: string;
@@ -26,8 +27,9 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   // SEC-4: Check for default deny
   checkDefaultDeny(rootMatch, findings);
 
-  // QUA-3: Duplicate function names
-  checkDuplicateFunctions(rootMatch, findings);
+  // QUA-3: Duplicate function names in one scope (production compile
+  // rejection, so critical). Nested shadowing is legal and is not flagged.
+  checkDuplicateFunctions(ast, findings);
 
   // QUA-4: Unused functions
   checkUnusedFunctions(rootMatch, allCalls, findings);
@@ -124,12 +126,15 @@ function walkMatch(
       });
     }
 
-    // SEM-3: get()/exists() budget exceeded
-    const docReads = countDocReads(cond, new Map(localScope.map(f => [f.name, f])));
+    // SEM-3: document access budget exceeded. Production allows exactly 10
+    // get/exists/getAfter/existsAfter reads per request evaluation; the
+    // 11th fails, so the finding fires only ABOVE 10 (same boundary as the
+    // linter's GET_COUNT error and the simulator's runtime LookupBudget).
+    const docReads = countDocumentAccessCalls(cond, fnMap);
     if (docReads > 10) {
       findings.push({
         code: 'SEM-3', severity: 'high', path: pathStr, operation: opStr,
-        message: `Rule at ${pathStr} has ${docReads} document reads (get/exists) — exceeds the 10-call budget`,
+        message: `Rule at ${pathStr} may perform ${docReads} document access calls (get/exists/getAfter/existsAfter), which exceeds the 10-call budget`,
       });
     }
 
@@ -323,21 +328,6 @@ function referencesResourceData(expr: Expression): boolean {
   );
 }
 
-function countDocReads(expr: Expression, functions: Map<string, FunctionDef>, visited = new Set<string>()): number {
-  let count = 0;
-  walkExpr(expr, e => {
-    if (e.type === 'functionCall' && (e.name === 'get' || e.name === 'exists' || e.name === 'getAfter')) {
-      count++;
-    }
-    // Follow user-defined function calls
-    if (e.type === 'functionCall' && functions.has(e.name) && !visited.has(e.name)) {
-      visited.add(e.name);
-      count += countDocReads(functions.get(e.name)!.body, functions, visited);
-    }
-  });
-  return count;
-}
-
 function collectFunctionCalls(expr: Expression): string[] {
   const calls: string[] = [];
   walkExpr(expr, e => {
@@ -357,22 +347,48 @@ function collectAllFunctions(match: MatchBlock): Set<string> {
 }
 
 // ---- QUA-3: Duplicate functions ----
+//
+// Production REJECTS two declarations of one function name in the SAME
+// scope at compile time, so this is severity 'critical': the write gate
+// (`write/handler.ts`) blocks only critical validator findings, and
+// 'medium' folded to a mere warning that deployed anyway.
+//
+// A scope is one declaration list: the global list above `service`, the
+// list directly inside `service`, or one match block's own list. A nested
+// match block that redeclares a name from an enclosing scope SHADOWS it and
+// is legal: the simulator implements shadowing in
+// `simulator/match-resolution.ts`, and the production capture in
+// `conformance/rules-corpus/storage/function-scopes-and-shadowing.ts` pins
+// inner-shadows-outer as accepted. Flagging that would block a ruleset
+// production deploys.
+//
+// The code stays QUA-3 (already registered and asserted by consumers);
+// `DUPLICATE_FUNCTION` was considered and rejected, because the module
+// resolver already uses that name for its own error code
+// (`modules/resolver-core.ts`), and colliding would make mixed issue
+// lists ambiguous.
 
-function checkDuplicateFunctions(match: MatchBlock, findings: ValidationFinding[]) {
-  checkDupsInScope(match.functions, match.path.raw, findings);
-  for (const child of match.children) checkDuplicateFunctions(child, findings);
+function checkDuplicateFunctions(ast: FirestoreRules, findings: ValidationFinding[]) {
+  checkDupsInScope(ast.functions ?? [], 'global scope', findings);
+  checkDupsInScope(ast.service.functions ?? [], `service ${ast.service.name}`, findings);
+  checkDupsInMatchScopes(ast.service.match, findings);
 }
 
-function checkDupsInScope(fns: FunctionDef[], path: string, findings: ValidationFinding[]) {
-  const seen = new Set<string>();
+function checkDupsInMatchScopes(match: MatchBlock, findings: ValidationFinding[]) {
+  checkDupsInScope(match.functions, match.path.raw, findings);
+  for (const child of match.children) checkDupsInMatchScopes(child, findings);
+}
+
+function checkDupsInScope(fns: readonly FunctionDef[], scope: string, findings: ValidationFinding[]) {
+  const declared = new Set<string>();
   for (const fn of fns) {
-    if (seen.has(fn.name)) {
+    if (declared.has(fn.name)) {
       findings.push({
-        code: 'QUA-3', severity: 'medium', path,
-        message: `Duplicate function '${fn.name}' in scope at ${path}`,
+        code: 'QUA-3', severity: 'critical', path: scope,
+        message: `Duplicate function '${fn.name}' declared twice in ${scope}. Production rejects duplicate function declarations in one scope at compile time`,
       });
     }
-    seen.add(fn.name);
+    declared.add(fn.name);
   }
 }
 

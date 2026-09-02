@@ -24,6 +24,8 @@ import { evaluate, UnsupportedError, TraceRecorder, type SimulationContext } fro
 
 import { Timestamp } from './wrappers/timestamp.js';
 import { Path } from './wrappers/path.js';
+import { LookupBudget } from './lookup-budget.js';
+import { ResourceLimitError } from './eval-error.js';
 import { projectAfterState } from './project-after-state.js';
 import {
   requestQuery,
@@ -76,11 +78,26 @@ function methodToOperations(method: string): string[] {
 // ═══ Rule evaluation ═══
 
 /**
+ * One match block's contribution to the request verdict. `resourceLimit`
+ * carries a per-request resource limit (the document access budget) that
+ * the block ran into: it is not this block's private failure, so the caller
+ * stops evaluating siblings and denies the whole request.
+ */
+interface RuleBlockOutcome {
+  decision: Decision;
+  trace: RuleEvaluation[];
+  notes: string[];
+  resourceLimit?: string;
+}
+
+/**
  * Evaluate all allow rules in a match block for a given operation.
  * Uses OR semantics — if any matching rule allows, access is granted.
  *
  * Decision logic:
  *   - any rule ALLOW → ALLOW (short-circuit)
+ *   - else if any rule hit a per-request resource limit → DENY, and the
+ *     caller stops: the limit ends the request, not just this block
  *   - else if any rule threw UnsupportedError → UNSUPPORTED (sim abstains)
  *   - else → DENY
  *
@@ -93,7 +110,7 @@ function evaluateRules(
   operation: string,
   ctx: SimulationContext,
   source?: string,
-): { decision: Decision; trace: RuleEvaluation[]; notes: string[] } {
+): RuleBlockOutcome {
   const ops = methodToOperations(operation);
   const trace: RuleEvaluation[] = [];
   const notes: string[] = [];
@@ -140,6 +157,27 @@ function evaluateRules(
       trace.push(entry);
     } catch (e) {
       entry.expressionTrace = recorder.entries;
+      // A per-request resource limit (the document access budget) is not a
+      // failure of THIS rule: production stops the whole request there, so
+      // no sibling allow rule and no other match block gets a chance to
+      // grant. Abandon the loop and report the limit up to the caller.
+      const isResourceLimit = e instanceof ResourceLimitError;
+      if (isResourceLimit) {
+        entry.verdict = 'ERROR';
+        entry.message = (e as ResourceLimitError).message;
+        trace.push(entry);
+        ctx.trace = priorRecorder;
+        notes.push(
+          `Request denied by a rules resource limit: ${(e as ResourceLimitError).message}. `
+          + 'The limit is per request, so no other allow rule or match block was evaluated.',
+        );
+        return {
+          decision: 'DENY',
+          trace,
+          notes,
+          resourceLimit: (e as ResourceLimitError).message,
+        };
+      }
       const isUnsupported = e instanceof UnsupportedError;
       if (isUnsupported) {
         sawUnsupported = true;
@@ -220,6 +258,7 @@ function buildContext(
   pathVariables: Record<string, string>,
   getDoc?: (path: string) => Record<string, unknown> | null,
   batchProjection?: Map<string, Record<string, unknown> | null>,
+  lookupBudget?: LookupBudget,
 ): SimulationContext {
   const fnMap = new Map<string, FunctionDef>();
   for (const fn of functions) fnMap.set(fn.name, fn);
@@ -366,6 +405,12 @@ function buildContext(
     // getafter-batch fix — shared batch/transaction projection, when the
     // caller supplied one. Absent for single-op evaluation.
     ...(batchProjection ? { batchProjection } : {}),
+    // Per-request document access budget (10 distinct lookups). The SAME
+    // instance is threaded into every match block's context for one test
+    // case, because production's budget spans overlapping match blocks and
+    // OR'd allow rules within one request evaluation. An absent budget and
+    // an `undefined` one mean the same thing here: no budget is enforced.
+    lookupBudget,
   };
 }
 
@@ -538,9 +583,18 @@ export class SimulateFirestoreRulesHandler {
       const notes: string[] = [];
       let sawUnsupported = false;
       let grantingBlockPath: string | undefined;
+      let hitResourceLimit = false;
+      // One lookup budget per test case (one request evaluation), shared
+      // across every matching block below and reset here between requests.
+      // Production's single-request budget is 10 distinct document
+      // accesses; transactions and batched writes additionally get a
+      // 20-access aggregate that is NOT modeled, because each per-op
+      // simulate() call in a batch (see WriteRuntime.buildBatchProjection)
+      // gets its own fresh per-op budget of 10.
+      const lookupBudget = new LookupBudget();
       for (const match of matches) {
         const pathVars = { ...rootBindings, ...match.pathVariables };
-        const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection);
+        const ctx = buildContext(tc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget);
 
         const blockPath = renderMatchBlockPath(match.block);
         const res = evaluateRules(match.block, tc.method, ctx, source);
@@ -550,6 +604,14 @@ export class SimulateFirestoreRulesHandler {
         trace.push(...res.trace);
         notes.push(...res.notes);
 
+        // A per-request resource limit ends the request: production stops
+        // the whole evaluation, so a later match block cannot grant.
+        const isResourceLimit = res.resourceLimit !== undefined;
+        if (isResourceLimit) {
+          decision = 'DENY';
+          hitResourceLimit = true;
+          break;
+        }
         const isResAllow = res.decision === 'ALLOW';
         if (isResAllow) {
           decision = 'ALLOW';
@@ -561,8 +623,10 @@ export class SimulateFirestoreRulesHandler {
           sawUnsupported = true;
         }
       }
-      const isNotAllow = decision !== 'ALLOW';
-      if (isNotAllow) {
+      // A resource limit is a definite production DENY, so it outranks an
+      // UNSUPPORTED abstention recorded by an earlier block.
+      const isEscalatable = decision !== 'ALLOW' && !hitResourceLimit;
+      if (isEscalatable) {
         if (sawUnsupported) {
           decision = 'UNSUPPORTED';
         }

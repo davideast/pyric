@@ -1434,3 +1434,63 @@ service cloud.firestore {
     });
   });
 });
+
+// ─── debug() fails evaluation as function-not-found ──────────────────
+//
+// Production rejects a ruleset that calls debug() at compile time
+// ("Function not found error: Name: [debug]"). The simulator cannot
+// reject at compile time, because it evaluates per case, so the parity
+// point is evaluation: debug() must fail as an unknown function, the
+// exact message the conformance rejection-signature normalizer maps to
+// `function-not-found:debug`, and must never pass its argument through.
+
+describe('debug() is not a builtin (production parity)', () => {
+  const DEBUG_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{id} {
+      allow read: if debug(request.auth != null);
+    }
+  }
+}`;
+
+  test('evaluating debug() errors as Unknown function and denies', () => {
+    const r = handler.simulate(DEBUG_RULES, [{
+      description: 'debug passthrough must not allow',
+      expectation: 'DENY',
+      method: 'get',
+      path: 'docs/a',
+      auth: { uid: 'u' },
+    }]);
+    expect(r.success).toBe(true);
+    if (!r.success) return;
+    expect(r.data.results[0].decision).toBe('DENY');
+    const errors = r.data.results[0].trace.filter(t => t.verdict === 'ERROR');
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0].message).toContain('Unknown function: debug');
+  });
+
+  test('a user-defined function named debug still resolves', () => {
+    // The grammar reserves nothing at parse time; if the author defines
+    // their own debug(), the evaluator uses it like any user function.
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function debug(v) { return v; }
+    match /docs/{id} {
+      allow read: if debug(request.auth != null);
+    }
+  }
+}`;
+    const r = handler.simulate(rules, [{
+      description: 'user debug fn',
+      expectation: 'ALLOW',
+      method: 'get',
+      path: 'docs/a',
+      auth: { uid: 'u' },
+    }]);
+    expect(r.success).toBe(true);
+    if (!r.success) return;
+    expect(r.data.results[0].decision).toBe('ALLOW');
+  });
+});

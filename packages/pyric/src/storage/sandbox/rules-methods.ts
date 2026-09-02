@@ -1,7 +1,11 @@
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import type { Expr } from './rules.js';
 import { evalExpr, type EvalCtx } from './rules-evaluator.js';
-import { RuleEvalError } from './rules-evaluation-error.js';
+import {
+  RuleEvalError,
+  RuleResourceLimitError,
+  RuleUnsupportedError,
+} from './rules-evaluation-error.js';
 import {
   RuleError,
   describeRulesType as describeType,
@@ -86,7 +90,10 @@ export function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx:
     return evalMapGet(expr, ctx);
   }
 
-  throw new RuleEvalError(`unsupported method .${expr.method}()`);
+  // An unknown method name is either unmodeled here or rejected by
+  // production's compiler. Its verdict is unknowable locally, so it is
+  // unabsorbable (fails closed even under a determining &&/|| operand).
+  throw new RuleUnsupportedError(`unsupported method .${expr.method}()`);
 }
 
 /**
@@ -111,7 +118,8 @@ function evalFirestoreBuiltin(
   ctx: EvalCtx,
 ): unknown {
   if (expr.method !== 'get' && expr.method !== 'exists') {
-    throw new RuleEvalError(`unsupported method firestore.${expr.method}()`);
+    // Unknown namespace method, compile-reject class, never absorbed.
+    throw new RuleUnsupportedError(`unsupported method firestore.${expr.method}()`);
   }
   if (!ctx.firestoreLookup) {
     // No sandbox-backed capability injected — keep the deny-with-reason
@@ -121,16 +129,20 @@ function evalFirestoreBuiltin(
     );
   }
   if (expr.args.length !== 1) {
-    throw new RuleEvalError(`firestore.${expr.method}() expects a single path argument`);
+    // Wrong call shape: production rejects at compile; never absorbed.
+    throw new RuleUnsupportedError(`firestore.${expr.method}() expects a single path argument`);
   }
   const arg = expr.args[0];
   if (arg.kind !== 'path') {
-    throw new RuleEvalError(`firestore.${expr.method}() requires a /databases/.../documents/... path literal`);
+    throw new RuleUnsupportedError(`firestore.${expr.method}() requires a /databases/.../documents/... path literal`);
   }
   const docPath = buildFirestoreDocPath(arg, ctx);
   if (!ctx.firestoreAccesses.has(docPath)) {
     if (ctx.firestoreAccesses.size >= 2) {
-      throw new RuleEvalError('firestore access limit exceeded: at most two distinct documents');
+      // Resource-limit class, the same posture as the Firestore lookup
+      // budget: production fails the whole evaluation closed, so a
+      // determining &&/|| operand must NOT absorb this into an allow.
+      throw new RuleResourceLimitError('firestore access limit exceeded: at most two distinct documents');
     }
     ctx.firestoreAccesses.add(docPath);
   }
@@ -140,7 +152,9 @@ function evalFirestoreBuiltin(
   const fields = ctx.firestoreLookup.get(docPath);
   if (fields === null) {
     // A missing get is a Rules error VALUE: it denies at the allow boundary,
-    // but participates in CEL error absorption (`error || true` allows).
+    // but participates in COMMUTATIVE CEL error absorption in `&&`/`||`
+    // (`error || true` allows, and `error && false` evaluates to false,
+    // see the tri-state operand handling in rules-evaluator.ts).
     return new RuleError(`firestore.get() targeted a nonexistent document: ${docPath}`);
   }
   return { data: fields };

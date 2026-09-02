@@ -12,7 +12,12 @@ import {
 } from './rules.js';
 import { evalMethodCall } from './rules-methods.js';
 import { formatPath, matchSegments, splitPath } from './rules-path-match.js';
-import { RuleEvalError } from './rules-evaluation-error.js';
+import {
+  RuleEvalError,
+  RuleResourceLimitError,
+  RuleUnsupportedError,
+  isAbsorbableEvalError,
+} from './rules-evaluation-error.js';
 import {
   RuleError,
   describeRulesType as describeType,
@@ -92,6 +97,10 @@ export function evaluateStorageRules(
             );
             continue;
           }
+          // Unverified: production's behavior for a non-boolean allow
+          // condition (a CEL type error there, rather than this truthiness
+          // coercion) has not been captured. The coercion stays as written
+          // until a production capture settles it.
           result = truthy(value);
         } catch (err) {
           // Any function-evaluation failure (undefined function, wrong
@@ -186,12 +195,17 @@ export interface EvalCtx {
 /**
  * Walk an `Expr` against the bindings + path params. Missing bindings or
  * members and invalid operations produce `RuleError` values. They propagate
- * unless evaluation short-circuits around them or an explicitly modeled
- * boolean case absorbs them (for example, `<error> || true`). Any `RuleError`
- * that reaches an allow boundary denies with its production-shaped reason.
+ * unless a `&&`/`||` operand that uniquely determines the result absorbs
+ * them COMMUTATIVELY, CEL-style (`<error> || true` → true, and
+ * `<error> && false` → false, see the binary case). Any `RuleError` that
+ * reaches an allow boundary denies with its production-shaped reason.
  *
- * User-defined function failures throw `RuleEvalError`; the allow boundary
- * likewise catches them and denies instead of falling through to a
+ * Function-evaluation failures throw `RuleEvalError`; at a `&&`/`||`
+ * operand boundary the ABSORBABLE ones are converted to error values so
+ * they participate in the same absorption, while unsupported/compile-reject
+ * (`RuleUnsupportedError`) and resource-limit (`RuleResourceLimitError`)
+ * failures re-throw and fail the evaluation closed. The allow boundary
+ * catches whatever still throws and denies instead of falling through to a
  * potentially truthy value.
  */
 export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
@@ -236,8 +250,9 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
     case 'path':
       // A path literal is only meaningful as a `firestore.get()/exists()`
       // argument (handled directly there). Reaching it anywhere else means
-      // the rule used it out of position — deny rather than coerce.
-      throw new RuleEvalError('a Firestore path literal is only valid as an argument to firestore.get()/exists()');
+      // the rule used it out of position, a compile-reject-class failure
+      // (never absorbed): deny rather than coerce.
+      throw new RuleUnsupportedError('a Firestore path literal is only valid as an argument to firestore.get()/exists()');
     case 'unary': {
       const a = evalExpr(expr.arg, ctx);
       if (expr.op === '!') {
@@ -262,6 +277,10 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // An error condition denies the whole conditional; it must not fall
       // through to the alternate branch and potentially allow.
       if (isErr(c)) return c;
+      // Unverified: production's behavior for a non-boolean ternary
+      // condition (a CEL type error there, rather than this truthiness
+      // coercion) has not been captured. The coercion stays as written
+      // until a production capture settles it.
       return truthy(c) ? evalExpr(expr.then, ctx) : evalExpr(expr.else, ctx);
     }
     case 'in': {
@@ -325,23 +344,12 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       return new RuleError(`Slice applied to ${describeType(t)} (expected a list or string).`);
     }
     case 'binary': {
-      // Short-circuit && / || so half-undefined chains don't trip
-      // (e.g. `request.auth != null && request.auth.uid == 'a'`).
-      if (expr.op === '&&') {
-        const l = evalExpr(expr.left, ctx);
-        if (isErr(l)) return l;
-        return truthy(l) ? evalExpr(expr.right, ctx) : l;
-      }
-      if (expr.op === '||') {
-        const l = evalExpr(expr.left, ctx);
-        if (isErr(l)) {
-          // Production: `<error> || true` ALLOWS — a true disjunct rescues the
-          // error; `<error> || false` stays an error.
-          const r = evalExpr(expr.right, ctx);
-          return truthy(r) ? r : l;
-        }
-        return truthy(l) ? l : evalExpr(expr.right, ctx);
-      }
+      // RULES-B3: && and || are COMMUTATIVE error-absorbing operators in
+      // CEL, not JS left-to-right short-circuit. The two operators differ
+      // only in which operand value uniquely determines the result: false
+      // for &&, true for ||. Both are evaluated by the one helper below.
+      if (expr.op === '&&') return evalAbsorbingOperator(expr.left, expr.right, false, ctx);
+      if (expr.op === '||') return evalAbsorbingOperator(expr.left, expr.right, true, ctx);
       const l = evalExpr(expr.left, ctx);
       if (isErr(l)) return l;
       const r = evalExpr(expr.right, ctx);
@@ -380,6 +388,64 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
 }
 
 /**
+ * Evaluate one commutative error-absorbing operator, `&&` or `||`. The two
+ * differ only in `determining`, the operand value that fixes the result on
+ * its own: `false` for `&&`, `true` for `||`.
+ *
+ * If either operand evaluates to `determining`, that is the result and an
+ * error in the other operand is absorbed, whichever side it sits on. So
+ * `error && false` evaluates to false and `error || true` to true, while
+ * `error && true` and `error || false` propagate the error and deny.
+ * Laziness is preserved in the no-error path: a determining left operand
+ * skips the right one entirely.
+ */
+function evalAbsorbingOperator(
+  left: Expr,
+  right: Expr,
+  determining: boolean,
+  ctx: EvalCtx,
+): boolean | RuleError {
+  const l = evalLogicalOperand(left, ctx);
+  if (l === determining) return determining; // left determines; right unevaluated
+  const r = evalLogicalOperand(right, ctx);
+  if (r === determining) return determining; // right determines and absorbs any left error
+  if (isErr(l)) return l;                    // left errored and nothing determined
+  return r;                                  // left was non-determining; right decides
+}
+
+/**
+ * Evaluate one `&&`/`||` operand tri-state: `true`, `false`, or a
+ * {@link RuleError} value the operator may absorb commutatively.
+ *
+ *   - A thrown ABSORBABLE {@link RuleEvalError} (for example
+ *     `firestore.get()` without an injected capability, or `!` on an error)
+ *     is converted to an error VALUE here so a determining sibling operand
+ *     can absorb it: production evaluates these positions to a
+ *     position-local error.
+ *   - {@link RuleUnsupportedError} (compile-reject or unmodelable) and
+ *     {@link RuleResourceLimitError} (lookup cap, call depth) re-throw:
+ *     production fails those closed for the WHOLE evaluation, so no
+ *     determining operand may rescue them (the lookup-budget precedent).
+ *   - A non-boolean, non-error operand is a CEL TYPE error (RULES-B6,
+ *     captured by rules-firestore-strict-boolean-control-flow): it becomes
+ *     an absorbable error value, never a truthy/falsy coercion.
+ */
+function evalLogicalOperand(expr: Expr, ctx: EvalCtx): boolean | RuleError {
+  let v: unknown;
+  try {
+    v = evalExpr(expr, ctx);
+  } catch (err) {
+    if (isAbsorbableEvalError(err)) return new RuleError(err.message);
+    throw err;
+  }
+  if (isErr(v)) return v;
+  if (typeof v !== 'boolean') {
+    return new RuleError(`Expected a boolean '&&'/'||' operand, got ${describeType(v)}.`);
+  }
+  return v;
+}
+
+/**
  * Evaluate a user-defined function call. Arguments are evaluated in the
  * CALLER's context, then bound to the function's parameters; the body
  * (with any `let` bindings) is evaluated in the function's own lexical
@@ -389,22 +455,26 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
  */
 function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown {
   const fn = ctx.funcs.get(expr.name);
+  // Undefined functions, unresolved imports, and arity mismatches are
+  // COMPILE-reject failures in production (the ruleset never deploys), so
+  // they are RuleUnsupportedError: unabsorbable by &&/||, always deny.
   if (!fn) {
-    throw new RuleEvalError(`undefined function ${expr.name}()`);
+    throw new RuleUnsupportedError(`undefined function ${expr.name}()`);
   }
   if (fn.unresolvedImport !== undefined) {
-    throw new RuleEvalError(
+    throw new RuleUnsupportedError(
       `function ${expr.name}() is imported from '${fn.unresolvedImport}', but import module resolution is not implemented`,
     );
   }
   if (fn.params.length !== expr.args.length) {
-    throw new RuleEvalError(
+    throw new RuleUnsupportedError(
       `function ${expr.name}() expects ${fn.params.length} argument(s), got ${expr.args.length}`,
     );
   }
   const depth = ctx.depth + 1;
   if (depth > MAX_CALL_DEPTH) {
-    throw new RuleEvalError(
+    // Resource-limit class: fails the evaluation closed, never absorbed.
+    throw new RuleResourceLimitError(
       `function ${expr.name}() exceeded max call depth ${MAX_CALL_DEPTH}`,
     );
   }

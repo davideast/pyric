@@ -468,6 +468,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "common-auth-membership",
+        "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",
@@ -686,7 +687,8 @@
         "firestore-lookup-budget"
       ],
       "verifiedByRows": [
-        "storage-rules#131"
+        "storage-rules#131",
+        "storage-rules#134"
       ],
       "divergedByRows": [
         "storage-rules#129"
@@ -708,7 +710,8 @@
         "firestore-lookup-budget"
       ],
       "verifiedByRows": [
-        "storage-rules#131"
+        "storage-rules#131",
+        "storage-rules#134"
       ],
       "divergedByRows": [
         "storage-rules#129"
@@ -838,6 +841,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "common-auth-membership",
+        "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",
@@ -1028,6 +1032,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "metadata-verbs-and-arithmetic"
       ],
@@ -1050,6 +1055,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "common-auth-membership",
+        "error-absorption-and-direction",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
@@ -1062,7 +1068,8 @@
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [
-        "storage-rules#131"
+        "storage-rules#131",
+        "storage-rules#133"
       ],
       "divergedByRows": []
     },
@@ -1078,13 +1085,15 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "error-absorption-and-direction",
         "firestore-lookup-budget",
         "metadata-verbs-and-arithmetic",
         "ternary-and-error-absorption"
       ],
       "verifiedByRows": [
         "storage-rules#119",
-        "storage-rules#131"
+        "storage-rules#131",
+        "storage-rules#133"
       ],
       "divergedByRows": []
     },
@@ -1100,6 +1109,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "functions-let-scope",
         "in-membership-and-proto-keys",
@@ -1277,6 +1287,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "list-map-literals-and-slice",
@@ -1449,6 +1460,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "common-auth-membership",
+        "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",
@@ -1524,6 +1536,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "common-auth-membership",
+        "error-absorption-and-direction",
         "firestore-lookup",
         "firestore-lookup-budget",
         "float-modulo-unary-minus",
@@ -1557,6 +1570,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
         "list-map-literals-and-slice",

@@ -93,6 +93,20 @@ export interface FirebaseStorage {
 export type AppFirebaseStorage = FirebaseStorage & { readonly app: FirebaseApp };
 
 /**
+ * Cross-service IAM posture for `firestore.get()/exists()` in Storage rules.
+ *
+ * Production Storage rules can read Firestore ONLY when the project's
+ * Storage service agent holds `roles/firebaserules.firestoreServiceAgent`.
+ * `'granted'` (the default, the common configured-project state) serves
+ * lookups from the same-sandbox Firestore store; `'denied'` makes every
+ * EXECUTED lookup fail exactly like production without the role (error →
+ * rule denies), while short-circuited lookups are never executed and stay
+ * unaffected. Captured boundary: conformance observation
+ * `stdlib-realstorage-p3-lookup-budget` (registry row storage-rules#134).
+ */
+export type CrossServiceIam = 'granted' | 'denied';
+
+/**
  * Internal sandbox service — owns the IDB connection + parsed rules.
  * Only constructed inside the sandbox `getStorageSandbox` path.
  */
@@ -100,6 +114,7 @@ export class StorageService {
   constructor(
     readonly backend: StorageBackend,
     readonly rules: StorageRules | null = null,
+    readonly crossServiceIam: CrossServiceIam = 'granted',
   ) {}
 }
 
@@ -134,12 +149,36 @@ export interface StorageOptions {
    * `Sandbox`.
    */
   rules?: string;
+  /**
+   * Model the production Storage→Firestore IAM dependency (see
+   * {@link CrossServiceIam}). Defaults to `'granted'`. Like `rules`,
+   * only honored on the FIRST storage call per `Sandbox`; a LATER,
+   * DIFFERING value throws instead of silently flipping the mode.
+   */
+  crossServiceIam?: CrossServiceIam;
 }
 
 // ─── Caches ─────────────────────────────────────────────────────────
 
-/** One `StorageService` per `Sandbox`. */
-const SERVICES = new WeakMap<Sandbox, Promise<StorageService>>();
+/**
+ * Everything one `Sandbox` opened its storage service WITH, in one record.
+ * These four facts are written together on the first storage call and read
+ * together afterwards, so they live in one map rather than four parallel
+ * ones that can drift out of step.
+ */
+interface OpenStorageService {
+  /** The service itself, resolving once its IndexedDB backend is open. */
+  readonly service: Promise<StorageService>;
+  /** The rules source it was opened with, `null` when opened without rules. */
+  readonly rulesSource: string | null;
+  /** The module-resolution record for that source, `null` without rules. */
+  readonly rulesResolution: StorageRulesResolution | null;
+  /** The cross-service IAM mode it was opened with. */
+  readonly crossServiceIam: CrossServiceIam;
+}
+
+/** One open storage service, with its opening configuration, per `Sandbox`. */
+const OPEN_SERVICES = new WeakMap<Sandbox, OpenStorageService>();
 
 /** One sandbox `FirebaseStorage` handle per `SandboxContext`. */
 const SANDBOX_HANDLES = new WeakMap<SandboxContext, FirebaseStorage>();
@@ -155,15 +194,32 @@ const SANDBOX_HANDLES = new WeakMap<SandboxContext, FirebaseStorage>();
 const BARE_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
 
 /**
- * The rules SOURCE each sandbox's service was opened with (`null` when
- * opened without rules). Late-config detection: rules are honored only on
- * the FIRST storage call per `Sandbox`, so silently discarding a LATER,
- * DIFFERENT `rules` option would be a silent rules wipe — {@link
- * ensureService} throws instead. Re-supplying the IDENTICAL source stays
- * fine (idempotent multi-handle construction, e.g. per-user contexts).
+ * Reject a late option that differs from the one the service is already
+ * open with. Both `rules` and `crossServiceIam` are honored only on the
+ * FIRST storage call per `Sandbox`. Silently discarding a later, differing
+ * value would wipe the rules, or reopen the false-ALLOW surface the IAM
+ * mode models, without a word. Re-supplying the IDENTICAL value stays fine
+ * (idempotent multi-handle construction, for example per-user contexts),
+ * and so does omitting it.
  */
-const SERVICE_RULES_SOURCE = new WeakMap<Sandbox, string | null>();
-const SERVICE_RULES_RESOLUTION = new WeakMap<Sandbox, StorageRulesResolution | null>();
+function rejectDifferingLateConfig(
+  option: string,
+  descriptor: string,
+  supplied: string | undefined,
+  openedWith: string | null,
+  caller: string,
+): void {
+  if (supplied === undefined || supplied === openedWith) return;
+  const openedDescription = openedWith === null
+    ? `without ${option}`
+    : `with a different ${descriptor}`;
+  throw new Error(
+    `pyric/storage: ${caller} received a ${descriptor}, but this sandbox's storage service ` +
+      `is already open ${openedDescription}. ${option} is honored only on the FIRST storage ` +
+      'call per Sandbox, so this value would be silently discarded. Configure it on the first ' +
+      'storage call for this sandbox.',
+  );
+}
 
 /**
  * Get (or open) the ONE per-sandbox `StorageService`. Loud on the
@@ -177,18 +233,23 @@ function ensureService(
   options: StorageOptions,
   caller: string,
 ): Promise<StorageService> {
-  const existing = SERVICES.get(sandbox);
+  const existing = OPEN_SERVICES.get(sandbox);
   if (existing) {
-    const openedWith = SERVICE_RULES_SOURCE.get(sandbox) ?? null;
-    if (options.rules !== undefined && options.rules !== openedWith) {
-      throw new Error(
-        `pyric/storage: ${caller} received a rules source, but this sandbox's storage ` +
-          `service is already open ${openedWith === null ? 'without rules' : 'with a different rules source'} ` +
-          '— rules are honored only on the FIRST storage call per Sandbox, so these rules ' +
-          'would be silently discarded. Configure rules on the first storage call for this sandbox.',
-      );
-    }
-    return existing;
+    rejectDifferingLateConfig(
+      'rules',
+      'rules source',
+      options.rules,
+      existing.rulesSource,
+      caller,
+    );
+    rejectDifferingLateConfig(
+      'crossServiceIam',
+      'crossServiceIam mode',
+      options.crossServiceIam,
+      existing.crossServiceIam,
+      caller,
+    );
+    return existing.service;
   }
   let rules: StorageRules | null = null;
   let resolution: StorageRulesResolution | null = null;
@@ -221,14 +282,18 @@ function ensureService(
   }
   // Explicit dbName wins; otherwise scope the default by project identity so
   // two projects on one origin never share a storage database (issue #359).
+  const crossServiceIam = options.crossServiceIam ?? 'granted';
   const servicePromise = openStorageBackend(
     options.dbName ?? storageDbName(options.projectId),
   ).then(
-    (backend) => new StorageService(backend, rules),
+    (backend) => new StorageService(backend, rules, crossServiceIam),
   );
-  SERVICES.set(sandbox, servicePromise);
-  SERVICE_RULES_SOURCE.set(sandbox, options.rules ?? null);
-  SERVICE_RULES_RESOLUTION.set(sandbox, resolution);
+  OPEN_SERVICES.set(sandbox, {
+    service: servicePromise,
+    rulesSource: options.rules ?? null,
+    rulesResolution: resolution,
+    crossServiceIam,
+  });
   // Join the sandbox's persistable-service REGISTRY so `sandbox.resetAll()`
   // reaches storage (issue #359: Studio's reset cleared Firestore + auth but
   // never storage — storage was invisible to the sandbox). Storage does NOT
@@ -428,5 +493,5 @@ export function getStorageService(storage: FirebaseStorage): Promise<StorageServ
 export function getStorageRulesResolution(
   storage: FirebaseStorage,
 ): StorageRulesResolution | null {
-  return SERVICE_RULES_RESOLUTION.get(targetOf(storage).sandbox) ?? null;
+  return OPEN_SERVICES.get(targetOf(storage).sandbox)?.rulesResolution ?? null;
 }

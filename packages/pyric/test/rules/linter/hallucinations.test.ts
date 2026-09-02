@@ -473,3 +473,130 @@ service cloud.firestore {
     expect(findings(r, 'INVALID_PATH_INTERPOLATION').length).toBe(0);
   });
 });
+
+// ─── debug() rejection ────────────────────────────────────────────────
+//
+// Production Firestore rejects a ruleset that calls debug() at compile
+// time ("Function not found error: Name: [debug]"). The linter must
+// reject it by default, including when the caller supplies testCases,
+// which used to silently imply allowDebug and disable the check in
+// exactly the lint-with-suite authoring path that feeds the write gate.
+// A ruleset that declares its own `function debug(...)` resolves it like
+// any user function and is never flagged.
+
+describe('debug() rejection', () => {
+  const debugSource = wrap('debug(request.auth != null)');
+  const tc = {
+    description: 'read thing',
+    expectation: 'ALLOW' as const,
+    method: 'get' as const,
+    path: 'things/a',
+    auth: { uid: 'u' },
+  };
+
+  test('rejects debug() by default (error severity)', () => {
+    const r = lint(debugSource);
+    const f = findings(r, 'HALLUCINATED_GLOBAL').filter(w => w.message.includes('debug'));
+    expect(f.length).toBe(1);
+    expect(f[0].severity).toBe('error');
+  });
+
+  test('still rejects debug() when testCases are supplied (no implicit opt-out)', () => {
+    const r = lintFirestoreRules(debugSource, { testCases: [tc] });
+    const f = findings(r, 'HALLUCINATED_GLOBAL').filter(w => w.message.includes('debug'));
+    expect(f.length).toBe(1);
+    expect(f[0].severity).toBe('error');
+  });
+
+  test('explicit allowDebug: true is the only opt-out', () => {
+    const r = lintFirestoreRules(debugSource, { allowDebug: true, testCases: [tc] });
+    const f = findings(r, 'HALLUCINATED_GLOBAL').filter(w => w.message.includes('debug'));
+    expect(f.length).toBe(0);
+  });
+
+  test('a user-defined function named debug resolves and is not flagged', () => {
+    // The simulator evaluates this ruleset through that function, so
+    // flagging the call would block a ruleset production accepts.
+    const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function debug(v) { return v; }
+    match /things/{id} {
+      allow read: if debug(request.auth != null);
+    }
+  }
+}`;
+    const r = lint(source);
+    const f = findings(r, 'HALLUCINATED_GLOBAL').filter(w => w.message.includes('debug'));
+    expect(f.length).toBe(0);
+  });
+
+  test('a debug() call in a sibling scope that cannot see the declaration is still flagged', () => {
+    const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /a/{id} {
+      function debug(v) { return v; }
+      allow read: if debug(request.auth != null);
+    }
+    match /b/{id} {
+      allow read: if debug(request.auth != null);
+    }
+  }
+}`;
+    const r = lint(source);
+    const f = findings(r, 'HALLUCINATED_GLOBAL').filter(w => w.message.includes('debug'));
+    expect(f.length).toBe(1);
+    expect(f[0].message).toContain('Function not found error');
+  });
+});
+
+// ─── BOOL_TOKEN_CLAIM ─────────────────────────────────────────────────
+
+describe('BOOL_TOKEN_CLAIM', () => {
+  test('catches email_verified == "true"', () => {
+    const r = lint(wrap('request.auth.token.email_verified == "true"'));
+    const f = findings(r, 'BOOL_TOKEN_CLAIM');
+    expect(f.length).toBe(1);
+    expect(f[0].severity).toBe('error');
+    expect(f[0].message).toContain('email_verified');
+    expect(f[0].message).toContain('bool');
+  });
+
+  test('catches != comparison (the always-true security hole)', () => {
+    const r = lint(wrap('request.auth.token.email_verified != "true"'));
+    const f = findings(r, 'BOOL_TOKEN_CLAIM');
+    expect(f.length).toBe(1);
+    expect(f[0].message).toContain('always true');
+  });
+
+  test('catches reversed operand order', () => {
+    const r = lint(wrap('"true" == request.auth.token.email_verified'));
+    expect(findings(r, 'BOOL_TOKEN_CLAIM').length).toBe(1);
+  });
+
+  test('catches the "false" string too', () => {
+    const r = lint(wrap('request.auth.token.email_verified == "false"'));
+    expect(findings(r, 'BOOL_TOKEN_CLAIM').length).toBe(1);
+  });
+
+  test('fires inside function bodies', () => {
+    const r = lint(wrapFn('request.auth.token.email_verified == "true"'));
+    expect(findings(r, 'BOOL_TOKEN_CLAIM').length).toBe(1);
+  });
+
+  test('boolean-literal comparison does not trigger', () => {
+    const r = lint(wrap('request.auth.token.email_verified == true'));
+    expect(findings(r, 'BOOL_TOKEN_CLAIM').length).toBe(0);
+  });
+
+  test('string claims are not flagged (sign_in_provider is a string)', () => {
+    const r = lint(wrap("request.auth.token.firebase.sign_in_provider == 'password'"));
+    expect(findings(r, 'BOOL_TOKEN_CLAIM').length).toBe(0);
+  });
+
+  test('a user field named email_verified outside request.auth.token is not flagged', () => {
+    const r = lint(wrap('resource.data.email_verified == "true"'));
+    expect(findings(r, 'BOOL_TOKEN_CLAIM').length).toBe(0);
+  });
+});

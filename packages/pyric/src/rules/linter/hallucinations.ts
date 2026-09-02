@@ -95,7 +95,14 @@ const HALLUCINATED_GLOBALS: Record<string, string> = {
   undefined:  '`undefined` does not exist in rules — use `null`',
 };
 
-const VALID_MATH_METHODS = new Set(['abs', 'ceil', 'floor', 'round', 'sqrt', 'pow', 'isNaN']);
+/**
+ * The math-namespace functions production Firestore actually compiles.
+ * Notably ABSENT: `isInfinite`. Reference docs list it, but production
+ * rejects it at compile (`Function not found error: Name: [math.isInfinite]`).
+ * Exported so the stdlib-modules drift test can assert the documented
+ * catalog never re-grows a name this validator rejects.
+ */
+export const VALID_MATH_METHODS = new Set(['abs', 'ceil', 'floor', 'round', 'sqrt', 'pow', 'isNaN']);
 
 
 /**
@@ -121,6 +128,21 @@ const WRONG_CONTEXT_PATHS: WrongPath[] = [
   { receiver: 'resource', property: 'id',
     suggestion: '`resource.id` is not available — capture the document id with `/{docId}` in the match path' },
 ];
+
+/**
+ * Auth-token claims that are typed BOOL in production. Comparing one
+ * against a STRING literal compiles fine (CEL is dynamically typed) but
+ * the comparison is cross-type, so `== "true"` is always false and
+ * `!= "true"` is always true, and the latter silently opens the rule.
+ * WRONG_CONTEXT_PATHS can't express this: it matches `receiver.property`
+ * at depth 2, while token claims live at `request.auth.token.<claim>`
+ * and the bug is in the *comparison*, not the path itself.
+ *
+ * Only claims verifiably typed bool belong here. `email_verified` is the
+ * documented one (`request.auth.token.email_verified: bool`).
+ * `firebase.sign_in_provider` is a string, so it is deliberately NOT listed.
+ */
+const BOOL_TOKEN_CLAIMS = new Set(['email_verified']);
 
 /**
  * Built-in CEL methods that, when accessed without parentheses, are
@@ -186,40 +208,51 @@ interface Loc {
   ruleIndex?: number;
 }
 
+/**
+ * Visit every expression in the match tree, carrying the set of
+ * user-defined function names visible where the expression sits. Scope
+ * accumulates outward-in: a block sees its own declarations plus every
+ * enclosing scope's, which is the resolution order the simulator
+ * implements in `simulator/match-resolution.ts`.
+ */
 function walkAllExpressions(
   match: MatchBlock,
-  visit: (expr: Expression, loc: Loc) => void,
+  inheritedScope: ReadonlySet<string>,
+  visit: (expr: Expression, loc: Loc, scope: ReadonlySet<string>) => void,
 ) {
   const path = match.path.raw;
+  const scope = new Set(inheritedScope);
+  for (const fn of match.functions) scope.add(fn.name);
   for (const fn of match.functions) {
     const loc: Loc = { matchPath: path, functionName: fn.name };
-    walkExpr(fn.body, loc, visit);
-    for (const b of fn.lets) walkExpr(b.value, loc, visit);
+    walkExpr(fn.body, loc, scope, visit);
+    for (const b of fn.lets) walkExpr(b.value, loc, scope, visit);
   }
   for (let i = 0; i < match.allows.length; i++) {
-    walkExpr(match.allows[i].condition, { matchPath: path, ruleIndex: i }, visit);
+    walkExpr(match.allows[i].condition, { matchPath: path, ruleIndex: i }, scope, visit);
   }
-  for (const child of match.children) walkAllExpressions(child, visit);
+  for (const child of match.children) walkAllExpressions(child, scope, visit);
 }
 
 function walkExpr(
   expr: Expression,
   loc: Loc,
-  visit: (expr: Expression, loc: Loc) => void,
+  scope: ReadonlySet<string>,
+  visit: (expr: Expression, loc: Loc, scope: ReadonlySet<string>) => void,
 ) {
-  visit(expr, loc);
+  visit(expr, loc, scope);
   switch (expr.type) {
-    case 'binaryOp': walkExpr(expr.left, loc, visit); walkExpr(expr.right, loc, visit); break;
-    case 'unaryOp': walkExpr(expr.operand, loc, visit); break;
-    case 'methodCall': walkExpr(expr.object, loc, visit); expr.args.forEach(a => walkExpr(a, loc, visit)); break;
-    case 'memberAccess': walkExpr(expr.object, loc, visit); break;
-    case 'bracketAccess': walkExpr(expr.object, loc, visit); walkExpr(expr.index, loc, visit); break;
-    case 'ternary': walkExpr(expr.condition, loc, visit); walkExpr(expr.consequent, loc, visit); walkExpr(expr.alternate, loc, visit); break;
-    case 'inExpr': walkExpr(expr.element, loc, visit); walkExpr(expr.collection, loc, visit); break;
-    case 'isExpr': walkExpr(expr.value, loc, visit); break;
-    case 'listLiteral': expr.elements.forEach(e => walkExpr(e, loc, visit)); break;
-    case 'mapLiteral': expr.entries.forEach(en => { walkExpr(en.key, loc, visit); walkExpr(en.value, loc, visit); }); break;
-    case 'functionCall': expr.args.forEach(a => walkExpr(a, loc, visit)); break;
+    case 'binaryOp': walkExpr(expr.left, loc, scope, visit); walkExpr(expr.right, loc, scope, visit); break;
+    case 'unaryOp': walkExpr(expr.operand, loc, scope, visit); break;
+    case 'methodCall': walkExpr(expr.object, loc, scope, visit); expr.args.forEach(a => walkExpr(a, loc, scope, visit)); break;
+    case 'memberAccess': walkExpr(expr.object, loc, scope, visit); break;
+    case 'bracketAccess': walkExpr(expr.object, loc, scope, visit); walkExpr(expr.index, loc, scope, visit); break;
+    case 'ternary': walkExpr(expr.condition, loc, scope, visit); walkExpr(expr.consequent, loc, scope, visit); walkExpr(expr.alternate, loc, scope, visit); break;
+    case 'inExpr': walkExpr(expr.element, loc, scope, visit); walkExpr(expr.collection, loc, scope, visit); break;
+    case 'isExpr': walkExpr(expr.value, loc, scope, visit); break;
+    case 'listLiteral': expr.elements.forEach(e => walkExpr(e, loc, scope, visit)); break;
+    case 'mapLiteral': expr.entries.forEach(en => { walkExpr(en.key, loc, scope, visit); walkExpr(en.value, loc, scope, visit); }); break;
+    case 'functionCall': expr.args.forEach(a => walkExpr(a, loc, scope, visit)); break;
   }
 }
 
@@ -231,9 +264,19 @@ function walkExpr(
  * distinct (rule, key, location) tuple — duplicate identical patterns
  * within the same rule are de-duplicated.
  */
-function isUnsupportedDebugCall(expr: Expression, allowDebug?: boolean): boolean {
+/**
+ * A `debug(...)` call that resolves to NOTHING. Production has no built-in
+ * `debug`, but a ruleset is free to declare `function debug(v) { ... }`, and
+ * that call resolves and evaluates like any other user function, so only an
+ * unresolved call is a finding.
+ */
+function isUnresolvedDebugCall(
+  expr: Expression,
+  scope: ReadonlySet<string>,
+  allowDebug?: boolean,
+): boolean {
   if (allowDebug) return false;
-  return expr.type === 'functionCall' && expr.name === 'debug';
+  return expr.type === 'functionCall' && expr.name === 'debug' && !scope.has('debug');
 }
 
 function isHallucinatedMethodCall(expr: Expression): boolean {
@@ -275,6 +318,37 @@ function isWrongContextPath(expr: Expression): { suggestion: string } | undefine
   return WRONG_CONTEXT_PATHS.find(p => p.receiver === recv && p.property === prop);
 }
 
+/** Is `expr` a member access spelling exactly `request.auth.token.<claim>`
+ *  for a claim in BOOL_TOKEN_CLAIMS? */
+function boolTokenClaimName(expr: Expression): string | undefined {
+  if (expr.type !== 'memberAccess' || !BOOL_TOKEN_CLAIMS.has(expr.property)) return undefined;
+  const token = expr.object;
+  if (token.type !== 'memberAccess' || token.property !== 'token') return undefined;
+  const auth = token.object;
+  if (auth.type !== 'memberAccess' || auth.property !== 'auth') return undefined;
+  return auth.object.type === 'identifier' && auth.object.name === 'request'
+    ? expr.property
+    : undefined;
+}
+
+/**
+ * `request.auth.token.email_verified == "true"` (or `!=`, either operand
+ * order). The claim is a bool; a string literal can never equal it, so the
+ * comparison is a constant: `==` always denies, `!=` always allows.
+ */
+function boolTokenClaimStringComparison(
+  expr: Expression,
+): { claim: string; op: string; literal: string } | undefined {
+  if (expr.type !== 'binaryOp' || (expr.op !== '==' && expr.op !== '!=')) return undefined;
+  for (const [side, other] of [[expr.left, expr.right], [expr.right, expr.left]] as const) {
+    const claim = boolTokenClaimName(side);
+    if (claim && other.type === 'literal' && typeof other.value === 'string') {
+      return { claim, op: expr.op, literal: other.value };
+    }
+  }
+  return undefined;
+}
+
 function isLengthPropertyAccessOnMethod(expr: Expression): boolean {
   return expr.type === 'memberAccess' && expr.property === 'length' && expr.object.type === 'methodCall';
 }
@@ -301,14 +375,23 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
     warnings.push(w);
   }
 
-  walkAllExpressions(ast.service.match, (expr, loc) => {
-    if (isUnsupportedDebugCall(expr, options.allowDebug)) {
+  // Functions declared above `service` and directly inside it are visible
+  // everywhere below, so they seed the scope the walk carries down.
+  const outerScope = new Set<string>();
+  for (const fn of ast.functions ?? []) outerScope.add(fn.name);
+  for (const fn of ast.service.functions ?? []) outerScope.add(fn.name);
+
+  walkAllExpressions(ast.service.match, outerScope, (expr, loc, scope) => {
+    if (isUnresolvedDebugCall(expr, scope, options.allowDebug)) {
       emit('HALLUCINATED_GLOBAL', 'debug', loc, {
         rule: 'HALLUCINATED_GLOBAL',
         severity: 'error',
-        message: '`debug()` helper is only permitted in local testing environments; remove it before deployment.',
+        message:
+          '`debug()` is not a Firestore rules function and no function named `debug` is declared in scope. '
+          + 'Production rejects the whole ruleset at compile time with '
+          + '`Function not found error: Name: [debug]`, so nothing in the file deploys.',
         location: loc,
-        fix: 'Remove debug() wrapper around the expression.',
+        fix: 'Remove the debug() call and evaluate the inner expression directly.',
       });
     }
 
@@ -398,6 +481,21 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
           fix: wrongContextMatch.suggestion,
         });
       }
+    }
+
+    const boolClaim = boolTokenClaimStringComparison(expr);
+    if (boolClaim) {
+      const { claim, op, literal } = boolClaim;
+      emit('BOOL_TOKEN_CLAIM', `${claim}|${op}|${literal}`, loc, {
+        rule: 'BOOL_TOKEN_CLAIM',
+        severity: 'error',
+        message:
+          `\`request.auth.token.${claim}\` is a bool, but it is compared against the string ` +
+          `"${literal}", a cross-type comparison that is always ${op === '==' ? 'false (rule always denies)' : 'true (rule silently allows)'}. ` +
+          `Compare against the boolean literal instead: \`request.auth.token.${claim} ${op} true\`.`,
+        location: loc,
+        fix: `Drop the quotes: \`request.auth.token.${claim} ${op} ${literal === 'false' ? 'false' : 'true'}\`.`,
+      });
     }
 
     if (isLengthPropertyAccessOnMethod(expr)) {

@@ -1,4 +1,5 @@
 import type { FunctionDef } from '../grammar/FirestoreAST.js';
+import type { LookupBudget } from './lookup-budget.js';
 import type { TraceRecorder } from './trace-recorder.js';
 import { Path } from './wrappers/path.js';
 import { Timestamp } from './wrappers/timestamp.js';
@@ -108,6 +109,17 @@ export interface SimulationContext {
    * through to `get()` exactly as before.
    */
   batchProjection?: Map<string, Record<string, unknown> | null>;
+  /**
+   * Per-request document access budget (production: 10 distinct
+   * get/exists/getAfter/existsAfter reads per single-document request; the
+   * 11th fails the evaluation closed). The handler creates one per test
+   * case and shares it across every match block and allow rule evaluated
+   * for that request; a fresh budget per test case is the "resets between
+   * requests" semantics. Optional so non-handler evaluation paths are
+   * unaffected. See LookupBudget in lookup-budget.ts for the counting
+   * semantics and the in-repo production evidence.
+   */
+  lookupBudget?: LookupBudget;
   /** Optional per-rule expression-trace recorder. When set, the evaluator
    *  wraps every `evaluate()` call and records the sub-expression tree;
    *  when absent (the default), the evaluator is unchanged. The handler

@@ -192,16 +192,19 @@ Status: Working reference. Gaps marked with `[VERIFY]`.
 | `get(path)` | `get(/databases/.../doc)` | `resource` | 1 of 10 | 008, 010 |
 | `exists(path)` | `exists(/databases/.../doc)` | `bool` | 1 of 10 | 010, 018 |
 | `getAfter(path)` | `getAfter(/databases/.../doc)` | `resource` | 1 of 10 | [VERIFY] |
-| `debug(expr)` | `debug(request.auth)` | same as expr | N/A | [VERIFY — emulator only?] |
+| `debug(expr)` | n/a | n/a | N/A | REJECTED by production at compile (`Function not found error: Name: [debug]`); do not use |
 | `duration.value(n, unit)` | `duration.value(60, 's')` | `duration` | N/A | 008-edge |
 | `math.ceil(n)` | `math.ceil(3.2)` | `int` | N/A | [VERIFY] |
 | `math.floor(n)` | `math.floor(3.8)` | `int` | N/A | [VERIFY] |
 | `math.round(n)` | `math.round(3.5)` | `int` | N/A | [VERIFY] |
 | `math.abs(n)` | `math.abs(-5)` | `number` | N/A | [VERIFY] |
-| `math.isInfinite(n)` | | `bool` | N/A | [VERIFY] |
 | `math.isNaN(n)` | | `bool` | N/A | [VERIFY] |
 | `hashing.md5(bytes)` | | `bytes` | N/A | [VERIFY] |
 | `hashing.sha256(bytes)` | | `bytes` | N/A | [VERIFY] |
+
+Note: `math.isInfinite(n)` does NOT exist. Production rejects it at compile
+(`Function not found error: Name: [math.isInfinite]`) despite appearing in some
+Firebase reference material.
 
 ## Operators (precedence, highest first)
 
