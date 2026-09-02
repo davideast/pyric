@@ -89,6 +89,7 @@ export type {
 
 export { InspectStorageHandler, ProvisionStorageHandler } from './admin/handler.js';
 export { createStorageAdminTools } from './admin/tools.js';
+export { createStorageRulesTools } from './rules-tools.js';
 export type { StorageAdminToolDeps } from './admin/tools.js';
 export type {
   ProvisionStorageInput,

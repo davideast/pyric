@@ -20,9 +20,10 @@ const fakeCtx = { signal: new AbortController().signal };
 describe('createFirestoreRulesTools — without scope', () => {
   const tools = createFirestoreRulesTools();
 
-  it('emits 8 handlers (no firestore_test_rules without scope; generic Rules tools keep Firestore aliases)', () => {
+  it('emits 9 handlers (no firestore_test_rules without scope; generic Rules tools keep Firestore aliases)', () => {
     expect(tools.map((t) => t.name)).toEqual([
       'firestore_simulate_rules',
+      'firestore_validate_rules',
       'firestore_rules_stdlib_list',
       'firestore_rules_stdlib_get',
       'firestore_lint_rules',
@@ -157,9 +158,10 @@ service firebase.storage {
 describe('createFirestoreRulesTools — with scope', () => {
   const tools = createFirestoreRulesTools({ scope: fakeScope });
 
-  it('emits 9 handlers when scope is supplied (adds firestore_test_rules to the local default)', () => {
+  it('emits 10 handlers when scope is supplied (adds firestore_test_rules to the local default)', () => {
     expect(tools.map((t) => t.name)).toEqual([
       'firestore_simulate_rules',
+      'firestore_validate_rules',
       'firestore_rules_stdlib_list',
       'firestore_rules_stdlib_get',
       'firestore_lint_rules',
