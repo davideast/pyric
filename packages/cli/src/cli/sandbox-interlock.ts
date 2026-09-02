@@ -10,7 +10,6 @@
  */
 import { beaconEndpoint } from '../register/beacon.js';
 import { parseGuardMode, type GuardMode } from '../register/net-guard.js';
-import { formatInlinedArtifactWarnings, scanBackendArtifacts } from './sandbox-preflight.js';
 import { detectUnsupportedRuntime, formatUnsupportedRuntimeWarning } from './unsupported-runtime.js';
 
 /**
@@ -67,8 +66,6 @@ export interface LaunchCheckOptions {
   readonly registerUrl: string;
   /** The child's argv, for the unsupported-runtime check. */
   readonly argv: readonly string[];
-  /** Project root whose backend build dirs are pre-flighted. */
-  readonly cwd: string;
   readonly write: (line: string) => void;
 }
 
@@ -76,25 +73,13 @@ export interface LaunchCheckOptions {
  * Every statement the launcher makes about the child, printed in one block
  * before the spawn, and the interlock status it derived on the way.
  *
- * Three checks, in order:
- *
- *  1. The interlock status line, from the env alone.
- *  2. The pre-flight artifact scan. The loader swap only reaches code that
- *     still imports firebase or firebase-admin, so a backend bundle that
- *     compiled the SDK in sails past register untouched and talks to live
- *     Google. Warn-only, and silent on a clean project.
- *  3. The unsupported-runtime warning, for the other way interception can be
- *     absent: a child runtime that never evaluates Node loader hooks at all.
- *
- * The pre-flight scan runs only here, on the launched-child path. With no
- * child there is nothing to pre-flight.
+ * Two checks: the interlock status line, from the env alone, and the
+ * unsupported-runtime warning for the other way interception can be absent, a
+ * child runtime that never evaluates Node loader hooks at all.
  */
 export function reportLaunchChecks(opts: LaunchCheckOptions): InterlockStatus {
   const interlock = describeInterlock(opts.childEnv, opts.registerUrl);
   opts.write(formatInterlockLine(interlock));
-  for (const line of formatInlinedArtifactWarnings(scanBackendArtifacts(opts.cwd))) {
-    opts.write(`${line}\n`);
-  }
   const unsupportedRuntime = detectUnsupportedRuntime(opts.argv);
   if (unsupportedRuntime !== null) opts.write(formatUnsupportedRuntimeWarning(unsupportedRuntime));
   return interlock;

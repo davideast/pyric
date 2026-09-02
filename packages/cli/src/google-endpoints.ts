@@ -1,15 +1,13 @@
 /**
  * The single shared source of Google/Firebase production endpoint hosts.
  *
- * Three readers consume this table and they must never drift apart:
+ * Two readers consume this table and they must never drift apart:
  *  - the runtime net guard (`register/net-guard.ts`), which matches every
  *    catalog host on egress from a pyric-launched child;
- *  - the warn-only pre-flight scan at child launch, which greps backend build
- *    output for every catalog host;
- *  - the throwing frontend build check in `cli/serve.ts`, which greps served
- *    assets for the narrower SDK fingerprint subset below.
+ *  - the throwing frontend build check (`cli/inlined-sdk-scanner.ts`), which
+ *    greps served assets for the narrower SDK fingerprint subset below.
  *
- * It lives at the package root, not under `cli/` or `register/`, so all three
+ * It lives at the package root, not under `cli/` or `register/`, so both
  * import it without a cycle, and it has zero imports so the `--import`ed
  * register entry stays cheap.
  *
@@ -41,8 +39,8 @@ export interface GoogleEndpoint {
    * Storage asset URL, a bare callable URL on `cloudfunctions.net`, a
    * `databaseURL` config literal on `firebaseio.com`, a Vertex AI call from a
    * hand-written client, a server-side FCM send, an admin control plane, or an
-   * infrastructure reference to the metadata server. The net guard and the
-   * warn-only pre-flight scan still match all of them.
+   * infrastructure reference to the metadata server. The net guard still
+   * matches all of them on the wire.
    */
   readonly fingerprint: boolean;
 }
@@ -113,9 +111,6 @@ export const GOOGLE_ENDPOINT_CATALOG: readonly GoogleEndpoint[] = [
     fingerprint: false,
   },
 ];
-
-/** Every catalog host: the net guard's and the pre-flight scan's match set. */
-export const GOOGLE_ENDPOINT_HOSTS: readonly string[] = GOOGLE_ENDPOINT_CATALOG.map((e) => e.host);
 
 /**
  * The subset that is evidence of inlined SDK code, and the only set the

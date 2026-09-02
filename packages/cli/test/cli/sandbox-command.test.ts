@@ -197,12 +197,15 @@ describe('pyric sandbox command execution', () => {
 });
 
 /**
- * What the launcher says about the child before it starts. Both checks are
- * warn-only: a finding never changes the exit code and never stops the spawn.
+ * The launcher makes no claim about the child's build output. `withPyric`
+ * externalizes firebase and firebase-admin, the backend-bundler docs say to
+ * mark them external, and the net guard reports real egress at runtime with
+ * attribution. Grepping .next/server or dist at launch only warned about
+ * production or stale artifacts the child never loads.
  */
-describe('pyric sandbox pre-flight artifact scan', () => {
-  it('warns about an inlined-SDK artifact in .next/server and still launches', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-preflight-'));
+describe('pyric sandbox does not scan build output', () => {
+  it('says nothing about an inlined-SDK artifact under .next/server', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-artifacts-'));
     try {
       mkdirSync(join(dir, '.next', 'server'), { recursive: true });
       writeFileSync(
@@ -210,71 +213,18 @@ describe('pyric sandbox pre-flight artifact scan', () => {
         'fetch("https://firestore.googleapis.com/v1/projects/p/databases/(default)/documents")',
       );
       const { code, stdout, stderr } = runCli(
-        ['sandbox', '--no-open', '--port', '4941', 'node', '-e', 'console.log("PREFLIGHT_CHILD")'],
+        ['sandbox', '--no-open', '--port', '4941', 'node', '-e', 'console.log("ARTIFACT_CHILD")'],
         dir,
       );
       const all = stdout + stderr;
-      expect(all).toContain('.next/server/chunk.js');
-      expect(all).toContain('Cloud Firestore');
-      expect(all).toContain('firestore.googleapis.com');
-      // Warn-only: the child still ran and the exit code is the child's.
-      expect(stdout).toContain('PREFLIGHT_CHILD');
+      expect(all).not.toContain('.next/server/chunk.js');
+      expect(all).not.toContain('preflight');
+      expect(stdout).toContain('ARTIFACT_CHILD');
       expect(code).toBe(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 60_000);
-
-  it('stays silent for a project whose backend build dirs are clean', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-preflight-clean-'));
-    try {
-      mkdirSync(join(dir, 'dist'), { recursive: true });
-      writeFileSync(join(dir, 'dist', 'server.js'), "import { getAuth } from 'firebase-admin/auth';");
-      const { code, stdout, stderr } = runCli(
-        ['sandbox', '--no-open', '--port', '4942', 'node', '-e', 'console.log("CLEAN_CHILD")'],
-        dir,
-      );
-      expect(stdout + stderr).not.toContain('⚠ preflight');
-      expect(stdout).toContain('CLEAN_CHILD');
-      expect(code).toBe(0);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }, 60_000);
-
-  it('does not scan on the host-only path, where there is no child', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-preflight-hostonly-'));
-    try {
-      mkdirSync(join(dir, '.next', 'server'), { recursive: true });
-      writeFileSync(
-        join(dir, '.next', 'server', 'chunk.js'),
-        'fetch("https://firestore.googleapis.com/v1/projects")',
-      );
-      const child = spawn('bun', [CLI_ENTRY, 'sandbox', '--no-open', '--no-run', '--port', '4943'], {
-        cwd: dir,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      child.stdout?.setEncoding('utf8');
-      child.stderr?.setEncoding('utf8');
-      let output = '';
-      child.stdout?.on('data', (chunk: string) => {
-        output += chunk;
-      });
-      child.stderr?.on('data', (chunk: string) => {
-        output += chunk;
-      });
-      const start = Date.now();
-      while (!output.includes('export PYRIC_SANDBOX=') && Date.now() - start < 20_000) {
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      expect(output).toContain('export PYRIC_SANDBOX=');
-      expect(output).not.toContain('⚠ preflight');
-      child.kill('SIGINT');
-      await new Promise<number>((resolve) => child.once('exit', (exit) => resolve(exit ?? 0)));
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  }, 30_000);
 });
 
 describe('pyric sandbox unsupported-runtime warning', () => {

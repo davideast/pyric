@@ -278,8 +278,8 @@ export function spawnSandboxChild(
   const hasShellOperators = parts.some((token) => SHELL_OPERATORS.has(token));
 
   // The bun/deno warning is emitted by the launch seam in serve.ts, alongside
-  // the interlock and pre-flight lines, so every pre-spawn statement about the
-  // child prints in one block and in order.
+  // the interlock line, so every pre-spawn statement about the child prints in
+  // one block and in order.
 
   const [command, ...args] = parts;
   let child: ChildProcess;

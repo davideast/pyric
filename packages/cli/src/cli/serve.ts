@@ -23,7 +23,6 @@ import {
   embeddedWorkerVersion,
 } from '../serve/standalone-assets.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
-import { SDK_FINGERPRINT_HOSTS } from '../google-endpoints.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
@@ -47,7 +46,7 @@ import {
   startBeaconWatchdog,
   type BeaconWatchdog,
 } from './sandbox-interlock.js';
-import { scanInlinedFirebaseHits } from './inlined-sdk-scanner.js';
+import { scanForInlinedFirebase } from './inlined-sdk-scanner.js';
 import {
   createFunctionsDevelopmentRuntime,
   createHttpFunctionsPeerReadiness,
@@ -240,14 +239,11 @@ export async function startServe(opts: {
   // rather than serving it. A pyric SANDBOX build (`vite build --mode
   // development`) carries the marker and bundles pyric's in-page adapters, so it
   // is trusted and the scan is skipped (marker present, no real SDK to find).
-  // Only the SDK fingerprint hosts feed this check, never the full catalog:
-  // this one throws, and a dist can legitimately carry a bare callable URL, a
-  // public asset URL, or a `databaseURL` literal with no Firebase SDK in it.
   if (!hasSandboxBuildMarker(publicDir)) {
-    const inlined = scanInlinedFirebaseHits(publicDir, { hosts: SDK_FINGERPRINT_HOSTS });
+    const inlined = scanForInlinedFirebase(publicDir);
     if (inlined.length > 0) {
       throw new Error(
-        `pyric sandbox: ${inlined[0]!.file} bundles the real Firebase SDK, so this dist cannot be ` +
+        `pyric sandbox: ${inlined[0]} bundles the real Firebase SDK, so this dist cannot be ` +
           `sandboxed — its firebase/* calls would reach LIVE Google endpoints, not the ` +
           `pyric sandbox. Two ways forward:\n` +
           `  (a) \`pyric sandbox -- <command>\` runs the child server with the @pyric/cli/vite ` +
@@ -957,12 +953,11 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       beaconToken: runtime.beaconToken,
     });
     // What we are handing the child, stated before it starts: the interlock
-    // line, the warn-only pre-flight scan, and the unsupported-runtime check.
+    // line and the unsupported-runtime check.
     const interlock = reportLaunchChecks({
       childEnv,
       registerUrl: registerModuleUrl(),
       argv: plan.argv,
-      cwd,
       write: (line) => info.write(line),
     });
 

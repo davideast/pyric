@@ -2,21 +2,23 @@
  * The shared Google endpoint catalog.
  *
  * Two sets come out of one table and they mean different things. Every catalog
- * host is matched on the wire by the net guard and by the warn-only pre-flight
- * scan. Only the fingerprint subset feeds the throwing frontend build check,
- * because that check fails a build outright and must not fire on a host an
- * ordinary app can carry without any Firebase SDK. Both sets are pinned
- * literally below, so widening either one is a deliberate edit to this file.
+ * host is matched on the wire by the net guard. Only the fingerprint subset
+ * feeds the throwing frontend build check, because that check fails a build
+ * outright and must not fire on a host an ordinary app can carry without any
+ * Firebase SDK. Both sets are pinned literally below, so widening either one
+ * is a deliberate edit to this file.
  */
 import { describe, expect, it } from 'bun:test';
 import {
   GOOGLE_ENDPOINT_CATALOG,
-  GOOGLE_ENDPOINT_HOSTS,
   SDK_FINGERPRINT_HOSTS,
   lookupGoogleEndpoint,
   matchesHostSuffix,
   normalizeHostname,
 } from '../src/google-endpoints.js';
+
+/** Every host in the catalog, which is the net guard's match set. */
+const catalogHosts = (): string[] => GOOGLE_ENDPOINT_CATALOG.map((e) => e.host);
 
 /** Hosts the throwing build check may fail a build over. */
 const EXPECTED_FINGERPRINT_HOSTS = [
@@ -45,7 +47,7 @@ const EXPECTED_NON_FINGERPRINT_HOSTS = [
 
 describe('GOOGLE_ENDPOINT_CATALOG', () => {
   it('holds every host the guard matches, each with a service label', () => {
-    expect([...GOOGLE_ENDPOINT_HOSTS].sort()).toEqual(
+    expect(catalogHosts().sort()).toEqual(
       [...EXPECTED_FINGERPRINT_HOSTS, ...EXPECTED_NON_FINGERPRINT_HOSTS].sort(),
     );
     for (const entry of GOOGLE_ENDPOINT_CATALOG) {
@@ -70,7 +72,7 @@ describe('SDK_FINGERPRINT_HOSTS', () => {
   it('excludes every host an app can carry without a Firebase SDK', () => {
     for (const host of EXPECTED_NON_FINGERPRINT_HOSTS) {
       expect(SDK_FINGERPRINT_HOSTS).not.toContain(host);
-      expect(GOOGLE_ENDPOINT_HOSTS).toContain(host);
+      expect(catalogHosts()).toContain(host);
     }
   });
 });

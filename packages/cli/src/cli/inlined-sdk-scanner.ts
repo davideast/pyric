@@ -1,97 +1,62 @@
 /**
- * Detect a build that inlined the real Firebase SDK into an artifact.
+ * Detect a served frontend build that inlined the real Firebase SDK.
  *
- * For the served frontend (`vite build` output) the served import map remaps
- * only bare `firebase/*` specifiers, so such a build cannot be sandboxed: its
- * calls reach real Google endpoints. The same fingerprint identifies a backend
- * bundle whose SDK was compiled in past the loader's reach.
+ * The served import map remaps only bare `firebase/*` specifiers, so a plain
+ * `vite build` that compiled the SDK into an app chunk cannot be sandboxed:
+ * its calls reach real Google endpoints while the injected banner claims
+ * otherwise. `cli/serve.ts` refuses such a dist rather than serving it.
  *
- * The caller supplies the host set, because the two callers answer different
- * questions with it. The throwing frontend check in `cli/serve.ts` passes
- * `SDK_FINGERPRINT_HOSTS`, the narrow set that only appears when SDK code was
- * inlined, because a hit there fails a build. The warn-only pre-flight scan at
- * child launch passes the full `GOOGLE_ENDPOINT_HOSTS`, because a hit there is
- * a warning the developer can weigh.
+ * Only the SDK fingerprint hosts are matched, never the full endpoint catalog.
+ * This check throws, and a dist can legitimately carry a bare callable URL, a
+ * public asset URL, or a `databaseURL` literal without any Firebase SDK in it.
  *
- * This module owns the hit type, so `cli/serve.ts` and `cli/sandbox-preflight.ts`
- * both depend downward on it rather than on each other.
+ * Backend bundles are deliberately out of scope. `withPyric` externalizes
+ * firebase and firebase-admin, the backend-bundler docs tell users to mark them
+ * external, and the net guard reports real egress at runtime with attribution,
+ * which a grep over build output cannot do.
  */
-import { existsSync, readdirSync, readFileSync, type Dirent } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { lookupGoogleEndpoint } from '../google-endpoints.js';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { SDK_FINGERPRINT_HOSTS } from '../google-endpoints.js';
 
-/** Depth limit per scanned directory. */
+/** Depth limit for the walk. */
 const MAX_DEPTH = 4;
 
-/** Total script files read across all scanned directories. */
+/** Total script files read. */
 const MAX_FILES = 200;
 
-/**
- * Script extensions worth reading. `.cjs` is what a CommonJS backend build
- * emits, and omitting it made every such artifact invisible. Not `.ts`: no
- * build path in scope emits executable TypeScript, and sourcemaps are
- * deliberately out of scope.
- */
-const SCRIPT_FILE = /\.(js|mjs|cjs)$/;
-
-export interface InlinedScanOptions {
-  /** Hosts to grep for. Required: see the module header for which set. */
-  readonly hosts: readonly string[];
-  /**
-   * Explicit subdirectories of `root` to scan instead of `root` itself. This
-   * is how the pre-flight check points the scanner at backend build output
-   * (`dist`, `.next/server`, `functions`), which the default frontend scan
-   * never reaches because those live outside `hosting.public` and, for
-   * `.next`, behind a dot-directory. Entries are `root`-relative; missing ones
-   * are skipped silently, since an unbuilt project is not a finding.
-   * Omitted means scan `root` itself.
-   */
-  readonly dirs?: readonly string[];
-}
-
-/** One offending artifact, with the catalog labels that identify the finding. */
-export interface InlinedFirebaseHit {
-  /** `root`-relative path of the file, in the caller's own spelling. */
-  readonly file: string;
-  /** The first matching host found in it. */
-  readonly host: string;
-  /** That host's catalog service label, used verbatim in messages. */
-  readonly service: string;
-}
+/** Script extensions worth reading in served frontend output. */
+const SCRIPT_FILE = /\.(js|mjs)$/;
 
 /**
- * Scan for inlined SDK fingerprints. Bounded: depth 4 per scanned directory,
- * 200 script files total, first hit per file.
- *
- * The host is reported alongside the file because the pre-flight check names
- * the service ("Cloud Firestore") rather than just the path.
+ * Scan `dir` for inlined SDK fingerprints and return the offending paths,
+ * relative to `dir`. Bounded: depth 4, 200 script files, first hit per file.
  */
-export function scanInlinedFirebaseHits(
-  root: string,
-  opts: InlinedScanOptions,
-): InlinedFirebaseHit[] {
-  const hits: InlinedFirebaseHit[] = [];
+export function scanForInlinedFirebase(dir: string): string[] {
+  const hits: string[] = [];
   let scanned = 0;
-  const walk = (dir: string, rel: string, depth: number): void => {
+  const walk = (current: string, rel: string, depth: number): void => {
     if (depth > MAX_DEPTH || scanned >= MAX_FILES) return;
-    let entries: Dirent[];
+    let names: string[];
     try {
-      entries = readdirSync(dir, { withFileTypes: true, encoding: 'utf8' });
+      names = readdirSync(current);
     } catch {
       return;
     }
-    for (const entry of entries) {
+    for (const name of names) {
       if (scanned >= MAX_FILES) return;
-      const name = entry.name;
-      const path = join(dir, name);
+      const path = join(current, name);
       const relPath = rel ? `${rel}/${name}` : name;
-      if (entry.isDirectory()) {
+      let stat;
+      try {
+        stat = statSync(path);
+      } catch {
+        continue;
+      }
+      if (stat.isDirectory()) {
         // The pyric namespace itself never lands in hosting.public, but a
         // node_modules inside a served dir would be a scan-cost trap.
-        // Dot-directories (.next, .git, .pyric) are internal caches and must
-        // be ignored. An explicitly requested dir is still scanned even when
-        // dot-prefixed: the caller named it, so it is a target, not an
-        // incidental cache.
+        // Dot-directories (.next, .git, .pyric) are internal caches.
         if (name === 'node_modules' || name.startsWith('.')) continue;
         walk(path, relPath, depth + 1);
         continue;
@@ -104,21 +69,9 @@ export function scanInlinedFirebaseHits(
       } catch {
         continue; // unreadable asset
       }
-      const host = opts.hosts.find((candidate) => text.includes(candidate));
-      if (host === undefined) continue;
-      hits.push({ file: relPath, host, service: lookupGoogleEndpoint(host)?.service ?? host });
+      if (SDK_FINGERPRINT_HOSTS.some((host) => text.includes(host))) hits.push(relPath);
     }
   };
-  if (opts.dirs === undefined) {
-    walk(root, '', 0);
-    return hits;
-  }
-  for (const sub of opts.dirs) {
-    const target = resolve(root, sub);
-    if (!existsSync(target)) continue;
-    // `rel` seeds with the caller's own spelling so hits read back as the path
-    // they asked about (`.next/server/chunk.js`).
-    walk(target, sub.replace(/[\\/]+$/, '').replace(/\\/g, '/'), 0);
-  }
+  walk(dir, '', 0);
   return hits;
 }
