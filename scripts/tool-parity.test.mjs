@@ -6,18 +6,30 @@
  * matrix silently shrinking.
  */
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   audit,
   enumerateMcp,
   enumeratePlayground,
   loadAnnotations,
+  MCP_COMPOSITION_FILE,
   renderMatrix,
+  REPO_ROOT,
 } from './tool-parity.mjs';
 
 describe('tool-parity extraction against the real codebase', () => {
   const mcp = enumerateMcp();
   const playground = enumeratePlayground();
   const { rows, staleAnnotations } = audit();
+
+  test('the freshness guard reads the file that names every MCP factory', () => {
+    // A guard pointed at a file that references no factory passes vacuously,
+    // so the target must be the side map that wires each family.
+    expect(MCP_COMPOSITION_FILE).toBe('packages/cli/src/bridge/server/tool-family-factories.ts');
+    const source = readFileSync(join(REPO_ROOT, MCP_COMPOSITION_FILE), 'utf8');
+    expect(source.match(/\bcreate[A-Z][A-Za-z]*Tool(?:s)?\b/g)?.length ?? 0).toBeGreaterThan(0);
+  });
 
   test('finds a sane minimum of tools overall', () => {
     // 78 at time of writing; a hard floor of 20 catches "extraction

@@ -1,8 +1,8 @@
 /**
  * Tool parity: the set the bridge ADVERTISES (`getSandboxToolMetadata`)
- * must equal the set the page peer EXECUTES (`SANDBOX_TOOL_NAMES`, derived
- * from the same factories as `buildSandboxDispatcher`). Both derive from
- * the simulator + data-plane + inspect factories.
+ * must equal the set the page peer EXECUTES (`SANDBOX_TOOL_NAMES`). The
+ * first is composed from the Node factory map, the second is read from the
+ * family records under `src/bridge/tool-family-records/`.
  *
  * A drift here is the "tool 'X' is not registered with the connected
  * sandbox peer" bug: the bridge lists a tool an agent can call, but the
