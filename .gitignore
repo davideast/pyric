@@ -86,15 +86,26 @@ pubspec.lock
 # Conformance run artifacts
 .conformance/
 
+# Gradle and Kotlin artifacts
+.gradle/
+**/.gradle/
+**/build/
+.kotlin/
+**/.kotlin/
+*.iml
+.idea/
+local.properties
+
 # Ephemeral agent session scratch files
-.agents/orchestrator_*
-.agents/sentinel_*
-.agents/teamwork_preview_*
-.agents/victory_auditor_*
-.agents/ORIGINAL_REQUEST.md
-.agents/PROJECT.md
+.agents/*/
+!.agents/skills/
+.agents/*.md
 BRIEFING.md
 ORIGINAL_REQUEST.md
+handoff.md
+TEST_INFRA.md
+TEST_READY.md
+
 # Swift and Xcode build artifacts
 .build/
 **/.build/
@@ -102,3 +113,4 @@ ORIGINAL_REQUEST.md
 *.xcworkspace
 DerivedData/
 examples/swift-todo-app/
+

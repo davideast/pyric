@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "firestore-kotlin",
+  "contractSource": "firebase-android-sdk/firebase-firestore",
+  "observationPrefixes": [
+    "firestore-kotlin-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Kotlin client conforming to com.google.firebase.firestore (Firebase Android SDK) via Pyric WebSocket bridge transport. Covers FirebaseFirestore instance/lifecycle, DocumentReference CRUD, query constraints and pagination, collection operations, real-time snapshot Flow streams, WriteBatch atomic mutations, Transaction concurrency, FieldValue sentinels, custom datatypes and codecs, and aggregation queries.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/kt-client/src/test/kotlin/dev/pyric/firestore/ConformanceTest.kt",
+  "climb": true,
+  "registry": "firestore-kotlin"
+}
