@@ -69,7 +69,8 @@ bash scripts/pack-packages.sh
 # can-i-use exit codes and both conformance subpaths (scripts/release-smoke.sh).
 bash scripts/release-smoke.sh "$V"
 
-PUBLISH_ARGS=(--tag alpha --access public)
+PUBLISH_TAG="${PYRIC_PUBLISH_TAG:-latest}"
+PUBLISH_ARGS=(--tag "$PUBLISH_TAG" --access public)
 if [ "$DRY_RUN" -eq 1 ]; then
   echo ""
   echo "━━━ npm authentication (read-only) ━━━"
@@ -98,6 +99,7 @@ fi
 
 for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
   npm dist-tag add "${p}@${V}" latest
+  npm dist-tag add "${p}@${V}" alpha
 done
 
 # ─── fb<major>.<minor> compatibility certificate ───────────────────────
