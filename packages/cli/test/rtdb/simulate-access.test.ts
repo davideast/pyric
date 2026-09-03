@@ -4,7 +4,7 @@ import { setData, setRules } from 'pyric/sandbox/database';
 
 import { buildSandboxDispatcher } from '../../src/bridge/client/dispatch.js';
 
-describe('rtdb_simulate_access', () => {
+describe('database_rules.simulate', () => {
   test('uses the sandbox current rules and data on every call', async () => {
     const sandbox = initializeSandbox();
     const dispatch = buildSandboxDispatcher(sandbox);
@@ -24,7 +24,7 @@ describe('rtdb_simulate_access', () => {
       },
     });
 
-    const denied = await dispatch('rtdb_simulate_access', {
+    const denied = await dispatch('database_rules', 'simulate', {
       operation: 'write',
       path: '/notes/n1',
       auth: { uid: 'alice' },
@@ -46,7 +46,7 @@ describe('rtdb_simulate_access', () => {
       },
     });
 
-    const allowed = await dispatch('rtdb_simulate_access', {
+    const allowed = await dispatch('database_rules', 'simulate', {
       operation: 'write',
       path: '/notes/n1',
       auth: { uid: 'alice' },

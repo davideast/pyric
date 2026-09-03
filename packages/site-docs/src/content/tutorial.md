@@ -272,7 +272,7 @@ Ask a connected agent to inspect the library rather than guess a helper name:
 
 > List the Standard Library functions for ownership, document validation, and update timing. Show their signatures and tests before using them.
 
-The agent uses `firestore_rules_stdlib_list` and `firestore_rules_stdlib_get`. Once our rules are assembled, `firestore_lint_rules` checks their syntax and Firebase limits. `firestore_simulate_rules` tests the actual boundary:
+The agent uses `rules_stdlib.list` and `rules_stdlib.get` with `service` set to `firestore`. Once our rules are assembled, `firestore_rules.lint` checks their syntax and Firebase limits. `firestore_rules.simulate` tests the actual boundary:
 
 ```text
 ALLOW  create conversations/c1 as alice
@@ -303,7 +303,7 @@ Documents: conversations 1
 Recent denial: bob tried to read conversations/c1
 ```
 
-Studio is the visual view. `sandbox_inspect` is the agent's view. Neither reads production data.
+Studio is the visual view. `sandbox.inspect` is the agent's view. Neither reads production data.
 
 ## Generate indexes without breaking a query
 
@@ -525,7 +525,7 @@ DENY   write /presence/alice as bob
 DENY   write /presence/alice as alice with state: "nearby"
 ```
 
-Use `rtdb_simulate_access` against the running sandbox for these checks. Pass the same constraints to `rtdbRules(...)` for in-process tests.
+Use `database_rules.simulate` against the running sandbox for these checks. Pass the same constraints to `rtdbRules(...)` for in-process tests.
 
 The current chat template still authors `database.rules.json` directly. Moving it to this constraints source is a follow-up; the rule behavior shown here is the target rather than a file the template already contains.
 

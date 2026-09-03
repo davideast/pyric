@@ -264,7 +264,7 @@ export function createFirestoreSimulatorTools(
           ok: result.allowed,
           summary: result.allowed
             ? `Batch of ${operations.length} op(s) committed`
-            : `Batch of ${operations.length} op(s) rejected by rules. To SEED data, use the admin data tool firestore_batch_write; to test rules, pass an auth the rules permit.`,
+            : `Batch of ${operations.length} op(s) rejected by rules. To SEED data, use the admin firestore_data tool with op batch_write; to test rules, pass an auth the rules permit.`,
           data: { allowed: result.allowed, results: result.results },
         };
       },
@@ -304,7 +304,7 @@ export function createFirestoreSimulatorTools(
           ok: result.allowed,
           summary: result.allowed
             ? `Created ${path}`
-            : `Create at ${path} denied by rules (as ${auth ? auth.uid : 'unauthenticated'}). To SEED data, use the admin data tool firestore_add_document; to test rules, pass an auth the rules permit.`,
+            : `Create at ${path} denied by rules (as ${auth ? auth.uid : 'unauthenticated'}). To SEED data, use the admin firestore_data tool with op add; to test rules, pass an auth the rules permit.`,
           data: {
             path,
             allowed: result.allowed,
@@ -334,7 +334,7 @@ export function createFirestoreSimulatorTools(
     {
       name: 'firestore_simulator_redo',
       description:
-        'Re-apply the most recently undone write. Pairs with `firestore_simulator_undo`. Returns the re-applied event, or `{ redone: false }` when the undo stack is empty (no recent undo to redo).',
+        'Re-apply the most recently undone write. Pairs with the undo operation. Returns the re-applied event, or `{ redone: false }` when the undo stack is empty (no recent undo to redo).',
       parameters: { type: 'object', properties: {} },
       async execute() {
         const env = await resolveSandbox();

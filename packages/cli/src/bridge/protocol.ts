@@ -82,7 +82,10 @@ export interface HelloFromClient {
   type: 'hello';
   /** Protocol version. Bump if the wire format changes incompatibly. */
   protocol: 1;
-  /** Tool names the browser can dispatch. Bridge uses this to size MCP tool surface. */
+  /**
+   * `tool.op` keys the browser can execute. The bridge forwards only these;
+   * every other operation of a listed tool fails before reaching the peer.
+   */
   tools: string[];
   /** Stable identifier for this sandbox session (for audit log). */
   sandboxId: string;
@@ -108,9 +111,11 @@ export interface ToolCallRequest {
   type: 'tool-call';
   /** Correlation id — browser must echo in `ToolCallResponse`. */
   id: string;
-  /** Tool name (e.g. `firestore_simulator_create`). */
+  /** Tool name (e.g. `firestore_data`). */
   name: string;
-  /** Tool arguments (JSON-serializable). */
+  /** Operation of the tool (e.g. `get`). */
+  op: string;
+  /** Operation arguments (JSON-serializable), without `op`. */
   args: Record<string, unknown>;
 }
 

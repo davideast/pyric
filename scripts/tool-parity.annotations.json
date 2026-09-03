@@ -1,7 +1,7 @@
 {
-  "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every tool visible on either surface (MCP bridge / playground agent) must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`. Seeded from docs/design/TOOL-SYSTEM.md's exposure matrix.",
+  "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every row visible on either surface (an MCP `tool.op`, or a playground-only tool) must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`. Seeded from docs/design/TOOL-SYSTEM.md's exposure matrix.",
   "tools": {
-    "pyric_can_i_use": {
+    "pyric.can_i_use": {
       "decision": "deliberate",
       "reason": "Shared MCP and Playground trust query; the CLI/MCP retain full claims while the browser receives only the measured compact projection"
     },
@@ -13,23 +13,23 @@
       "decision": "deliberate",
       "reason": "Playground orchestration wrapper; external agents compose the MCP rules and inspection primitives directly"
     },
-    "firestore_add_document": {
+    "firestore_data.add": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
-    "firestore_batch_write": {
+    "firestore_data.batch_write": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
-    "firestore_create_document": {
+    "firestore_data.set": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
-    "firestore_create_with_auto_id": {
+    "firestore_simulator.add": {
       "decision": "deliberate",
       "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
     },
-    "firestore_delete_document": {
+    "firestore_data.delete": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
@@ -37,99 +37,95 @@
       "decision": "deliberate",
       "reason": "artifact generation is exposed through `pyric firestore indexes generate`; external agents can invoke the CLI without a duplicate MCP tool"
     },
-    "firestore_get_document": {
+    "firestore_data.get": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
-    "firestore_lint_rules": {
+    "firestore_rules.lint": {
       "decision": "deliberate",
       "reason": "local MCP rules primitive; the Playground reaches linting through its native authoring workflow rather than a duplicate top-level handler"
     },
-    "firestore_list_documents": {
+    "firestore_data.list": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
-    "firestore_query_where": {
+    "firestore_data.query": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_resolve_modules": {
-      "decision": "deliberate",
-      "reason": "local MCP rules primitive; the Playground resolves modules inside its native authoring and write workflow"
     },
     "firestore_rules_stdlib_get": {
       "decision": "deliberate",
-      "reason": "intentionally shared rules-authoring reference across MCP and Playground"
+      "reason": "Firestore-only spelling kept by the Playground registry; MCP serves rules_stdlib.list and rules_stdlib.get with service firestore"
     },
     "firestore_rules_stdlib_list": {
       "decision": "deliberate",
-      "reason": "intentionally shared rules-authoring reference across MCP and Playground"
+      "reason": "Firestore-only spelling kept by the Playground registry; MCP serves rules_stdlib.list and rules_stdlib.get with service firestore"
     },
-    "rules_stdlib_get": {
+    "rules_stdlib.get": {
       "decision": "deliberate",
       "reason": "service-aware rules-authoring reference intentionally shared across MCP and Playground"
     },
-    "rules_stdlib_list": {
+    "rules_stdlib.list": {
       "decision": "deliberate",
       "reason": "service-aware rules-authoring reference intentionally shared across MCP and Playground"
     },
-    "rules_resolve_modules": {
+    "firestore_rules.resolve": {
       "decision": "deliberate",
-      "reason": "local MCP Rules primitive; the Playground resolves modules inside its native authoring and write workflow"
+      "reason": "local MCP Rules primitive pinned to Firestore; the Playground resolves modules inside its native authoring and write workflow"
     },
-    "firestore_simulate_rules": {
+    "storage_rules.resolve": {
+      "decision": "deliberate",
+      "reason": "local MCP Rules primitive pinned to Cloud Storage; the Playground resolves modules inside its native authoring and write workflow"
+    },
+    "firestore_rules.simulate": {
       "decision": "deliberate",
       "reason": "local MCP rules primitive; the Playground reaches simulation through its diagnostic workflow rather than a duplicate top-level handler"
     },
-    "firestore_simulator_batch": {
+    "firestore_simulator.batch": {
       "decision": "deliberate",
       "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
     },
-    "firestore_simulator_create": {
+    "firestore_simulator.create": {
       "decision": "deliberate",
       "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
     },
-    "firestore_simulator_events": {
+    "firestore_simulator.events": {
       "decision": "deliberate",
       "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
     },
-    "firestore_simulator_execute": {
+    "firestore_simulator.execute": {
       "decision": "deliberate",
       "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
     },
-    "firestore_simulator_read": {
+    "firestore_simulator.read": {
       "decision": "deliberate",
       "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
     },
-    "firestore_simulator_redo": {
+    "firestore_simulator.redo": {
       "decision": "deliberate",
       "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
     },
-    "firestore_simulator_transaction": {
+    "firestore_simulator.transaction": {
       "decision": "deliberate",
       "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
     },
-    "firestore_simulator_undo": {
+    "firestore_simulator.undo": {
       "decision": "deliberate",
       "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
     },
-    "firestore_test_rules": {
-      "decision": "gap",
-      "reason": "Rules Test API verification is allowed but is not in the default credential-free MCP contract; it needs an explicit credential-aware adapter"
-    },
-    "firestore_update_document": {
+    "firestore_data.update": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
     "inspect_auth_users": {
       "decision": "deliberate",
-      "reason": "Playground session-inspection affordance; the default MCP contract currently exposes only ratified attached-sandbox tool families"
+      "reason": "Playground session-inspection affordance; the default MCP contract currently exposes only ratified attached-sandbox tools"
     },
-    "rtdb_crawl_structure": {
+    "database_data.crawl": {
       "decision": "deliberate",
       "reason": "bounded attached-sandbox inspection belongs in MCP; the Playground reads its own session state directly"
     },
-    "rtdb_simulate_access": {
+    "database_rules.simulate": {
       "decision": "deliberate",
       "reason": "attached-sandbox rules inspection belongs in MCP; the Playground uses its own session rules engine"
     },
@@ -141,7 +137,7 @@
       "decision": "deliberate",
       "reason": "Playground session-navigation affordance; MCP already exposes bounded list, query, and inspect primitives"
     },
-    "sandbox_inspect": {
+    "sandbox.inspect": {
       "decision": "deliberate",
       "reason": "attached-sandbox diagnostic belongs in MCP; the Playground observes its session state directly"
     },
@@ -171,7 +167,7 @@
     },
     "simulate_firestore_write": {
       "decision": "deliberate",
-      "reason": "ok per TOOL-SYSTEM.md — exposed via bridge rules tools (firestore_simulate_rules) and the playground diagnostic; verify arg parity between the two implementations"
+      "reason": "ok per TOOL-SYSTEM.md — exposed via bridge rules tools (firestore_rules.simulate) and the playground diagnostic; verify arg parity between the two implementations"
     },
     "list_files": {
       "decision": "deliberate",

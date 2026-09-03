@@ -251,7 +251,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
     {
       name: 'rules_stdlib_get',
       description:
-        'Get one Security Rules Standard Library module for a specific service, including exact function signatures, examples, notes, and the import line. Use a key returned by rules_stdlib_list.',
+        'Get one Security Rules Standard Library module for a specific service, including exact function signatures, examples, notes, and the import line. Use a key returned by the list operation.',
       parameters: {
         type: 'object',
         properties: {
@@ -261,7 +261,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
           },
           key: {
             type: 'string',
-            description: 'Exact module key returned by rules_stdlib_list.',
+            description: 'Exact module key returned by the list operation.',
           },
         },
         required: ['service', 'key'],

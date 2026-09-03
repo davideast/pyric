@@ -106,7 +106,7 @@ Each hosted call is one HTTP round-trip, tens to hundreds of milliseconds. The s
 
 ## Run the suite through an agent
 
-An agent can run the local loop through `firestore_simulate_rules`, which means the rules it writes can arrive with explicit passing cases instead of a promise. See [Work with an agent](../agent/work-with-an-agent.md).
+An agent can run the local loop through `firestore_rules.simulate`, which means the rules it writes can arrive with explicit passing cases instead of a promise. See [Work with an agent](../agent/work-with-an-agent.md).
 
 ## Where to go next
 

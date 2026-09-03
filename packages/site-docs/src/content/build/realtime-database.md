@@ -92,7 +92,7 @@ sandbox swap.
 
 ## And from an agent
 
-Ask an MCP-connected agent to inventory the reads your application performs, then inspect the local tree with `rtdb_crawl_structure`. [Work with an agent](../agent/work-with-an-agent.md) gives a complete RTDB task prompt, and [Set up your agent](../agent/set-up-your-agent.md) explains the browser bridge.
+Ask an MCP-connected agent to inventory the reads your application performs, then inspect the local tree with `database_data.crawl`. [Work with an agent](../agent/work-with-an-agent.md) gives a complete RTDB task prompt, and [Set up your agent](../agent/set-up-your-agent.md) explains the browser bridge.
 
 ## Where to go next
 

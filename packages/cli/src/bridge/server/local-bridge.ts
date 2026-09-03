@@ -5,8 +5,8 @@
  * to the in-page sandbox. The headless server has no page: the sandbox runs IN
  * this process, so the bridge's `dispatch` executes tools directly through
  * `buildSandboxDispatcher`. Everything else the `Bridge` contract needs is
- * trivial for a peerless bridge (always "connected", with the tool set from
- * the dispatcher's `SANDBOX_TOOL_NAMES`).
+ * trivial for a peerless bridge (always "connected", with the operation set
+ * from the dispatcher's `SANDBOX_OP_KEYS`).
  *
  * Because `buildSandboxDispatcher` is the SAME source the served bridge
  * advertises (pinned by `tool-parity.test.ts`), the headless tool surface is
@@ -15,7 +15,7 @@
  * See design rationale (headless mode).
  */
 import type { LocalSandbox } from 'pyric/sandbox';
-import { buildSandboxDispatcher, SANDBOX_TOOL_NAMES } from '../client/dispatch.js';
+import { buildSandboxDispatcher, SANDBOX_OP_KEYS } from '../client/dispatch.js';
 import { createBridge, type Bridge } from './bridge.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
 
@@ -45,17 +45,17 @@ export function createLocalBridge(sandbox: LocalSandbox, opts: LocalBridgeOption
   });
   return {
     ...base,
-    // The sandbox is in-process: always "connected", and the tool set is the
-    // dispatcher's, not a (nonexistent) peer's hello.
+    // The sandbox is in-process: always "connected", and the operation set is
+    // the dispatcher's, not a (nonexistent) peer's hello.
     isSandboxConnected: () => true,
-    toolNames: () => [...SANDBOX_TOOL_NAMES],
+    opKeys: () => [...SANDBOX_OP_KEYS],
     // Execute tools locally instead of forwarding to a ws peer. The bridge
     // contract RETURNS a result (ok:false on failure) rather than rejecting, and
     // `buildSandboxDispatcher` throws on a tool error (e.g. a rules denial), so
     // translate that here.
-    async dispatch(name, args) {
+    async dispatch(tool, op, args) {
       try {
-        return await dispatcher(name, args);
+        return await dispatcher(tool, op, args);
       } catch (e) {
         return { ok: false, summary: e instanceof Error ? e.message : String(e) };
       } finally {

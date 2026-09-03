@@ -686,7 +686,7 @@ describe('attachPeer — malformed hello', () => {
     });
 
     expect(bridge.isSandboxConnected()).toBe(true);
-    expect(bridge.toolNames()).toEqual([]); // coerced to empty
+    expect(bridge.opKeys()).toEqual([]); // coerced to empty
     expect((ws.sent[0] as { type: string }).type).toBe('hello-ack');
 
     // Worker ops fail legibly (no relay capability), not with a crash.

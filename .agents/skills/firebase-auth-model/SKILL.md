@@ -16,9 +16,9 @@ profile data, and rule behavior — not just SDK call names.
    and any service/admin actors. Complete when every access boundary has a
    named identity.
 
-2. **Choose provider flows.** Check what is enabled with `auth_get_config`;
-   enable or adjust providers with `auth_configure_provider` and authorized
-   domains with `auth_manage_domains`. Complete when every provider in the
+2. **Choose provider flows.** Check what is enabled with `auth.get_config`;
+   enable or adjust providers with `auth.configure_provider` and authorized
+   domains with `auth.manage_domains`. Complete when every provider in the
    model has a creation, sign-in, and error path.
 
 3. **Design auth state.** Auth-state observation is the source of truth;
@@ -39,15 +39,15 @@ profile data, and rule behavior — not just SDK call names.
 
 6. **Plan fixtures.** Define test users — UIDs, providers, claims, disabled
    state — and the profile/membership docs each rule branch needs. Seed the
-   documents with `firestore_add_document` / `firestore_batch_write` (or
-   `rtdb_set`). Complete when each rule branch has a matching identity
+   documents with `firestore_data.add` / `firestore_data.batch_write` (or
+   `database_data.set`). Complete when each rule branch has a matching identity
    fixture.
 
 7. **Verify auth-dependent rules.** Exercise signed-out, owner, other-user,
    member, claim-holder, invalid-claim, missing-profile, and disabled cases
-   with `firestore_simulate_rules` (set the auth context per case) and a
-   `firestore_test_rules` suite — `pyric_derive_rules_test_cases` generates
-   the case list; use `rtdb_simulate_access` for RTDB paths. Complete when
+   with `firestore_rules.simulate` (set the auth context per case) and a
+   `firestore_rules.test` suite — `pyric.verify_cases` generates
+   the case list; use `database_rules.simulate` for RTDB paths. Complete when
    the answer names verified behavior and remaining unverified assumptions.
 
 ## Reference — auth design rules

@@ -43,7 +43,7 @@ import {
   PEER_REPLACED_CLOSE_CODE,
   WORKER_RELAY_CAPABILITY,
 } from '../protocol.js';
-import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from './dispatch.js';
+import { dispatchSandboxTool, SANDBOX_OP_KEYS } from './dispatch.js';
 
 export interface ConnectBridgeOptions {
   /**
@@ -63,11 +63,11 @@ export interface ConnectBridgeOptions {
    */
   dispatcher?: SandboxToolDispatcher;
   /**
-   * Tool names to advertise to the bridge in the hello message.
-   * Defaults to `SANDBOX_TOOL_NAMES`. Override when supplying a
-   * custom dispatcher.
+   * `tool.op` keys to advertise to the bridge in the hello message.
+   * Defaults to `SANDBOX_OP_KEYS`. Override when supplying a custom
+   * dispatcher.
    */
-  toolNames?: string[];
+  ops?: string[];
   /** Initial reconnect delay in ms (default 500). */
   initialReconnectDelayMs?: number;
   /** Max reconnect delay in ms (default 30_000). */
@@ -126,11 +126,11 @@ export type ConnectedBridgeState =
 
 export interface SandboxToolDispatcher {
   /**
-   * Dispatch a tool call. Throws if the tool isn't recognised
-   * (the bridge advertises only what this dispatcher reports it
-   * can handle, so unknowns indicate wire-level drift).
+   * Dispatch one operation of a tool. Throws if the pair isn't recognised
+   * (the bridge forwards only what this dispatcher reports it can handle,
+   * so unknowns indicate wire-level drift).
    */
-  (sandbox: LocalSandbox, name: string, args: Record<string, unknown>): Promise<{
+  (sandbox: LocalSandbox, tool: string, op: string, args: Record<string, unknown>): Promise<{
     ok: boolean;
     summary: string;
     data?: unknown;
@@ -162,7 +162,7 @@ export function connectBridge(
   const url = resolveBridgeUrl(opts.url);
   const sandboxId = opts.sandboxId ?? randomId();
   const dispatcher = opts.dispatcher ?? dispatchSandboxTool;
-  const toolNames = opts.toolNames ?? [...SANDBOX_TOOL_NAMES];
+  const ops = opts.ops ?? [...SANDBOX_OP_KEYS];
   const initialDelay = opts.initialReconnectDelayMs ?? DEFAULT_INITIAL_DELAY;
   const maxDelay = opts.maxReconnectDelayMs ?? DEFAULT_MAX_DELAY;
   const noReconnect = opts.noReconnect ?? false;
@@ -231,7 +231,7 @@ export function connectBridge(
       const hello: HelloFromClient = {
         type: 'hello',
         protocol: 1,
-        tools: toolNames,
+        tools: ops,
         sandboxId,
         ...(workerRelay ? { capabilities: [WORKER_RELAY_CAPABILITY] } : {}),
       };
@@ -308,7 +308,7 @@ export function connectBridge(
   async function handleToolCall(req: ToolCallRequest) {
     let response: ToolCallResponse;
     try {
-      const result = await dispatcher(sandbox, req.name, req.args ?? {});
+      const result = await dispatcher(sandbox, req.name, req.op, req.args ?? {});
       response = {
         type: 'tool-result',
         id: req.id,

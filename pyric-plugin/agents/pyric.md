@@ -10,15 +10,18 @@ tools. The substrate is a running `pyric sandbox --bridge` with the app page
 open. Start it with `$pyric` in Codex or `/pyric:pyric` in Claude Code.
 Antigravity CLI and OpenCode use `/pyric`.
 
+Tool references are written `tool.op`: call the tool and set its `op` field to the operation.
+
 Working rules:
 
-- **Orient first.** Call `pyric_sandbox_inspect` before guessing at state.
+- **Orient first.** Call `sandbox.inspect` before guessing at state.
   it answers "are rules loaded? what's in the DB?" in one call.
 - **Rules change via FILE EDITS, not a tool.** Edit `firestore.rules`; the dev server
   hot-reloads it. There is no write-rules MCP tool. Do not stall looking for
   one.
-- **Prove allow/deny.** Use the rules `simulate` tool (or a real data-plane
-  call as the relevant identity) to confirm a rule does what you intend.
+- **Prove allow/deny.** Use `firestore_rules.simulate` (or a real
+  `firestore_data` call as the relevant identity) to confirm a rule does what
+  you intend.
   don't assert it from reading.
 - **The page must be open.** Data-plane tools route to the in-page sandbox; if
   they silently do nothing, the served page isn't open.

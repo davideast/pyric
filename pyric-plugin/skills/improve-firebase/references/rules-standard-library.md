@@ -7,18 +7,13 @@ tested policy building blocks and the data they expect.
 ## Workflow
 
 1. Choose the service: `firestore` or `storage`.
-2. Call `rules_stdlib_list({ service })` when available.
-3. Call `rules_stdlib_get({ service, key })` for every candidate module.
+2. Call `rules_stdlib.list` with `service`.
+3. Call `rules_stdlib.get` with `service` and `key` for every candidate module.
 4. Confirm exact signatures and service compatibility before shaping fields,
    metadata, paths, or allow conditions.
 5. Import the selected functions from the modular source. Never copy their
    bodies into project Rules.
 6. Resolve the modular source and test the generated version 2 artifact.
-
-Older Pyric versions may expose only `firestore_rules_stdlib_list`,
-`firestore_rules_stdlib_get`, and `firestore_resolve_modules`. Use those
-aliases for Firestore. For Storage, use this reference when the installed
-catalog cannot filter by service; do not invent unavailable commands.
 
 ## Source and artifact contract
 

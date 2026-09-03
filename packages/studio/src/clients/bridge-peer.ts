@@ -72,7 +72,7 @@ export interface StudioBridgePeerOptions {
 export function studioBridgePeerOptions(db: ClientDb, url: string): ConnectBridgeOptions {
   return {
     url,
-    dispatcher: (_sandbox, name, args) => callTool(db, name, args),
+    dispatcher: (_sandbox, tool, op, args) => callTool(db, tool, op, args),
     workerRelay: {
       op: (op) => relayWorkerOp(db, op),
       subscribe: (sub, onValue) => relayWorkerSub(db, sub, onValue),

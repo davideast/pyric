@@ -87,7 +87,7 @@ A hallucinated method is always an error, because the named method literally doe
 
 ## Correct Rules through an agent
 
-This is the loop that keeps an agent honest. It calls `firestore_lint_rules` on the rules it wrote, reads the fixes in the warnings, and corrects itself before anything deploys. Then `firestore_simulate_rules` confirms the behavior. [Work with an agent](../agent/work-with-an-agent.md) shows the task prompts that drive this loop.
+This is the loop that keeps an agent honest. It calls `firestore_rules.lint` on the rules it wrote, reads the fixes in the warnings, and corrects itself before anything deploys. Then `firestore_rules.simulate` confirms the behavior. [Work with an agent](../agent/work-with-an-agent.md) shows the task prompts that drive this loop.
 
 ## Where to go next
 

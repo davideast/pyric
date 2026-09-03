@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-import { DEFAULT_MCP_TOOL_NAMES } from '../src/bridge/server/mcp-contract.js';
+import { DEFAULT_MCP_OP_KEYS, DEFAULT_MCP_TOOL_NAMES } from '../src/bridge/server/mcp-contract.js';
 
 interface ReleaseContract {
   schema: 'pyric.cli.release-contract.v1';
@@ -11,6 +11,7 @@ interface ReleaseContract {
   exports: string[];
   removedExports: string[];
   mcpTools: string[];
+  mcpOps: string[];
 }
 
 const workspaceRoot = join(import.meta.dir, '../../..');
@@ -51,8 +52,10 @@ describe('ratified @pyric/cli release contract', () => {
     for (const removed of contract.removedExports) expect(actual).not.toContain(removed);
   });
 
-  it('pins the ratified 29-tool MCP inventory independently of its implementation', () => {
-    expect(contract.mcpTools).toHaveLength(29);
+  it('pins the ratified nine-tool, 27-operation MCP inventory independently of its implementation', () => {
+    expect(contract.mcpTools).toHaveLength(9);
+    expect(contract.mcpOps).toHaveLength(27);
     expect([...DEFAULT_MCP_TOOL_NAMES].sort()).toEqual([...contract.mcpTools].sort());
+    expect([...DEFAULT_MCP_OP_KEYS].sort()).toEqual([...contract.mcpOps].sort());
   });
 });

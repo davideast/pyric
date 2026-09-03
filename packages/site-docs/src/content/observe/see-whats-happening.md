@@ -68,7 +68,7 @@ Two things to know before you ship one:
 
 ## Inspect the backend through an agent
 
-An agent doesn't scroll a panel. It calls `sandbox_inspect` and gets the current rules, a lint summary, a document census, and the recent requests and denials in one response. That one call replaced a debugging session that once took fifty-one tool calls. See [Set up your agent](../agent/set-up-your-agent.md).
+An agent doesn't scroll a panel. It calls `sandbox.inspect` and gets the current rules, a lint summary, a document census, and the recent requests and denials in one response. That one call replaced a debugging session that once took fifty-one tool calls. See [Set up your agent](../agent/set-up-your-agent.md).
 
 ## Where to go next
 
