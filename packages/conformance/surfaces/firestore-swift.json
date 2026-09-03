@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "firestore-swift",
+  "contractSource": "FirebaseFirestore",
+  "observationPrefixes": [
+    "firestore-swift-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Swift client conforming to FirebaseFirestore public API via Pyric WebSocket bridge transport. Covers document reference CRUD, query constraint compilation, real-time snapshot listeners, collection references, FieldValue sentinels, transactions, and write batches.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/swift-client/Tests/PyricFirestoreTests/ConformanceTests.swift",
+  "climb": true,
+  "registry": "firestore-swift"
+}
