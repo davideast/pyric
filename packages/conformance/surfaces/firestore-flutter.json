@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "firestore-flutter",
+  "contractSource": "cloud_firestore_platform_interface",
+  "observationPrefixes": [
+    "firestore-flutter-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Flutter client conforming to cloud_firestore_platform_interface via Pyric WebSocket bridge transport. Covers document reference CRUD, query constraint compilation, real-time snapshot listeners, collection references, FieldValue sentinels, transactions, and write batches.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/flutter-client/test/conformance_test.dart",
+  "climb": true,
+  "registry": "firestore-flutter"
+}

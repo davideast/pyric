@@ -36,7 +36,7 @@
  * mapped testcase and none failed, RED when any mapped testcase failed, and
  * UNMAPPED when the suite has no assertion set for it yet.
  */
-import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -128,7 +128,7 @@ function unescapeXml(value: string): string {
 }
 
 function attr(tag: string, name: string): string {
-  const match = tag.match(new RegExp(`${name}="([^"]*)"`));
+  const match = tag.match(new RegExp(`\\b${name}="([^"]*)"`));
   return match ? unescapeXml(match[1]) : '';
 }
 
@@ -243,7 +243,25 @@ export function classifyRows(rows: RowInput[], testcases: TestCase[]): Classific
   };
 }
 
-function runSuite(suitePath: string, xmlOut: string): { outcome: SuiteOutcome; stderr: string } {
+function runSuite(
+  suitePath: string,
+  xmlOut: string,
+  descriptor?: (typeof surfaceDescriptors)[number],
+): { outcome: SuiteOutcome; stderr: string } {
+  if (suitePath.endsWith('.dart') || descriptor?.surface === 'firestore-flutter') {
+    const runnerScript = join(REPO_ROOT, 'scripts/run-flutter-conformance.sh');
+    const result = spawnSync('bash', [runnerScript, suitePath, xmlOut], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, PYRIC_CLIMB: '1' },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (result.status === 0 && existsSync(xmlOut) && statSync(xmlOut).size > 0) {
+      return { outcome: 'ran', stderr: result.stderr ?? '' };
+    }
+    return { outcome: 'errored', stderr: result.stderr ?? '' };
+  }
+
   const result = spawnSync('bun', ['test', suitePath, '--reporter=junit', `--reporter-outfile=${xmlOut}`], {
     cwd: REPO_ROOT,
     env: { ...process.env, PYRIC_CLIMB: '1' },
@@ -253,7 +271,7 @@ function runSuite(suitePath: string, xmlOut: string): { outcome: SuiteOutcome; s
   // bun exits nonzero both when the suite has failing tests (expected here) and
   // when it cannot run at all. The written XML is the discriminator: a suite that
   // ran produces it; a load/compile error produces none.
-  if (existsSync(xmlOut)) return { outcome: 'ran', stderr: result.stderr ?? '' };
+  if (existsSync(xmlOut) && statSync(xmlOut).size > 0) return { outcome: 'ran', stderr: result.stderr ?? '' };
   return { outcome: 'errored', stderr: result.stderr ?? '' };
 }
 
@@ -306,7 +324,7 @@ function evaluateSurface(descriptor: (typeof surfaceDescriptors)[number], tmpDir
   }
 
   const xmlOut = join(tmpDir, `${descriptor.surface}.xml`);
-  const { outcome, stderr } = runSuite(suite, xmlOut);
+  const { outcome, stderr } = runSuite(suite, xmlOut, descriptor);
 
   if (outcome === 'errored') {
     // The suite exists but could not run (import/compile error). It verified
@@ -344,6 +362,37 @@ function evaluateSurface(descriptor: (typeof surfaceDescriptors)[number], tmpDir
   }
 
   const testcases = parseJUnit(readFileSync(xmlOut, 'utf8'));
+  const loadError = testcases.find((t) => !t.passed && t.name.startsWith('loading '));
+  if (loadError || testcases.length === 0) {
+    const rowResults: RowResult[] = rows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      expectedGreen: expectedGreenIds.has(r.id),
+      verdict: 'unmapped',
+      tests: 0,
+      failed: 0,
+      regressed: false,
+    }));
+    return {
+      ...base,
+      suiteOutcome: 'errored',
+      greenRows: 0,
+      redRows: 0,
+      unmappedRows: rows.length,
+      testsTotal: 0,
+      testsPassed: 0,
+      testsFailed: 0,
+      unkeyedTests: 0,
+      unkeyedFailures: 0,
+      rows: rowResults,
+      regressions: [],
+      unguarded: rowResults.filter((r) => r.expectedGreen),
+      flipCandidates: [],
+      overclaims: expectedGreenIds.size !== 0,
+      note: loadError ? `suite failed to compile or load: ${loadError.name}` : 'suite produced no test cases',
+    };
+  }
+
   const classified = classifyRows(rows, testcases);
   const { greenRows, redRows, unmappedRows, regressions, unguarded } = classified;
   const testsTotal = testcases.length;

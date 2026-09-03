@@ -1,0 +1,26 @@
+name: pyric_firestore
+description: Pyric Firestore client conforming to cloud_firestore_platform_interface.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.27.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cloud_firestore_platform_interface: ^8.0.7
+  plugin_platform_interface: ^2.1.8
+  web_socket_channel: ^3.0.3
+  async: ^2.11.0
+  meta: ^1.12.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  test: ^1.25.0
+  firebase_core: ^4.14.0
+  firebase_core_platform_interface: ^8.1.1
+  stream_channel: ^2.1.2
+  flutter_lints: ^5.0.0

@@ -73,3 +73,24 @@ packages/site-docs/.astro/
 **/.impeccable/hook.*.json
 **/.impeccable/live/
 .agents/skills/impeccable/
+
+# Dart and Flutter artifacts
+.dart_tool/
+**/.dart_tool/
+.packages
+**/.packages
+pubspec.lock
+**/pubspec.lock
+# Conformance run artifacts
+.conformance/
+
+# Ephemeral agent session scratch files
+.agents/orchestrator_*
+.agents/sentinel_*
+.agents/teamwork_preview_*
+.agents/victory_auditor_*
+.agents/ORIGINAL_REQUEST.md
+.agents/PROJECT.md
+BRIEFING.md
+ORIGINAL_REQUEST.md
+

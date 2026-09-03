@@ -2,6 +2,7 @@ import { aiRegistry } from './ai.ts';
 import { appRegistry } from './app.ts';
 import { authRegistry } from './auth.ts';
 import { firestoreRegistry } from './firestore.ts';
+import { firestoreFlutterRegistry } from './firestore-flutter.ts';
 import { functionsRtdbRegistry } from './functions-rtdb.ts';
 import { messagingRegistry } from './messaging.ts';
 import { rtdbRegistry } from './rtdb.ts';
@@ -17,7 +18,18 @@ import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts'
  * order below is the doc order every consumer inherits — keep it stable.
  */
 export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Object.fromEntries(
-  [appRegistry, aiRegistry, authRegistry, firestoreRegistry, rtdbRegistry, storageRegistry, messagingRegistry, functionsRtdbRegistry, rulesRegistry].map((r) => [r.surface, r]),
+  [
+    appRegistry,
+    aiRegistry,
+    authRegistry,
+    firestoreRegistry,
+    rtdbRegistry,
+    storageRegistry,
+    messagingRegistry,
+    functionsRtdbRegistry,
+    rulesRegistry,
+    firestoreFlutterRegistry,
+  ].map((r) => [r.surface, r]),
 );
 
 /** One registry per generated COMPAT.md doc (shared registries deduped, in doc order). */

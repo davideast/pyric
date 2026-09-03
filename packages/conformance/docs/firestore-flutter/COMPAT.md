@@ -1,0 +1,149 @@
+<!-- Generated from the conformance model (registry rows + surface contracts). Do not edit by hand; run bun run compat:generate. -->
+
+# Flutter Cloud Firestore integration compatibility
+
+<div class="compat-stat">
+<p class="compat-stat-surface">This page tracks an integration contract: unchanged Firebase code run through a Pyric runtime seam, so there is no separate Firebase public API to measure. The rows below are its signed behavior inventory.</p>
+</div>
+
+
+## Status legend
+
+| Status | Meaning |
+|---|---|
+| ✓ | **Conforming** — containerized Dart test matches platform interface under replay |
+| ? | **Unverified** — platform interface behavior not yet verified in container |
+
+## `FirebaseFirestorePlatform` — instance & lifecycle
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| FirebaseFirestorePlatform.instance |  | Returns the default platform instance registered via PlatformInterface. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L276) assertion set `firestore-flutter#1`. | 1 |
+| FirebaseFirestorePlatform.instanceFor(app, databaseId) |  | Provides isolated platform instances distinguished by FirebaseApp and database ID. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L280) assertion set `firestore-flutter#2`. | 2 |
+| FirebaseFirestorePlatform.settings |  | Configures host, sslEnabled, persistenceEnabled, and cacheSizeBytes. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L299) assertion set `firestore-flutter#3`. | 3 |
+| FirebaseFirestorePlatform.doc(path) |  | Instantiates a DocumentReferencePlatform pointing to the slash-delimited path. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L312) assertion set `firestore-flutter#4`. | 4 |
+| FirebaseFirestorePlatform.collection(path) |  | Instantiates a CollectionReferencePlatform pointing to the slash-delimited path. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L319) assertion set `firestore-flutter#5`. | 5 |
+| FirebaseFirestorePlatform.collectionGroup(collectionId) |  | Instantiates a QueryPlatform spanning all collections with the specified collectionId. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L326) assertion set `firestore-flutter#6`. | 6 |
+| FirebaseFirestorePlatform.writeBatch() |  | Instantiates a WriteBatchPlatform for atomic batched mutations. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L333) assertion set `firestore-flutter#7`. | 7 |
+| FirebaseFirestorePlatform.runTransaction(handler, {timeout, maxAttempts}) |  | Runs interactive transaction handler with automatic conflict retries. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L339) assertion set `firestore-flutter#8`. | 8 |
+| FirebaseFirestorePlatform.clearPersistence() |  | Clears offline client persistence cache when no active listeners exist. | ? | cloud_firestore_platform_interface specification; unverified locally. | 9 |
+| FirebaseFirestorePlatform.enableNetwork() / disableNetwork() |  | Toggles client network connectivity to simulate offline operation. | ? | cloud_firestore_platform_interface specification; unverified locally. | 10 |
+| FirebaseFirestorePlatform.terminate() |  | Terminates the platform client, unsubscribing all active snapshot streams. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L359) assertion set `firestore-flutter#11`. | 11 |
+| FirebaseFirestorePlatform.waitForPendingWrites() |  | Resolves when all locally initiated writes have been committed by the server. | ? | cloud_firestore_platform_interface specification; unverified locally. | 12 |
+| FirebaseFirestorePlatform.snapshotsInSync() |  | Emits an event when all active listeners have caught up to the same state. | ? | cloud_firestore_platform_interface specification; unverified locally. | 13 |
+
+## `DocumentReferencePlatform` — document operations
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| DocumentReferencePlatform.get(options) |  | Reads a single document snapshot from server or cache based on GetOptions. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L375) assertion set `firestore-flutter#14`. | 14 |
+| DocumentReferencePlatform.set(data) |  | Overwrites target document completely with provided map payload. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L383) assertion set `firestore-flutter#15`. | 15 |
+| DocumentReferencePlatform.set(data, SetOptions(merge: true)) |  | Merges payload fields into existing document without overwriting unspecified fields. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L391) assertion set `firestore-flutter#16`. | 16 |
+| DocumentReferencePlatform.update(data) |  | Updates specified fields in an existing document; fails if document does not exist. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L401) assertion set `firestore-flutter#17`. | 17 |
+| DocumentReferencePlatform.delete() |  | Deletes document at reference path from Firestore database. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L410) assertion set `firestore-flutter#18`. | 18 |
+| DocumentReferencePlatform.collection(subPath) |  | Returns a child CollectionReferencePlatform nested under this document. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L417) assertion set `firestore-flutter#19`. | 19 |
+| DocumentReferencePlatform.snapshots(options) |  | Returns a broadcast Stream emitting DocumentSnapshotPlatform on document changes. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L423) assertion set `firestore-flutter#20`. | 20 |
+
+## `QueryPlatform` — filters & constraints
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| QueryPlatform.where(field, isEqualTo: value) |  | Filters documents matching exact field equality. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L435) assertion set `firestore-flutter#21`. | 21 |
+| QueryPlatform.where(field, isNotEqualTo: value) |  | Filters documents where field does not equal specified value. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L441) assertion set `firestore-flutter#22`. | 22 |
+| QueryPlatform.where(field, isLessThan / isLessThanOrEqualTo / isGreaterThan / isGreaterThanOrEqualTo) |  | Applies relational range comparison filters on field value. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L447) assertion set `firestore-flutter#23`. | 23 |
+| QueryPlatform.where(field, arrayContains: value) |  | Filters documents where array field contains the specified element. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L459) assertion set `firestore-flutter#24`. | 24 |
+| QueryPlatform.where(field, arrayContainsAny: values) |  | Filters documents where array field contains any element from the values list. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L465) assertion set `firestore-flutter#25`. | 25 |
+| QueryPlatform.where(field, whereIn: values) |  | Filters documents where field value matches any element in values list (IN query). | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L471) assertion set `firestore-flutter#26`. | 26 |
+| QueryPlatform.where(field, whereNotIn: values) |  | Filters documents where field value matches no element in values list (NOT IN query). | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L477) assertion set `firestore-flutter#27`. | 27 |
+| QueryPlatform.where(field, isNull: true/false) |  | Filters documents based on null equality or field existence. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L483) assertion set `firestore-flutter#28`. | 28 |
+| QueryPlatform.orderBy(field, descending: bool) |  | Orders query results by field ascending or descending. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L489) assertion set `firestore-flutter#29`. | 29 |
+| QueryPlatform.limit(limit) |  | Limits maximum number of matched documents returned. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L495) assertion set `firestore-flutter#30`. | 30 |
+| QueryPlatform.limitToLast(limit) |  | Limits query results to the last N documents relative to query ordering. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L501) assertion set `firestore-flutter#31`. | 31 |
+| QueryPlatform.startAt(values) / startAfter(values) |  | Positions starting cursor boundary using field values. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L507) assertion set `firestore-flutter#32`. | 32 |
+| QueryPlatform.endAt(values) / endBefore(values) |  | Positions ending cursor boundary using field values. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L513) assertion set `firestore-flutter#33`. | 33 |
+| QueryPlatform.startAtDocument / endAtDocument |  | Positions query pagination cursors using DocumentSnapshotPlatform instances. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L519) assertion set `firestore-flutter#34`. | 34 |
+| QueryPlatform.get(options) |  | Executes query and returns QuerySnapshotPlatform containing matched documents. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L525) assertion set `firestore-flutter#35`. | 35 |
+| QueryPlatform.snapshots(options) |  | Returns broadcast stream emitting QuerySnapshotPlatform upon matching changes. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L532) assertion set `firestore-flutter#36`. | 36 |
+
+## `CollectionReferencePlatform` — collection operations
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| CollectionReferencePlatform.doc([path]) |  | Returns DocumentReferencePlatform under collection; auto-generates 20-char ID if path omitted. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L544) assertion set `firestore-flutter#37`. | 37 |
+| CollectionReferencePlatform.add(data) |  | Generates auto-ID, writes document data, and returns DocumentReferencePlatform. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L553) assertion set `firestore-flutter#38`. | 38 |
+
+## Snapshots & metadata
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| DocumentSnapshotPlatform.exists |  | Reports true if document is present in Firestore; false if absent. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L566) assertion set `firestore-flutter#39`. | 39 |
+| DocumentSnapshotPlatform.data() |  | Returns revived Map<String, dynamic> containing document field data. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L574) assertion set `firestore-flutter#40`. | 40 |
+| DocumentSnapshotPlatform.get(field) |  | Extracts single field value supporting dot notation or FieldPath instances. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L592) assertion set `firestore-flutter#41`. | 41 |
+| SnapshotMetadataPlatform (hasPendingWrites, isFromCache) |  | Exposes local cache and uncommitted pending write status on snapshots. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L606) assertion set `firestore-flutter#42`. | 42 |
+| QuerySnapshotPlatform.docs |  | Provides ordered List<DocumentSnapshotPlatform> of all query result documents. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L618) assertion set `firestore-flutter#43`. | 43 |
+| QuerySnapshotPlatform.docChanges |  | Exposes List<DocumentChangePlatform> detailing added, modified, removed types and index shifts. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L627) assertion set `firestore-flutter#44`. | 44 |
+
+## `WriteBatchPlatform` — atomic batches
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| WriteBatchPlatform.set(path, data, options) |  | Enqueues set or merge operation into atomic mutation batch. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L661) assertion set `firestore-flutter#45`. | 45 |
+| WriteBatchPlatform.update(path, data) |  | Enqueues update operation into atomic mutation batch. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L678) assertion set `firestore-flutter#46`. | 46 |
+| WriteBatchPlatform.delete(path) |  | Enqueues delete operation into atomic mutation batch. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L693) assertion set `firestore-flutter#47`. | 47 |
+| WriteBatchPlatform.commit() |  | Atomically commits all enqueued mutations across multiple documents. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L707) assertion set `firestore-flutter#48`. | 48 |
+
+## `TransactionPlatform` — interactive transactions
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| TransactionPlatform.get(path) |  | Reads document snapshot within transaction context and acquires read lock. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L720) assertion set `firestore-flutter#49`. | 49 |
+| TransactionPlatform.set(path, data, options) |  | Enqueues transactional set mutation to be committed on handler completion. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L728) assertion set `firestore-flutter#50`. | 50 |
+| TransactionPlatform.update(path, data) |  | Enqueues transactional update mutation to be committed on handler completion. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L744) assertion set `firestore-flutter#51`. | 51 |
+| TransactionPlatform.delete(path) |  | Enqueues transactional delete mutation to be committed on handler completion. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L759) assertion set `firestore-flutter#52`. | 52 |
+| TransactionPlatform retry mechanism |  | Catches optimistic locking conflicts and re-executes handler up to maxAttempts. | ? | cloud_firestore_platform_interface specification; unverified locally. | 53 |
+
+## `FieldValuePlatform` — sentinels & transformations
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| FieldValuePlatform.serverTimestamp() |  | Encodes sentinel replaced by server commit timestamp during write. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L780) assertion set `firestore-flutter#54`. | 54 |
+| FieldValuePlatform.delete() |  | Encodes sentinel that deletes the target field during document update. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L785) assertion set `firestore-flutter#55`. | 55 |
+| FieldValuePlatform.increment(value) |  | Encodes numeric transformation operand that atomically increments field value. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L790) assertion set `firestore-flutter#56`. | 56 |
+| FieldValuePlatform.arrayUnion(elements) |  | Encodes transformation adding elements to array field if absent. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L795) assertion set `firestore-flutter#57`. | 57 |
+| FieldValuePlatform.arrayRemove(elements) |  | Encodes transformation removing matching elements from array field. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L803) assertion set `firestore-flutter#58`. | 58 |
+
+## Data types & value codecs
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| Timestamp codec |  | Serializes and revives Timestamp preserving seconds and nanoseconds across bridge wire format. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L814) assertion set `firestore-flutter#59`. | 59 |
+| GeoPoint codec |  | Serializes and revives GeoPoint coordinates (latitude, longitude) over WebSocket bridge. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L822) assertion set `firestore-flutter#60`. | 60 |
+| Blob codec |  | Serializes Uint8List byte buffers to base64 bridge wire format and revives them as Blob. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L830) assertion set `firestore-flutter#61`. | 61 |
+| DocumentReference codec |  | Encodes and decodes DocumentReferencePlatform values stored within document fields. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L839) assertion set `firestore-flutter#62`. | 62 |
+| Nested Map and List collections |  | Deeply encodes and revives recursive nested Maps and Lists containing mixed primitives and sentinels. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L848) assertion set `firestore-flutter#63`. | 63 |
+
+## Aggregations & advanced queries
+
+| API | Category | Behavior | Status | Probe | # |
+|---|---|---|---|---|---|
+| AggregateQueryPlatform.count() |  | Returns count of matched documents without pulling full document payloads. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L866) assertion set `firestore-flutter#64`. | 64 |
+| AggregateQueryPlatform.aggregate(sum, average) |  | Computes server-side numeric sum and average across matched query documents. | ✓ | cloud_firestore_platform_interface specification. Container test: [`packages/flutter-client/test/conformance_test.dart`](https://github.com/davideast/pyric/blob/main/packages/flutter-client/test/conformance_test.dart#L874) assertion set `firestore-flutter#65`. | 65 |
+
+## Current gaps
+
+### Unverified
+
+Tracked behavior whose available evidence does not yet establish the production result.
+
+<div class="compat-list">
+<details class="compat-row" data-status="unverified"><summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><code class="compat-api">FirebaseFirestorePlatform.clearPersistence()</code><span class="compat-sub"><span class="compat-behavior">Clears offline client persistence cache when no active listeners exist.</span></span></span></summary>
+<div class="compat-evidence"><div class="compat-note">cloud_firestore_platform_interface specification; unverified locally.</div></div></details>
+<details class="compat-row" data-status="unverified"><summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><code class="compat-api">FirebaseFirestorePlatform.enableNetwork() / disableNetwork()</code><span class="compat-sub"><span class="compat-behavior">Toggles client network connectivity to simulate offline operation.</span></span></span></summary>
+<div class="compat-evidence"><div class="compat-note">cloud_firestore_platform_interface specification; unverified locally.</div></div></details>
+<details class="compat-row" data-status="unverified"><summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><code class="compat-api">FirebaseFirestorePlatform.waitForPendingWrites()</code><span class="compat-sub"><span class="compat-behavior">Resolves when all locally initiated writes have been committed by the server.</span></span></span></summary>
+<div class="compat-evidence"><div class="compat-note">cloud_firestore_platform_interface specification; unverified locally.</div></div></details>
+<details class="compat-row" data-status="unverified"><summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><code class="compat-api">FirebaseFirestorePlatform.snapshotsInSync()</code><span class="compat-sub"><span class="compat-behavior">Emits an event when all active listeners have caught up to the same state.</span></span></span></summary>
+<div class="compat-evidence"><div class="compat-note">cloud_firestore_platform_interface specification; unverified locally.</div></div></details>
+<details class="compat-row" data-status="unverified"><summary class="compat-line"><span class="compat-dot" data-status="unverified" role="img" aria-label="Unverified" title="Unverified"></span><span class="compat-main"><code class="compat-api">TransactionPlatform retry mechanism</code><span class="compat-sub"><span class="compat-behavior">Catches optimistic locking conflicts and re-executes handler up to maxAttempts.</span></span></span></summary>
+<div class="compat-evidence"><div class="compat-note">cloud_firestore_platform_interface specification; unverified locally.</div></div></details>
+</div>
