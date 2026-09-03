@@ -4,6 +4,8 @@ export function compatibilitySlug(compatPath: string): string {
   if (pyric) return `${pyric.replaceAll('/', '-')}-compat`;
   const cli = compatPath.match(/^packages\/cli\/docs\/(.+)\/COMPAT\.md$/)?.[1];
   if (cli) return `${cli.replaceAll('/', '-')}-compat`;
+  const conformance = compatPath.match(/^packages\/conformance\/docs\/(.+)\/COMPAT\.md$/)?.[1];
+  if (conformance) return `${conformance.replaceAll('/', '-')}-compat`;
   throw new Error(`No docs route for compatibility path: ${compatPath}`);
 }
 
