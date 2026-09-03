@@ -17,9 +17,9 @@ describe('Game Primitives', () => {
 
     test('with 3 players', () => {
       const result = turnGuard('turn', { A: 'p1', B: 'p2', C: 'p3' });
-      expect(result).toContain('data.child("turn").val() === "A"');
-      expect(result).toContain('data.child("turn").val() === "B"');
-      expect(result).toContain('data.child("turn").val() === "C"');
+      expect(result).toContain('data.child("turn").val() == "A"');
+      expect(result).toContain('data.child("turn").val() == "B"');
+      expect(result).toContain('data.child("turn").val() == "C"');
       expect(result.split('||').length).toBe(3);
     });
 
@@ -48,7 +48,7 @@ describe('Game Primitives', () => {
     test('creation starts at first mark', () => {
       const result = flip(['X', 'O']);
       expect(result).toContain('(!(data.exists()))');
-      expect(result).toContain('newData.val() === "X"');
+      expect(result).toContain('newData.val() == "X"');
     });
 
     test('parses as valid validate expression', () => {

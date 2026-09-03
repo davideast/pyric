@@ -7,11 +7,11 @@
 
 export const ATOM_SPECS = {
   // --- Authentication ---
-  authenticated: { args: [], output: 'auth !== null' },
+  authenticated: { args: [], output: 'auth != null' },
 
   // --- Ownership ---
-  ownPath: { args: ['$uid'], output: 'auth.uid === $uid' },
-  ownField: { args: ['author'], output: 'auth.uid === data.child("author").val()' },
+  ownPath: { args: ['$uid'], output: 'auth.uid == $uid' },
+  ownField: { args: ['author'], output: 'auth.uid == data.child("author").val()' },
 
   // --- Existence ---
   isNew: { args: [], output: '!data.exists()' },
@@ -24,12 +24,12 @@ export const ATOM_SPECS = {
   fieldIsBoolean: { args: ['active'], output: 'newData.child("active").isBoolean()' },
   fieldEnum: {
     args: ['role', ['user', 'admin']],
-    output: 'newData.child("role").val() === "user" || newData.child("role").val() === "admin"',
+    output: 'newData.child("role").val() == "user" || newData.child("role").val() == "admin"',
   },
 
   // --- Immutability ---
-  immutable: { args: ['createdAt'], output: '!data.exists() || newData.child("createdAt").val() === data.child("createdAt").val()' },
-  immutableSelf: { args: [], output: '!data.exists() || newData.val() === data.val()' },
+  immutable: { args: ['createdAt'], output: '!data.exists() || newData.child("createdAt").val() == data.child("createdAt").val()' },
+  immutableSelf: { args: [], output: '!data.exists() || newData.val() == data.val()' },
 
   // --- Cross-path ---
   rootExistsPathVar: {
@@ -42,6 +42,6 @@ export const ATOM_SPECS = {
   },
   rootEquals: {
     args: [['users', { $: 'auth.uid' }, 'role'], 'admin'],
-    output: 'root.child("users").child(auth.uid).child("role").val() === "admin"',
+    output: 'root.child("users").child(auth.uid).child("role").val() == "admin"',
   },
 } as const;

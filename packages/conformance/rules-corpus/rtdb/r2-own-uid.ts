@@ -15,8 +15,8 @@ export const scenario: RtdbScenarioRecord = {
   provenance: 'Decomposed from the rtdb-simulator-vs-prod-agreement observation, ruleset r2-own-uid. Expectations are the recorded production allow/deny verdicts.',
   rules: JSON.stringify({
     $uid: {
-      '.read': '$uid === auth.uid',
-      '.write': '$uid === auth.uid',
+      '.read': '$uid == auth.uid',
+      '.write': '$uid == auth.uid',
     },
   }),
   cases: [

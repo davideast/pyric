@@ -65,10 +65,10 @@
     ]
   },
   "score": {
-    "numerator": 56,
+    "numerator": 54,
     "denominator": 56,
-    "ratio": 1,
-    "percent": 100
+    "ratio": 0.9642857142857143,
+    "percent": 96.4
   },
   "axes": {
     "productionAcceptance": {
@@ -78,28 +78,28 @@
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 56,
+      "accepted": 54,
       "rejected": 0,
-      "unsupported": 0,
+      "unsupported": 2,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 56,
-      "unsupported": 0,
+      "implemented": 54,
+      "unsupported": 2,
       "error": 0,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 55,
+      "verified": 53,
       "diverged": 0,
-      "unverified": 1
+      "unverified": 3
     }
   },
   "counts": {
-    "conformant": 56,
+    "conformant": 54,
     "diverged": 0,
     "unknown": 0,
-    "local-unsupported": 0,
+    "local-unsupported": 2,
     "local-error": 0,
     "unprobeable": 0
   },
@@ -452,6 +452,26 @@
     },
     "rtdb.operator.strictEq": {
       "productionAcceptance": "accepted",
+      "localAcceptance": "unsupported",
+      "localCapability": "unsupported",
+      "productionEvidence": "unverified",
+      "classification": "local-unsupported",
+      "verifiedBy": [],
+      "verifiedByRows": [],
+      "divergedByRows": []
+    },
+    "rtdb.operator.strictNeq": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "unsupported",
+      "localCapability": "unsupported",
+      "productionEvidence": "unverified",
+      "classification": "local-unsupported",
+      "verifiedBy": [],
+      "verifiedByRows": [],
+      "divergedByRows": []
+    },
+    "rtdb.operator.looseEq": {
+      "productionAcceptance": "accepted",
       "localAcceptance": "accepted",
       "localCapability": "implemented",
       "productionEvidence": "verified",
@@ -464,31 +484,6 @@
         "r2-own-uid",
         "r7-pathvar-binding",
         "r8-combined-check",
-        "r9-quota-arithmetic"
-      ],
-      "verifiedByRows": [],
-      "divergedByRows": []
-    },
-    "rtdb.operator.strictNeq": {
-      "productionAcceptance": "accepted",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
-      "verifiedBy": [
-        "r13-priority-and-index-directive",
-        "r9-quota-arithmetic"
-      ],
-      "verifiedByRows": [],
-      "divergedByRows": []
-    },
-    "rtdb.operator.looseEq": {
-      "productionAcceptance": "accepted",
-      "localAcceptance": "accepted",
-      "localCapability": "implemented",
-      "productionEvidence": "verified",
-      "classification": "conformant",
-      "verifiedBy": [
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],

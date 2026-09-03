@@ -19,24 +19,24 @@ describe('schemaRules', () => {
     expect(result.children.active.validate).toBe('newData.isBoolean()');
   });
 
-  test('z.enum() → val() === comparisons', () => {
+  test('z.enum() → val() == comparisons', () => {
     const result = schemaRules(z.object({ role: z.enum(['user', 'admin']) }));
-    expect(result.children.role.validate).toBe('newData.val() === "user" || newData.val() === "admin"');
+    expect(result.children.role.validate).toBe('newData.val() == "user" || newData.val() == "admin"');
   });
 
-  test('z.literal(string) → val() === literal', () => {
+  test('z.literal(string) → val() == literal', () => {
     const result = schemaRules(z.object({ type: z.literal('post') }));
-    expect(result.children.type.validate).toBe('newData.val() === "post"');
+    expect(result.children.type.validate).toBe('newData.val() == "post"');
   });
 
-  test('z.literal(number) → val() === number', () => {
+  test('z.literal(number) → val() == number', () => {
     const result = schemaRules(z.object({ version: z.literal(1) }));
-    expect(result.children.version.validate).toBe('newData.val() === 1');
+    expect(result.children.version.validate).toBe('newData.val() == 1');
   });
 
-  test('z.literal(boolean) → val() === boolean', () => {
+  test('z.literal(boolean) → val() == boolean', () => {
     const result = schemaRules(z.object({ enabled: z.literal(true) }));
-    expect(result.children.enabled.validate).toBe('newData.val() === true');
+    expect(result.children.enabled.validate).toBe('newData.val() == true');
   });
 
   test('required fields generate parent validate with hasChild', () => {
@@ -80,18 +80,18 @@ describe('schemaRules', () => {
   test('fieldConstraints merge with schema via all()', () => {
     const result = schemaRules(
       z.object({ author: z.string() }),
-      { author: [expr('newData.val() === auth.uid')] },
+      { author: [expr('newData.val() == auth.uid')] },
     );
-    expect(result.children.author.validate).toBe('(newData.isString()) && (newData.val() === auth.uid)');
+    expect(result.children.author.validate).toBe('(newData.isString()) && (newData.val() == auth.uid)');
   });
 
   test('fieldConstraints with multiple constraints', () => {
     const result = schemaRules(
       z.object({ createdAt: z.number() }),
-      { createdAt: [expr('!data.exists() || newData.val() === data.val()'), expr('newData.val() <= now')] },
+      { createdAt: [expr('!data.exists() || newData.val() == data.val()'), expr('newData.val() <= now')] },
     );
     expect(result.children.createdAt.validate).toContain('newData.isNumber()');
-    expect(result.children.createdAt.validate).toContain('!data.exists() || newData.val() === data.val()');
+    expect(result.children.createdAt.validate).toContain('!data.exists() || newData.val() == data.val()');
     expect(result.children.createdAt.validate).toContain('newData.val() <= now');
   });
 

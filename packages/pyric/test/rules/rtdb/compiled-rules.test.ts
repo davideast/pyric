@@ -57,8 +57,8 @@ describe('compileRtdbRules', () => {
 
 describe('buildRuleExpression', () => {
   test('parses, validates, and lints a rule expression', () => {
-    const result = buildRuleExpression('auth !== null', 'read');
-    expect(result.raw).toBe('auth !== null');
+    const result = buildRuleExpression('auth != null', 'read');
+    expect(result.raw).toBe('auth != null');
     expect(result.parsed.valid).toBe(true);
     expect(result.parsed.errors).toHaveLength(0);
     expect(Array.isArray(result.parsed.warnings)).toBe(true);
@@ -66,7 +66,7 @@ describe('buildRuleExpression', () => {
   });
 
   test('passes path variables to validation', () => {
-    const result = buildRuleExpression('auth.uid === $userId', 'read', ['$userId']);
+    const result = buildRuleExpression('auth.uid == $userId', 'read', ['$userId']);
     expect(result.parsed.valid).toBe(true);
     expect(result.parsed.errors.filter((error) => error.message.includes('$userId'))).toHaveLength(0);
   });
@@ -80,7 +80,7 @@ describe('serializeRtdbRules', () => {
         '.write': false,
         users: {
           $userId: {
-            '.read': 'auth.uid === $userId',
+            '.read': 'auth.uid == $userId',
             '.validate': 'newData.isString()',
           },
         },

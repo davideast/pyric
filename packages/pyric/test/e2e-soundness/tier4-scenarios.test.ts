@@ -318,7 +318,7 @@ service firebase.storage {
             data: {
               ".read": true,
               ".write": "auth != null",
-              ".validate": "root.child('app/config/initialized').val() === true",
+              ".validate": "root.child('app/config/initialized').val() == true",
             },
           },
         },

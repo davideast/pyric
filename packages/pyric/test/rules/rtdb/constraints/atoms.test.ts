@@ -70,11 +70,11 @@ describe('Constraint Atoms', () => {
 
   // Edge cases
   test('ownPath with different variable', () => {
-    expect(ownPath('$teamId')).toBe('auth.uid === $teamId');
+    expect(ownPath('$teamId')).toBe('auth.uid == $teamId');
   });
 
   test('fieldEnum with single value', () => {
-    expect(fieldEnum('status', ['active'])).toBe('newData.child("status").val() === "active"');
+    expect(fieldEnum('status', ['active'])).toBe('newData.child("status").val() == "active"');
   });
 
   test('rootExists with all-literal segments', () => {

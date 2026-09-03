@@ -33,7 +33,7 @@ service firebase.storage {
 
   const RT_FIXTURE = JSON.stringify({
     '.read': 'auth != null',
-    $uid: { '.write': "auth.uid === $uid && newData.hasChildren(['name'])" },
+    $uid: { '.write': "auth.uid == $uid && newData.hasChildren(['name'])" },
   });
 
   it('is deterministic: same ruleset → identical construct set (firestore)', () => {

@@ -49,13 +49,11 @@ function getLinterSemantics(): Semantics {
     },
 
     Comparison_looseEq(left, _op, right) {
-      _warnings.push({ code: 'LOOSE_EQUALITY', message: "Use '===' instead of '=='" });
       (left as any).lint();
       (right as any).lint();
     },
 
     Comparison_looseNeq(left, _op, right) {
-      _warnings.push({ code: 'LOOSE_INEQUALITY', message: "Use '!==' instead of '!='" });
       (left as any).lint();
       (right as any).lint();
     },

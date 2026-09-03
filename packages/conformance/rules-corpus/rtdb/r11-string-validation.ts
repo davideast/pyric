@@ -47,15 +47,15 @@ export const scenario: RtdbScenarioRecord = {
     },
     normalized: {
       '.write': 'auth != null',
-      '.validate': "newData.val().toLowerCase() === 'abc'",
+      '.validate': "newData.val().toLowerCase() == 'abc'",
     },
     shouted: {
       '.write': 'auth != null',
-      '.validate': "newData.val().toUpperCase() === 'ABC'",
+      '.validate': "newData.val().toUpperCase() == 'ABC'",
     },
     dashed: {
       '.write': 'auth != null',
-      '.validate': "newData.val().replace('_', '-') === 'a-b-c'",
+      '.validate': "newData.val().replace('_', '-') == 'a-b-c'",
     },
   }),
   cases: [

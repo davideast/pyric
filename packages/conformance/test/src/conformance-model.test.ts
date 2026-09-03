@@ -17,18 +17,18 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1308);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1136);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
     expect(model.rulesLanguage.firestoreScorecard.score).toEqual({
-      numerator: 137, denominator: 140, ratio: 137 / 140, percent: 97.9,
+      numerator: 136, denominator: 140, ratio: 136 / 140, percent: 97.1,
     });
     expect(model.rulesLanguage.storageScorecard.score).toEqual({
       numerator: 67, denominator: 69, ratio: 67 / 69, percent: 97.1,
     });
     expect(model.rulesLanguage.rtdbScorecard.score).toEqual({
-      numerator: 56, denominator: 56, ratio: 1, percent: 100,
+      numerator: 54, denominator: 56, ratio: 54 / 56, percent: 96.4,
     });
     expect(model.documentation.registries.length).toBeGreaterThan(0);
     expect(model.documentation.descriptors.length).toBeGreaterThan(0);
@@ -154,8 +154,8 @@ describe('multi-axis conformance model', () => {
   it('derives fidelity from rules-construct status when no registry row exists', () => {
     expect(one('firestore-rules/debug')).toMatchObject({
       availability: 'available',
-      fidelity: 'conforms',
-      assurance: 'eligible',
+      fidelity: 'diverged',
+      assurance: 'ineligible',
     });
   });
 

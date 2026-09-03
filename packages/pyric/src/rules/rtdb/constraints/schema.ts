@@ -69,12 +69,12 @@ function zodTypeToExpr(zodType: z.ZodTypeAny, fieldName: string): Expr {
   }
   if (zodType instanceof z.ZodEnum) {
     const values = (zodType as z.ZodEnum<any>).options as string[];
-    return expr(values.map(v => `newData.val() === "${v}"`).join(' || '));
+    return expr(values.map(v => `newData.val() == "${v}"`).join(' || '));
   }
   if (zodType instanceof z.ZodLiteral) {
     const v = (zodType as z.ZodLiteral<any>).value;
-    if (typeof v === 'string') return expr(`newData.val() === "${v}"`);
-    return expr(`newData.val() === ${v}`);
+    if (typeof v === 'string') return expr(`newData.val() == "${v}"`);
+    return expr(`newData.val() == ${v}`);
   }
   if (zodType instanceof z.ZodUnion) {
     const options = (zodType as z.ZodUnion<any>)._def.options as z.ZodTypeAny[];

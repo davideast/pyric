@@ -33,16 +33,16 @@ export const scenario: RtdbScenarioRecord = {
       '.indexOn': ['score'],
       '.write': 'auth != null',
       $entry: {
-        '.validate': 'newData.getPriority() === null',
+        '.validate': 'newData.getPriority() == null',
       },
     },
     unprioritized: {
       '.write': 'auth != null',
-      '.validate': 'newData.getPriority() === null',
+      '.validate': 'newData.getPriority() == null',
     },
     prioritized: {
       '.write': 'auth != null',
-      '.validate': 'newData.getPriority() !== null',
+      '.validate': 'newData.getPriority() != null',
     },
   }),
   cases: [

@@ -25,7 +25,7 @@ describe('SimulateHandler', () => {
   const handler = new SimulateHandler();
 
   test('returns INVALID_INPUT for invalid input shape', () => {
-    const compiled = makeRules('auth !== null');
+    const compiled = makeRules('auth != null');
     const result = handler.execute(compiled, { operation: 'DELETE', path: '/', auth: null, mockData: {} });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -34,7 +34,7 @@ describe('SimulateHandler', () => {
   });
 
   test('returns allowed=true when auth matches rule', () => {
-    const compiled = makeRules('auth !== null');
+    const compiled = makeRules('auth != null');
     const result = handler.execute(compiled, {
       operation: 'read',
       path: '/',
@@ -48,7 +48,7 @@ describe('SimulateHandler', () => {
   });
 
   test('returns allowed=false when auth is null and rule requires auth', () => {
-    const compiled = makeRules('auth !== null');
+    const compiled = makeRules('auth != null');
     const result = handler.execute(compiled, {
       operation: 'read',
       path: '/',
@@ -62,7 +62,7 @@ describe('SimulateHandler', () => {
   });
 
   test('returns matchedPath and matchedRule in result', () => {
-    const compiled = makeRules('auth !== null');
+    const compiled = makeRules('auth != null');
     const result = handler.execute(compiled, {
       operation: 'read',
       path: '/',
@@ -72,7 +72,7 @@ describe('SimulateHandler', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.matchedPath).toBe('/');
-      expect(result.data.matchedRule).toBe('auth !== null');
+      expect(result.data.matchedRule).toBe('auth != null');
     }
   });
 
@@ -132,7 +132,7 @@ describe('SimulateHandler', () => {
     const compiled: RtdbNode = {
         path: '/',
         pathVariables: [],
-        write: expr('auth !== null'),
+        write: expr('auth != null'),
         children: [
           {
             path: '/data',
@@ -216,7 +216,7 @@ describe('SimulateHandler — .validate (write path)', () => {
   const structureRules = compiled(
     node({
       path: '/',
-      write: expr('auth !== null'),
+      write: expr('auth != null'),
       children: [
         node({
           path: '/entry',
@@ -289,7 +289,7 @@ describe('SimulateHandler — .validate (write path)', () => {
     const descendantRules = compiled(
       node({
         path: '/',
-        write: expr('auth !== null'),
+        write: expr('auth != null'),
         children: [
           node({
             path: '/room',
@@ -321,7 +321,7 @@ describe('SimulateHandler — .validate (write path)', () => {
     const pathVarRules = compiled(
       node({
         path: '/',
-        write: expr('auth !== null'),
+        write: expr('auth != null'),
         children: [
           node({
             path: '/users',
@@ -374,7 +374,7 @@ describe('SimulateHandler — .validate (write path)', () => {
     const ancestorRules = compiled(
       node({
         path: '/',
-        write: expr('auth !== null'),
+        write: expr('auth != null'),
         children: [node({ path: '/doc', validate: expr("newData.hasChildren(['title'])") })],
       }),
     );
@@ -401,7 +401,7 @@ describe('SimulateHandler — .validate (write path)', () => {
     const badRules = compiled(
       node({
         path: '/',
-        write: expr('auth !== null'),
+        write: expr('auth != null'),
         children: [node({ path: '/entry', validate: expr('!! not parseable @@', false) })],
       }),
     );
@@ -428,7 +428,7 @@ describe('SimulateHandler — .validate (write path)', () => {
     const mixedRules = compiled(
       node({
         path: '/',
-        write: expr('auth !== null'),
+        write: expr('auth != null'),
         children: [
           node({
             path: '/entry',
@@ -494,7 +494,7 @@ describe('SimulateHandler — .validate (write path)', () => {
 // snapshot at the ancestor's own location — not at the deeper path, and
 // not "no data" just because the deeper path itself is empty. Getting
 // this wrong is a false-ALLOW bug class: an ancestor rule like
-// `data.child('owner').val() === auth.uid || !data.exists()` is meant as
+// `data.child('owner').val() == auth.uid || !data.exists()` is meant as
 // "owner check, but allow creating a brand-new room" — rooting `data` at
 // the deep write path instead of the room's own path makes `data.exists()`
 // false for every write below an existing room, so the `!data.exists()`
@@ -529,7 +529,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
               node({
                 path: '/rooms/$roomId',
                 pathVariables: ['$roomId'],
-                write: expr("data.child('owner').val() === auth.uid || !data.exists()"),
+                write: expr("data.child('owner').val() == auth.uid || !data.exists()"),
               }),
             ],
           }),
@@ -585,7 +585,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
               node({
                 path: '/rooms/$roomId',
                 pathVariables: ['$roomId'],
-                read: expr("data.child('visibility').val() === 'public'"),
+                read: expr("data.child('visibility').val() == 'public'"),
               }),
             ],
           }),
@@ -630,7 +630,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
               node({
                 path: '/rooms/$roomId',
                 pathVariables: ['$roomId'],
-                write: expr("newData.child('locked').val() !== true"),
+                write: expr("newData.child('locked').val() != true"),
               }),
             ],
           }),
@@ -675,7 +675,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
     const parentRules = compiled(
       node({
         path: '/',
-        write: expr('auth !== null'),
+        write: expr('auth != null'),
         children: [
           node({
             path: '/rooms',
@@ -687,7 +687,7 @@ describe('SimulateHandler — data/newData rooted at rule location', () => {
                   node({
                     path: '/rooms/$roomId/title',
                     pathVariables: ['$roomId'],
-                    validate: expr2("newData.parent().child('locked').val() !== true"),
+                    validate: expr2("newData.parent().child('locked').val() != true"),
                   }),
                 ],
               }),
@@ -888,7 +888,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
               node({
                 path: '/users/$uid',
                 pathVariables: ['$uid'],
-                write: expr('auth.uid === $uid'),
+                write: expr('auth.uid == $uid'),
               }),
             ],
           }),
@@ -984,7 +984,7 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
           path: '/logs',
           pathVariables: [],
           write: expr('true'),
-          validate: expr("newData.val() === 'line1\\nline2'"),
+          validate: expr("newData.val() == 'line1\\nline2'"),
           children: [],
         },
       ],

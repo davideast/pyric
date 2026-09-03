@@ -35,7 +35,7 @@ test('the first expression parse initializes the shared grammar', () => {
     import { isRtdbExpressionEngineInitialized } from ${JSON.stringify(engineUrl)};
     import { parseExpression } from ${JSON.stringify(parserUrl)};
     const before = isRtdbExpressionEngineInitialized();
-    const parsed = parseExpression('auth !== null');
+    const parsed = parseExpression('auth != null');
     console.log(JSON.stringify({ before, valid: parsed.valid, after: isRtdbExpressionEngineInitialized() }));
   `);
   expect(JSON.parse(output)).toEqual({ before: false, valid: true, after: true });

@@ -33,13 +33,13 @@ export const scenario: RtdbScenarioRecord = {
       '.validate': 'newData.isNumber() && newData.val() <= now',
     },
     anonymousonly: {
-      '.write': "auth.token.firebase.sign_in_provider === 'anonymous'",
+      '.write': "auth.token.firebase.sign_in_provider == 'anonymous'",
     },
     anonymoussubscript: {
-      '.write': "auth.token['firebase']['sign_in_provider'] === 'anonymous'",
+      '.write': "auth.token['firebase']['sign_in_provider'] == 'anonymous'",
     },
     passwordonly: {
-      '.write': "auth.token.firebase.sign_in_provider === 'password'",
+      '.write': "auth.token.firebase.sign_in_provider == 'password'",
     },
   }),
   cases: [

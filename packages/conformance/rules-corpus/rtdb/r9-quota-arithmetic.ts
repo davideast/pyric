@@ -25,23 +25,23 @@ export const scenario: RtdbScenarioRecord = {
     '.read': 'auth != null',
     increment: {
       '.write': 'auth != null',
-      '.validate': 'newData.isNumber() && newData.val() === data.val() + 1',
+      '.validate': 'newData.isNumber() && newData.val() == data.val() + 1',
     },
     decrement: {
       '.write': 'auth != null',
-      '.validate': 'newData.val() === data.val() - 1',
+      '.validate': 'newData.val() == data.val() - 1',
     },
     scaled: {
       '.write': 'auth != null',
-      '.validate': 'newData.val() === data.val() * 2',
+      '.validate': 'newData.val() == data.val() * 2',
     },
     halved: {
       '.write': 'auth != null',
-      '.validate': 'newData.val() === data.val() / 2',
+      '.validate': 'newData.val() == data.val() / 2',
     },
     evenonly: {
       '.write': 'auth != null',
-      '.validate': 'newData.val() % 2 === 0',
+      '.validate': 'newData.val() % 2 == 0',
     },
     range: {
       '.write': 'auth != null',
@@ -53,7 +53,7 @@ export const scenario: RtdbScenarioRecord = {
     },
     notsentinel: {
       '.write': 'auth != null',
-      '.validate': 'newData.val() !== -1',
+      '.validate': 'newData.val() != -1',
     },
     loosezero: {
       '.write': 'auth != null',
@@ -61,7 +61,7 @@ export const scenario: RtdbScenarioRecord = {
     },
     eitherflag: {
       '.write': 'auth != null',
-      '.validate': "newData.val() === 'on' || newData.val() === 'off'",
+      '.validate': "newData.val() == 'on' || newData.val() == 'off'",
     },
     tiered: {
       '.write': 'auth != null',
