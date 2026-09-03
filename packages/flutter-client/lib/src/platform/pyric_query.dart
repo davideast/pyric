@@ -44,6 +44,38 @@ class PyricQuery extends QueryPlatform {
     );
   }
 
+  static String _fieldToString(dynamic field) {
+    if (field is FieldPath) {
+      return field.components.join('.');
+    }
+    return field.toString();
+  }
+
+  static Map<String, dynamic> _compileFilterMap(Map<dynamic, dynamic> map) {
+    if (map.containsKey('fieldPath')) {
+      final rawField = map['fieldPath'];
+      final field = _fieldToString(rawField);
+      final op = map['op'].toString();
+      final val = unwrapFieldValues(map['value']);
+      return QueryCompiler.compileWhere(field, op, val);
+    }
+    final op = (map['op'] as String?)?.toLowerCase();
+    if (op == 'and' || op == 'or') {
+      final queries = map['queries'] as Iterable? ?? const [];
+      final childFilters = <Map<String, dynamic>>[];
+      for (final q in queries) {
+        if (q is Map) {
+          childFilters.add(_compileFilterMap(q));
+        }
+      }
+      return {
+        'kind': op,
+        'filters': childFilters,
+      };
+    }
+    throw ArgumentError('Unsupported filter map: $map');
+  }
+
   /// Compiles query target descriptor and constraints for bridge RPC / subscription.
   Map<String, dynamic> compileTarget() {
     final source = isCollectionGroupQuery
@@ -57,7 +89,7 @@ class PyricQuery extends QueryPlatform {
     if (whereList != null) {
       for (final cond in whereList) {
         if (cond is List && cond.length >= 3) {
-          final field = cond[0].toString();
+          final field = _fieldToString(cond[0]);
           final op = cond[1].toString();
           final val = unwrapFieldValues(cond[2]);
           constraints.add(QueryCompiler.compileWhere(field, op, val));
@@ -65,12 +97,18 @@ class PyricQuery extends QueryPlatform {
       }
     }
 
+    // Filter tree (from whereFilter)
+    final filterMap = parameters['filters'] as Map?;
+    if (filterMap != null) {
+      constraints.add(_compileFilterMap(filterMap));
+    }
+
     // OrderBy clauses
     final orderList = parameters['orderBy'] as Iterable?;
     if (orderList != null) {
       for (final order in orderList) {
         if (order is List && order.isNotEmpty) {
-          final field = order[0].toString();
+          final field = _fieldToString(order[0]);
           final descending = order.length > 1 && order[1] == true;
           constraints.add(QueryCompiler.compileOrderBy(
             field,
@@ -329,7 +367,11 @@ class PyricQuery extends QueryPlatform {
     ListenSource listenSource = ListenSource.defaultSource,
   }) {
     final target = compileTarget();
-    final stream = _client.subscribe(target);
+    final stream = _client.subscribe(
+      target,
+      includeMetadataChanges: includeMetadataChanges,
+      listenSource: listenSource.name,
+    );
     List<DocumentSnapshotPlatform>? previousDocs;
 
     return stream.map((event) {

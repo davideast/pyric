@@ -110,11 +110,16 @@ void main() async {
             final isFail = skipped || result == 'failure' || result == 'error' || active.errors.isNotEmpty;
             final durationMs = (endTime - active.startTime).clamp(0, 99999999);
             final timeSec = (durationMs / 1000.0).toStringAsFixed(3);
-            final failureMessage = isFail
-                ? (skipped
-                    ? 'Test was skipped'
-                    : (active.errors.isNotEmpty ? active.errors.join('\n') : 'Test failed'))
-                : null;
+            String? failureMessage;
+            if (isFail) {
+              if (skipped) {
+                failureMessage = 'Test was skipped';
+              } else if (active.errors.isNotEmpty) {
+                failureMessage = active.errors.join('\n');
+              } else {
+                failureMessage = 'Test failed';
+              }
+            }
             final failureAttr = skipped ? 'Skipped' : 'Failed';
 
             testCases.add(_CompletedTestCase(

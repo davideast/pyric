@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:cloud_firestore_platform_interface/cloud_firestore_platform_interface.dart';
 import '../transport/bridge_client.dart';
 import '../transport/query_compiler.dart';
+import 'mutation_serialization.dart';
 import 'pyric_collection_reference.dart';
 import 'pyric_document_snapshot.dart';
-import 'pyric_field_value_factory.dart';
 import 'pyric_firestore_platform.dart';
 
 /// Concrete [DocumentReferencePlatform] pointing to a document in Pyric Firestore.
@@ -43,24 +43,14 @@ class PyricDocumentReference extends DocumentReferencePlatform {
 
   @override
   Future<void> set(Map<String, dynamic> data, [SetOptions? options]) async {
-    final unwrapped = unwrapFieldValues(data) as Map<String, dynamic>;
-    final optMap = options != null
-        ? <String, dynamic>{
-            if (options.merge != null) 'merge': options.merge,
-            if (options.mergeFields != null)
-              'mergeFields':
-                  options.mergeFields!.map((fp) => fp.components.join('.')).toList(),
-          }
-        : null;
+    final unwrapped = serializeSetData(data);
+    final optMap = serializeSetOptions(options);
     await _client.setDoc(path, unwrapped, options: optMap);
   }
 
   @override
   Future<void> update(Map<FieldPath, dynamic> data) async {
-    final stringMap = <String, dynamic>{};
-    data.forEach((fieldPath, val) {
-      stringMap[fieldPath.components.join('.')] = unwrapFieldValues(val);
-    });
+    final stringMap = serializeUpdateData(data);
     await _client.updateDoc(path, stringMap);
   }
 
@@ -70,7 +60,11 @@ class PyricDocumentReference extends DocumentReferencePlatform {
     ListenSource listenSource = ListenSource.defaultSource,
   }) {
     final target = QueryCompiler.compileDocumentTarget(path);
-    final stream = _client.subscribe(target);
+    final stream = _client.subscribe(
+      target,
+      includeMetadataChanges: includeMetadataChanges,
+      listenSource: listenSource.name,
+    );
     return stream.map((event) => PyricDocumentSnapshot.fromWire(
           firestore,
           path,

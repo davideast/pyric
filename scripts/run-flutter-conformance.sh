@@ -61,6 +61,28 @@ if command -v container >/dev/null 2>&1; then
     echo "Error: Apple Container run failed to produce $XML_OUT (exit code: $CONTAINER_EXIT)" >&2
     exit 1
   fi
+elif command -v docker >/dev/null 2>&1; then
+  # Standard Docker CLI fallback
+  DOCKER_EXIT=0
+  docker run --rm \
+    --add-host=host.docker.internal:host-gateway \
+    -v "$ROOT:/workspace" \
+    -v "$XML_DIR:/out" \
+    -w /workspace/packages/flutter-client \
+    ghcr.io/cirruslabs/flutter:stable \
+    bash -c '
+      set -eo pipefail
+      export PYRIC_BRIDGE_URL="${PYRIC_BRIDGE_URL:-ws://host.docker.internal:5174/__pyric/sandbox}"
+      flutter pub get >/dev/null 2>&1 || true
+      (flutter test --reporter=json "/workspace/$1" 2>&1 || true) | dart run tool/json_to_junit.dart > /tmp/out.xml && mv /tmp/out.xml "/out/$2"
+    ' _ "$SUITE" "$XML_NAME" || DOCKER_EXIT=$?
+
+  if [ -s "$XML_DIR/$XML_NAME" ]; then
+    exit 0
+  else
+    echo "Error: Docker run failed to produce $XML_OUT (exit code: $DOCKER_EXIT)" >&2
+    exit 1
+  fi
 elif command -v flutter >/dev/null 2>&1 && command -v dart >/dev/null 2>&1; then
   # Fallback to host Flutter & Dart
   HOST_SUITE="$SUITE"

@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:cloud_firestore_platform_interface/cloud_firestore_platform_interface.dart';
 import '../transport/bridge_client.dart';
 import '../transport/codecs.dart';
-import 'pyric_field_value_factory.dart';
+import 'mutation_serialization.dart';
 import 'pyric_firestore_platform.dart';
 
 /// Concrete [TransactionPlatform] managing reads and writes within an atomic transaction.
@@ -42,16 +42,9 @@ class PyricTransaction extends TransactionPlatform {
     Map<String, dynamic> data, [
     SetOptions? options,
   ]) {
-    final unwrapped = unwrapFieldValues(data) as Map<String, dynamic>;
+    final unwrapped = serializeSetData(data);
     final encoded = encodeWriteData(unwrapped);
-    final optMap = options != null
-        ? <String, dynamic>{
-            if (options.merge != null) 'merge': options.merge,
-            if (options.mergeFields != null)
-              'mergeFields':
-                  options.mergeFields!.map((fp) => fp.components.join('.')).toList(),
-          }
-        : null;
+    final optMap = serializeSetOptions(options);
 
     _writes.add({
       'method': 'set',
@@ -67,10 +60,7 @@ class PyricTransaction extends TransactionPlatform {
     String documentPath,
     Map<FieldPath, dynamic> data,
   ) {
-    final stringMap = <String, dynamic>{};
-    data.forEach((fieldPath, val) {
-      stringMap[fieldPath.components.join('.')] = unwrapFieldValues(val);
-    });
+    final stringMap = serializeUpdateData(data);
     final encoded = encodeWriteData(stringMap);
 
     _writes.add({

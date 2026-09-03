@@ -529,5 +529,71 @@ void main() {
         'avg_score': {'kind': 'average', 'field': 'score'},
       });
     });
+
+    test('FieldPath in where and orderBy compiles to dotted path strings', () {
+      final q = harness.firestore
+          .collection('items')
+          .where([
+            [FieldPath(const ['user', 'email']), '==', 'test@example.com'],
+          ])
+          .orderBy([
+            [FieldPath(const ['user', 'createdAt']), true],
+          ]) as PyricQuery;
+      final target = q.compileTarget();
+      expect(target['constraints'], contains(equals({'kind': 'where', 'field': 'user.email', 'op': '==', 'value': 'test@example.com'})));
+      expect(target['constraints'], contains(equals({'kind': 'orderBy', 'field': 'user.createdAt', 'direction': 'desc'})));
+    });
+
+    test('whereFilter compiles composite and/or filters into query constraints', () {
+      final filter = _TestFilter({
+        'op': 'AND',
+        'queries': [
+          {'fieldPath': FieldPath(const ['status']), 'op': '==', 'value': 'active'},
+          {
+            'op': 'OR',
+            'queries': [
+              {'fieldPath': 'role', 'op': '==', 'value': 'admin'},
+              {'fieldPath': 'role', 'op': '==', 'value': 'mod'},
+            ],
+          },
+        ],
+      });
+      final q = harness.firestore.collection('users').whereFilter(filter) as PyricQuery;
+      final target = q.compileTarget();
+      expect(target['constraints'], contains(equals({
+        'kind': 'and',
+        'filters': [
+          {'kind': 'where', 'field': 'status', 'op': '==', 'value': 'active'},
+          {
+            'kind': 'or',
+            'filters': [
+              {'kind': 'where', 'field': 'role', 'op': '==', 'value': 'admin'},
+              {'kind': 'where', 'field': 'role', 'op': '==', 'value': 'mod'},
+            ],
+          },
+        ],
+      })));
+    });
+
+    test('snapshots forwards includeMetadataChanges and listenSource to bridge', () async {
+      final doc = harness.firestore.doc('users/alice');
+      final sub = doc.snapshots(
+        includeMetadataChanges: true,
+        listenSource: ListenSource.cache,
+      ).listen((_) {});
+      await pumpEventQueue();
+      final subMsg = harness.sentMessages.lastWhere((m) => m['type'] == 'worker-sub');
+      expect(subMsg['sub']['includeMetadataChanges'], isTrue);
+      expect(subMsg['sub']['listenSource'], 'cache');
+      await sub.cancel();
+    });
   });
+}
+
+class _TestFilter extends FilterPlatformInterface {
+  final Map<String, Object?> _json;
+  _TestFilter(this._json);
+
+  @override
+  Map<String, Object?> toJson() => _json;
 }
