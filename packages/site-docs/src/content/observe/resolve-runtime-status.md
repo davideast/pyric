@@ -30,7 +30,9 @@ Vite can serve a newer Pyric worker while an older SharedWorker is still running
 
 The old worker stops taking new work, finishes operations it already accepted, flushes captured state, and then reloads its connected tabs onto the new worker generation. The update control always occupies the same place in the panel, but remains disabled when the running worker is current.
 
-If replacement fails, the panel records the failure as a copyable error and leaves the update available so you can try again. Resolve the reported cause first. If a stale worker remains after a failed recovery, close every tab for that development origin and reopen the application.
+## Switch identities and impersonate users
+
+The runtime chip also hosts the local identity and impersonation dialog. When active, the collapsed bar displays your current impersonation badge (such as `as: <uid>` or `bypass rules`). Open the chip and select the **Identity** row to search users, test multi-tenant boundaries, or toggle an administrative rules bypass. See [Switch and impersonate identities in development](./switch-and-impersonate-identities.md) for the complete guide.
 
 ## Configure the chip
 

@@ -96,6 +96,10 @@ pyric firestore indexes generate src --out firestore.indexes.json
 
 Review the generated file with the query open, then deploy it with the rest of the Firebase configuration when you [ship to production](../ship/ship-to-production.md).
 
+## Use from Flutter apps
+
+If you are building with Flutter, `pyric_firestore` redirects standard FlutterFire `cloud_firestore` calls to the local Pyric sandbox bridge during development without changing your application data code. See [Flutter development setup](../get-started/flutter.md).
+
 ## And from an agent
 
 Ask a connected agent to inventory the Firestore queries in the application, derive their indexes, and compare each query with the Rules that govern list access. [Work with an agent](../agent/work-with-an-agent.md) shows how the agent connects to the same local backend.

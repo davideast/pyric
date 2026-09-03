@@ -60,7 +60,7 @@ To flip between identities without a sign-in flow, `setUser` forces the current 
 authSandbox.setUser(auth, aliceUser);
 authSandbox.setUser(auth, null);
 ```
-Keep the `sandbox` namespace out of app source. The real `firebase/auth` has no equivalent, so it belongs in your harness and seed code, where switching users mid-test is the point. In the running app, the account picker and `pyric snapshot` cover the same ground: lived users can be promoted to a committable fixture and re-seeded on boot.
+Keep the `sandbox` namespace out of app source. The real `firebase/auth` has no equivalent, so it belongs in your harness and seed code, where switching users mid-test is the point. In the running app, the runtime chip embeds an impersonation dialog to switch users, filter by tenant, or bypass rules without reloading: see [Switch and impersonate identities in development](../observe/switch-and-impersonate-identities.md). Lived users can also be promoted to a committable fixture with `pyric snapshot` and re-seeded on boot.
 
 ## Design an identity model
 
