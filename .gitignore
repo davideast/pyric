@@ -95,4 +95,10 @@ pubspec.lock
 .agents/PROJECT.md
 BRIEFING.md
 ORIGINAL_REQUEST.md
-
+# Swift and Xcode build artifacts
+.build/
+**/.build/
+*.xcodeproj
+*.xcworkspace
+DerivedData/
+examples/swift-todo-app/

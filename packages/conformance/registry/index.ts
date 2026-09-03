@@ -3,6 +3,7 @@ import { appRegistry } from './app.ts';
 import { authRegistry } from './auth.ts';
 import { firestoreRegistry } from './firestore.ts';
 import { firestoreFlutterRegistry } from './firestore-flutter.ts';
+import { firestoreSwiftRegistry } from './firestore-swift.ts';
 import { functionsRtdbRegistry } from './functions-rtdb.ts';
 import { messagingRegistry } from './messaging.ts';
 import { rtdbRegistry } from './rtdb.ts';
@@ -29,6 +30,7 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     functionsRtdbRegistry,
     rulesRegistry,
     firestoreFlutterRegistry,
+    firestoreSwiftRegistry,
   ].map((r) => [r.surface, r]),
 );
 
