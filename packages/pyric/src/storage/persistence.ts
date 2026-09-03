@@ -3,10 +3,11 @@
  *
  * One database (`pyric-storage` by default), two object stores —
  * `blobs` for the file content and `metadata` for the descriptive
- * record. Both stores key on the file's full path string. Object
- * upload writes both stores within a single `readwrite` transaction
- * so the pair stays consistent — a partial failure can't leave a
- * blob without metadata or vice versa.
+ * record. Both stores key on composite bucket and path strings
+ * (`${bucket}/${fullPath}`) to isolate storage persistence across
+ * buckets. Object upload writes both stores within a single `readwrite`
+ * transaction so the pair stays consistent — a partial failure can't
+ * leave a blob without metadata or vice versa.
  *
  * Slice 3 of the v1 scope (per the design rationale):
  *
@@ -44,6 +45,30 @@
 const DEFAULT_DB_NAME = 'pyric-storage';
 
 /**
+ * Default sandbox bucket identifier when not explicitly provided.
+ */
+export const DEFAULT_BUCKET = 'pyric-default';
+
+/**
+ * Encode a composite key scoping an object path to its bucket: `${bucket}/${fullPath}`.
+ */
+export function toStorageKey(bucket: string, path: string): string {
+  return `${bucket}/${path}`;
+}
+
+/**
+ * Decode a composite key into bucket and object path.
+ */
+export function parseStorageKey(key: string): { bucket: string; path: string } | null {
+  const slashIdx = key.indexOf('/');
+  if (slashIdx === -1) return null;
+  return {
+    bucket: key.slice(0, slashIdx),
+    path: key.slice(slashIdx + 1),
+  };
+}
+
+/**
  * Resolve the default IndexedDB database name for a project identity:
  * `pyric-storage:<projectId>`, or the legacy shared {@link DEFAULT_DB_NAME}
  * when no identity is available. An explicit `dbName` option always wins
@@ -54,9 +79,7 @@ export function storageDbName(projectId?: string | null): string {
 }
 /**
  * Schema version. Bump and add an `upgradeneeded` branch when the
- * store layout changes. Slice 3 ships v1: two object stores keyed by
- * fullPath, no indexes. Future migrations follow IndexedDB's standard
- * upgrade path.
+ * store layout changes.
  */
 const SCHEMA_VERSION = 1;
 const BLOBS_STORE = 'blobs';
@@ -74,11 +97,11 @@ const METADATA_STORE = 'metadata';
  * caller's `SettableMetadata`.
  */
 export interface StoredMetadata {
-  /** Full path of the object within the bucket. Also the store key. */
+  /** Full path of the object within the bucket. */
   fullPath: string;
   /** Last path segment (`b.txt` in `a/b.txt`). */
   name: string;
-  /** Sandbox bucket id. v1 has a single implicit bucket. */
+  /** Sandbox bucket id. */
   bucket: string;
   /** Monotonically increasing version of the object content. */
   generation: string;
@@ -122,16 +145,16 @@ export interface StorageBackend {
   put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void>;
 
   /**
-   * Read the blob stored at `path`. Resolves to `undefined` when no
+   * Read the blob stored at `path` within `bucket`. Resolves to `undefined` when no
    * entry exists — callers translate that into `object-not-found`.
    */
-  getBlob(path: string): Promise<Blob | undefined>;
+  getBlob(path: string, bucket?: string): Promise<Blob | undefined>;
 
   /**
-   * Read the metadata record stored at `path`. Resolves to
+   * Read the metadata record stored at `path` within `bucket`. Resolves to
    * `undefined` when no entry exists.
    */
-  getMetadata(path: string): Promise<StoredMetadata | undefined>;
+  getMetadata(path: string, bucket?: string): Promise<StoredMetadata | undefined>;
 
   /**
    * Replace the metadata record at `path` without touching the blob.
@@ -139,31 +162,37 @@ export interface StorageBackend {
    * preserving server-set fields (`generation`, `timeCreated`, …)
    * the spec says metadata-only updates leave intact.
    */
-  putMetadata(path: string, metadata: StoredMetadata): Promise<void>;
+  putMetadata(path: string, metadata: StoredMetadata, bucket?: string): Promise<void>;
 
   /**
    * Delete both the blob and the metadata at `path` atomically.
    * No-op when neither entry exists.
    */
-  delete(path: string): Promise<void>;
+  delete(path: string, bucket?: string): Promise<void>;
 
   /**
    * Enumerate metadata records whose `fullPath` starts with `prefix`.
-   * Returned in IndexedDB key order (lexicographic by path). The
+   * Returned in key order (lexicographic by path within bucket). The
    * prefix is used verbatim — no implicit trailing-slash addition,
    * matching the survey's path-semantics call (Section 6).
    */
-  listByPrefix(prefix: string): Promise<StoredMetadata[]>;
+  listByPrefix(prefix: string, bucket?: string): Promise<StoredMetadata[]>;
 
   /**
-   * Clear both stores. Called by Slice 4's `StorageService.reset`.
+   * Clear stores. If `bucket` is supplied, clears only entries in that bucket;
+   * otherwise clears all stores.
    */
-  reset(): Promise<void>;
+  reset(bucket?: string): Promise<void>;
 
   /**
    * Close the underlying IndexedDB connection. Idempotent.
    */
   close(): void;
+
+  /**
+   * Return a view of this backend scoped to a specific bucket.
+   */
+  scoped?(bucket: string): StorageBackend;
 }
 
 /**
@@ -178,46 +207,97 @@ export interface StorageBackend {
  */
 export async function openStorageBackend(
   dbName: string = DEFAULT_DB_NAME,
+  defaultBucket?: string,
 ): Promise<StorageBackend> {
   try {
     const db = await openDatabase(dbName);
-    return new IndexedDbStorageBackend(db);
+    return new IndexedDbStorageBackend(db, defaultBucket);
   } catch (err) {
-    return new InMemoryStorageBackend();
+    return new InMemoryStorageBackend(defaultBucket);
   }
 }
 
-class InMemoryStorageBackend implements StorageBackend {
+export class InMemoryStorageBackend implements StorageBackend {
   private readonly blobs = new Map<string, Blob>();
   private readonly metadata = new Map<string, StoredMetadata>();
+  private _defaultBucket: string | undefined;
+
+  constructor(defaultBucket?: string) {
+    this._defaultBucket = defaultBucket;
+  }
 
   async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void> {
-    this.blobs.set(path, blob);
-    this.metadata.set(path, metadata);
+    const bucket = metadata.bucket || this._defaultBucket || DEFAULT_BUCKET;
+    if (!this._defaultBucket) {
+      this._defaultBucket = bucket;
+    }
+    if (!metadata.bucket) {
+      metadata.bucket = bucket;
+    }
+    const key = toStorageKey(bucket, path);
+    this.blobs.set(key, blob);
+    this.metadata.set(key, metadata);
   }
 
-  async getBlob(path: string): Promise<Blob | undefined> {
-    return this.blobs.get(path);
+  async getBlob(path: string, bucket?: string): Promise<Blob | undefined> {
+    if (bucket) {
+      return this.blobs.get(toStorageKey(bucket, path));
+    }
+    const targetBucket = this._defaultBucket ?? DEFAULT_BUCKET;
+    const direct = this.blobs.get(toStorageKey(targetBucket, path));
+    if (direct !== undefined) return direct;
+    if (targetBucket !== DEFAULT_BUCKET) {
+      const def = this.blobs.get(toStorageKey(DEFAULT_BUCKET, path));
+      if (def !== undefined) return def;
+    }
+    for (const [key, blob] of this.blobs.entries()) {
+      const parsed = parseStorageKey(key);
+      if (parsed && parsed.path === path) {
+        return blob;
+      }
+    }
+    return undefined;
   }
 
-  async getMetadata(path: string): Promise<StoredMetadata | undefined> {
-    return this.metadata.get(path);
+  async getMetadata(path: string, bucket?: string): Promise<StoredMetadata | undefined> {
+    if (bucket) {
+      return this.metadata.get(toStorageKey(bucket, path));
+    }
+    const targetBucket = this._defaultBucket ?? DEFAULT_BUCKET;
+    const direct = this.metadata.get(toStorageKey(targetBucket, path));
+    if (direct !== undefined) return direct;
+    if (targetBucket !== DEFAULT_BUCKET) {
+      const def = this.metadata.get(toStorageKey(DEFAULT_BUCKET, path));
+      if (def !== undefined) return def;
+    }
+    for (const [key, meta] of this.metadata.entries()) {
+      const parsed = parseStorageKey(key);
+      if (parsed && parsed.path === path) {
+        return meta;
+      }
+    }
+    return undefined;
   }
 
-  async putMetadata(path: string, metadata: StoredMetadata): Promise<void> {
-    this.metadata.set(path, metadata);
+  async putMetadata(path: string, metadata: StoredMetadata, bucket?: string): Promise<void> {
+    const b = bucket ?? metadata.bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
+    if (!metadata.bucket) metadata.bucket = b;
+    this.metadata.set(toStorageKey(b, path), metadata);
   }
 
-  async delete(path: string): Promise<void> {
-    this.blobs.delete(path);
-    this.metadata.delete(path);
+  async delete(path: string, bucket?: string): Promise<void> {
+    const targetBucket = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
+    this.blobs.delete(toStorageKey(targetBucket, path));
+    this.metadata.delete(toStorageKey(targetBucket, path));
   }
 
-  async listByPrefix(prefix: string): Promise<StoredMetadata[]> {
+  async listByPrefix(prefix: string, bucket?: string): Promise<StoredMetadata[]> {
+    const targetBucket = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
+    const keyPrefix = `${targetBucket}/${prefix}`;
     const results: StoredMetadata[] = [];
     const keys = Array.from(this.metadata.keys()).sort();
     for (const key of keys) {
-      if (key.startsWith(prefix)) {
+      if (key.startsWith(keyPrefix)) {
         const meta = this.metadata.get(key);
         if (meta) results.push(meta);
       }
@@ -225,73 +305,221 @@ class InMemoryStorageBackend implements StorageBackend {
     return results;
   }
 
-  async reset(): Promise<void> {
-    this.blobs.clear();
-    this.metadata.clear();
+  async reset(bucket?: string): Promise<void> {
+    if (!bucket) {
+      this.blobs.clear();
+      this.metadata.clear();
+      this._defaultBucket = undefined;
+      return;
+    }
+    const bucketPrefix = `${bucket}/`;
+    for (const key of Array.from(this.blobs.keys())) {
+      if (key.startsWith(bucketPrefix)) {
+        this.blobs.delete(key);
+      }
+    }
+    for (const key of Array.from(this.metadata.keys())) {
+      if (key.startsWith(bucketPrefix)) {
+        this.metadata.delete(key);
+      }
+    }
   }
 
   close(): void {}
+
+  scoped(bucket: string): StorageBackend {
+    return new ScopedStorageBackend(this, bucket);
+  }
 }
 
 // ─── Internal ──────────────────────────────────────────────────────
 
-class IndexedDbStorageBackend implements StorageBackend {
-  constructor(private readonly db: IDBDatabase) {}
+export class IndexedDbStorageBackend implements StorageBackend {
+  private _defaultBucket: string | undefined;
+
+  constructor(
+    private readonly db: IDBDatabase,
+    defaultBucket?: string,
+  ) {
+    this._defaultBucket = defaultBucket;
+  }
 
   async put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void> {
+    const bucket = metadata.bucket || this._defaultBucket || DEFAULT_BUCKET;
+    if (!this._defaultBucket) {
+      this._defaultBucket = bucket;
+    }
+    if (!metadata.bucket) {
+      metadata.bucket = bucket;
+    }
+    const key = toStorageKey(bucket, path);
     const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
-    tx.objectStore(BLOBS_STORE).put(blob, path);
-    tx.objectStore(METADATA_STORE).put(metadata, path);
+    tx.objectStore(BLOBS_STORE).put(blob, key);
+    tx.objectStore(METADATA_STORE).put(metadata, key);
     await awaitTransaction(tx);
   }
 
-  async getBlob(path: string): Promise<Blob | undefined> {
+  async getBlob(path: string, bucket?: string): Promise<Blob | undefined> {
     const tx = this.db.transaction(BLOBS_STORE, 'readonly');
-    return awaitRequest<Blob | undefined>(tx.objectStore(BLOBS_STORE).get(path));
+    const store = tx.objectStore(BLOBS_STORE);
+    if (bucket) {
+      return awaitRequest<Blob | undefined>(store.get(toStorageKey(bucket, path)));
+    }
+    const targetBucket = this._defaultBucket ?? DEFAULT_BUCKET;
+    const direct = await awaitRequest<Blob | undefined>(store.get(toStorageKey(targetBucket, path)));
+    if (direct !== undefined) return direct;
+    if (targetBucket !== DEFAULT_BUCKET) {
+      const def = await awaitRequest<Blob | undefined>(store.get(toStorageKey(DEFAULT_BUCKET, path)));
+      if (def !== undefined) return def;
+    }
+    return new Promise((resolve, reject) => {
+      const req = store.openCursor();
+      req.addEventListener('success', () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve(undefined);
+          return;
+        }
+        const key = String(cursor.key);
+        const parsed = parseStorageKey(key);
+        if (parsed && parsed.path === path) {
+          resolve(cursor.value as Blob);
+          return;
+        }
+        cursor.continue();
+      });
+      req.addEventListener('error', () => reject(req.error));
+    });
   }
 
-  async getMetadata(path: string): Promise<StoredMetadata | undefined> {
+  async getMetadata(path: string, bucket?: string): Promise<StoredMetadata | undefined> {
     const tx = this.db.transaction(METADATA_STORE, 'readonly');
-    return awaitRequest<StoredMetadata | undefined>(
-      tx.objectStore(METADATA_STORE).get(path),
-    );
+    const store = tx.objectStore(METADATA_STORE);
+    if (bucket) {
+      return awaitRequest<StoredMetadata | undefined>(store.get(toStorageKey(bucket, path)));
+    }
+    const targetBucket = this._defaultBucket ?? DEFAULT_BUCKET;
+    const direct = await awaitRequest<StoredMetadata | undefined>(store.get(toStorageKey(targetBucket, path)));
+    if (direct !== undefined) return direct;
+    if (targetBucket !== DEFAULT_BUCKET) {
+      const def = await awaitRequest<StoredMetadata | undefined>(store.get(toStorageKey(DEFAULT_BUCKET, path)));
+      if (def !== undefined) return def;
+    }
+    return new Promise((resolve, reject) => {
+      const req = store.openCursor();
+      req.addEventListener('success', () => {
+        const cursor = req.result;
+        if (!cursor) {
+          resolve(undefined);
+          return;
+        }
+        const key = String(cursor.key);
+        const parsed = parseStorageKey(key);
+        if (parsed && parsed.path === path) {
+          resolve(cursor.value as StoredMetadata);
+          return;
+        }
+        cursor.continue();
+      });
+      req.addEventListener('error', () => reject(req.error));
+    });
   }
 
-  async putMetadata(path: string, metadata: StoredMetadata): Promise<void> {
+  async putMetadata(path: string, metadata: StoredMetadata, bucket?: string): Promise<void> {
+    const b = bucket ?? metadata.bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
+    if (!metadata.bucket) metadata.bucket = b;
+    const key = toStorageKey(b, path);
     const tx = this.db.transaction(METADATA_STORE, 'readwrite');
-    tx.objectStore(METADATA_STORE).put(metadata, path);
+    tx.objectStore(METADATA_STORE).put(metadata, key);
     await awaitTransaction(tx);
   }
 
-  async delete(path: string): Promise<void> {
+  async delete(path: string, bucket?: string): Promise<void> {
+    const targetBucket = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
+    const key = toStorageKey(targetBucket, path);
     const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
-    tx.objectStore(BLOBS_STORE).delete(path);
-    tx.objectStore(METADATA_STORE).delete(path);
+    tx.objectStore(BLOBS_STORE).delete(key);
+    tx.objectStore(METADATA_STORE).delete(key);
     await awaitTransaction(tx);
   }
 
-  async listByPrefix(prefix: string): Promise<StoredMetadata[]> {
+  async listByPrefix(prefix: string, bucket?: string): Promise<StoredMetadata[]> {
+    const targetBucket = bucket ?? this._defaultBucket ?? DEFAULT_BUCKET;
     const tx = this.db.transaction(METADATA_STORE, 'readonly');
-    // `IDBKeyRange.bound(prefix, prefix + '￿')` returns every
-    // key that starts with `prefix` — '￿' is the highest BMP
-    // code point, so any path whose first char beyond `prefix` is
-    // legal will sort below it. Matches the survey's recommended
-    // prefix-query pattern (Section 6).
-    const range = IDBKeyRange.bound(prefix, prefix + '￿', false, false);
+    const keyPrefix = `${targetBucket}/${prefix}`;
+    const range = IDBKeyRange.bound(keyPrefix, keyPrefix + '\ufffd', false, false);
     return awaitRequest<StoredMetadata[]>(
       tx.objectStore(METADATA_STORE).getAll(range),
     );
   }
 
-  async reset(): Promise<void> {
+  async reset(bucket?: string): Promise<void> {
     const tx = this.db.transaction([BLOBS_STORE, METADATA_STORE], 'readwrite');
-    tx.objectStore(BLOBS_STORE).clear();
-    tx.objectStore(METADATA_STORE).clear();
+    if (!bucket) {
+      tx.objectStore(BLOBS_STORE).clear();
+      tx.objectStore(METADATA_STORE).clear();
+      this._defaultBucket = undefined;
+    } else {
+      const bucketPrefix = `${bucket}/`;
+      const range = IDBKeyRange.bound(bucketPrefix, bucketPrefix + '\ufffd', false, false);
+      tx.objectStore(BLOBS_STORE).delete(range);
+      tx.objectStore(METADATA_STORE).delete(range);
+    }
     await awaitTransaction(tx);
   }
 
   close(): void {
     this.db.close();
+  }
+
+  scoped(bucket: string): StorageBackend {
+    return new ScopedStorageBackend(this, bucket);
+  }
+}
+
+export class ScopedStorageBackend implements StorageBackend {
+  constructor(
+    private readonly underlying: StorageBackend,
+    readonly bucket: string,
+  ) {}
+
+  put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void> {
+    const meta = metadata.bucket ? metadata : { ...metadata, bucket: this.bucket };
+    return this.underlying.put(path, blob, meta);
+  }
+
+  getBlob(path: string, bucket?: string): Promise<Blob | undefined> {
+    return this.underlying.getBlob(path, bucket ?? this.bucket);
+  }
+
+  getMetadata(path: string, bucket?: string): Promise<StoredMetadata | undefined> {
+    return this.underlying.getMetadata(path, bucket ?? this.bucket);
+  }
+
+  putMetadata(path: string, metadata: StoredMetadata, bucket?: string): Promise<void> {
+    const meta = metadata.bucket ? metadata : { ...metadata, bucket: this.bucket };
+    return this.underlying.putMetadata(path, meta, bucket ?? this.bucket);
+  }
+
+  delete(path: string, bucket?: string): Promise<void> {
+    return this.underlying.delete(path, bucket ?? this.bucket);
+  }
+
+  listByPrefix(prefix: string, bucket?: string): Promise<StoredMetadata[]> {
+    return this.underlying.listByPrefix(prefix, bucket ?? this.bucket);
+  }
+
+  reset(bucket?: string): Promise<void> {
+    return this.underlying.reset(bucket ?? this.bucket);
+  }
+
+  close(): void {
+    this.underlying.close();
+  }
+
+  scoped(bucket: string): StorageBackend {
+    if (bucket === this.bucket) return this;
+    return this.underlying.scoped ? this.underlying.scoped(bucket) : new ScopedStorageBackend(this.underlying, bucket);
   }
 }
 

@@ -121,10 +121,8 @@ export class StorageService {
 /** Options for {@link getStorageSandbox}. */
 export interface StorageOptions {
   /**
-   * Bucket identifier recorded on uploaded metadata. v1 has a
-   * single implicit bucket and does not enforce cross-bucket
-   * isolation — passing different values per call is accepted and
-   * round-trips in metadata, but the data store is shared.
+   * Bucket identifier recorded on uploaded metadata and used to isolate
+   * storage persistence across multiple buckets.
    */
   bucket?: string;
   /**
@@ -180,18 +178,44 @@ interface OpenStorageService {
 /** One open storage service, with its opening configuration, per `Sandbox`. */
 const OPEN_SERVICES = new WeakMap<Sandbox, OpenStorageService>();
 
-/** One sandbox `FirebaseStorage` handle per `SandboxContext`. */
-const SANDBOX_HANDLES = new WeakMap<SandboxContext, FirebaseStorage>();
+/** One scoped `StorageService` per (Sandbox, bucket). */
+const SCOPED_SERVICES = new WeakMap<Sandbox, Map<string, Promise<StorageService>>>();
+
+function getOrCreateScopedService(
+  sandbox: Sandbox,
+  bucket: string,
+  rootServicePromise: Promise<StorageService>,
+): Promise<StorageService> {
+  let bucketMap = SCOPED_SERVICES.get(sandbox);
+  if (!bucketMap) {
+    bucketMap = new Map();
+    SCOPED_SERVICES.set(sandbox, bucketMap);
+  }
+  let existing = bucketMap.get(bucket);
+  if (!existing) {
+    existing = rootServicePromise.then((rootService) => {
+      const backend = rootService.backend.scoped
+        ? rootService.backend.scoped(bucket)
+        : rootService.backend;
+      return new StorageService(backend, rootService.rules, rootService.crossServiceIam);
+    });
+    bucketMap.set(bucket, existing);
+  }
+  return existing;
+}
+
+/** Sandbox `FirebaseStorage` handles cached per `(SandboxContext, bucket)`. */
+const SANDBOX_HANDLES = new WeakMap<SandboxContext, Map<string, FirebaseStorage>>();
 
 /**
- * One anonymous handle per bare `Sandbox`. `Sandbox.withAuth(null)`
+ * Anonymous handles cached per `(Sandbox, bucket)`. `Sandbox.withAuth(null)`
  * mints a FRESH `SandboxContext` on every call, so the per-context
  * cache above would miss for the bare-`Sandbox` convenience path —
  * `getStorageSandbox(sandbox)` twice returned two different handles
  * (ST-B3). Caching on the `Sandbox` keeps that path identity-stable,
  * matching the documented "handle is identity-stable per Sandbox".
  */
-const BARE_SANDBOX_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
+const BARE_SANDBOX_HANDLES = new WeakMap<Sandbox, Map<string, FirebaseStorage>>();
 
 /**
  * Reject a late option that differs from the one the service is already
@@ -285,6 +309,7 @@ function ensureService(
   const crossServiceIam = options.crossServiceIam ?? 'granted';
   const servicePromise = openStorageBackend(
     options.dbName ?? storageDbName(options.projectId),
+    options.bucket ?? DEFAULT_BUCKET,
   ).then(
     (backend) => new StorageService(backend, rules, crossServiceIam),
   );
@@ -336,23 +361,21 @@ export function getStorageSandbox(
   // Open (or fetch) the ONE per-sandbox service FIRST — before any handle
   // cache fast-path — so a late, differing `rules` option throws instead of
   // being silently discarded (see ensureService).
-  const servicePromise = ensureService(sandbox, options, 'getStorageSandbox');
+  const rootServicePromise = ensureService(sandbox, options, 'getStorageSandbox');
+  const bucket = options.bucket ?? DEFAULT_BUCKET;
 
   // Fast path: a repeat bare-`Sandbox` call returns the cached
-  // anonymous handle (the per-context cache below can't catch it
-  // because `withAuth(null)` mints a fresh context each time). Like
-  // the per-context path, bucket/dbName options are honored only on
-  // the FIRST call per Sandbox.
+  // anonymous handle for the requested bucket.
   if (fromBareSandbox) {
-    const cachedBare = BARE_SANDBOX_HANDLES.get(sandbox);
+    const cachedBare = BARE_SANDBOX_HANDLES.get(sandbox)?.get(bucket);
     if (cachedBare) return cachedBare;
   }
 
   const ctx = isContext(target) ? target : target.withAuth(null);
-  const bucket = options.bucket ?? DEFAULT_BUCKET;
-
-  const cached = SANDBOX_HANDLES.get(ctx);
+  const cached = SANDBOX_HANDLES.get(ctx)?.get(bucket);
   if (cached) return cached;
+
+  const servicePromise = getOrCreateScopedService(sandbox, bucket, rootServicePromise);
 
   const sandboxTarget: SandboxTarget = {
     kind: 'sandbox',
@@ -363,15 +386,29 @@ export function getStorageSandbox(
     servicePromise,
   };
   const handle: FirebaseStorage = Object.freeze({ [TARGET_SYMBOL]: sandboxTarget });
-  SANDBOX_HANDLES.set(ctx, handle);
-  if (fromBareSandbox) BARE_SANDBOX_HANDLES.set(sandbox, handle);
+
+  let ctxMap = SANDBOX_HANDLES.get(ctx);
+  if (!ctxMap) {
+    ctxMap = new Map();
+    SANDBOX_HANDLES.set(ctx, ctxMap);
+  }
+  ctxMap.set(bucket, handle);
+
+  if (fromBareSandbox) {
+    let bareMap = BARE_SANDBOX_HANDLES.get(sandbox);
+    if (!bareMap) {
+      bareMap = new Map();
+      BARE_SANDBOX_HANDLES.set(sandbox, bareMap);
+    }
+    bareMap.set(bucket, handle);
+  }
   return handle;
 }
 
 /** Admin handles are cached by bound context so Studio, agent, and
  * unattributed callers can share storage state without sharing provenance. */
-const ADMIN_CONTEXT_HANDLES = new WeakMap<SandboxContext, FirebaseStorage>();
-const BARE_ADMIN_HANDLES = new WeakMap<Sandbox, FirebaseStorage>();
+const ADMIN_CONTEXT_HANDLES = new WeakMap<SandboxContext, Map<string, FirebaseStorage>>();
+const BARE_ADMIN_HANDLES = new WeakMap<Sandbox, Map<string, FirebaseStorage>>();
 
 /**
  * INTERNAL (exported via `pyric/storage/internal` only) — construct
@@ -395,10 +432,11 @@ export function getAdminStorageSandbox(
   const fromBareSandbox = !isContext(target);
   const sandbox = isContext(target) ? target.sandbox : target;
   // Service first (late differing `rules` must throw, even on a cache hit).
-  const servicePromise = ensureService(sandbox, options, 'getAdminStorageSandbox');
+  const rootServicePromise = ensureService(sandbox, options, 'getAdminStorageSandbox');
+  const bucket = options.bucket ?? DEFAULT_BUCKET;
 
   if (fromBareSandbox) {
-    const cachedBare = BARE_ADMIN_HANDLES.get(sandbox);
+    const cachedBare = BARE_ADMIN_HANDLES.get(sandbox)?.get(bucket);
     if (cachedBare) return cachedBare;
   }
 
@@ -412,20 +450,36 @@ export function getAdminStorageSandbox(
           ? {}
           : { planId: baseContext.operationContext.planId }),
       });
-  const cached = ADMIN_CONTEXT_HANDLES.get(baseContext);
+  const cached = ADMIN_CONTEXT_HANDLES.get(baseContext)?.get(bucket);
   if (cached) return cached;
+
+  const servicePromise = getOrCreateScopedService(sandbox, bucket, rootServicePromise);
 
   const sandboxTarget: SandboxTarget = {
     kind: 'sandbox',
     sandbox,
     context,
-    bucket: options.bucket ?? DEFAULT_BUCKET,
+    bucket,
     servicePromise,
     admin: true,
   };
   const handle: FirebaseStorage = Object.freeze({ [TARGET_SYMBOL]: sandboxTarget });
-  ADMIN_CONTEXT_HANDLES.set(baseContext, handle);
-  if (fromBareSandbox) BARE_ADMIN_HANDLES.set(sandbox, handle);
+
+  let ctxMap = ADMIN_CONTEXT_HANDLES.get(baseContext);
+  if (!ctxMap) {
+    ctxMap = new Map();
+    ADMIN_CONTEXT_HANDLES.set(baseContext, ctxMap);
+  }
+  ctxMap.set(bucket, handle);
+
+  if (fromBareSandbox) {
+    let bareMap = BARE_ADMIN_HANDLES.get(sandbox);
+    if (!bareMap) {
+      bareMap = new Map();
+      BARE_ADMIN_HANDLES.set(sandbox, bareMap);
+    }
+    bareMap.set(bucket, handle);
+  }
   return handle;
 }
 
