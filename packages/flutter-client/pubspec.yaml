@@ -1,7 +1,9 @@
 name: pyric_firestore
-description: Pyric Firestore client conforming to cloud_firestore_platform_interface.
+description: Pure-Dart Flutter client for Pyric local sandbox, conforming to cloud_firestore_platform_interface.
 version: 0.1.0
-publish_to: 'none'
+repository: https://github.com/davideast/pyric
+issue_tracker: https://github.com/davideast/pyric/issues
+homepage: https://github.com/davideast/pyric/tree/main/packages/flutter-client
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -10,6 +12,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  firebase_core: ^4.14.0
   cloud_firestore_platform_interface: ^8.0.7
   plugin_platform_interface: ^2.1.8
   web_socket_channel: ^3.0.3
@@ -20,7 +23,6 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   test: ^1.25.0
-  firebase_core: ^4.14.0
   firebase_core_platform_interface: ^8.1.1
   stream_channel: ^2.1.2
   flutter_lints: ^5.0.0
