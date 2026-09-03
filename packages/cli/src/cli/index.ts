@@ -9,6 +9,7 @@
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
  *   pyric mcp
+ *   pyric call <tool> <op> [--args <json>] [--stdin] [--port <n>] [--json]
  *   pyric firestore rules lint <path>
  *   pyric firestore rules validate <path>
  *   pyric firestore rules simulate [--stdin]
@@ -66,6 +67,7 @@ USAGE
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
   pyric can-i-use <feature> [--json]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
+  pyric call <tool> <op> [--args <json>] [--stdin] [--port <n>] [--json]
   pyric firestore rules lint <path>
   pyric firestore rules validate <path>
   pyric firestore rules simulate [--stdin]
@@ -121,6 +123,13 @@ COMMANDS
                              Exact and fuzzy queries use the same model as MCP. --json.
   verify cases [fixture]     Derive Firestore Rules Test API cases from a captured
                              fixture and print JSON, or write with --out FILE.
+  call <tool> <op>           Call one MCP tool operation and print its result envelope
+                             as JSON. Fields come from --args <json> or --stdin (a JSON
+                             object; omit both for none). Attaches to the running
+                             \`pyric sandbox --bridge\` (.pyric/serve.json, or --port);
+                             without one, in-process ops run headless and sandbox ops
+                             exit 2. --json prints one line. A structured tool error
+                             prints the envelope on stderr and exits 2.
   firestore rules lint       Run the Firestore rules linter against a file.
   firestore rules validate   Validate Firestore rules structure against a file.
   firestore rules simulate   Run the local Firestore rules simulator.
@@ -354,6 +363,9 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
       return runCanIUse(parsed);
     case 'mcp':
       return await runMcpProxy(parsed);
+    case 'call':
+      const { runCall } = await import('./call.js');
+      return runCall(parsed);
     case 'init':
       return await runInit(parsed);
     case 'vendor':

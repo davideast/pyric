@@ -33,6 +33,7 @@ const BOOLEAN_FLAGS = new Set([
   'fresh',
   'force',
   'permissive',
+  'stdin',
   'help',
   'version',
 ]);
