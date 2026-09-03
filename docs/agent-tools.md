@@ -8,8 +8,9 @@ into whatever runtime you use. They reach an agent two ways:
    surface**; the [Pyric agent plugin](../pyric-plugin/README.md) auto-wires
    it. Each MCP tool is one record under
    `packages/cli/src/bridge/tool-records/` and is pinned by
-   `packages/cli/src/bridge/server/mcp-contract.ts` (**9** tools, **27**
-   operations today).
+   `packages/cli/src/bridge/server/mcp-contract.ts` (**12** tools, **59**
+   operations today: 42 forwarded to the connected sandbox, 17 in the MCP
+   process).
 2. **Programmatic** — import a factory and register the handlers with any agent
    framework (the playground does this with `@inbrowser/agent`).
 
@@ -27,26 +28,37 @@ naming the valid operations and the fields of the attempted one.
 |---|---|---|---|
 | `firestore_simulator` | `create`, `execute`, `read`, `batch`, `add`, `undo`, `redo`, `events`, `transaction` | in the connected sandbox | `createFirestoreSimulatorTools` (`pyric/rules`) |
 | `firestore_data` | `get`, `list`, `set`, `add`, `update`, `delete`, `batch_write`, `query` | in the connected sandbox | `createFirestoreDataTools` (`pyric/firestore`) |
-| `sandbox` | `inspect` | in the connected sandbox | `createFirestoreInspectTools` (`pyric/firestore`) |
-| `database_data` | `crawl` | in the connected sandbox | `createRtdbInspectionTools` (`@pyric/cli`) |
+| `sandbox` | `inspect`, `snapshot` | in the connected sandbox | `createFirestoreInspectTools` (`pyric/firestore`), `createSandboxSnapshotTools` (`@pyric/cli`) |
+| `database_data` | `crawl`, `get`, `set`, `update`, `remove`, `push`, `transaction`, `query`, `seed` | in the connected sandbox | `createRtdbInspectionTools` (`@pyric/cli`), `createDatabaseDataTools` (`pyric/database`) |
 | `database_rules` | `simulate` | in the connected sandbox | `createRtdbInspectionTools` (`@pyric/cli`) |
-| `firestore_rules` | `lint`, `simulate`, `resolve` | in the MCP process | `createFirestoreRulesTools` (`pyric/rules/internal/node`) |
-| `rules_stdlib` | `list`, `get` | in the MCP process | `createFirestoreRulesStdlibTools` (`pyric/rules`) |
-| `storage_rules` | `resolve` | in the MCP process | `createFirestoreRulesStdlibTools` (`pyric/rules`) |
-| `pyric` | `can_i_use` | in the MCP process | `createConformanceTools` (`@pyric/cli`) |
+| `database_rules` | `lint`, `validate`, `generate` | in the MCP process | `createRtdbRulesTools` (`@pyric/cli`) |
+| `firestore_rules` | `lint`, `simulate`, `resolve`, `validate`, `test` | in the MCP process | `createFirestoreRulesTools` (`pyric/rules/internal/node`) |
+| `firestore_indexes` | `generate` | in the MCP process | `createFirestoreIndexesTools` (`pyric/rules/internal/node`) |
+| `rules_stdlib` | `list`, `get` | in the MCP process | `createFirestoreRulesTools` (`pyric/rules/internal/node`) |
+| `storage_rules` | `resolve`, `lint`, `simulate` | in the MCP process | `createFirestoreRulesTools` (`pyric/rules/internal/node`), `createStorageRulesTools` (`pyric/storage`) |
+| `storage_data` | `upload`, `download`, `list`, `metadata`, `delete` | in the connected sandbox | `createStorageDataTools` (`pyric/storage`) |
+| `auth_users` | `create`, `import`, `get`, `list`, `update`, `delete`, `set_claims`, `custom_token` | in the connected sandbox | `createAuthUserTools` (`pyric/auth`) |
+| `pyric` | `can_i_use`, `verify`, `verify_cases` | in the MCP process | `createConformanceTools` (`@pyric/cli`), `createVerifyTools` (`@pyric/cli`) |
 
-`firestore_data` shares one `as` field across its operations: omitted or
-`'admin'` bypasses rules for seeding; `{ uid, claims? }` runs the operation as
-that user with rules enforced.
+`database_rules` appears twice because transport is a property of each
+operation: `simulate` is forwarded to the sandbox, and `lint`, `validate`, and
+`generate` run in the MCP process.
+
+`firestore_data`, `database_data`, and `storage_data` share one `as` field
+across their operations: omitted or `'admin'` bypasses rules for seeding;
+`{ uid, claims? }` runs the operation as that user with rules enforced.
 
 `rules_stdlib` takes `service` (`firestore` or `storage`) on both operations.
 `firestore_rules.resolve` and `storage_rules.resolve` pin the service of the
 neutral resolver, so the source must declare `service cloud.firestore` or
 `service firebase.storage` respectively.
 
-The default bridge registers the local rules operations **without** the hosted
-Rules Test API (no `ProjectScope`). Prefer `pyric verify --engine
-rules-test-api|both` for hosted verification.
+The bridge resolves project credentials once at startup
+(`packages/cli/src/bridge/server/scope.ts`). When none resolve,
+`firestore_rules.test` and the `rulesTestApi` engine of `pyric.verify` stay in
+the manifest and return their credentials error on use, so the tool list is
+the same with or without a project. `pyric verify --engine
+rules-test-api|both` is the CLI route to the same hosted verification.
 
 ## Handlers behind the surface
 
@@ -60,16 +72,115 @@ records map each operation to one handler.
 `firestore_update_document` · `firestore_delete_document` ·
 `firestore_batch_write` · `firestore_query_where` · `sandbox_inspect`
 
-### Security Rules — `createFirestoreRulesTools` / `createFirestoreRulesStdlibTools` (`pyric/rules`, Node-only pieces under `pyric/rules/internal/node`)
+### Sandbox snapshot — `createSandboxSnapshotTools` (`@pyric/cli`)
 
-`firestore_lint_rules` · `firestore_simulate_rules` · `rules_stdlib_list` ·
-`rules_stdlib_get` · `rules_resolve_modules` (`2+modules` → plain v2) ·
-`firestore_test_rules` (live Rules Test API — only when a `ProjectScope` is
-supplied; build one with `@pyric/cli/credentials/node`)
+`sandbox_snapshot`
+
+`sandbox.snapshot` promotes the connected sandbox's live Firestore documents
+and Auth users to the document `pyric snapshot` writes and `pyric sandbox
+--seed` re-serves. Passwords are redacted unless `includePasswords` is set.
+
+### Security Rules — `createFirestoreRulesTools` (`pyric/rules/internal/node`)
+
+`firestore_lint_rules` · `firestore_simulate_rules` ·
+`firestore_validate_rules` · `rules_stdlib_list` · `rules_stdlib_get` ·
+`rules_resolve_modules` (`2+modules` → plain v2) · `firestore_test_rules`
+(live Rules Test API; returns the credentials error when the factory has no
+`ProjectScope`, which the bridge supplies from its startup resolution)
+
+`firestore_rules.validate` parses the source and runs the structural
+validator, which reports security findings (open reads or writes, missing
+auth checks) and semantic findings (undefined functions, wrong arity) with a
+severity. `firestore_rules.lint` checks syntax, budgets, and smells.
 
 The Firestore-only `firestore_rules_stdlib_list`, `firestore_rules_stdlib_get`,
 and `firestore_resolve_modules` handlers remain in the factory for the
 playground registry and are not mapped by any record.
+
+### Firestore indexes — `createFirestoreIndexesTools` (`pyric/rules/internal/node`)
+
+`firestore_extract_indexes`
+
+`firestore_indexes.generate` statically extracts composite-index requirements
+from query source, given inline `files` or on-disk `paths`, and returns a
+`firestore.indexes.json`-shaped config; `out` also writes it to disk. The same
+extraction backs `pyric firestore indexes generate`.
+
+### Cloud Storage rules — `createStorageRulesTools` (`pyric/storage`)
+
+`storage_lint_rules` · `storage_simulate_rules`
+
+`storage_rules.lint` parses a Cloud Storage Security Rules source and reports
+whether it compiles. `storage_rules.simulate` evaluates one request (`auth`,
+`method`, `path`, and on writes `resource`) against a source and reports the
+verdict and its reason. Both are pure-local: no bucket, project, or network.
+`firestore.get()` and `firestore.exists()` lookups are unsupported in the
+simulation and deny with a reason.
+
+### Cloud Storage data — `createStorageDataTools` (`pyric/storage`)
+
+`storage_upload_object` · `storage_download_object` · `storage_list_objects` ·
+`storage_object_metadata` · `storage_delete_object`
+
+Uploads are capped at 1 MiB decoded; downloads return a 64 KiB preview unless
+`full` is set. `list` is non-recursive. `metadata` reads, or merges
+client-settable fields when `set` is supplied.
+
+### Realtime Database data — `createDatabaseDataTools` (`pyric/database`)
+
+`database_get` · `database_set` · `database_update` · `database_remove` ·
+`database_push` · `database_transaction` · `database_query` · `database_seed`
+
+Write values pass through unchanged, so the `{ ".sv": "timestamp" }` and
+`{ ".sv": { "increment": n } }` sentinels resolve at the sandbox write
+boundary. `transaction` is a compare-and-set: with `expect` it writes only when
+the current value matches, otherwise it reports `committed: false` with the
+current value.
+
+### Realtime Database sandbox inspection — `createRtdbInspectionTools` (`@pyric/cli`)
+
+`rtdb_simulate_access` · `rtdb_crawl_structure`
+
+Simulation reads the currently installed rules and data on every call, or
+evaluates a supplied `rules` document against the same data; crawling returns
+a bounded structural view without leaf values. Neither contacts a production
+database or requires a rules-loading call first.
+
+### Realtime Database rules source — `createRtdbRulesTools` (`@pyric/cli`)
+
+`rtdb_lint_rules` · `rtdb_validate_rules` · `rtdb_generate_rules`
+
+`database_rules.lint` and `database_rules.validate` compile every `.read`,
+`.write`, and `.validate` expression of a rules document with the engine the
+CLI commands use and report warnings or errors keyed by path and rule.
+`database_rules.generate` compiles a local constraints module (a file that
+calls `defineRtdbRules`) into `database.rules.json` data, the same output as
+`pyric database rules generate`. None of the three fetches or deploys
+production rules.
+
+### Auth users — `createAuthUserTools` (`pyric/auth`)
+
+`auth_create_user` · `auth_import_users` · `auth_get_user` · `auth_list_users`
+· `auth_update_user` · `auth_delete_user` · `auth_set_claims` ·
+`auth_custom_token`
+
+Users land in the one user pool the application, Studio, and rules evaluation
+share. Passwords are accepted on create, import, and update and never
+returned. Claims are custom claims and reach rules as
+`request.auth.token.<name>` on the next sign-in or token refresh.
+`auth_users.custom_token` mints the token the sandbox's
+`signInWithCustomToken` accepts. Sandbox auth failures return `ok: false` with
+`data.code` set to the Firebase error code.
+
+### Session verification — `createVerifyTools` (`@pyric/cli`)
+
+`pyric_verify_fixture` · `pyric_derive_rules_test_cases`
+
+`pyric.verify` replays a captured sandbox session against candidate Firestore
+or RTDB rules. It uses local sandbox replay by default; the Firestore-only
+`rulesTestApi` engine requires a resolved `ProjectScope`. `pyric.verify_cases`
+derives Rules Test API cases from that same session; it is inspection-only
+and never calls Firebase.
 
 ### Firestore simulator session — `createFirestoreSimulatorTools` (`pyric/rules`)
 
@@ -79,29 +190,7 @@ playground registry and are not mapped by any record.
 `firestore_simulator_redo` · `firestore_simulator_events` ·
 `firestore_create_with_auto_id`
 
-### Realtime Database sandbox inspection — `createRtdbInspectionTools` (`@pyric/cli`)
-
-`rtdb_simulate_access` · `rtdb_crawl_structure`
-
-Simulation reads the currently installed rules and data on every call;
-crawling returns a bounded structural view without leaf values. Neither
-contacts a production database or requires a rules-loading call first.
-
 ## Library-only tools
-
-### Index extraction — `pyric/rules/indexes`
-
-`firestore_extract_indexes` — derive composite-index definitions from query
-shapes. Available as a library and via `pyric firestore indexes generate`;
-**not** registered on the default MCP bridge.
-
-### Realtime Database rule artifacts — `@pyric/cli`
-
-Local compilation of a constraints module to `database.rules.json` data. It
-does not fetch or deploy production rules.
-
-`rtdb_generate_rules` — library / CLI (`pyric database rules generate`);
-**not** on the default MCP bridge.
 
 ### Storage control plane — `createStorageAdminTools` (`pyric/storage`)
 
@@ -133,6 +222,6 @@ registered on the default `pyric bridge` / `pyric sandbox --bridge` surface:
 
 ---
 
-**Default MCP bridge: 9 tools, 27 operations** (see `DEFAULT_MCP_TOOL_OPS` in
+**Default MCP bridge: 12 tools, 59 operations** (see `DEFAULT_MCP_TOOL_OPS` in
 `mcp-contract.ts`). Production shipping (rules, indexes, hosting, functions) is
 owned by `firebase-tools` or the Firebase Console.

@@ -65,7 +65,7 @@ const UNMAPPED_HANDLERS: Record<string, string> = {
 function importLines(path: string): string[] {
   return readFileSync(path, 'utf8')
     .split('\n')
-    .filter((line) => /^\s*import\b/.test(line));
+    .filter((line) => /^\s*import\s/.test(line));
 }
 
 const stub = () => {

@@ -48,8 +48,10 @@ Answer three questions about a ruleset, with evidence:
 
 7. **Prove the findings.** Back each critical/high finding with
    `firestore_rules.simulate` (vary auth context and operation) or a
-   `firestore_rules.test` suite; `pyric.verify_cases` can generate
-   the case list. Complete when each such finding cites a passing
+   `firestore_rules.test` suite on the Rules Test API (needs project
+   credentials); `pyric.verify_cases` derives the case list from a captured
+   session fixture, and `pyric.verify` replays the whole fixture against
+   candidate rules. Complete when each such finding cites a passing
    simulation/test demonstrating the problem.
 
 8. **Report.**

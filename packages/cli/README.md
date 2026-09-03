@@ -106,30 +106,47 @@ takes a required `op` field that selects the operation. A call with an unknown
 `op`, or with fields the operation does not accept, returns a structured error
 naming the valid operations and the fields of the attempted one.
 
+Twelve tools carry 59 operations: 42 are forwarded to the connected browser
+sandbox and 17 run in the bridge process.
+
 **Sandbox-routed** — dispatched against the connected browser sandbox
-(`createFirestoreDataTools` + `createFirestoreSimulatorTools` +
-`createFirestoreInspectTools` + local RTDB inspection):
+(`createFirestoreDataTools`, `createFirestoreSimulatorTools`,
+`createFirestoreInspectTools`, `createDatabaseDataTools`,
+`createStorageDataTools`, `createAuthUserTools`, and the local RTDB inspection
+and sandbox snapshot factories):
 
 - `firestore_data`: `get`, `list`, `set`, `add`, `update`, `delete`,
   `batch_write`, `query`; one shared `as` field selects admin or a user
 - `firestore_simulator`: `create`, `execute`, `read`, `batch`, `add`, `undo`,
   `redo`, `events`, `transaction`
-- `sandbox`: `inspect` — single-call sandbox state/rules snapshot
-- `database_rules`: `simulate` — evaluates one operation against the rules and
-  data currently installed in the connected sandbox
-- `database_data`: `crawl` — returns a bounded structural view of current
-  sandbox data without leaf values
+- `sandbox`: `inspect` — single-call sandbox state/rules snapshot;
+  `snapshot` — promote the live Firestore documents and Auth users to the
+  document `pyric sandbox --seed` re-serves
+- `database_data`: `crawl`, `get`, `set`, `update`, `remove`, `push`,
+  `transaction`, `query`, `seed`; `crawl` returns a bounded structural view
+  without leaf values, and the rest share the same `as` field as
+  `firestore_data`
+- `database_rules`: `simulate` — evaluates one operation against the data in
+  the connected sandbox using its loaded rules or a supplied rules document
+- `storage_data`: `upload`, `download`, `list`, `metadata`, `delete`; the same
+  shared `as` field
+- `auth_users`: `create`, `import`, `get`, `list`, `update`, `delete`,
+  `set_claims`, `custom_token`
 
 Assurance campaign tools remain available programmatically from
 `@pyric/cli/assurance`, but are not registered on the default MCP bridge.
 
-**In-process** — run on the bridge process itself (`createFirestoreRulesTools`
-without a live `ProjectScope`, so no Rules Test API operation):
+**In-process** — run on the bridge process itself. The bridge resolves project
+credentials once at startup; when none resolve, `firestore_rules.test` and the
+Rules Test API engine of `pyric.verify` stay listed and return their
+credentials error on use:
 
-- `firestore_rules`: `lint`, `simulate`, `resolve`
+- `firestore_rules`: `lint`, `simulate`, `resolve`, `validate`, `test`
+- `firestore_indexes`: `generate`
 - `rules_stdlib`: `list`, `get` (Firestore or Cloud Storage, by `service`)
-- `storage_rules`: `resolve`
-- `pyric`: `can_i_use`
+- `storage_rules`: `resolve`, `lint`, `simulate`
+- `database_rules`: `lint`, `validate`, `generate`
+- `pyric`: `can_i_use`, `verify`, `verify_cases`
 
 ### Gaps from the playground tool surface
 

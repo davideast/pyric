@@ -25,11 +25,19 @@ export type { ResolveResult, ResolveOptions } from '../modules/resolver.js';
 export {
   createFirestoreRulesTools,
   createFirestoreSimulatorTools,
+  FIRESTORE_TEST_RULES_SCOPE_REQUIRED,
 } from '../tools.js';
 export type {
   FirestoreRulesToolDeps,
   FirestoreSimulatorToolDeps,
 } from '../tools.js';
+
+// Composite-index generation tool — wraps the Layer 1 extractor with disk
+// reads (`paths`) and an optional `out` write. Node-only: writes go through
+// `node:fs/promises`. Lives beside the extractor's browser-safe factory
+// (`createFirestoreExtractTool`, on `pyric/rules/extract`) rather than
+// replacing it, since that factory stays reachable from browser bundles.
+export { createFirestoreIndexesTools } from '../indexes/tools.js';
 
 // Rules stdlib discovery/resolution tools, including retained
 // Firestore-prefixed compatibility aliases.

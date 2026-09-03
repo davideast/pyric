@@ -14,7 +14,7 @@ Answer three questions about a ruleset, with evidence:
 ## Steps
 
 1. **Read the ruleset.** Use the project's `firestore.rules`, or
-   `firestore_rules.get` for deployed state. Complete when you can list every
+   `sandbox.inspect` for the rules loaded in the connected sandbox. Complete when you can list every
    match block and the operations each allows.
 
 2. **Lint.** Run `firestore_rules.lint`. Complete when every lint finding is
@@ -45,8 +45,10 @@ Answer three questions about a ruleset, with evidence:
 
 6. **Prove the findings.** Back each critical/high finding with
    `firestore_rules.simulate` (vary auth context and operation) or a
-   `firestore_rules.test` suite; `pyric.verify_cases` can generate
-   the case list. Complete when each such finding cites a passing
+   `firestore_rules.test` suite on the Rules Test API (needs project
+   credentials); `pyric.verify_cases` derives the case list from a captured
+   session fixture, and `pyric.verify` replays the whole fixture against
+   candidate rules. Complete when each such finding cites a passing
    simulation/test demonstrating the problem.
 
 7. **Report.**

@@ -124,13 +124,21 @@ const MCP_FACTORIES = {
   'firestore-data': [{ file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools' }],
   'firestore-inspect': [{ file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools' }],
   'rtdb-inspection': [{ file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools' }],
+  'storage-data': [{ file: `${PYRIC}/storage/tools.ts`, factory: 'createStorageDataTools' }],
+  'sandbox-snapshot': [{ file: `${TOOLS}/sandbox/tools.ts`, factory: 'createSandboxSnapshotTools' }],
+  'database-data': [{ file: `${PYRIC}/database/tools.ts`, factory: 'createDatabaseDataTools' }],
+  'auth-users': [{ file: `${PYRIC}/auth/tools.ts`, factory: 'createAuthUserTools' }],
   'firestore-rules': [
     { file: `${PYRIC}/rules/tools.ts`, factory: 'createFirestoreRulesTools' },
     { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools' },
   ],
+  'firestore-indexes': [{ file: `${PYRIC}/rules/indexes/tools.ts`, factory: 'createFirestoreIndexesTools' }],
   // createConformanceTools registers the shared createCanIUseTool factory,
   // which owns the name literal for both the MCP and Playground surfaces.
   conformance: [{ file: `${TOOLS}/conformance/can-i-use-tool.ts`, factory: 'createCanIUseTool' }],
+  verify: [{ file: `${TOOLS}/verify/tools.ts`, factory: 'createVerifyTools' }],
+  'storage-rules': [{ file: `${PYRIC}/storage/rules-tools.ts`, factory: 'createStorageRulesTools' }],
+  'rtdb-rules': [{ file: `${TOOLS}/rtdb/rules-tools.ts`, factory: 'createRtdbRulesTools' }],
 };
 
 /**

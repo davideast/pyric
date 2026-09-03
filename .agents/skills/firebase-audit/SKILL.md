@@ -17,16 +17,18 @@ user asks.
 ## Steps
 
 1. **Collect rules.** Read `firestore.rules` and `database.rules.json` from the
-   project, or pull deployed state with `firestore_rules.get` and
-   `database_rules.get`. Complete when every service in scope has a ruleset in hand
-   (or a finding that none exists — that is itself critical).
+   project — these are the rules the sandbox loaded. For Firestore,
+   `sandbox.inspect` reports the same rules from the connected sandbox; it
+   does not report Realtime Database rules, so read `database.rules.json`
+   directly for those. Complete when every service in scope has a ruleset in
+   hand (or a finding that none exists — that is itself critical).
 
 2. **Collect data shape.** Map real paths with `firestore_discover_paths` and
    `firestore_data.list`; for RTDB use `database_data.crawl`. Complete
    when each top-level collection/path has a known shape and sample.
 
-3. **Collect auth posture.** Read provider configuration with
-   `auth.get_config`. Note which identities the rules assume (anonymous,
+3. **Collect auth posture.** List the identities the sandbox holds with
+   `auth_users.list`. Note which identities the rules assume (anonymous,
    signed-in, owner, custom claims) and whether the enabled providers can
    actually produce them. Complete when every `request.auth` assumption in the
    rules maps to a real provider or a finding.
@@ -43,9 +45,11 @@ user asks.
 
 5. **Verify the sharp findings.** Prove each critical/high finding with
    `firestore_rules.lint`, `firestore_rules.simulate` (vary the auth context:
-   signed-out, owner, other user, claim-holder), `firestore_rules.test`, or
-   `database_rules.simulate`. Complete when every critical/high finding cites a
-   simulation, test, or lint result — not just a reading of the rules.
+   signed-out, owner, other user, claim-holder), `firestore_rules.test` (Rules
+   Test API, needs project credentials), `pyric.verify` (replay a captured
+   session against the candidate rules), or `database_rules.simulate`.
+   Complete when every critical/high finding cites a simulation, test, or lint
+   result, not just a reading of the rules.
 
 6. **Report by severity.**
 

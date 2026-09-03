@@ -18,11 +18,16 @@ export class Transactions {
     private readonly children: ChildListeners,
   ) {}
 
+  /**
+   * Read-modify-write at `path`. `admin` skips rules evaluation and records
+   * the commit as `not-applicable`, matching the admin write plane.
+   */
   run(
     auth: AuthState,
     path: string,
     updateFn: (current: JsonValue) => JsonValue | undefined,
     options?: { applyLocally?: boolean },
+    admin = false,
   ): { committed: boolean; val: JsonValue; key: string | null } {
     const applyLocally = options?.applyLocally !== false;
     const segments = pathSegments(path);
@@ -75,10 +80,10 @@ export class Transactions {
       this.values.fanOut([path]);
       this.children.fanOut(childPriors);
       const at = Date.now();
-      const evaluation = this.state.rules.evaluate('write', path === '/' ? '/' : path, {
+      const evaluation = admin ? undefined : this.state.rules.evaluate('write', path === '/' ? '/' : path, {
         auth, mockData: priorRoot as Record<string, unknown>, newData: resolved,
       });
-      if (evaluation.check !== 'allow') {
+      if (evaluation && evaluation.check !== 'allow') {
         this.state.events.operation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
           at, durationMs: Date.now() - at, origin: 'transaction',
           request: { data: proposed, resourceData: proposed },
@@ -98,10 +103,10 @@ export class Transactions {
     }
 
     const at = Date.now();
-    const evaluation = this.state.rules.evaluate('write', path === '/' ? '/' : path, {
+    const evaluation = admin ? undefined : this.state.rules.evaluate('write', path === '/' ? '/' : path, {
       auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData: resolved,
     });
-    if (evaluation.check !== 'allow') {
+    if (evaluation && evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: Date.now() - at, origin: 'transaction',
         request: { data: proposed, resourceData: proposed },
@@ -111,7 +116,7 @@ export class Transactions {
       });
       throw transactionPermissionDenied();
     }
-    this.state.events.operation(auth, 'transaction', path, 'allow', evaluation, {
+    this.state.events.operation(auth, 'transaction', path, evaluation ? 'allow' : 'not-applicable', evaluation, {
       at, durationMs: Date.now() - at, origin: 'transaction',
       request: { data: proposed, resourceData: proposed },
       resourceBefore: { data: current, exists: current !== null },
@@ -133,9 +138,9 @@ export class Transactions {
   private recordCommit(
     auth: AuthState, path: string, proposed: JsonValue, current: JsonValue,
     resolved: JsonValue, groupId: string, now: number, at: number, applyLocally: boolean,
-    evaluation: ReturnType<BackendState['rules']['evaluate']>,
+    evaluation: ReturnType<BackendState['rules']['evaluate']> | undefined,
   ): void {
-    this.state.events.operation(auth, 'transaction', path, 'allow', evaluation, {
+    this.state.events.operation(auth, 'transaction', path, evaluation ? 'allow' : 'not-applicable', evaluation, {
       at, durationMs: Date.now() - at, origin: 'transaction',
       request: { data: proposed, resourceData: proposed },
       resourceBefore: { data: current, exists: current !== null },

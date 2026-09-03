@@ -17,30 +17,38 @@ import {
 const RATIFIED_TOOLS: Record<string, readonly string[]> = {
   firestore_simulator: ['create', 'execute', 'read', 'batch', 'add', 'undo', 'redo', 'events', 'transaction'],
   firestore_data: ['get', 'list', 'set', 'add', 'update', 'delete', 'batch_write', 'query'],
-  sandbox: ['inspect'],
-  database_data: ['crawl'],
-  database_rules: ['simulate'],
-  firestore_rules: ['lint', 'simulate', 'resolve'],
+  sandbox: ['inspect', 'snapshot'],
+  database_data: ['crawl', 'get', 'set', 'update', 'remove', 'push', 'transaction', 'query', 'seed'],
+  database_rules: ['simulate', 'lint', 'validate', 'generate'],
+  firestore_rules: ['lint', 'simulate', 'resolve', 'validate', 'test'],
+  firestore_indexes: ['generate'],
   rules_stdlib: ['list', 'get'],
-  storage_rules: ['resolve'],
-  pyric: ['can_i_use'],
+  storage_rules: ['resolve', 'lint', 'simulate'],
+  storage_data: ['upload', 'download', 'list', 'metadata', 'delete'],
+  auth_users: ['create', 'import', 'get', 'list', 'update', 'delete', 'set_claims', 'custom_token'],
+  pyric: ['can_i_use', 'verify', 'verify_cases'],
 };
 
-const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data', 'database_rules'];
+const RATIFIED_FORWARDED_TOOLS = ['firestore_simulator', 'firestore_data', 'sandbox', 'database_data', 'storage_data', 'auth_users'];
+
+/** Forwarded ops on tools whose other ops run in-process, in record order. */
+const RATIFIED_FORWARDED_OPS = ['database_rules.simulate'];
 
 describe('default MCP tool contract', () => {
-  it('ratifies the exact public tools/list surface: nine tools and their 27 ops, in order', () => {
+  it('ratifies the exact public tools/list surface: twelve tools and their 59 ops, in order', () => {
     expect(DEFAULT_MCP_TOOL_NAMES).toEqual(Object.keys(RATIFIED_TOOLS));
     expect(DEFAULT_MCP_TOOL_OPS).toEqual(RATIFIED_TOOLS);
-    expect(DEFAULT_MCP_OP_KEYS).toHaveLength(27);
+    expect(DEFAULT_MCP_OP_KEYS).toHaveLength(59);
     expect(DEFAULT_MCP_OP_KEYS).toEqual(
       Object.entries(RATIFIED_TOOLS).flatMap(([tool, ops]) => ops.map((op) => `${tool}.${op}`)),
     );
   });
 
   it('splits the ops by transport exactly as ratified', () => {
-    const expectedForwarded = RATIFIED_FORWARDED_TOOLS.flatMap((tool) =>
-      RATIFIED_TOOLS[tool]!.map((op) => `${tool}.${op}`),
+    const expectedForwarded = Object.entries(RATIFIED_TOOLS).flatMap(([tool, ops]) =>
+      ops
+        .map((op) => `${tool}.${op}`)
+        .filter((key) => RATIFIED_FORWARDED_TOOLS.includes(tool) || RATIFIED_FORWARDED_OPS.includes(key)),
     );
     expect(DEFAULT_MCP_FORWARDED_OP_KEYS).toEqual(expectedForwarded);
     expect(DEFAULT_MCP_IN_PROCESS_OP_KEYS).toEqual(

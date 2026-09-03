@@ -16,9 +16,11 @@ profile data, and rule behavior — not just SDK call names.
    and any service/admin actors. Complete when every access boundary has a
    named identity.
 
-2. **Choose provider flows.** Check what is enabled with `auth.get_config`;
-   enable or adjust providers with `auth.configure_provider` and authorized
-   domains with `auth.manage_domains`. Complete when every provider in the
+2. **Choose provider flows.** Provider configuration lives in the Firebase
+   console and, for the sandbox, in Studio; the tool surface does not read or
+   change it. Create the identity each flow produces with `auth_users.create`,
+   confirm what the store holds with `auth_users.list`, and read the rules and
+   recent denials with `sandbox.inspect`. Complete when every provider in the
    model has a creation, sign-in, and error path.
 
 3. **Design auth state.** Auth-state observation is the source of truth;
@@ -39,15 +41,17 @@ profile data, and rule behavior — not just SDK call names.
 
 6. **Plan fixtures.** Define test users — UIDs, providers, claims, disabled
    state — and the profile/membership docs each rule branch needs. Seed the
-   documents with `firestore_data.add` / `firestore_data.batch_write` (or
-   `database_data.set`). Complete when each rule branch has a matching identity
-   fixture.
+   users with `auth_users.import` (claims and the disabled flag ride each
+   record) and the documents with `firestore_data.add` /
+   `firestore_data.batch_write` (or `database_data.set`). Complete when each
+   rule branch has a matching identity fixture.
 
 7. **Verify auth-dependent rules.** Exercise signed-out, owner, other-user,
    member, claim-holder, invalid-claim, missing-profile, and disabled cases
    with `firestore_rules.simulate` (set the auth context per case) and a
-   `firestore_rules.test` suite — `pyric.verify_cases` generates
-   the case list; use `database_rules.simulate` for RTDB paths. Complete when
+   `firestore_rules.test` suite on the Rules Test API (needs project
+   credentials); `pyric.verify_cases` derives the case list from a captured
+   session fixture. Use `database_rules.simulate` for RTDB paths. Complete when
    the answer names verified behavior and remaining unverified assumptions.
 
 ## Reference — auth design rules
@@ -73,11 +77,13 @@ profile data, and rule behavior — not just SDK call names.
 
 ## Scope honesty
 
-The pyric tool surface simulates identities as rule-evaluation auth contexts;
-it does not yet create or list actual Auth user records (that exists only in
-the Pyric Playground sandbox today). When a finding depends on real user
-records — disabled flags, provider linkage — verify with the Admin SDK or
-console and say which evidence was used.
+`auth_users` creates, imports, lists, updates, and deletes user records in
+the connected sandbox and replaces their claims; `auth_users.custom_token`
+followed by a sign-in puts the claims on the token the rules engine reads.
+Records never include passwords. Provider configuration, authorised domains,
+and multi-factor state are not on the tool surface. When a finding depends on
+production user records, verify with the Admin SDK or console and say which
+evidence was used.
 
 ## Output shape
 

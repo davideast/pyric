@@ -5,6 +5,22 @@
       "decision": "deliberate",
       "reason": "Shared MCP and Playground trust query; the CLI/MCP retain full claims while the browser receives only the measured compact projection"
     },
+    "pyric.verify": {
+      "decision": "deliberate",
+      "reason": "replays a captured session fixture against candidate rules for external agents; the Playground verifies through its own session workflow"
+    },
+    "pyric.verify_cases": {
+      "decision": "deliberate",
+      "reason": "derives Rules Test API cases from a captured session fixture for external agents; the Playground has no fixture capture of its own"
+    },
+    "firestore_rules.test": {
+      "decision": "deliberate",
+      "reason": "Rules Test API client that needs project credentials resolved by the MCP process; the Playground holds no project credentials"
+    },
+    "firestore_indexes.generate": {
+      "decision": "deliberate",
+      "reason": "shared MCP and Playground static extractor; the folded MCP op and the Playground's firestore_extract_indexes tool call the same handler"
+    },
     "build_game_rules": {
       "decision": "deliberate",
       "reason": "Playground skill-specific authoring workflow, activated only by its skill; not a general MCP primitive"
@@ -32,10 +48,6 @@
     "firestore_data.delete": {
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_extract_indexes": {
-      "decision": "deliberate",
-      "reason": "artifact generation is exposed through `pyric firestore indexes generate`; external agents can invoke the CLI without a duplicate MCP tool"
     },
     "firestore_data.get": {
       "decision": "deliberate",
@@ -117,6 +129,26 @@
       "decision": "deliberate",
       "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
     },
+    "storage_data.upload": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "storage_data.download": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "storage_data.list": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "storage_data.metadata": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "storage_data.delete": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
     "inspect_auth_users": {
       "decision": "deliberate",
       "reason": "Playground session-inspection affordance; the default MCP contract currently exposes only ratified attached-sandbox tools"
@@ -125,9 +157,65 @@
       "decision": "deliberate",
       "reason": "bounded attached-sandbox inspection belongs in MCP; the Playground reads its own session state directly"
     },
+    "database_data.get": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.set": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.update": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.remove": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.push": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.transaction": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.query": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox Realtime Database data plane belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
+    },
+    "database_data.seed": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox fixture loading belongs in MCP; the Playground seeds its own session state directly"
+    },
     "database_rules.simulate": {
       "decision": "deliberate",
       "reason": "attached-sandbox rules inspection belongs in MCP; the Playground uses its own session rules engine"
+    },
+    "database_rules.lint": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric database rules lint`; the Playground lints inside its native authoring workflow"
+    },
+    "database_rules.validate": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric database rules validate`; the Playground validates inside its native authoring workflow"
+    },
+    "database_rules.generate": {
+      "decision": "deliberate",
+      "reason": "compiles a constraints module from the project's disk, mirroring `pyric database rules generate`; the Playground has no local module to load"
+    },
+    "firestore_rules.validate": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric firestore rules validate`; the Playground reaches validation through its native authoring workflow"
+    },
+    "storage_rules.lint": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric storage rules lint`; the Playground has no Storage rules authoring workflow"
+    },
+    "storage_rules.simulate": {
+      "decision": "deliberate",
+      "reason": "local MCP rules primitive mirroring `pyric storage rules simulate`; the Playground has no Storage rules authoring workflow"
     },
     "run_workspace_tests": {
       "decision": "deliberate",
@@ -140,6 +228,10 @@
     "sandbox.inspect": {
       "decision": "deliberate",
       "reason": "attached-sandbox diagnostic belongs in MCP; the Playground observes its session state directly"
+    },
+    "sandbox.snapshot": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox promote-and-reseed belongs in MCP; the Playground reads its own session state directly and has no committable fixture workflow to feed"
     },
     "seed_auth_users": {
       "decision": "deliberate",
@@ -216,6 +308,38 @@
     "github_create_pull_request": {
       "decision": "deliberate",
       "reason": "session-workspace publish flow, playground-only — external agents use real git/GitHub directly"
+    },
+    "auth_users.create": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.import": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.get": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.list": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.update": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.delete": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.set_claims": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
+    },
+    "auth_users.custom_token": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs in MCP; the Playground seeds and inspects its session users through its own auth tools"
     }
   }
 }

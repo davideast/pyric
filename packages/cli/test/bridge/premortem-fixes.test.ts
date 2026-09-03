@@ -125,9 +125,34 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       'firestore_data.query',
       // inspect
       'sandbox.inspect',
+      'sandbox.snapshot',
       // local Realtime Database inspection
       'database_data.crawl',
+      // local Realtime Database data plane
+      'database_data.get',
+      'database_data.set',
+      'database_data.update',
+      'database_data.remove',
+      'database_data.push',
+      'database_data.transaction',
+      'database_data.query',
+      'database_data.seed',
       'database_rules.simulate',
+      // storage data plane
+      'storage_data.upload',
+      'storage_data.download',
+      'storage_data.list',
+      'storage_data.metadata',
+      'storage_data.delete',
+      // auth user store
+      'auth_users.create',
+      'auth_users.import',
+      'auth_users.get',
+      'auth_users.list',
+      'auth_users.update',
+      'auth_users.delete',
+      'auth_users.set_claims',
+      'auth_users.custom_token',
     ]);
   });
 });

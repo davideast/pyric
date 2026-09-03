@@ -8,7 +8,11 @@ import { describe, it, expect } from 'bun:test';
 import { createToolRegistry, createDispatch } from '@inbrowser/agent';
 import type { ProjectScope } from '../../src/project-scope.js';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { createFirestoreRulesTools, createFirestoreSimulatorTools } from '../../src/rules/internal/node.js';
+import {
+  createFirestoreRulesTools,
+  createFirestoreSimulatorTools,
+  FIRESTORE_TEST_RULES_SCOPE_REQUIRED,
+} from '../../src/rules/internal/node.js';
 
 const fakeScope: ProjectScope = {
   projectId: 'p',
@@ -20,9 +24,10 @@ const fakeCtx = { signal: new AbortController().signal };
 describe('createFirestoreRulesTools — without scope', () => {
   const tools = createFirestoreRulesTools();
 
-  it('emits 8 handlers (no firestore_test_rules without scope; generic Rules tools keep Firestore aliases)', () => {
+  it('emits 10 handlers (firestore_test_rules is always yielded; generic Rules tools keep Firestore aliases)', () => {
     expect(tools.map((t) => t.name)).toEqual([
       'firestore_simulate_rules',
+      'firestore_validate_rules',
       'firestore_rules_stdlib_list',
       'firestore_rules_stdlib_get',
       'firestore_lint_rules',
@@ -30,7 +35,26 @@ describe('createFirestoreRulesTools — without scope', () => {
       'rules_stdlib_list',
       'rules_stdlib_get',
       'rules_resolve_modules',
+      'firestore_test_rules',
     ]);
+  });
+
+  it('firestore_test_rules returns the credentials error without a scope and never calls out', async () => {
+    const originalFetch = globalThis.fetch;
+    let called = false;
+    globalThis.fetch = (async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    }) as typeof fetch;
+    try {
+      const test = tools.find((t) => t.name === 'firestore_test_rules')!;
+      const result = await test.execute({ source: 'x', testCases: [] }, fakeCtx);
+      expect(result.ok).toBe(false);
+      expect(result.summary).toBe(FIRESTORE_TEST_RULES_SCOPE_REQUIRED);
+      expect(called).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('handlers dispatch via createToolRegistry + createDispatch', async () => {
@@ -157,9 +181,10 @@ service firebase.storage {
 describe('createFirestoreRulesTools — with scope', () => {
   const tools = createFirestoreRulesTools({ scope: fakeScope });
 
-  it('emits 9 handlers when scope is supplied (adds firestore_test_rules to the local default)', () => {
+  it('emits the same 10 handlers when scope is supplied', () => {
     expect(tools.map((t) => t.name)).toEqual([
       'firestore_simulate_rules',
+      'firestore_validate_rules',
       'firestore_rules_stdlib_list',
       'firestore_rules_stdlib_get',
       'firestore_lint_rules',

@@ -45,6 +45,9 @@ export type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js
 export { listAll } from './list.js';
 export type { ListResult } from './list.js';
 
+export { createStorageDataTools } from './tools.js';
+export type { StorageDataToolDeps, As as StorageAs } from './tools.js';
+
 export { parseStorageRules, evaluateStorageRules } from './rules.js';
 export type {
   StorageRules,
@@ -89,6 +92,7 @@ export type {
 
 export { InspectStorageHandler, ProvisionStorageHandler } from './admin/handler.js';
 export { createStorageAdminTools } from './admin/tools.js';
+export { createStorageRulesTools } from './rules-tools.js';
 export type { StorageAdminToolDeps } from './admin/tools.js';
 export type {
   ProvisionStorageInput,
