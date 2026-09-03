@@ -14,5 +14,4 @@ export 'src/platform/pyric_query_snapshot.dart';
 export 'src/platform/pyric_transaction.dart';
 export 'src/platform/pyric_write_batch.dart';
 export 'src/transport/bridge_client.dart';
-export 'src/transport/codecs.dart';
-export 'src/transport/query_compiler.dart';
+export 'src/transport/exceptions.dart';

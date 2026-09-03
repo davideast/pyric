@@ -60,6 +60,7 @@ packages/conformance/rules-language/*-report.json
 packages/pyric/docs/*/COMPAT.md
 packages/pyric/docs/conformance/SCORES.md
 packages/cli/docs/functions-rtdb/COMPAT.md
+packages/conformance/docs/*/COMPAT.md
 
 # Site content-layer cache (generated conformance + API reference pages render
 # through loaders into Astro's persisted store; nothing is committed).
