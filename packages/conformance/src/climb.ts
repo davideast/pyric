@@ -262,6 +262,20 @@ function runSuite(
     return { outcome: 'errored', stderr: result.stderr ?? '' };
   }
 
+  if (suitePath.endsWith('.kt') || descriptor?.surface === 'firestore-kotlin') {
+    const runnerScript = join(REPO_ROOT, 'scripts/run-kotlin-conformance.sh');
+    const result = spawnSync('bash', [runnerScript, suitePath, xmlOut], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, PYRIC_CLIMB: '1' },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (result.status === 0 && existsSync(xmlOut) && statSync(xmlOut).size > 0) {
+      return { outcome: 'ran', stderr: result.stderr ?? '' };
+    }
+    return { outcome: 'errored', stderr: result.stderr ?? '' };
+  }
+
   const result = spawnSync('bun', ['test', suitePath, '--reporter=junit', `--reporter-outfile=${xmlOut}`], {
     cwd: REPO_ROOT,
     env: { ...process.env, PYRIC_CLIMB: '1' },

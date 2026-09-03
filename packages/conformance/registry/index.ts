@@ -3,6 +3,7 @@ import { appRegistry } from './app.ts';
 import { authRegistry } from './auth.ts';
 import { firestoreRegistry } from './firestore.ts';
 import { firestoreFlutterRegistry } from './firestore-flutter.ts';
+import { firestoreKotlinRegistry } from './firestore-kotlin.ts';
 import { functionsRtdbRegistry } from './functions-rtdb.ts';
 import { messagingRegistry } from './messaging.ts';
 import { rtdbRegistry } from './rtdb.ts';
@@ -29,6 +30,7 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     functionsRtdbRegistry,
     rulesRegistry,
     firestoreFlutterRegistry,
+    firestoreKotlinRegistry,
   ].map((r) => [r.surface, r]),
 );
 
@@ -40,5 +42,7 @@ export function rowsForSurface(registry: CompatibilitySurfaceRegistry): Compatib
 }
 
 export const allCompatibilityRows = surfaceRegistries.flatMap(rowsForSurface);
+
+export { firestoreKotlinRegistry };
 
 export type { Automation, CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus, ConformanceDisposition, DeveloperSurface, OracleConformanceCheck, Surface } from './types.ts';
