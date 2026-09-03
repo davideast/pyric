@@ -19,8 +19,9 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     const out = execSync(`bun run "${GATE_SCRIPT}" --breakdown`, { encoding: 'utf8', stdio: 'pipe' });
     expect(out).toContain('--- Firestore Rules Breakdown ---');
     expect(out).toContain('--- Storage Rules Breakdown ---');
-    expect(out).toContain('--- RTDB Rules Breakdown ---');
-    expect(out).toContain('[acceptance-mismatch] firestore.function.debug');
+    expect(out).not.toContain('acceptance-mismatch] firestore.function.debug');
+    expect(out).toContain('[unprobeable] firestore.semantic.get-budget');
+    expect(out).toContain('[diverged] storage.function.firestore.get');
     expect(out).toContain('[local-unsupported] rtdb.operator.strictEq');
   });
 });
