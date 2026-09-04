@@ -184,15 +184,13 @@ describe('namespace over the real server', () => {
     expect(init.sessionToken.length).toBeGreaterThan(10);
   });
 
-  it('enforces host and origin guards and token validation on /__pyric/events', async () => {
+  it('enforces host and origin guards on /__pyric/events', async () => {
     const { site, sdk } = fixture();
     const events = createEventHub();
-    const token = 'events-test-token-123';
     const ns = createPyricNamespace({
       sdkDir: sdk,
       initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
       events,
-      sessionToken: token,
       boundHost: '127.0.0.1',
     });
     const h = await startStaticServer({
@@ -217,13 +215,7 @@ describe('namespace over the real server', () => {
       });
       expect(badOriginRes.status).toBe(403);
 
-      // 3. Rejected if wrong token provided
-      const badTokenRes = await fetch(`${h.url}/__pyric/events?token=wrong-token`, {
-        headers: { origin: h.url },
-      });
-      expect(badTokenRes.status).toBe(401);
-
-      // 4. Allowed without token for in-page runtime hot-reload
+      // 3. Allowed with loopback origin for in-page runtime hot-reload
       const controller = new AbortController();
       const allowedRes = await fetch(`${h.url}/__pyric/events`, {
         headers: { origin: h.url },

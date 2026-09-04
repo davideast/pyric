@@ -50,8 +50,9 @@ async function fetchLive(port: number): Promise<LiveState | null> {
     } catch {
       // If init.json probe fails, attempt state fetch directly
     }
+    const requestHeaders: HeadersInit = headers ?? {};
     const res = await fetch(`http://localhost:${port}/__pyric/state`, {
-      ...(headers ? { headers } : {}),
+      headers: requestHeaders,
       signal: AbortSignal.timeout(750),
     });
     if (res.status !== 200) return null;
