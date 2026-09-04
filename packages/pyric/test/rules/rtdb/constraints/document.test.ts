@@ -42,7 +42,7 @@ describe('defineRtdbRules', () => {
               '.indexOn': ['createdAt'],
               '$messageId': {
                 '.read': true,
-                '.write': '((auth !== null) && (auth.uid === $messageId)) && (!data.exists() || newData.child("createdAt").val() === data.child("createdAt").val())',
+                '.write': '((auth != null) && (auth.uid == $messageId)) && (!data.exists() || newData.child("createdAt").val() == data.child("createdAt").val())',
                 '.validate': '(newData.hasChildren()) && (newData.hasChild("author")) && (newData.hasChild("text")) && (newData.hasChild("createdAt"))',
                 author: { '.validate': 'newData.isString()' },
                 text: { '.validate': 'newData.isString()' },
@@ -71,14 +71,15 @@ describe('defineRtdbRules', () => {
   test('check collects parser errors and lint warnings', () => {
     const rules = defineRtdbRules({
       paths: {
-        '/': { read: expr('auth.uid ==='), write: expr('auth.uid == "alice"') },
+        '/': { read: expr('auth.uid =='), write: expr('data.exists()') },
       },
     });
 
     const check = rules.check();
     expect(check.ok).toBe(false);
     expect(check.errors.map(e => e.code).length).toBeGreaterThan(0);
-    expect(check.warnings.map(w => w.code)).toContain('LOOSE_EQUALITY');
+    expect(check.warnings.map(w => w.code)).toContain('DATA_IN_WRITE');
+    expect(check.warnings.map(w => w.code)).not.toContain('LOOSE_EQUALITY');
   });
 
   test('check converts compile failures to COMPILE_ERROR findings', () => {

@@ -132,25 +132,25 @@ function rtRun(probe: RtProbe): { classification: Classification; detail: string
 
 const RT_EXPR: Record<string, RtProbe> = {
   // Snapshot methods
-  'rtdb.method.snapshot.val': { read: 'data.val() === data.val()' },
-  'rtdb.method.snapshot.child': { read: "data.child('x').val() === data.child('x').val()" },
-  'rtdb.method.snapshot.parent': { read: 'data.exists() || data.parent() === data.parent()' },
-  'rtdb.method.snapshot.hasChild': { op: 'write', read: "newData.hasChild('x') === newData.hasChild('x')", newData: { x: 1 } },
-  'rtdb.method.snapshot.hasChildren': { op: 'write', read: 'newData.hasChildren() === newData.hasChildren()', newData: { x: 1 } },
-  'rtdb.method.snapshot.exists': { read: 'data.exists() === data.exists()' },
-  'rtdb.method.snapshot.getPriority': { read: 'data.getPriority() === data.getPriority()' },
-  'rtdb.method.snapshot.isNumber': { op: 'write', read: 'newData.isNumber() === newData.isNumber()', newData: 5 },
-  'rtdb.method.snapshot.isString': { op: 'write', read: 'newData.isString() === newData.isString()', newData: 'x' },
-  'rtdb.method.snapshot.isBoolean': { op: 'write', read: 'newData.isBoolean() === newData.isBoolean()', newData: true },
+  'rtdb.method.snapshot.val': { read: 'data.val() == data.val()' },
+  'rtdb.method.snapshot.child': { read: "data.child('x').val() == data.child('x').val()" },
+  'rtdb.method.snapshot.parent': { read: 'data.exists() || data.parent() == data.parent()' },
+  'rtdb.method.snapshot.hasChild': { op: 'write', read: "newData.hasChild('x') == newData.hasChild('x')", newData: { x: 1 } },
+  'rtdb.method.snapshot.hasChildren': { op: 'write', read: 'newData.hasChildren() == newData.hasChildren()', newData: { x: 1 } },
+  'rtdb.method.snapshot.exists': { read: 'data.exists() == data.exists()' },
+  'rtdb.method.snapshot.getPriority': { read: 'data.getPriority() == data.getPriority()' },
+  'rtdb.method.snapshot.isNumber': { op: 'write', read: 'newData.isNumber() == newData.isNumber()', newData: 5 },
+  'rtdb.method.snapshot.isString': { op: 'write', read: 'newData.isString() == newData.isString()', newData: 'x' },
+  'rtdb.method.snapshot.isBoolean': { op: 'write', read: 'newData.isBoolean() == newData.isBoolean()', newData: true },
   // String methods (on newData.val() of a string write)
   'rtdb.method.string.contains': { op: 'write', read: "newData.val().contains('b')", newData: 'abc' },
   'rtdb.method.string.beginsWith': { op: 'write', read: "newData.val().beginsWith('a')", newData: 'abc' },
   'rtdb.method.string.endsWith': { op: 'write', read: "newData.val().endsWith('c')", newData: 'abc' },
   'rtdb.method.string.matches': { op: 'write', read: 'newData.val().matches(/a.*/)', newData: 'abc' },
-  'rtdb.method.string.replace': { op: 'write', read: "newData.val().replace('a', 'z') === 'zbc'", newData: 'abc' },
-  'rtdb.method.string.toLowerCase': { op: 'write', read: "newData.val().toLowerCase() === 'abc'", newData: 'ABC' },
-  'rtdb.method.string.toUpperCase': { op: 'write', read: "newData.val().toUpperCase() === 'ABC'", newData: 'abc' },
-  'rtdb.method.string.length': { op: 'write', read: 'newData.val().length === 3', newData: 'abc' },
+  'rtdb.method.string.replace': { op: 'write', read: "newData.val().replace('a', 'z') == 'zbc'", newData: 'abc' },
+  'rtdb.method.string.toLowerCase': { op: 'write', read: "newData.val().toLowerCase() == 'abc'", newData: 'ABC' },
+  'rtdb.method.string.toUpperCase': { op: 'write', read: "newData.val().toUpperCase() == 'ABC'", newData: 'abc' },
+  'rtdb.method.string.length': { op: 'write', read: 'newData.val().length == 3', newData: 'abc' },
   // Operators
   'rtdb.operator.strictEq': { read: '1 === 1' },
   'rtdb.operator.strictNeq': { read: '1 !== 2' },
@@ -160,32 +160,32 @@ const RT_EXPR: Record<string, RtProbe> = {
   'rtdb.operator.lte': { read: '1 <= 1' },
   'rtdb.operator.gt': { read: '2 > 1' },
   'rtdb.operator.lt': { read: '1 < 2' },
-  'rtdb.operator.add': { read: '1 + 1 === 2' },
-  'rtdb.operator.sub': { read: '2 - 1 === 1' },
-  'rtdb.operator.mul': { read: '2 * 3 === 6' },
-  'rtdb.operator.div': { read: '6 / 2 === 3' },
-  'rtdb.operator.mod': { read: '5 % 2 === 1' },
+  'rtdb.operator.add': { read: '1 + 1 == 2' },
+  'rtdb.operator.sub': { read: '2 - 1 == 1' },
+  'rtdb.operator.mul': { read: '2 * 3 == 6' },
+  'rtdb.operator.div': { read: '6 / 2 == 3' },
+  'rtdb.operator.mod': { read: '5 % 2 == 1' },
   'rtdb.operator.and': { read: 'true && true' },
   'rtdb.operator.or': { read: 'false || true' },
   'rtdb.operator.not': { read: '!false' },
   'rtdb.operator.neg': { read: '-1 < 0' },
   'rtdb.operator.ternary': { read: '(true ? true : false)' },
-  'rtdb.operator.member': { read: 'auth.uid === auth.uid' },
-  'rtdb.operator.index': { read: "['a', 'b'][0] === 'a'" },
+  'rtdb.operator.member': { read: 'auth.uid == auth.uid' },
+  'rtdb.operator.index': { read: "['a', 'b'][0] == 'a'" },
   // Bindings
-  'rtdb.binding.auth': { read: 'auth !== null' },
-  'rtdb.binding.auth.uid': { read: 'auth.uid === auth.uid' },
-  'rtdb.binding.auth.token': { read: 'auth.token === auth.token' },
-  'rtdb.binding.data': { read: 'data.val() === data.val()' },
-  'rtdb.binding.newData': { op: 'write', read: 'newData.val() === newData.val()', newData: 'v' },
-  'rtdb.binding.root': { read: "root.child('x').exists() === root.child('x').exists()" },
+  'rtdb.binding.auth': { read: 'auth != null' },
+  'rtdb.binding.auth.uid': { read: 'auth.uid == auth.uid' },
+  'rtdb.binding.auth.token': { read: 'auth.token == auth.token' },
+  'rtdb.binding.data': { read: 'data.val() == data.val()' },
+  'rtdb.binding.newData': { op: 'write', read: 'newData.val() == newData.val()', newData: 'v' },
+  'rtdb.binding.root': { read: "root.child('x').exists() == root.child('x').exists()" },
   'rtdb.binding.now': { op: 'write', read: 'now > 0', newData: 'v' },
 };
 
 function rtProbeFor(c: LanguageConstruct): RtProbe {
   if (c.id in RT_EXPR) return RT_EXPR[c.id];
   if (c.kind === 'binding' && c.id === 'rtdb.binding.path-variable') {
-    return { subtree: { $id: { '.read': '$id === $id' } }, op: 'read', opPath: '/anything' };
+    return { subtree: { $id: { '.read': '$id == $id' } }, op: 'read', opPath: '/anything' };
   }
   if (c.kind === 'rule-kind') {
     const name = c.id.slice('rtdb.rule-kind.'.length);

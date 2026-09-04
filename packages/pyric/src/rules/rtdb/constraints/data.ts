@@ -57,13 +57,13 @@ export const newDataParentExists = (depth: number, field: string): Expr =>
 
 // ---- Comparisons ----
 
-/** Strict equality: left === right (right is a literal value or runtime ref) */
+/** Equality: left == right (right is a literal value or runtime ref) */
 export const eq = (left: Expr, right: CompareValue): Expr =>
-  e(`${left} === ${formatRight(right)}`);
+  e(`${left} == ${formatRight(right)}`);
 
-/** Strict inequality: left !== right */
+/** Inequality: left != right */
 export const neq = (left: Expr, right: CompareValue): Expr =>
-  e(`${left} !== ${formatRight(right)}`);
+  e(`${left} != ${formatRight(right)}`);
 
 /** Greater than: left > right */
 export const gt = (left: Expr, right: number): Expr =>

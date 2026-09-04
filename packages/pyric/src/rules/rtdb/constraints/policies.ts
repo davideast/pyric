@@ -2,11 +2,11 @@ import type { Expr, Segment } from './types.js';
 import { all, any, expr } from './compose.js';
 import { authenticated, ownPath, ownField, isNew, hasChild, rootExists, rootEquals } from './atoms.js';
 
-/** Only the path owner (auth.uid === $pathVar) can access */
+/** Only the path owner (auth.uid == $pathVar) can access */
 export const pathOwnerOnly = (pathVar: string): Expr =>
   all(authenticated(), ownPath(pathVar));
 
-/** Only the field owner (auth.uid === data.child(field).val()) can access */
+/** Only the field owner (auth.uid == data.child(field).val()) can access */
 export const fieldOwnerOnly = (field: string): Expr =>
   all(authenticated(), ownField(field));
 
@@ -30,7 +30,7 @@ export const required = (...fields: string[]): Expr =>
 export const transition = (field: string, allowed: Array<[string, string]>): Expr =>
   any(...allowed.map(([from, to]) =>
     all(
-      expr(`data.child("${field}").val() === "${from}"`),
-      expr(`newData.child("${field}").val() === "${to}"`),
+      expr(`data.child("${field}").val() == "${from}"`),
+      expr(`newData.child("${field}").val() == "${to}"`),
     )
   ));

@@ -18,7 +18,7 @@ export const scenario: RtdbScenarioRecord = {
   rationale: 'a root-level .write predicate reading newData.child(\'owner\') sees {item:{...}} for a write one level deeper, so hasChildren([\'owner\']) is false — production denies all writes; the simulator must project newData at the rule node identically.',
   provenance: 'Decomposed from the rtdb-simulator-vs-prod-agreement observation, ruleset r8-combined-check. Expectations are the recorded production allow/deny verdicts.',
   rules: JSON.stringify({
-    '.write': "auth != null && newData.hasChildren(['owner']) && newData.child('owner').val() === auth.uid",
+    '.write': "auth != null && newData.hasChildren(['owner']) && newData.child('owner').val() == auth.uid",
     '.read': 'auth != null',
   }),
   cases: [

@@ -34,11 +34,11 @@ export const scenario: RtdbScenarioRecord = {
     '.read': 'auth != null',
     rootabsent: {
       '.write': 'auth != null',
-      '.validate': "root.child('pyric_absent_sentinel').exists() === false",
+      '.validate': "root.child('pyric_absent_sentinel').exists() == false",
     },
     rootpresent: {
       '.write': 'auth != null',
-      '.validate': "root.child('pyric_absent_sentinel').exists() === true",
+      '.validate': "root.child('pyric_absent_sentinel').exists() == true",
     },
   }),
   cases: [

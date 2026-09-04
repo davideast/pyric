@@ -75,29 +75,29 @@ describe('DataSnapshot', () => {
 });
 
 describe('evaluateRtdbExpression', () => {
-  test('auth.uid === "abc" with matching auth returns true', () => {
+  test('auth.uid == "abc" with matching auth returns true', () => {
     const ctx = {
       ...baseCtx,
       auth: { uid: 'abc', token: {} },
     };
-    expect(evalExpr('auth.uid === "abc"', ctx)).toBe(true);
+    expect(evalExpr('auth.uid == "abc"', ctx)).toBe(true);
   });
 
-  test('auth.uid === "abc" with non-matching auth returns false', () => {
+  test('auth.uid == "abc" with non-matching auth returns false', () => {
     const ctx = {
       ...baseCtx,
       auth: { uid: 'xyz', token: {} },
     };
-    expect(evalExpr('auth.uid === "abc"', ctx)).toBe(false);
+    expect(evalExpr('auth.uid == "abc"', ctx)).toBe(false);
   });
 
-  test('auth !== null with null auth returns false', () => {
-    expect(evalExpr('auth !== null', baseCtx)).toBe(false);
+  test('auth != null with null auth returns false', () => {
+    expect(evalExpr('auth != null', baseCtx)).toBe(false);
   });
 
-  test('auth !== null with auth returns true', () => {
+  test('auth != null with auth returns true', () => {
     const ctx = { ...baseCtx, auth: { uid: 'user1', token: {} } };
-    expect(evalExpr('auth !== null', ctx)).toBe(true);
+    expect(evalExpr('auth != null', ctx)).toBe(true);
   });
 
   test('now > 0 returns true', () => {
@@ -131,16 +131,16 @@ describe('evaluateRtdbExpression', () => {
 
   test('ternary short-circuits', () => {
     const ctx = { ...baseCtx, auth: { uid: 'user1', token: {} } };
-    expect(evalExpr('auth !== null ? true : false', ctx)).toBe(true);
-    expect(evalExpr('auth !== null ? false : true', ctx)).toBe(false);
+    expect(evalExpr('auth != null ? true : false', ctx)).toBe(true);
+    expect(evalExpr('auth != null ? false : true', ctx)).toBe(false);
   });
 
   test('logical AND short-circuits on false', () => {
-    expect(evalExpr('false && auth !== null', baseCtx)).toBe(false);
+    expect(evalExpr('false && auth != null', baseCtx)).toBe(false);
   });
 
   test('logical OR short-circuits on true', () => {
-    expect(evalExpr('true || auth !== null', baseCtx)).toBe(true);
+    expect(evalExpr('true || auth != null', baseCtx)).toBe(true);
   });
 
   test('evaluates comparison operators', () => {
@@ -157,7 +157,11 @@ describe('evaluateRtdbExpression', () => {
 
   test('null auth does not throw when accessing .uid', () => {
     // auth.uid when auth is null returns null (member access on null)
-    expect(() => evalExpr('auth.uid === "x"', baseCtx)).not.toThrow();
+    expect(() => evalExpr('auth.uid == "x"', baseCtx)).not.toThrow();
+  });
+
+  test('strict equality === is rejected at parse time', () => {
+    expect(() => evalExpr('auth.uid === "x"', baseCtx)).toThrow();
   });
 
   test('array literal evaluates to a JS array', () => {
@@ -184,38 +188,38 @@ describe('evaluateRtdbExpression', () => {
 
     test('evaluates scientific notation with decimals and negative exponents', () => {
       const smallVal = { ...baseCtx, data: new DataSnapshot(0.015) };
-      expect(evalExpr('data.val() === 1.5e-2', smallVal)).toBe(true);
+      expect(evalExpr('data.val() == 1.5e-2', smallVal)).toBe(true);
     });
 
     test('preserves subtraction precedence with scientific notation', () => {
       const fiveHundred = { ...baseCtx, data: new DataSnapshot(500) };
-      expect(evalExpr('data.val() === 1e3 - 500', fiveHundred)).toBe(true);
+      expect(evalExpr('data.val() == 1e3 - 500', fiveHundred)).toBe(true);
     });
   });
 
   describe('single-quoted string escape resolution', () => {
     test('resolves newline and tab escapes', () => {
       const newlineData = { ...baseCtx, data: new DataSnapshot('hello\nworld') };
-      expect(evalExpr("data.val() === 'hello\\nworld'", newlineData)).toBe(true);
+      expect(evalExpr("data.val() == 'hello\\nworld'", newlineData)).toBe(true);
 
       const tabData = { ...baseCtx, data: new DataSnapshot('col1\tcol2') };
-      expect(evalExpr("data.val() === 'col1\\tcol2'", tabData)).toBe(true);
+      expect(evalExpr("data.val() == 'col1\\tcol2'", tabData)).toBe(true);
     });
 
     test('resolves escaped single quotes and backslashes', () => {
       const apostropheData = { ...baseCtx, data: new DataSnapshot("it's a test") };
-      expect(evalExpr("data.val() === 'it\\'s a test'", apostropheData)).toBe(true);
+      expect(evalExpr("data.val() == 'it\\'s a test'", apostropheData)).toBe(true);
 
       const slashData = { ...baseCtx, data: new DataSnapshot('a\\b') };
-      expect(evalExpr("data.val() === 'a\\\\b'", slashData)).toBe(true);
+      expect(evalExpr("data.val() == 'a\\\\b'", slashData)).toBe(true);
     });
 
     test('resolves carriage return and double quotes', () => {
       const crData = { ...baseCtx, data: new DataSnapshot('line1\r\nline2') };
-      expect(evalExpr("data.val() === 'line1\\r\\nline2'", crData)).toBe(true);
+      expect(evalExpr("data.val() == 'line1\\r\\nline2'", crData)).toBe(true);
 
       const quoteData = { ...baseCtx, data: new DataSnapshot('he said "hi"') };
-      expect(evalExpr("data.val() === 'he said \\\"hi\\\"'", quoteData)).toBe(true);
+      expect(evalExpr("data.val() == 'he said \\\"hi\\\"'", quoteData)).toBe(true);
     });
 
     test('single-quoted and double-quoted string literals evaluate to identical values', () => {
@@ -224,7 +228,7 @@ describe('evaluateRtdbExpression', () => {
 
     test('preserves unrecognized escape sequences safely without throwing', () => {
       const unrecognized = { ...baseCtx, data: new DataSnapshot('\\z') };
-      expect(evalExpr("data.val() === '\\z'", unrecognized)).toBe(true);
+      expect(evalExpr("data.val() == '\\z'", unrecognized)).toBe(true);
     });
   });
 });

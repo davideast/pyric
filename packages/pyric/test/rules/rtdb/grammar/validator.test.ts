@@ -3,7 +3,7 @@ import { validateExpression } from '../../../../src/rules/rtdb/grammar/validator
 
 describe('validateExpression', () => {
   test('no errors for valid read expression', () => {
-    const errors = validateExpression('auth !== null', 'read');
+    const errors = validateExpression('auth != null', 'read');
     expect(errors).toHaveLength(0);
   });
 
@@ -24,13 +24,13 @@ describe('validateExpression', () => {
   });
 
   test('reports UNKNOWN_IDENTIFIER for unrecognized root identifier', () => {
-    const errors = validateExpression('fooBar !== null', 'read');
+    const errors = validateExpression('fooBar != null', 'read');
     const codes = errors.map(e => e.code);
     expect(codes).toContain('UNKNOWN_IDENTIFIER');
   });
 
   test('no error when path variable is in scope', () => {
-    const errors = validateExpression('auth.uid === $userId', 'read', ['$userId']);
+    const errors = validateExpression('auth.uid == $userId', 'read', ['$userId']);
     // $userId starts with $ so is always valid
     expect(errors.filter(e => e.code === 'UNKNOWN_IDENTIFIER' && e.message.includes('$userId')))
       .toHaveLength(0);
@@ -43,7 +43,7 @@ describe('validateExpression', () => {
   });
 
   test('no error for known DataSnapshot methods', () => {
-    const errors = validateExpression('data.val() !== null', 'read');
+    const errors = validateExpression('data.val() != null', 'read');
     expect(errors.filter(e => e.code === 'UNKNOWN_METHOD')).toHaveLength(0);
   });
 

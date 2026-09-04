@@ -76,43 +76,43 @@ describe('Data template helpers', () => {
   // --- Comparisons ---
   describe('eq', () => {
     test('string right → quoted', () => {
-      expect(eq(dataVal(), 'X')).toBe('data.val() === "X"');
+      expect(eq(dataVal(), 'X')).toBe('data.val() == "X"');
     });
     test('number right → unquoted', () => {
-      expect(eq(newDataVal(), 0)).toBe('newData.val() === 0');
+      expect(eq(newDataVal(), 0)).toBe('newData.val() == 0');
     });
     test('boolean right → unquoted', () => {
-      expect(eq(newDataVal(), true)).toBe('newData.val() === true');
+      expect(eq(newDataVal(), true)).toBe('newData.val() == true');
     });
     test('null right → unquoted', () => {
-      expect(eq(newDataVal(), null)).toBe('newData.val() === null');
+      expect(eq(newDataVal(), null)).toBe('newData.val() == null');
     });
     test('segment right → runtime reference', () => {
-      expect(eq(newDataVal(), AUTH_UID)).toBe('newData.val() === auth.uid');
+      expect(eq(newDataVal(), AUTH_UID)).toBe('newData.val() == auth.uid');
     });
     test('with child path', () => {
-      expect(eq(dataVal('status'), 'open')).toBe('data.child("status").val() === "open"');
+      expect(eq(dataVal('status'), 'open')).toBe('data.child("status").val() == "open"');
     });
     test('parent val with string', () => {
-      expect(eq(dataParentVal(2, 'currentTurn'), 'X')).toBe('data.parent().parent().child("currentTurn").val() === "X"');
+      expect(eq(dataParentVal(2, 'currentTurn'), 'X')).toBe('data.parent().parent().child("currentTurn").val() == "X"');
     });
     test('newData parent val with boolean', () => {
-      expect(eq(newDataParentVal(1, 'xWins'), true)).toBe('newData.parent().child("xWins").val() === true');
+      expect(eq(newDataParentVal(1, 'xWins'), true)).toBe('newData.parent().child("xWins").val() == true');
     });
   });
 
   describe('neq', () => {
     test('string right', () => {
-      expect(neq(newDataVal(), 'X')).toBe('newData.val() !== "X"');
+      expect(neq(newDataVal(), 'X')).toBe('newData.val() != "X"');
     });
     test('boolean right', () => {
-      expect(neq(newDataVal(), true)).toBe('newData.val() !== true');
+      expect(neq(newDataVal(), true)).toBe('newData.val() != true');
     });
     test('null right', () => {
-      expect(neq(newDataParentVal(1, 'winner'), null)).toBe('newData.parent().child("winner").val() !== null');
+      expect(neq(newDataParentVal(1, 'winner'), null)).toBe('newData.parent().child("winner").val() != null');
     });
     test('segment right (AUTH_UID)', () => {
-      expect(neq(dataVal('host'), AUTH_UID)).toBe('data.child("host").val() !== auth.uid');
+      expect(neq(dataVal('host'), AUTH_UID)).toBe('data.child("host").val() != auth.uid');
     });
   });
 

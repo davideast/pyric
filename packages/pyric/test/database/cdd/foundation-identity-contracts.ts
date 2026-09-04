@@ -14,7 +14,7 @@ export async function assertFrozenIdentityRouting(): Promise<void> {
   const db = getDatabase(sandbox.withAuth({ uid: 'alice' }));
   expect(db[TARGET_SYMBOL].kind).toBe('sandbox');
   databaseSandbox.setRules(db, {
-    rules: { users: { '$uid': { '.read': '$uid === auth.uid', '.write': '$uid === auth.uid' } } },
+    rules: { users: { '$uid': { '.read': '$uid == auth.uid', '.write': '$uid == auth.uid' } } },
   });
 
   sandbox.currentUser = { uid: 'bob' };
@@ -28,7 +28,7 @@ export async function assertLiveIdentityRouting(): Promise<void> {
   const db = getDatabase(sandbox);
   expect(db[TARGET_SYMBOL].kind).toBe('sandbox-live');
   databaseSandbox.setRules(db, {
-    rules: { users: { '$uid': { '.read': '$uid === auth.uid', '.write': '$uid === auth.uid' } } },
+    rules: { users: { '$uid': { '.read': '$uid == auth.uid', '.write': '$uid == auth.uid' } } },
   });
 
   await expect(set(ref(db, 'users/alice/value'), 1)).rejects.toThrow('PERMISSION_DENIED');

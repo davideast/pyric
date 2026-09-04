@@ -39,7 +39,7 @@ describe('ruleset()', () => {
       expect(usersNode).toBeDefined();
       const uidNode = usersNode!.children.find(c => c.path === '/users/$uid');
       expect(uidNode).toBeDefined();
-      expect(uidNode!.read?.raw).toBe('auth !== null');
+      expect(uidNode!.read?.raw).toBe('auth != null');
       expect(uidNode!.pathVariables).toContain('$uid');
     });
 
@@ -66,7 +66,7 @@ describe('ruleset()', () => {
       expect(nameChild!.validate?.raw).toBe('newData.isString()');
       const roleChild = uidNode.children.find(c => c.path.endsWith('/role'));
       expect(roleChild).toBeDefined();
-      expect(roleChild!.validate?.raw).toContain('newData.val() === "user"');
+      expect(roleChild!.validate?.raw).toContain('newData.val() == "user"');
     });
 
     test('fieldConstraints merge with schema', () => {
@@ -77,7 +77,7 @@ describe('ruleset()', () => {
           write: ownerOrNew('author'),
           schema: z.object({ author: z.string() }),
           fieldConstraints: {
-            author: [expr('newData.val() === auth.uid')],
+            author: [expr('newData.val() == auth.uid')],
           },
         },
       });
@@ -87,7 +87,7 @@ describe('ruleset()', () => {
       expect(authorChild).toBeDefined();
       // Should be all(isString, authorEnforced)
       expect(authorChild!.validate?.raw).toContain('newData.isString()');
-      expect(authorChild!.validate?.raw).toContain('newData.val() === auth.uid');
+      expect(authorChild!.validate?.raw).toContain('newData.val() == auth.uid');
     });
 
     test('indexOn propagates to the collection node', () => {

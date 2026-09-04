@@ -8,7 +8,7 @@ test('the parser seam does not expose the raw Ohm grammar', () => {
 
 describe('parseExpression', () => {
   test('parses a simple auth check', () => {
-    const result = parseExpression('auth !== null');
+    const result = parseExpression('auth != null');
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
@@ -29,7 +29,7 @@ describe('parseExpression', () => {
   });
 
   test('returns valid=false for incomplete expression', () => {
-    const result = parseExpression('auth !==');
+    const result = parseExpression('auth !=');
     expect(result.valid).toBe(false);
     expect(result.errors.length).toBeGreaterThan(0);
   });
@@ -39,15 +39,20 @@ describe('parseExpression', () => {
     expect(result.valid).toBe(false);
   });
 
+  test('returns valid=false for strict equality === and !==', () => {
+    expect(parseExpression('auth.uid === $userId').valid).toBe(false);
+    expect(parseExpression('auth !== null').valid).toBe(false);
+  });
+
   test('extracts referencedIdentifiers', () => {
-    const result = parseExpression('auth.uid === $userId');
+    const result = parseExpression('auth.uid == $userId');
     expect(result.valid).toBe(true);
     expect(result.referencedIdentifiers).toContain('auth');
     expect(result.referencedIdentifiers).toContain('$userId');
   });
 
   test('extracts data and auth identifiers', () => {
-    const result = parseExpression('auth !== null && data.exists()');
+    const result = parseExpression('auth != null && data.exists()');
     expect(result.referencedIdentifiers).toContain('auth');
     expect(result.referencedIdentifiers).toContain('data');
   });
@@ -58,7 +63,7 @@ describe('parseExpression', () => {
   });
 
   test('parses ternary expression', () => {
-    const result = parseExpression('auth !== null ? true : false');
+    const result = parseExpression('auth != null ? true : false');
     expect(result.valid).toBe(true);
   });
 
@@ -73,12 +78,12 @@ describe('parseExpression', () => {
   });
 
   test('parses logical operators', () => {
-    const result = parseExpression('auth !== null && newData.exists()');
+    const result = parseExpression('auth != null && newData.exists()');
     expect(result.valid).toBe(true);
   });
 
   test('deduplicates referencedIdentifiers', () => {
-    const result = parseExpression('auth.uid === auth.uid');
+    const result = parseExpression('auth.uid == auth.uid');
     const authCount = result.referencedIdentifiers.filter(id => id === 'auth').length;
     expect(authCount).toBe(1);
   });
@@ -113,18 +118,18 @@ describe('parseExpression', () => {
   describe('scientific notation parsing', () => {
     test('parses integer with exponent', () => {
       expect(parseExpression('data.val() < 1e3').valid).toBe(true);
-      expect(parseExpression('data.val() === 2E5').valid).toBe(true);
+      expect(parseExpression('data.val() == 2E5').valid).toBe(true);
       expect(parseExpression('data.val() > 10e0').valid).toBe(true);
     });
 
     test('parses scientific notation with negative exponent', () => {
-      expect(parseExpression('data.val() === 1e-3').valid).toBe(true);
-      expect(parseExpression('data.val() === 5E-2').valid).toBe(true);
+      expect(parseExpression('data.val() == 1e-3').valid).toBe(true);
+      expect(parseExpression('data.val() == 5E-2').valid).toBe(true);
     });
 
     test('parses scientific notation with positive exponent sign', () => {
-      expect(parseExpression('data.val() === 1e+3').valid).toBe(true);
-      expect(parseExpression('data.val() === 2E+4').valid).toBe(true);
+      expect(parseExpression('data.val() == 1e+3').valid).toBe(true);
+      expect(parseExpression('data.val() == 2E+4').valid).toBe(true);
     });
 
     test('parses float base with exponent', () => {

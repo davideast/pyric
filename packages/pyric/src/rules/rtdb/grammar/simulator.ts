@@ -197,59 +197,54 @@ class RtdbString {
   }
 }
 
-let _evalCtx: EvalContext = {
-  auth: null,
-  data: new DataSnapshot(null),
-  newData: new DataSnapshot(null),
-  root: new DataSnapshot(null),
-  now: Date.now(),
-  pathVariableBindings: {},
-};
-
 let evalSemantics: Semantics | undefined;
 
 function getEvalSemantics(): Semantics {
   if (evalSemantics) return evalSemantics;
   const semantics = createRtdbExpressionSemantics();
-  semantics.addOperation<unknown>('eval', {
-    Expr(node) { return (node as any).eval(); },
+  semantics.addOperation<unknown>('eval(ctx)', {
+    Expr(node) { return (node as any).eval(this.args.ctx); },
 
     Ternary_ternary(cond, _q, then, _c, els) {
-      return (cond as any).eval() ? (then as any).eval() : (els as any).eval();
+      return (cond as any).eval(this.args.ctx) ? (then as any).eval(this.args.ctx) : (els as any).eval(this.args.ctx);
     },
-    Ternary(node) { return (node as any).eval(); },
+    Ternary(node) { return (node as any).eval(this.args.ctx); },
 
-    Logical_and(left, _op, right) { return (left as any).eval() && (right as any).eval(); },
-    Logical_or(left, _op, right) { return (left as any).eval() || (right as any).eval(); },
-    Logical(node) { return (node as any).eval(); },
+    Logical_and(left, _op, right) { return (left as any).eval(this.args.ctx) && (right as any).eval(this.args.ctx); },
+    Logical_or(left, _op, right) { return (left as any).eval(this.args.ctx) || (right as any).eval(this.args.ctx); },
+    Logical(node) { return (node as any).eval(this.args.ctx); },
 
-    Comparison_strictEq(left, _op, right) { return (left as any).eval() === (right as any).eval(); },
-    Comparison_strictNeq(left, _op, right) { return (left as any).eval() !== (right as any).eval(); },
-    Comparison_gte(left, _op, right) { return (left as any).eval() >= (right as any).eval(); },
-    Comparison_lte(left, _op, right) { return (left as any).eval() <= (right as any).eval(); },
-    Comparison_gt(left, _op, right) { return (left as any).eval() > (right as any).eval(); },
-    Comparison_lt(left, _op, right) { return (left as any).eval() < (right as any).eval(); },
-    Comparison_looseEq(left, _op, right) { return (left as any).eval() == (right as any).eval(); },
-    Comparison_looseNeq(left, _op, right) { return (left as any).eval() != (right as any).eval(); },
-    Comparison(node) { return (node as any).eval(); },
+    Comparison_gte(left, _op, right) { return (left as any).eval(this.args.ctx) >= (right as any).eval(this.args.ctx); },
+    Comparison_lte(left, _op, right) { return (left as any).eval(this.args.ctx) <= (right as any).eval(this.args.ctx); },
+    Comparison_gt(left, _op, right) { return (left as any).eval(this.args.ctx) > (right as any).eval(this.args.ctx); },
+    Comparison_lt(left, _op, right) { return (left as any).eval(this.args.ctx) < (right as any).eval(this.args.ctx); },
+    Comparison_looseEq(left, _op, right) { return (left as any).eval(this.args.ctx) == (right as any).eval(this.args.ctx); },
+    Comparison_looseNeq(left, _op, right) { return (left as any).eval(this.args.ctx) != (right as any).eval(this.args.ctx); },
+    Comparison(node) { return (node as any).eval(this.args.ctx); },
 
-    Additive_add(left, _op, right) { return (left as any).eval() as number + ((right as any).eval() as number); },
-    Additive_sub(left, _op, right) { return (left as any).eval() as number - ((right as any).eval() as number); },
-    Additive(node) { return (node as any).eval(); },
+    Additive_add(left, _op, right) { return (left as any).eval(this.args.ctx) as number + ((right as any).eval(this.args.ctx) as number); },
+    Additive_sub(left, _op, right) { return (left as any).eval(this.args.ctx) as number - ((right as any).eval(this.args.ctx) as number); },
+    Additive(node) { return (node as any).eval(this.args.ctx); },
 
-    Multiplicative_mul(left, _op, right) { return (left as any).eval() as number * ((right as any).eval() as number); },
-    Multiplicative_div(left, _op, right) { return (left as any).eval() as number / ((right as any).eval() as number); },
-    Multiplicative_mod(left, _op, right) { return (left as any).eval() as number % ((right as any).eval() as number); },
-    Multiplicative(node) { return (node as any).eval(); },
+    Multiplicative_mul(left, _op, right) { return (left as any).eval(this.args.ctx) as number * ((right as any).eval(this.args.ctx) as number); },
+    Multiplicative_div(left, _op, right) { return (left as any).eval(this.args.ctx) as number / ((right as any).eval(this.args.ctx) as number); },
+    Multiplicative_mod(left, _op, right) { return (left as any).eval(this.args.ctx) as number % ((right as any).eval(this.args.ctx) as number); },
+    Multiplicative(node) { return (node as any).eval(this.args.ctx); },
 
-    UnaryExpr_not(_op, expr) { return !(expr as any).eval(); },
-    UnaryExpr_neg(_op, expr) { return -((expr as any).eval() as number); },
-    UnaryExpr(node) { return (node as any).eval(); },
+    UnaryExpr_not(_op, expr) {
+      const val = (expr as any).eval(this.args.ctx);
+      if (typeof val !== 'boolean') {
+        return false;
+      }
+      return !val;
+    },
+    UnaryExpr_neg(_op, expr) { return -((expr as any).eval(this.args.ctx) as number); },
+    UnaryExpr(node) { return (node as any).eval(this.args.ctx); },
 
     CallExpr_methodCall(receiver, _dot, methodName, _open, args, _close) {
-      const recv = (receiver as any).eval();
+      const recv = (receiver as any).eval(this.args.ctx);
       const method = methodName.sourceString;
-      const argValues = (args as any).asIteration().children.map((a: any) => (a as any).eval());
+      const argValues = (args as any).asIteration().children.map((a: any) => (a as any).eval(this.args.ctx));
 
       if (recv instanceof DataSnapshot) {
         switch (method) {
@@ -291,33 +286,33 @@ function getEvalSemantics(): Semantics {
     },
 
     CallExpr_memberAccess(receiver, _dot, member) {
-      const recv = (receiver as any).eval();
+      const recv = (receiver as any).eval(this.args.ctx);
       if (recv === null || recv === undefined) return null;
       return safeMemberRead(recv, member.sourceString);
     },
 
     CallExpr_indexAccess(receiver, _open, index, _close) {
-      const recv = (receiver as any).eval();
-      const idx = (index as any).eval();
+      const recv = (receiver as any).eval(this.args.ctx);
+      const idx = (index as any).eval(this.args.ctx);
       if (recv === null || recv === undefined) return null;
       return safeMemberRead(recv, String(idx));
     },
 
-    CallExpr(node) { return (node as any).eval(); },
+    CallExpr(node) { return (node as any).eval(this.args.ctx); },
 
-    Primary_paren(_open, expr, _close) { return (expr as any).eval(); },
-    Primary(node) { return (node as any).eval(); },
+    Primary_paren(_open, expr, _close) { return (expr as any).eval(this.args.ctx); },
+    Primary(node) { return (node as any).eval(this.args.ctx); },
 
     Array(_open, elems, _close) {
-      return (elems as any).asIteration().children.map((e: any) => (e as any).eval());
+      return (elems as any).asIteration().children.map((e: any) => (e as any).eval(this.args.ctx));
     },
 
-    literal(node) { return (node as any).eval(); },
+    literal(node) { return (node as any).eval(this.args.ctx); },
 
     number_float(_int, _dot, _frac, _exp) { return parseFloat(this.sourceString); },
     number_exp(_digits, _exp) { return parseFloat(this.sourceString); },
     number_int(_digits) { return parseInt(this.sourceString, 10); },
-    number(node) { return (node as any).eval(); },
+    number(node) { return (node as any).eval(this.args.ctx); },
 
     string_double(_open, _chars, _close) {
       return JSON.parse(this.sourceString);
@@ -325,7 +320,7 @@ function getEvalSemantics(): Semantics {
     string_single(_open, chars, _close) {
       return processStringEscapes(chars.sourceString);
     },
-    string(node) { return (node as any).eval(); },
+    string(node) { return (node as any).eval(this.args.ctx); },
 
     regex(_slash1, body, _slash2, flags) {
       return new RegExp(body.sourceString, flags.sourceString);
@@ -333,21 +328,22 @@ function getEvalSemantics(): Semantics {
 
     bool_true(_lit) { return true; },
     bool_false(_lit) { return false; },
-    bool(node) { return (node as any).eval(); },
+    bool(node) { return (node as any).eval(this.args.ctx); },
 
     null(_lit) { return null; },
 
     ident(_dollar, _start, _rest) {
+      const ctx = this.args.ctx as EvalContext;
       const name = this.sourceString;
-      if (name in _evalCtx.pathVariableBindings) {
-        return _evalCtx.pathVariableBindings[name];
+      if (ctx?.pathVariableBindings && name in ctx.pathVariableBindings) {
+        return ctx.pathVariableBindings[name];
       }
       switch (name) {
-        case 'auth': return _evalCtx.auth;
-        case 'data': return _evalCtx.data;
-        case 'newData': return _evalCtx.newData;
-        case 'root': return _evalCtx.root;
-        case 'now': return _evalCtx.now;
+        case 'auth': return ctx?.auth ?? null;
+        case 'data': return ctx?.data;
+        case 'newData': return ctx?.newData;
+        case 'root': return ctx?.root;
+        case 'now': return ctx?.now;
         default: return undefined;
       }
     },
@@ -361,6 +357,5 @@ export function evaluateRtdbExpression(raw: string, ctx: EvalContext): unknown {
   if (match.failed()) {
     throw new Error(match.message ?? 'RTDB expression failed to parse');
   }
-  _evalCtx = ctx;
-  return (getEvalSemantics()(match) as any).eval();
+  return (getEvalSemantics()(match) as any).eval(ctx);
 }

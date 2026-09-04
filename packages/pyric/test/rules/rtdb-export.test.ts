@@ -13,8 +13,8 @@ import {
 
 describe('pyric/rules/rtdb facade', () => {
   test('exports the pure RTDB rules engine', () => {
-    expect(parseExpression('auth !== null').valid).toBe(true);
-    expect(buildRuleExpression('auth.uid === $uid', 'read', ['$uid']).parsed.valid).toBe(true);
+    expect(parseExpression('auth != null').valid).toBe(true);
+    expect(buildRuleExpression('auth.uid == $uid', 'read', ['$uid']).parsed.valid).toBe(true);
   });
 
   test('compiles, serializes, and simulates a rules tree without environment metadata', () => {
@@ -22,7 +22,7 @@ describe('pyric/rules/rtdb facade', () => {
       rules: {
         users: {
           '$uid': {
-            '.read': 'auth.uid === $uid',
+            '.read': 'auth.uid == $uid',
           },
         },
       },

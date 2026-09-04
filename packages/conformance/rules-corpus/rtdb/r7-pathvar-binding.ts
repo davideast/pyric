@@ -16,8 +16,8 @@ export const scenario: RtdbScenarioRecord = {
   rules: JSON.stringify({
     sessions: {
       $sessionId: {
-        '.read': 'auth != null && $sessionId === auth.uid',
-        '.write': 'auth != null && $sessionId === auth.uid',
+        '.read': 'auth != null && $sessionId == auth.uid',
+        '.write': 'auth != null && $sessionId == auth.uid',
       },
     },
   }),

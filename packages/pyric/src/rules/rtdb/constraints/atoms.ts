@@ -12,15 +12,15 @@ function buildPath(segments: Segment[]): string {
 
 // --- Authentication ---
 
-export const authenticated = (): Expr => e('auth !== null');
+export const authenticated = (): Expr => e('auth != null');
 
 // --- Ownership ---
 
 /** Path-based ownership: auth.uid matches a URL path variable */
-export const ownPath = (pathVar: string): Expr => e(`auth.uid === ${pathVar}`);
+export const ownPath = (pathVar: string): Expr => e(`auth.uid == ${pathVar}`);
 
 /** Field-based ownership: auth.uid matches a value stored in a data field */
-export const ownField = (field: string): Expr => e(`auth.uid === data.child("${field}").val()`);
+export const ownField = (field: string): Expr => e(`auth.uid == data.child("${field}").val()`);
 
 // --- Existence ---
 
@@ -46,17 +46,17 @@ export const fieldIsBoolean = (field: string): Expr => e(`newData.child("${field
 
 /** Field must be one of the allowed string values */
 export const fieldEnum = (field: string, values: string[]): Expr =>
-  e(values.map(v => `newData.child("${field}").val() === "${v}"`).join(' || '));
+  e(values.map(v => `newData.child("${field}").val() == "${v}"`).join(' || '));
 
 // --- Immutability ---
 
 /** Field can be set on creation but never changed after */
 export const immutable = (field: string): Expr =>
-  e(`!data.exists() || newData.child("${field}").val() === data.child("${field}").val()`);
+  e(`!data.exists() || newData.child("${field}").val() == data.child("${field}").val()`);
 
 /** This node's own value can be set on creation but never changed */
 export const immutableSelf = (): Expr =>
-  e('!data.exists() || newData.val() === data.val()');
+  e('!data.exists() || newData.val() == data.val()');
 
 // --- Cross-path lookups ---
 
@@ -66,4 +66,4 @@ export const rootExists = (segments: Segment[]): Expr =>
 
 /** Check if a path's value equals a specific string (via root) */
 export const rootEquals = (segments: Segment[], value: string): Expr =>
-  e(`root.${buildPath(segments)}.val() === "${value}"`);
+  e(`root.${buildPath(segments)}.val() == "${value}"`);
