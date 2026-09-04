@@ -11,7 +11,8 @@
  * line, port 3473 default ("FIRE" on a phone keypad) with scan-forward on conflict, and SIGINT →
  * `Shutting down...`.
  */
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
@@ -83,37 +84,80 @@ export function isAllowedHost(
 ): boolean {
   if (!hostHeader) return true; // no Host → not a browser rebinding attack
   const hostname = hostHeader.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+  const boundHostname = boundHost.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
   const allowed = new Set(
-    ['localhost', '127.0.0.1', '::1', '0.0.0.0', boundHost.toLowerCase(), ...extra.map((h) => h.toLowerCase())],
+    ['localhost', '127.0.0.1', '::1', '0.0.0.0', boundHostname, ...extra.map((h) => h.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase())],
   );
   return allowed.has(hostname);
 }
 
 /**
- * Origin allowlist for WebSocket `upgrade` handshakes. A browser sends an
- * `Origin` header on WS handshakes carrying the page's origin; a hostile page
- * that opens a WS to our loopback bridge sends ITS OWN cross-origin Origin,
- * which we reject — otherwise the page hijacks the agent tool channel
- * (`registerSandboxPeer` last-wins). We reuse `isAllowedHost`'s allow rule on
- * the Origin's hostname (loopback names + bound host + `--allowed-host`).
+ * Origin allowlist for WebSocket `upgrade` handshakes and local endpoint requests.
+ * A browser sends an `Origin` header carrying the page's origin; a hostile page
+ * that connects to our loopback server sends ITS OWN cross-origin Origin,
+ * which we reject.
  *
- * A missing `Origin` is allowed: the same-origin/non-browser peer (a CLI ws
- * client, a test) is not the hijack vector, which requires a browser attaching
- * the attacker's Origin. A malformed Origin is rejected.
+ * Enforces that the Origin's hostname is an allowed host, and when a bound host
+ * port is specified (in `boundPort` or as `:port` on `boundHost`), enforces that
+ * the Origin's port matches the server's bound port (unless default scheme port matches
+ * or extra allowed origins match).
+ *
+ * A missing `Origin` is allowed: non-browser clients (curl, CLI peers, tests)
+ * are not the cross-origin hijack vector.
  */
 export function isAllowedOrigin(
   originHeader: string | undefined,
   boundHost: string,
   extra: string[] = [],
+  boundPort?: number | string,
 ): boolean {
   if (!originHeader) return true; // no Origin → non-browser client, not a hijack
-  let hostname: string;
+  let originUrl: URL;
   try {
-    hostname = new URL(originHeader).hostname; // may be `[::1]` — isAllowedHost strips brackets
+    originUrl = new URL(originHeader);
   } catch {
     return false; // malformed Origin → reject
   }
-  return isAllowedHost(hostname, boundHost, extra);
+  const hostname = originUrl.hostname; // may be `[::1]` — isAllowedHost strips brackets
+  if (!isAllowedHost(hostname, boundHost, extra)) {
+    return false;
+  }
+
+  // Extract expected port if provided in boundPort or boundHost (e.g. 'localhost:3473')
+  let expectedPort: string | undefined;
+  if (boundPort !== undefined && boundPort !== '') {
+    expectedPort = String(boundPort);
+  } else if (boundHost.includes(':')) {
+    const cleanBound = boundHost.replace(/^\[|\]$/g, '');
+    const colonIdx = cleanBound.lastIndexOf(':');
+    if (colonIdx !== -1) {
+      const p = cleanBound.slice(colonIdx + 1);
+      if (/^\d+$/.test(p)) {
+        expectedPort = p;
+      }
+    }
+  }
+
+  if (expectedPort) {
+    const originPort = originUrl.port || (originUrl.protocol === 'https:' ? '443' : originUrl.protocol === 'http:' ? '80' : '');
+    if (originPort !== expectedPort) {
+      const originMatchesExtra = extra.some((e) => {
+        try {
+          const extraUrl = new URL(e.includes('://') ? e : `http://${e}`);
+          const extraHostname = extraUrl.hostname;
+          const extraPort = extraUrl.port || (extraUrl.protocol === 'https:' ? '443' : extraUrl.protocol === 'http:' ? '80' : '');
+          return extraHostname.toLowerCase() === hostname.toLowerCase() && extraPort === originPort;
+        } catch {
+          return false;
+        }
+      });
+      if (!originMatchesExtra) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 /**
@@ -128,9 +172,10 @@ export function isAllowedUpgrade(
   boundHost: string,
   extra: string[] = [],
 ): boolean {
+  const hostPort = headers.host?.includes(':') ? headers.host.split(':').pop() : undefined;
   return (
     isAllowedHost(headers.host, boundHost, extra) &&
-    isAllowedOrigin(headers.origin, boundHost, extra)
+    isAllowedOrigin(headers.origin, boundHost, extra, hostPort)
   );
 }
 
@@ -149,6 +194,57 @@ export function getHeader(
   }
   const val = (headers as Record<string, string | string[] | undefined>)[name.toLowerCase()];
   return Array.isArray(val) ? val.join(', ') : val;
+}
+
+/**
+ * Constant-time comparison for capability tokens.
+ * Fails closed if either token is missing or empty.
+ */
+export function timingSafeTokenMatch(
+  presented: string | undefined,
+  expected: string | undefined,
+): boolean {
+  if (!presented || !expected) return false;
+  const a = Buffer.from(presented, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Validates a session capability token from either the `x-pyric-session-token`
+ * header or the `?token=` query parameter using constant-time comparison.
+ * Fails closed (returns false) if `expectedToken` is omitted, undefined, or empty.
+ */
+export function isAllowedSessionToken(
+  req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
+  url: URL | undefined,
+  expectedToken: string | undefined,
+): boolean {
+  if (!expectedToken) return false;
+  const presented =
+    getHeader(req, 'x-pyric-session-token') ??
+    url?.searchParams.get('token') ??
+    undefined;
+  return timingSafeTokenMatch(presented, expectedToken);
+}
+
+/**
+ * Validates that an incoming HTTP request complies with both loopback Host
+ * (DNS-rebinding) and Origin (cross-origin hijacking) restrictions.
+ */
+export function isAllowedLoopbackRequest(
+  req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
+  boundHost: string,
+  extra: string[] = [],
+): boolean {
+  const hostHeader = getHeader(req, 'host');
+  const originHeader = getHeader(req, 'origin');
+  const hostPort = hostHeader?.includes(':') ? hostHeader.split(':').pop() : undefined;
+  return (
+    isAllowedHost(hostHeader, boundHost, extra) &&
+    isAllowedOrigin(originHeader, boundHost, extra, hostPort)
+  );
 }
 
 export interface ServeHandle {

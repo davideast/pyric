@@ -78,13 +78,13 @@ describe('M2 — worker bundle + persist (via the /__pyric middleware)', () => {
     expect(secondEpoch).toBeTruthy();
     expect(secondEpoch).not.toBe(firstEpoch);
   });
-
   it('persist mounts the /__pyric/state channel and sets persist in the payload', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-persist-'));
     const handler = await bootPlugin({ persist: true }, tmp);
-    expect((await initJson(handler)).persist).toBe(true); // persist wired into the payload
+    const init = await initJson(handler);
+    expect(init.persist).toBe(true); // persist wired into the payload
     // A PUT heartbeat claims the writer lock → 204 proves the state route is mounted.
-    const put = await callPyric(handler, { method: 'PUT', path: '/__pyric/state', headers: { 'x-pyric-writer': 'test' } });
+    const put = await callPyric(handler, { method: 'PUT', path: '/__pyric/state', headers: { 'x-pyric-writer': 'test', 'x-pyric-session-token': init.sessionToken as string } });
     expect(put.statusCode).toBe(204);
   });
 

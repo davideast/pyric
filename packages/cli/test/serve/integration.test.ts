@@ -254,6 +254,8 @@ describe('/__pyric/capture endpoint (serve-capture)', () => {
     stops.push(runtime);
 
     const base = runtime.handle.url;
+    const init = (await (await fetch(`${base}/__pyric/init.json`)).json()) as { sessionToken: string };
+    const token = init.sessionToken;
     const capturePath = join(cwd, CAPTURE_RELATIVE_PATH);
     const fixture = {
       rules: 'rules_version = "2"; service cloud.firestore { match /databases/{db}/documents { match /{d} { allow read, write; } } }',
@@ -264,13 +266,13 @@ describe('/__pyric/capture endpoint (serve-capture)', () => {
     // 1. POST → 204 and the file is written
     // 0. Before any POST, GET → 404 (nothing captured; worker boot skips
     //    hydration cleanly).
-    const empty = await fetch(`${base}/__pyric/capture`, { method: 'GET' });
+    const empty = await fetch(`${base}/__pyric/capture`, { method: 'GET', headers: { 'x-pyric-session-token': token } });
     expect(empty.status).toBe(404);
 
     const body = JSON.stringify(fixture);
     const postRes = await fetch(`${base}/__pyric/capture`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-pyric-session-token': token },
       body,
     });
     expect(postRes.status).toBe(204);
@@ -284,13 +286,13 @@ describe('/__pyric/capture endpoint (serve-capture)', () => {
 
     // 3. GET now returns the stored fixture verbatim (the worker's boot-time
     //    event-history hydration reads it).
-    const getRes = await fetch(`${base}/__pyric/capture`, { method: 'GET' });
+    const getRes = await fetch(`${base}/__pyric/capture`, { method: 'GET', headers: { 'x-pyric-session-token': token } });
     expect(getRes.status).toBe(200);
     expect(getRes.headers.get('content-type')).toContain('json');
     expect(await getRes.text()).toBe(body);
 
     // 4. An unsupported method → 405 advertising GET, POST.
-    const delRes = await fetch(`${base}/__pyric/capture`, { method: 'DELETE' });
+    const delRes = await fetch(`${base}/__pyric/capture`, { method: 'DELETE', headers: { 'x-pyric-session-token': token } });
     expect(delRes.status).toBe(405);
     expect(delRes.headers.get('allow')).toBe('GET, POST');
   }, 30_000);
