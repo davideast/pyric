@@ -25,6 +25,7 @@ import {
   simulateRtdbRules,
   type CompiledRtdbRules,
 } from '../../rules/rtdb/compiled-rules.js';
+import type { SimulationInput } from '../../rules/rtdb/simulation/spec.js';
 import type { AuthState } from 'pyric/sandbox';
 
 /**
@@ -186,14 +187,16 @@ export class RulesEvaluator {
     // either `null` or `{ uid: string, tenant?: string, token?: Record<string, unknown> }`.
     // Preserve tenant and optional token from AuthState so tenant claim
     // normalization and custom claims reach the simulator.
-    const normalisedAuth =
-      ctx.auth === null
-        ? null
-        : {
-            uid: ctx.auth.uid,
-            ...(ctx.auth.tenant !== undefined ? { tenant: ctx.auth.tenant } : {}),
-            ...(ctx.auth.token !== undefined ? { token: ctx.auth.token } : {}),
-          };
+    let normalisedAuth: SimulationInput['auth'] = null;
+    if (ctx.auth !== null) {
+      normalisedAuth = {
+        uid: ctx.auth.uid,
+        token: ctx.auth.token ?? {},
+      };
+      if (ctx.auth.tenant !== undefined) {
+        normalisedAuth.tenant = ctx.auth.tenant;
+      }
+    }
     const result = simulateRtdbRules(this.compiled, {
       operation,
       path: path === '/' ? '/' : path,

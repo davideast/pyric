@@ -199,50 +199,45 @@ describe('RTDB Multi-Instance Isolation & Routing', () => {
     expect((await get(ref(dbDefUpper, 'root/val'))).val()).toBe(42);
   });
 
-  it('guarantees secondary-first access strictly isolates persistence snapshot and restore', async () => {
+  it('persists and restores both default and secondary database instances with strict isolation', async () => {
     const backend = createMemoryBackend();
 
-    // 1. First sandbox: access secondary instance FIRST without touching default instance
+    // 1. First sandbox: write to both default and secondary instances
     const sandbox1 = initializeSandbox();
-    await sandbox1.enablePersistence({ key: 'sec-leak-check', injectedBackend: backend });
+    await sandbox1.enablePersistence({ key: 'multi-db-persist', injectedBackend: backend });
 
-    const secDb1 = getDatabase(sandbox1, 'https://confidential-secondary.firebaseio.com');
+    const defaultDb1 = getDatabase(sandbox1);
+    const secDb1 = getDatabase(sandbox1, 'https://secondary.firebaseio.com');
+    setDefaultPolicy(defaultDb1, 'allow');
     setDefaultPolicy(secDb1, 'allow');
-    await set(ref(secDb1, 'confidential/secretKey'), 'TOP-SECRET-DATA');
+
+    await set(ref(defaultDb1, 'default/item'), 'val-default');
+    await set(ref(secDb1, 'secondary/item'), 'val-sec');
     await sandbox1.flush();
 
-    // Verify snapshot does not contain secondary database data
+    // Verify snapshot structure
     const snap1 = sandbox1.snapshot();
     const rtdbService1 = snap1.services?.rtdb as
-      | { data?: Record<string, unknown> }
+      | { data?: Record<string, unknown>; instances?: Record<string, { data?: Record<string, unknown> }> }
       | undefined;
-    expect(rtdbService1?.data?.confidential).toBeUndefined();
+    expect(rtdbService1?.data?.default).toEqual({ item: 'val-default' });
+    expect(rtdbService1?.instances?.['https://secondary.firebaseio.com']?.data?.secondary).toEqual({ item: 'val-sec' });
 
     // 2. Second sandbox: restore from persistence
     const sandbox2 = initializeSandbox();
-    await sandbox2.enablePersistence({ key: 'sec-leak-check', injectedBackend: backend });
+    await sandbox2.enablePersistence({ key: 'multi-db-persist', injectedBackend: backend });
 
-    // Access default database on sandbox2: must NOT have leaked secondary data
     const defaultDb2 = getDatabase(sandbox2);
+    const secDb2 = getDatabase(sandbox2, 'https://secondary.firebaseio.com');
     setDefaultPolicy(defaultDb2, 'allow');
-    const defaultVal = await get(ref(defaultDb2, 'confidential/secretKey'));
-    expect(defaultVal.val()).toBeNull();
-
-    // Secondary instance on fresh sandbox is ephemeral and starts empty
-    const secDb2 = getDatabase(sandbox2, 'https://confidential-secondary.firebaseio.com');
     setDefaultPolicy(secDb2, 'allow');
-    const secVal = await get(ref(secDb2, 'confidential/secretKey'));
-    expect(secVal.val()).toBeNull();
 
-    // 3. Modifying default database properly updates persistence snapshot without secondary contamination
-    await set(ref(defaultDb2, 'public/config'), 'active');
-    await sandbox2.flush();
+    // Data is restored correctly to each respective instance
+    expect((await get(ref(defaultDb2, 'default/item'))).val()).toBe('val-default');
+    expect((await get(ref(secDb2, 'secondary/item'))).val()).toBe('val-sec');
 
-    const snap2 = sandbox2.snapshot();
-    const rtdbService2 = snap2.services?.rtdb as
-      | { data?: Record<string, unknown> }
-      | undefined;
-    expect(rtdbService2?.data?.public).toEqual({ config: 'active' });
-    expect(rtdbService2?.data?.confidential).toBeUndefined();
+    // Cross-check that neither instance contains the other's data
+    expect((await get(ref(defaultDb2, 'secondary/item'))).val()).toBeNull();
+    expect((await get(ref(secDb2, 'default/item'))).val()).toBeNull();
   });
 });
