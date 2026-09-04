@@ -32,7 +32,7 @@ public final class Transaction: @unchecked Sendable {
                 "Firestore transactions require all reads to be executed before all writes."
             )
         }
-        let raw = try await firestore.bridgeClient.getDoc(path: document.path)
+        let raw = try await firestore.bridgeClient.getDoc(path: document.path, actAs: firestore.effectiveAuthLens)
         let snapshot = DocumentSnapshot.fromWire(firestore: firestore, path: document.path, wire: raw)
 
         // Capture read state for optimistic concurrency check
