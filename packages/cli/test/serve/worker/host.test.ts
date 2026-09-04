@@ -862,8 +862,8 @@ describe('shared playground worker ops', () => {
         rules: {
           profiles: {
             $uid: {
-              '.read': 'auth.uid == $uid',
-              '.write': 'auth.uid == $uid',
+              '.read': 'auth.uid === $uid',
+              '.write': 'auth.uid === $uid',
             },
           },
         },

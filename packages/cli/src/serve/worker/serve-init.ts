@@ -320,13 +320,9 @@ export function applyServeInit(
       }));
       // Relative URL resolves against the worker script's origin (same origin
       // as the page). Fire-and-forget — capture failures never break ops.
-      const captureHeaders: Record<string, string> = {
-        'content-type': 'application/json',
-        ...(payload.sessionToken ? { 'x-pyric-session-token': payload.sessionToken } : {}),
-      };
       await env.fetch('/__pyric/capture', {
           method: 'POST',
-          headers: captureHeaders,
+          headers: { 'content-type': 'application/json' },
           body,
         })
         .catch(() => {});
@@ -409,14 +405,10 @@ export const MAX_PRIMED_EVENTS = 2000;
 export async function hydrateEventHistory(
   ctx: HostCtx,
   env: ServeInitEnv,
-  sessionToken?: string,
 ): Promise<number> {
   let res: Response;
   try {
-    const headers: Record<string, string> = sessionToken
-      ? { 'x-pyric-session-token': sessionToken }
-      : {};
-    res = await env.fetch('/__pyric/capture', { headers });
+    res = await env.fetch('/__pyric/capture');
   } catch {
     return 0; // standalone / no capture endpoint.
   }
@@ -596,7 +588,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // the RECORD of it. Best-effort — a failure never blocks boot.
   if (payload?.capture) {
     try {
-      await hydrateEventHistory(ctx, env, payload?.sessionToken);
+      await hydrateEventHistory(ctx, env);
     } catch {
       /* activity-log hydration is non-essential; never brick boot over it. */
     }

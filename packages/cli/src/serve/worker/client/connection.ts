@@ -163,7 +163,11 @@ export async function callTool(
  * message minus `t`/`id` (the `WorkerOpPayload` wire shape); resolves with
  * the worker's `res.value`, rejects with an Error carrying `.code`.
  */
-export function relayWorkerOp(db: ClientDb, op: WorkerOpPayload): Promise<unknown> {
+export function relayWorkerOp(
+  db: ClientDb,
+  op: WorkerOpPayload,
+  clientSessionId?: string,
+): Promise<unknown> {
   // rawRpc, NOT rpc: the relay owns provenance and must not inherit this
   // browser page's Studio issuer. Override any untrusted incoming marker so
   // Node/agent/system traffic can never be attributed to page app activity.
@@ -171,6 +175,7 @@ export function relayWorkerOp(db: ClientDb, op: WorkerOpPayload): Promise<unknow
     ...op,
     issuer: undefined,
     relaySource: 'remote',
+    clientSessionId,
     t: 'op',
     id: nextId(),
   } as InboundMessage);
@@ -192,6 +197,7 @@ export function relayWorkerSub(
   db: ClientDb,
   sub: WorkerSubPayload,
   onValue: (value: unknown) => void,
+  clientSessionId?: string,
 ): () => void {
   if (sub.target === 'events') {
     throw new Error(
@@ -213,6 +219,7 @@ export function relayWorkerSub(
     ...sub,
     issuer: undefined,
     relaySource: 'remote',
+    clientSessionId,
     t: 'sub',
     subId,
   } as InboundMessage);
@@ -222,6 +229,21 @@ export function relayWorkerSub(
     }));
   }
   return () => {
-    closeSubscription(db.port, subId);
+    closeSubscription(db.port, subId, clientSessionId);
   };
+}
+
+/**
+ * Notify the SharedWorker that a remote consumer disconnected, tearing down
+ * its client-scoped virtual port, auth session, and active subscriptions.
+ */
+export function relayWorkerDisconnect(
+  db: ClientDb,
+  clientSessionId: string,
+): void {
+  db.port.postMessage({
+    t: 'disconnect',
+    id: nextId(),
+    clientSessionId,
+  } as InboundMessage);
 }
