@@ -42,10 +42,12 @@ public final class FirestoreSettings: @unchecked Sendable {
         self.cacheSettings = cacheSettings
     }
 
+    private static let fallbackQueue = DispatchQueue(label: "dev.pyric.firestore.callback-fallback")
+
     public func dispatchCallback(_ block: @escaping @Sendable () -> Void) {
         #if os(macOS)
         if dispatchQueue === DispatchQueue.main {
-            DispatchQueue.global().async(execute: block)
+            Self.fallbackQueue.async(execute: block)
             return
         }
         #endif

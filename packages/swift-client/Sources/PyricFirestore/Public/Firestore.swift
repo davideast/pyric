@@ -80,7 +80,92 @@ public class Firestore: @unchecked Sendable {
 
     public private(set) var bridgeClient: PyricBridgeClient
 
+    private let instanceLock = NSLock()
+    private var _credentialProvider: (any AuthCredentialProvider)?
+
+    public var credentialProvider: (any AuthCredentialProvider)? {
+        get {
+            instanceLock.lock()
+            defer { instanceLock.unlock() }
+            if let explicit = _credentialProvider {
+                return explicit
+            }
+            return AuthCredentialProviderRegistry.resolve(app: app)
+        }
+        set {
+            instanceLock.lock()
+            defer { instanceLock.unlock() }
+            _credentialProvider = newValue
+        }
+    }
+
+    public var effectiveAuthLens: AuthLens {
+        credentialProvider?.currentAuthLens() ?? .anon
+    }
+
+    public var authLensStream: AsyncStream<AuthLens> {
+        if let provider = credentialProvider {
+            return provider.authLensStream
+        }
+        return AsyncStream { continuation in
+            continuation.yield(.anon)
+        }
+    }
+
     private var hasUsed: Bool = false
+    private var rulesDenialListeners: [UUID: @Sendable (PyricBridgeError) -> Void] = [:]
+    private var denialObservationTask: Task<Void, Never>?
+
+    /// Stream of Security Rules denial errors intercepted by the underlying bridge client.
+    public var denialStream: AsyncStream<PyricBridgeError> {
+        bridgeClient.denialStream
+    }
+
+    /// Registers a listener callback invoked whenever a Security Rules denial is intercepted.
+    public func addRulesDenialListener(_ listener: @escaping @Sendable (PyricBridgeError) -> Void) -> ListenerRegistration {
+        let id = UUID()
+        instanceLock.lock()
+        rulesDenialListeners[id] = listener
+        startDenialObservationIfNeeded()
+        instanceLock.unlock()
+
+        return SimpleListenerRegistration { [weak self] in
+            guard let self else { return }
+            self.instanceLock.lock()
+            self.rulesDenialListeners.removeValue(forKey: id)
+            if self.rulesDenialListeners.isEmpty {
+                self.denialObservationTask?.cancel()
+                self.denialObservationTask = nil
+            }
+            self.instanceLock.unlock()
+        }
+    }
+
+    private func currentRulesDenialListeners() -> [@Sendable (PyricBridgeError) -> Void] {
+        instanceLock.lock()
+        defer { instanceLock.unlock() }
+        return Array(rulesDenialListeners.values)
+    }
+
+    private func startDenialObservationIfNeeded() {
+        guard denialObservationTask == nil else { return }
+        let stream = bridgeClient.denialStream
+        denialObservationTask = Task { [weak self] in
+            for await error in stream {
+                guard !Task.isCancelled, let self else { break }
+                let listeners = self.currentRulesDenialListeners()
+                for listener in listeners {
+                    self.settings.dispatchQueue.async {
+                        listener(error)
+                    }
+                }
+            }
+        }
+    }
+
+    deinit {
+        denialObservationTask?.cancel()
+    }
 
     public init(bridgeClient: PyricBridgeClient, app: FirebaseApp = FirebaseApp.app(), database: String = "(default)") {
         self.app = app
@@ -108,6 +193,13 @@ public class Firestore: @unchecked Sendable {
             endpoint: endpoint,
             headers: ["Host": settings.host]
         )
+        instanceLock.lock()
+        denialObservationTask?.cancel()
+        denialObservationTask = nil
+        if !rulesDenialListeners.isEmpty {
+            startDenialObservationIfNeeded()
+        }
+        instanceLock.unlock()
     }
 
     private func markUsed() {
@@ -184,7 +276,8 @@ public class Firestore: @unchecked Sendable {
                 let result = try await updateBlock(txn)
                 try await bridgeClient.txnCommit(
                     reads: txn.stagedReads,
-                    writes: txn.stagedWrites
+                    writes: txn.stagedWrites,
+                    actAs: effectiveAuthLens
                 )
                 return result
             } catch let error as PyricBridgeError {

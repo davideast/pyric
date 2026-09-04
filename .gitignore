@@ -28,7 +28,11 @@ firebase-debug.log*
 packages/conformance/src/capture/functions-rtdb/fixture/runtime.cjs
 packages/conformance/src/capture/functions-rtdb/fixture/capture-state.json
 .idea/
+**/.idea/
+*.iml
+**/*.iml
 .vscode/
+**/.vscode/
 .mcp.json
 !pyric-plugin/.mcp.json
 tmp/
@@ -86,31 +90,37 @@ pubspec.lock
 # Conformance run artifacts
 .conformance/
 
-# Gradle and Kotlin artifacts
-.gradle/
-**/.gradle/
-**/build/
-.kotlin/
-**/.kotlin/
-*.iml
-.idea/
-local.properties
-
 # Ephemeral agent session scratch files
-.agents/*/
-!.agents/skills/
-.agents/*.md
+.agents/orchestrator_*
+.agents/sentinel_*
+.agents/teamwork_preview_*
+.agents/victory_auditor_*
+.agents/ORIGINAL_REQUEST.md
+.agents/PROJECT.md
 BRIEFING.md
 ORIGINAL_REQUEST.md
-handoff.md
-TEST_INFRA.md
-TEST_READY.md
-
 # Swift and Xcode build artifacts
 .build/
 **/.build/
 *.xcodeproj
 *.xcworkspace
 DerivedData/
-examples/swift-todo-app/
+
+# Example apps ephemeral and build artifacts
+examples/*/build/
+examples/*/.build/
+examples/*/screenshots/
+examples/*/.dart_tool/
+examples/*/.flutter-plugins*
+examples/**/ios/Flutter/ephemeral/
+examples/**/macos/Flutter/ephemeral/
+examples/**/ios/Flutter/Generated.xcconfig
+examples/**/ios/Flutter/flutter_export_environment.sh
+examples/**/ios/Runner/GeneratedPluginRegistrant.*
+examples/**/macos/Flutter/GeneratedPluginRegistrant.*
+examples/**/macos/Flutter/Flutter-Generated.xcconfig
+examples/**/macos/Flutter/Flutter-Debug.xcconfig
+examples/**/macos/Flutter/Flutter-Release.xcconfig
+examples/**/macos/Runner.xcodeproj/project.xcworkspace/
+examples/**/macos/Runner.xcworkspace/
 

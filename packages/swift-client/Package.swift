@@ -12,6 +12,14 @@ let package = Package(
             name: "PyricFirestore",
             targets: ["PyricFirestore"]
         ),
+        .library(
+            name: "FirebaseAuth",
+            targets: ["FirebaseAuth"]
+        ),
+        .library(
+            name: "PyricDebugUI",
+            targets: ["PyricDebugUI"]
+        ),
     ],
     dependencies: [],
     targets: [
@@ -19,9 +27,28 @@ let package = Package(
             name: "PyricFirestore",
             dependencies: []
         ),
+        .target(
+            name: "FirebaseAuth",
+            dependencies: ["PyricFirestore"]
+        ),
+        .target(
+            name: "PyricDebugUI",
+            dependencies: ["PyricFirestore", "FirebaseAuth"],
+            path: "Sources/PyricDebugUI"
+        ),
         .testTarget(
             name: "PyricFirestoreTests",
-            dependencies: ["PyricFirestore"]
+            dependencies: ["PyricFirestore", "FirebaseAuth"]
+        ),
+        .testTarget(
+            name: "PyricAuthTests",
+            dependencies: ["FirebaseAuth", "PyricFirestore"]
+        ),
+        .testTarget(
+            name: "PyricDebugUITests",
+            dependencies: ["PyricDebugUI", "PyricFirestore", "FirebaseAuth"],
+            path: "Tests/PyricDebugUITests"
         ),
     ]
 )
+
