@@ -2,7 +2,7 @@ import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import { SandboxContextImpl } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
 import { defaultClientApp, resolveClientApp } from '../sandbox/internal/client-app.js';
-import { getOrCreateBackend } from './sandbox/backend-for.js';
+import { canonicalizeDatabaseUrl, getOrCreateBackend } from './sandbox/backend-for.js';
 import { RtdbConnectionLifecycle } from './connection-lifecycle.js';
 import { TARGET_SYMBOL, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
 import { Database, type AppDatabase } from './types.js';
@@ -26,23 +26,43 @@ import { Database, type AppDatabase } from './types.js';
  * console.log(snap.val()); // { text: 'hi' }
  * ```
  */
-export function getDatabase(ctx: SandboxContext): Database;
-export function getDatabase(sandbox: Sandbox): Database;
-export function getDatabase(app: FirebaseApp): AppDatabase;
-export function getDatabase(): AppDatabase;
+export function getDatabase(ctx: SandboxContext, url?: string): Database;
+export function getDatabase(sandbox: Sandbox, url?: string): Database;
+export function getDatabase(app: FirebaseApp, url?: string): AppDatabase;
+export function getDatabase(url?: string): AppDatabase;
 export function getDatabase(
-  target?: SandboxContext | Sandbox | FirebaseApp,
+  targetOrUrl?: SandboxContext | Sandbox | FirebaseApp | string,
+  url?: string,
 ): Database {
-  if (target === undefined) return getDatabase(defaultClientApp() as FirebaseApp);
+  let target = targetOrUrl;
+  let effectiveUrl: string | undefined = url;
+
+  if (typeof targetOrUrl === 'string') {
+    target = defaultClientApp() as FirebaseApp;
+    effectiveUrl = targetOrUrl;
+  } else if (target === undefined) {
+    target = defaultClientApp() as FirebaseApp;
+  }
+
   // Package resolution already selected the sandbox mirror; the neutral app
   // adapter resolves an associated FirebaseApp to its app-owned runtime.
   const appRuntime = resolveClientApp(target);
   if (appRuntime) {
-    return appRuntime.service('database/default', () => {
+    const app = target as FirebaseApp;
+    let appDbUrl: string | undefined;
+    try {
+      appDbUrl = app.options?.databaseURL;
+    } catch {
+      // If app is already deleted, reading app.options throws app/app-deleted.
+    }
+    const finalUrl = effectiveUrl ?? appDbUrl;
+    const canonicalKey = canonicalizeDatabaseUrl(finalUrl);
+
+    return appRuntime.service(`database/${canonicalKey}`, () => {
       const { sandbox, session } = appRuntime;
       let deleted = false;
       appRuntime.onDelete(() => { deleted = true; });
-      const backend = getOrCreateBackend(sandbox);
+      const backend = getOrCreateBackend(sandbox, finalUrl);
       const connection = new RtdbConnectionLifecycle(
         backend,
         () => session.currentUser,
@@ -63,17 +83,19 @@ export function getDatabase(
           }
         },
       };
-      return new Database(t, target as FirebaseApp) as AppDatabase;
+      return new Database(t, app) as AppDatabase;
     });
   }
+
   if (isSandboxContext(target)) {
-    const backend = getOrCreateBackend(target.sandbox);
+    const backend = getOrCreateBackend(target.sandbox, effectiveUrl);
     const connection = new RtdbConnectionLifecycle(backend, () => target.auth, false);
     const t: SandboxTarget = { kind: 'sandbox', backend, auth: target.auth, connection };
     return new Database(t);
   }
+
   if (isSandbox(target)) {
-    const backend = getOrCreateBackend(target);
+    const backend = getOrCreateBackend(target, effectiveUrl);
     const connection = new RtdbConnectionLifecycle(
       backend,
       () => target.currentUser,
@@ -88,6 +110,7 @@ export function getDatabase(
     };
     return new Database(t);
   }
+
   throw packageResolutionError();
 }
 
@@ -96,14 +119,18 @@ export function getDatabase(
  * `getAdminFirestore(sandbox)` for Studio/Playground data browsers and
  * controlled admin tools.
  */
-export function getAdminDatabase(sandbox: Sandbox): Database;
-export function getAdminDatabase(ctx: SandboxContext): Database;
-export function getAdminDatabase(app: FirebaseApp): Database;
-export function getAdminDatabase(target: Sandbox | SandboxContext | FirebaseApp): Database {
+export function getAdminDatabase(sandbox: Sandbox, url?: string): Database;
+export function getAdminDatabase(ctx: SandboxContext, url?: string): Database;
+export function getAdminDatabase(app: FirebaseApp, url?: string): Database;
+export function getAdminDatabase(
+  target: Sandbox | SandboxContext | FirebaseApp,
+  url?: string,
+): Database {
   const appRuntime = resolveClientApp(target);
   if (appRuntime) {
     appRuntime.assertAlive();
-    return getAdminDatabase(appRuntime.sandbox);
+    const effectiveUrl = url ?? (target as FirebaseApp).options?.databaseURL;
+    return getAdminDatabase(appRuntime.sandbox, effectiveUrl);
   }
   const sandbox = isSandboxContext(target)
     ? target.sandbox
@@ -111,7 +138,7 @@ export function getAdminDatabase(target: Sandbox | SandboxContext | FirebaseApp)
       ? target
       : undefined;
   if (sandbox === undefined) throw packageResolutionError();
-  const backend = getOrCreateBackend(sandbox);
+  const backend = getOrCreateBackend(sandbox, url);
   const connection = new RtdbConnectionLifecycle(backend, () => null, true);
   const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true, connection };
   return new Database(t);
@@ -124,13 +151,13 @@ function packageResolutionError(): TypeError {
 }
 
 function isSandboxContext(
-  target: SandboxContext | Sandbox | FirebaseApp,
+  target: unknown,
 ): target is SandboxContext {
   return target instanceof SandboxContextImpl;
 }
 
 function isSandbox(
-  target: SandboxContext | Sandbox | FirebaseApp,
+  target: unknown,
 ): target is Sandbox {
   if (target === null || typeof target !== 'object') return false;
   const o = target as unknown as Record<string, unknown>;

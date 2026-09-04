@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { SimulateHandler } from '../../../../src/rules/rtdb/simulation/handler.js';
 import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
+import { compileRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
 
 function makeRules(readRule: string): RtdbNode {
   const rootNode: RtdbNode = {
@@ -1010,4 +1011,107 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
     });
     expect(denyResult.success && denyResult.data.allowed).toBe(false);
   });
+
+  describe('tenant claim projection', () => {
+    const tenantRules = compileRtdbRules({
+      rules: {
+        tenants: {
+          '$tenantId': {
+            '.read': 'auth.token.firebase.tenant == $tenantId',
+            '.write': 'auth.token.role == "admin" && auth.token.firebase.tenant == $tenantId',
+          },
+        },
+      },
+    });
+
+    test('projects auth.tenant into auth.token.firebase.tenant when token is omitted', () => {
+      const input = {
+        operation: 'read' as const,
+        path: '/tenants/tenant-123',
+        auth: {
+          uid: 'user-abc',
+          tenant: 'tenant-123',
+        },
+        mockData: {},
+      };
+
+      const result = handler.execute(tenantRules, input);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.allowed).toBe(true);
+      }
+    });
+
+    test('preserves custom claims when projecting tenant into auth.token.firebase.tenant', () => {
+      const input = {
+        operation: 'write' as const,
+        path: '/tenants/tenant-123',
+        auth: {
+          uid: 'user-abc',
+          tenant: 'tenant-123',
+          token: { role: 'admin' },
+        },
+        mockData: {},
+        newData: 'val',
+      };
+
+      const result = handler.execute(tenantRules, input);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.allowed).toBe(true);
+      }
+    });
+
+    test('preserves existing firebase object claims without clobbering', () => {
+      const existingFirebaseRules = compileRtdbRules({
+        rules: {
+          '.read': 'auth.token.firebase.tenant == "t1" && auth.token.firebase.sign_in_provider == "custom"',
+        },
+      });
+
+      const input = {
+        operation: 'read' as const,
+        path: '/',
+        auth: {
+          uid: 'user-abc',
+          tenant: 't1',
+          token: {
+            firebase: { sign_in_provider: 'custom' },
+          },
+        },
+        mockData: {},
+      };
+
+      const result = handler.execute(existingFirebaseRules, input);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.allowed).toBe(true);
+      }
+    });
+
+    test('does not mutate raw input auth or token objects', () => {
+      const originalAuth = {
+        uid: 'user-abc',
+        tenant: 't1',
+        token: { role: 'editor' },
+      };
+      const input = {
+        operation: 'read' as const,
+        path: '/tenants/t1',
+        auth: originalAuth,
+        mockData: {},
+      };
+
+      handler.execute(tenantRules, input);
+
+      // Verify original objects are untouched
+      expect(originalAuth).toEqual({
+        uid: 'user-abc',
+        tenant: 't1',
+        token: { role: 'editor' },
+      });
+      expect((originalAuth.token as any).firebase).toBeUndefined();
+    });
+  });
 });
+

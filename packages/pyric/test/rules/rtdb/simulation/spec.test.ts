@@ -65,4 +65,29 @@ describe('SimulationInputSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  test('accepts auth with uid and tenant without token', () => {
+    const result = SimulationInputSchema.safeParse({
+      ...BASE,
+      auth: { uid: 'user123', tenant: 'tenant-a' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('accepts auth with uid, tenant, and token', () => {
+    const result = SimulationInputSchema.safeParse({
+      ...BASE,
+      auth: { uid: 'user123', tenant: 'tenant-a', token: { role: 'admin' } },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('accepts auth with only uid (both tenant and token omitted)', () => {
+    const result = SimulationInputSchema.safeParse({
+      ...BASE,
+      auth: { uid: 'user123' },
+    });
+    expect(result.success).toBe(true);
+  });
 });
+

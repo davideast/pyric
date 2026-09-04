@@ -182,16 +182,18 @@ export class RulesEvaluator {
         reasons: ['No RTDB rules loaded; default allow.'],
       };
     }
-    // The simulator's SimulationInputSchema requires `auth` to be
-    // either `null` or `{ uid: string, token: Record<string, unknown> }` —
-    // `token` is mandatory, not optional. `AuthState` from
-    // `pyric/sandbox` makes `token` optional. Normalise here so an
-    // auth identity without custom claims (`{ uid: 'alice' }`) still
-    // satisfies the schema and the rule sees `auth.token = {}`.
+    // The simulator's SimulationInputSchema accepts `auth` as
+    // either `null` or `{ uid: string, tenant?: string, token?: Record<string, unknown> }`.
+    // Preserve tenant and optional token from AuthState so tenant claim
+    // normalization and custom claims reach the simulator.
     const normalisedAuth =
       ctx.auth === null
         ? null
-        : { uid: ctx.auth.uid, token: ctx.auth.token ?? {} };
+        : {
+            uid: ctx.auth.uid,
+            ...(ctx.auth.tenant !== undefined ? { tenant: ctx.auth.tenant } : {}),
+            ...(ctx.auth.token !== undefined ? { token: ctx.auth.token } : {}),
+          };
     const result = simulateRtdbRules(this.compiled, {
       operation,
       path: path === '/' ? '/' : path,
