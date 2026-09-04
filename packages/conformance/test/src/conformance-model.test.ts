@@ -17,7 +17,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1373);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1409);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
@@ -319,7 +319,7 @@ describe('multi-axis conformance model', () => {
   });
 
   it('does not present a fuzzy suggestion as an exact trust answer', () => {
-    const result = canIUse(model, 'providerData');
+    const result = canIUse(model, 'auth/providerData');
     expect(result.match).toBe('exact');
     expect(result.supports[0]?.claims.map(({ id }) => id)).toContain('auth#182');
   });
