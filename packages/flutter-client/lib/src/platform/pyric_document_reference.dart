@@ -7,6 +7,7 @@ import 'mutation_serialization.dart';
 import 'pyric_collection_reference.dart';
 import 'pyric_document_snapshot.dart';
 import 'pyric_firestore_platform.dart';
+import 'pyric_resubscribing_stream.dart';
 
 /// Concrete [DocumentReferencePlatform] pointing to a document in Pyric Firestore.
 class PyricDocumentReference extends DocumentReferencePlatform {
@@ -15,13 +16,15 @@ class PyricDocumentReference extends DocumentReferencePlatform {
     super.path,
   );
 
-  PyricBridgeClient get _client {
+  PyricFirestorePlatform get _firestorePlatform {
     final f = firestore;
     if (f is PyricFirestorePlatform) {
-      return f.bridgeClient;
+      return f;
     }
     throw StateError('Expected PyricFirestorePlatform, got ${f.runtimeType}');
   }
+
+  PyricBridgeClient get _client => _firestorePlatform.bridgeClient;
 
   @override
   CollectionReferencePlatform collection(String collectionPath) {
@@ -30,14 +33,15 @@ class PyricDocumentReference extends DocumentReferencePlatform {
 
   @override
   Future<void> delete() async {
-    await _client.deleteDoc(path);
+    await _client.deleteDoc(path, actAs: _firestorePlatform.effectiveAuthLens);
   }
 
   @override
   Future<DocumentSnapshotPlatform> get([
     GetOptions options = const GetOptions(),
   ]) async {
-    final res = await _client.getDoc(path);
+    final res =
+        await _client.getDoc(path, actAs: _firestorePlatform.effectiveAuthLens);
     return PyricDocumentSnapshot.fromWire(firestore, path, res);
   }
 
@@ -45,13 +49,22 @@ class PyricDocumentReference extends DocumentReferencePlatform {
   Future<void> set(Map<String, dynamic> data, [SetOptions? options]) async {
     final unwrapped = serializeSetData(data);
     final optMap = serializeSetOptions(options);
-    await _client.setDoc(path, unwrapped, options: optMap);
+    await _client.setDoc(
+      path,
+      unwrapped,
+      options: optMap,
+      actAs: _firestorePlatform.effectiveAuthLens,
+    );
   }
 
   @override
   Future<void> update(Map<FieldPath, dynamic> data) async {
     final stringMap = serializeUpdateData(data);
-    await _client.updateDoc(path, stringMap);
+    await _client.updateDoc(
+      path,
+      stringMap,
+      actAs: _firestorePlatform.effectiveAuthLens,
+    );
   }
 
   @override
@@ -60,15 +73,21 @@ class PyricDocumentReference extends DocumentReferencePlatform {
     ListenSource listenSource = ListenSource.defaultSource,
   }) {
     final target = QueryCompiler.compileDocumentTarget(path);
-    final stream = _client.subscribe(
-      target,
-      includeMetadataChanges: includeMetadataChanges,
-      listenSource: listenSource.name,
+    final f = _firestorePlatform;
+
+    return createResubscribingStream<DocumentSnapshotPlatform>(
+      firestore: f,
+      createSubscription: (actAs) => _client.subscribe(
+        target,
+        actAs: actAs,
+        includeMetadataChanges: includeMetadataChanges,
+        listenSource: listenSource.name,
+      ),
+      mapEvent: (event, _) => PyricDocumentSnapshot.fromWire(
+        firestore,
+        path,
+        event,
+      ),
     );
-    return stream.map((event) => PyricDocumentSnapshot.fromWire(
-          firestore,
-          path,
-          event,
-        ));
   }
 }

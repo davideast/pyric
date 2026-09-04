@@ -10,6 +10,7 @@ import 'pyric_aggregate_query.dart';
 import 'pyric_field_value_factory.dart';
 import 'pyric_firestore_platform.dart';
 import 'pyric_query_snapshot.dart';
+import 'pyric_resubscribing_stream.dart';
 
 /// Concrete [QueryPlatform] for querying documents over the Pyric bridge.
 class PyricQuery extends QueryPlatform {
@@ -25,13 +26,16 @@ class PyricQuery extends QueryPlatform {
     this.isCollectionGroupQuery = false,
   }) : super(firestore, parameters);
 
-  PyricBridgeClient get _client {
+  PyricFirestorePlatform get _firestorePlatform {
     final f = firestore;
     if (f is PyricFirestorePlatform) {
-      return f.bridgeClient;
+      return f;
     }
     throw StateError('Expected PyricFirestorePlatform, got ${f.runtimeType}');
   }
+
+  PyricBridgeClient get _client => _firestorePlatform.bridgeClient;
+
 
   PyricQuery _copyWithParameters(Map<String, dynamic> newParams) {
     return PyricQuery(
@@ -355,9 +359,14 @@ class PyricQuery extends QueryPlatform {
   }
 
   @override
-  Future<QuerySnapshotPlatform> get([GetOptions options = const GetOptions()]) async {
+  Future<QuerySnapshotPlatform> get([
+    GetOptions options = const GetOptions(),
+  ]) async {
     final target = compileTarget();
-    final res = await _client.getDocs(target);
+    final res = await _client.getDocs(
+      target,
+      actAs: _firestorePlatform.effectiveAuthLens,
+    );
     return PyricQuerySnapshot.fromWire(firestore, path, res);
   }
 
@@ -367,22 +376,27 @@ class PyricQuery extends QueryPlatform {
     ListenSource listenSource = ListenSource.defaultSource,
   }) {
     final target = compileTarget();
-    final stream = _client.subscribe(
-      target,
-      includeMetadataChanges: includeMetadataChanges,
-      listenSource: listenSource.name,
-    );
+    final f = _firestorePlatform;
     List<DocumentSnapshotPlatform>? previousDocs;
 
-    return stream.map((event) {
-      final snap = PyricQuerySnapshot.fromWire(
-        firestore,
-        path,
-        event,
-        previousDocs: previousDocs,
-      );
-      previousDocs = snap.docs;
-      return snap;
-    });
+    return createResubscribingStream<QuerySnapshotPlatform>(
+      firestore: f,
+      createSubscription: (actAs) => _client.subscribe(
+        target,
+        actAs: actAs,
+        includeMetadataChanges: includeMetadataChanges,
+        listenSource: listenSource.name,
+      ),
+      mapEvent: (event, _) {
+        final snap = PyricQuerySnapshot.fromWire(
+          firestore,
+          path,
+          event,
+          previousDocs: previousDocs,
+        );
+        previousDocs = snap.docs;
+        return snap;
+      },
+    );
   }
 }

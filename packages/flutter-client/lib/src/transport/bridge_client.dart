@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../auth/auth_lens.dart';
 import 'exceptions.dart';
 
 export 'bridge_operations.dart';
@@ -39,12 +40,20 @@ class PyricBridgeClient {
 
   bool _connected = false;
   bool _isDisposed = false;
+  String? _clientSessionId;
 
   int _opCounter = 0;
   int _subCounter = 0;
 
   final Map<String, _PendingOp> _pendingOps = {};
   final Map<String, _ActiveSub> _activeSubs = {};
+
+  final StreamController<AuthLens> _remoteLensController =
+      StreamController<AuthLens>.broadcast();
+  final StreamController<PyricBridgeException> _denialController =
+      StreamController<PyricBridgeException>.broadcast();
+
+  static void Function(PyricBridgeException)? onDenial;
 
   Completer<void>? _handshakeCompleter;
 
@@ -61,6 +70,15 @@ class PyricBridgeClient {
 
   /// Reports whether the client has been permanently closed.
   bool get isDisposed => _isDisposed;
+
+  /// Returns the client session ID assigned or acknowledged by the bridge server.
+  String? get clientSessionId => _clientSessionId;
+
+  /// Stream of remote lens changes pushed by the Pyric bridge.
+  Stream<AuthLens> get remoteLensStream => _remoteLensController.stream;
+
+  /// Stream of Security Rules denial exceptions intercepted from worker responses.
+  Stream<PyricBridgeException> get denialStream => _denialController.stream;
 
   /// Establishes the WebSocket connection and completes the `attach`/`attach-ack` handshake.
   Future<void> connect() async {
@@ -93,6 +111,10 @@ class PyricBridgeClient {
       _sendRaw({
         'type': 'attach',
         'protocol': 1,
+        if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
+        'clientInfo': {
+          'platform': 'flutter',
+        },
       });
 
       await _handshakeCompleter!.future;
@@ -146,6 +168,7 @@ class PyricBridgeClient {
       _sendRaw({
         'type': 'worker-op',
         'id': id,
+        if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
         'op': opPayload,
       });
     } catch (e) {
@@ -162,13 +185,17 @@ class PyricBridgeClient {
     return completer.future;
   }
 
-  /// Establishes a real-time subscription for a document or query target.
-  Stream<dynamic> subscribe(
-    Map<String, dynamic> target, {
-    Map<String, dynamic>? actAs,
-    bool includeMetadataChanges = false,
-    String? listenSource,
-  }) {
+  /// Lists all sandbox users via the auth.listUsers RPC.
+  Future<List<Map<String, dynamic>>> authListUsers() async {
+    final res = await op('auth.listUsers', {});
+    if (res is List) {
+      return res.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+    }
+    return [];
+  }
+
+  /// Establishes a raw subscription payload over the bridge (e.g. for auth or custom targets).
+  Stream<dynamic> subscribeRaw(Map<String, dynamic> subPayload) {
     if (_isDisposed) {
       throw const PyricBridgeException(
         code: 'unavailable',
@@ -176,47 +203,59 @@ class PyricBridgeClient {
       );
     }
 
-    final subId = 'rsub-${++_subCounter}';
     late StreamController<dynamic> controller;
+    var listenGen = 0;
+    String? currentSubId;
 
     controller = StreamController<dynamic>.broadcast(
       onListen: () async {
+        final gen = ++listenGen;
+        final subId = 'rsub-${++_subCounter}';
         try {
           if (!_connected) {
             await connect();
           }
+          if (gen != listenGen || _isDisposed) {
+            return;
+          }
           _activeSubs[subId] = _ActiveSub(controller);
+          currentSubId = subId;
           _sendRaw({
             'type': 'worker-sub',
             'subId': subId,
-            'sub': {
-              'target': target,
-              if (actAs != null) 'actAs': actAs,
-              if (includeMetadataChanges) 'includeMetadataChanges': true,
-              if (listenSource != null && listenSource != 'defaultSource')
-                'listenSource': listenSource,
-            },
+            if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
+            'sub': subPayload,
           });
         } catch (e) {
-          _activeSubs.remove(subId);
-          controller.addError(
-            e is PyricBridgeException
-                ? e
-                : PyricBridgeException(
-                    code: 'unavailable',
-                    message: 'Failed to dispatch subscription to bridge: $e',
-                  ),
-          );
-          controller.close();
+          if (gen == listenGen) {
+            _activeSubs.remove(subId);
+            currentSubId = null;
+            if (!controller.isClosed) {
+              controller.addError(
+                e is PyricBridgeException
+                    ? e
+                    : PyricBridgeException(
+                        code: 'unavailable',
+                        message: 'Failed to dispatch subscription to bridge: $e',
+                      ),
+              );
+              controller.close();
+            }
+          }
         }
       },
       onCancel: () {
-        if (_activeSubs.remove(subId) != null) {
+        listenGen++;
+        final subId = currentSubId;
+        currentSubId = null;
+        if (subId != null && _activeSubs.remove(subId) != null) {
           if (_connected && !_isDisposed) {
             try {
               _sendRaw({
                 'type': 'worker-unsub',
                 'subId': subId,
+                if (_clientSessionId != null)
+                  'clientSessionId': _clientSessionId,
               });
             } catch (_) {}
           }
@@ -225,6 +264,22 @@ class PyricBridgeClient {
     );
 
     return controller.stream;
+  }
+
+  /// Establishes a real-time subscription for a document or query target.
+  Stream<dynamic> subscribe(
+    Map<String, dynamic> target, {
+    Map<String, dynamic>? actAs,
+    bool includeMetadataChanges = false,
+    String? listenSource,
+  }) {
+    return subscribeRaw({
+      'target': target,
+      if (actAs != null) 'actAs': actAs,
+      if (includeMetadataChanges) 'includeMetadataChanges': true,
+      if (listenSource != null && listenSource != 'defaultSource')
+        'listenSource': listenSource,
+    });
   }
 
   // ─── Connection Lifecycle & Message Routing ───────────────────────────────
@@ -283,6 +338,9 @@ class PyricBridgeClient {
       case 'worker-snap':
         _handleWorkerSnap(msg);
         break;
+      case 'worker-event':
+        _handleWorkerEvent(msg);
+        break;
       case 'ping':
         _handlePing(msg);
         break;
@@ -291,7 +349,49 @@ class PyricBridgeClient {
     }
   }
 
+  void _handleWorkerEvent(Map<String, dynamic> msg) {
+    final event = msg['event'] as String?;
+    if (event != 'remote-lens') return;
+
+    final lensMap = msg['lens'] is Map
+        ? Map<String, dynamic>.from(msg['lens'] as Map)
+        : msg['payload'] is Map
+            ? (msg['payload']['lens'] is Map
+                ? Map<String, dynamic>.from(msg['payload']['lens'] as Map)
+                : Map<String, dynamic>.from(msg['payload'] as Map))
+            : null;
+    if (lensMap == null) return;
+
+    final mode = lensMap['mode'] as String?;
+    final AuthLens lens;
+    switch (mode) {
+      case 'admin':
+        lens = AuthLens.admin;
+        break;
+      case 'anon':
+        lens = AuthLens.anon;
+        break;
+      case 'app-session':
+        lens = AuthLens.appSession;
+        break;
+      case 'as':
+        lens = AuthLens.asUser(
+          uid: lensMap['uid'] as String? ?? '',
+          tenant: lensMap['tenant'] as String?,
+          token: lensMap['token'] is Map
+              ? Map<String, dynamic>.from(lensMap['token'] as Map)
+              : null,
+        );
+        break;
+      default:
+        return;
+    }
+    _remoteLensController.add(lens);
+  }
+
   void _handleAttachAck(Map<String, dynamic> msg) {
+    _clientSessionId =
+        msg['clientSessionId'] as String? ?? msg['sessionId'] as String?;
     final peerConnected = msg['peerConnected'] == true;
     if (_handshakeCompleter != null && !_handshakeCompleter!.isCompleted) {
       if (peerConnected) {
@@ -327,14 +427,17 @@ class PyricBridgeClient {
       final denialContext = errorMap['denialContext'];
       final envelope = errorMap['envelope'];
 
-      pending.completer.completeError(
-        PyricBridgeException(
-          code: code,
-          message: message,
-          denialContext: denialContext,
-          envelope: envelope,
-        ),
+      final exception = PyricBridgeException(
+        code: code,
+        message: message,
+        denialContext: denialContext,
+        envelope: envelope,
       );
+      if (denialContext != null) {
+        _denialController.add(exception);
+        onDenial?.call(exception);
+      }
+      pending.completer.completeError(exception);
     }
   }
 
@@ -351,7 +454,11 @@ class PyricBridgeClient {
       _activeSubs.remove(subId);
       if (!_isDisposed && _connected) {
         try {
-          _sendRaw({'type': 'worker-unsub', 'subId': subId});
+          _sendRaw({
+            'type': 'worker-unsub',
+            'subId': subId,
+            if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
+          });
         } catch (_) {}
       }
 
@@ -360,13 +467,16 @@ class PyricBridgeClient {
       final message = errMap['message'] as String? ?? 'Subscription error';
       final denialContext = errMap['denialContext'];
 
-      sub.controller.addError(
-        PyricBridgeException(
-          code: code,
-          message: message,
-          denialContext: denialContext,
-        ),
+      final exception = PyricBridgeException(
+        code: code,
+        message: message,
+        denialContext: denialContext,
       );
+      if (denialContext != null) {
+        _denialController.add(exception);
+        onDenial?.call(exception);
+      }
+      sub.controller.addError(exception);
       sub.controller.close();
       return;
     }

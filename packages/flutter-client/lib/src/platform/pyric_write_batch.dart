@@ -74,6 +74,7 @@ class PyricWriteBatch extends WriteBatchPlatform {
   Future<void> commit() async {
     _assertNotCommitted();
     _committed = true;
-    await _client.batchCommit(_writes);
+    final f = firestore as PyricFirestorePlatform;
+    await _client.batchCommit(_writes, actAs: f.effectiveAuthLens);
   }
 }
