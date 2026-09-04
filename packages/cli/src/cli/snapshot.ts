@@ -36,7 +36,22 @@ interface LiveState {
 
 async function fetchLive(port: number): Promise<LiveState | null> {
   try {
+    let headers: Record<string, string> | undefined;
+    try {
+      const initRes = await fetch(`http://localhost:${port}/__pyric/init.json`, {
+        signal: AbortSignal.timeout(750),
+      });
+      if (initRes.status === 200) {
+        const initData = (await initRes.json()) as { sessionToken?: string };
+        if (initData.sessionToken) {
+          headers = { 'x-pyric-session-token': initData.sessionToken };
+        }
+      }
+    } catch {
+      // If init.json probe fails, attempt state fetch directly
+    }
     const res = await fetch(`http://localhost:${port}/__pyric/state`, {
+      ...(headers ? { headers } : {}),
       signal: AbortSignal.timeout(750),
     });
     if (res.status !== 200) return null;

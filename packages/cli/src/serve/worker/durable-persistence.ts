@@ -34,13 +34,22 @@ export function createWorkerDurableBackend(
 
   if (!persist && fixtureRecords === null) return idb;
 
+  const authHeaders: Record<string, string> = payload.sessionToken
+    ? { 'x-pyric-session-token': payload.sessionToken }
+    : {};
+  const writerHeaders: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-pyric-writer': WORKER_WRITER_ID,
+    ...authHeaders,
+  };
+
   let primed = false;
   const primeOnce = async (key: string): Promise<void> => {
     if (primed) return;
     primed = true;
     if ((await idb.listRecords(key)).length > 0) return;
     if (persist) {
-      const res = await env.fetch(stateSection('firestore'));
+      const res = await env.fetch(stateSection('firestore'), { headers: authHeaders });
       if (res.status === 200) {
         const records = parseBundle(await res.text());
         if (records.size > 0) await idb.putRecords(key, records);
@@ -61,7 +70,7 @@ export function createWorkerDurableBackend(
       }
       const res = await env.fetch(stateSection('firestore'), {
         method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-pyric-writer': WORKER_WRITER_ID },
+        headers: writerHeaders,
         body: bundleRecords(all),
       });
       if (res.status === 423) {
@@ -95,7 +104,7 @@ export function createWorkerDurableBackend(
       try {
         await env.fetch(stateSection('firestore'), {
           method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-pyric-writer': WORKER_WRITER_ID },
+          headers: writerHeaders,
           body: 'null',
         });
       } catch {
@@ -118,9 +127,14 @@ export function setupServerAuthFlush(
 
   const flush = (): void => {
     const body = JSON.stringify({ users: authOps.exportUsers(auth) });
+    const flushHeaders: Record<string, string> = {
+      'content-type': 'application/json',
+      'x-pyric-writer': WORKER_WRITER_ID,
+      ...(payload.sessionToken ? { 'x-pyric-session-token': payload.sessionToken } : {}),
+    };
     env.fetch(stateSection('auth'), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-pyric-writer': WORKER_WRITER_ID },
+      headers: flushHeaders,
       body,
     }).catch(() => {});
   };

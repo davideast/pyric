@@ -28,7 +28,7 @@ import { getDefaultMcpToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { attachPeer } from '../bridge/server/peer.js';
 import { pyricVersion } from './standalone-assets.js';
-import { isAllowedUpgrade } from './server.js';
+import { isAllowedLoopbackRequest, isAllowedUpgrade } from './server.js';
 
 const WS_PATH = '/__pyric/sandbox';
 const MCP_PATH = '/__pyric/mcp';
@@ -226,6 +226,16 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         return true;
       }
       if (url.pathname === MCP_PATH) {
+        const guard = opts.upgradeGuard;
+        if (guard?.allowedHosts !== true) {
+          const boundHost = guard?.boundHost ?? 'localhost';
+          const extra = Array.isArray(guard?.allowedHosts) ? guard.allowedHosts : [];
+          if (!isAllowedLoopbackRequest(req, boundHost, extra)) {
+            res.writeHead(403, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
+            return true;
+          }
+        }
         try {
           const sessionId = (req.headers['mcp-session-id'] ?? req.headers['Mcp-Session-Id']) as string | undefined;
           let session: Session;
