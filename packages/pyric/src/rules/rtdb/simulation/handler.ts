@@ -398,11 +398,14 @@ export class SimulateHandler {
             existingFirebase !== null &&
             !Array.isArray(existingFirebase)
           ) {
+            const fbObj = existingFirebase as Record<string, unknown>;
+            let tenantValue = auth.tenant;
+            if (fbObj.tenant !== undefined) {
+              tenantValue = fbObj.tenant as string;
+            }
             token.firebase = {
-              ...(existingFirebase as Record<string, unknown>),
-              tenant: (existingFirebase as Record<string, unknown>).tenant !== undefined
-                ? (existingFirebase as Record<string, unknown>).tenant
-                : auth.tenant,
+              ...fbObj,
+              tenant: tenantValue,
             };
           } else {
             token.firebase = { tenant: auth.tenant };

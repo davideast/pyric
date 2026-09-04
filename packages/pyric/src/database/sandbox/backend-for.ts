@@ -75,9 +75,7 @@ export function getOrCreateBackend(sandbox: Sandbox, databaseUrl?: string): Rtdb
     };
     coordinatorBySandbox.set(sandbox, coordinator);
 
-    if (canonicalUrl === 'default') {
-      initialBackend.subscribeWrites(notifyChange);
-    }
+    initialBackend.subscribeWrites(notifyChange);
 
     const getDefaultBackend = (): RtdbBackend => {
       let b = coordinator!.backends.get('default');
@@ -99,9 +97,37 @@ export function getOrCreateBackend(sandbox: Sandbox, databaseUrl?: string): Rtdb
     });
 
     sandbox.registerPersistableService('rtdb', {
-      snapshot: () => getDefaultBackend().exportPersistenceState(),
+      snapshot: () => {
+        const defaultState = getDefaultBackend().exportPersistenceState();
+        const instances: Record<string, unknown> = {};
+        for (const [url, b] of coordinator!.backends.entries()) {
+          if (url !== 'default') {
+            instances[url] = b.exportPersistenceState();
+          }
+        }
+        if (
+          Object.keys(instances).length > 0 &&
+          defaultState !== null &&
+          typeof defaultState === 'object' &&
+          !Array.isArray(defaultState)
+        ) {
+          return {
+            ...(defaultState as Record<string, unknown>),
+            instances,
+          };
+        }
+        return defaultState;
+      },
       restore: (data: unknown) => {
+        if (!data || typeof data !== 'object') return;
         getDefaultBackend().restoreTree(data as JsonValue);
+        const record = data as { instances?: Record<string, unknown> };
+        if (record.instances && typeof record.instances === 'object') {
+          for (const [url, instData] of Object.entries(record.instances)) {
+            const b = getOrCreateBackend(sandbox, url);
+            b.restoreTree(instData as JsonValue);
+          }
+        }
       },
       subscribe: (onChange: () => void) => {
         listeners.add(onChange);
@@ -123,10 +149,10 @@ export function getOrCreateBackend(sandbox: Sandbox, databaseUrl?: string): Rtdb
   let backend = coordinator.backends.get(canonicalUrl);
   if (!backend) {
     backend = new RtdbBackend(sandbox);
+    backend.subscribeWrites(coordinator.notifyChange);
     coordinator.backends.set(canonicalUrl, backend);
     if (canonicalUrl === 'default') {
       coordinator.defaultBackend = backend;
-      backend.subscribeWrites(coordinator.notifyChange);
     }
   }
 
