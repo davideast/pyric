@@ -109,7 +109,6 @@ export function isAllowedOrigin(
   originHeader: string | undefined,
   boundHost: string,
   extra: string[] = [],
-  boundPort?: number | string,
 ): boolean {
   if (!originHeader) return true; // no Origin → non-browser client, not a hijack
   let originUrl: URL;
@@ -119,45 +118,7 @@ export function isAllowedOrigin(
     return false; // malformed Origin → reject
   }
   const hostname = originUrl.hostname; // may be `[::1]` — isAllowedHost strips brackets
-  if (!isAllowedHost(hostname, boundHost, extra)) {
-    return false;
-  }
-
-  // Extract expected port if provided in boundPort or boundHost (e.g. 'localhost:3473')
-  let expectedPort: string | undefined;
-  if (boundPort !== undefined && boundPort !== '') {
-    expectedPort = String(boundPort);
-  } else if (boundHost.includes(':')) {
-    const cleanBound = boundHost.replace(/^\[|\]$/g, '');
-    const colonIdx = cleanBound.lastIndexOf(':');
-    if (colonIdx !== -1) {
-      const p = cleanBound.slice(colonIdx + 1);
-      if (/^\d+$/.test(p)) {
-        expectedPort = p;
-      }
-    }
-  }
-
-  if (expectedPort) {
-    const originPort = originUrl.port || (originUrl.protocol === 'https:' ? '443' : originUrl.protocol === 'http:' ? '80' : '');
-    if (originPort !== expectedPort) {
-      const originMatchesExtra = extra.some((e) => {
-        try {
-          const extraUrl = new URL(e.includes('://') ? e : `http://${e}`);
-          const extraHostname = extraUrl.hostname;
-          const extraPort = extraUrl.port || (extraUrl.protocol === 'https:' ? '443' : extraUrl.protocol === 'http:' ? '80' : '');
-          return extraHostname.toLowerCase() === hostname.toLowerCase() && extraPort === originPort;
-        } catch {
-          return false;
-        }
-      });
-      if (!originMatchesExtra) {
-        return false;
-      }
-    }
-  }
-
-  return true;
+  return isAllowedHost(hostname, boundHost, extra);
 }
 
 /**
@@ -172,10 +133,9 @@ export function isAllowedUpgrade(
   boundHost: string,
   extra: string[] = [],
 ): boolean {
-  const hostPort = headers.host?.includes(':') ? headers.host.split(':').pop() : undefined;
   return (
     isAllowedHost(headers.host, boundHost, extra) &&
-    isAllowedOrigin(headers.origin, boundHost, extra, hostPort)
+    isAllowedOrigin(headers.origin, boundHost, extra)
   );
 }
 
@@ -240,10 +200,9 @@ export function isAllowedLoopbackRequest(
 ): boolean {
   const hostHeader = getHeader(req, 'host');
   const originHeader = getHeader(req, 'origin');
-  const hostPort = hostHeader?.includes(':') ? hostHeader.split(':').pop() : undefined;
   return (
     isAllowedHost(hostHeader, boundHost, extra) &&
-    isAllowedOrigin(originHeader, boundHost, extra, hostPort)
+    isAllowedOrigin(originHeader, boundHost, extra)
   );
 }
 

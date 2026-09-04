@@ -20,7 +20,7 @@ import { collectBody } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowedSessionToken, timingSafeTokenMatch, type ServeLogger } from './server.js';
+import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowedSessionToken, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
 import { handleActivity } from './activity-route.js';
 import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
@@ -401,6 +401,25 @@ async function handleDenials(
   res.writeHead(204).end();
 }
 
+function guardLoopback(
+  req: IncomingMessage,
+  res: ServerResponse,
+  boundHost: string,
+  allowedHosts?: string[],
+): boolean {
+  const hostHeader = getHeader(req, 'host');
+  const originHeader = getHeader(req, 'origin');
+  if (!isAllowedHost(hostHeader, boundHost, allowedHosts)) {
+    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
+    return false;
+  }
+  if (originHeader && !isAllowedOrigin(originHeader, boundHost, allowedHosts)) {
+    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+    return false;
+  }
+  return true;
+}
+
 export function createPyricNamespace(opts: NamespaceOptions) {
   const stateWriterLock = createWriterLock();
   const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();
@@ -432,29 +451,13 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       (url.pathname.startsWith('/__pyric/workspace') ||
         url.pathname.startsWith('/__pyric/projects'))
     ) {
-      const hostHeader = getHeader(req, 'host');
-      const originHeader = getHeader(req, 'origin');
-      const hostPort = hostHeader?.includes(':') ? hostHeader.split(':').pop() : undefined;
-      if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-        return true;
-      }
-      if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, hostPort)) {
-        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
         return true;
       }
       return studioRoutes(req, res, url);
     }
     if (opts.state && url.pathname === '/__pyric/state') {
-      const hostHeader = getHeader(req, 'host');
-      const originHeader = getHeader(req, 'origin');
-      const hostPort = hostHeader?.includes(':') ? hostHeader.split(':').pop() : undefined;
-      if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-        return true;
-      }
-      if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, hostPort)) {
-        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
         return true;
       }
       if (!isAllowedSessionToken(req, url, sessionToken)) {
@@ -464,15 +467,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return handleState(opts.state!, stateWriterLock, req, res, url).then(() => true);
     }
     if (opts.capture && url.pathname === '/__pyric/capture') {
-      const hostHeader = getHeader(req, 'host');
-      const originHeader = getHeader(req, 'origin');
-      const hostPort = hostHeader?.includes(':') ? hostHeader.split(':').pop() : undefined;
-      if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-        return true;
-      }
-      if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, hostPort)) {
-        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
         return true;
       }
       if (!isAllowedSessionToken(req, url, sessionToken)) {
@@ -485,20 +480,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return handleActivity(opts.activity, req, res, activityToken!).then(() => true);
     }
     if (opts.events && url.pathname === '/__pyric/events') {
-      const hostHeader = getHeader(req, 'host');
-      const originHeader = getHeader(req, 'origin');
-      const hostPort = hostHeader?.includes(':') ? hostHeader.split(':').pop() : undefined;
-      if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-        return true;
-      }
-      if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, hostPort)) {
-        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
-        return true;
-      }
-      const reqToken = getHeader(req, 'x-pyric-session-token') ?? url.searchParams.get('token') ?? undefined;
-      if (sessionToken && reqToken && !timingSafeTokenMatch(reqToken, sessionToken)) {
-        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
         return true;
       }
       opts.events.handle(req, res);
