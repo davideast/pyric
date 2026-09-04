@@ -1,5 +1,5 @@
 import { DataSnapshot, evaluateRtdbExpression } from '../grammar/simulator.js';
-import type { EvalContext } from '../grammar/simulator.js';
+import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema } from './spec.js';
 import type { SimulateResult } from './spec.js';
@@ -388,6 +388,32 @@ export class SimulateHandler {
           : projectPostWriteTree(mockData, pathSegments, newData, updates);
       const mergedRootData = new DataSnapshot(mergedRoot, '/');
 
+      let contextAuth: SimulatedAuth | null = null;
+      if (auth) {
+        const token: Record<string, unknown> = auth.token ? structuredClone(auth.token) : {};
+        if (auth.tenant !== undefined) {
+          const existingFirebase = token.firebase;
+          if (
+            typeof existingFirebase === 'object' &&
+            existingFirebase !== null &&
+            !Array.isArray(existingFirebase)
+          ) {
+            token.firebase = {
+              ...(existingFirebase as Record<string, unknown>),
+              tenant: (existingFirebase as Record<string, unknown>).tenant !== undefined
+                ? (existingFirebase as Record<string, unknown>).tenant
+                : auth.tenant,
+            };
+          } else {
+            token.firebase = { tenant: auth.tenant };
+          }
+        }
+        contextAuth = {
+          uid: auth.uid,
+          token,
+        };
+      }
+
       const buildContext: ContextBuilder = (data, newDataArg, bindings) => {
         const pvBindings: Record<string, string> = {};
         for (const [k, v] of Object.entries(bindings)) {
@@ -395,7 +421,7 @@ export class SimulateHandler {
           pvBindings[k.slice(1)] = v;
         }
         return {
-          auth: auth ? { uid: auth.uid, token: auth.token } : null,
+          auth: contextAuth,
           data,
           newData: newDataArg,
           root: rootData,

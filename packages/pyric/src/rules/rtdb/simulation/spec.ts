@@ -4,7 +4,11 @@ export const SimulationInputSchema = z.object({
   operation: z.enum(['read', 'write', 'validate']),
   path: z.string().min(1).startsWith('/'),
   auth: z.union([
-    z.object({ uid: z.string(), token: z.record(z.unknown()) }),
+    z.object({
+      uid: z.string(),
+      tenant: z.string().optional(),
+      token: z.record(z.unknown()).optional(),
+    }),
     z.null(),
   ]),
   mockData: z.record(z.unknown()),
