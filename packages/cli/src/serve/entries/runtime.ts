@@ -27,6 +27,7 @@ import {
   callTool as workerCallTool,
   relayWorkerOp,
   relayWorkerSub,
+  relayWorkerDisconnect,
 } from '../worker/client.js';
 import { useWorker, workerDb } from './worker-runtime.js';
 import { keepaliveSafe } from './keepalive.js';
@@ -211,14 +212,7 @@ if (!useWorker) try {
     // reload after the writer closed can reclaim it.
     const writerId =
       typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `w-${Date.now()}`;
-    const sessionTokenHeaders: Record<string, string> = payload.sessionToken
-      ? { 'x-pyric-session-token': payload.sessionToken }
-      : {};
-    const writerHeaders: Record<string, string> = {
-      'content-type': 'application/json',
-      'x-pyric-writer': writerId,
-      ...sessionTokenHeaders,
-    };
+    const writerHeaders = { 'content-type': 'application/json', 'x-pyric-writer': writerId };
     let readOnly = false;
     const lostWriterLock = (): void => {
       if (readOnly) return;
@@ -233,7 +227,7 @@ if (!useWorker) try {
       key: 'pyric-serve',
       injectedBackend: recordBackendOverBlob({
         async read() {
-          const res = await fetch(section('firestore'), { headers: sessionTokenHeaders });
+          const res = await fetch(section('firestore'));
           return res.status === 200 ? await res.text() : null;
         },
         async write(value) {
@@ -331,13 +325,9 @@ if (!useWorker) try {
           currentUser: auth.currentUser,
         },
       }));
-      const captureHeaders: Record<string, string> = {
-        'content-type': 'application/json',
-        ...(payload.sessionToken ? { 'x-pyric-session-token': payload.sessionToken } : {}),
-      };
       fetch('/__pyric/capture', {
         method: 'POST',
-        headers: captureHeaders,
+        headers: { 'content-type': 'application/json' },
         body,
         keepalive: keepaliveSafe(body),
       }).catch(() => {});
@@ -470,8 +460,9 @@ async function connectBridgePeer(rawUrl: string): Promise<void> {
       // bridge — ops and snap-delivering subscriptions pass straight through
       // to the one sandbox the app + Studio + agent share.
       workerRelay: {
-        op: (op) => relayWorkerOp(wdb, op),
-        subscribe: (sub, onValue) => relayWorkerSub(wdb, sub, onValue),
+        op: (op, clientSessionId) => relayWorkerOp(wdb, op, clientSessionId),
+        subscribe: (sub, onValue, clientSessionId) => relayWorkerSub(wdb, sub, onValue, clientSessionId),
+        disconnect: (clientSessionId) => relayWorkerDisconnect(wdb, clientSessionId),
       },
     });
   } else {
@@ -587,21 +578,11 @@ if (!useWorker && typeof EventSource !== 'undefined') {
       };
       rtdbSandbox.setRules(getDatabase(sandbox), rules);
       diagnostics.databaseRulesDeployed = true;
-      let newHash: string | null = null;
-      const isHashDefined = rulesHash !== undefined;
-      if (isHashDefined) {
-        newHash = rulesHash;
-      }
-      diagnostics.databaseRulesHash = newHash;
+      diagnostics.databaseRulesHash = rulesHash ?? null;
       console.info(`[pyric sandbox] database.rules.json hot-reloaded (hash ${rulesHash})`);
     } catch (err) {
       runtimeStatus.reportError(err, 'runtime');
-      const isErrorInstance = err instanceof Error;
-      let errorMessage = String(err);
-      if (isErrorInstance) {
-        errorMessage = (err as Error).message;
-      }
-      console.error('[pyric sandbox] database rules hot-reload failed:', errorMessage);
+      console.error('[pyric sandbox] database rules hot-reload failed:', err instanceof Error ? err.message : String(err));
     }
   });
 }

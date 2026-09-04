@@ -882,13 +882,17 @@ export interface ToolMessage {
   args: Record<string, unknown>;
 }
 
-export type InboundMessage =
+export type InboundMessage = (
   | OpMessage
   | SubMessage
   | UnsubMessage
   | DisconnectMessage
   | AppConfigMessage
-  | ToolMessage;
+  | ToolMessage
+) & {
+  clientSessionId?: string;
+  resumeSession?: boolean;
+};
 
 // ─── Worker → client messages ─────────────────────────────────────────────
 
@@ -944,11 +948,14 @@ export interface RuntimeReloadMessage {
   epoch: string;
 }
 
-export type OutboundMessage =
+export type OutboundMessage = (
   | ResMessage
   | SnapMessage
   | EventStreamMessage
-  | RuntimeReloadMessage;
+  | RuntimeReloadMessage
+) & {
+  clientSessionId?: string;
+};
 
 // ─── Serialized document data ─────────────────────────────────────────────
 

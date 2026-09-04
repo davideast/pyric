@@ -12,7 +12,6 @@ import { DEFAULT_MCP_TOOL_NAMES } from '../src/bridge/server/mcp-contract.js';
 const NON_TOOL_TOKENS = new Set<string>([
   'rules_version', // Firestore/RTDB rules file schema field, not a tool.
   'firestore_simulator_', // Prose stem ("firestore_simulator_*"), not a literal tool name.
-  'pyric_firestore', // Dart/Flutter package name, not a tool.
 ]);
 
 /**

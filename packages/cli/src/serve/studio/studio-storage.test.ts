@@ -159,15 +159,9 @@ interface MockRes {
   done: Promise<void>;
 }
 
-const testSessionToken = 'test-studio-storage-token';
-
 function mockReq(method: string): IncomingMessage {
   const req = new PassThrough() as unknown as IncomingMessage;
-  (req as unknown as { method: string; headers: Record<string, string> }).method = method;
-  (req as unknown as { method: string; headers: Record<string, string> }).headers = {
-    host: 'localhost',
-    'x-pyric-session-token': testSessionToken,
-  };
+  (req as unknown as { method: string }).method = method;
   return req;
 }
 
@@ -205,17 +199,13 @@ function mockRes(): MockRes {
 
 describe('createStudioRoutes', () => {
   it('GET /__pyric/projects lists, POST creates', async () => {
-    const routes = createStudioRoutes({
-      projects: diskProjectStore(dir),
-      sessionToken: testSessionToken,
-      boundHost: 'localhost',
-    });
+    const routes = createStudioRoutes({ projects: diskProjectStore(dir) });
 
     const listRes = mockRes();
     const handled = await routes(
       mockReq('GET'),
       listRes.res,
-      new URL('http://localhost/__pyric/projects'),
+      new URL('http://x/__pyric/projects'),
     );
     await listRes.done;
     expect(handled).toBe(true);
@@ -224,7 +214,7 @@ describe('createStudioRoutes', () => {
 
     const postReq = mockReq('POST');
     const postRes = mockRes();
-    const p = routes(postReq, postRes.res, new URL('http://localhost/__pyric/projects'));
+    const p = routes(postReq, postRes.res, new URL('http://x/__pyric/projects'));
     postReq.emit('data', JSON.stringify({ title: 'Via Route' }));
     postReq.emit('end');
     await p;
@@ -234,18 +224,14 @@ describe('createStudioRoutes', () => {
   });
 
   it('PUT then GET /__pyric/workspace round-trips a file', async () => {
-    const routes = createStudioRoutes({
-      workspace: diskWorkspace(dir),
-      sessionToken: testSessionToken,
-      boundHost: 'localhost',
-    });
+    const routes = createStudioRoutes({ workspace: diskWorkspace(dir) });
 
     const putReq = mockReq('PUT');
     const putRes = mockRes();
     const p = routes(
       putReq,
       putRes.res,
-      new URL('http://localhost/__pyric/workspace?path=note.txt'),
+      new URL('http://x/__pyric/workspace?path=note.txt'),
     );
     putReq.emit('data', 'hello');
     putReq.emit('end');
@@ -258,7 +244,7 @@ describe('createStudioRoutes', () => {
     await routes(
       mockReq('GET'),
       getRes.res,
-      new URL('http://localhost/__pyric/workspace?path=note.txt'),
+      new URL('http://x/__pyric/workspace?path=note.txt'),
     );
     await getRes.done;
     expect(getRes.statusCode).toBe(200);
@@ -268,47 +254,35 @@ describe('createStudioRoutes', () => {
   it('GET /__pyric/workspace/list returns entries', async () => {
     const ws = diskWorkspace(dir);
     await ws.write('a.txt', '1');
-    const routes = createStudioRoutes({
-      workspace: ws,
-      sessionToken: testSessionToken,
-      boundHost: 'localhost',
-    });
+    const routes = createStudioRoutes({ workspace: ws });
     const res = mockRes();
     await routes(
       mockReq('GET'),
       res.res,
-      new URL('http://localhost/__pyric/workspace/list'),
+      new URL('http://x/__pyric/workspace/list'),
     );
     await res.done;
     expect(JSON.parse(res.body)).toEqual([{ path: 'a.txt', kind: 'file' }]);
   });
 
   it('returns 400 on path traversal', async () => {
-    const routes = createStudioRoutes({
-      workspace: diskWorkspace(dir),
-      sessionToken: testSessionToken,
-      boundHost: 'localhost',
-    });
+    const routes = createStudioRoutes({ workspace: diskWorkspace(dir) });
     const res = mockRes();
     await routes(
       mockReq('GET'),
       res.res,
-      new URL('http://localhost/__pyric/workspace?path=../escape'),
+      new URL('http://x/__pyric/workspace?path=../escape'),
     );
     await res.done;
     expect(res.statusCode).toBe(400);
   });
 
   it('returns false for unrelated /__pyric/* paths', async () => {
-    const routes = createStudioRoutes({
-      workspace: diskWorkspace(dir),
-      sessionToken: testSessionToken,
-      boundHost: 'localhost',
-    });
+    const routes = createStudioRoutes({ workspace: diskWorkspace(dir) });
     const handled = await routes(
       mockReq('GET'),
       mockRes().res,
-      new URL('http://localhost/__pyric/init.json'),
+      new URL('http://x/__pyric/init.json'),
     );
     expect(handled).toBe(false);
   });

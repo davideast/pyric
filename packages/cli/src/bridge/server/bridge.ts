@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   BridgeMessage,
   HealthReport,
+  RemoteSetLensFrame,
   ToolCallResponse,
   WorkerOpPayload,
   WorkerSubPayload,
@@ -28,6 +29,7 @@ import {
   NO_WORKER_RELAY_ERROR_MESSAGE,
   WORKER_RELAY_CAPABILITY,
 } from '../protocol.js';
+import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
 
 /** Subset of `@inbrowser/agent`'s `ToolResult` shape the bridge emits. */
 export interface BridgeToolResult {
@@ -74,6 +76,10 @@ export interface Bridge {
   readonly startedAt: string;
   /** Stable per-process identity (see HealthReport.instanceId). */
   readonly instanceId: string;
+  /** Registry of connected remote consumers. */
+  readonly consumers: ConsumerRegistry;
+  /** Broadcast presence snapshot to sandbox peer and Studio consumers. */
+  broadcastConsumerPresence(): void;
   /**
    * Record a tool event in the bridge's audit pipeline. In-process sandbox
    * tools use this path; forwarded tools log inside dispatch().
@@ -123,21 +129,25 @@ export interface Bridge {
 
   /**
    * Relay a generic worker op to the peer's SharedWorker. Resolves with the
-   * worker's `res.value`; rejects with an Error carrying `.code` on worker
-   * failure, timeout, no peer, or a peer without the worker relay.
+   * worker's `res.value`; rejects with an Error carrying `.code`.
    */
-  dispatchWorkerOp(op: WorkerOpPayload): Promise<unknown>;
+  dispatchWorkerOp(op: WorkerOpPayload, clientSessionId?: string): Promise<unknown>;
 
   /**
-   * Register a worker subscription. Ownership lives HERE: the registry
-   * survives peer churn, and every registered sub is re-issued to a new
-   * peer on registration (RTDB value / auth-state subs re-deliver a fresh
-   * initial snapshot, so replay is cursor-free). `onSnap` receives every
-   * relayed snap value verbatim — including the worker host's
-   * `{ __error: { code, message } }` establishment-failure convention.
+   * Register a worker subscription. Survives peer churn and is re-issued.
    * Returns the unsubscribe function.
    */
-  subscribeWorker(sub: WorkerSubPayload, onSnap: (value: unknown) => void): () => void;
+  subscribeWorker(
+    sub: WorkerSubPayload,
+    onSnap: (value: unknown) => void,
+    clientSessionId?: string,
+  ): () => void;
+
+  /** Detach an in-flight consumer's pending ops without notifying peer or tombstoning session. */
+  detachConsumer(clientSessionId: string): void;
+
+  /** Tear down consumer subscriptions, cancel pending ops, and notify peer. */
+  disconnectConsumer(clientSessionId: string): void;
 
   /**
    * Handle a message from the sandbox peer (tool-result, pong, …).
@@ -171,31 +181,16 @@ interface PendingWorkerOp {
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
   method: string;
+  clientSessionId?: string;
 }
 
 interface WorkerSubEntry {
   sub: WorkerSubPayload;
   onSnap: (value: unknown) => void;
-  /**
-   * JSON of the last snap value delivered to `onSnap` — the re-issue dedup
-   * baseline. Lives on the bridge-side entry because this registry is the
-   * only state that SURVIVES peer churn (the browser tab and the worker
-   * listener are both rebuilt per peer).
-   */
+  clientSessionId?: string;
+  /** JSON of the last snap value delivered to `onSnap` (re-issue dedup baseline). */
   lastDeliveredJson?: string;
-  /**
-   * Set when this sub was just (re-)issued to a newly registered peer and
-   * the next inbound snap is the fresh listener's INITIAL snapshot. When
-   * that snapshot is byte-identical to `lastDeliveredJson`, nothing changed
-   * while the peer churned and the frame is suppressed — real Firestore /
-   * RTDB listeners fire on CHANGE, not on transport reconnection. Live,
-   * two tabs fighting over last-wins registration (each reconnecting after
-   * ~500ms) re-issued every sub once per registration, so a consumer's
-   * doc listener fired ~1/sec with identical data forever. A snapshot that
-   * DIFFERS from the baseline (state changed while no peer was attached)
-   * still delivers. Scoped to the one-frame re-issue window so steady-state
-   * delivery is untouched.
-   */
+  /** Set when re-issued to a newly registered peer to suppress byte-identical initial snaps. */
   awaitingReissueSnap?: boolean;
 }
 
@@ -208,11 +203,11 @@ function workerOpError(
   denialContext?: unknown,
   envelope?: unknown,
 ): Error & { code: string; denialContext?: unknown; envelope?: unknown } {
-  const err = new Error(message) as Error & { code: string; denialContext?: unknown; envelope?: unknown };
-  err.code = code;
-  if (denialContext !== undefined) err.denialContext = denialContext;
-  if (envelope !== undefined) err.envelope = envelope;
-  return err;
+  return Object.assign(new Error(message), {
+    code,
+    ...(denialContext !== undefined ? { denialContext } : {}),
+    ...(envelope !== undefined ? { envelope } : {}),
+  });
 }
 
 export function createBridge(opts: BridgeOptions): Bridge {
@@ -220,31 +215,24 @@ export function createBridge(opts: BridgeOptions): Bridge {
   const version = opts.version;
   const callTimeoutMs = opts.callTimeoutMs ?? 30_000;
   const startedAt = new Date().toISOString();
-  // Per-process identity (see HealthReport.instanceId): the discovery pointer
-  // records this so a proxy can verify it reached THIS server, not a different
-  // sandbox squatting the same port on the other loopback family.
   const instanceId = randomUUID();
   const onToolEvent = opts.onToolEvent;
 
   let peer: ActivePeer | null = null;
   const pending = new Map<string, PendingCall>();
-  // ── worker relay state ──
-  // Generation counter: bumped on every peer registration. Inbound frames
-  // tagged with an older generation are stale (a replaced tab's socket) and
-  // must not resolve ops / deliver snaps registered under the new peer.
   let generation = 0;
   const workerPending = new Map<string, PendingWorkerOp>();
-  // Subscription ownership lives on the bridge: entries survive peer churn
-  // and are re-issued to every newly registered relay-capable peer.
   const workerSubs = new Map<string, WorkerSubEntry>();
+  const consumers = createConsumerRegistry();
+
+  function broadcastConsumerPresence(): void {
+    consumers.broadcastPresence(peer ? peer.send : undefined);
+  }
 
   function failAllPending(reason: string) {
     for (const call of pending.values()) {
       clearTimeout(call.timer);
-      call.resolve({
-        ok: false,
-        summary: reason,
-      });
+      call.resolve({ ok: false, summary: reason });
     }
     pending.clear();
     for (const op of workerPending.values()) {
@@ -299,10 +287,13 @@ export function createBridge(opts: BridgeOptions): Bridge {
       for (const [subId, entry] of workerSubs) {
         entry.awaitingReissueSnap = true;
         try {
-          myPeer.send({ type: 'worker-sub', subId, sub: entry.sub });
-        } catch {
-          // Socket failure surfaces via the transport's close handler.
-        }
+          myPeer.send({
+            type: 'worker-sub',
+            subId,
+            clientSessionId: entry.clientSessionId,
+            sub: entry.sub,
+          });
+        } catch {}
       }
     }
     return () => {
@@ -361,77 +352,45 @@ export function createBridge(opts: BridgeOptions): Bridge {
     name: string,
     args: Record<string, unknown>,
   ): Promise<BridgeToolResult> {
-    if (!peer) {
-      return Promise.resolve({ ok: false, summary: NO_SANDBOX_ERROR_MESSAGE });
-    }
+    if (!peer) return Promise.resolve({ ok: false, summary: NO_SANDBOX_ERROR_MESSAGE });
     if (!peer.tools.has(name)) {
-      return Promise.resolve({
-        ok: false,
-        summary: `tool '${name}' is not registered with the connected sandbox peer`,
-      });
+      return Promise.resolve({ ok: false, summary: `tool '${name}' is not registered with the connected sandbox peer` });
     }
     return new Promise<BridgeToolResult>((resolve) => {
       const id = randomUUID();
       const timer = setTimeout(() => {
-        if (pending.has(id)) {
-          pending.delete(id);
-          resolve({
-            ok: false,
-            summary: `sandbox call timed out after ${callTimeoutMs}ms (tool: ${name})`,
-          });
+        if (pending.delete(id)) {
+          resolve({ ok: false, summary: `sandbox call timed out after ${callTimeoutMs}ms (tool: ${name})` });
         }
       }, callTimeoutMs);
       pending.set(id, { id, resolve, timer, tool: name });
       try {
-        peer!.send({
-          type: 'tool-call',
-          id,
-          name,
-          args,
-        });
+        peer!.send({ type: 'tool-call', id, name, args });
       } catch (err) {
         clearTimeout(timer);
         pending.delete(id);
-        resolve({
-          ok: false,
-          summary: `failed to send tool call to sandbox: ${err instanceof Error ? err.message : String(err)}`,
-        });
+        resolve({ ok: false, summary: `failed to send tool call to sandbox: ${err instanceof Error ? err.message : String(err)}` });
       }
     });
   }
 
-  function dispatchWorkerOp(op: WorkerOpPayload): Promise<unknown> {
-    if (!peer) {
-      return Promise.reject(workerOpError('unavailable', NO_SANDBOX_ERROR_MESSAGE));
-    }
-    if (!peerHasRelay()) {
-      return Promise.reject(workerOpError('unimplemented', NO_WORKER_RELAY_ERROR_MESSAGE));
-    }
+  function dispatchWorkerOp(op: WorkerOpPayload, clientSessionId?: string): Promise<unknown> {
+    if (!peer) return Promise.reject(workerOpError('unavailable', NO_SANDBOX_ERROR_MESSAGE));
+    if (!peerHasRelay()) return Promise.reject(workerOpError('unimplemented', NO_WORKER_RELAY_ERROR_MESSAGE));
     return new Promise<unknown>((resolve, reject) => {
       const id = randomUUID();
       const timer = setTimeout(() => {
-        if (workerPending.has(id)) {
-          workerPending.delete(id);
-          reject(
-            workerOpError(
-              'deadline-exceeded',
-              `sandbox worker op timed out after ${callTimeoutMs}ms (op: ${op.method})`,
-            ),
-          );
+        if (workerPending.delete(id)) {
+          reject(workerOpError('deadline-exceeded', `sandbox worker op timed out after ${callTimeoutMs}ms (op: ${op.method})`));
         }
       }, callTimeoutMs);
-      workerPending.set(id, { resolve, reject, timer, method: op.method });
+      workerPending.set(id, { resolve, reject, timer, method: op.method, clientSessionId });
       try {
-        peer!.send({ type: 'worker-op', id, op });
+        peer!.send({ type: 'worker-op', id, clientSessionId, op });
       } catch (err) {
         clearTimeout(timer);
         workerPending.delete(id);
-        reject(
-          workerOpError(
-            'unavailable',
-            `failed to send worker op to sandbox: ${err instanceof Error ? err.message : String(err)}`,
-          ),
-        );
+        reject(workerOpError('unavailable', `failed to send worker op to sandbox: ${err instanceof Error ? err.message : String(err)}`));
       }
     });
   }
@@ -439,27 +398,51 @@ export function createBridge(opts: BridgeOptions): Bridge {
   function subscribeWorker(
     sub: WorkerSubPayload,
     onSnap: (value: unknown) => void,
+    clientSessionId?: string,
   ): () => void {
     const subId = randomUUID();
-    workerSubs.set(subId, { sub, onSnap });
+    workerSubs.set(subId, { sub, onSnap, clientSessionId });
     if (peerHasRelay()) {
       try {
-        peer!.send({ type: 'worker-sub', subId, sub });
-      } catch {
-        // Socket failure surfaces via the transport's close handler; the
-        // registry entry replays on the next peer registration.
-      }
+        peer!.send({ type: 'worker-sub', subId, clientSessionId, sub });
+      } catch {}
     }
-    // No peer (or a relay-less peer) is NOT an error here: the registry is
-    // replayed on the next registration, mirroring RTDB's offline semantics.
     return () => {
+      const entry = workerSubs.get(subId);
       if (!workerSubs.delete(subId)) return;
       if (peerHasRelay()) {
         try {
-          peer!.send({ type: 'worker-unsub', subId });
+          peer!.send({ type: 'worker-unsub', subId, clientSessionId: entry?.clientSessionId });
         } catch {}
       }
     };
+  }
+
+  function detachConsumer(clientSessionId: string): void {
+    for (const [id, op] of workerPending) {
+      if (op.clientSessionId === clientSessionId) {
+        clearTimeout(op.timer);
+        workerPending.delete(id);
+        op.reject(workerOpError('unavailable', 'consumer socket detached'));
+      }
+    }
+  }
+
+  function disconnectConsumer(clientSessionId: string): void {
+    for (const [subId, entry] of workerSubs) {
+      if (entry.clientSessionId === clientSessionId) {
+        workerSubs.delete(subId);
+        if (peerHasRelay()) {
+          try { peer!.send({ type: 'worker-unsub', subId, clientSessionId }); } catch {}
+        }
+      }
+    }
+    detachConsumer(clientSessionId);
+    if (peerHasRelay()) {
+      try { peer!.send({ type: 'worker-client-disconnect', clientSessionId }); } catch {}
+    }
+    consumers.unregister(clientSessionId);
+    broadcastConsumerPresence();
   }
 
   function handleSandboxMessage(msg: BridgeMessage, msgGeneration?: number): void {
@@ -494,13 +477,6 @@ export function createBridge(opts: BridgeOptions): Bridge {
         const snap = msg as WorkerSnapFrame;
         const entry = workerSubs.get(snap.subId);
         if (!entry) return; // unsubscribed or unknown — drop silently
-        // Re-issue dedup (see WorkerSubEntry.awaitingReissueSnap): the first
-        // snap after a peer (re)registration is the re-established listener's
-        // initial snapshot — suppress it when byte-identical to what the
-        // consumer already holds. Values are JSON-clean (they crossed the WS
-        // legs) and produced by the same serializer each time, so string
-        // equality is exact. One-frame window: the flag clears on the first
-        // snap either way, keeping steady-state delivery 1:1.
         const json = JSON.stringify(snap.value);
         const duplicate = entry.awaitingReissueSnap === true && json === entry.lastDeliveredJson;
         entry.awaitingReissueSnap = false;
@@ -508,9 +484,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
         if (duplicate) return;
         try {
           entry.onSnap(snap.value);
-        } catch {
-          // Consumer callback failures must not break the relay loop.
-        }
+        } catch {}
         return;
       }
       default:
@@ -524,37 +498,34 @@ export function createBridge(opts: BridgeOptions): Bridge {
         clearTimeout(call.timer);
         pending.delete(response.id);
         if (response.ok && response.result) {
-          call.resolve({
-            ok: response.result.ok,
-            summary: response.result.summary,
-            data: response.result.data,
-          });
+          call.resolve({ ok: response.result.ok, summary: response.result.summary, data: response.result.data });
         } else {
-          const error = response.error;
-          call.resolve({
-            ok: false,
-            summary: error?.message ?? 'unknown sandbox error',
+          call.resolve({ ok: false, summary: response.error?.message ?? 'unknown sandbox error' });
+        }
+        break;
+      }
+      case 'remote-set-lens': {
+        const frame = msg as RemoteSetLensFrame;
+        const ok = consumers.setLens(frame.clientSessionId, frame.lens);
+        broadcastConsumerPresence();
+        if (peer && frame.id) {
+          peer.send({
+            type: 'remote-set-lens-ack',
+            id: frame.id,
+            clientSessionId: frame.clientSessionId,
+            ok,
+            ...(ok ? {} : { error: { code: 'not-found', message: 'Client session not found' } }),
           });
         }
         break;
       }
-      case 'pong': {
-        // Keepalive ack; no-op.
+      case 'pong':
         break;
-      }
-      case 'ping': {
-        // Browser-initiated ping; echo back.
-        if (peer) {
-          peer.send({ type: 'pong', id: msg.id });
-        }
+      case 'ping':
+        if (peer) peer.send({ type: 'pong', id: msg.id });
         break;
-      }
-      case 'hello': {
-        // Re-hello after reconnect would arrive here, but the
-        // registration path is owned by the transport layer (it sees
-        // the WS first). Ignore.
+      case 'hello':
         break;
-      }
       default:
         break;
     }
@@ -576,9 +547,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     if (!onToolEvent) return;
     try {
       onToolEvent(event);
-    } catch {
-      // Audit-log failures must not break tool dispatch.
-    }
+    } catch {}
   }
 
   return {
@@ -586,6 +555,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
     version,
     startedAt,
     instanceId,
+    consumers,
+    broadcastConsumerPresence,
     recordToolEvent,
     registerSandboxPeer,
     isSandboxConnected,
@@ -594,6 +565,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
     dispatch,
     dispatchWorkerOp,
     subscribeWorker,
+    detachConsumer,
+    disconnectConsumer,
     handleSandboxMessage,
     health,
   };

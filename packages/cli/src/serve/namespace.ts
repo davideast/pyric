@@ -20,7 +20,7 @@ import { collectBody } from '../bridge/server/peer.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
-import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, isAllowedSessionToken, type ServeLogger } from './server.js';
+import { pipeFileToResponse, getHeader, isAllowedHost, isAllowedOrigin, type ServeLogger } from './server.js';
 import type { InitPayload } from './init-payload.js';
 import { handleActivity } from './activity-route.js';
 import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
@@ -401,25 +401,6 @@ async function handleDenials(
   res.writeHead(204).end();
 }
 
-function guardLoopback(
-  req: IncomingMessage,
-  res: ServerResponse,
-  boundHost: string,
-  allowedHosts?: string[],
-): boolean {
-  const hostHeader = getHeader(req, 'host');
-  const originHeader = getHeader(req, 'origin');
-  if (!isAllowedHost(hostHeader, boundHost, allowedHosts)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-    return false;
-  }
-  if (originHeader && !isAllowedOrigin(originHeader, boundHost, allowedHosts)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
-    return false;
-  }
-  return true;
-}
-
 export function createPyricNamespace(opts: NamespaceOptions) {
   const stateWriterLock = createWriterLock();
   const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();
@@ -451,36 +432,31 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       (url.pathname.startsWith('/__pyric/workspace') ||
         url.pathname.startsWith('/__pyric/projects'))
     ) {
-      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        return true;
-      }
       return studioRoutes(req, res, url);
     }
     if (opts.state && url.pathname === '/__pyric/state') {
-      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        return true;
-      }
-      if (!isAllowedSessionToken(req, url, sessionToken)) {
-        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-        return true;
-      }
       return handleState(opts.state!, stateWriterLock, req, res, url).then(() => true);
     }
     if (opts.capture && url.pathname === '/__pyric/capture') {
-      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        return true;
-      }
-      if (!isAllowedSessionToken(req, url, sessionToken)) {
-        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-        return true;
-      }
       return handleCapture(opts.capture, req, res).then(() => true);
     }
     if (opts.activity && url.pathname === '/__pyric/activity') {
       return handleActivity(opts.activity, req, res, activityToken!).then(() => true);
     }
     if (opts.events && url.pathname === '/__pyric/events') {
-      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+      const hostHeader = getHeader(req, 'host');
+      const originHeader = getHeader(req, 'origin');
+      if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
+        return true;
+      }
+      if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+        return true;
+      }
+      const reqToken = getHeader(req, 'x-pyric-session-token') ?? url.searchParams.get('token');
+      if (sessionToken && reqToken && reqToken !== sessionToken) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
       opts.events.handle(req, res);

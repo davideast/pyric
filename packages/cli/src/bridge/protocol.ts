@@ -15,10 +15,11 @@
  * environment.
  */
 
-// TYPE-ONLY imports (erased at build) — the wire payloads for the generic
-// worker relay are the SharedWorker protocol's own op/sub messages, minus
-// the port-level `t`/`id`/`subId` fields the relay re-mints per hop.
+import type { AuthLens } from 'pyric/sandbox';
 import type { OpMessage, SubMessage } from '../serve/worker/protocol.js';
+
+export type { AuthLens };
+
 
 /** Health report returned by the bridge's `GET /health` endpoint. */
 export interface HealthReport {
@@ -154,7 +155,9 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   : never;
 
 /** A worker one-shot op, minus the port-level `t`/`id` the relay re-mints. */
-export type WorkerOpPayload = DistributiveOmit<OpMessage, 't' | 'id'>;
+export type WorkerOpPayload = DistributiveOmit<OpMessage, 't' | 'id'> & {
+  resumeSession?: boolean;
+};
 
 /**
  * A worker subscription, minus the port-level `t`/`subId`. Slice 1 relays
@@ -162,13 +165,24 @@ export type WorkerOpPayload = DistributiveOmit<OpMessage, 't' | 'id'>;
  * event stream (`target: 'events'`) is NOT relayable yet — it needs bounded
  * backpressure first (slice 2).
  */
-export type WorkerSubPayload = DistributiveOmit<SubMessage, 't' | 'subId'>;
+export type WorkerSubPayload = DistributiveOmit<SubMessage, 't' | 'subId'> & {
+  resumeSession?: boolean;
+};
 
 /** Node consumer → bridge: attach as a worker-relay consumer (NOT a peer —
  *  a consumer never replaces the browser tab in last-connection-wins). */
 export interface AttachFromConsumer {
   type: 'attach';
   protocol: 1;
+  /** Optional client-supplied session ID to resume an existing session across reconnects. */
+  clientSessionId?: string;
+  /** Alias for clientSessionId (backward/cross-platform compatibility). */
+  sessionId?: string;
+  /** Optional client metadata for identification in logs and Studio presence. */
+  clientInfo?: {
+    platform?: 'kotlin' | 'swift' | 'flutter' | 'node' | 'studio' | string;
+    deviceLabel?: string;
+  };
 }
 
 /** Bridge → Node consumer: attach acknowledged. */
@@ -178,6 +192,8 @@ export interface AttachAckFromBridge {
   bridgeVersion: string;
   /** Whether a browser tab is currently registered as the sandbox peer. */
   peerConnected: boolean;
+  /** Alias for peerConnected (matches PROJECT.md interface contract). */
+  sandboxConnected?: boolean;
   /**
    * The `@pyric/cli` package version the serve/bridge process runs
    * (version-skew stamp). ADDITIVE + OPTIONAL: old servers omit it and
@@ -187,6 +203,10 @@ export interface AttachAckFromBridge {
    * and die mid-handling, which otherwise surfaces as a bare timeout.
    */
   serveVersion?: string;
+  /** Client-scoped session ID assigned or acknowledged by the bridge. */
+  clientSessionId: string;
+  /** Alias for clientSessionId. */
+  sessionId?: string;
 }
 
 /** Toward the worker: dispatch this one-shot op. (consumer→bridge and
@@ -195,6 +215,8 @@ export interface WorkerOpFrame {
   type: 'worker-op';
   /** Correlation id — echoed back in the matching `worker-res`. */
   id: string;
+  /** Scopes this op to a specific remote client virtual port. */
+  clientSessionId?: string;
   op: WorkerOpPayload;
 }
 
@@ -202,13 +224,20 @@ export interface WorkerOpFrame {
 export interface WorkerResFrame {
   type: 'worker-res';
   id: string;
+  /** Scopes this response to a specific remote client virtual port. */
+  clientSessionId?: string;
   /** When `ok === false`, `error` is populated and `value` omitted. */
   ok: boolean;
   value?: unknown;
   /** `denialContext` (additive, spike gap 6): the structured "why did this
    *  deny" frame a `SandboxError` carries on `permission-denied` — plain
    *  JSON, so it rides the WS legs verbatim and the Node side re-attaches it. */
-  error?: { code: string; message: string; denialContext?: unknown };
+  error?: {
+    code: string;
+    message: string;
+    denialContext?: unknown;
+    envelope?: unknown;
+  };
 }
 
 /** Toward the worker: register a subscription. Re-issued by the bridge to a
@@ -217,6 +246,8 @@ export interface WorkerResFrame {
 export interface WorkerSubFrame {
   type: 'worker-sub';
   subId: string;
+  /** Scopes this subscription to a specific remote client virtual port. */
+  clientSessionId?: string;
   sub: WorkerSubPayload;
 }
 
@@ -224,6 +255,8 @@ export interface WorkerSubFrame {
 export interface WorkerUnsubFrame {
   type: 'worker-unsub';
   subId: string;
+  /** Scopes this unsubscribe to a specific remote client virtual port. */
+  clientSessionId?: string;
 }
 
 /** Away from the worker: one streamed snapshot for a subscription. A failed
@@ -232,8 +265,62 @@ export interface WorkerUnsubFrame {
 export interface WorkerSnapFrame {
   type: 'worker-snap';
   subId: string;
+  /** Scopes this snapshot to a specific remote client virtual port. */
+  clientSessionId?: string;
   value: unknown;
 }
+
+/** Bridge → browser peer: notify that a remote client disconnected. */
+export interface WorkerClientDisconnectFrame {
+  type: 'worker-client-disconnect';
+  clientSessionId: string;
+}
+
+/** Record representing an attached remote consumer in presence snapshots. */
+export interface RemoteConsumerRecord {
+  clientSessionId: string;
+  platform: 'kotlin' | 'swift' | 'flutter' | 'node' | 'studio' | string;
+  deviceLabel?: string;
+  connectedAt: number;
+  lastSeen: number;
+  activeLens: AuthLens;
+}
+
+/** Bridge → browser peer / Studio: broadcast connected remote consumer presence. */
+export interface ConsumerPresenceFrame {
+  type: 'consumer-presence';
+  consumers: RemoteConsumerRecord[];
+}
+
+/** Studio / peer → bridge: remote request to mutate a consumer's active AuthLens. */
+export interface RemoteSetLensFrame {
+  type: 'remote-set-lens';
+  id?: string;
+  clientSessionId: string;
+  lens: AuthLens;
+}
+
+/** Bridge → Studio / peer: acknowledgement of a remote lens mutation request. */
+export interface RemoteSetLensAckFrame {
+  type: 'remote-set-lens-ack';
+  id?: string;
+  clientSessionId: string;
+  ok: boolean;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+/** Bridge → consumer: notify consumer of runtime events (e.g. remote lens change). */
+export interface WorkerEventRemoteLensFrame {
+  type: 'worker-event';
+  event: 'remote-lens';
+  clientSessionId?: string;
+  lens: AuthLens;
+}
+
+export type WorkerEventFrame = WorkerEventRemoteLensFrame;
 
 /** Either direction: ping for keepalive / liveness detection. */
 export interface Ping {
@@ -260,6 +347,11 @@ export type BridgeMessage =
   | WorkerSubFrame
   | WorkerUnsubFrame
   | WorkerSnapFrame
+  | WorkerClientDisconnectFrame
+  | ConsumerPresenceFrame
+  | RemoteSetLensFrame
+  | RemoteSetLensAckFrame
+  | WorkerEventFrame
   | Ping
   | Pong;
 
@@ -279,6 +371,11 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
     t === 'worker-sub' ||
     t === 'worker-unsub' ||
     t === 'worker-snap' ||
+    t === 'worker-client-disconnect' ||
+    t === 'consumer-presence' ||
+    t === 'remote-set-lens' ||
+    t === 'remote-set-lens-ack' ||
+    t === 'worker-event' ||
     t === 'ping' ||
     t === 'pong'
   );

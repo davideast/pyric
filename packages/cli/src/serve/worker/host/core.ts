@@ -189,10 +189,10 @@ export function serializeDocSnap(snap: {
  * when to attach a write op's `actAs`), NOT here. Default behaviour stays admin/
  * app-session unless a caller sets `actAs`; no UI is added by T2.
  */
-export function lensDb(ctx: HostCtx, actAs?: AuthLens): Firestore {
-  // Absent / app-session → the app's live session handle.
+export function lensDb(ctx: HostCtx, actAs?: AuthLens, port?: PortLike): Firestore {
+  // Absent / app-session → the port's session handle (or ctx.db when signed out / port omitted).
   if (!actAs || actAs.mode === 'app-session') {
-    return ctx.db;
+    return port ? sessionDb(ctx, port) : ctx.db;
   }
 
   // { mode: 'admin' } → a modular rules-bypass handle (cached per ctx).
@@ -357,7 +357,8 @@ export function opProvenance(
   activityJourneyId?: string,
 ): EventProvenance | undefined {
   const issuer = (msg as { issuer?: 'studio' }).issuer;
-  const relaySource = (msg as { relaySource?: 'remote' }).relaySource;
+  const relaySource = (msg as { relaySource?: 'remote'; clientSessionId?: string }).relaySource
+    ?? ((msg as { clientSessionId?: string }).clientSessionId ? 'remote' : undefined);
   const actAs = (msg as { actAs?: AuthLens }).actAs;
   const target = msg.t === 'sub' ? msg.target : undefined;
   const isAppFirestoreSubscription = issuer !== 'studio'
