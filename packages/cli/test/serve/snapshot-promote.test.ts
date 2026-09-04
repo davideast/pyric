@@ -88,8 +88,11 @@ describe('pyric snapshot', () => {
     const cwd = project();
     const r = await startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), persist: true, logger: silentServeLogger() });
     stops.push(r);
+    const init = (await (await fetch(`${r.handle.url}/__pyric/init.json`)).json()) as { sessionToken: string };
     await fetch(`${r.handle.url}/__pyric/state?section=firestore`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(BLOB),
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-pyric-session-token': init.sessionToken },
+      body: JSON.stringify(BLOB),
     });
 
     const c = capture();
@@ -136,6 +139,9 @@ describe('--seed accepts the state-file shape (3.2)', () => {
     expect(p.authUsers).toEqual(USERS); // delivered from the primed store
     expect(p.seedState).toBeNull();
     // the page's controller will GET the primed firestore section
-    expect(await (await fetch(`${r.handle.url}/__pyric/state?section=firestore`)).json()).toEqual(BLOB);
+    const init = (await (await fetch(`${r.handle.url}/__pyric/init.json`)).json()) as { sessionToken: string };
+    expect(await (await fetch(`${r.handle.url}/__pyric/state?section=firestore`, {
+      headers: { 'x-pyric-session-token': init.sessionToken },
+    })).json()).toEqual(BLOB);
   }, 30_000);
 });
