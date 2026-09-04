@@ -17,8 +17,16 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-import { existsSync, mkdirSync, watch as fsWatch, type FSWatcher } from 'node:fs';
-import { dirname, join, posix, relative, resolve, sep } from 'node:path';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readlinkSync,
+  realpathSync,
+  watch as fsWatch,
+  type FSWatcher,
+} from 'node:fs';
+import { basename, dirname, join, posix, relative, resolve, sep } from 'node:path';
 
 import type {
   WorkspaceChange,
@@ -32,6 +40,54 @@ export class WorkspacePathError extends Error {
     super(`workspace path escapes root: '${path}'`);
     this.name = 'WorkspacePathError';
   }
+}
+
+/**
+ * Resolves the canonical realpath of a path, handling symlinks and non-existent
+ * terminal segments by resolving the nearest existing ancestor.
+ */
+function getCanonicalPath(targetPath: string, seen = new Set<string>()): string {
+  const abs = resolve(targetPath);
+  if (seen.has(abs)) {
+    throw new WorkspacePathError(targetPath);
+  }
+  seen.add(abs);
+
+  try {
+    return realpathSync(abs);
+  } catch (err: any) {
+    if (err?.code === 'ELOOP') {
+      throw new WorkspacePathError(targetPath);
+    }
+    if (err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR') {
+      throw err;
+    }
+  }
+
+  try {
+    const st = lstatSync(abs);
+    if (st.isSymbolicLink()) {
+      const linkTarget = readlinkSync(abs);
+      const nextTarget = resolve(dirname(abs), linkTarget);
+      return getCanonicalPath(nextTarget, seen);
+    }
+  } catch {
+    // abs does not exist as a directory entry
+  }
+
+  const parent = dirname(abs);
+  if (parent === abs) {
+    return abs;
+  }
+  const canonicalParent = getCanonicalPath(parent, seen);
+  return join(canonicalParent, basename(abs));
+}
+
+/** Check whether canonical target is contained within canonical root. */
+function isContained(root: string, target: string): boolean {
+  if (target === root) return true;
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  return target.startsWith(prefix);
 }
 
 /**
@@ -52,6 +108,24 @@ export function resolveWorkspacePath(root: string, rel: string): string {
   if (abs !== root && !abs.startsWith(root + sep)) {
     throw new WorkspacePathError(rel);
   }
+
+  // Canonical realpath containment check:
+  // Reject symlinks that escape the workspace root.
+  const canonicalRoot = getCanonicalPath(root);
+  let canonicalTarget: string;
+  try {
+    canonicalTarget = getCanonicalPath(abs);
+  } catch (err) {
+    if (err instanceof WorkspacePathError) {
+      throw new WorkspacePathError(rel);
+    }
+    throw err;
+  }
+
+  if (!isContained(canonicalRoot, canonicalTarget)) {
+    throw new WorkspacePathError(rel);
+  }
+
   return abs;
 }
 

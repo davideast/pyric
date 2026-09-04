@@ -36,7 +36,7 @@ import {
   isBridgeMessage,
 } from '../protocol.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
-import { isAllowedUpgrade } from '../../serve/server.js';
+import { isAllowedLoopbackRequest, isAllowedUpgrade } from '../../serve/server.js';
 
 const BRIDGE_VERSION = pyricVersion();
 const DEFAULT_SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
@@ -180,6 +180,11 @@ export async function startServer(
       return;
     }
     if (url === DEFAULT_MCP_PATH && (req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE')) {
+      if (!isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
+        return;
+      }
       try {
         const sessionId = (req.headers['mcp-session-id'] ?? req.headers['Mcp-Session-Id']) as string | undefined;
         let session: Session | undefined;

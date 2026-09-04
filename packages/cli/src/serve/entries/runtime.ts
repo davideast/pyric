@@ -212,7 +212,14 @@ if (!useWorker) try {
     // reload after the writer closed can reclaim it.
     const writerId =
       typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `w-${Date.now()}`;
-    const writerHeaders = { 'content-type': 'application/json', 'x-pyric-writer': writerId };
+    const sessionTokenHeaders: Record<string, string> = payload.sessionToken
+      ? { 'x-pyric-session-token': payload.sessionToken }
+      : {};
+    const writerHeaders: Record<string, string> = {
+      'content-type': 'application/json',
+      'x-pyric-writer': writerId,
+      ...sessionTokenHeaders,
+    };
     let readOnly = false;
     const lostWriterLock = (): void => {
       if (readOnly) return;
@@ -227,7 +234,7 @@ if (!useWorker) try {
       key: 'pyric-serve',
       injectedBackend: recordBackendOverBlob({
         async read() {
-          const res = await fetch(section('firestore'));
+          const res = await fetch(section('firestore'), { headers: sessionTokenHeaders });
           return res.status === 200 ? await res.text() : null;
         },
         async write(value) {
@@ -325,9 +332,13 @@ if (!useWorker) try {
           currentUser: auth.currentUser,
         },
       }));
+      const captureHeaders: Record<string, string> = {
+        'content-type': 'application/json',
+        ...(payload.sessionToken ? { 'x-pyric-session-token': payload.sessionToken } : {}),
+      };
       fetch('/__pyric/capture', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: captureHeaders,
         body,
         keepalive: keepaliveSafe(body),
       }).catch(() => {});

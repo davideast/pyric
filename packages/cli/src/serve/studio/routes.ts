@@ -33,7 +33,7 @@ import type {
   WorkspaceChange,
   WorkspaceStore,
 } from './store-types.js';
-import { isAllowedHost, isAllowedOrigin, getHeader } from '../server.js';
+import { isAllowedHost, isAllowedOrigin, getHeader, isAllowedSessionToken } from '../server.js';
 import type { WriterLock } from '../writer-lock.js';
 
 export interface StudioRouteOptions {
@@ -250,15 +250,10 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
           return true;
         }
 
-        // 2. Per-boot session capability token guard (Requirement 2)
-        if (opts.sessionToken) {
-          const reqToken =
-            getHeader(req, 'x-pyric-session-token') ??
-            url.searchParams.get('token');
-          if (!reqToken || reqToken !== opts.sessionToken) {
-            res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-            return true;
-          }
+        // 2. Per-boot session capability token guard (Requirement 2: fail-closed)
+        if (!isAllowedSessionToken(req, url, opts.sessionToken)) {
+          res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+          return true;
         }
 
         // 3. Single-writer lock guard for mutation endpoints (Requirement 4)
