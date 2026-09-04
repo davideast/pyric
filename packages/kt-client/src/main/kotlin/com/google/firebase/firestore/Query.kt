@@ -8,8 +8,12 @@ import dev.pyric.codecs.OrderBy
 import dev.pyric.codecs.QueryCompiler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 open class Query internal constructor(
@@ -183,7 +187,8 @@ open class Query internal constructor(
                 val targetDesc = toTargetDescriptor()
                 val res = firestore.bridgeClient.op(
                     method = "getDocs",
-                    params = mapOf("target" to targetDesc)
+                    params = mapOf("target" to targetDesc),
+                    actAs = firestore.getEffectiveAuthLens().toMap()
                 )
                 @Suppress("UNCHECKED_CAST")
                 val resMap = res as? Map<String, Any?> ?: emptyMap()
@@ -221,23 +226,16 @@ open class Query internal constructor(
     fun aggregate(field: AggregateField, vararg moreFields: AggregateField): AggregateQuery =
         AggregateQuery(this, listOf(field) + moreFields.toList())
 
-    fun addSnapshotListener(
-        metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE,
-        listener: EventListener<QuerySnapshot>
-    ): ListenerRegistration {
-        val scope = CoroutineScope(Dispatchers.IO)
-        val flow = firestore.bridgeClient.subscribe(
-            target = toTargetDescriptor(),
-            includeMetadataChanges = (metadataChanges == MetadataChanges.INCLUDE)
-        )
-
-        var job: Job? = null
-        job = scope.launch {
-            flow.catch { e ->
-                val fse = (e as? FirebaseFirestoreException)
-                    ?: FirebaseFirestoreException(e.message ?: "Query snapshot error", FirebaseFirestoreException.Code.UNKNOWN, e)
-                listener.onEvent(null, fse)
-            }.collect { rawMsg ->
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun snapshots(metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE): Flow<QuerySnapshot> {
+        val target = toTargetDescriptor()
+        val includeMetadata = (metadataChanges == MetadataChanges.INCLUDE)
+        return firestore.authLensFlow.flatMapLatest { lens ->
+            firestore.bridgeClient.subscribe(
+                target = target,
+                actAs = lens.toMap(),
+                includeMetadataChanges = includeMetadata
+            ).map { rawMsg ->
                 @Suppress("UNCHECKED_CAST")
                 val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
                 @Suppress("UNCHECKED_CAST")
@@ -255,12 +253,30 @@ open class Query internal constructor(
                     )
                 }
 
-                val snapshot = QuerySnapshot(
+                QuerySnapshot(
                     query = this@Query,
                     documents = docs,
                     documentChanges = emptyList(),
                     metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
                 )
+            }
+        }
+    }
+
+    fun addSnapshotListener(listener: EventListener<QuerySnapshot>): ListenerRegistration =
+        addSnapshotListener(MetadataChanges.EXCLUDE, listener)
+
+    fun addSnapshotListener(
+        metadataChanges: MetadataChanges,
+        listener: EventListener<QuerySnapshot>
+    ): ListenerRegistration {
+        val scope = CoroutineScope(Dispatchers.IO)
+        val job = scope.launch {
+            snapshots(metadataChanges).catch { e ->
+                val fse = (e as? FirebaseFirestoreException)
+                    ?: FirebaseFirestoreException(e.message ?: "Query snapshot error", FirebaseFirestoreException.Code.UNKNOWN, e)
+                listener.onEvent(null, fse)
+            }.collect { snapshot ->
                 listener.onEvent(snapshot, null)
             }
         }

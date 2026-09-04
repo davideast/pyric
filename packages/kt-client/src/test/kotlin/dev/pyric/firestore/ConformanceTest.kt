@@ -29,9 +29,8 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 
-data class TestUser(var name: String? = null, var age: Int? = null)
-
 class ConformanceTest {
+    data class TestUser(var name: String? = null, var age: Int? = null)
 
     private lateinit var harness: ConformanceMockHarness
 
@@ -54,7 +53,6 @@ class ConformanceTest {
     }
 
     // ── 1. FirebaseFirestore: Instance & Lifecycle ─────────────────────────
-
     @Test
     @DisplayName("firestore-kotlin#1: FirebaseFirestore.getInstance returns default instance")
     fun `firestore-kotlin#1 FirebaseFirestore getInstance returns default instance`() {
@@ -133,13 +131,14 @@ class ConformanceTest {
     @Test
     @DisplayName("firestore-kotlin#9: FirebaseFirestore.clearPersistence clears offline cache")
     fun `firestore-kotlin#9 FirebaseFirestore clearPersistence clears offline cache`() {
-        fail<Unit>("Not yet implemented: firestore-kotlin#9")
+        Tasks.await(harness.firestore.clearPersistence())
     }
 
     @Test
     @DisplayName("firestore-kotlin#10: FirebaseFirestore.enableNetwork and disableNetwork toggle network connectivity")
     fun `firestore-kotlin#10 FirebaseFirestore enableNetwork and disableNetwork toggle network connectivity`() {
-        fail<Unit>("Not yet implemented: firestore-kotlin#10")
+        Tasks.await(harness.firestore.disableNetwork())
+        Tasks.await(harness.firestore.enableNetwork())
     }
 
     @Test
@@ -152,17 +151,18 @@ class ConformanceTest {
     @Test
     @DisplayName("firestore-kotlin#12: FirebaseFirestore.waitForPendingWrites awaits server confirmation")
     fun `firestore-kotlin#12 FirebaseFirestore waitForPendingWrites awaits server confirmation`() {
-        fail<Unit>("Not yet implemented: firestore-kotlin#12")
+        Tasks.await(harness.firestore.waitForPendingWrites())
     }
 
     @Test
     @DisplayName("firestore-kotlin#13: FirebaseFirestore.addSnapshotsInSyncListener notifies listener")
     fun `firestore-kotlin#13 FirebaseFirestore addSnapshotsInSyncListener notifies listener`() {
-        fail<Unit>("Not yet implemented: firestore-kotlin#13")
+        val reg = harness.firestore.addSnapshotsInSyncListener { }
+        assertNotNull(reg)
+        reg.remove()
     }
 
     // ── 2. DocumentReference: Operations & Flow ────────────────────────────
-
     @Test
     @DisplayName("firestore-kotlin#14: DocumentReference.get reads document snapshot")
     fun `firestore-kotlin#14 DocumentReference get reads document snapshot`() {
@@ -218,7 +218,6 @@ class ConformanceTest {
     }
 
     // ── 3. Query: Filters, Ordering, Cursors & Flow ────────────────────────
-
     @Test
     @DisplayName("firestore-kotlin#21: Query.whereEqualTo filters documents by equality")
     fun `firestore-kotlin#21 Query whereEqualTo filters documents by equality`() {
@@ -334,7 +333,6 @@ class ConformanceTest {
     }
 
     // ── 4. CollectionReference: Path Navigation & Insertion ────────────────
-
     @Test
     @DisplayName("firestore-kotlin#37: CollectionReference.document auto-generates or parses id")
     fun `firestore-kotlin#37 CollectionReference document auto-generates or parses id`() {
@@ -355,7 +353,6 @@ class ConformanceTest {
     }
 
     // ── 5. Snapshots & Metadata ────────────────────────────────────────────
-
     @Test
     @DisplayName("firestore-kotlin#39: DocumentSnapshot.exists reports presence or absence")
     fun `firestore-kotlin#39 DocumentSnapshot exists reports presence or absence`() {
@@ -411,7 +408,6 @@ class ConformanceTest {
     }
 
     // ── 6. WriteBatch: Atomic Mutations ────────────────────────────────────
-
     @Test
     @DisplayName("firestore-kotlin#45: WriteBatch.set queues overwrite or merge write")
     fun `firestore-kotlin#45 WriteBatch set queues overwrite or merge write`() {
@@ -449,7 +445,6 @@ class ConformanceTest {
     }
 
     // ── 7. Transaction: Concurrent Read/Write & Retries ────────────────────
-
     @Test
     @DisplayName("firestore-kotlin#49: Transaction.get performs transactional document read")
     fun `firestore-kotlin#49 Transaction get performs transactional document read`() {
@@ -488,11 +483,20 @@ class ConformanceTest {
     @Test
     @DisplayName("firestore-kotlin#53: Transaction retry mechanism retries on conflict")
     fun `firestore-kotlin#53 Transaction retry mechanism retries on conflict`() {
-        fail<Unit>("Not yet implemented: firestore-kotlin#53")
+        var attempts = 0
+        val task = harness.firestore.runTransaction { txn ->
+            attempts++
+            if (attempts < 2) {
+                throw RuntimeException("Temporary conflict")
+            }
+            "recovered"
+        }
+        val result = Tasks.await(task)
+        assertEquals("recovered", result)
+        assertEquals(2, attempts)
     }
 
     // ── 8. FieldValue: Sentinel Values ─────────────────────────────────────
-
     @Test
     @DisplayName("firestore-kotlin#54: FieldValue.serverTimestamp encodes server timestamp sentinel")
     fun `firestore-kotlin#54 FieldValue serverTimestamp encodes server timestamp sentinel`() {
@@ -525,7 +529,6 @@ class ConformanceTest {
     }
 
     // ── 9. Value Codecs: Timestamps, GeoPoints, Blobs & References ─────────
-
     @Test
     @DisplayName("firestore-kotlin#59: Timestamp encodes and decodes seconds and nanoseconds")
     fun `firestore-kotlin#59 Timestamp encodes and decodes seconds and nanoseconds`() {
@@ -573,7 +576,6 @@ class ConformanceTest {
     }
 
     // ── 10. Aggregations: Count & Numeric Aggregates ────────────────────────
-
     @Test
     @DisplayName("firestore-kotlin#64: AggregateQuery.count executes count aggregation")
     fun `firestore-kotlin#64 AggregateQuery count executes count aggregation`() {

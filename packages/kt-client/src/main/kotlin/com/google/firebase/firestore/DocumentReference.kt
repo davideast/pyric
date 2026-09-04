@@ -7,8 +7,12 @@ import dev.pyric.codecs.SentinelValidator
 import dev.pyric.codecs.ValueCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class DocumentReference internal constructor(
@@ -35,7 +39,8 @@ class DocumentReference internal constructor(
             try {
                 val res = firestore.bridgeClient.op(
                     method = "getDoc",
-                    params = mapOf("path" to path)
+                    params = mapOf("path" to path),
+                    actAs = firestore.getEffectiveAuthLens().toMap()
                 )
                 @Suppress("UNCHECKED_CAST")
                 val resMap = res as? Map<String, Any?> ?: emptyMap()
@@ -84,7 +89,8 @@ class DocumentReference internal constructor(
                         "path" to path,
                         "data" to ValueCodec.encodeWriteData(map),
                         "merge" to options.isMerge
-                    )
+                    ),
+                    actAs = firestore.getEffectiveAuthLens().toMap()
                 )
                 tcs.setResult(null)
             } catch (e: Exception) {
@@ -104,7 +110,8 @@ class DocumentReference internal constructor(
                     params = mapOf(
                         "path" to path,
                         "data" to ValueCodec.encodeWriteData(data)
-                    )
+                    ),
+                    actAs = firestore.getEffectiveAuthLens().toMap()
                 )
                 tcs.setResult(null)
             } catch (e: Exception) {
@@ -132,7 +139,8 @@ class DocumentReference internal constructor(
             try {
                 firestore.bridgeClient.op(
                     method = "deleteDoc",
-                    params = mapOf("path" to path)
+                    params = mapOf("path" to path),
+                    actAs = firestore.getEffectiveAuthLens().toMap()
                 )
                 tcs.setResult(null)
             } catch (e: Exception) {
@@ -142,44 +150,53 @@ class DocumentReference internal constructor(
         return tcs.task
     }
 
-    fun addSnapshotListener(
-        metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE,
-        listener: EventListener<DocumentSnapshot>
-    ): ListenerRegistration {
-        val scope = CoroutineScope(Dispatchers.IO)
-        val flow = firestore.bridgeClient.subscribe(
-            target = mapOf("__ref" to "doc", "path" to path),
-            includeMetadataChanges = (metadataChanges == MetadataChanges.INCLUDE)
-        )
-
-        var job: Job? = null
-        job = scope.launch {
-            flow.catch { e ->
-                val fse = (e as? FirebaseFirestoreException)
-                    ?: FirebaseFirestoreException(e.message ?: "Snapshot error", FirebaseFirestoreException.Code.UNKNOWN, e)
-                listener.onEvent(null, fse)
-            }.collect { rawMsg ->
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun snapshots(metadataChanges: MetadataChanges = MetadataChanges.EXCLUDE): Flow<DocumentSnapshot> {
+        val target = mapOf("__ref" to "doc", "path" to path)
+        val includeMetadata = (metadataChanges == MetadataChanges.INCLUDE)
+        return firestore.authLensFlow.flatMapLatest { lens ->
+            firestore.bridgeClient.subscribe(
+                target = target,
+                actAs = lens.toMap(),
+                includeMetadataChanges = includeMetadata
+            ).map { rawMsg ->
                 @Suppress("UNCHECKED_CAST")
                 val resMap = rawMsg as? Map<String, Any?> ?: emptyMap()
                 val docId = (resMap["id"] as? String) ?: id
-                val docPath = (resMap["path"] as? String) ?: path
                 val exists = resMap["exists"] == true
                 val rawData = resMap["data"]
                 val unpackedData = if (exists) {
                     DocumentDataEnvelope.unpack(rawData) { p -> firestore.document(p) }
                 } else null
 
-                val snapshot = DocumentSnapshot(
+                DocumentSnapshot(
                     id = docId,
                     reference = this@DocumentReference,
                     exists = exists,
                     rawData = unpackedData,
                     metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
                 )
+            }
+        }
+    }
+
+    fun addSnapshotListener(listener: EventListener<DocumentSnapshot>): ListenerRegistration =
+        addSnapshotListener(MetadataChanges.EXCLUDE, listener)
+
+    fun addSnapshotListener(
+        metadataChanges: MetadataChanges,
+        listener: EventListener<DocumentSnapshot>
+    ): ListenerRegistration {
+        val scope = CoroutineScope(Dispatchers.IO)
+        val job = scope.launch {
+            snapshots(metadataChanges).catch { e ->
+                val fse = (e as? FirebaseFirestoreException)
+                    ?: FirebaseFirestoreException(e.message ?: "Snapshot error", FirebaseFirestoreException.Code.UNKNOWN, e)
+                listener.onEvent(null, fse)
+            }.collect { snapshot ->
                 listener.onEvent(snapshot, null)
             }
         }
-
         return ListenerRegistration { job.cancel() }
     }
 

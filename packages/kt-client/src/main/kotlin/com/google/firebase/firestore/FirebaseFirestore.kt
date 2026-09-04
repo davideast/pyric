@@ -4,18 +4,76 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
+import dev.pyric.auth.AuthLens
+import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
-class FirebaseFirestore internal constructor(
+class FirebaseFirestore(
     val bridgeClient: PyricBridgeClient,
     val app: FirebaseApp,
-    val databaseId: String
+    val databaseId: String,
+    val credentialsProvider: CredentialsProvider? = null
 ) {
+    constructor(
+        bridgeClient: PyricBridgeClient,
+        app: FirebaseApp,
+        databaseId: String
+    ) : this(bridgeClient, app, databaseId, credentialsProvider = null)
+
+    fun interface RulesDenialListener {
+        fun onDenial(exception: FirebaseFirestoreException, context: Map<String, Any?>)
+    }
+
+    private val firestoreScope = CoroutineScope(Dispatchers.IO)
+    private val rulesDenialListeners = CopyOnWriteArrayList<RulesDenialListener>()
+
+    init {
+        firestoreScope.launch {
+            bridgeClient.denialEvents.collect { exception ->
+                notifyRulesDenial(exception)
+            }
+        }
+    }
+
     var firestoreSettings: FirebaseFirestoreSettings = FirebaseFirestoreSettings.Builder().build()
+
+    fun addRulesDenialListener(listener: RulesDenialListener): ListenerRegistration {
+        rulesDenialListeners.add(listener)
+        return ListenerRegistration {
+            rulesDenialListeners.remove(listener)
+        }
+    }
+
+    fun removeRulesDenialListener(listener: RulesDenialListener) {
+        rulesDenialListeners.remove(listener)
+    }
+
+    fun notifyRulesDenial(exception: FirebaseFirestoreException) {
+        if (exception.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+            @Suppress("UNCHECKED_CAST")
+            val contextMap = (exception.denialContext as? Map<String, Any?>) ?: emptyMap()
+            for (listener in rulesDenialListeners) {
+                try {
+                    listener.onDenial(exception, contextMap)
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    fun getEffectiveAuthLens(): AuthLens =
+        credentialsProvider?.getEffectiveLens() ?: AuthLens.Anon
+
+    val authLensFlow: StateFlow<AuthLens>
+        get() = credentialsProvider?.authLensFlow ?: MutableStateFlow(AuthLens.Anon)
 
     fun collection(collectionPath: String): CollectionReference {
         val segments = collectionPath.trim('/').split('/').filter { it.isNotEmpty() }
@@ -70,7 +128,8 @@ class FirebaseFirestore internal constructor(
                         params = mapOf(
                             "reads" to txn.reads,
                             "writes" to txn.writes
-                        )
+                        ),
+                        actAs = getEffectiveAuthLens().toMap()
                     )
                     tcs.setResult(result)
                     return@launch
@@ -89,7 +148,10 @@ class FirebaseFirestore internal constructor(
         return tcs.task
     }
 
-    fun terminate(): Task<Void?> = bridgeClient.terminate()
+    fun terminate(): Task<Void?> {
+        firestoreScope.cancel()
+        return bridgeClient.terminate()
+    }
 
     fun clearPersistence(): Task<Void?> = Tasks.forResult(null)
 
@@ -118,7 +180,15 @@ class FirebaseFirestore internal constructor(
         fun getInstance(app: FirebaseApp, database: String): FirebaseFirestore {
             return instances.computeIfAbsent(Pair(app.name, database)) {
                 val bridge = PyricBridgeClient.createDefault()
-                FirebaseFirestore(bridge, app, database)
+                val auth = runCatching { FirebaseAuth.getInstance(app, bridge) }.getOrNull()
+                FirebaseFirestore(bridge, app, database, credentialsProvider = auth)
+            }
+        }
+
+        fun getInstance(app: FirebaseApp, bridgeClient: PyricBridgeClient, database: String = "(default)"): FirebaseFirestore {
+            return instances.computeIfAbsent(Pair(app.name, database)) {
+                val auth = runCatching { FirebaseAuth.getInstance(app, bridgeClient) }.getOrNull()
+                FirebaseFirestore(bridgeClient, app, database, credentialsProvider = auth)
             }
         }
 
