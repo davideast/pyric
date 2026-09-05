@@ -36,7 +36,7 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     // ── Retrieving Data ──────────────────────────────────────────────────────
 
     public func getDocument(source: FirestoreSource = .default) async throws -> DocumentSnapshot {
-        let raw = try await firestore.bridgeClient.getDoc(path: path)
+        let raw = try await firestore.bridgeClient.getDoc(path: path, actAs: firestore.effectiveAuthLens)
         return DocumentSnapshot.fromWire(firestore: firestore, path: path, wire: raw)
     }
 
@@ -49,12 +49,10 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         completion: @escaping @Sendable (DocumentSnapshot?, Error?) -> Void
     ) {
         let box = CallbackBox(completion)
-        let docPath = self.path
         let db = self.firestore
         Task {
             do {
-                let raw = try await db.bridgeClient.getDoc(path: docPath)
-                let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: raw)
+                let snapshot = try await self.getDocument(source: source)
                 db.settings.dispatchQueue.async {
                     box.callback(snapshot, nil)
                 }
@@ -75,7 +73,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         try await firestore.bridgeClient.setDoc(
             path: path,
             data: sendableData,
-            options: options
+            options: options,
+            actAs: firestore.effectiveAuthLens
         )
     }
 
@@ -99,7 +98,8 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         try await firestore.bridgeClient.setDoc(
             path: path,
             data: sendableData,
-            options: options
+            options: options,
+            actAs: firestore.effectiveAuthLens
         )
     }
 
@@ -117,7 +117,12 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             let box = ErrorCallbackBox(completion)
             Task {
                 do {
-                    try await db.bridgeClient.setDoc(path: docPath, data: sendableData, options: options)
+                    try await db.bridgeClient.setDoc(
+                        path: docPath,
+                        data: sendableData,
+                        options: options,
+                        actAs: db.effectiveAuthLens
+                    )
                     db.settings.dispatchQueue.async { box.callback?(nil) }
                 } catch {
                     db.settings.dispatchQueue.async { box.callback?(error) }
@@ -151,7 +156,12 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             let box = ErrorCallbackBox(completion)
             Task {
                 do {
-                    try await db.bridgeClient.setDoc(path: docPath, data: sendableData, options: options)
+                    try await db.bridgeClient.setDoc(
+                        path: docPath,
+                        data: sendableData,
+                        options: options,
+                        actAs: db.effectiveAuthLens
+                    )
                     db.settings.dispatchQueue.async { box.callback?(nil) }
                 } catch {
                     db.settings.dispatchQueue.async { box.callback?(error) }
@@ -175,7 +185,11 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         }
         let encoded = try ValueCodec.encodeWriteData(stringDict)
         let sendableData = AnySendable.from(encoded)
-        try await firestore.bridgeClient.updateDoc(path: path, data: sendableData)
+        try await firestore.bridgeClient.updateDoc(
+            path: path,
+            data: sendableData,
+            actAs: firestore.effectiveAuthLens
+        )
     }
 
     public func updateData(_ fields: [AnyHashable: Any], completion: (@Sendable (Error?) -> Void)? = nil) {
@@ -197,7 +211,11 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
             let box = ErrorCallbackBox(completion)
             Task {
                 do {
-                    try await db.bridgeClient.updateDoc(path: docPath, data: sendableData)
+                    try await db.bridgeClient.updateDoc(
+                        path: docPath,
+                        data: sendableData,
+                        actAs: db.effectiveAuthLens
+                    )
                     db.settings.dispatchQueue.async { box.callback?(nil) }
                 } catch {
                     db.settings.dispatchQueue.async { box.callback?(error) }
@@ -209,7 +227,7 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
     }
 
     public func delete() async throws {
-        try await firestore.bridgeClient.deleteDoc(path: path)
+        try await firestore.bridgeClient.deleteDoc(path: path, actAs: firestore.effectiveAuthLens)
     }
 
     public func delete(completion: (@Sendable (Error?) -> Void)? = nil) {
@@ -218,7 +236,7 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         let box = ErrorCallbackBox(completion)
         Task {
             do {
-                try await db.bridgeClient.deleteDoc(path: docPath)
+                try await db.bridgeClient.deleteDoc(path: docPath, actAs: db.effectiveAuthLens)
                 db.settings.dispatchQueue.async { box.callback?(nil) }
             } catch {
                 db.settings.dispatchQueue.async { box.callback?(error) }
@@ -238,31 +256,29 @@ public final class DocumentReference: PathReferenceable, Equatable, Hashable, @u
         includeMetadataChanges: Bool,
         listener: @escaping @Sendable (DocumentSnapshot?, Error?) -> Void
     ) -> ListenerRegistration {
-        let stream = firestore.bridgeClient.subscribe(
-            target: TargetDescriptor.doc(path: path),
-            includeMetadataChanges: includeMetadataChanges
-        )
         let box = CallbackBox(listener)
         let docPath = self.path
         let db = self.firestore
 
-        let task = Task {
-            do {
-                for try await event in stream {
-                    let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: event)
-                    db.settings.dispatchCallback {
-                        box.callback(snapshot, nil)
-                    }
+        let coordinator = SnapshotSubscriptionCoordinator(
+            firestore: db,
+            target: .doc(path: docPath),
+            includeMetadataChanges: includeMetadataChanges,
+            onEvent: { event in
+                let snapshot = DocumentSnapshot.fromWire(firestore: db, path: docPath, wire: event)
+                db.settings.dispatchCallback {
+                    box.callback(snapshot, nil)
                 }
-            } catch {
+            },
+            onError: { error in
                 db.settings.dispatchCallback {
                     box.callback(nil, error)
                 }
             }
-        }
+        )
 
         return SimpleListenerRegistration {
-            task.cancel()
+            coordinator.cancel()
         }
     }
 

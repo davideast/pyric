@@ -103,11 +103,19 @@ export function openEventSubscription(
 }
 
 /** Remove a local subscription and notify only a live app port. */
-export function closeSubscription(port: ClientPort, subId: string): void {
+export function closeSubscription(
+  port: ClientPort,
+  subId: string,
+  clientSessionId?: string,
+): void {
   _snapSubs.delete(subId);
   _eventSubs.delete(subId);
   if (!disconnectedPorts.has(port)) {
-    port.postMessage({ t: 'unsub', subId } satisfies InboundMessage);
+    port.postMessage({
+      t: 'unsub',
+      subId,
+      ...(clientSessionId ? { clientSessionId } : {}),
+    } satisfies InboundMessage);
   }
 }
 

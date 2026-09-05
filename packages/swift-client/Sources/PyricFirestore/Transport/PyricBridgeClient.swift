@@ -6,52 +6,6 @@ private struct PendingOp: Sendable {
     let timeoutTask: Task<Void, Never>
 }
 
-/// Abstract transport layer enabling offline unit tests without real sockets.
-public protocol WebSocketTransport: Sendable {
-    func send(_ string: String) async throws
-    func receive() async throws -> String
-    func close(closeCode: Int, reason: String?) async
-}
-
-public typealias WebSocketChannelProtocol = WebSocketTransport
-
-/// Native implementation backed by URLSessionWebSocketTask.
-public final class URLSessionWebSocketTransport: WebSocketTransport, @unchecked Sendable {
-    private let task: URLSessionWebSocketTask
-    private let session: URLSession
-
-    public init(request: URLRequest, configuration: URLSessionConfiguration = .default) {
-        self.session = URLSession(configuration: configuration)
-        self.task = session.webSocketTask(with: request)
-        self.task.resume()
-    }
-
-    public func send(_ string: String) async throws {
-        try await task.send(.string(string))
-    }
-
-    public func receive() async throws -> String {
-        let msg = try await task.receive()
-        switch msg {
-        case .string(let text):
-            return text
-        case .data(let data):
-            guard let text = String(data: data, encoding: .utf8) else {
-                throw PyricBridgeError.unavailable("Received non-UTF8 binary frame from bridge")
-            }
-            return text
-        @unknown default:
-            throw PyricBridgeError.unavailable("Unknown WebSocket message type")
-        }
-    }
-
-    public func close(closeCode: Int = 1000, reason: String? = nil) async {
-        let closeReason = reason?.data(using: .utf8)
-        let code = URLSessionWebSocketTask.CloseCode(rawValue: closeCode) ?? .normalClosure
-        task.cancel(with: code, reason: closeReason)
-        session.invalidateAndCancel()
-    }
-}
 
 /// Pure-Swift WebSocket transport connecting to the Pyric local sandbox bridge.
 public actor PyricBridgeClient {
@@ -71,6 +25,25 @@ public actor PyricBridgeClient {
     private var connectTask: Task<Void, Error>?
     private var receiveTask: Task<Void, Never>?
     private var handshakeContinuation: CheckedContinuation<Void, Error>?
+
+    private let denialLock = NSLock()
+    nonisolated(unsafe) private var _onDenial: (@Sendable (PyricBridgeError) -> Void)?
+
+    /// Instance-scoped callback invoked whenever a Security Rules denial is intercepted.
+    public nonisolated var onDenial: (@Sendable (PyricBridgeError) -> Void)? {
+        get {
+            denialLock.lock()
+            defer { denialLock.unlock() }
+            return _onDenial
+        }
+        set {
+            denialLock.lock()
+            defer { denialLock.unlock() }
+            _onDenial = newValue
+        }
+    }
+    private var remoteLensContinuations: [UUID: AsyncStream<AuthLens>.Continuation] = [:]
+    private var denialContinuations: [UUID: AsyncStream<PyricBridgeError>.Continuation] = [:]
 
     private var pendingOps: [String: PendingOp] = [:]
     private var activeSubs: [String: AsyncThrowingStream<AnySendable, Error>.Continuation] = [:]
@@ -103,19 +76,10 @@ public actor PyricBridgeClient {
     /// Constructs a URLRequest populating the Host header for DNS-rebinding protection.
     public static func makeWebSocketRequest(url: URL, headers: [String: String] = [:]) -> URLRequest {
         var request = URLRequest(url: url)
-        for (key, value) in headers {
-            request.setValue(value, forHTTPHeaderField: key)
-        }
+        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
         if request.value(forHTTPHeaderField: "Host") == nil {
-            if let host = url.host {
-                if let port = url.port {
-                    request.setValue("\(host):\(port)", forHTTPHeaderField: "Host")
-                } else {
-                    request.setValue(host, forHTTPHeaderField: "Host")
-                }
-            } else {
-                request.setValue("127.0.0.1:5174", forHTTPHeaderField: "Host")
-            }
+            let hostStr = (url.port != nil) ? "\(url.host ?? "127.0.0.1"):\(url.port!)" : (url.host ?? "127.0.0.1:5174")
+            request.setValue(hostStr, forHTTPHeaderField: "Host")
         }
         return request
     }
@@ -146,6 +110,17 @@ public actor PyricBridgeClient {
         }
     }
 
+    private func resumeHandshake(returning result: Result<Void, Error>) {
+        guard let continuation = handshakeContinuation else { return }
+        handshakeContinuation = nil
+        switch result {
+        case .success:
+            continuation.resume()
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+    }
+
     private func performConnect() async throws {
         let request = Self.makeWebSocketRequest(url: endpoint, headers: headers)
 
@@ -171,15 +146,16 @@ public actor PyricBridgeClient {
                         let attachFrame = AttachFrame()
                         try await self.sendRaw(attachFrame)
                     } catch {
-                        self.handshakeContinuation = nil
-                        continuation.resume(throwing: PyricBridgeError.unavailable("Failed to send attach frame: \(error)"))
+                        self.resumeHandshake(
+                            returning: .failure(PyricBridgeError.unavailable("Failed to send attach frame: \(error)"))
+                        )
                     }
                 }
             }
         } catch {
             self.receiveTask?.cancel()
             self.receiveTask = nil
-            self.handshakeContinuation = nil
+            self.resumeHandshake(returning: .failure(error))
             throw error
         }
 
@@ -244,6 +220,58 @@ public actor PyricBridgeClient {
         )
     }
 
+    /// Lists all sandbox users via the auth.listUsers RPC.
+    public func authListUsers() async throws -> [AnySendable] {
+        let res = try await op(method: "auth.listUsers", params: [:])
+        return res.arrayValue ?? []
+    }
+
+    /// Exposes pushed remote lens changes from desktop Pyric Studio.
+    public nonisolated var remoteLensStream: AsyncStream<AuthLens> {
+        AsyncStream { continuation in
+            let id = UUID()
+            Task { [weak self] in
+                await self?.registerRemoteLensContinuation(id: id, continuation: continuation)
+            }
+            continuation.onTermination = { [weak self] _ in
+                Task { [weak self] in
+                    await self?.unregisterRemoteLensContinuation(id: id)
+                }
+            }
+        }
+    }
+
+    private func registerRemoteLensContinuation(id: UUID, continuation: AsyncStream<AuthLens>.Continuation) {
+        remoteLensContinuations[id] = continuation
+    }
+
+    private func unregisterRemoteLensContinuation(id: UUID) {
+        remoteLensContinuations.removeValue(forKey: id)
+    }
+
+    /// Exposes Security Rules denial errors intercepted from bridge responses and snapshots.
+    public nonisolated var denialStream: AsyncStream<PyricBridgeError> {
+        AsyncStream { continuation in
+            let id = UUID()
+            Task { [weak self] in
+                await self?.registerDenialContinuation(id: id, continuation: continuation)
+            }
+            continuation.onTermination = { [weak self] _ in
+                Task { [weak self] in
+                    await self?.unregisterDenialContinuation(id: id)
+                }
+            }
+        }
+    }
+
+    private func registerDenialContinuation(id: UUID, continuation: AsyncStream<PyricBridgeError>.Continuation) {
+        denialContinuations[id] = continuation
+    }
+
+    private func unregisterDenialContinuation(id: UUID) {
+        denialContinuations.removeValue(forKey: id)
+    }
+
     // ─── Streaming Subscriptions ─────────────────────────────────────────────
 
     /// Establishes a real-time subscription for a document or query target.
@@ -268,12 +296,7 @@ public actor PyricBridgeClient {
         includeMetadataChanges: Bool = false,
         listenSource: String? = nil
     ) -> PyricSubscriptionStream {
-        subscribe(
-            target: target.toAnySendable(),
-            actAs: actAs?.toAnySendable(),
-            includeMetadataChanges: includeMetadataChanges,
-            listenSource: listenSource
-        )
+        subscribe(target: target.toAnySendable(), actAs: actAs?.toAnySendable(), includeMetadataChanges: includeMetadataChanges, listenSource: listenSource)
     }
 
     public nonisolated func subscribe(
@@ -282,12 +305,7 @@ public actor PyricBridgeClient {
         includeMetadataChanges: Bool = false,
         listenSource: String? = nil
     ) -> PyricSubscriptionStream {
-        subscribe(
-            target: AnySendable.from(target),
-            actAs: actAs,
-            includeMetadataChanges: includeMetadataChanges,
-            listenSource: listenSource
-        )
+        subscribe(target: AnySendable.from(target), actAs: actAs, includeMetadataChanges: includeMetadataChanges, listenSource: listenSource)
     }
 
     /// Explicitly unregisters an active subscription and dispatches a worker-unsub frame.
@@ -369,6 +387,8 @@ public actor PyricBridgeClient {
             handleWorkerRes(json)
         case "worker-snap":
             handleWorkerSnap(json)
+        case "worker-event":
+            handleWorkerEvent(json)
         case "ping":
             handlePing(json)
         case "pong":
@@ -378,19 +398,45 @@ public actor PyricBridgeClient {
         }
     }
 
+    private func handleWorkerEvent(_ msg: AnySendable) {
+        guard let event = msg["event"]?.stringValue, event == "remote-lens" else { return }
+        let lensData = msg["lens"] ?? msg["payload"]?["lens"] ?? msg["payload"]
+        guard let lensData, let mode = lensData["mode"]?.stringValue else { return }
+
+        let lens: AuthLens
+        switch mode {
+        case "admin":
+            lens = .admin
+        case "anon":
+            lens = .anon
+        case "app-session":
+            lens = .appSession
+        case "as":
+            let uid = lensData["uid"]?.stringValue ?? ""
+            let tenant = lensData["tenant"]?.stringValue
+            let token = lensData["token"]?.dictionaryValue
+            lens = .asUser(uid: uid, tenant: tenant, token: token)
+        default:
+            return
+        }
+
+        for cont in remoteLensContinuations.values {
+            cont.yield(lens)
+        }
+    }
+
     private func handleAttachAck(_ msg: AnySendable) {
         let peerConnected = msg["peerConnected"]?.boolValue ?? false
-        if let continuation = handshakeContinuation {
-            handshakeContinuation = nil
-            if peerConnected {
-                continuation.resume()
-            } else {
-                continuation.resume(
-                    throwing: PyricBridgeError.unavailable(
+        if peerConnected {
+            resumeHandshake(returning: .success(()))
+        } else {
+            resumeHandshake(
+                returning: .failure(
+                    PyricBridgeError.unavailable(
                         "No browser tab is connected to the sandbox — open pyric sandbox in a browser and retry."
                     )
                 )
-            }
+            )
         }
     }
 
@@ -403,9 +449,10 @@ public actor PyricBridgeClient {
 
         let ok = msg["ok"]?.boolValue ?? false
         if ok {
-            pending.continuation.resume(returning: msg["value"] ?? .null)
+            let result = msg["value"] ?? msg["res"] ?? .null
+            pending.continuation.resume(returning: result)
         } else {
-            let errorObj = msg["error"]
+            let errorObj = msg["error"] ?? msg["err"]
             let code = errorObj?["code"]?.stringValue ?? "unknown"
             let message = errorObj?["message"]?.stringValue ?? "unknown sandbox error"
             let denialContext = errorObj?["denialContext"]
@@ -417,6 +464,12 @@ public actor PyricBridgeClient {
                 denialContext: denialContext,
                 envelope: envelope
             )
+            if denialContext != nil {
+                for cont in denialContinuations.values {
+                    cont.yield(error)
+                }
+                onDenial?(error)
+            }
             pending.continuation.resume(throwing: error)
         }
     }
@@ -424,12 +477,13 @@ public actor PyricBridgeClient {
     private func handleWorkerSnap(_ msg: AnySendable) {
         guard let subId = msg["subId"]?.stringValue,
               let continuation = activeSubs[subId],
-              let value = msg["value"] else {
+              let value = msg["value"] ?? msg["res"] else {
             return
         }
 
         // Terminal snapshot error check
-        if let errObj = value["__error"] {
+        let errObj = value["__error"] ?? msg["error"] ?? msg["err"]
+        if let errObj {
             activeSubs.removeValue(forKey: subId)
             if isConnected && !isDisposed {
                 Task { [weak self] in
@@ -445,6 +499,12 @@ public actor PyricBridgeClient {
                 message: message,
                 denialContext: denialContext
             )
+            if denialContext != nil {
+                for cont in denialContinuations.values {
+                    cont.yield(error)
+                }
+                onDenial?(error)
+            }
             continuation.finish(throwing: error)
             return
         }
@@ -460,16 +520,8 @@ public actor PyricBridgeClient {
     }
 
     private func handleChannelError(_ error: Error) {
-        if let continuation = handshakeContinuation {
-            handshakeContinuation = nil
-            continuation.resume(
-                throwing: PyricBridgeError.unavailable("WebSocket connection error: \(error)")
-            )
-        }
-        failPendingOperations(
-            code: .unavailable,
-            message: "WebSocket connection error: \(error)"
-        )
+        resumeHandshake(returning: .failure(PyricBridgeError.unavailable("WebSocket connection error: \(error)")))
+        failPendingOperations(code: .unavailable, message: "WebSocket connection error: \(error)")
     }
 
     private func failPendingOperations(code: FirestoreErrorCode, message: String) {
@@ -517,11 +569,13 @@ public actor PyricBridgeClient {
         isConnected = false
 
         failPendingOperations(code: .unavailable, message: "PyricBridgeClient disconnected.")
+        resumeHandshake(returning: .failure(PyricBridgeError.unavailable("PyricBridgeClient disconnected.")))
 
-        if let continuation = handshakeContinuation {
-            handshakeContinuation = nil
-            continuation.resume(throwing: PyricBridgeError.unavailable("PyricBridgeClient disconnected."))
-        }
+        for cont in remoteLensContinuations.values { cont.finish() }
+        remoteLensContinuations.removeAll()
+        for cont in denialContinuations.values { cont.finish() }
+        denialContinuations.removeAll()
+        onDenial = nil
 
         receiveTask?.cancel()
         receiveTask = nil
@@ -531,117 +585,3 @@ public actor PyricBridgeClient {
     }
 }
 
-// ─── PyricSubscriptionStream ──────────────────────────────────────────────────
-
-/// An asynchronous sequence of snapshots emitted by a bridge subscription.
-/// Automatically unregisters and sends a worker-unsub frame when iteration terminates or is cancelled.
-public struct PyricSubscriptionStream: AsyncSequence, Sendable {
-    public typealias Element = AnySendable
-    public typealias Failure = Error
-
-    public let client: PyricBridgeClient
-    public let target: AnySendable
-    public let actAs: AnySendable?
-    public let includeMetadataChanges: Bool
-    public let listenSource: String?
-
-    public init(
-        client: PyricBridgeClient,
-        target: AnySendable,
-        actAs: AnySendable? = nil,
-        includeMetadataChanges: Bool = false,
-        listenSource: String? = nil
-    ) {
-        self.client = client
-        self.target = target
-        self.actAs = actAs
-        self.includeMetadataChanges = includeMetadataChanges
-        self.listenSource = listenSource
-    }
-
-    public func makeAsyncIterator() -> Iterator {
-        Iterator(
-            client: client,
-            target: target,
-            actAs: actAs,
-            includeMetadataChanges: includeMetadataChanges,
-            listenSource: listenSource
-        )
-    }
-
-    public final class Iterator: AsyncIteratorProtocol, @unchecked Sendable {
-        public typealias Element = AnySendable
-
-        private let client: PyricBridgeClient
-        private var subId: String?
-        private var streamIterator: AsyncThrowingStream<AnySendable, Error>.Iterator?
-        private var registrationTask: Task<Void, Never>?
-
-        init(
-            client: PyricBridgeClient,
-            target: AnySendable,
-            actAs: AnySendable?,
-            includeMetadataChanges: Bool,
-            listenSource: String?
-        ) {
-            self.client = client
-            let (stream, continuation) = AsyncThrowingStream<AnySendable, Error>.makeStream()
-            self.streamIterator = stream.makeAsyncIterator()
-
-            self.registrationTask = Task {
-                do {
-                    let id = try await client.registerSubscription(
-                        target: target,
-                        actAs: actAs,
-                        includeMetadataChanges: includeMetadataChanges,
-                        listenSource: listenSource,
-                        continuation: continuation
-                    )
-                    if Task.isCancelled {
-                        await client.unregisterSubscription(subId: id)
-                    } else {
-                        self.subId = id
-                    }
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
-
-        public func next() async throws -> AnySendable? {
-            guard !Task.isCancelled else {
-                cleanup()
-                throw CancellationError()
-            }
-            guard var iterator = streamIterator else {
-                cleanup()
-                return nil
-            }
-            do {
-                let nextElement = try await iterator.next()
-                self.streamIterator = iterator
-                if nextElement == nil {
-                    cleanup()
-                }
-                return nextElement
-            } catch {
-                cleanup()
-                throw error
-            }
-        }
-
-        private func cleanup() {
-            registrationTask?.cancel()
-            if let subId = self.subId {
-                self.subId = nil
-                Task { [client] in
-                    await client.unregisterSubscription(subId: subId)
-                }
-            }
-        }
-
-        deinit {
-            cleanup()
-        }
-    }
-}

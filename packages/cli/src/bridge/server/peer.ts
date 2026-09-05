@@ -12,6 +12,7 @@
  * They live here — not inline in a plugin file — so retiring the standalone
  * bridge Vite plugin doesn't drag its consumers with it.
  */
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { createBridge, type Bridge } from './bridge.js';
@@ -19,7 +20,11 @@ import {
   isBridgeMessage,
   PEER_REPLACED_CLOSE_CODE,
   PEER_REPLACED_CLOSE_REASON,
+  type AttachFromConsumer,
   type BridgeMessage,
+  type RemoteSetLensFrame,
+  type WorkerOpFrame,
+  type WorkerSubFrame,
 } from '../protocol.js';
 import { cliVersion } from '../../pkg-version.js';
 
@@ -47,11 +52,15 @@ export function attachPeer(
       // Worker-relay consumer (Node client). NOT a peer: attaching never
       // kicks the browser tab out of last-connection-wins.
       if (helloed || consumer) return;
-      consumer = createConsumerSession(bridge, (out: BridgeMessage) => {
-        try {
-          ws.send(JSON.stringify(out));
-        } catch {}
-      });
+      consumer = createConsumerSession(
+        bridge,
+        (out: BridgeMessage) => {
+          try {
+            ws.send(JSON.stringify(out));
+          } catch {}
+        },
+        msg.clientSessionId ?? msg.sessionId,
+      );
       consumer.handleMessage(msg); // acks with attach-ack
       return;
     }
@@ -101,6 +110,7 @@ export function attachPeer(
       } catch {
         // Socket died between hello and ack — the close handler unwinds.
       }
+      bridge.broadcastConsumerPresence();
       return;
     }
     if (!helloed) return;
@@ -110,7 +120,7 @@ export function attachPeer(
   ws.on('close', () => {
     if (disconnect) disconnect();
     disconnect = null;
-    if (consumer) consumer.dispose();
+    if (consumer) consumer.detach();
     consumer = null;
   });
   ws.on('error', () => {});
@@ -124,8 +134,12 @@ export function attachPeer(
  * tests drive `handleMessage` directly.
  */
 export interface ConsumerSession {
+  /** The assigned client session ID for this consumer. */
+  readonly clientSessionId: string;
   /** Handle one parsed message from the consumer. */
   handleMessage(msg: BridgeMessage): void;
+  /** Detach transport-level subscriptions on temporary socket close without tombstoning the session. */
+  detach(): void;
   /** Tear down every subscription this consumer registered. */
   dispose(): void;
 }
@@ -139,73 +153,155 @@ export interface ConsumerSession {
 export function createConsumerSession(
   bridge: Bridge,
   send: (msg: BridgeMessage) => void,
+  initialSessionId?: string,
 ): ConsumerSession {
+  let clientSessionId = initialSessionId ?? randomUUID();
+  let disposed = false;
   /** consumer subId → bridge-side unsubscribe. */
   const subs = new Map<string, () => void>();
 
-  return {
-    handleMessage(msg: BridgeMessage): void {
-      switch (msg.type) {
-        case 'attach': {
-          // Idempotent re-attach: just re-ack. `serveVersion` is the
-          // version-skew stamp (bridge/protocol.ts) — this process's own
-          // @pyric/cli version, compared client-side at attach.
-          send({
-            type: 'attach-ack',
-            protocol: 1,
-            bridgeVersion: bridge.version,
-            peerConnected: bridge.isSandboxConnected(),
-            serveVersion: cliVersion(),
-          });
-          return;
-        }
-        case 'worker-op': {
-          bridge.dispatchWorkerOp(msg.op).then(
-            (value) => send({ type: 'worker-res', id: msg.id, ok: true, value }),
-            (err: Error & { code?: string; denialContext?: unknown; envelope?: unknown }) =>
-              send({
-                type: 'worker-res',
-                id: msg.id,
-                ok: false,
-                error: {
-                  code: err.code ?? 'unknown',
-                  message: err.message,
-                  // Structured denial context (spike gap 6) — plain JSON,
-                  // relayed verbatim so the Node side re-attaches it.
-                  ...(err.denialContext !== undefined ? { denialContext: err.denialContext } : {}),
-                  ...(err.envelope !== undefined ? { envelope: err.envelope } : {}),
-                },
-              }),
-          );
-          return;
-        }
-        case 'worker-sub': {
-          if (subs.has(msg.subId)) return; // idempotent
-          const unsubscribe = bridge.subscribeWorker(msg.sub, (value) =>
-            send({ type: 'worker-snap', subId: msg.subId, value }),
-          );
-          subs.set(msg.subId, unsubscribe);
-          return;
-        }
-        case 'worker-unsub': {
-          const unsubscribe = subs.get(msg.subId);
-          if (!unsubscribe) return;
-          subs.delete(msg.subId);
-          unsubscribe();
-          return;
-        }
-        case 'ping': {
-          send({ type: 'pong', id: msg.id });
-          return;
-        }
-        default:
-          return; // peer-only or unknown frames — ignore
+  function detach(): void {
+    for (const unsubscribe of subs.values()) unsubscribe();
+    subs.clear();
+    bridge.detachConsumer(clientSessionId);
+    bridge.consumers.unregister(clientSessionId);
+    bridge.broadcastConsumerPresence();
+  }
+
+  function dispose(): void {
+    disposed = true;
+    for (const unsubscribe of subs.values()) unsubscribe();
+    subs.clear();
+    bridge.disconnectConsumer(clientSessionId);
+    bridge.consumers.unregister(clientSessionId);
+    bridge.broadcastConsumerPresence();
+  }
+
+  function handleMessage(msg: BridgeMessage): void {
+    if (disposed) {
+      if (msg.type === 'worker-op') {
+        send({
+          type: 'worker-res',
+          id: msg.id,
+          clientSessionId,
+          ok: false,
+          error: { code: 'app/app-deleted', message: 'Firebase App was deleted' },
+        });
       }
+      return;
+    }
+    bridge.consumers.touch(clientSessionId);
+    switch (msg.type) {
+      case 'attach': {
+        const attachMsg = msg as AttachFromConsumer;
+        if (attachMsg.clientSessionId) {
+          clientSessionId = attachMsg.clientSessionId;
+        } else if (attachMsg.sessionId) {
+          clientSessionId = attachMsg.sessionId;
+        }
+        bridge.consumers.register({
+          clientSessionId,
+          platform: attachMsg.clientInfo?.platform ?? 'node',
+          deviceLabel: attachMsg.clientInfo?.deviceLabel,
+          connectedAt: Date.now(),
+          lastSeen: Date.now(),
+          activeLens: { mode: 'app-session' },
+          send,
+        });
+        send({
+          type: 'attach-ack',
+          protocol: 1,
+          bridgeVersion: bridge.version,
+          peerConnected: bridge.isSandboxConnected(),
+          sandboxConnected: bridge.isSandboxConnected(),
+          serveVersion: cliVersion(),
+          clientSessionId,
+          sessionId: clientSessionId,
+        });
+        bridge.broadcastConsumerPresence();
+        return;
+      }
+      case 'remote-set-lens': {
+        const frame = msg as RemoteSetLensFrame;
+        const ok = bridge.consumers.setLens(frame.clientSessionId, frame.lens);
+        bridge.broadcastConsumerPresence();
+        if (frame.id) {
+          send({
+            type: 'remote-set-lens-ack',
+            id: frame.id,
+            clientSessionId: frame.clientSessionId,
+            ok,
+            ...(ok ? {} : { error: { code: 'not-found', message: 'Client session not found' } }),
+          });
+        }
+        return;
+      }
+      case 'worker-op': {
+        const opSessionId = (msg as WorkerOpFrame).clientSessionId ?? clientSessionId;
+        const opPayload = {
+          ...(msg as WorkerOpFrame).op,
+          resumeSession: true,
+        };
+        bridge.dispatchWorkerOp(opPayload, opSessionId).then(
+          (value) => send({ type: 'worker-res', id: msg.id, clientSessionId: opSessionId, ok: true, value }),
+          (err: Error & { code?: string; denialContext?: unknown; envelope?: unknown }) =>
+            send({
+              type: 'worker-res',
+              id: msg.id,
+              clientSessionId: opSessionId,
+              ok: false,
+              error: {
+                code: err.code ?? 'unknown',
+                message: err.message,
+                ...(err.denialContext !== undefined ? { denialContext: err.denialContext } : {}),
+                ...(err.envelope !== undefined ? { envelope: err.envelope } : {}),
+              },
+            }),
+        );
+        return;
+      }
+      case 'worker-sub': {
+        if (subs.has(msg.subId)) return; // idempotent
+        const subSessionId = (msg as WorkerSubFrame).clientSessionId ?? clientSessionId;
+        const subPayload = {
+          ...(msg as WorkerSubFrame).sub,
+          resumeSession: true,
+        };
+        const unsubscribe = bridge.subscribeWorker(
+          subPayload,
+          (value) => send({ type: 'worker-snap', subId: msg.subId, clientSessionId: subSessionId, value }),
+          subSessionId,
+        );
+        subs.set(msg.subId, unsubscribe);
+        return;
+      }
+      case 'worker-unsub': {
+        const unsubscribe = subs.get(msg.subId);
+        if (!unsubscribe) return;
+        subs.delete(msg.subId);
+        unsubscribe();
+        return;
+      }
+      case 'worker-client-disconnect': {
+        dispose();
+        return;
+      }
+      case 'ping': {
+        send({ type: 'pong', id: msg.id });
+        return;
+      }
+      default:
+        return; // peer-only or unknown frames — ignore
+    }
+  }
+
+  return {
+    get clientSessionId() {
+      return clientSessionId;
     },
-    dispose(): void {
-      for (const unsubscribe of subs.values()) unsubscribe();
-      subs.clear();
-    },
+    handleMessage,
+    detach,
+    dispose,
   };
 }
 

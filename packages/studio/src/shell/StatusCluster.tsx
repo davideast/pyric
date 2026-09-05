@@ -34,6 +34,9 @@ import { useEnvironment } from './environment.js';
 import { useServeInit } from './serve-init.js';
 import { useBridgeAvailability } from './bridge-availability.js';
 import { usePresenceView } from './presence.js';
+import { useBridgeRemoteConsumers } from './bridge-presence.js';
+import { RemoteClientsPopover } from './RemoteClientsPopover.js';
+import { useStudioDataSource } from './studio-data.js';
 import { hrefFor, pushPath } from './router.js';
 
 const EMPTY_WORKER_RUNTIME = {
@@ -53,6 +56,11 @@ export function StatusCluster() {
   const presence = usePresenceView();
   const [presenceOpen, setPresenceOpen] = useState(false);
   const presenceTriggerRef = useRef<HTMLButtonElement>(null);
+  const { consumers: remoteConsumers, setLens: setRemoteLens } = useBridgeRemoteConsumers();
+  const [remoteOpen, setRemoteOpen] = useState(false);
+  const remoteTriggerRef = useRef<HTMLButtonElement>(null);
+  const studioData = useStudioDataSource();
+  const authHandle = studioData.status === 'ready' ? (studioData.handles?.auth as any) : undefined;
   const workerRuntime = env.status === 'ready' ? env.env.live?.runtime : undefined;
   const workerRuntimeSnapshot = useSyncExternalStore(
     workerRuntime?.subscribe ?? subscribeToNothing,
@@ -179,6 +187,31 @@ export function StatusCluster() {
               </div>
             </>
           ) : null}
+        </span>
+      ) : null}
+      {remoteConsumers.length > 0 ? (
+        <span className="studio-remote-clients">
+          <button
+            ref={remoteTriggerRef}
+            type="button"
+            className="studio-chip studio-chip--live studio-remote-clients__trigger"
+            aria-haspopup="dialog"
+            aria-expanded={remoteOpen}
+            aria-controls="studio-remote-clients-panel"
+            title={`${remoteConsumers.length} remote mobile client${remoteConsumers.length === 1 ? '' : 's'} connected over the bridge. Click to control identity.`}
+            onClick={() => setRemoteOpen((o) => !o)}
+          >
+            <span className="studio-chip__dot" aria-hidden="true" />
+            {remoteConsumers.length === 1 ? '1 remote client' : `${remoteConsumers.length} remote clients`}
+          </button>
+          <RemoteClientsPopover
+            isOpen={remoteOpen}
+            onClose={() => setRemoteOpen(false)}
+            consumers={remoteConsumers}
+            onSetLens={setRemoteLens}
+            triggerRef={remoteTriggerRef}
+            auth={authHandle}
+          />
         </span>
       ) : null}
       {connected ? (

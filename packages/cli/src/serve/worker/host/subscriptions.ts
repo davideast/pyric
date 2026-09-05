@@ -28,7 +28,6 @@ import { serializeError, isRtdbSub } from '../protocol.js';
 import { activityJourneyId, type HostCtx, type PortLike, post } from '../host-context.js';
 import {
   lensDb,
-  sessionDb,
   lensRtdb,
   opProvenance,
   resolveTarget,
@@ -64,6 +63,24 @@ function sessionSubsFor(ctx: HostCtx, port: PortLike): Map<string, SessionBoundS
  *  `cleanupPort` on port disconnect. */
 export function dropPortSessionSubs(ctx: HostCtx, port: PortLike): void {
   _sessionSubs.get(ctx)?.delete(port);
+}
+
+/**
+ * Tear down and clear all active listeners for a port (e.g. on peer failover/replacement
+ * or port disconnect), and drop its session-bound sub records.
+ */
+export function teardownPortSubscriptions(ctx: HostCtx, port: PortLike): void {
+  const portSubs = ctx.subs.get(port);
+  if (portSubs) {
+    for (const unsub of portSubs.values()) {
+      try {
+        unsub();
+      } catch {}
+    }
+    portSubs.clear();
+    ctx.subs.delete(port);
+  }
+  dropPortSessionSubs(ctx, port);
 }
 
 /**
@@ -110,35 +127,35 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
 }
 
 export function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void {
-  // Resolve the listener's data handle through the SAME lens path ops use
-  // (Pyric Studio F4 "watch as user"): `{ mode: 'as', uid }` registers the
-  // listener as that user so its rule evals impersonate, `{ mode: 'admin' }`
-  // bypasses rules. Absent ⇒ the PORT'S SESSION (#754), so an app listener
-  // evaluates rules as whoever this tab signed in as.
-  const db = msg.actAs ? lensDb(ctx, msg.actAs) : sessionDb(ctx, port);
   ensurePortSubs(ctx, port);
   const portSubs = ctx.subs.get(port)!;
 
   if (portSubs.has(msg.subId)) return; // idempotent
 
-  // Session-bound listeners re-establish on this port's auth transitions.
-  if (!msg.actAs) {
-    ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
-    sessionSubsFor(ctx, port).set(msg.subId, msg);
-  }
-
   let target: DocumentReference | CollectionReference | Query;
   let unsub: () => void;
   try {
+    // Resolve the listener's data handle through the SAME lens path ops use
+    // (Pyric Studio F4 "watch as user"): `{ mode: 'as', uid }` registers the
+    // listener as that user so its rule evals impersonate, `{ mode: 'admin' }`
+    // bypasses rules. Absent ⇒ the PORT'S SESSION (#754), so an app listener
+    // evaluates rules as whoever this tab signed in as.
+    const db = lensDb(ctx, msg.actAs, port);
     target = resolveTarget(db, msg.target);
     unsub = registerListener(ctx, port, msg, target);
   } catch (e) {
-    // resolveTarget / onSnapshot can throw synchronously (e.g. an invalid
-    // query or a rules-rejected target). Deliver it to the client's onSnapshot
+    // resolveTarget / onSnapshot / lensDb can throw synchronously (e.g. an invalid
+    // query, malformed actAs lens, or a rules-rejected target). Deliver it to the client's onSnapshot
     // error callback as a snap-error instead of letting it escape handleMessage
     // as an unhandled rejection (which would silently deliver NOTHING).
     post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
     return;
+  }
+
+  // Session-bound listeners re-establish on this port's auth transitions.
+  if (!msg.actAs || msg.actAs.mode === 'app-session') {
+    ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
+    sessionSubsFor(ctx, port).set(msg.subId, msg);
   }
 
   portSubs.set(msg.subId, unsub);
@@ -148,11 +165,6 @@ export function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMes
   ensurePortSubs(ctx, port);
   const portSubs = ctx.subs.get(port)!;
   if (portSubs.has(msg.subId)) return;
-
-  if (!msg.actAs) {
-    ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
-    sessionSubsFor(ctx, port).set(msg.subId, msg);
-  }
 
   try {
     const ref = rtdbTarget(
@@ -164,6 +176,12 @@ export function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMes
       ref as DatabaseReference | RtdbQuery,
       (snap) => post(port, { t: 'snap', subId: msg.subId, value: rtdbSnapToWire(snap) }),
     );
+
+    if (!msg.actAs || msg.actAs.mode === 'app-session') {
+      ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
+      sessionSubsFor(ctx, port).set(msg.subId, msg);
+    }
+
     portSubs.set(msg.subId, unsub);
   } catch (e) {
     post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });

@@ -102,13 +102,19 @@ export interface ConnectBridgeOptions {
 /** Host-supplied handlers that forward relay frames into the SharedWorker. */
 export interface WorkerRelay {
   /** Dispatch one worker op; resolves with the worker's `res.value`. */
-  op(op: WorkerOpPayload): Promise<unknown>;
+  op(op: WorkerOpPayload, clientSessionId?: string): Promise<unknown>;
   /**
    * Register a worker subscription; `onValue` receives every snap value
    * (including the `{ __error }` establishment-failure convention).
    * Returns the unsubscribe function.
    */
-  subscribe(sub: WorkerSubPayload, onValue: (value: unknown) => void): () => void;
+  subscribe(
+    sub: WorkerSubPayload,
+    onValue: (value: unknown) => void,
+    clientSessionId?: string,
+  ): () => void;
+  /** Teardown a remote consumer session's virtual port and listeners. */
+  disconnect?(clientSessionId: string): void;
 }
 
 export type ConnectedBridgeState =
@@ -273,6 +279,10 @@ export function connectBridge(
         }
         return;
       }
+      if (parsed.type === 'worker-client-disconnect') {
+        workerRelay?.disconnect?.(parsed.clientSessionId);
+        return;
+      }
       if (parsed.type === 'ping') {
         send({ type: 'pong', id: parsed.id });
         return;
@@ -332,17 +342,18 @@ export function connectBridge(
   async function handleWorkerOp(req: WorkerOpFrame) {
     if (!workerRelay) return; // capability not advertised — drop (wire drift)
     try {
-      const value = await workerRelay.op(req.op);
+      const value = await workerRelay.op(req.op, req.clientSessionId);
       // Anti-corruption guard: a Blob/ArrayBuffer/TypedArray result would be
       // SILENTLY mangled by the JSON WS legs ({} / index-keyed object) — turn
       // it into a loud error naming the base64 storage ops instead.
       assertJsonSafeRelayValue(`op '${req.op.method}'`, value);
-      send({ type: 'worker-res', id: req.id, ok: true, value });
+      send({ type: 'worker-res', id: req.id, clientSessionId: req.clientSessionId, ok: true, value });
     } catch (err) {
       const denialContext = (err as { denialContext?: unknown }).denialContext;
       send({
         type: 'worker-res',
         id: req.id,
+        clientSessionId: req.clientSessionId,
         ok: false,
         error: {
           code: (err as { code?: string }).code ?? 'unknown',
@@ -370,6 +381,7 @@ export function connectBridge(
           send({
             type: 'worker-snap',
             subId: req.subId,
+            clientSessionId: req.clientSessionId,
             value: {
               __error: {
                 code: (err as { code?: string }).code ?? 'invalid-argument',
@@ -379,8 +391,8 @@ export function connectBridge(
           });
           return;
         }
-        send({ type: 'worker-snap', subId: req.subId, value });
-      });
+        send({ type: 'worker-snap', subId: req.subId, clientSessionId: req.clientSessionId, value });
+      }, req.clientSessionId);
       relaySubs.set(req.subId, unsubscribe);
     } catch (err) {
       // Synchronous establishment failure — relay it via the worker host's
@@ -389,6 +401,7 @@ export function connectBridge(
       send({
         type: 'worker-snap',
         subId: req.subId,
+        clientSessionId: req.clientSessionId,
         value: {
           __error: {
             code: (err as { code?: string }).code ?? 'unknown',

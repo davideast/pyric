@@ -587,8 +587,15 @@ struct TransportStressTests {
 
         let sub1 = try await mock.awaitNextSentMessage()
         let sub2 = try await mock.awaitNextSentMessage()
-        let id1 = try #require(sub1["subId"]?.stringValue)
-        let id2 = try #require(sub2["subId"]?.stringValue)
+        let id1: String
+        let id2: String
+        if sub1["sub"]?["target"]?["path"]?.stringValue == "channel-1" {
+            id1 = try #require(sub1["subId"]?.stringValue)
+            id2 = try #require(sub2["subId"]?.stringValue)
+        } else {
+            id1 = try #require(sub2["subId"]?.stringValue)
+            id2 = try #require(sub1["subId"]?.stringValue)
+        }
 
         // Interleave snapshot events
         try mock.simulateServerMessage(["type": "worker-snap", "subId": id1, "value": ["seq": 101] as [String: Any]])

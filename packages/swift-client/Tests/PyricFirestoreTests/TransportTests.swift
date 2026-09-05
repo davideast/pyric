@@ -525,4 +525,56 @@ struct TransportTests {
 
         await client.disconnect()
     }
+
+    @Test("Instance-scoped onDenial isolates callbacks between distinct bridge clients")
+    func testInstanceOnDenialIsolation() async throws {
+        let mock1 = MockWebSocketChannel()
+        let client1 = PyricBridgeClient(channel: mock1)
+        let connectTask1 = Task { try await client1.connect() }
+        _ = try await mock1.awaitNextSentMessage()
+        try mock1.simulateServerMessage(["type": "attach-ack", "peerConnected": true])
+        try await connectTask1.value
+
+        let mock2 = MockWebSocketChannel()
+        let client2 = PyricBridgeClient(channel: mock2)
+        let connectTask2 = Task { try await client2.connect() }
+        _ = try await mock2.awaitNextSentMessage()
+        try mock2.simulateServerMessage(["type": "attach-ack", "peerConnected": true])
+        try await connectTask2.value
+
+        final class Box: @unchecked Sendable {
+            var c1: [PyricBridgeError] = []
+            var c2: [PyricBridgeError] = []
+        }
+        let box = Box()
+
+        client1.onDenial = { err in box.c1.append(err) }
+        client2.onDenial = { err in box.c2.append(err) }
+
+        let opTask1 = Task<AnySendable, Error> {
+            try await client1.op(method: "getDoc", params: ["path": "forbidden/doc"])
+        }
+        let frame1 = try await mock1.awaitNextSentMessage()
+        let id1 = try #require(frame1["id"]?.stringValue)
+        try mock1.simulateServerMessage([
+            "type": "worker-res",
+            "id": id1,
+            "ok": false,
+            "error": [
+                "code": "permission-denied",
+                "message": "Rules check failed",
+                "denialContext": ["rule": ["line": 77]]
+            ] as [String: Any]
+        ])
+
+        _ = try? await opTask1.value
+        try await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(box.c1.count == 1)
+        #expect(box.c1.first?.denialContext?["rule"]?["line"]?.intValue == 77)
+        #expect(box.c2.isEmpty)
+
+        await client1.disconnect()
+        await client2.disconnect()
+    }
 }

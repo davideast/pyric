@@ -132,7 +132,7 @@ public final class WriteBatch: @unchecked Sendable {
             throw PyricFirestoreError.invalidArgument("WriteBatch has already been committed.")
         }
         isCommitted = true
-        try await firestore.bridgeClient.batchCommit(writes: stagedWrites)
+        try await firestore.bridgeClient.batchCommit(writes: stagedWrites, actAs: firestore.effectiveAuthLens)
     }
 
     public func commit(completion: (@Sendable (Error?) -> Void)? = nil) {
