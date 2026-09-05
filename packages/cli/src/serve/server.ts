@@ -144,7 +144,7 @@ export function isAllowedUpgrade(
  * or Fetch API Headers object.
  */
 export function getHeader(
-  req: { headers?: Record<string, string | string[] | undefined> | Headers },
+  req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
   name: string,
 ): string | undefined {
   const headers = req?.headers;

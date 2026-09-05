@@ -18,9 +18,14 @@
  */
 
 export type {
+  AuthLens,
   BridgeMessage,
+  ConsumerPresenceFrame,
   HelloFromClient,
   HelloFromBridge,
+  RemoteConsumerRecord,
+  RemoteSetLensFrame,
+  RemoteSetLensAckFrame,
   ToolCallRequest,
   ToolCallResponse,
 } from './protocol.js';

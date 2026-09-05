@@ -106,6 +106,10 @@ export interface HostCtx {
   subs: Map<PortLike, Map<string, () => void>>;
   /** Ports whose app containers completed explicit deletion. */
   disconnectedPorts?: WeakSet<PortLike>;
+  /** Virtual ports multiplexed over a browser tab for remote client sessions. */
+  remoteClientPorts?: Map<string, PortLike>;
+  /** Client session IDs that have explicitly completed disconnection. */
+  disconnectedClientSessions?: Set<string>;
   /** Firebase options accepted by the first app-owned port. All named apps
    * and tabs share this one backend, so later app ports must match it. */
   appOptions?: Record<string, unknown>;

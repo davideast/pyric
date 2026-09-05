@@ -45,7 +45,10 @@ public final class AggregateQuery: @unchecked Sendable {
         let target = query.compileTarget()
 
         if aggregateFields.count == 1 && aggregateFields[0].isCount {
-            let countResult = try await query.firestore.bridgeClient.count(source: target)
+            let countResult = try await query.firestore.bridgeClient.count(
+                source: target,
+                actAs: query.firestore.effectiveAuthLens
+            )
             return AggregateQuerySnapshot(
                 query: self,
                 countValue: countResult,
@@ -58,7 +61,11 @@ public final class AggregateQuery: @unchecked Sendable {
             spec[field.alias] = field.descriptor
         }
 
-        let results = try await query.firestore.bridgeClient.aggregate(source: target, spec: spec)
+        let results = try await query.firestore.bridgeClient.aggregate(
+            source: target,
+            spec: spec,
+            actAs: query.firestore.effectiveAuthLens
+        )
         let countVal = Int(results["count"]??.rounded() ?? 0)
 
         return AggregateQuerySnapshot(

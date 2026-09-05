@@ -280,7 +280,7 @@ public class Query: @unchecked Sendable {
 
     public func getDocuments(source: FirestoreSource = .default) async throws -> QuerySnapshot {
         let target = try QueryCompiler.compile(query: self)
-        let raw = try await firestore.bridgeClient.getDocs(source: target)
+        let raw = try await firestore.bridgeClient.getDocs(source: target, actAs: firestore.effectiveAuthLens)
         return QuerySnapshot.fromWire(firestore: firestore, query: self, wire: raw)
     }
 
@@ -292,13 +292,11 @@ public class Query: @unchecked Sendable {
         source: FirestoreSource,
         completion: @escaping @Sendable (QuerySnapshot?, Error?) -> Void
     ) {
-        let target = compileTarget()
         let db = self.firestore
         let box = CallbackBox(completion)
         Task {
             do {
-                let raw = try await db.bridgeClient.getDocs(source: target)
-                let snapshot = QuerySnapshot.fromWire(firestore: db, query: self, wire: raw)
+                let snapshot = try await self.getDocuments(source: source)
                 db.settings.dispatchQueue.async {
                     box.callback(snapshot, nil)
                 }
@@ -324,35 +322,32 @@ public class Query: @unchecked Sendable {
         let db = self.firestore
         let box = CallbackBox(listener)
 
-        let stream = db.bridgeClient.subscribe(
+        let stateBox = QuerySnapshotStateBox()
+        let coordinator = SnapshotSubscriptionCoordinator(
+            firestore: db,
             target: target,
-            includeMetadataChanges: includeMetadataChanges
-        )
-
-        let task = Task {
-            var previousDocs: [QueryDocumentSnapshot]?
-            do {
-                for try await event in stream {
-                    let snapshot = QuerySnapshot.fromWire(
-                        firestore: db,
-                        query: self,
-                        wire: event,
-                        previousDocs: previousDocs
-                    )
-                    previousDocs = snapshot.documents
-                    db.settings.dispatchCallback {
-                        box.callback(snapshot, nil)
-                    }
+            includeMetadataChanges: includeMetadataChanges,
+            onEvent: { event in
+                let snapshot = QuerySnapshot.fromWire(
+                    firestore: db,
+                    query: self,
+                    wire: event,
+                    previousDocs: stateBox.previousDocs
+                )
+                stateBox.previousDocs = snapshot.documents
+                db.settings.dispatchCallback {
+                    box.callback(snapshot, nil)
                 }
-            } catch {
+            },
+            onError: { error in
                 db.settings.dispatchCallback {
                     box.callback(nil, error)
                 }
             }
-        }
+        )
 
         return SimpleListenerRegistration {
-            task.cancel()
+            coordinator.cancel()
         }
     }
 
@@ -404,4 +399,8 @@ private final class CallbackBox<T: Sendable>: @unchecked Sendable {
     init(_ callback: @escaping @Sendable (T?, Error?) -> Void) {
         self.callback = callback
     }
+}
+
+private final class QuerySnapshotStateBox: @unchecked Sendable {
+    var previousDocs: [QueryDocumentSnapshot]?
 }

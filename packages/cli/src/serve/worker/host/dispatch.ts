@@ -31,6 +31,7 @@ import { buildSandboxDispatcher } from '../../../bridge/client/dispatch.js';
 import { firebaseOptionsEqual } from 'pyric/app/internal';
 
 import { activityJourneyId, type HostCtx, type PortLike, ok, fail } from '../host-context.js';
+import { getOrCreateRemoteClientPort, RemoteClientPort } from '../remote-client-port.js';
 import {
   authSubsFor,
   isAuthOp,
@@ -54,7 +55,6 @@ import {
 import {
   lensDb,
   lensProvenance,
-  sessionDb,
   opProvenance,
 } from './core.js';
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
@@ -86,7 +86,13 @@ function configConflictError(): Error & { code: string } {
 async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   // Explicit lens (Studio admin / as / app-session) → lensDb; no lens → the
   // PORT'S SESSION (#754), so app ops run as whoever this tab signed in as.
-  const db = msg.actAs ? lensDb(ctx, msg.actAs) : sessionDb(ctx, port);
+  let db: ReturnType<typeof lensDb>;
+  try {
+    db = lensDb(ctx, msg.actAs, port);
+  } catch (e) {
+    fail(port, msg.id, e);
+    return;
+  }
   // Provenance the op runs under. Stamped onto the unified event stream's
   // `authLens` by the emit path (C1 field / T1 emit). For `{ mode: 'as', uid }`
   // the resolved `db` already carries `auth: { uid }`, so a rules eval emits
@@ -153,22 +159,62 @@ export async function handleMessage(
   port: PortLike,
   msg: InboundMessage,
 ): Promise<void> {
+  if (msg.clientSessionId && ctx.disconnectedClientSessions?.has(msg.clientSessionId) && msg.t !== 'disconnect') {
+    if ((msg as { resumeSession?: boolean }).resumeSession) {
+      ctx.disconnectedClientSessions.delete(msg.clientSessionId);
+    } else {
+      if (msg.t === 'op' || msg.t === 'tool') {
+        fail(
+          new RemoteClientPort(port, msg.clientSessionId),
+          msg.id,
+          Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' }),
+        );
+      } else if (msg.t === 'sub' && msg.target !== 'events') {
+        new RemoteClientPort(port, msg.clientSessionId).postMessage({
+          t: 'snap',
+          subId: msg.subId,
+          value: { __error: { code: 'app/app-deleted', message: 'Firebase App was deleted' } },
+        });
+      }
+      return;
+    }
+  }
+
+  const targetPort = msg.clientSessionId
+    ? getOrCreateRemoteClientPort(ctx, port, msg.clientSessionId)
+    : port;
+
+  if (msg.t === 'disconnect' && msg.clientSessionId) {
+    try {
+      const virtualPort = ctx.remoteClientPorts?.get(msg.clientSessionId);
+      if (virtualPort) {
+        (ctx.disconnectedClientSessions ??= new Set()).add(msg.clientSessionId);
+        ctx.remoteClientPorts?.delete(msg.clientSessionId);
+        await cleanupPortWithDisconnect(ctx, virtualPort);
+      }
+      ok(targetPort, msg.id, undefined);
+    } catch (error) {
+      fail(targetPort, msg.id, error);
+    }
+    return;
+  }
+
   if (msg.t === 'appConfig') {
     if (ctx.appOptions === undefined) {
       ctx.appOptions = structuredClone(msg.options);
     } else if (!firebaseOptionsEqual(ctx.appOptions, msg.options)) {
-      (ctx.rejectedConfigPorts ??= new WeakSet()).add(port);
+      (ctx.rejectedConfigPorts ??= new WeakSet()).add(targetPort);
     }
     return;
   }
   // A rejected app port still owns host-side resources until its explicit
   // disconnect handshake completes. Never swallow that teardown frame.
-  if (ctx.rejectedConfigPorts?.has(port) && msg.t !== 'disconnect') {
+  if (ctx.rejectedConfigPorts?.has(targetPort) && msg.t !== 'disconnect') {
     if (msg.t === 'op' || msg.t === 'tool') {
-      fail(port, msg.id, configConflictError());
+      fail(targetPort, msg.id, configConflictError());
     } else if (msg.t === 'sub' && msg.target !== 'events') {
       const error = configConflictError();
-      port.postMessage({
+      targetPort.postMessage({
         t: 'snap',
         subId: msg.subId,
         value: { __error: { code: error.code, message: error.message } },
@@ -176,13 +222,19 @@ export async function handleMessage(
     }
     return;
   }
-  if (ctx.disconnectedPorts?.has(port) && msg.t !== 'disconnect') {
+  if (ctx.disconnectedPorts?.has(targetPort) && msg.t !== 'disconnect') {
     if (msg.t === 'op' || msg.t === 'tool') {
       fail(
-        port,
+        targetPort,
         msg.id,
         Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' }),
       );
+    } else if (msg.t === 'sub' && msg.target !== 'events') {
+      targetPort.postMessage({
+        t: 'snap',
+        subId: msg.subId,
+        value: { __error: { code: 'app/app-deleted', message: 'Firebase App was deleted' } },
+      });
     }
     return;
   }
@@ -193,7 +245,8 @@ export async function handleMessage(
   // provenance EXPLICITLY instead (see `handleOp`'s storage cases). Without the
   // lens on admin ops, `verdictFor` mislabeled a rules BYPASS as ALLOW (the
   // RTDB/Firestore asymmetry the traffic-metrics work flagged).
-  const isRemoteRelay = (msg as { relaySource?: 'remote' }).relaySource === 'remote';
+  const isRemoteRelay = (msg as { relaySource?: 'remote' }).relaySource === 'remote'
+    || Boolean(msg.clientSessionId);
   const tracksFirestoreActivity = !isRemoteRelay && (msg.t === 'op'
     ? isFirestoreReadOp(msg.method)
     : msg.t === 'sub'
@@ -202,12 +255,12 @@ export async function handleMessage(
       && '__ref' in msg.target);
   const prov = opProvenance(
     msg,
-    tracksFirestoreActivity ? activityJourneyId(ctx, port) : undefined,
+    tracksFirestoreActivity ? activityJourneyId(ctx, targetPort) : undefined,
   );
   if (prov && ctx.sandbox.runWithProvenance) {
-    return ctx.sandbox.runWithProvenance(prov, () => dispatchMessage(ctx, port, msg));
+    return ctx.sandbox.runWithProvenance(prov, () => dispatchMessage(ctx, targetPort, msg));
   }
-  return dispatchMessage(ctx, port, msg);
+  return dispatchMessage(ctx, targetPort, msg);
 }
 
 async function dispatchMessage(

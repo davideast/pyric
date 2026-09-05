@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pyric Sandbox - Swift iOS Dev</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 40px 24px;
+      background: #0d1117;
+      color: #e6edf3;
+      display: flex;
+      justify-content: center;
+    }
+    .card {
+      max-width: 600px;
+      width: 100%;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    h1 {
+      margin-top: 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 24px;
+      color: #f0883e;
+    }
+    p {
+      line-height: 1.6;
+      color: #8b949e;
+    }
+    code {
+      background: #21262d;
+      padding: 3px 8px;
+      border-radius: 6px;
+      color: #79c0ff;
+      font-size: 13px;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(46, 160, 67, 0.15);
+      color: #3fb950;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+      margin-top: 12px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      background: #3fb950;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #3fb950;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔥 Pyric Sandbox Active</h1>
+    <div class="status">
+      <div class="status-dot"></div>
+      SharedWorker & Bridge Ready
+    </div>
+    <p style="margin-top: 20px;">
+      This browser tab hosts the Pyric browser-resident Firestore sandbox.
+      The iOS app connects to this sandbox via the WebSocket bridge at:
+    </p>
+    <p><code>ws://localhost:5174/__pyric/sandbox</code></p>
+    <p style="font-size: 13px; margin-top: 24px; border-top: 1px solid #30363d; padding-top: 16px;">
+      Keep this tab open while developing with Swift. All document reads, writes, and real-time streams sync through this session.
+    </p>
+  </div>
+</body>
+</html>

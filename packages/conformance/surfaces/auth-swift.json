@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "auth-swift",
+  "contractSource": "FirebaseAuth",
+  "observationPrefixes": [
+    "auth-swift-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Swift client conforming to FirebaseAuth public API via Pyric WebSocket bridge transport. Covers Auth instance/lifecycle, email/password and anonymous authentication, user creation, sign-out, session restoration, reactive auth and ID token listeners and AsyncSequence streams, User identity properties, ID token retrieval and profile mutation, multi-tenancy and impersonation via AuthLens, and PyricFirestore credential provider coupling.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/swift-client/Tests/PyricAuthTests/AuthConformanceTests.swift",
+  "climb": true,
+  "registry": "auth-swift"
+}
