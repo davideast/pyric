@@ -82,6 +82,7 @@ class PyricTransaction extends TransactionPlatform {
 
   /// Commits all transaction reads and writes via the Pyric bridge.
   Future<void> commit() async {
-    await _client.txnCommit(_reads, _writes);
+    final f = firestore as PyricFirestorePlatform;
+    await _client.txnCommit(_reads, _writes, actAs: f.effectiveAuthLens);
   }
 }

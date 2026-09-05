@@ -48,7 +48,8 @@ class _CompletedTestCase {
   });
 }
 
-void main() async {
+void main(List<String> args) async {
+  final surfaceName = args.isNotEmpty ? args.first : 'firestore-flutter';
   final activeTests = <int, _ActiveTest>{};
   final testCases = <_CompletedTestCase>[];
 
@@ -138,17 +139,17 @@ void main() async {
   });
 
   stdout.writeln('<?xml version="1.0" encoding="UTF-8"?>');
-  stdout.writeln('<testsuite name="firestore-flutter" tests="${testCases.length}">');
+  stdout.writeln('<testsuite name="$surfaceName" tests="${testCases.length}">');
   for (final tc in testCases) {
     final nameAttr = _escapeXmlAttr(tc.name);
     if (tc.failed) {
       final msgBody = _escapeXmlBody(tc.failureMessage ?? 'Failed');
       final failAttr = _escapeXmlAttr(tc.failureAttr);
-      stdout.writeln('  <testcase name="$nameAttr" classname="firestore-flutter" time="${tc.timeSec}">');
+      stdout.writeln('  <testcase name="$nameAttr" classname="$surfaceName" time="${tc.timeSec}">');
       stdout.writeln('    <failure message="$failAttr">$msgBody</failure>');
       stdout.writeln('  </testcase>');
     } else {
-      stdout.writeln('  <testcase name="$nameAttr" classname="firestore-flutter" time="${tc.timeSec}" />');
+      stdout.writeln('  <testcase name="$nameAttr" classname="$surfaceName" time="${tc.timeSec}" />');
     }
   }
   stdout.writeln('</testsuite>');

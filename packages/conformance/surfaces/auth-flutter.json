@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "auth-flutter",
+  "contractSource": "firebase_auth_platform_interface",
+  "observationPrefixes": [
+    "auth-flutter-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Dart Flutter client conforming to firebase_auth_platform_interface via Pyric WebSocket bridge transport. Covers instance and lifecycle, user authentication (email/password, anonymous, sign out), reactive auth and token state streams, user profiles, ID tokens, custom claims, and multi-tenant AuthLens integration.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/flutter-client/test/auth/conformance_test.dart",
+  "climb": true,
+  "registry": "auth-flutter"
+}

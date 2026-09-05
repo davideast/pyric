@@ -53,12 +53,13 @@ class PyricAggregateQuery extends AggregateQueryPlatform {
   }) async {
     final pyricQuery = query as PyricQuery;
     final target = pyricQuery.compileTarget();
+    final f = query.firestore as PyricFirestorePlatform;
 
     final isCountOnly = aggregateFields.isEmpty ||
         (aggregateFields.length == 1 && aggregateFields.first is p.count);
 
     if (isCountOnly) {
-      final countVal = await _client.count(target);
+      final countVal = await _client.count(target, actAs: f.effectiveAuthLens);
       return AggregateQuerySnapshotPlatform(
         count: countVal,
         sum: const [],
@@ -77,7 +78,8 @@ class PyricAggregateQuery extends AggregateQueryPlatform {
       }
     }
 
-    final data = await _client.aggregate(target, spec);
+    final data =
+        await _client.aggregate(target, spec, actAs: f.effectiveAuthLens);
 
     int? countResult;
     if (data.containsKey('count')) {
