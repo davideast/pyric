@@ -22,7 +22,8 @@ class AggregateQuery internal constructor(
                 if (isOnlyCount) {
                     val res = query.firestore.bridgeClient.op(
                         method = "count",
-                        params = mapOf("target" to targetDesc)
+                        params = mapOf("target" to targetDesc),
+                        actAs = query.firestore.getEffectiveAuthLens().toMap()
                     )
                     @Suppress("UNCHECKED_CAST")
                     val resMap = res as? Map<String, Any?> ?: emptyMap()
@@ -38,7 +39,8 @@ class AggregateQuery internal constructor(
                     }
                     val res = query.firestore.bridgeClient.op(
                         method = "aggregate",
-                        params = mapOf("target" to targetDesc, "aggregates" to aggsPayload)
+                        params = mapOf("target" to targetDesc, "aggregates" to aggsPayload),
+                        actAs = query.firestore.getEffectiveAuthLens().toMap()
                     )
                     @Suppress("UNCHECKED_CAST")
                     val resMap = res as? Map<String, Any?> ?: emptyMap()

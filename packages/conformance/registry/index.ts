@@ -1,6 +1,7 @@
 import { aiRegistry } from './ai.ts';
 import { appRegistry } from './app.ts';
 import { authRegistry } from './auth.ts';
+import { authKotlinRegistry } from './auth-kotlin.ts';
 import { authSwiftRegistry } from './auth-swift.ts';
 import { firestoreRegistry } from './firestore.ts';
 import { firestoreFlutterRegistry } from './firestore-flutter.ts';
@@ -34,6 +35,7 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     firestoreFlutterRegistry,
     firestoreKotlinRegistry,
     firestoreSwiftRegistry,
+    authKotlinRegistry,
     authSwiftRegistry,
   ].map((r) => [r.surface, r]),
 );
@@ -47,6 +49,6 @@ export function rowsForSurface(registry: CompatibilitySurfaceRegistry): Compatib
 
 export const allCompatibilityRows = surfaceRegistries.flatMap(rowsForSurface);
 
-export { authSwiftRegistry, firestoreKotlinRegistry };
+export { authKotlinRegistry, authSwiftRegistry, firestoreKotlinRegistry };
 
 export type { Automation, CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus, ConformanceDisposition, DeveloperSurface, OracleConformanceCheck, Surface } from './types.ts';

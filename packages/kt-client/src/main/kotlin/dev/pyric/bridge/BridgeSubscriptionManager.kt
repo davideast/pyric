@@ -8,21 +8,23 @@ import kotlinx.coroutines.flow.callbackFlow
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-class BridgeSubscriptionManager {
+class BridgeSubscriptionManager(
+    private val onDenial: ((FirebaseFirestoreException) -> Unit)? = null
+) {
     private val subCounter = AtomicLong(0)
     private val activeSubs = ConcurrentHashMap<String, ActiveSubscription>()
 
     private data class ActiveSubscription(
         val subId: String,
         val channel: ProducerScope<Any?>,
-        val target: Map<String, Any?>,
+        val target: Any,
         val actAs: Map<String, Any?>?,
         val includeMetadataChanges: Boolean,
         val listenSource: String?
     )
 
     fun subscribe(
-        target: Map<String, Any?>,
+        target: Any,
         actAs: Map<String, Any?>? = null,
         includeMetadataChanges: Boolean = false,
         listenSource: String? = null,
@@ -43,7 +45,12 @@ class BridgeSubscriptionManager {
         )
         activeSubs[subId] = subRecord
 
-        val subPayload = mutableMapOf<String, Any?>("target" to target)
+        val actualTarget = if (target is Map<*, *> && target.containsKey("target") && target.size == 1) {
+            target["target"]
+        } else {
+            target
+        }
+        val subPayload = mutableMapOf<String, Any?>("target" to actualTarget)
         if (actAs != null) subPayload["actAs"] = actAs
         if (includeMetadataChanges) subPayload["includeMetadataChanges"] = true
         if (listenSource != null && listenSource != "defaultSource") {
@@ -109,6 +116,9 @@ class BridgeSubscriptionManager {
                 firestoreCode,
                 denialContext = denialContext
             )
+            if (firestoreCode == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                onDenial?.invoke(exception)
+            }
 
             activeSub.channel.close(exception)
             return
@@ -119,7 +129,12 @@ class BridgeSubscriptionManager {
 
     fun resubscribeAll(sendJson: (String) -> Unit, jsonSerializer: (Any?) -> String) {
         for (sub in activeSubs.values) {
-            val subPayload = mutableMapOf<String, Any?>("target" to sub.target)
+            val actualTarget = if (sub.target is Map<*, *> && (sub.target as Map<*, *>).containsKey("target") && (sub.target as Map<*, *>).size == 1) {
+                (sub.target as Map<*, *>)["target"]
+            } else {
+                sub.target
+            }
+            val subPayload = mutableMapOf<String, Any?>("target" to actualTarget)
             if (sub.actAs != null) subPayload["actAs"] = sub.actAs
             if (sub.includeMetadataChanges) subPayload["includeMetadataChanges"] = true
             if (sub.listenSource != null && sub.listenSource != "defaultSource") {
