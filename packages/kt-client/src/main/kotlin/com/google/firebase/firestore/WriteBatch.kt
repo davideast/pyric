@@ -90,7 +90,11 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch {
             try {
-                firestore.bridgeClient.op("batchCommit", mapOf("writes" to writes))
+                firestore.bridgeClient.op(
+                    method = "batchCommit",
+                    params = mapOf("writes" to writes),
+                    actAs = firestore.getEffectiveAuthLens().toMap()
+                )
                 tcs.setResult(null)
             } catch (e: Exception) {
                 tcs.setException(e)

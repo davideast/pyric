@@ -14,6 +14,8 @@ object BridgeProtocol {
     const val TYPE_WORKER_UNSUB = "worker-unsub"
     const val TYPE_PING = "ping"
     const val TYPE_PONG = "pong"
+    const val TYPE_WORKER_EVENT = "worker-event"
+    const val EVENT_REMOTE_LENS = "remote-lens"
 
     fun createAttachFrame(): Map<String, Any> = mapOf(
         "type" to TYPE_ATTACH,

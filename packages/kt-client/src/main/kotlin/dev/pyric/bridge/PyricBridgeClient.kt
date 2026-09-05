@@ -3,6 +3,7 @@ package dev.pyric.bridge
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.firestore.FirebaseFirestoreException
+import dev.pyric.auth.AuthLens
 import dev.pyric.codecs.JsonCodec
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -10,6 +11,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -34,8 +38,20 @@ class PyricBridgeClient(
     var isDisposed: Boolean = false
         private set
 
-    private val operationDispatcher = BridgeOperationDispatcher(clientScope, defaultOpTimeoutMs)
-    private val subscriptionManager = BridgeSubscriptionManager()
+    private val _remoteLensEvents = MutableSharedFlow<AuthLens>(replay = 1, extraBufferCapacity = 16)
+    val remoteLensEvents: SharedFlow<AuthLens> = _remoteLensEvents.asSharedFlow()
+
+    private val _denialEvents = MutableSharedFlow<FirebaseFirestoreException>(extraBufferCapacity = 64)
+    val denialEvents: SharedFlow<FirebaseFirestoreException> = _denialEvents.asSharedFlow()
+
+    internal fun dispatchDenial(exception: FirebaseFirestoreException) {
+        if (exception.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+            _denialEvents.tryEmit(exception)
+        }
+    }
+
+    private val operationDispatcher = BridgeOperationDispatcher(clientScope, defaultOpTimeoutMs, onDenial = ::dispatchDenial)
+    private val subscriptionManager = BridgeSubscriptionManager(onDenial = ::dispatchDenial)
 
     constructor(transport: BridgeTransport) : this(
         url = BridgeProtocol.DEFAULT_BRIDGE_URL,
@@ -127,7 +143,7 @@ class PyricBridgeClient(
     }
 
     fun subscribe(
-        target: Map<String, Any?>,
+        target: Any,
         actAs: Map<String, Any?>? = null,
         includeMetadataChanges: Boolean = false,
         listenSource: String? = null
@@ -252,6 +268,23 @@ class PyricBridgeClient(
                         ::sendRawJson,
                         JsonCodec::encodeToString
                     )
+                }
+                BridgeProtocol.TYPE_WORKER_EVENT -> {
+                    handleWorkerEvent(msg)
+                }
+            }
+        }
+
+        private fun handleWorkerEvent(msg: Map<String, Any?>) {
+            val eventName = msg["event"] as? String ?: return
+            if (eventName == BridgeProtocol.EVENT_REMOTE_LENS) {
+                @Suppress("UNCHECKED_CAST")
+                val payload = msg["payload"] as? Map<String, Any?>
+                @Suppress("UNCHECKED_CAST")
+                val lensMap = (payload?.get("lens") ?: msg["lens"]) as? Map<String, Any?>
+                if (lensMap != null) {
+                    val lens = AuthLens.fromMap(lensMap)
+                    _remoteLensEvents.tryEmit(lens)
                 }
             }
         }

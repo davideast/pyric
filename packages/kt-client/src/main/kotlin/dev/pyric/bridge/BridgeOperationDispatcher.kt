@@ -11,7 +11,8 @@ import java.util.concurrent.atomic.AtomicLong
 
 class BridgeOperationDispatcher(
     private val scope: CoroutineScope,
-    private val defaultTimeoutMs: Long = BridgeProtocol.DEFAULT_OP_TIMEOUT_MS
+    private val defaultTimeoutMs: Long = BridgeProtocol.DEFAULT_OP_TIMEOUT_MS,
+    private val onDenial: ((FirebaseFirestoreException) -> Unit)? = null
 ) {
     private val opCounter = AtomicLong(0)
     private val pendingOps = ConcurrentHashMap<String, PendingOp>()
@@ -93,6 +94,9 @@ class BridgeOperationDispatcher(
                 firestoreCode,
                 denialContext = denialContext
             )
+            if (firestoreCode == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                onDenial?.invoke(exception)
+            }
             pending.deferred.completeExceptionally(exception)
         }
     }
