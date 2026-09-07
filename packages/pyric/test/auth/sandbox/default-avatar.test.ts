@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   avatarSeed,
   defaultAvatarDataUri,
+  defaultAvatarSvg,
 } from '../../../src/auth/sandbox/default-avatar.js';
 
 describe('avatarSeed', () => {
@@ -72,5 +73,14 @@ describe('defaultAvatarDataUri', () => {
   it('stays under 1000 bytes for an emoji input', () => {
     const uri = defaultAvatarDataUri({ uid: 'u5', displayName: '🔥Blaze' });
     expect(new TextEncoder().encode(uri).length).toBeLessThan(1000);
+  });
+});
+
+describe('defaultAvatarSvg', () => {
+  it('is the raw SVG markup the data URI encodes', () => {
+    const input = { uid: 'google-abc123', displayName: 'Ada Lovelace' };
+    const svg = defaultAvatarSvg(input);
+    expect(svg.startsWith('<svg')).toBe(true);
+    expect(defaultAvatarDataUri(input)).toBe(`data:image/svg+xml,${encodeURIComponent(svg).replace(/'/g, '%27').replace(/\(/g, '%28').replace(/\)/g, '%29')}`);
   });
 });

@@ -43,6 +43,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
 import type { PyricAiOptions } from './vite-ai-config.js';
+import type { PyricAvatarsOptions } from './avatars-config.js';
 import type { PyricRuntimeChipOption } from './runtime/chip-config.js';
 import {
   createViteSandboxGeneration,
@@ -149,6 +150,12 @@ export interface PyricOptions {
    * scripted default applies. `model` and `engine` are mutually exclusive.
    */
   ai?: PyricAiOptions;
+  /** Profile photos for sandbox provider users. Default: deterministic
+   *  generated avatars. A string selects a pre-created avatar set
+   *  (directory path, resolved from the project root). `false` disables
+   *  the avatar route entirely. An object supplies a custom source that
+   *  runs in the dev server, never the browser. */
+  avatars?: PyricAvatarsOptions;
 }
 
 function resolveFunctionsOptions(
@@ -271,6 +278,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         bridge: bridgeOpts,
         ui: uiEnabled,
         functions: functionsOptions,
+        avatars: options.avatars,
       };
       const generationInput: ViteSandboxGenerationInput = {
         server,

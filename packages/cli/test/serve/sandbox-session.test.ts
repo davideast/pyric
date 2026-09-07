@@ -6,6 +6,7 @@ import { EventEmitter } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { createSandboxSession } from '../../src/serve/sandbox-session.js';
+import { saveManifest } from '../../src/serve/assets/manifest.js';
 
 const projects: string[] = [];
 
@@ -326,5 +327,109 @@ service cloud.firestore {
     expect(sessionPermissive.payload().permissive).toBe(true);
     expect(notes.some((n) => n.includes('permissive mode active'))).toBe(true);
     await sessionPermissive.close();
+  });
+
+  it('zero-config avatars: mounts the route and serves the generated fallback', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      avatars: { enabled: true },
+    });
+
+    expect(session.payload().avatars).toBe(true);
+
+    const response = new ResponseRecorder();
+    const handled = await session.handle(
+      { method: 'GET' } as IncomingMessage,
+      response as unknown as ServerResponse,
+      new URL('http://localhost/__pyric/assets/avatar/u1'),
+    );
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('image/svg+xml');
+    expect(response.body).toContain('<svg');
+
+    // Same uid, same bytes on a second fetch (the manifest cache).
+    const again = new ResponseRecorder();
+    await session.handle(
+      { method: 'GET' } as IncomingMessage,
+      again as unknown as ServerResponse,
+      new URL('http://localhost/__pyric/assets/avatar/u1'),
+    );
+    expect(again.body).toBe(response.body);
+
+    await session.close();
+  });
+
+  it('avatars: false 404s the route and reports false in the payload', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      avatars: { enabled: false },
+    });
+
+    expect(session.payload().avatars).toBe(false);
+
+    const response = new ResponseRecorder();
+    const handled = await session.handle(
+      new EventEmitter() as IncomingMessage,
+      response as unknown as ServerResponse,
+      new URL('http://localhost/__pyric/assets/avatar/u1'),
+    );
+    expect(handled).toBe(false);
+
+    await session.close();
+  });
+
+  it('avatars unconfigured (no option at all) behaves like disabled', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+    });
+
+    expect(session.payload().avatars).toBe(false);
+    const response = new ResponseRecorder();
+    expect(await session.handle(
+      new EventEmitter() as IncomingMessage,
+      response as unknown as ServerResponse,
+      new URL('http://localhost/__pyric/assets/avatar/u1'),
+    )).toBe(false);
+
+    await session.close();
+  });
+
+  it('a configured set directory serves its pool images instead of the fallback', async () => {
+    const root = project();
+    const setDir = join(root, 'avatars', 'pixel');
+    mkdirSync(setDir, { recursive: true });
+    const bytes = new TextEncoder().encode('pixel-bytes');
+    writeFileSync(join(setDir, 'p0.png'), bytes);
+    saveManifest(setDir, { version: 1, images: [{ file: 'p0.png', contentType: 'image/png' }] });
+
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      avatars: { enabled: true, setDir },
+    });
+
+    const response = new ResponseRecorder();
+    const handled = await session.handle(
+      { method: 'GET' } as IncomingMessage,
+      response as unknown as ServerResponse,
+      new URL('http://localhost/__pyric/assets/avatar/u1'),
+    );
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('image/png');
+    expect(response.body).toBe('pixel-bytes');
+
+    await session.close();
   });
 });

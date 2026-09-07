@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
+import { defaultAvatarSvg } from 'pyric/auth/internal';
 import type { FirebaseJson } from '../cli/firebase-json.js';
 import { createCaptureStore, type CaptureStore } from './capture-store.js';
 import type { InitPayload } from './init-payload.js';
@@ -17,6 +18,8 @@ import { createEventHub, createPyricNamespace } from './namespace.js';
 import type { BeaconReport } from '../register/beacon.js';
 import { diskProjectStore, diskWorkspace } from './studio/index.js';
 import type { ServeLogger } from './server.js';
+import { createAssetResolver, type AssetRequest, type AssetResolver } from './assets/resolver.js';
+import type { ResolvedAvatarsConfig } from './avatars-config.js';
 import {
   createStateStore,
   firestoreDocCount,
@@ -36,6 +39,10 @@ export interface SandboxSessionOptions {
   bridgeUrl?: () => string | null;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
+  /** Resolved `avatars` option (already reduced by `avatars-config.ts` from
+   *  whatever the caller — the Vite plugin or `pyric sandbox` — accepted).
+   *  Absent behaves like `{ enabled: false }`: no avatar route is mounted. */
+  avatars?: ResolvedAvatarsConfig;
   permissive?: boolean;
   logger?: ServeLogger;
   activity?: (incident: ActivityIncident) => void;
@@ -91,6 +98,37 @@ export type RulesReloadResult =
   | { kind: 'reloaded'; rulesHash: string; clients: number }
   | { kind: 'rejected'; error: Error };
 
+/** The generated fallback every avatars configuration falls back to when a
+ *  cache entry, pool, or configured source doesn't answer for a key: the
+ *  same deterministic SVG the in-page, no-server mode encodes as a data URI
+ *  (`pyric/auth/internal`'s `defaultAvatarDataUri`), so served and in-page
+ *  modes agree on a face for the same uid. */
+function defaultAvatarFallback(req: AssetRequest): { data: Uint8Array; contentType: string } {
+  const displayName = typeof req.context.displayName === 'string' ? req.context.displayName : null;
+  const email = typeof req.context.email === 'string' ? req.context.email : null;
+  const svg = defaultAvatarSvg({ uid: req.key, displayName, email });
+  return { data: new TextEncoder().encode(svg), contentType: 'image/svg+xml' };
+}
+
+/** Build the avatar asset resolver from a resolved `avatars` config, or
+ *  `undefined` when avatars are disabled (or unconfigured) — `undefined`
+ *  means the `/__pyric/assets/avatar/*` route 404s entirely (namespace.ts).
+ *  The union in `ResolvedAvatarsConfig` guarantees `setDir` XOR `source`, so
+ *  a read-only set directory never receives cache writes: `createAssetResolver`
+ *  only writes when a `source` produced bytes it needs to cache. */
+function createAvatarsResolver(
+  config: ResolvedAvatarsConfig | undefined,
+  projectDir: string,
+): AssetResolver | undefined {
+  if (!config?.enabled) return undefined;
+  const dir = config.setDir ?? join(projectDir, '.pyric', 'assets', 'avatars');
+  return createAssetResolver({
+    dir,
+    source: config.source,
+    fallback: defaultAvatarFallback,
+  });
+}
+
 export async function createSandboxSession(
   options: SandboxSessionOptions,
 ): Promise<SandboxSession> {
@@ -113,6 +151,7 @@ export async function createSandboxSession(
     }
   }
   const events = createEventHub();
+  const avatarsResolver = createAvatarsResolver(options.avatars, options.projectDir);
   const capture: CaptureStore | undefined = (options.capture ?? true)
     ? createCaptureStore(options.projectDir)
     : undefined;
@@ -179,6 +218,7 @@ export async function createSandboxSession(
       : seedUsers,
     messaging: true,
     ai: options.ai ?? null,
+    avatars: Boolean(avatarsResolver),
     permissive: Boolean(options.permissive),
   });
 
@@ -217,6 +257,7 @@ export async function createSandboxSession(
       : undefined,
     siteUiDir: options.studio ? options.studio.siteUiDir : undefined,
     workerVersion: options.sdk.workerVersion,
+    avatars: avatarsResolver,
     aiProxyUpstream: options.aiProxyUpstream,
     activity: options.activity,
     beacon: options.beacon,

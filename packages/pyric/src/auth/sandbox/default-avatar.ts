@@ -86,9 +86,13 @@ function encodeSvgForDataUri(svg: string): string {
 
 /**
  * Deterministic default avatar for a user: a two-hue linear gradient plus a
- * centred initial glyph, encoded as a `data:image/svg+xml,` URI.
+ * centred initial glyph, as raw SVG markup. `defaultAvatarDataUri` encodes
+ * this for the in-page fallback; the served dev server encodes it as UTF-8
+ * bytes and serves it directly as `image/svg+xml` (the asset resolver's
+ * built-in fallback — see `pyric/auth/internal` and
+ * `@pyric/cli`'s `serve/sandbox-session.ts`).
  */
-export function defaultAvatarDataUri(input: DefaultAvatarInput): string {
+export function defaultAvatarSvg(input: DefaultAvatarInput): string {
   const seed = avatarSeed(input.uid);
   const { hueStart, hueEnd, saturation, lightness } = gradientHuesFromSeed(seed);
   const gradientId = `g${seed}`;
@@ -101,14 +105,21 @@ export function defaultAvatarDataUri(input: DefaultAvatarInput): string {
         `font-size="56" fill="#fff" fill-opacity="0.9" text-anchor="middle" ` +
         `dominant-baseline="central">${glyph}</text>`;
 
-  const svg =
+  return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">` +
     `<defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="1" y2="1">` +
     `<stop offset="0%" stop-color="hsl(${hueStart},${saturation}%,${lightness}%)"/>` +
     `<stop offset="100%" stop-color="hsl(${hueEnd},${saturation}%,${lightness}%)"/>` +
     `</linearGradient></defs>` +
     `<rect width="128" height="128" fill="url(#${gradientId})"/>` +
-    `${glyphMarkup}</svg>`;
+    `${glyphMarkup}</svg>`
+  );
+}
 
-  return `data:image/svg+xml,${encodeSvgForDataUri(svg)}`;
+/**
+ * Deterministic default avatar for a user, encoded as a `data:image/svg+xml,`
+ * URI — the in-page fallback used when no dev server is present.
+ */
+export function defaultAvatarDataUri(input: DefaultAvatarInput): string {
+  return `data:image/svg+xml,${encodeSvgForDataUri(defaultAvatarSvg(input))}`;
 }
