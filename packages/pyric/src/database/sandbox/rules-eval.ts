@@ -27,6 +27,76 @@ import {
 } from '../../rules/rtdb/compiled-rules.js';
 import type { SimulationInput } from '../../rules/rtdb/simulation/spec.js';
 import type { AuthState } from 'pyric/sandbox';
+import type { QuerySpec } from './query.js';
+
+function toPrimitiveBoundValue(value: unknown): string | number | boolean | null {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  return null;
+}
+
+function resolveRequiredIndexKey(
+  orderBy: { kind: 'child'; path: string } | { kind: 'value' },
+): string {
+  if (orderBy.kind === 'value') {
+    return '.value';
+  }
+  return orderBy.path.split('/').filter(Boolean).join('/');
+}
+
+/**
+ * Convert a sandbox `QuerySpec` to the `SimulationInput['query']` shape
+ * consumed by the RTDB rules simulator.
+ */
+export function querySpecToSimulationQuery(spec: QuerySpec): SimulationInput['query'] {
+  const q: NonNullable<SimulationInput['query']> = {};
+  if (spec.orderBy?.kind === 'child') {
+    q.orderByChild = spec.orderBy.path;
+  } else if (spec.orderBy?.kind === 'key') {
+    q.orderByKey = true;
+  } else if (spec.orderBy?.kind === 'value') {
+    q.orderByValue = true;
+  }
+  for (const bound of spec.bounds) {
+    const val = toPrimitiveBoundValue(bound.value);
+    if (bound.kind === 'equalTo') {
+      q.equalTo = val;
+      q.startAt = val;
+      q.endAt = val;
+    } else if (bound.kind === 'startAt' || bound.kind === 'startAfter') {
+      q.startAt = val;
+    } else if (bound.kind === 'endAt' || bound.kind === 'endBefore') {
+      q.endAt = val;
+    }
+  }
+  if (spec.limit?.kind === 'limitToFirst') {
+    q.limitToFirst = spec.limit.n;
+  } else if (spec.limit?.kind === 'limitToLast') {
+    q.limitToLast = spec.limit.n;
+  }
+  return q;
+}
+
+function findMatchingNodesAtPath(root: CompiledRtdbRules, segments: string[]): CompiledRtdbRules[] {
+  let currentNodes: CompiledRtdbRules[] = [root];
+  for (const seg of segments) {
+    const nextNodes: CompiledRtdbRules[] = [];
+    for (const node of currentNodes) {
+      for (const child of node.children) {
+        const childSegs = child.path.split('/').filter(Boolean);
+        const lastSeg = childSegs[childSegs.length - 1];
+        if (!lastSeg) continue;
+        if (lastSeg === seg || lastSeg.startsWith('$')) {
+          nextNodes.push(child);
+        }
+      }
+    }
+    currentNodes = nextNodes;
+    if (currentNodes.length === 0) break;
+  }
+  return currentNodes;
+}
 
 /**
  * Plain-Error denial constructor. Matches the oracle observation: the
@@ -94,6 +164,10 @@ export interface EvalContext {
    * same update. Omit for single-path writes.
    */
   updates?: { path: string; value: unknown }[];
+  /** Optional query constraints for read rule evaluation. */
+  query?: SimulationInput['query'];
+  /** Optional query spec from sandbox query execution; automatically converts to `query` and validates `.indexOn`. */
+  querySpec?: QuerySpec;
 }
 
 export type RtdbDefaultPolicy = 'allow' | 'deny';
@@ -120,6 +194,37 @@ export class RulesEvaluator {
   /** True when rules have been deployed via `setRules`. */
   hasRules(): boolean {
     return this.compiled !== null;
+  }
+
+  /**
+   * Enforce `.indexOn` rules for queries when security rules are active.
+   *
+   * Built-in orderings (`orderByKey`, `orderByPriority`, or default priority)
+   * and queries when no security rules are loaded (`this.compiled === null`)
+   * are exempt.
+   */
+  assertQueryIndex(path: string, spec: QuerySpec): void {
+    if (this.compiled === null) return;
+    if (spec.orderBy === null) return;
+    if (spec.orderBy.kind === 'key' || spec.orderBy.kind === 'priority') return;
+
+    const requiredIndex = resolveRequiredIndexKey(spec.orderBy);
+
+    const segments = path.split('/').filter(Boolean);
+    const normalizedPath = '/' + segments.join('/');
+
+    const matchingNodes = findMatchingNodesAtPath(this.compiled, segments);
+    const hasIndex = matchingNodes.some((node) =>
+      node.indexOn?.some(
+        (idx) => idx === requiredIndex || idx.split('/').filter(Boolean).join('/') === requiredIndex,
+      ),
+    );
+
+    if (!hasIndex) {
+      throw new Error(
+        `Index not defined, add ".indexOn": "${requiredIndex}", for path "${normalizedPath}", to the rules`,
+      );
+    }
   }
 
   /**
@@ -197,6 +302,10 @@ export class RulesEvaluator {
         normalisedAuth.tenant = ctx.auth.tenant;
       }
     }
+    let simulatedQuery = ctx.query;
+    if (simulatedQuery === undefined && ctx.querySpec !== undefined) {
+      simulatedQuery = querySpecToSimulationQuery(ctx.querySpec);
+    }
     const result = simulateRtdbRules(this.compiled, {
       operation,
       path: path === '/' ? '/' : path,
@@ -204,6 +313,7 @@ export class RulesEvaluator {
       mockData: ctx.mockData,
       newData: ctx.newData,
       updates: ctx.updates,
+      query: simulatedQuery,
     });
     if (!result.success) {
       if (result.error.code === 'NO_MATCHING_RULE') {
@@ -232,6 +342,9 @@ export class RulesEvaluator {
         reason: result.data.reason,
         pathVariableBindings: result.data.pathVariableBindings,
       };
+    }
+    if (result.data.allowed && isReadOperation && ctx.querySpec) {
+      this.assertQueryIndex(path, ctx.querySpec);
     }
     return {
       check: result.data.allowed ? 'allow' : 'deny',

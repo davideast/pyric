@@ -43,6 +43,7 @@ export class ValueListeners {
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
       mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      querySpec: query,
     });
     if (evaluation.check !== 'allow') {
       let requestVal: { query: unknown } | undefined = undefined;

@@ -1,5 +1,17 @@
 import { z } from 'zod';
 
+export const SimulationQuerySchema = z.object({
+  orderByChild: z.string().nullable().optional(),
+  orderByKey: z.boolean().nullable().optional(),
+  orderByValue: z.boolean().nullable().optional(),
+  equalTo: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+  limitToFirst: z.number().nullable().optional(),
+  limitToLast: z.number().nullable().optional(),
+  startAt: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+  endAt: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+});
+export type SimulationQuery = z.infer<typeof SimulationQuerySchema>;
+
 export const SimulationInputSchema = z.object({
   operation: z.enum(['read', 'write', 'validate']),
   path: z.string().min(1).startsWith('/'),
@@ -25,6 +37,7 @@ export const SimulationInputSchema = z.object({
   updates: z
     .array(z.object({ path: z.string().min(1).startsWith('/'), value: z.unknown() }))
     .optional(),
+  query: SimulationQuerySchema.optional(),
 });
 export type SimulationInput = z.infer<typeof SimulationInputSchema>;
 

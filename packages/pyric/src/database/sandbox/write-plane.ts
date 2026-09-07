@@ -183,7 +183,7 @@ export class WritePlane {
 
   getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryRow[] {
     const at = Date.now();
-    const evaluation = this.readEvaluation(auth, path);
+    const evaluation = this.readEvaluation(auth, path, spec);
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'get', path, denyResultFor(evaluation.check), evaluation, {
         at, durationMs: Date.now() - at, request: { query: spec },
@@ -419,9 +419,11 @@ export class WritePlane {
     }
   }
 
-  private readEvaluation(auth: AuthState, path: string) {
+  private readEvaluation(auth: AuthState, path: string, spec?: QuerySpec) {
     return this.state.rules.evaluate('read', path === '/' ? '/' : path, {
-      auth, mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      auth,
+      mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      querySpec: spec,
     });
   }
 
