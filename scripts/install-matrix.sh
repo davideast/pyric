@@ -106,7 +106,10 @@ const pkg = {
 fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
 // pnpm >= 11 no longer reads "pnpm.overrides" from package.json — it moved to
 // pnpm-workspace.yaml. Quote keys + file: values.
-const yaml = "overrides:\n" +
+// pnpm 12 also stopped honouring --config.dangerouslyAllowAllBuilds on the
+// command line, so the same setting is written here. The matrix checks
+// resolution, not whether a transitive dependency runs its postinstall script.
+const yaml = "dangerouslyAllowAllBuilds: true\noverrides:\n" +
   Object.entries(pin).map(([k, v]) => `  "${k}": "${v}"`).join("\n") + "\n";
 fs.writeFileSync(path.join(dir, "pnpm-workspace.yaml"), yaml);
 ' "${TARBALLS[@]}"
@@ -116,7 +119,7 @@ echo "▸ $PM install (5 file: tarballs + peers, inter-deps pinned local)…"
 cd "$CONSUMER"
 case "$PM" in
   npm)  npm install --no-audit --no-fund --loglevel=error ;;
-  # pnpm 11 blocks (and exits non-zero on) dependency build scripts by default
+  # pnpm 11+ blocks (and exits non-zero on) dependency build scripts by default
   # (esbuild/@firebase/util/protobufjs); the matrix only needs resolution, not
   # those builds, so allow them rather than fail. strict-peer off keeps the
   # apples-to-apples resolution check from tripping on peer mismatches.
