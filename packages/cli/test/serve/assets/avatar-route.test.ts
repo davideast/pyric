@@ -215,6 +215,14 @@ describe('avatar route: caching semantics', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
   });
+
+  it('reports the resolved origin so a client can tell a placeholder from the final image', async () => {
+    const interim = await fetch(`${(await serve(spyResolver('interim'))).url}/__pyric/assets/avatar/alice`);
+    const cached = await fetch(`${(await serve(spyResolver('cache'))).url}/__pyric/assets/avatar/alice`);
+
+    expect(interim.headers.get('x-pyric-avatar-origin')).toBe('interim');
+    expect(cached.headers.get('x-pyric-avatar-origin')).toBe('cache');
+  });
 });
 
 describe('avatar route: failure containment', () => {

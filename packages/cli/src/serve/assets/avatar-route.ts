@@ -128,6 +128,11 @@ export async function handleAvatar(
     'content-type': asset.contentType,
     'content-length': String(asset.data.byteLength),
     'cache-control': cacheControlFor(asset.origin),
+    // Lets a client tell a placeholder apart from the final image without
+    // reading bytes: `interim` means a slow source is still generating and a
+    // later request will upgrade; every other value is already final for
+    // this uid. Same-origin only, so an <img> read needs no CORS exposure.
+    'x-pyric-avatar-origin': asset.origin,
   });
   res.end(Buffer.from(asset.data));
 }
