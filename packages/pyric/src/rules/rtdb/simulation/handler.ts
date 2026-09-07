@@ -1,4 +1,4 @@
-import { DataSnapshot, evaluateRtdbExpression } from '../grammar/simulator.js';
+import { DataSnapshot, evaluateRtdbExpression, isTruthy } from '../grammar/simulator.js';
 import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema } from './spec.js';
@@ -112,7 +112,7 @@ function findFailingValidate(
           }
         } else {
           const result = evaluateRtdbExpression(rule.raw, buildContext(data, newData, bindings));
-          if (!result) return { node, rule, bindings };
+          if (!isTruthy(result)) return { node, rule, bindings };
         }
       }
     }
@@ -459,7 +459,7 @@ export class SimulateHandler {
           buildContext(dataAtAncestor, newDataAtAncestor, ancestor.pathVariableBindings),
         );
 
-        if (Boolean(result)) {
+        if (isTruthy(result)) {
           // A granting `.write` is necessary but not sufficient: RTDB also
           // enforces every `.validate` rule from the root through the write
           // location and through every present descendant.
