@@ -40,6 +40,7 @@ import {
   type TraceStep,
   type RuleVariable,
 } from './model.js';
+import { isQueryProofUnsupported } from './query-proof.js';
 import { LazyRulesCodeEditor } from './LazyRulesCodeEditor.js';
 
 const SEVERITY_DOT: Record<DenialSeverity, string> = {
@@ -169,6 +170,15 @@ export function DenialDetail({
   rulesSource?: string;
 }) {
   const exp = explainDenial(denial);
+  let rejectionLabel = 'denied';
+  let rejectionKind = 'deny';
+  if (isQueryProofUnsupported(denial)) {
+    rejectionLabel = 'Query proof unsupported';
+    rejectionKind = 'proof-unsupported';
+  } else if (denial.unsupported) {
+    rejectionLabel = 'unsupported';
+    rejectionKind = 'unsupported';
+  }
   return (
     <div
       data-pyric-ui="denial-detail"
@@ -186,10 +196,10 @@ export function DenialDetail({
             </Badge>
           ) : (
             <Badge
-              kind="deny"
+              kind={rejectionKind}
               className="rounded bg-danger/15 px-2 py-0.5 text-xs font-semibold uppercase text-danger"
             >
-              {denial.unsupported ? 'unsupported' : 'denied'}
+              {rejectionLabel}
             </Badge>
           )}
           <span className="font-mono text-sm text-soft-white">
