@@ -102,17 +102,23 @@ Semantics:
   fallback without writing it, so the next fetch retries.
 - **Single-flight per key.** Concurrent first fetches run the source once.
 - **A slow source never blocks the render.** A source that does not answer
-  synchronously yields the built-in generated avatar immediately, as an
-  interim response with `no-store`, while generation continues in the
-  background and lands in the cache. The first paint never waits: a
-  generator taking ten seconds and one taking two are equally instant on
-  screen. The response carries `x-pyric-avatar-origin: interim`, so a
-  client that wants the finished image in the same session can re-request
-  until that header reports any other origin. The next fetch of the URL
-  (a re-render, reload, or later session) serves the generated image.
-  The placeholder is an image in the image slot, not loading UI, so
-  applications inherit nothing to theme and there is no loading state to
-  build.
+  synchronously yields a placeholder immediately, as an interim response
+  with `no-store`, while generation continues in the background and lands
+  in the cache. The first paint never waits: a generator taking ten
+  seconds and one taking two are equally instant on screen. The response
+  carries `x-pyric-avatar-origin: interim`, so a client that wants the
+  finished image in the same session can re-request until that header
+  reports any other origin. The next fetch of the URL (a re-render,
+  reload, or later session) serves the generated image.
+- **The placeholder announces itself.** It carries the user's own gradient
+  and initial, plus a spinning ring and a dimmed initial, so a pending
+  image is never mistaken for a finished one; without that signal a
+  configured generator looks as though it silently did nothing. The
+  animation is declarative SVG, so it runs inside an `img` element with no
+  script. The placeholder is still an image in the image slot, not loading
+  UI, so applications inherit nothing to theme. The settled default, which
+  in-page mode mints as a data URI, never animates: there is nothing
+  pending behind it.
 
 ## The set format
 
