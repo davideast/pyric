@@ -441,7 +441,7 @@ describe('pyric init output contract', () => {
         'src/main.ts': 'c8270c6bf19756f2eedfeac0b9e34ecfb90c908eb3fd9f4fc5fc0c775e3befc5',
         'src/vite-env.d.ts': '65996936fbb042915f7b74a200fcdde7e410f32a669b1ab9597cfaa4b0faddb5',
         'tsconfig.json': '5bb892360953642d2644a442a81abbad91e62be2f7fcb646505cc7f33a6bcc08',
-        'vite.config.ts': '15b2c1abb05cfd56de81a3ed2b9a41adebc267e141f6eb7a121b76d2d888d014',
+        'vite.config.ts': 'b19426fd59720f83a322d14c3b126db7c3f5fd1e927da2054d384b18e500bc28',
       },
       node: {
         '.env.example': '20b0fec5308501f75cab4d6026678eefbbbef0001bfabaa17c66d92e67c9d582',
