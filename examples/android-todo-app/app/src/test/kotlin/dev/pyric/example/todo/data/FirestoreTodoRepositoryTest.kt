@@ -1,11 +1,9 @@
 package dev.pyric.example.todo.data
 
-import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
 import com.google.firebase.firestore.FirebaseFirestore
 import dev.pyric.bridge.InMemoryBridgeTransport
-import dev.pyric.bridge.PyricBridgeClient
 import dev.pyric.codecs.JsonCodec
+import dev.pyric.database.FirebaseDatabase
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -21,6 +19,7 @@ class FirestoreTodoRepositoryTest {
 
     private lateinit var transport: InMemoryBridgeTransport
     private lateinit var firestore: FirebaseFirestore
+    private lateinit var database: FirebaseDatabase
     private lateinit var repository: FirestoreTodoRepository
     private val recordedOps = CopyOnWriteArrayList<Map<String, Any?>>()
 
@@ -29,7 +28,9 @@ class FirestoreTodoRepositoryTest {
         recordedOps.clear()
         transport = InMemoryBridgeTransport()
         firestore = dev.pyric.example.todo.TestFirestoreFactory.create(transport)
-        repository = FirestoreTodoRepository(firestore)
+        database = FirebaseDatabase(firestore.bridgeClient, firestore.app)
+        repository = FirestoreTodoRepository(firestore, database)
+        repository.setEngine(DatabaseEngine.FIRESTORE)
 
         transport.onServerReceive { json ->
             val map = JsonCodec.decodeMap(json)
@@ -47,7 +48,7 @@ class FirestoreTodoRepositoryTest {
                     val method = op["method"] as String
 
                     when (method) {
-                        "setDoc", "updateDoc", "deleteDoc" -> {
+                        "setDoc", "updateDoc", "deleteDoc", "rtdb.set", "rtdb.update", "rtdb.remove" -> {
                             transport.sendToClient("""{"type":"worker-res","id":"$id","ok":true}""")
                         }
                         else -> {
@@ -80,6 +81,17 @@ class FirestoreTodoRepositoryTest {
         assertEquals("Buy groceries", data["title"])
         assertEquals(false, data["completed"])
         assertNotNull(data["createdAt"])
+    }
+
+    @Test
+    fun testRtdbAddTodoDispatchesRtdbSetOp() = runBlocking {
+        repository.setEngine(DatabaseEngine.RTDB)
+        repository.addTodo("Buy milk via RTDB", "user-1")
+
+        val op = recordedOps.find { it["method"] == "rtdb.set" }
+        assertNotNull("Expected rtdb.set operation", op)
+        val path = op!!["path"] as String
+        assertTrue("Expected path to start with todos/", path.startsWith("todos/"))
     }
 
     @Test

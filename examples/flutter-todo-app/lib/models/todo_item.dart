@@ -20,6 +20,8 @@ class TodoItem {
     final rawDate = data['createdAt'];
     if (rawDate is DateTime) {
       parsedDate = rawDate;
+    } else if (rawDate is num) {
+      parsedDate = DateTime.fromMillisecondsSinceEpoch(rawDate.toInt());
     } else if (rawDate is Map && rawDate['_seconds'] is num) {
       final seconds = (rawDate['_seconds'] as num).toInt();
       parsedDate = DateTime.fromMillisecondsSinceEpoch(seconds * 1000);
