@@ -547,7 +547,16 @@ jobs:
 
       - name: Enable pnpm (corepack)
         if: matrix.pm == 'pnpm'
-        run: corepack enable
+        # The corepack bundled with Node 22.15 resolves `pnpm@latest` and then
+        # looks for `bin/pnpm.cjs`, which pnpm 12 no longer ships: its `bin.pnpm`
+        # is a plain `pnpm` file, so the shim exits MODULE_NOT_FOUND before any
+        # install runs. Updating corepack first keeps this leg on current pnpm,
+        # which is what the matrix exists to prove. `pnpm --version` fails the
+        # step with a readable error if the shim is still wrong.
+        run: |
+          npm install -g corepack@latest
+          corepack enable
+          pnpm --version
 
       # The audit step (scripts/audit-packed-cli.mjs) imports typescript from
       # the repo root; the check-set consolidation dropped this install and the
