@@ -86,7 +86,17 @@ A slow source never leaves the application waiting. Unless the source answers sy
 
 The placeholder shows the same colours and initial the user's built-in avatar uses, plus a spinning ring and a dimmed initial, so a photo that is still generating never looks like a finished one. The animation is declarative SVG, so it runs inside an ordinary `img` element with no script and nothing for you to style.
 
-Responses carry an `x-pyric-avatar-origin` header. The value `interim` means a placeholder is standing in while generation runs; any other value means the image is final for that user. An application that wants the finished image to appear without a reload can re-request the URL while that header reports `interim`, as `examples/vite-sandbox-app` does.
+### The placeholder upgrades itself
+
+In the browser, the finished image replaces the placeholder as soon as generation completes, without a reload and without a single line of application code. Pyric's development runtime watches for the image landing in the cache and refreshes the `img` elements bound to that user. Your source stays what it always was:
+
+```tsx
+<img src={user.photoURL} alt="" />
+```
+
+The runtime opens this listener only when you configure a `source`. The generated default and a pre-built set are final on their first request, so there is nothing to upgrade and nothing is opened.
+
+Native clients get the same image by a different route. A Swift, Kotlin, or Flutter client, or any other non-browser consumer, has no development runtime in the page, so it receives the finished image on its next request for that URL, whether that comes from a re-render, a pull to refresh, or the next launch.
 
 A filled cache is itself a valid avatar set, in the same `manifest.json` format described [above](#use-a-pre-built-avatar-set). Once `.pyric/assets/avatars/` holds the images you want, stop calling the source and point `avatars` at that directory, or copy it out of the gitignored `.pyric/` directory into your project and commit it as a checked-in set.
 

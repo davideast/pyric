@@ -61,35 +61,6 @@ const els = {
 els.signIn.addEventListener('click', () => signInWithPopup(auth, new GoogleAuthProvider()));
 els.signOut.addEventListener('click', () => signOut(auth));
 
-// A slow avatar source (see the `avatars` option in vite.config.ts, e.g. the
-// Nano Banana generator) can take several seconds. pyric answers the first
-// request with a placeholder immediately and marks it with the response header
-// `x-pyric-avatar-origin: interim`, then serves the finished image once it is
-// generated. This re-requests while the header reports `interim` and swaps the
-// finished image into the same slot when it is ready. It is a no-op for the
-// built-in default and pre-built sets, which are final on the first request,
-// so it costs nothing unless a generator is actually running.
-async function upgradeAvatarWhenReady(url: string, img: HTMLImageElement): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt++) {
-    let response: Response;
-    try {
-      response = await fetch(url, { cache: 'no-store' });
-    } catch {
-      return;
-    }
-    if (response.headers.get('x-pyric-avatar-origin') !== 'interim') {
-      // The final image is ready (or there is no generator). If the visible
-      // placeholder was interim, force the <img> to fetch the finished bytes.
-      const stillPlaceholder = img.src === url;
-      if (stillPlaceholder) {
-        img.src = url + (url.includes('?') ? '&' : '?') + 'ready=' + String(Date.now());
-      }
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-  }
-}
-
 let unsubscribePosts: (() => void) | undefined = undefined;
 
 onAuthStateChanged(auth, (user) => {
@@ -115,10 +86,8 @@ onAuthStateChanged(auth, (user) => {
     // production; email/password and anonymous users have none.
     const hasPhoto = user.photoURL !== null;
     if (hasPhoto) {
-      const photoURL = user.photoURL as string;
-      els.avatar.src = photoURL;
+      els.avatar.src = user.photoURL as string;
       els.avatar.hidden = false;
-      void upgradeAvatarWhenReady(photoURL, els.avatar);
     } else {
       els.avatar.src = '';
       els.avatar.hidden = true;

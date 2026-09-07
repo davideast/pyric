@@ -120,10 +120,15 @@ function defaultAvatarFallback(
  *  means the `/__pyric/assets/avatar/*` route 404s entirely (namespace.ts).
  *  The union in `ResolvedAvatarsConfig` guarantees `setDir` XOR `source`, so
  *  a read-only set directory never receives cache writes: `createAssetResolver`
- *  only writes when a `source` produced bytes it needs to cache. */
+ *  only writes when a `source` produced bytes it needs to cache.
+ *
+ *  `onMaterialised` is the session's push channel, passed in rather than
+ *  reached for: the resolver announces a key whose placeholder has just been
+ *  superseded, and the session turns that into an SSE event the page acts on. */
 function createAvatarsResolver(
   config: ResolvedAvatarsConfig | undefined,
   projectDir: string,
+  onMaterialised: (key: string) => void,
 ): AssetResolver | undefined {
   if (!config?.enabled) return undefined;
   const dir = config.setDir ?? join(projectDir, '.pyric', 'assets', 'avatars');
@@ -131,6 +136,7 @@ function createAvatarsResolver(
     dir,
     source: config.source,
     fallback: defaultAvatarFallback,
+    onMaterialised,
   });
 }
 
@@ -156,7 +162,16 @@ export async function createSandboxSession(
     }
   }
   const events = createEventHub();
-  const avatarsResolver = createAvatarsResolver(options.avatars, options.projectDir);
+  // A background generation that lands in the cache is broadcast on the same
+  // hub the rules watchers use. The page, not the application, listens: it
+  // re-requests that uid's avatar so the finished image replaces the
+  // placeholder the browser is already showing.
+  const avatarsResolver = createAvatarsResolver(options.avatars, options.projectDir, (key) => {
+    events.broadcast('avatar-ready', { key });
+  });
+  // Only a configured source can produce an image that supersedes a
+  // placeholder, so only that case asks the page to open a connection.
+  const avatarUpgrades = Boolean(avatarsResolver) && options.avatars?.source !== undefined;
   const capture: CaptureStore | undefined = (options.capture ?? true)
     ? createCaptureStore(options.projectDir)
     : undefined;
@@ -224,6 +239,7 @@ export async function createSandboxSession(
     messaging: true,
     ai: options.ai ?? null,
     avatars: Boolean(avatarsResolver),
+    avatarUpgrades,
     permissive: Boolean(options.permissive),
   });
 

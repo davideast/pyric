@@ -105,11 +105,25 @@ Semantics:
   synchronously yields a placeholder immediately, as an interim response
   with `no-store`, while generation continues in the background and lands
   in the cache. The first paint never waits: a generator taking ten
-  seconds and one taking two are equally instant on screen. The response
-  carries `x-pyric-avatar-origin: interim`, so a client that wants the
-  finished image in the same session can re-request until that header
-  reports any other origin. The next fetch of the URL (a re-render,
-  reload, or later session) serves the generated image.
+  seconds and one taking two are equally instant on screen. The next fetch
+  of the URL (a re-render, reload, or later session) serves the generated
+  image. The response also carries `x-pyric-avatar-origin`, an internal
+  debugging detail rather than something applications read.
+
+- **The upgrade is the dev runtime's job, not the application's.** When a
+  background generation lands in the cache for a key whose placeholder was
+  actually served, the resolver announces it (`onMaterialised`) and the
+  session broadcasts `avatar-ready` with that key on the SSE hub every
+  served mode already runs. The injected page script
+  (`/__pyric/sdk/init.js`) listens and re-requests the `img` elements whose
+  `src` names that key, so the finished image replaces the placeholder in
+  place. Application source stays `<img src={user.photoURL}>`: no polling,
+  no header reads, no pyric-specific code. The page opens that listener
+  only when the init payload's `avatarUpgrades` flag says a `source` is
+  configured, so the generated default and static sets — final on their
+  first request — open no connection. Native clients (Swift, Kotlin,
+  Flutter) and every other non-browser consumer have no such runtime and
+  pick up the finished image on their next request for the URL.
 - **The placeholder announces itself.** It carries the user's own gradient
   and initial, plus a spinning ring and a dimmed initial, so a pending
   image is never mistaken for a finished one; without that signal a

@@ -468,6 +468,93 @@ service cloud.firestore {
     expect(response.headers['content-type']).toBe('image/png');
     expect(response.body).toBe('pixel-bytes');
 
+    expect(session.payload().avatarUpgrades).toBe(false);
+
+    await session.close();
+  });
+
+  it('avatarUpgrades is true only when a source is configured', async () => {
+    const generatedRoot = project();
+    const generated = await createSandboxSession({
+      projectDir: generatedRoot,
+      firebaseConfig: null,
+      sdk: { dir: join(generatedRoot, 'sdk') },
+      avatars: { enabled: true },
+    });
+    expect(generated.payload().avatars).toBe(true);
+    expect(generated.payload().avatarUpgrades).toBe(false);
+    await generated.close();
+
+    const root = project();
+    const withSource = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      avatars: {
+        enabled: true,
+        source: () => ({ data: new TextEncoder().encode('x'), contentType: 'image/png' }),
+      },
+    });
+    expect(withSource.payload().avatarUpgrades).toBe(true);
+    await withSource.close();
+
+    const off = project();
+    const disabled = await createSandboxSession({
+      projectDir: off,
+      firebaseConfig: null,
+      sdk: { dir: join(off, 'sdk') },
+      avatars: { enabled: false },
+    });
+    expect(disabled.payload().avatarUpgrades).toBe(false);
+    await disabled.close();
+  });
+
+  it('broadcasts avatar-ready on the session event stream when a slow source materialises', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      avatars: {
+        enabled: true,
+        source: async () => {
+          await new Promise((r) => setTimeout(r, 20));
+          return { data: new TextEncoder().encode('portrait'), contentType: 'image/png' };
+        },
+      },
+    });
+
+    // A page listening on the SSE hub, exactly as entries/avatar-upgrade.ts does.
+    const stream = new ResponseRecorder();
+    await session.handle(
+      new EventEmitter() as IncomingMessage,
+      stream as unknown as ServerResponse,
+      new URL('http://localhost/__pyric/events'),
+    );
+
+    const first = new ResponseRecorder();
+    await session.handle(
+      { method: 'GET' } as IncomingMessage,
+      first as unknown as ServerResponse,
+      new URL('http://localhost/__pyric/assets/avatar/u1'),
+    );
+    expect(first.headers['x-pyric-avatar-origin']).toBe('interim');
+    expect(stream.body).not.toContain('avatar-ready');
+
+    await new Promise((r) => setTimeout(r, 60));
+    expect(stream.body).toContain('event: avatar-ready');
+    expect(stream.body).toContain(JSON.stringify({ key: 'u1' }));
+
+    // What the page's reload then fetches: the materialised image.
+    const second = new ResponseRecorder();
+    await session.handle(
+      { method: 'GET' } as IncomingMessage,
+      second as unknown as ServerResponse,
+      new URL('http://localhost/__pyric/assets/avatar/u1?pyric-upgrade=1'),
+    );
+    expect(second.headers['x-pyric-avatar-origin']).toBe('cache');
+    expect(second.body).toContain('portrait');
+
     await session.close();
   });
 });

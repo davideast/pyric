@@ -22,7 +22,8 @@ import {
   subscribeToActiveAuth,
   registerActiveAuth,
 } from './active-auth.js';
-import { sandbox } from './runtime.js';
+import { initPayload, sandbox } from './runtime.js';
+import { installAvatarUpgrades } from './avatar-upgrade.js';
 import { useWorker, workerDb } from './worker-runtime.js';
 import { ServeAuthHelper, customClaimsFromTokenClaims } from './auth-helper-core.js';
 import { installServeAuthResolver } from './auth-helper-runtime.js';
@@ -78,6 +79,13 @@ if (localAuth) authSandbox.setAuthFlowResolver(localAuth, resolver);
 
 if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   mountAuthHelperDialog(helper);
+  // A slow avatar source finishes after the browser already painted a
+  // placeholder. This page-level listener swaps in the finished image, so
+  // application code stays `<img src={user.photoURL}>` with nothing to poll.
+  // Not awaited: nothing below depends on the payload.
+  void initPayload.then((payload) => {
+    installAvatarUpgrades(payload?.avatarUpgrades === true);
+  });
   installPyricRuntimeChip({
     runtime: getPyricRuntimeStatus(),
     document,

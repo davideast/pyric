@@ -475,3 +475,116 @@ describe('createAssetResolver: fallback only', () => {
     expect(result.origin).toBe('fallback');
   });
 });
+
+describe('createAssetResolver: materialisation signal', () => {
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  const slowSource = (label: string): AssetSource => async () => {
+    await sleep(20);
+    return { data: new TextEncoder().encode(label), contentType: 'image/png' };
+  };
+
+  it('announces a key exactly once after its interim was superseded by the cached result', async () => {
+    const dir = tmp();
+    const announced: string[] = [];
+    const resolver = createAssetResolver({
+      dir,
+      source: slowSource('portrait'),
+      fallback: () => fallbackBytes('interim'),
+      onMaterialised: (key) => announced.push(key),
+    });
+
+    expect((await resolver.resolve(req('slow'))).origin).toBe('interim');
+    expect(announced).toEqual([]);
+
+    await sleep(60);
+    expect(announced).toEqual(['slow']);
+
+    // The cached read that follows announces nothing more.
+    expect((await resolver.resolve(req('slow'))).origin).toBe('cache');
+    expect(announced).toEqual(['slow']);
+  });
+
+  it('announces a fetched { url } result the same way', async () => {
+    const dir = tmp();
+    const announced: string[] = [];
+    const source: AssetSource = async () => {
+      await sleep(20);
+      return { url: 'https://example.test/face.png' };
+    };
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: () => fallbackBytes('interim'),
+      fetchImpl: (async () =>
+        fakeResponse({
+          ok: true,
+          status: 200,
+          contentType: 'image/png',
+          body: new TextEncoder().encode('fetched'),
+        })) as unknown as typeof fetch,
+      onMaterialised: (key) => announced.push(key),
+    });
+
+    expect((await resolver.resolve(req('remote'))).origin).toBe('interim');
+    await sleep(60);
+    expect(announced).toEqual(['remote']);
+  });
+
+  it('stays silent for a synchronous source, which never served a placeholder', async () => {
+    const dir = tmp();
+    const announced: string[] = [];
+    const source: AssetSource = () => ({
+      data: new TextEncoder().encode('quick'),
+      contentType: 'image/png',
+    });
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: failingFallback,
+      onMaterialised: (key) => announced.push(key),
+    });
+
+    expect((await resolver.resolve(req('fast'))).origin).toBe('source');
+    await sleep(20);
+    expect(announced).toEqual([]);
+  });
+
+  it('stays silent when the source fails, because nothing superseded the placeholder', async () => {
+    const dir = tmp();
+    const announced: string[] = [];
+    const source: AssetSource = async () => {
+      await sleep(20);
+      throw new Error('quota');
+    };
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: () => fallbackBytes('interim'),
+      onMaterialised: (key) => announced.push(key),
+    });
+
+    expect((await resolver.resolve(req('broken'))).origin).toBe('interim');
+    await sleep(60);
+    expect(announced).toEqual([]);
+  });
+
+  it('a throwing callback does not break the resolve or the cache write', async () => {
+    const dir = tmp();
+    const resolver = createAssetResolver({
+      dir,
+      source: slowSource('portrait'),
+      fallback: () => fallbackBytes('interim'),
+      onMaterialised: () => {
+        throw new Error('listener exploded');
+      },
+    });
+
+    expect((await resolver.resolve(req('slow'))).origin).toBe('interim');
+    await sleep(60);
+
+    const second = await resolver.resolve(req('slow'));
+    expect(second.origin).toBe('cache');
+    expect(Buffer.from(second.data)).toEqual(Buffer.from(new TextEncoder().encode('portrait')));
+  });
+});

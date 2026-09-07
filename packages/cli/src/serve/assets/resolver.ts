@@ -60,6 +60,14 @@ export interface AssetResolverOptions {
    *  defeat the point; the only cost is that a fast async source shows a
    *  placeholder for one request before the next fetch upgrades. */
   sourceDeadlineMs?: number;
+  /** Called with a key whose interim placeholder has just been superseded by
+   *  a materialised source result. It fires exactly when a placeholder
+   *  someone was actually served is now stale, so a served host can tell the
+   *  page to re-request that key: never for a source that answered without an
+   *  interim, and never for one that failed (nothing was cached, so the next
+   *  fetch retries and may yield another interim). Failures inside it are
+   *  contained — a listener never fails the resolve that produced the bytes. */
+  onMaterialised?: (key: string) => void;
 }
 
 export interface AssetResolver {
@@ -132,6 +140,25 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sourceDeadlineMs = opts.sourceDeadlineMs ?? 0;
   const inFlight = new Map<string, Promise<ResolvedAsset>>();
+  /** Keys an interim response was actually served for. Membership is the
+   *  precondition for `onMaterialised`: without it a "the image is ready"
+   *  signal would fire for keys no one ever saw a placeholder for. */
+  const interimServed = new Set<string>();
+
+  /** Announce that a placeholder someone was shown has been superseded.
+   *  A no-op for a key with no outstanding interim, so a synchronous source
+   *  is silent; the membership is consumed so one placeholder announces
+   *  once. */
+  function announceMaterialised(key: string): void {
+    const supersededAPlaceholder = interimServed.delete(key);
+    if (!supersededAPlaceholder) return;
+    if (!opts.onMaterialised) return;
+    try {
+      opts.onMaterialised(key);
+    } catch {
+      // Failure containment: a throwing listener never breaks the resolve.
+    }
+  }
 
   /** Wait for `pending` up to the deadline; past it, serve the fallback
    *  bytes as `interim` while `pending` keeps running (it stays in the
@@ -154,6 +181,7 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
     const winner = await Promise.race([pending, deadline]);
     clearTimeout(timer);
     if (winner !== null) return winner;
+    interimServed.add(req.key);
     return { ...opts.fallback(req, 'interim'), origin: 'interim' };
   }
 
@@ -174,9 +202,11 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
       if (!ext) return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
       try {
         cacheSourceResult(opts.dir, manifest, req.key, result.data, result.contentType);
+        announceMaterialised(req.key);
       } catch {
         // Failure containment: serve the bytes the source produced even
-        // when persisting them to disk fails.
+        // when persisting them to disk fails. Nothing is announced — the
+        // next fetch of this key re-runs the source rather than upgrading.
       }
       return { data: result.data, contentType: result.contentType, origin: 'source' };
     }
@@ -197,6 +227,7 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
     const data = new Uint8Array(await response.arrayBuffer());
     try {
       cacheSourceResult(opts.dir, manifest, req.key, data, contentType);
+      announceMaterialised(req.key);
     } catch {
       // Same containment as the { data } branch above.
     }
