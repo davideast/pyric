@@ -28,7 +28,7 @@ export type AssetResult = { url: string } | { data: Uint8Array; contentType: str
 
 export type AssetSource = (req: AssetRequest) => AssetResult | Promise<AssetResult>;
 
-export type AssetOrigin = 'cache' | 'pool' | 'source' | 'fallback';
+export type AssetOrigin = 'cache' | 'pool' | 'source' | 'interim' | 'fallback';
 
 export interface ResolvedAsset {
   data: Uint8Array;
@@ -41,6 +41,12 @@ export interface AssetResolverOptions {
   source?: AssetSource;
   fallback: (req: AssetRequest) => { data: Uint8Array; contentType: string };
   fetchImpl?: typeof fetch;
+  /** How long a resolve waits for the source before serving the fallback
+   *  bytes as an `interim` result while the source finishes in the
+   *  background. The completed result is cached as usual, so the next
+   *  fetch upgrades; a source failure after an interim response caches
+   *  nothing and the next fetch retries. Default 2000ms. */
+  sourceDeadlineMs?: number;
 }
 
 export interface AssetResolver {
@@ -111,7 +117,27 @@ function normalizeContentType(headerValue: string | null): string | null {
 
 export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
   const fetchImpl = opts.fetchImpl ?? fetch;
+  const sourceDeadlineMs = opts.sourceDeadlineMs ?? 2000;
   const inFlight = new Map<string, Promise<ResolvedAsset>>();
+
+  /** Wait for `pending` up to the deadline; past it, serve the fallback
+   *  bytes as `interim` while `pending` keeps running (it stays in the
+   *  in-flight map, so the source still executes exactly once and its
+   *  result still lands in the cache). `runSource` never rejects, so the
+   *  abandoned promise cannot become an unhandled rejection. */
+  async function withDeadline(
+    pending: Promise<ResolvedAsset>,
+    req: AssetRequest,
+  ): Promise<ResolvedAsset> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<null>((expire) => {
+      timer = setTimeout(() => expire(null), sourceDeadlineMs);
+    });
+    const winner = await Promise.race([pending, deadline]);
+    clearTimeout(timer);
+    if (winner !== null) return winner;
+    return { ...opts.fallback(req), origin: 'interim' };
+  }
 
   async function runSource(
     req: AssetRequest,
@@ -170,13 +196,14 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
     }
 
     if (opts.source) {
-      const existing = inFlight.get(req.key);
-      if (existing) return existing;
-      const promise = runSource(req, opts.source, manifest).finally(() => {
-        inFlight.delete(req.key);
-      });
-      inFlight.set(req.key, promise);
-      return promise;
+      let pending = inFlight.get(req.key);
+      if (!pending) {
+        pending = runSource(req, opts.source, manifest).finally(() => {
+          inFlight.delete(req.key);
+        });
+        inFlight.set(req.key, pending);
+      }
+      return withDeadline(pending, req);
     }
 
     const pool = manifest?.images.filter((image) => image.key === undefined) ?? [];

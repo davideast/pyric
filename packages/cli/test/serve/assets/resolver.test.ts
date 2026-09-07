@@ -247,6 +247,104 @@ describe('createAssetResolver: source, { url } result', () => {
   });
 });
 
+describe('createAssetResolver: source deadline', () => {
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  it('serves interim fallback bytes past the deadline, then upgrades to the cached result', async () => {
+    const dir = tmp();
+    let calls = 0;
+    const source: AssetSource = async () => {
+      calls++;
+      await sleep(40);
+      return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
+    };
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: () => fallbackBytes('interim'),
+      sourceDeadlineMs: 5,
+    });
+
+    const first = await resolver.resolve(req('slow'));
+    expect(first.origin).toBe('interim');
+    expect(Buffer.from(first.data)).toEqual(Buffer.from(fallbackBytes('interim').data));
+
+    await sleep(60); // let the background generation land in the cache
+    const second = await resolver.resolve(req('slow'));
+    expect(second.origin).toBe('cache');
+    expect(Buffer.from(second.data)).toEqual(Buffer.from(new TextEncoder().encode('portrait')));
+    expect(calls).toBe(1);
+  });
+
+  it('a concurrent request during generation also gets interim, and the source still runs once', async () => {
+    const dir = tmp();
+    let calls = 0;
+    const source: AssetSource = async () => {
+      calls++;
+      await sleep(40);
+      return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
+    };
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: () => fallbackBytes('interim'),
+      sourceDeadlineMs: 5,
+    });
+
+    const [a, b] = await Promise.all([resolver.resolve(req('k')), resolver.resolve(req('k'))]);
+    expect(a.origin).toBe('interim');
+    expect(b.origin).toBe('interim');
+    expect(calls).toBe(1);
+  });
+
+  it('a source failure after an interim response caches nothing, and the next resolve retries', async () => {
+    const dir = tmp();
+    let calls = 0;
+    const source: AssetSource = async () => {
+      calls++;
+      await sleep(20);
+      if (calls === 1) throw new Error('quota');
+      return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
+    };
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: () => fallbackBytes('interim'),
+      sourceDeadlineMs: 5,
+    });
+
+    const first = await resolver.resolve(req('flaky'));
+    expect(first.origin).toBe('interim');
+
+    await sleep(40); // failed attempt settles; nothing may be cached
+    expect(existsSync(join(dir, 'manifest.json'))).toBe(false);
+
+    const second = await resolver.resolve(req('flaky'));
+    expect(second.origin).toBe('interim'); // retry kicked off, still slow
+    await sleep(40);
+    const third = await resolver.resolve(req('flaky'));
+    expect(third.origin).toBe('cache');
+    expect(calls).toBe(2);
+  });
+
+  it('a source faster than the deadline behaves exactly as before', async () => {
+    const dir = tmp();
+    const source: AssetSource = () => ({
+      data: new TextEncoder().encode('quick'),
+      contentType: 'image/png',
+    });
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: failingFallback,
+      sourceDeadlineMs: 1000,
+    });
+
+    const result = await resolver.resolve(req('fast'));
+    expect(result.origin).toBe('source');
+  });
+});
+
 describe('createAssetResolver: source failure and retry', () => {
   it('a throwing source falls back, caches nothing, and is retried on the next resolve', async () => {
     const dir = tmp();

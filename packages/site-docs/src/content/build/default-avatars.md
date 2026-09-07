@@ -82,6 +82,8 @@ A source returns one of two shapes:
 
 The source runs once per user, ever. The first request for a uid calls it and writes the result under `.pyric/assets/avatars/`; every later request, in this session or a future one, is served straight from that cache without calling the source again. Concurrent first requests for the same uid share a single in-flight call rather than starting it twice. A source that throws, or a fetched `url` that fails, serves the built-in generated avatar for that one request without caching it, so the next request tries again.
 
+A slow source never leaves the application waiting. A request waits up to two seconds for the source, then answers immediately with the built-in generated avatar while generation carries on in the background. The next request for that user, from a re-render, a reload, or a later session, serves the finished image from the cache. Your application needs no loading state: the placeholder is itself a complete avatar, in the same image slot the finished one will occupy.
+
 A filled cache is itself a valid avatar set, in the same `manifest.json` format described [above](#use-a-pre-built-avatar-set). Once `.pyric/assets/avatars/` holds the images you want, stop calling the source and point `avatars` at that directory, or copy it out of the gitignored `.pyric/` directory into your project and commit it as a checked-in set.
 
 ## Configure `pyric sandbox` with an environment variable

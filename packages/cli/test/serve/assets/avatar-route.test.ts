@@ -206,6 +206,15 @@ describe('avatar route: caching semantics', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
   });
+
+  it('never caches an interim placeholder, so the next fetch can upgrade', async () => {
+    const h = await serve(spyResolver('interim'));
+
+    const response = await fetch(`${h.url}/__pyric/assets/avatar/alice`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+  });
 });
 
 describe('avatar route: failure containment', () => {

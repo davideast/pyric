@@ -101,6 +101,14 @@ Semantics:
 - **Failure never caches.** A source error serves the built-in generated
   fallback without writing it, so the next fetch retries.
 - **Single-flight per key.** Concurrent first fetches run the source once.
+- **A slow source never blocks the render.** A resolve waits for the source
+  up to a short deadline (2 seconds), then serves the built-in generated
+  avatar as an interim response with `no-store` while generation finishes
+  in the background and lands in the cache. The next fetch of that URL
+  (a re-render, reload, or later session) upgrades to the generated image.
+  The placeholder is an image in the image slot, not loading UI, so
+  applications inherit nothing to theme and there is no loading state to
+  build.
 
 ## The set format
 

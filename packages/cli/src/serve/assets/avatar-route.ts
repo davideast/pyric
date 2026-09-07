@@ -22,10 +22,12 @@
  *
  * Caching is semantic, not a performance knob. A key's image never changes
  * once it is materialised, so every resolved origin is cacheable for an hour.
- * The `fallback` origin is the one exception: it means the resolver did NOT
+ * Two origins are the exception: `fallback` means the resolver did NOT
  * materialise anything (a source failed, or none is configured yet), and the
- * design's failure-never-caches rule says the next fetch must retry. `no-store`
- * is how that retry stays visible to the browser.
+ * design's failure-never-caches rule says the next fetch must retry; `interim`
+ * means a slow source is still generating behind the response the browser got.
+ * `no-store` is how the retry, or the upgrade to the generated image, stays
+ * visible to the browser.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { avatarSeed } from 'pyric/auth/internal';
@@ -72,10 +74,11 @@ function seedFor(uid: string, requested: string | null): string {
   return avatarSeed(uid);
 }
 
-/** Write-once per key, and a failure never becomes the answer: see this
- *  file's header for why `fallback` is the one uncacheable origin. */
+/** Write-once per key, and neither a failure nor a placeholder ever becomes
+ *  the answer: see this file's header for why `fallback` and `interim` are
+ *  the uncacheable origins. */
 function cacheControlFor(origin: AssetOrigin): string {
-  if (origin === 'fallback') return 'no-store';
+  if (origin === 'fallback' || origin === 'interim') return 'no-store';
   return `public, max-age=${CACHEABLE_MAX_AGE_SECONDS}`;
 }
 
