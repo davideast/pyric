@@ -8,7 +8,7 @@
  * other serve-layer code mounts a route onto. See manifest.ts for the
  * on-disk manifest shape and content-types.ts for the known image types.
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   loadManifest,
@@ -95,6 +95,7 @@ function cacheSourceResult(
   const ext = extensionFor(contentType);
   if (!ext) return; // unreachable: callers only reach here with a known type
   const file = `${key}.${ext}`;
+  mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, file), data);
   const images = (manifest?.images ?? []).filter((image) => image.key !== key);
   images.push({ file, contentType, key });

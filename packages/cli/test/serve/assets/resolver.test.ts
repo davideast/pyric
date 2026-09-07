@@ -127,6 +127,27 @@ describe('createAssetResolver: source, { data } result', () => {
     expect(Buffer.from(second.data)).toEqual(Buffer.from(first.data));
   });
 
+  it('caches into a directory that does not exist yet', async () => {
+    // The default cache dir (.pyric/assets/avatars) is absent until the
+    // first source result materialises it; the write must create it.
+    const dir = join(tmp(), 'nested', 'not-yet-created');
+    let calls = 0;
+    const source: AssetSource = () => {
+      calls++;
+      return { data: new TextEncoder().encode('generated'), contentType: 'image/jpeg' };
+    };
+    const resolver = createAssetResolver({ dir, source, fallback: failingFallback });
+
+    const first = await resolver.resolve(req('avatar-1'));
+    expect(first.origin).toBe('source');
+    expect(existsSync(join(dir, 'avatar-1.jpg'))).toBe(true);
+    expect(existsSync(join(dir, 'manifest.json'))).toBe(true);
+
+    const second = await resolver.resolve(req('avatar-1'));
+    expect(second.origin).toBe('cache');
+    expect(calls).toBe(1);
+  });
+
   it('takes precedence over a pool even when the manifest has pool images', async () => {
     const dir = tmp();
     writeFileSync(join(dir, 'pool.png'), new TextEncoder().encode('pool'));
