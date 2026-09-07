@@ -396,6 +396,82 @@ describe('createAssetResolver: source deadline', () => {
   });
 });
 
+describe('createAssetResolver: source invocation limit', () => {
+  it('stops invoking the source past the limit and serves the fallback instead', async () => {
+    const dir = tmp();
+    let calls = 0;
+    const source: AssetSource = () => {
+      calls++;
+      return { data: new TextEncoder().encode(`img-${calls}`), contentType: 'image/png' };
+    };
+    const limits: number[] = [];
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: () => fallbackBytes('capped'),
+      maxSourceInvocations: 2,
+      onSourceLimit: (limit) => limits.push(limit),
+    });
+
+    expect((await resolver.resolve(req('k1'))).origin).toBe('source');
+    expect((await resolver.resolve(req('k2'))).origin).toBe('source');
+
+    // A third distinct key would be a third paid call: refused.
+    const third = await resolver.resolve(req('k3'));
+    expect(third.origin).toBe('fallback');
+    expect(calls).toBe(2);
+    expect(existsSync(join(dir, 'k3.png'))).toBe(false);
+
+    // Announced once, not per refusal.
+    await resolver.resolve(req('k4'));
+    expect(limits).toEqual([2]);
+  });
+
+  it('still serves keys already cached once the limit is reached', async () => {
+    const dir = tmp();
+    const source: AssetSource = () => ({
+      data: new TextEncoder().encode('generated'),
+      contentType: 'image/png',
+    });
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: () => fallbackBytes('capped'),
+      maxSourceInvocations: 1,
+    });
+
+    expect((await resolver.resolve(req('kept'))).origin).toBe('source');
+    expect((await resolver.resolve(req('other'))).origin).toBe('fallback');
+    // The cache read never reaches the limit check.
+    expect((await resolver.resolve(req('kept'))).origin).toBe('cache');
+  });
+
+  it('does not spend budget on requests that join an in-flight generation', async () => {
+    const dir = tmp();
+    let calls = 0;
+    let settle!: (r: { data: Uint8Array; contentType: string }) => void;
+    const pending = new Promise<{ data: Uint8Array; contentType: string }>((r) => {
+      settle = r;
+    });
+    const source: AssetSource = () => {
+      calls++;
+      return pending;
+    };
+    const resolver = createAssetResolver({
+      dir,
+      source,
+      fallback: () => fallbackBytes('capped'),
+      maxSourceInvocations: 1,
+    });
+
+    const a = resolver.resolve(req('shared'));
+    const b = resolver.resolve(req('shared'));
+    settle({ data: new TextEncoder().encode('bytes'), contentType: 'image/png' });
+    for (const result of await Promise.all([a, b])) expect(result.origin).toBe('source');
+    expect(calls).toBe(1);
+  });
+});
+
 describe('createAssetResolver: source failure and retry', () => {
   it('a throwing source falls back, caches nothing, and is retried on the next resolve', async () => {
     const dir = tmp();

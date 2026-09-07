@@ -66,6 +66,27 @@ export function avatarUidFromPath(pathname: string): string | null {
   return uid;
 }
 
+/**
+ * True when the browser tells us this request came from another site.
+ *
+ * The route is deliberately unauthenticated, because an `img` element cannot
+ * attach a capability token. That leaves one abuse path worth closing: an
+ * `img` on any page the developer happens to open resolves against this
+ * origin without a CORS preflight, and a uid the resolver has never seen
+ * invokes the configured source, which may cost money and writes a cache
+ * file. `Sec-Fetch-Site` is set by the browser, not the page, so a
+ * `cross-site` value is a reliable statement that the application under
+ * development did not make this request.
+ *
+ * Absence means allow: native clients, `curl`, and older browsers send no
+ * such header, and this route is not the place to break them.
+ */
+function isCrossSiteRequest(req: IncomingMessage): boolean {
+  const header = req.headers?.['sec-fetch-site'];
+  const value = Array.isArray(header) ? header[0] : header;
+  return value === 'cross-site';
+}
+
 /** The seed the resolver picks a pool image with. An explicit `d` wins; a
  *  request that carries none is seeded from the uid exactly the way the
  *  in-page generator seeds itself. */
@@ -100,6 +121,11 @@ export async function handleAvatar(
   if (req.method !== 'GET') {
     res.writeHead(405, { allow: 'GET', 'content-type': 'text/plain; charset=utf-8' })
       .end('method not allowed');
+    return;
+  }
+  if (isCrossSiteRequest(req)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
+      .end('cross-site avatar requests are refused');
     return;
   }
 

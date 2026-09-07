@@ -68,6 +68,17 @@ export interface AssetResolverOptions {
    *  fetch retries and may yield another interim). Failures inside it are
    *  contained — a listener never fails the resolve that produced the bytes. */
   onMaterialised?: (key: string) => void;
+  /** Most times `source` may run over this resolver's lifetime. A source can
+   *  cost money per call, and the route that drives it answers any uid, so an
+   *  application loop or a request the developer did not make cannot be
+   *  allowed to invoke it without bound. Past the limit every key falls back
+   *  to the built-in avatar and nothing is cached, so raising the limit or
+   *  restarting resumes generation. Default 100. */
+  maxSourceInvocations?: number;
+  /** Called once, the first time the invocation limit refuses a key, so the
+   *  host can say why avatars stopped generating instead of changing
+   *  behaviour silently. */
+  onSourceLimit?: (limit: number) => void;
 }
 
 export interface AssetResolver {
@@ -140,6 +151,9 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const sourceDeadlineMs = opts.sourceDeadlineMs ?? 0;
   const inFlight = new Map<string, Promise<ResolvedAsset>>();
+  const maxSourceInvocations = opts.maxSourceInvocations ?? 100;
+  let sourceInvocations = 0;
+  let limitAnnounced = false;
   /** Keys an interim response was actually served for. Membership is the
    *  precondition for `onMaterialised`: without it a "the image is ready"
    *  signal would fire for keys no one ever saw a placeholder for. */
@@ -247,6 +261,20 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
     if (opts.source) {
       let pending = inFlight.get(req.key);
       if (!pending) {
+        // Counted per new invocation, not per request: joining an in-flight
+        // generation is free, and a cached key never arrives here at all.
+        if (sourceInvocations >= maxSourceInvocations) {
+          if (!limitAnnounced) {
+            limitAnnounced = true;
+            try {
+              opts.onSourceLimit?.(maxSourceInvocations);
+            } catch {
+              // A host's notification must not break a resolve.
+            }
+          }
+          return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
+        }
+        sourceInvocations++;
         pending = runSource(req, opts.source, manifest).finally(() => {
           inFlight.delete(req.key);
         });

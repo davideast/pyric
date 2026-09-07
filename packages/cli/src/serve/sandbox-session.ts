@@ -137,6 +137,12 @@ function createAvatarsResolver(
     source: config.source,
     fallback: defaultAvatarFallback,
     onMaterialised,
+    onSourceLimit: (limit) => {
+      console.error(
+        `[pyric] avatar source stopped after ${limit} generations this session; ` +
+          'later users get the built-in avatar. Restart to resume.',
+      );
+    },
   });
 }
 

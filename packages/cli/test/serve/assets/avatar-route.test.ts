@@ -189,6 +189,33 @@ describe('avatar route: uid validation', () => {
   });
 });
 
+describe('avatar route: cross-site requests', () => {
+  it('refuses a request the browser marks cross-site, so another page cannot drive the source', async () => {
+    const resolver = spyResolver();
+    const h = await serve(resolver);
+
+    const response = await fetch(`${h.url}/__pyric/assets/avatar/alice`, {
+      headers: { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'image' },
+    });
+
+    expect(response.status).toBe(403);
+    expect(resolver.requests).toHaveLength(0); // the source is never reached
+  });
+
+  it('serves the application own requests and clients that send no fetch metadata', async () => {
+    for (const headers of [
+      { 'sec-fetch-site': 'same-origin' },
+      { 'sec-fetch-site': 'none' },
+      {}, // native clients, curl, older browsers
+    ]) {
+      const response = await fetch(`${(await serve(spyResolver())).url}/__pyric/assets/avatar/alice`, {
+        headers,
+      });
+      expect(response.status).toBe(200);
+    }
+  });
+});
+
 describe('avatar route: caching semantics', () => {
   it('caches a materialised origin for an hour', async () => {
     const h = await serve(spyResolver('cache'));
