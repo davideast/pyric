@@ -100,6 +100,7 @@ export function toRuleDecision(result: AssuranceProbeResult): Denial | null {
     origin: (event.origin ?? "user") as Denial["origin"],
     unsupported: verdict === "unsupported",
   };
+  if (event.queryProof) denial.queryProof = event.queryProof;
   if (event.matchedRule)
     denial.matchedRule = event.matchedRule as Denial["matchedRule"];
   if (event.evaluatedRule) {

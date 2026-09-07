@@ -45,6 +45,7 @@ import {
   opensRulesInspector,
   subjectTarget,
   verdictFor,
+  verdictLabel,
   VERDICT_FILTERS,
   type StudioTrafficEvent,
   type VerdictFilter,
@@ -124,7 +125,7 @@ function VerdictCell({ event }: { event: StudioTrafficEvent }) {
   if (!v) return null;
   return (
     <span className="traffic__verdict" data-verdict={v}>
-      {v}
+      {verdictLabel(v)}
     </span>
   );
 }
@@ -357,7 +358,7 @@ export function TrafficSurface() {
                 aria-pressed={verdictFilter === f}
                 onClick={() => setVerdictFilter(f)}
               >
-                {f}
+                {verdictLabel(f)}
               </button>
             ))}
           </div>

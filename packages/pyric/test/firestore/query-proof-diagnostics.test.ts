@@ -1,3 +1,5 @@
+import { toOperationRecord } from '../../src/sandbox/operation-record.js';
+import type { SandboxEvent } from '../../src/sandbox/types/events.js';
 import { describe, expect, test } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
@@ -168,6 +170,8 @@ test('public getDocs and onSnapshot carry proof diagnostics in Firebase-compatib
       customData: { denialContext: { queryProof: { kind: 'unsupported-predicate' } } },
     };
     await expect(getDocs(q)).rejects.toMatchObject(expected);
+    const captured: SandboxEvent[] = [];
+    sandbox.onEvent(event => captured.push(event));
     const errors: unknown[] = [];
     let snapshots = 0;
     const stop = onSnapshot(q, () => snapshots++, error => errors.push(error));
@@ -175,6 +179,23 @@ test('public getDocs and onSnapshot carry proof diagnostics in Firebase-compatib
     expect(snapshots).toBe(0);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatchObject(expected);
+    const restored: SandboxEvent[] = JSON.parse(JSON.stringify(captured));
+    const request = restored.find(event => event.kind === 'request');
+    expect(request?.kind).toBe('request');
+    if (!request || request.kind !== 'request') throw new Error('request missing');
+    const record = toOperationRecord(request)!;
+    expect(record.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
+    expect(record.queryProof?.kind).toBe('unsupported-predicate');
+    expect(request.evaluatedRule?.expression).toBe('false');
+    expect(restored.find(event => event.kind === 'listener_errored')).toMatchObject({
+      error: { code: 'permission-denied', message: expect.stringContaining('Pyric') },
+    });
+    expect(record.queryProof).not.toBe(request.queryProof);
+    expect(Object.isFrozen(record.queryProof?.failures)).toBe(true);
+    request.queryProof!.failures[0]!.reason = 'changed capture';
+    expect(record.queryProof!.failures[0]!.reason).not.toBe('changed capture');
+    delete request.queryProof;
+    expect(toOperationRecord(request)?.queryProof).toBeUndefined();
     env.flushListeners();
     expect(errors).toHaveLength(1);
     stop();

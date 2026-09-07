@@ -1,3 +1,5 @@
+import type { RequestEvent } from 'pyric/sandbox';
+
 export const ASSURANCE_CAMPAIGN_SCHEMA = "pyric.assurance.campaign.v1" as const;
 export const ASSURANCE_TARGET_SCHEMA = "pyric.assurance.target.v1" as const;
 export const ASSURANCE_REPORT_SCHEMA = "pyric.assurance.report.v1" as const;
@@ -214,6 +216,7 @@ export interface ActorEvidence {
 }
 
 export interface AssuranceEventEvidence {
+  queryProof?: RequestEvent['queryProof'];
   id?: string;
   at?: number;
   kind?: string;

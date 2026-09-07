@@ -290,6 +290,7 @@ function toTrafficEvent(
       ...e,
       operationContext: record.context,
       rulesDisposition: record.rules,
+      queryProof: record.queryProof,
     } as StudioTrafficEvent;
   }
   if (e.kind === 'listener') {
@@ -330,6 +331,7 @@ function toTrafficEvent(
       triggeredBy: e.triggeredBy,
       operationContext: record.context,
       rulesDisposition: record.rules,
+      queryProof: record.queryProof,
     };
   }
   let pathVal = '(service)';
@@ -360,6 +362,7 @@ function toTrafficEvent(
     triggeredBy: e.triggeredBy,
     operationContext: record.context,
     rulesDisposition: record.rules,
+    queryProof: record.queryProof,
   };
 }
 

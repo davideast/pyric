@@ -28,7 +28,9 @@ export interface OperationContext {
   readonly planId?: string;
 }
 
-/** What happened at the Security Rules seam. Admin is a lens; `bypassed` is
+/** An evaluated/deny disposition records a local rejection, not proof completeness
+ * or Firebase parity. Consumers must also inspect accompanying queryProof.
+ * What happened at the Security Rules seam. Admin is a lens; `bypassed` is
  * the rules disposition. */
 export type RulesDisposition =
   | { kind: 'evaluated'; verdict: 'allow' | 'deny' }

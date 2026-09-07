@@ -392,6 +392,7 @@ function eventEvidence(events: SandboxEvent[]): AssuranceEventEvidence[] {
       ...(raw.resourceBefore !== undefined
         ? { resourceBefore: raw.resourceBefore }
         : {}),
+      queryProof: event.kind === 'request' ? event.queryProof : undefined,
       ...(raw.matchedRule !== undefined
         ? { matchedRule: raw.matchedRule }
         : {}),

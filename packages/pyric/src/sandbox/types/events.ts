@@ -111,6 +111,7 @@ export interface SnapshotErrorEvent {
  * @see traffic-monitor-decision.md for the field-by-field rationale.
  */
 export interface RequestEvent {
+  /** Primary static-proof explanation; evaluatedRule is secondary when present. */
   queryProof?: QueryProofDiagnostic;
   /** Discriminator. */
   kind: 'request';
@@ -127,6 +128,7 @@ export interface RequestEvent {
    *  and the sandbox upgraded it (today: thrown as SimulatorUnsupportedError,
    *  surfaced here as a discrete result so the panel can show it distinctly
    *  from a real denial). */
+  /** Local operational outcome. A proof-limited deny does not establish Firebase denial. */
   result: 'allow' | 'deny' | 'unsupported';
   /** Simulator debug messages — the per-rule trace (`Rule #0 (read) → ALLOW`).
    *  Same shape as `DenialEvent.reasons` so consumer code can share rendering. */
@@ -153,7 +155,8 @@ export interface RequestEvent {
   /** Parsed from the simulator's "Rule #N → …" debug line. Absent when no
    *  rule matched (e.g. no allow rules at the path — implicit deny). */
   matchedRule?: { ruleIndex: number; operations: string[] };
-  /** The DECIDING rule's verdict + 1-indexed source line + full sub-expression
+  /** For query-proof failures this is the actual residual evaluation, not the
+   * primary explanation; consult queryProof. Otherwise, the deciding rule's verdict + 1-indexed source line + full sub-expression
    *  trace, projected from the simulator's structured `RuleEvaluation`
    *  (additive: present on `result: 'allow' | 'deny'` Firestore events when the
    *  simulator produced a per-rule trace — the allowing rule on an allow, the

@@ -1,3 +1,4 @@
+import { isQueryProofUnsupported } from './query-proof.js';
 /**
  * Rules-failure debugging: the pure view-model (Pyric Studio F4).
  *
@@ -330,6 +331,7 @@ function rtdbPhase(denial: Denial): RulePhase {
 
 /** Static attribution is separate from the rule that actually evaluated. */
 export function queryProofFailure(denial: Denial): NonNullable<RequestEvent['queryProof']>['failures'][number] | undefined {
+  if (denial.result === 'allow') return undefined;
   return denial.queryProof?.failures.find(failure => failure.kind === denial.queryProof?.kind);
 }
 
@@ -340,7 +342,7 @@ export function explainDenial(denial: Denial): RuleExplanation {
 
   const proofFailure = queryProofFailure(denial);
   if (proofFailure) {
-    const unsupported = proofFailure.kind !== 'constraints-not-satisfied';
+    const unsupported = isQueryProofUnsupported(denial);
     return {
       headline: unsupported
         ? `Query proof unsupported: Pyric could not prove ${denial.method} ${denial.path} safe. This does not establish Firebase's decision.`
