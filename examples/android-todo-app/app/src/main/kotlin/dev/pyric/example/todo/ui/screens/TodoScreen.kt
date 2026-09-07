@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +27,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import dev.pyric.example.todo.data.DatabaseEngine
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -98,6 +100,14 @@ fun TodoScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+
+                DatabaseEngineRow(
+                    selectedEngine = state.activeEngine,
+                    onEngineSelected = viewModel::setEngine,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                 )
 
                 TodoFilterRow(
@@ -244,5 +254,26 @@ private fun UnauthenticatedContent(
             color = MaterialTheme.colorScheme.outline,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+@Composable
+private fun DatabaseEngineRow(
+    selectedEngine: DatabaseEngine,
+    onEngineSelected: (DatabaseEngine) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        DatabaseEngine.entries.forEach { engine ->
+            FilterChip(
+                selected = selectedEngine == engine,
+                onClick = { onEngineSelected(engine) },
+                label = { Text(engine.label) },
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }

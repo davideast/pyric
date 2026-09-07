@@ -1,12 +1,24 @@
 package dev.pyric.example.todo.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
+enum class DatabaseEngine(val label: String) {
+    RTDB("Realtime Database (RTDB)"),
+    FIRESTORE("Cloud Firestore")
+}
+
 /**
- * Contract for managing Todo data operations.
+ * Contract for managing Todo data operations across Realtime Database (RTDB) and Cloud Firestore.
  */
 interface TodoRepository {
+    val activeEngine: StateFlow<DatabaseEngine>
+        get() = MutableStateFlow(DatabaseEngine.RTDB)
+
+    fun setEngine(engine: DatabaseEngine) {}
+
     /**
      * Real-time stream of todos filtered by user ID, ordered by creation time descending.
      */
@@ -43,7 +55,12 @@ interface TodoRepository {
     suspend fun deleteTodo(id: String)
 
     /**
-     * Returns whether the underlying Firestore bridge client is currently connected.
+     * Returns whether the underlying Pyric bridge client is currently connected.
      */
     fun isBridgeConnected(): Boolean
+
+    /**
+     * Reactive stream of bridge connection state.
+     */
+    fun bridgeConnectionFlow(): Flow<Boolean> = MutableStateFlow(isBridgeConnected())
 }

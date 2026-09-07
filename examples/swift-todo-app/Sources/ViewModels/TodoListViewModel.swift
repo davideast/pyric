@@ -1,8 +1,16 @@
 import Foundation
 import SwiftUI
 import PyricFirestore
+import PyricDatabase
 import FirebaseAuth
 import PyricDebugUI
+
+public enum DatabaseEngine: String, CaseIterable, Identifiable, Sendable {
+    case rtdb = "Realtime Database (RTDB)"
+    case firestore = "Cloud Firestore"
+
+    public var id: String { rawValue }
+}
 
 public struct SecurityRuleDenial: Identifiable, Equatable, Sendable {
     public let id = UUID()
@@ -44,19 +52,30 @@ public final class TodoListViewModel: ObservableObject {
     @Published public private(set) var currentUser: User? = nil
     @Published public private(set) var currentLens: AuthLens = .anon
     @Published public private(set) var effectiveUserId: String? = nil
+    @Published public var activeEngine: DatabaseEngine = .rtdb {
+        didSet {
+            if activeEngine != oldValue {
+                startListening()
+            }
+        }
+    }
 
     private var listenTask: Task<Void, Never>?
     private var authTask: Task<Void, Never>?
     public let db: Firestore
+    public let rtdb: Database
     public let auth: Auth
     public let debugManager: PyricDebugManager
 
     public init(
         firestore: Firestore = Firestore.firestore(),
+        rtdb: Database = Database.database(),
         auth: Auth = Auth.auth()
     ) {
         self.db = firestore
+        self.rtdb = rtdb
         self.auth = auth
+        self.rtdb.credentialProvider = auth
         self.debugManager = PyricDebugManager(firestore: firestore, auth: auth)
         self.currentUser = auth.currentUser
         self.currentLens = auth.currentAuthLens()
@@ -99,7 +118,7 @@ public final class TodoListViewModel: ObservableObject {
         }
     }
 
-    /// Connects to the Pyric sandbox bridge and starts real-time streaming of the 'todos' collection.
+    /// Connects to the Pyric sandbox bridge and starts real-time streaming of the 'todos' data.
     public func startListening() {
         stopListening()
 
@@ -111,6 +130,11 @@ public final class TodoListViewModel: ObservableObject {
         guard let uid = effectiveUserId, !uid.isEmpty else {
             statusMessage = "Not signed in. Tap the Pyric Chip or sign in below."
             todos = []
+            return
+        }
+
+        if activeEngine == .rtdb {
+            startRtdbListening(uid: uid)
             return
         }
 
@@ -127,7 +151,7 @@ public final class TodoListViewModel: ObservableObject {
                     self.hasError = false
                     self.errorMessage = nil
                     self.ruleDenial = nil
-                    self.statusMessage = "Connected as \(uid)"
+                    self.statusMessage = "Connected as \(uid) (Firestore)"
 
                     let mapped = snapshot.documents.compactMap { doc in
                         TodoItem(id: doc.documentID, data: doc.data())
@@ -152,6 +176,48 @@ public final class TodoListViewModel: ObservableObject {
         }
     }
 
+    private func startRtdbListening(uid: String) {
+        let query: DatabaseQuery = (currentLens == .admin)
+            ? rtdb.reference(withPath: "todos")
+            : rtdb.reference(withPath: "todos").queryOrdered(byChild: "userId").queryEqual(toValue: uid)
+
+        listenTask = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            do {
+                for try await snapshot in query.valueStream {
+                    guard !Task.isCancelled else { break }
+                    self.isConnected = true
+                    self.hasError = false
+                    self.errorMessage = nil
+                    self.ruleDenial = nil
+                    self.statusMessage = "Connected as \(uid) (RTDB)"
+
+                    let childSnaps = (snapshot.children.allObjects as? [DataSnapshot]) ?? []
+                    let mapped = childSnaps.compactMap { childSnap -> TodoItem? in
+                        guard let key = childSnap.key else { return nil }
+                        let data = childSnap.value as? [String: Any] ?? [:]
+                        return TodoItem(id: key, data: data)
+                    }
+
+                    self.todos = mapped.sorted { lhs, rhs in
+                        guard let lDate = lhs.createdAt?.dateValue() else { return false }
+                        guard let rDate = rhs.createdAt?.dateValue() else { return true }
+                        return lDate > rDate
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.isConnected = false
+                self.hasError = true
+                self.errorMessage = error.localizedDescription
+                self.statusMessage = "Disconnected: \(error.localizedDescription)"
+                if let bridgeError = error as? PyricBridgeError {
+                    self.extractRuleDenial(bridgeError, operation: "Listen RTDB")
+                }
+            }
+        }
+    }
+
     /// Unsubscribes and cancels the background streaming task.
     public func stopListening() {
         listenTask?.cancel()
@@ -159,7 +225,7 @@ public final class TodoListViewModel: ObservableObject {
         isConnected = false
     }
 
-    /// Adds a new todo document for the active user.
+    /// Adds a new todo item for the active user.
     public func addTodo(title: String) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -170,12 +236,22 @@ public final class TodoListViewModel: ObservableObject {
         }
 
         do {
-            _ = try await db.collection("todos").addDocument(data: [
-                "title": trimmed,
-                "completed": false,
-                "userId": uid,
-                "createdAt": FieldValue.serverTimestamp()
-            ])
+            if activeEngine == .rtdb {
+                let ref = rtdb.reference(withPath: "todos").childByAutoId()
+                try await ref.setValue([
+                    "title": trimmed,
+                    "completed": false,
+                    "userId": uid,
+                    "createdAt": ServerValue.timestamp()
+                ])
+            } else {
+                _ = try await db.collection("todos").addDocument(data: [
+                    "title": trimmed,
+                    "completed": false,
+                    "userId": uid,
+                    "createdAt": FieldValue.serverTimestamp()
+                ])
+            }
         } catch {
             handleOperationError(error, operation: "Add task")
         }
@@ -184,33 +260,53 @@ public final class TodoListViewModel: ObservableObject {
     /// Deliberately attempts an unauthorized write (mismatched userId) to verify rule enforcement.
     public func triggerUnauthorizedWrite() async {
         do {
-            _ = try await db.collection("todos").addDocument(data: [
-                "title": "Unauthorized Hacker Todo",
-                "completed": false,
-                "userId": "attacker-wrong-uid-999",
-                "createdAt": FieldValue.serverTimestamp()
-            ])
+            if activeEngine == .rtdb {
+                let ref = rtdb.reference(withPath: "todos").childByAutoId()
+                try await ref.setValue([
+                    "title": "Unauthorized Hacker Todo (RTDB)",
+                    "completed": false,
+                    "userId": "attacker-wrong-uid-999",
+                    "createdAt": ServerValue.timestamp()
+                ])
+            } else {
+                _ = try await db.collection("todos").addDocument(data: [
+                    "title": "Unauthorized Hacker Todo",
+                    "completed": false,
+                    "userId": "attacker-wrong-uid-999",
+                    "createdAt": FieldValue.serverTimestamp()
+                ])
+            }
         } catch {
             handleOperationError(error, operation: "Create unauthorized todo")
         }
     }
 
-    /// Toggles the completion status of a todo document.
+    /// Toggles the completion status of a todo item.
     public func toggleTodo(item: TodoItem) async {
         do {
             let nextState = !item.completed
-            try await db.collection("todos").document(item.id).updateData([
-                "completed": nextState
-            ])
+            if activeEngine == .rtdb {
+                try await rtdb.reference(withPath: "todos/\(item.id)").updateChildValues([
+                    "completed": nextState
+                ])
+            } else {
+                try await db.collection("todos").document(item.id).updateData([
+                    "completed": nextState
+                ])
+            }
         } catch {
             handleOperationError(error, operation: "Toggle task")
         }
     }
 
-    /// Deletes a todo document from Firestore.
+    /// Deletes a todo item from the active database engine.
     public func deleteTodo(item: TodoItem) async {
         do {
-            try await db.collection("todos").document(item.id).delete()
+            if activeEngine == .rtdb {
+                try await rtdb.reference(withPath: "todos/\(item.id)").removeValue()
+            } else {
+                try await db.collection("todos").document(item.id).delete()
+            }
         } catch {
             handleOperationError(error, operation: "Delete task")
         }
@@ -283,7 +379,7 @@ public final class TodoListViewModel: ObservableObject {
         errorMessage = nil
         ruleDenial = nil
         if isConnected, let uid = effectiveUserId {
-            statusMessage = "Connected as \(uid)"
+            statusMessage = "Connected as \(uid) (\(activeEngine == .rtdb ? "RTDB" : "Firestore"))"
         }
     }
 

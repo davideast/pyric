@@ -25,6 +25,20 @@ class _TodoScreenState extends State<TodoScreen> {
   void initState() {
     super.initState();
     _initAuthListener();
+    widget.repository.engineNotifier.addListener(_onEngineChanged);
+  }
+
+  void _onEngineChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.repository.engineNotifier.removeListener(_onEngineChanged);
+    _textController.dispose();
+    super.dispose();
   }
 
   void _initAuthListener() {
@@ -208,10 +222,45 @@ class _TodoScreenState extends State<TodoScreen> {
                 ),
               ),
               TextButton(
-                onPressed: () => FirebaseAuthPlatform.instance.signOut(),
+                onPressed: () async {
+                  final auth = FirebaseAuthPlatform.instance;
+                  if (auth is PyricFirebaseAuthPlatform) {
+                    auth.switchAuthLens(null);
+                  }
+                  await auth.signOut();
+                  if (mounted) {
+                    setState(() {
+                      _effectiveUid = null;
+                      _userDisplay = null;
+                    });
+                  }
+                },
                 child: const Text('Sign Out'),
               ),
             ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+          child: SegmentedButton<DatabaseEngine>(
+            segments: const [
+              ButtonSegment<DatabaseEngine>(
+                value: DatabaseEngine.rtdb,
+                label: Text('Realtime DB (RTDB)'),
+                icon: Icon(Icons.storage_rounded),
+              ),
+              ButtonSegment<DatabaseEngine>(
+                value: DatabaseEngine.firestore,
+                label: Text('Cloud Firestore'),
+                icon: Icon(Icons.cloud_outlined),
+              ),
+            ],
+            selected: {widget.repository.currentEngine},
+            onSelectionChanged: (Set<DatabaseEngine> selection) {
+              if (selection.isNotEmpty) {
+                widget.repository.setEngine(selection.first);
+              }
+            },
           ),
         ),
         Padding(

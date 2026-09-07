@@ -88,18 +88,26 @@ public struct ContentView: View {
     }
 
     private var authenticatedHeader: some View {
-        HStack {
-            Image(systemName: "person.crop.circle.fill")
-                .foregroundColor(.blue)
-            Text("User: \(viewModel.effectiveUserId ?? "")")
-                .font(.subheadline.bold())
-                .lineLimit(1)
-            Spacer()
-            Button("Sign Out") {
-                viewModel.signOut()
+        VStack(spacing: 8) {
+            HStack {
+                Image(systemName: "person.crop.circle.fill")
+                    .foregroundColor(.blue)
+                Text("User: \(viewModel.effectiveUserId ?? "")")
+                    .font(.subheadline.bold())
+                    .lineLimit(1)
+                Spacer()
+                Button("Sign Out") {
+                    viewModel.signOut()
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
             }
-            .font(.caption)
-            .buttonStyle(.bordered)
+            Picker("Database Engine", selection: $viewModel.activeEngine) {
+                ForEach(DatabaseEngine.allCases) { engine in
+                    Text(engine.rawValue).tag(engine)
+                }
+            }
+            .pickerStyle(.segmented)
         }
     }
 

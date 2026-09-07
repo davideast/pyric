@@ -46,6 +46,9 @@ public struct TodoItem: Identifiable, Sendable, Equatable {
             self.createdAt = ts
         } else if let date = data["createdAt"] as? Date {
             self.createdAt = Timestamp(date: date)
+        } else if let num = data["createdAt"] as? NSNumber {
+            let millis = num.doubleValue
+            self.createdAt = Timestamp(date: Date(timeIntervalSince1970: millis / 1000.0))
         } else {
             self.createdAt = nil
         }

@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "todos": {
+      ".indexOn": ["userId"],
+      ".read": "auth != null && query.orderByChild == 'userId' && query.equalTo == auth.uid",
+      "$todoId": {
+        ".read": "auth != null && (!data.exists() || data.child('userId').val() == auth.uid)",
+        ".write": "auth != null && ((!data.exists() && newData.child('userId').val() == auth.uid) || (data.exists() && data.child('userId').val() == auth.uid && (!newData.exists() || newData.child('userId').val() == auth.uid)))"
+      }
+    }
+  }
+}

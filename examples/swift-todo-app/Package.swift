@@ -14,7 +14,8 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../../packages/swift-client")
+        .package(path: "../../packages/swift-client"),
+        .package(path: "../../packages/ios-client")
     ],
     targets: [
         .executableTarget(
@@ -23,6 +24,7 @@ let package = Package(
                 .product(name: "PyricFirestore", package: "swift-client"),
                 .product(name: "FirebaseAuth", package: "swift-client"),
                 .product(name: "PyricDebugUI", package: "swift-client"),
+                .product(name: "PyricDatabase", package: "ios-client")
             ],
             path: "Sources"
         )
