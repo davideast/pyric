@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { selectPrCheckSet, type ChangedPath } from './check-set.ts';
+import { requiresPackagingProof, selectPrCheckSet, type ChangedPath } from './check-set.ts';
 
 const changed = (path: string, previousPath?: string): ChangedPath => ({ path, previousPath });
 
@@ -65,5 +65,49 @@ describe('PR check-set selection', () => {
         paths: [...paths, changed('package.json')],
       })).toBe('full');
     }
+  });
+});
+
+describe('packaging proof selection', () => {
+  test('a scaffolder change requires it, with no label', () => {
+    // The case that shipped broken: #580 edited the scaffolded vite config and
+    // the packaging gate, which asserts that file's shape, never ran.
+    expect(requiresPackagingProof([changed('packages/create-pyric/src/templates.ts')])).toBe(true);
+  });
+
+  test('a published package manifest requires it', () => {
+    expect(requiresPackagingProof([changed('packages/cli/package.json')])).toBe(true);
+    expect(requiresPackagingProof([changed('packages/pyric/package.json')])).toBe(true);
+  });
+
+  test('the packaging scripts themselves require it', () => {
+    for (const path of [
+      'scripts/packaging-test.sh',
+      'scripts/install-matrix.sh',
+      'scripts/lib/package-artifact-manifest.ts',
+    ]) {
+      expect(requiresPackagingProof([changed(path)])).toBe(true);
+    }
+  });
+
+  test('ordinary source and doc changes do not', () => {
+    expect(requiresPackagingProof([
+      changed('packages/cli/src/serve/namespace.ts'),
+      changed('packages/site-docs/src/content/overview.md'),
+      changed('package.json'),
+    ])).toBe(false);
+  });
+
+  test('a rename counts on either side', () => {
+    expect(requiresPackagingProof([
+      changed('packages/cli/src/moved.ts', 'packages/create-pyric/src/templates.ts'),
+    ])).toBe(true);
+  });
+
+  test('one qualifying path among many is enough', () => {
+    expect(requiresPackagingProof([
+      changed('README.md'),
+      changed('packages/create-pyric/src/templates.ts'),
+    ])).toBe(true);
   });
 });

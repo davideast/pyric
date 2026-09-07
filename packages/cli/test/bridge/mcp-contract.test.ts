@@ -30,6 +30,14 @@ describe('default MCP tool contract', () => {
       'sandbox_inspect',
       'rtdb_simulate_access',
       'rtdb_crawl_structure',
+      'auth_create_user',
+      'auth_import_users',
+      'auth_get_user',
+      'auth_list_users',
+      'auth_update_user',
+      'auth_delete_user',
+      'auth_set_claims',
+      'auth_custom_token',
       'firestore_simulate_rules',
       'firestore_rules_stdlib_list',
       'firestore_rules_stdlib_get',
@@ -39,6 +47,10 @@ describe('default MCP tool contract', () => {
       'rules_stdlib_get',
       'rules_resolve_modules',
       'pyric_can_i_use',
+      'auth_impersonate',
+      'auth_reset',
+      'auth_whoami',
+      'auth_sessions',
     ]);
   });
 

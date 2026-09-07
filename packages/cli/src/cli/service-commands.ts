@@ -1,7 +1,14 @@
 import type { ParsedArgs } from './parse-args.js';
 import { SERVICE_COMMANDS } from './service-commands.generated.js';
 
-export type ServiceCommandPath = readonly [service: string, artifact: string, operation: string];
+/**
+ * `pyric <service> <artifact> <operation>`, or `pyric <service> <operation>`
+ * when the subject is the service itself and there is no artifact word
+ * (ADR-0012 Decision 2). Authored as the record's filename.
+ */
+export type ServiceCommandPath =
+  | readonly [service: string, artifact: string, operation: string]
+  | readonly [service: string, operation: string];
 
 export interface ServiceCommand {
   path: ServiceCommandPath;
@@ -44,8 +51,12 @@ export async function dispatchServiceCommand(parsed: ParsedArgs): Promise<number
   const service = parsed.subcommand;
   if (!service || !SERVICES.has(service)) return null;
 
-  const [artifact, operation] = parsed.positional;
-  const command = SERVICE_COMMAND_REGISTRY.get(routeKey([service, artifact, operation]));
+  // Longest path first, so a three-word route is never shadowed by a
+  // two-word one that shares its first two words.
+  const [first, second] = parsed.positional;
+  const command =
+    SERVICE_COMMAND_REGISTRY.get(routeKey([service, first, second])) ??
+    SERVICE_COMMAND_REGISTRY.get(routeKey([service, first]));
   if (command) {
     return await command.run({
       ...parsed,

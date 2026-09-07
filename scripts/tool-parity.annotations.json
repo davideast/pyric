@@ -1,6 +1,54 @@
 {
   "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every tool visible on either surface (MCP bridge / playground agent) must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`. Seeded from docs/design/TOOL-SYSTEM.md's exposure matrix.",
   "tools": {
+    "auth_create_user": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground seeds and inspects its own session pool with seed_auth_users / inspect_auth_users instead of the bridge user store"
+    },
+    "auth_import_users": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground bulk-creates identities with seed_auth_users instead"
+    },
+    "auth_get_user": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground reads its own session pool with inspect_auth_users"
+    },
+    "auth_list_users": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground reads its own session pool with inspect_auth_users"
+    },
+    "auth_update_user": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground has no mutating user editor and reseeds instead"
+    },
+    "auth_delete_user": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground has no mutating user editor and reseeds instead"
+    },
+    "auth_set_claims": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground sets custom claims at seed time through seed_auth_users"
+    },
+    "auth_custom_token": {
+      "decision": "deliberate",
+      "reason": "attached-sandbox credential minting belongs on the MCP bridge; the Playground signs its session identities in directly"
+    },
+    "auth_impersonate": {
+      "decision": "deliberate",
+      "reason": "operates on the bridge process's registry of connected clients and its caller identity, neither of which the Playground has; also reachable as `pyric auth impersonate`"
+    },
+    "auth_reset": {
+      "decision": "deliberate",
+      "reason": "operates on the bridge process's registry of connected clients and its caller identity, neither of which the Playground has; also reachable as `pyric auth reset`"
+    },
+    "auth_whoami": {
+      "decision": "deliberate",
+      "reason": "reports the bridge process's caller identity, which the Playground has no equivalent of; also reachable as `pyric auth whoami`"
+    },
+    "auth_sessions": {
+      "decision": "deliberate",
+      "reason": "lists the clients connected to the bridge process, which the Playground has no equivalent of; also reachable as `pyric auth sessions`"
+    },
     "pyric_can_i_use": {
       "decision": "deliberate",
       "reason": "Shared MCP and Playground trust query; the CLI/MCP retain full claims while the browser receives only the measured compact projection"

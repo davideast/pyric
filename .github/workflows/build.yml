@@ -38,6 +38,7 @@ jobs:
     outputs:
       check-set: ${{ steps.plan.outputs.check-set }}
       predicted-check-set: ${{ steps.plan.outputs.predicted-check-set }}
+      packaging: ${{ steps.plan.outputs.packaging }}
     steps:
       - uses: actions/checkout@v4
       - name: Fetch PR endpoints and resolve merge base
@@ -446,10 +447,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: plan
-    # Cost: the publish-shape gate runs only when the PR carries the
-    # `ci-packaging` label (apply it on release PRs or ones touching package
-    # manifests / exports / dist layout). Most code PRs do not need it.
-    if: needs.plan.outputs.check-set == 'full' && contains(github.event.pull_request.labels.*.name, 'ci-packaging')
+    # Cost: the publish-shape gate is expensive, so it runs only when it can
+    # tell us something. `plan` sets `packaging` when the diff touches the
+    # scaffolder, a published package manifest, or the packaging scripts —
+    # the cases that invalidate what this job proves. The `ci-packaging` label
+    # forces it for anything the diff cannot infer, such as a release PR.
+    if: needs.plan.outputs.check-set == 'full' && needs.plan.outputs.packaging == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -510,8 +513,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: [plan, packaging]
-    # Cost: same as `packaging`, only runs under the `ci-packaging` label.
-    if: needs.plan.outputs.check-set == 'full' && contains(github.event.pull_request.labels.*.name, 'ci-packaging')
+    # Cost: same as `packaging`, and gated on the same signal.
+    if: needs.plan.outputs.check-set == 'full' && needs.plan.outputs.packaging == 'true'
     # Package managers resolve exports / scoped names / local tarballs differently;
     # a lib that installs under npm can fail under pnpm or bun. Each leg installs
     # the REAL tarballs, imports every advertised subpath, and executes a small

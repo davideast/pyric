@@ -72,8 +72,9 @@ There are two execution paths:
 
 | Tool kind | Examples | Where it runs |
 |---|---|---|
-| Browser sandbox | `sandbox_inspect`, Firestore document/query tools, simulator sessions, RTDB inspection | Forwarded through `/__pyric/mcp` to the open tab |
+| Browser sandbox | `sandbox_inspect`, Firestore document/query tools, simulator sessions, RTDB inspection, the `auth_*_user` tools | Forwarded through `/__pyric/mcp` to the open tab |
 | Rules source | `firestore_lint_rules`, `firestore_simulate_rules`, standard-library lookup, module resolution | In the local `pyric mcp` process |
+| Bridge state | `auth_impersonate`, `auth_reset`, `auth_whoami`, `auth_sessions` | In the bridge process, against its connected clients |
 
 If a Firestore document tool reports that no browser peer is connected, open the served app and retry. Do not start a second dev server: that creates a second sandbox, and the agent may modify the one you are not looking at.
 

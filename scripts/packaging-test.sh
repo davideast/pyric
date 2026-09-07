@@ -584,8 +584,10 @@ rm -rf "$CREATE_OUT"
 "$CREATE_PYRIC_BIN" "$CREATE_OUT"
 test -f "$CREATE_OUT/vite.config.ts"
 grep -q "@pyric/cli/vite" "$CREATE_OUT/vite.config.ts"
-grep -q "plugins: \[pyric()\]" "$CREATE_OUT/vite.config.ts"
-grep -q "pyric()" "$CREATE_OUT/vite.config.ts"
+# The scaffolded config lists the `avatars` options as comments, so the plugin
+# call spans several lines. Assert the parts rather than one collapsed line.
+grep -q "plugins: \[" "$CREATE_OUT/vite.config.ts"
+grep -qE "pyric\(\{?" "$CREATE_OUT/vite.config.ts"
 test -f "$CREATE_OUT/package.json"
 grep -q '"dev": "vite"' "$CREATE_OUT/package.json"
 echo "  ✓ create-pyric scaffolds Vite + @pyric/cli/vite"

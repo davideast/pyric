@@ -27,6 +27,27 @@ function isDocMarkdown(path: string): boolean {
   return AUTHORED_DOC_MARKDOWN.test(path) || INTERNAL_REPO_DOCS.has(path);
 }
 
+/** Changes that invalidate what the packaging gate proves: the scaffolder's
+ *  own output, a published package's manifest (its name, exports, or files),
+ *  and the packaging scripts themselves. The workflow comment already named
+ *  these as the moment to apply the `ci-packaging` label; deciding it from the
+ *  diff removes the dependency on the author remembering. */
+const PACKAGING_SCRIPTS = new Set([
+  'scripts/packaging-test.sh',
+  'scripts/install-matrix.sh',
+  'scripts/lib/package-artifact-manifest.ts',
+]);
+const SCAFFOLDER_SOURCE = /^packages\/create-pyric\//;
+const PUBLISHED_MANIFEST = /^packages\/[^/]+\/package\.json$/;
+
+export function requiresPackagingProof(paths: readonly ChangedPath[]): boolean {
+  const touches = (path: string): boolean =>
+    PACKAGING_SCRIPTS.has(path) || SCAFFOLDER_SOURCE.test(path) || PUBLISHED_MANIFEST.test(path);
+  return paths.some(({ path, previousPath }) =>
+    touches(path) || (previousPath !== undefined && touches(previousPath))
+  );
+}
+
 function everyPathMatches(
   paths: readonly ChangedPath[],
   predicate: (path: string) => boolean,

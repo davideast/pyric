@@ -44,7 +44,10 @@ export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
  */
 export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: LocalBridgeOptions) {
   const bridge = createLocalBridge(sandbox, opts);
-  return buildMcpServer(bridge, getDefaultMcpToolSurface());
+  return buildMcpServer(bridge, getDefaultMcpToolSurface({
+    consumers: bridge.consumers,
+    callerIdentity: bridge.callerIdentity,
+  }));
 }
 
 /**

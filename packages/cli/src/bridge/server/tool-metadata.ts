@@ -20,8 +20,11 @@ import { toolFamilies } from '../tool-families.js';
 import {
   FORWARDED_METADATA_FACTORIES,
   IN_PROCESS_HANDLER_FACTORIES,
+  type InProcessToolContext,
   type StubResolver,
 } from './tool-family-factories.js';
+
+export type { InProcessToolContext };
 
 export interface ToolMetadata {
   name: string;
@@ -57,11 +60,16 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
  * Live handlers for every in-process family, in family order. The bridge
  * registers each handler's `execute` directly.
  *
- * `scope` is forwarded so the hosted Rules Test API verification tool can
- * authenticate without changing the bridge's sandbox-only execution model.
+ * The context carries the process state an in-process family may need:
+ * `scope` so the hosted Rules Test API verification tool can authenticate
+ * without changing the bridge's sandbox-only execution model, and
+ * `consumers` plus `callerIdentity` so the auth identity family can read and
+ * retarget the running bridge's connected clients. A caller with none of them
+ * (a headless `pyric mcp`) still gets the full name set; those tools report
+ * what is missing when called.
  */
-export function getInProcessToolHandlers(scope?: unknown): ToolHandler[] {
+export function getInProcessToolHandlers(context?: InProcessToolContext): ToolHandler[] {
   return toolFamilies('in-process').flatMap((family) =>
-    IN_PROCESS_HANDLER_FACTORIES[family.key](scope),
+    IN_PROCESS_HANDLER_FACTORIES[family.key](context),
   );
 }

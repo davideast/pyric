@@ -105,7 +105,10 @@ export async function startServer(
     },
   });
 
-  const { forwarded, inProcess } = getDefaultMcpToolSurface();
+  const { forwarded, inProcess } = getDefaultMcpToolSurface({
+    consumers: bridge.consumers,
+    callerIdentity: bridge.callerIdentity,
+  });
 
   // Per-session transport+server map. Each MCP client connection
   // gets its own pair; cleared on DELETE / idle / transport close.

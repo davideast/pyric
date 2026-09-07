@@ -113,6 +113,16 @@ export interface ToolCallRequest {
   name: string;
   /** Tool arguments (JSON-serializable). */
   args: Record<string, unknown>;
+  /**
+   * The identity the bridge holds for the MCP caller that made this call
+   * (`auth_impersonate` / `auth_reset` write it; `auth_whoami` reads it). The
+   * peer applies it as the DEFAULT identity for the dispatch: a tool argument
+   * that names an identity itself still wins for that call, and a family with
+   * no identity seam ignores it. Additive and OMITTED for the default
+   * `{ mode: 'app-session' }`, so an un-impersonated call is byte-identical to
+   * what the bridge has always sent.
+   */
+  actAs?: AuthLens;
 }
 
 /** Browser → bridge: tool call result. */

@@ -128,6 +128,15 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       // local RTDB inspection
       'rtdb_simulate_access',
       'rtdb_crawl_structure',
+      // sandbox auth user administration
+      'auth_create_user',
+      'auth_import_users',
+      'auth_get_user',
+      'auth_list_users',
+      'auth_update_user',
+      'auth_delete_user',
+      'auth_set_claims',
+      'auth_custom_token',
     ]);
   });
 });

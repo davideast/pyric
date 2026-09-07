@@ -22,6 +22,10 @@ export type FlagValue = string | boolean | Array<string | boolean>;
 const BOOLEAN_FLAGS = new Set([
   'json',
   'bridge',
+  // `pyric auth impersonate` identity selectors — valueless, and each sits
+  // beside a uid positional a value-taking parse would eat.
+  'admin',
+  'anonymous',
   'ui',
   'no-ui',
   'no-open',
