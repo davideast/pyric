@@ -135,12 +135,57 @@ describe('evaluateRtdbExpression', () => {
     expect(evalExpr('auth != null ? false : true', ctx)).toBe(false);
   });
 
-  test('logical AND short-circuits on false', () => {
+  test('logical AND short-circuits on false and missing child snapshot paths', () => {
     expect(evalExpr('false && auth != null', baseCtx)).toBe(false);
+
+    const ctxWithMissingChild = {
+      ...baseCtx,
+      data: new DataSnapshot({ existing: 'val' }),
+    };
+
+    // Guard checking .hasChild()
+    expect(
+      evalExpr("data.hasChild('missing') && data.child('missing').val().toLowerCase() == 'abc'", ctxWithMissingChild)
+    ).toBe(false);
+
+    // Guard checking .exists()
+    expect(
+      evalExpr("data.child('missing').exists() && data.child('missing').val().toLowerCase() == 'abc'", ctxWithMissingChild)
+    ).toBe(false);
+
+    // Direct DataSnapshot guard for missing path
+    const missingSnapResult = evalExpr(
+      "data.child('missing') && data.child('missing').val().toLowerCase() == 'abc'",
+      ctxWithMissingChild
+    );
+    expect(missingSnapResult).toBeInstanceOf(DataSnapshot);
+    expect((missingSnapResult as DataSnapshot).exists()).toBe(false);
   });
 
-  test('logical OR short-circuits on true', () => {
+  test('logical OR short-circuits on true and existing snapshot paths', () => {
     expect(evalExpr('true || auth != null', baseCtx)).toBe(true);
+
+    const ctxWithExistingChild = {
+      ...baseCtx,
+      data: new DataSnapshot({ existing: 'val' }),
+    };
+
+    // First condition true skips right-hand expression that would otherwise throw
+    expect(
+      evalExpr("data.hasChild('existing') || data.child('missing').val().toLowerCase() == 'abc'", ctxWithExistingChild)
+    ).toBe(true);
+
+    expect(
+      evalExpr("data.child('existing').exists() || data.child('missing').val().toLowerCase() == 'abc'", ctxWithExistingChild)
+    ).toBe(true);
+  });
+
+  test('lazy logical evaluation preserves raw primitives without premature coercion', () => {
+    expect(evalExpr('null && true', baseCtx)).toBeNull();
+    expect(evalExpr('0 && true', baseCtx)).toBe(0);
+    expect(evalExpr('"" && true', baseCtx)).toBe('');
+    expect(evalExpr('"hello" || false', baseCtx)).toBe('hello');
+    expect(evalExpr('42 || false', baseCtx)).toBe(42);
   });
 
   test('evaluates comparison operators', () => {

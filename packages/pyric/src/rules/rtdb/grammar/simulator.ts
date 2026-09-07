@@ -197,6 +197,13 @@ class RtdbString {
   }
 }
 
+export function isTruthy(val: unknown): boolean {
+  if (val instanceof DataSnapshot) {
+    return val.exists();
+  }
+  return Boolean(val);
+}
+
 let evalSemantics: Semantics | undefined;
 
 function getEvalSemantics(): Semantics {
@@ -206,12 +213,26 @@ function getEvalSemantics(): Semantics {
     Expr(node) { return (node as any).eval(this.args.ctx); },
 
     Ternary_ternary(cond, _q, then, _c, els) {
-      return (cond as any).eval(this.args.ctx) ? (then as any).eval(this.args.ctx) : (els as any).eval(this.args.ctx);
+      return isTruthy((cond as any).eval(this.args.ctx))
+        ? (then as any).eval(this.args.ctx)
+        : (els as any).eval(this.args.ctx);
     },
     Ternary(node) { return (node as any).eval(this.args.ctx); },
 
-    Logical_and(left, _op, right) { return (left as any).eval(this.args.ctx) && (right as any).eval(this.args.ctx); },
-    Logical_or(left, _op, right) { return (left as any).eval(this.args.ctx) || (right as any).eval(this.args.ctx); },
+    Logical_and(left, _op, right) {
+      const leftVal = (left as any).eval(this.args.ctx);
+      if (!isTruthy(leftVal)) {
+        return leftVal;
+      }
+      return (right as any).eval(this.args.ctx);
+    },
+    Logical_or(left, _op, right) {
+      const leftVal = (left as any).eval(this.args.ctx);
+      if (isTruthy(leftVal)) {
+        return leftVal;
+      }
+      return (right as any).eval(this.args.ctx);
+    },
     Logical(node) { return (node as any).eval(this.args.ctx); },
 
     Comparison_gte(left, _op, right) { return (left as any).eval(this.args.ctx) >= (right as any).eval(this.args.ctx); },
