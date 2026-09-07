@@ -45,7 +45,13 @@ export interface AssetResolverOptions {
    *  bytes as an `interim` result while the source finishes in the
    *  background. The completed result is cached as usual, so the next
    *  fetch upgrades; a source failure after an interim response caches
-   *  nothing and the next fetch retries. Default 2000ms. */
+   *  nothing and the next fetch retries.
+   *
+   *  Default 0: any source that does not resolve synchronously yields an
+   *  instant placeholder rather than blocking the first paint. A slow
+   *  generator is the case interim exists for, so making it wait would
+   *  defeat the point; the only cost is that a fast async source shows a
+   *  placeholder for one request before the next fetch upgrades. */
   sourceDeadlineMs?: number;
 }
 
@@ -117,14 +123,19 @@ function normalizeContentType(headerValue: string | null): string | null {
 
 export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const sourceDeadlineMs = opts.sourceDeadlineMs ?? 2000;
+  const sourceDeadlineMs = opts.sourceDeadlineMs ?? 0;
   const inFlight = new Map<string, Promise<ResolvedAsset>>();
 
   /** Wait for `pending` up to the deadline; past it, serve the fallback
    *  bytes as `interim` while `pending` keeps running (it stays in the
    *  in-flight map, so the source still executes exactly once and its
    *  result still lands in the cache). `runSource` never rejects, so the
-   *  abandoned promise cannot become an unhandled rejection. */
+   *  abandoned promise cannot become an unhandled rejection.
+   *
+   *  At the default deadline of 0 the timer is a macrotask, so a source
+   *  that resolves synchronously still wins the race on the microtask
+   *  queue and answers directly; only genuine asynchronous work yields an
+   *  interim response. */
   async function withDeadline(
     pending: Promise<ResolvedAsset>,
     req: AssetRequest,

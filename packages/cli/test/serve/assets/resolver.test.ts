@@ -327,7 +327,36 @@ describe('createAssetResolver: source deadline', () => {
     expect(calls).toBe(2);
   });
 
-  it('a source faster than the deadline behaves exactly as before', async () => {
+  it('by default an asynchronous source yields an instant interim rather than blocking', async () => {
+    const dir = tmp();
+    const source: AssetSource = async () => {
+      await sleep(40);
+      return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
+    };
+    // No sourceDeadlineMs: the default must not make the first paint wait.
+    const resolver = createAssetResolver({ dir, source, fallback: () => fallbackBytes('interim') });
+
+    const started = Date.now();
+    const first = await resolver.resolve(req('slow'));
+    expect(first.origin).toBe('interim');
+    expect(Date.now() - started).toBeLessThan(20);
+
+    await sleep(60);
+    expect((await resolver.resolve(req('slow'))).origin).toBe('cache');
+  });
+
+  it('by default a synchronous source still answers directly, without an interim', async () => {
+    const dir = tmp();
+    const source: AssetSource = () => ({
+      data: new TextEncoder().encode('quick'),
+      contentType: 'image/png',
+    });
+    const resolver = createAssetResolver({ dir, source, fallback: failingFallback });
+
+    expect((await resolver.resolve(req('fast'))).origin).toBe('source');
+  });
+
+  it('a source faster than an explicit deadline behaves exactly as before', async () => {
     const dir = tmp();
     const source: AssetSource = () => ({
       data: new TextEncoder().encode('quick'),
