@@ -702,7 +702,11 @@ export class SandboxBackend {
         email: u.email,
         password: u.password,
         displayName: u.displayName ?? null,
+        phoneNumber: u.phoneNumber ?? null,
+        photoUrl: u.photoUrl ?? null,
         customClaims: u.customClaims ?? {},
+        emailVerified: u.emailVerified ?? false,
+        disabled: u.disabled ?? false,
         providerUserInfo: [{ providerId: u.providerId ?? 'password' }],
       });
       this.usersByEmail.set(u.email.toLowerCase(), record);
@@ -733,7 +737,11 @@ export class SandboxBackend {
         providerId: u.providerUserInfo[0]?.providerId ?? 'password',
       };
       if (u.displayName !== null) seed.displayName = u.displayName;
+      if (u.photoUrl !== null) seed.photoUrl = u.photoUrl;
+      if (u.phoneNumber !== null) seed.phoneNumber = u.phoneNumber;
       if (Object.keys(u.customClaims).length > 0) seed.customClaims = u.customClaims;
+      if (u.emailVerified) seed.emailVerified = true;
+      if (u.disabled) seed.disabled = true;
       out.push(seed);
     }
     return out;

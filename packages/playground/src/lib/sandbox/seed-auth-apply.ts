@@ -31,9 +31,13 @@ export function seedUserToCreateRequest(user: SeedUser): CreateUserRequest {
     email: user.email,
     password: user.password,
     ...(user.displayName ? { displayName: user.displayName } : {}),
+    ...(user.photoUrl ? { photoUrl: user.photoUrl } : {}),
+    ...(user.phoneNumber ? { phoneNumber: user.phoneNumber } : {}),
     ...(user.customClaims && Object.keys(user.customClaims).length > 0
       ? { customClaims: user.customClaims }
       : {}),
+    ...(user.emailVerified ? { emailVerified: true } : {}),
+    ...(user.disabled ? { disabled: true } : {}),
   };
 }
 

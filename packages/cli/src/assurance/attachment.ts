@@ -188,6 +188,8 @@ export function createSandboxAttachmentProvider(
               email: user.email,
               password: user.password,
               ...(user.customClaims ? { customClaims: user.customClaims } : {}),
+              ...(user.emailVerified ? { emailVerified: true } : {}),
+              ...(user.disabled ? { disabled: true } : {}),
             })),
           },
         },
