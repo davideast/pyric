@@ -121,6 +121,70 @@ describe('ServeAuthHelper', () => {
     expect(added).toEqual([]); // no second account for the same email
   });
 
+  it('a directory identity carrying a photo mints a credential with photoURL set', async () => {
+    const photoURL = 'https://cdn.example.com/avatars/worker.png';
+    const helper = new ServeAuthHelper({
+      list: () => [{
+        uid: 'google.com:worker@example.com',
+        email: 'worker@example.com',
+        displayName: 'Worker User',
+        photoURL,
+        customClaims: {},
+      }],
+    });
+    const pending = helper.resolver().openPopup({
+      providerId: 'google.com',
+      authType: 'signIn',
+    });
+
+    helper.pick('google.com:worker@example.com');
+
+    const cred = await pending;
+    expect(cred.user.photoURL).toBe(photoURL);
+    expect(cred.user.providerData?.[0]?.photoURL).toBe(photoURL);
+  });
+
+  it('a directory identity without a photo mints photoURL null (the helper invents none)', async () => {
+    const helper = new ServeAuthHelper({
+      list: () => [{
+        uid: 'google.com:worker@example.com',
+        email: 'worker@example.com',
+        displayName: 'Worker User',
+        customClaims: {},
+      }],
+    });
+    const pending = helper.resolver().openPopup({
+      providerId: 'google.com',
+      authType: 'signIn',
+    });
+
+    helper.pick('google.com:worker@example.com');
+
+    const cred = await pending;
+    expect(cred.user.photoURL).toBeNull();
+    expect(cred.user.providerData?.[0]?.photoURL).toBeNull();
+  });
+
+  it('an added identity carries the spec photo into the minted credential', async () => {
+    const photoURL = 'https://cdn.example.com/avatars/added.png';
+    const added: HelperIdentity[] = [];
+    const helper = new ServeAuthHelper({
+      list: () => [],
+      add: (identity) => { added.push(identity); },
+    });
+    const pending = helper.resolver().openPopup({
+      providerId: 'google.com',
+      authType: 'signIn',
+    });
+
+    helper.add({ email: 'new@example.com', photoURL });
+
+    const cred = await pending;
+    expect(added[0]?.photoURL).toBe(photoURL);
+    expect(cred.user.photoURL).toBe(photoURL);
+    expect(cred.user.providerData?.[0]?.photoURL).toBe(photoURL);
+  });
+
   it('customClaimsFromTokenClaims strips the synthesized sub and firebase entries only', () => {
     expect(customClaimsFromTokenClaims({
       sub: 'uid-1',

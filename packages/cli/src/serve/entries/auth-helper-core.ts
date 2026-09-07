@@ -19,6 +19,9 @@ import type {
 export interface NewIdentitySpec {
   email: string;
   displayName?: string;
+  /** Profile photo for the new identity. Omitted by the picker's own form —
+   *  a programmatic caller supplies one so it reaches the stored record. */
+  photoURL?: string;
   /** Parsed custom claims (the emulator's `customAttributes`). */
   customClaims?: Record<string, unknown>;
 }
@@ -27,6 +30,10 @@ export interface HelperIdentity {
   uid: string;
   email: string | null;
   displayName: string | null;
+  /** Profile photo carried by this directory entry. Optional: a directory
+   *  that does not surface photos (the account picker does not show them)
+   *  omits it, and the credential it mints reports `photoURL: null`. */
+  photoURL?: string | null;
   customClaims: Record<string, unknown>;
 }
 
@@ -192,6 +199,7 @@ export class ServeAuthHelper {
       uid: mintProviderUid(),
       email: request.spec.email,
       displayName: request.spec.displayName ?? null,
+      photoURL: request.spec.photoURL ?? null,
       customClaims: request.spec.customClaims ?? {},
     };
     await Promise.resolve(this.directory.add?.(identity));
@@ -235,13 +243,16 @@ function bareCredential(identity: HelperIdentity, providerId: string): UserCrede
     firebase: { sign_in_provider: providerId },
   };
   const token = `sandbox-id-token-${identity.uid}-0:${JSON.stringify(claims)}`;
+  // A directory entry without a photo mints a photo-less credential; the
+  // helper never invents one.
+  const photoURL = identity.photoURL ?? null;
   const user: User = {
     uid: identity.uid,
     email: identity.email,
     displayName: identity.displayName,
     isAnonymous: false,
     emailVerified: false,
-    photoURL: null,
+    photoURL,
     phoneNumber: null,
     providerId: 'firebase',
     providerData: [
@@ -250,7 +261,7 @@ function bareCredential(identity: HelperIdentity, providerId: string): UserCrede
         displayName: identity.displayName,
         email: identity.email,
         phoneNumber: null,
-        photoURL: null,
+        photoURL,
         providerId,
       },
     ],

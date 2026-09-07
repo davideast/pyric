@@ -1318,20 +1318,26 @@ export class SandboxBackend {
    * with its real provider. Upserts: unknown uids get a fresh record
    * (no password — these identities can't sign in via
    * `signInWithEmailAndPassword`); known uids get the provider
-   * appended to `providerUserInfo` if it isn't already linked.
+   * appended to `providerUserInfo` if it isn't already linked, and their
+   * stored photo refreshed when the identity carries one (see
+   * {@link refreshStoredPhoto}).
    */
   recordProviderSignIn(user: User, providerId: string): void {
     let changed = false;
+    const identityPhotoUrl = user.photoURL ?? null;
     let stored = this.usersByUid.get(user.uid);
     if (!stored) {
       stored = this.makeStored({
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
+        photoUrl: identityPhotoUrl,
         isAnonymous: user.isAnonymous,
       });
       this.usersByUid.set(user.uid, stored);
       if (user.email) this.usersByEmail.set(user.email.toLowerCase(), stored);
+      changed = true;
+    } else if (refreshStoredPhoto(stored, identityPhotoUrl)) {
       changed = true;
     }
     if (!stored.providerUserInfo.some((p) => p.providerId === providerId)) {
@@ -1362,7 +1368,10 @@ export class SandboxBackend {
    *     and NO password (provider identities can't sign in via
    *     `signInWithEmailAndPassword`).
    *
-   * In both shapes the provider is linked into `providerUserInfo`.
+   * In both shapes the provider is linked into `providerUserInfo`. A
+   * `spec.photoUrl` is stored on a fresh record and refreshes a reused
+   * same-email one; a spec without a photo never clears a stored one (see
+   * {@link refreshStoredPhoto}).
    * The credential does NOT sign the user in — hand it to the
    * resolver's promise; `signInWithPopup`/`signInWithRedirect`
    * complete the sign-in.
@@ -1385,14 +1394,17 @@ export class SandboxBackend {
       stored = found;
     } else {
       const { spec } = req;
+      const specPhotoUrl = spec.photoUrl ?? null;
       const byEmail = this.usersByEmail.get(spec.email.toLowerCase());
       if (byEmail) {
         stored = byEmail;
+        if (refreshStoredPhoto(stored, specPhotoUrl)) this.notifyUsersChanged();
       } else {
         stored = this.makeStored({
           uid: spec.uid ?? mintProviderUid(),
           email: spec.email,
           displayName: spec.displayName ?? null,
+          photoUrl: specPhotoUrl,
           customClaims: spec.customClaims ?? {},
         });
         this.usersByUid.set(stored.uid, stored);
@@ -2260,6 +2272,22 @@ export class SandboxBackend {
     }
     return stored;
   }
+}
+
+/**
+ * Apply a provider sign-in's photo to an already-stored identity, reporting
+ * whether the record changed.
+ *
+ * A provider sign-in refreshes the provider profile data it actually carries.
+ * An identity that carries no photo leaves the stored one alone rather than
+ * blanking it, mirroring Firebase: a provider refresh updates the fields the
+ * provider supplied and never clears one it omitted.
+ */
+function refreshStoredPhoto(stored: StoredUser, photoUrl: string | null): boolean {
+  if (photoUrl === null) return false;
+  if (stored.photoUrl === photoUrl) return false;
+  stored.photoUrl = photoUrl;
+  return true;
 }
 
 /** Provider UIDs are opaque Firebase identifiers, not encoded credentials. */

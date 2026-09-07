@@ -191,6 +191,7 @@ async function bridgeProviderSignIn(
     uid: cred.user.uid,
     email: cred.user.email,
     displayName: cred.user.displayName,
+    photoURL: cred.user.photoURL ?? null,
     customClaims,
     providerId,
   });

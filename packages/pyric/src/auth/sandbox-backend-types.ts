@@ -116,6 +116,9 @@ export interface SignInIdentitySpec {
   uid?: string;
   email: string;
   displayName?: string;
+  /** Profile photo for the identity, mirroring the stored record's
+   *  `photoUrl`. Omitted when the caller supplies none. */
+  photoUrl?: string;
   customClaims?: Record<string, unknown>;
 }
 

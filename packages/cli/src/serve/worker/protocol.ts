@@ -291,6 +291,13 @@ export interface ResolvedIdentity {
   readonly uid: string;
   readonly email: string | null;
   readonly displayName: string | null;
+  /**
+   * The provider profile photo this identity carries, or `null` when it
+   * carries none. Named for the serialized-user convention of this protocol
+   * (`photoURL`); the host maps it onto the seed record's `photoUrl` at the
+   * `seedUsers` boundary, exactly as `displayName` is mapped there.
+   */
+  readonly photoURL: string | null;
   readonly customClaims: Record<string, unknown>;
   readonly providerId: string;
 }

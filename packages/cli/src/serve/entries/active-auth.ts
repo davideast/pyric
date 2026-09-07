@@ -68,6 +68,7 @@ export async function commitCredentialToAllAuths(identity: {
   uid: string;
   email?: string | null;
   displayName?: string | null;
+  photoURL?: string | null;
   customClaims?: Record<string, unknown>;
   providerId?: string;
 }): Promise<void> {
@@ -78,6 +79,7 @@ export async function commitCredentialToAllAuths(identity: {
         uid: identity.uid,
         email: identity.email ?? null,
         displayName: identity.displayName ?? null,
+        photoURL: identity.photoURL ?? null,
         customClaims: identity.customClaims ?? {},
         providerId: identity.providerId ?? 'password',
       }));
@@ -88,6 +90,9 @@ export async function commitCredentialToAllAuths(identity: {
           email: identity.email ?? '',
           password: 'synthetic-password',
           displayName: identity.displayName ?? undefined,
+          // Boundary map: the identity's `photoURL` becomes the seed record's
+          // `photoUrl`.
+          photoUrl: identity.photoURL ?? undefined,
           customClaims: identity.customClaims ?? {},
           providerId: identity.providerId ?? 'password',
         }]);
