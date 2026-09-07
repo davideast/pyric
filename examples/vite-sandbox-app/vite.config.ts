@@ -42,18 +42,23 @@ export async function nanoBananaAvatar({ seed, context }: AssetRequest): Promise
             `Vary the look using this style code: ${seed}.`,
         },
       ],
-      response_format: { type: 'image', mime_type: 'image/png', aspect_ratio: '1:1' },
+      // The interactions endpoint currently supports only image/jpeg.
+      response_format: { type: 'image', mime_type: 'image/jpeg', aspect_ratio: '1:1' },
     }),
   });
   if (!response.ok) {
     throw new Error(`Gemini image request failed: ${response.status} ${await response.text()}`);
   }
+  // Raw interactions responses carry the image inside a model_output step:
+  // steps[].content[] blocks of { type: 'image', mime_type, data (base64) }.
   const interaction = (await response.json()) as {
-    output_image?: { data: string; mime_type: string };
+    steps?: Array<{ content?: Array<{ type: string; mime_type?: string; data?: string }> }>;
   };
-  const image = interaction.output_image;
-  if (image === undefined) {
-    throw new Error('Gemini image response carried no output_image');
+  const image = interaction.steps
+    ?.flatMap((step) => step.content ?? [])
+    .find((block) => block.type === 'image' && block.data !== undefined);
+  if (image === undefined || image.data === undefined || image.mime_type === undefined) {
+    throw new Error('Gemini image response carried no image block');
   }
   return {
     data: Buffer.from(image.data, 'base64'),
