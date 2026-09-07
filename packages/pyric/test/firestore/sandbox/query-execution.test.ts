@@ -74,3 +74,22 @@ describe('query execution', () => {
     ]);
   });
 });
+
+test('nested paths share filter, ordering, cursor, and existence semantics', () => {
+  const rows = [
+    { path: 'items/a', data: { time: { startsAt: 2 } } },
+    { path: 'items/b', data: { time: { startsAt: 1 } } },
+    { path: 'items/c', data: { time: { startsAt: 3 } } },
+    { path: 'items/missing', data: { time: {} } },
+    { path: 'items/literal', data: { 'time.startsAt': 0 } },
+    { path: 'items/array', data: { time: [0] } },
+  ];
+  const orders = [{ field: 'time.startsAt', direction: 'asc' as const }];
+  expect(executeQuery(rows, { filters: [], orders, limitCount: 2, limitFromEnd: false }).map(row => row.path))
+    .toEqual(['items/b', 'items/a']);
+  expect(executeQuery(rows, { filters: [{ kind: 'where', field: 'time.startsAt', op: '>=', value: 2 }],
+    orders, start: { values: [2], inclusive: false }, limitFromEnd: false }).map(row => row.path))
+    .toEqual(['items/c']);
+  expect(executeQuery(rows, { filters: [], orders: [{field: 'time.toString', direction: 'asc'}], limitFromEnd: false }))
+    .toEqual([]);
+});

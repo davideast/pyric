@@ -5,13 +5,15 @@
  *
  *   allow  rules evaluated and allowed
  *   deny   rules evaluated and denied
+ *   proof-unsupported  local rejection with incomplete static proof
  *   bypassed  rules BYPASSED (currently by an admin lens)
  *   null   Rules not evaluated (no rules / unsupported / runtime op) — blank cell
  *
  * PURE: mapping + filtering + identity formatting only; the surface renders.
  */
 
-import type { OperationContext, RulesDisposition } from 'pyric/sandbox';
+import { isQueryProofUnsupported } from '../rules-debug/query-proof.js';
+import type { RequestEvent, OperationContext, RulesDisposition } from 'pyric/sandbox';
 import type { TrafficEvent } from '@pyric/ui/traffic';
 import type { CommandTarget } from '../home/command.js';
 
@@ -20,6 +22,7 @@ import type { CommandTarget } from '../home/command.js';
  * Studio source is stamped mechanically at the issuing call site, never
  * inferred from the operation shape. */
 export type StudioTrafficEvent = TrafficEvent & {
+  queryProof?: RequestEvent['queryProof'];
   operationContext: OperationContext;
   rulesDisposition: RulesDisposition;
 };
@@ -39,21 +42,24 @@ export function filterStudioTraffic<E extends Pick<StudioTrafficEvent, 'operatio
   return hide ? events.filter((e) => !isStudioTraffic(e)) : [...events];
 }
 
-export type TrafficVerdict = 'allow' | 'deny' | 'bypassed' | null;
+export type TrafficVerdict = 'allow' | 'deny' | 'bypassed' | 'proof-unsupported' | null;
 
 /** The filter positions, `all` plus each real verdict. */
-export type VerdictFilter = 'all' | 'allow' | 'deny' | 'bypassed';
+export type VerdictFilter = 'all' | 'allow' | 'deny' | 'bypassed' | 'proof-unsupported';
 
-export const VERDICT_FILTERS: readonly VerdictFilter[] = ['all', 'allow', 'deny', 'bypassed'];
+export const VERDICT_FILTERS: readonly VerdictFilter[] = ['all', 'allow', 'deny', 'proof-unsupported', 'bypassed'];
 
 /**
  * Derive the verdict from the recorder's Rules disposition. Source and auth
  * lens are intentionally irrelevant here.
  */
 export function verdictFor(event: {
+  result?: string;
+  queryProof?: RequestEvent['queryProof'];
   rulesDisposition: RulesDisposition;
 }): TrafficVerdict {
   if (event.rulesDisposition.kind === 'bypassed') return 'bypassed';
+  if (isQueryProofUnsupported(event)) return 'proof-unsupported';
   if (event.rulesDisposition.kind === 'evaluated') {
     return event.rulesDisposition.verdict;
   }
@@ -156,4 +162,25 @@ export function subjectTarget(event: {
     default:
       return null;
   }
+}
+
+/** Rules metrics exclude local proof limitations; operational metrics keep every event. */
+export function rulesDecisionEvents<E extends Parameters<typeof verdictFor>[0]>(events: readonly E[]): E[] {
+  return events.filter(event => {
+    const verdict = verdictFor(event);
+    return verdict === 'allow' || verdict === 'deny';
+  });
+}
+
+export function queryProofUnsupportedCount(
+  events: readonly (Parameters<typeof verdictFor>[0] & { at: number })[],
+  window: { start: number; end: number },
+): number {
+  return events.filter(event => event.at >= window.start && event.at < window.end
+    && verdictFor(event) === 'proof-unsupported').length;
+}
+
+export function verdictLabel(verdict: Exclude<TrafficVerdict, null> | 'all'): string {
+  if (verdict === 'proof-unsupported') return 'Query proof unsupported';
+  return verdict;
 }

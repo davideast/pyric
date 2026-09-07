@@ -48,6 +48,9 @@ import {
   lintEditedRuleset,
   type ImpersonationClient,
 } from './rerun.js';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { RulesDebug } from './RulesDebug.js';
 import { findRtdbRuleLine } from './RulesDebug.js';
 
 const OWNER_RULES = `rules_version = '2';
@@ -762,4 +765,31 @@ describe('rules inspector: RTDB listener error events', () => {
       expect(explanation.ruleExpression).toContain('auth != null');
     }
   });
+});
+
+it('attributes a query proof limitation to its authored rule, preserving fallback evaluation separately', () => {
+  const events: SandboxEvent[] = [{
+    kind: 'request', id: 'proof-denial', at: 1, evalMs: 1,
+    method: 'list', path: 'meets', auth: null, result: 'deny', origin: 'listener',
+    reasons: ['Rule #0 (read,write) → deny'],
+    evaluatedRule: { verdict: 'deny', line: 12, expression: 'false' },
+    queryProof: { kind: 'unsupported-predicate', failures: [{
+      kind: 'unsupported-predicate', reason: 'Membership proof is unsupported',
+      residual: { missing: [], mismatched: [], predicate: "resource.data.status in ['scheduled']" },
+      rule: { line: 5, citation: 'firestore.rules:5:7', expression: "resource.data.status in ['scheduled']" },
+      predicate: { line: 2, citation: 'firestore.rules:2:10', expression: "data.status in ['scheduled']" },
+    }] },
+  }];
+  const denial = selectDenials(events)[0]!;
+  expect(denial.queryProof?.kind).toBe('unsupported-predicate');
+  const explanation = explainDenial(denial);
+  expect(explanation.headline).toContain('Query proof unsupported');
+  expect(explanation.ruleExpression).toContain('status in');
+  expect(explanation.implicitDeny).toBe(false);
+  expect(denial.evaluatedRule?.expression).toBe('false');
+  expect(projectTraceSteps(denial)).toEqual([]);
+  const html = renderToStaticMarkup(createElement(RulesDebug, { denials: [denial] }));
+  expect(html).toContain('Query proof unsupported');
+  expect(html).toContain('firestore.rules:2:10');
+  expect(html).toContain('firestore.rules:5:7');
 });

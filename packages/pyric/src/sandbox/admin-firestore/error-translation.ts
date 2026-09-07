@@ -152,6 +152,7 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
   const sim = err.simError;
   const hasSim = sim !== undefined;
   if (hasSim) {
+    if (sim!.queryProof !== undefined) denialContext.queryProof = sim!.queryProof;
     const hasRequest = sim!.request !== undefined;
     if (hasRequest) {
       const r = sim!.request!;

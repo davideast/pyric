@@ -32,6 +32,7 @@ export interface OperationRecord {
   readonly result?: RequestEvent['result'] | SandboxOperationEvent['result'] | SandboxListenerEvent['result'];
   readonly context: OperationContext;
   readonly rules: RulesDisposition;
+  readonly queryProof?: RequestEvent['queryProof'];
 }
 
 type OperationEvent = (RequestEvent | SandboxOperationEvent | SandboxListenerEvent) & EventProvenance;
@@ -233,6 +234,10 @@ export function toOperationRecord(event: SandboxEvent): OperationRecord | null {
   if (event.service !== undefined) {
     serviceVal = event.service;
   }
+  let queryProof: RequestEvent['queryProof'];
+  if ('queryProof' in event && event.queryProof) {
+    queryProof = immutableValue(event.queryProof) as RequestEvent['queryProof'];
+  }
   return Object.freeze({
     id: event.id,
     at: event.at,
@@ -244,5 +249,6 @@ export function toOperationRecord(event: SandboxEvent): OperationRecord | null {
     result: event.result,
     context: operationContextFor(event),
     rules: Object.freeze({ ...rulesDispositionFor(event) }),
+    queryProof,
   });
 }

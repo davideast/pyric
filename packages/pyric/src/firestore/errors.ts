@@ -4,6 +4,11 @@ interface CodedError extends Error {
   code: string;
   denialContext?: unknown;
   remediation?: unknown;
+  request?: unknown;
+  resource?: unknown;
+  query?: unknown;
+  rule?: unknown;
+  queryProof?: unknown;
 }
 
 function isCodedError(error: unknown): error is CodedError {
@@ -32,6 +37,9 @@ export function toFirestoreFirebaseError(error: unknown): unknown {
   }
   if (error.remediation !== undefined) {
     Object.assign(translated, { remediation: error.remediation });
+  }
+  for (const field of ['request', 'resource', 'query', 'rule', 'queryProof'] as const) {
+    if (error[field] !== undefined) Object.assign(translated, { [field]: error[field] });
   }
   return translated;
 }

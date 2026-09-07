@@ -8,6 +8,7 @@
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 import { AUTH_SESSION_SCOPE, FOLLOWS_CURRENT_USER } from 'pyric/firestore/internal';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
+import { toFirestoreFirebaseError } from './errors.js';
 import { clientStateFor } from './client-state.js';
 
 import {
@@ -175,7 +176,7 @@ function tagSandboxSnapshotArgs(
     // (options, next | observer, error?)
     const next = arg3;
     if (typeof next === 'function') {
-      return [arg2, wrapNext(next as (snap: unknown) => void, target, source), arg4 ?? defaultSnapshotErrorHandler];
+      return [arg2, wrapNext(next as (snap: unknown) => void, target, source), wrapError(arg4 ?? defaultSnapshotErrorHandler)];
     }
     if (next && typeof next === 'object') {
       return [arg2, wrapObserver(next as SnapshotObserver<unknown>, target, source)];
@@ -186,7 +187,7 @@ function tagSandboxSnapshotArgs(
   if (typeof arg2 === 'function') {
     return [
       wrapNext(arg2 as (snap: unknown) => void, target, source),
-      (arg3 as ((error: unknown) => void) | undefined) ?? defaultSnapshotErrorHandler,
+      wrapError((arg3 as ((error: unknown) => void) | undefined) ?? defaultSnapshotErrorHandler),
     ];
   }
   if (arg2 && typeof arg2 === 'object') {
@@ -287,6 +288,10 @@ function wrapObserver(
         }
       : undefined,
     // Surface an unobserved listener error instead of swallowing it.
-    error: obs.error ?? defaultSnapshotErrorHandler,
+    error: wrapError(obs.error ?? defaultSnapshotErrorHandler),
   };
+}
+
+function wrapError(callback: (error: unknown) => void): (error: unknown) => void {
+  return error => callback(toFirestoreFirebaseError(error));
 }

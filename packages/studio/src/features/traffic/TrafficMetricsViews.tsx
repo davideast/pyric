@@ -21,7 +21,7 @@ import {
   type MetricSeries,
   type TimeWindow,
 } from '@pyric/ui/traffic';
-import { verdictFor, type StudioTrafficEvent } from './verdict.js';
+import { verdictFor, rulesDecisionEvents, queryProofUnsupportedCount, type StudioTrafficEvent } from './verdict.js';
 import { billableStory, rulesStory, type MetricStory } from './metric-story.js';
 
 const metricNumberFormatter = new Intl.NumberFormat();
@@ -201,7 +201,7 @@ export function RulesMetricsView({
   window: TimeWindow;
 }) {
   const evaluatedEvents = useMemo(
-    () => events.filter((event) => event.rulesDisposition.kind === 'evaluated'),
+    () => rulesDecisionEvents(events),
     [events],
   );
   const rules = useRulesMetrics({ events: evaluatedEvents, window });
@@ -216,6 +216,7 @@ export function RulesMetricsView({
 
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-rules-view">
+      <p>Query proof unsupported: {queryProofUnsupportedCount(events, window)}</p>
       <JournalMetricPanel
         eyebrow="Rules decisions"
         story={story}
@@ -230,7 +231,7 @@ export function RulesMetricsView({
             <p>
               Counts only operations whose canonical Rules disposition is{' '}
               <code>evaluated</code>, grouped by its <code>allow</code> or <code>deny</code>{' '}
-              verdict.
+              verdict. Query-proof limitations are counted separately, not as ordinary denials.
             </p>
             <p>
               <strong>Bypasses and runtime failures are not Rules decisions.</strong> Admin

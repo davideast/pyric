@@ -3,6 +3,7 @@
  * engine's traffic log (ADR-0007 mechanical extraction from
  * `local-environment.ts`).
  */
+import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
 import type { EvaluatedRuleInfo } from 'pyric/rules/internal';
 import type { DocumentData } from './local-state.js';
 import type { EventProvenance } from '../../sandbox/types/events.js';
@@ -16,6 +17,7 @@ import type { Operation } from './writes.js';
  * `RequestEvent` shape consumers see.
  */
 export interface EmitRequestInput {
+  queryProof?: QueryProofDiagnostic;
   at: number;
   evalMs: number;
   method: Operation['method'];
@@ -96,6 +98,7 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
   if (input.resourceAfter !== undefined) {
     out.resourceAfter = input.resourceAfter;
   }
+  if (input.queryProof !== undefined) out.queryProof = input.queryProof;
   const matched = parseMatchedRule(input.debugMessages, input.result);
   if (matched) out.matchedRule = matched;
   // The structured deciding-rule projection (verdict + line + expression

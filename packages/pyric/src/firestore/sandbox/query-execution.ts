@@ -1,3 +1,5 @@
+import { activityValue } from './activity-query-value.js';
+import { isPlainObject } from './value-resolver.js';
 import { topK } from './topk.js';
 import { firestoreValuesEqual } from './value-equality.js';
 import { compareValues, typeOrderRank } from './query-value-order.js';
@@ -138,12 +140,15 @@ export function queryConstraintsForProof(execution: QueryExecutionSpec): QueryCo
       const value = filter.value;
       if (
         value === null || typeof value === 'string' ||
-        typeof value === 'number' || typeof value === 'boolean'
+        typeof value === 'number' || typeof value === 'boolean' ||
+        (filter.op === 'in' && Array.isArray(value) && value.length > 0 && value.length <= 30 && value.every(item =>
+          item === null || typeof item === 'string' || typeof item === 'boolean' ||
+          (typeof item === 'number' && Number.isFinite(item))))
       ) {
         where.push(Object.freeze({
           field: filter.field,
           op: filter.op,
-          value,
+          value: Array.isArray(value) ? Object.freeze([...value]) : value,
         }));
       }
       return;
@@ -158,6 +163,19 @@ export function queryConstraintsForProof(execution: QueryExecutionSpec): QueryCo
     offset: null,
     orderBy: execution.orders.length > 0 ? execution.orders[0]!.field : null,
   });
+}
+
+/** Describe every filter without traversing user-owned operands during diagnostics. */
+export function queryExecutionDiagnostic(execution: QueryExecutionSpec): unknown {
+  const filter = (entry: QueryFilter): unknown => entry.kind === 'where'
+    ? { kind: entry.kind, field: entry.field, op: entry.op, value: activityValue(entry.value) }
+    : { kind: entry.kind, filters: entry.filters.map(filter) };
+  return {
+    filters: execution.filters.map(filter), orders: execution.orders,
+    limitCount: execution.limitCount, limitFromEnd: execution.limitFromEnd,
+    ...(execution.start ? { start: { ...execution.start, values: execution.start.values.map(activityValue) } } : {}),
+    ...(execution.end ? { end: { ...execution.end, values: execution.end.values.map(activityValue) } } : {}),
+  };
 }
 
 export function gatherQueryRows(state: DocStore, scope: QueryScope): QueryRow[] {
@@ -180,6 +198,16 @@ export function gatherQueryRows(state: DocStore, scope: QueryScope): QueryRow[] 
 
 const KEY_FIELD = '__name__';
 
+/** String query field paths address nested maps, never literal dotted keys or prototypes. */
+function dataFieldValue(data: QueryDocumentData, path: string): unknown {
+  let value: unknown = data;
+  for (const segment of path.split('.')) {
+    if (!isPlainObject(value) || !Object.hasOwn(value, segment)) return undefined;
+    value = value[segment];
+  }
+  return value;
+}
+
 /** Operators that make a `where` clause an inequality filter — these imply
  *  an orderBy on the filtered field (mirrors `getInequalityFilterFields`). */
 const INEQUALITY_OPS: ReadonlySet<QueryWhereFilterOp> = new Set<QueryWhereFilterOp>([
@@ -190,7 +218,7 @@ const INEQUALITY_OPS: ReadonlySet<QueryWhereFilterOp> = new Set<QueryWhereFilter
  *  reference-like keyed on the document path so `compareValues` orders it
  *  via its reference branch; all other fields read from the doc data. */
 function orderValue(row: { path: string; data: QueryDocumentData }, field: string): unknown {
-  return field === KEY_FIELD ? { path: row.path } : row.data[field];
+  return field === KEY_FIELD ? { path: row.path } : dataFieldValue(row.data, field);
 }
 
 /** The set of fields a filter constrains with an inequality operator —
@@ -297,7 +325,7 @@ function filterFieldValue(row: QueryRow, field: string): unknown {
     const parts = row.path.split('/');
     return parts[parts.length - 1] ?? row.path;
   }
-  return row.data[field];
+  return dataFieldValue(row.data, field);
 }
 
 /**
@@ -393,7 +421,7 @@ function applyCursors(
 // key order never excludes a doc.
 function orderPresent(docs: QueryRow[], orders: QueryOrderClause[]): QueryRow[] {
   return docs.filter((d) =>
-    orders.every((o) => o.field === KEY_FIELD || d.data[o.field] !== undefined),
+    orders.every((o) => o.field === KEY_FIELD || dataFieldValue(d.data, o.field) !== undefined),
   );
 }
 

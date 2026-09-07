@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'bun:test';
 import type { OperationContext } from 'pyric/sandbox';
 import {
+  rulesDecisionEvents,
+  queryProofUnsupportedCount,
   actingIdentity,
   denialReasons,
   filterByVerdict,
@@ -10,6 +12,7 @@ import {
   opensRulesInspector,
   subjectTarget,
   verdictFor,
+  verdictLabel,
 } from './verdict.js';
 
 describe('verdictFor', () => {
@@ -180,4 +183,28 @@ describe('filterStudioTraffic', () => {
     expect(isStudioTraffic(studioAsUser)).toBe(true);
     expect(isStudioTraffic(appAdmin)).toBe(false);
   });
+});
+
+ it('keeps proof limitations distinct through filters and allows inspection', () => {
+   const event = {result: 'deny', rulesDisposition: {kind: 'evaluated', verdict: 'deny'} as const,
+     queryProof: {kind: 'unsupported-predicate', failures: []} as const};
+   const input = {...event, queryProof: {kind: event.queryProof.kind, failures: []}};
+   expect(verdictFor(input)).toBe('proof-unsupported');
+   expect(verdictLabel('proof-unsupported')).toBe('Query proof unsupported');
+   expect(filterByVerdict([input], 'deny')).toHaveLength(0);
+   expect(filterByVerdict([input], 'proof-unsupported')).toHaveLength(1);
+   expect(opensRulesInspector(input)).toBe(true);
+   expect(verdictFor({...input, result: 'allow', rulesDisposition: {kind: 'evaluated', verdict: 'allow'}})).toBe('allow');
+   for (const kind of ['constraints-not-satisfied', 'residual-denied', 'no-rule'] as const) {
+     expect(verdictFor({...input, queryProof: {kind, failures: []}})).toBe('deny');
+   }
+ });
+
+it('counts proof limitations separately within the metrics time window', () => {
+  const proof = {at: 10, result: 'deny', rulesDisposition: {kind: 'evaluated', verdict: 'deny'} as const,
+    queryProof: {kind: 'unsupported-path' as const, failures: []}};
+  const denied = {at: 10, result: 'deny', rulesDisposition: {kind: 'evaluated', verdict: 'deny'} as const};
+  const events = [proof, denied, {...proof, at: 20}];
+  expect(rulesDecisionEvents(events)).toEqual([denied]);
+  expect(queryProofUnsupportedCount(events, {start: 10, end: 20})).toBe(1);
 });

@@ -30,6 +30,7 @@
  * `resource.data` access the equalities do NOT pin errors in the evaluator
  * and the rule denies — the conservative (prod-safe) direction.
  */
+import type { QueryProofFailure } from '../../sandbox/types/query-proof.js';
 import {
   collectMatches,
   evaluateQueryProof,
@@ -63,14 +64,15 @@ export type ListProofVerdict =
    *  document and contains only query-pinned equality fields. */
   | {
       kind: 'provable';
+      failures: QueryProofFailure[];
       evaluationAst: FirestoreRules;
       syntheticResource: Record<string, unknown>;
     }
   /** Every matching rule depends on per-document data the query's
-   *  constraints cannot guarantee — prod rejects the WHOLE query.
+   *  constraints cannot prove safe — Pyric rejects the whole query.
    *  `residual` is the structured account (missing / mismatched equalities,
    *  or an out-of-scope shape) that the denial site renders remediation from. */
-  | { kind: 'unprovable'; reason: string; residual: QueryProofResidual; rule?: EvaluatedRuleInfo }
+  | { kind: 'unprovable'; failures: QueryProofFailure[]; reason: string; residual: QueryProofResidual; rule?: EvaluatedRuleInfo }
   /** No match block / no list rules — let simulate() default-deny exactly
    *  as it does today (the proof has nothing to add). */
   | { kind: 'no-rule' };
@@ -112,8 +114,8 @@ export function proveListQuery(
   // OR semantics across allow rules: ANY provable rule makes the query
   // provable. Residual simulation receives ONLY those provable rules, so an
   // unprovable sibling cannot grant from a concrete placeholder document.
-  const failures: { reason: string; residual: QueryProofResidual; rule?: AllowRule }[] = [];
-  const provableRules = new Set<AllowRule>();
+  const failures: QueryProofFailure[] = [];
+  const provableRules = new Map<AllowRule, AllowRule>();
   let applicableRuleCount = 0;
   for (const match of matches) {
     const functionScope = buildListRuleFunctionScope(match.functions);
@@ -140,9 +142,10 @@ export function proveListQuery(
       const isInvariant = pathAnalysis.pathInvariant === true;
       if (isInvariant === false) {
         failures.push({
+          kind: 'unsupported-path',
           reason: 'list rule depends on the candidate document path',
           residual: { missing: [], mismatched: [] },
-          rule,
+          rule: proofRuleInfo(rule, sourceString),
         });
         continue;
       }
@@ -152,9 +155,17 @@ export function proveListQuery(
       const result = evaluateQueryProof(rule.condition, constraints, fnMap, auth?.uid);
       const isProvable = result.provable === true;
       if (isProvable) {
-        provableRules.add(rule);
-      } else {
-        failures.push({ reason: result.reason, residual: result.residual, rule });
+        provableRules.set(rule, result.residualCondition ? {...rule, condition: result.residualCondition} : rule);
+      }
+      const failure = result.provable ? result.proofFailure : result;
+      if (failure) {
+        failures.push({
+          kind: failure.kind, reason: failure.reason, residual: failure.residual,
+          rule: proofRuleInfo(rule, sourceString),
+          ...(failure.residual.predicate ? { predicate: proofSourceInfo(
+            failure.residual.predicate, failure.residual.predicateLoc ?? rule.loc, sourceString,
+          ) } : {}),
+        });
       }
     }
   }
@@ -164,76 +175,36 @@ export function proveListQuery(
   }
   const isProvableEmpty = provableRules.size === 0;
   if (isProvableEmpty) {
-    const first = failures[0];
-    let reason = 'list rule depends on per-document data the query cannot guarantee';
-    let residual: QueryProofResidual = { missing: [], mismatched: [] };
-    let ruleInfo: EvaluatedRuleInfo | undefined = undefined;
-    const isFirstDefined = first !== undefined;
-    if (isFirstDefined) {
-      reason = first!.reason;
-      residual = first!.residual;
-      const hasRule = first!.rule !== undefined;
-      if (hasRule) {
-        const r = first!.rule!;
-        const condText = printExpression(r.condition);
-        ruleInfo = { verdict: 'deny', expression: condText };
-        const hasLoc = r.loc !== undefined;
-        if (hasLoc) {
-          const loc = r.loc!;
-          let sourceStr = '';
-          const hasSourceStr = sourceString !== undefined;
-          if (hasSourceStr) {
-            sourceStr = sourceString!;
-          }
-          const authored = resolveAuthoredSourceLoc(sourceStr, loc.line, loc.col, loc.file, condText);
-          const hasAuthored = authored !== undefined;
-          if (hasAuthored) {
-            ruleInfo.line = authored!.line;
-            ruleInfo.col = authored!.col;
-            ruleInfo.column = authored!.col;
-            ruleInfo.file = authored!.file;
-            ruleInfo.citation = authored!.citation;
-            const hasAuthoredExpr = authored!.expression !== undefined;
-            if (hasAuthoredExpr) {
-              ruleInfo.expression = authored!.expression;
-            }
-          } else {
-            ruleInfo.line = loc.line;
-            ruleInfo.col = loc.col;
-            ruleInfo.column = loc.col;
-            const hasFile = loc.file !== undefined;
-            if (hasFile) {
-              ruleInfo.file = loc.file;
-              ruleInfo.citation = `${loc.file}:${loc.line}:${loc.col}`;
-            } else {
-              ruleInfo.file = 'firestore.rules';
-              ruleInfo.citation = `firestore.rules:${loc.line}:${loc.col}`;
-            }
-          }
-        }
-      }
-    }
-    const unprovableVerdict: {
-      kind: 'unprovable';
-      reason: string;
-      residual: QueryProofResidual;
-      rule?: EvaluatedRuleInfo;
-    } = {
+    const first = failures[0]!;
+    return {
       kind: 'unprovable',
-      reason,
-      residual,
+      failures,
+      reason: first.reason,
+      residual: first.residual,
+      ...(first.rule ? { rule: { ...first.rule, verdict: 'deny' as const } } : {}),
     };
-    const hasRuleInfo = ruleInfo !== undefined;
-    if (hasRuleInfo) {
-      unprovableVerdict.rule = ruleInfo;
-    }
-    return unprovableVerdict;
   }
+
   return {
     kind: 'provable',
+    failures,
     evaluationAst: projectRules(ast!, provableRules),
     syntheticResource: syntheticResourceFromWheres(constraints),
   };
+}
+
+/** Resolve against authored source before assembly removes rejected siblings. */
+function proofRuleInfo(rule: AllowRule, source = ''): NonNullable<QueryProofFailure['rule']> {
+  return proofSourceInfo(printExpression(rule.condition), rule.loc, source);
+}
+
+function proofSourceInfo(expression: string, loc: AllowRule['loc'], source = ''): NonNullable<QueryProofFailure['rule']> {
+  if (!loc) return { expression };
+  const { line, col, file } = loc;
+  const authored = resolveAuthoredSourceLoc(source, line, col, file, expression);
+  if (authored) return { ...authored, column: authored.col, expression: authored.expression ?? expression };
+  return { line, col, column: col, file: file ?? 'firestore.rules',
+    citation: `${file ?? 'firestore.rules'}:${line}:${col}`, expression };
 }
 
 // ─── Proof/execution projection ──────────────────────────────────
@@ -241,10 +212,10 @@ export function proveListQuery(
 /** Preserve match paths and helper scopes while removing every rule the
  * static proof did not approve. This keeps residual execution and proof on
  * the exact same set of potentially granting rules. */
-function projectRules(ast: FirestoreRules, retained: ReadonlySet<AllowRule>): FirestoreRules {
+function projectRules(ast: FirestoreRules, retained: ReadonlyMap<AllowRule, AllowRule>): FirestoreRules {
   const projectBlock = (block: MatchBlock): MatchBlock => ({
     ...block,
-    allows: block.allows.filter((rule) => retained.has(rule)),
+    allows: block.allows.filter((rule) => retained.has(rule)).map(rule => retained.get(rule)!),
     children: block.children.map(projectBlock),
   });
   return {
