@@ -62,6 +62,10 @@
       "types": "./dist/auth/index.d.ts",
       "import": "./dist/auth/index.js"
     },
+    "./auth/internal": {
+      "types": "./dist/auth/internal.d.ts",
+      "import": "./dist/auth/internal.js"
+    },
     "./ai": {
       "types": "./dist/ai/index.d.ts",
       "import": "./dist/ai/index.js"
