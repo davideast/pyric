@@ -106,10 +106,12 @@ const pkg = {
 fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
 // pnpm >= 11 no longer reads "pnpm.overrides" from package.json — it moved to
 // pnpm-workspace.yaml. Quote keys + file: values.
-// pnpm 12 also stopped honouring --config.dangerouslyAllowAllBuilds on the
-// command line, so the same setting is written here. The matrix checks
-// resolution, not whether a transitive dependency runs its postinstall script.
-const yaml = "dangerouslyAllowAllBuilds: true\noverrides:\n" +
+// pnpm 11+ refuses to finish an install that ignored a dependency build script.
+// strictDepBuilds returns that to a warning, which is what a consumer installing
+// these packages sees: the scripts stay unrun. Allowing them instead would
+// execute third-party postinstall scripts in CI and test a state no consumer
+// gets. The matrix checks resolution, so unrun build scripts do not affect it.
+const yaml = "strictDepBuilds: false\noverrides:\n" +
   Object.entries(pin).map(([k, v]) => `  "${k}": "${v}"`).join("\n") + "\n";
 fs.writeFileSync(path.join(dir, "pnpm-workspace.yaml"), yaml);
 ' "${TARBALLS[@]}"
@@ -119,11 +121,11 @@ echo "▸ $PM install (5 file: tarballs + peers, inter-deps pinned local)…"
 cd "$CONSUMER"
 case "$PM" in
   npm)  npm install --no-audit --no-fund --loglevel=error ;;
-  # pnpm 11+ blocks (and exits non-zero on) dependency build scripts by default
-  # (esbuild/@firebase/util/protobufjs); the matrix only needs resolution, not
-  # those builds, so allow them rather than fail. strict-peer off keeps the
-  # apples-to-apples resolution check from tripping on peer mismatches.
-  pnpm) pnpm install --config.strict-peer-dependencies=false --config.dangerouslyAllowAllBuilds=true ;;
+  # pnpm 11+ blocks dependency build scripts (esbuild/@firebase/util/protobufjs)
+  # and exits non-zero. strictDepBuilds in the generated pnpm-workspace.yaml
+  # returns that to a warning. strict-peer off keeps the apples-to-apples
+  # resolution check from tripping on peer mismatches.
+  pnpm) pnpm install --config.strict-peer-dependencies=false ;;
   bun)  bun install ;;
 esac
 
