@@ -30,6 +30,7 @@ import {
   WORKER_RELAY_CAPABILITY,
 } from '../protocol.js';
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
+import { createCallerIdentity, type CallerIdentityStore } from '../../auth/identity.js';
 
 /** Subset of `@inbrowser/agent`'s `ToolResult` shape the bridge emits. */
 export interface BridgeToolResult {
@@ -78,6 +79,15 @@ export interface Bridge {
   readonly instanceId: string;
   /** Registry of connected remote consumers. */
   readonly consumers: ConsumerRegistry;
+  /**
+   * The identity this bridge attributes to its own MCP callers, written by
+   * `auth_impersonate` / `auth_reset` and read by `auth_whoami`. Held per
+   * bridge rather than per MCP session so the CLI and an agent talking to the
+   * same bridge read the same answer. `dispatch` consults it: anything other
+   * than the default `{ mode: 'app-session' }` rides the forwarded
+   * `tool-call` frame as `actAs`, and the peer runs the tool under it.
+   */
+  readonly callerIdentity: CallerIdentityStore;
   /** Broadcast presence snapshot to sandbox peer and Studio consumers. */
   broadcastConsumerPresence(): void;
   /**
@@ -224,6 +234,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
   const workerPending = new Map<string, PendingWorkerOp>();
   const workerSubs = new Map<string, WorkerSubEntry>();
   const consumers = createConsumerRegistry();
+  const callerIdentity = createCallerIdentity();
 
   function broadcastConsumerPresence(): void {
     consumers.broadcastPresence(peer ? peer.send : undefined);
@@ -365,7 +376,18 @@ export function createBridge(opts: BridgeOptions): Bridge {
       }, callTimeoutMs);
       pending.set(id, { id, resolve, timer, tool: name });
       try {
-        peer!.send({ type: 'tool-call', id, name, args });
+        // The caller's identity governs the tools it forwards. `app-session`
+        // is the default every caller holds until it impersonates, and it is
+        // sent as an ABSENT field so an un-impersonated call stays exactly the
+        // frame the bridge has always sent.
+        const identity = callerIdentity.get();
+        peer!.send({
+          type: 'tool-call',
+          id,
+          name,
+          args,
+          ...(identity.mode === 'app-session' ? {} : { actAs: identity }),
+        });
       } catch (err) {
         clearTimeout(timer);
         pending.delete(id);
@@ -556,6 +578,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     startedAt,
     instanceId,
     consumers,
+    callerIdentity,
     broadcastConsumerPresence,
     recordToolEvent,
     registerSandboxPeer,

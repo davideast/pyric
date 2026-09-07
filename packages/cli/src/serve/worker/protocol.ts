@@ -887,6 +887,16 @@ export interface ToolMessage {
   id: string;
   name: string;
   args: Record<string, unknown>;
+  /**
+   * The identity the bridge holds for the MCP caller that made this tool call
+   * (`auth_impersonate` / `auth_reset`), relayed from the bridge's `tool-call`
+   * frame. It is the DEFAULT identity for the dispatch: a tool argument that
+   * names an identity itself still wins, and a family without an identity seam
+   * ignores it. Unlike `actAs` on {@link OpMessage} this is NOT resolved by
+   * `lensDb` — the agent tool dispatcher owns its own resolution. Additive:
+   * existing senders omit it, and an omitted lens dispatches as before.
+   */
+  actAs?: AuthLens;
 }
 
 export type InboundMessage = (

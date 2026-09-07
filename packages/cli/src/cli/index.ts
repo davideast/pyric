@@ -133,6 +133,22 @@ COMMANDS
   database rules validate    Validate Realtime Database rules expressions.
   database rules simulate    Run the local Realtime Database rules simulator.
   database rules generate    Compile a constraints module to database.rules.json.
+  auth impersonate           Act as a user: pyric auth impersonate <uid>
+                             [--tenant ID] [--claims JSON], or --admin to bypass
+                             rules, or --anonymous to be signed out. With no
+                             --target this records your own bridge identity and
+                             the Firestore data tools you forward run under it
+                             with rules enforced; --target <id> drives another
+                             connected client instead and leaves your own tool
+                             calls alone. Requires a running bridge. --json.
+  auth reset                 Follow the application session again. --target <id>
+                             resets another connected client instead of you.
+                             Requires a running bridge. --json.
+  auth whoami                Report the identity the bridge holds for you.
+                             Requires a running bridge. --json.
+  auth sessions              List the clients connected to a running sandbox
+                             bridge with the identity each one acts as, and the
+                             target id to pass to impersonate or reset. --json.
 CORE FLAGS (sandbox)
   --port             Port to serve on. Default 3473. Pyric scans forward when
                      the selected port is taken.

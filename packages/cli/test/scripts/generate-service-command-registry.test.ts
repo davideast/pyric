@@ -25,12 +25,23 @@ describe('service-command registry generation', () => {
     expect(source).not.toContain('readdirSync');
   });
 
-  it('rejects filenames that cannot be one unambiguous three-token route', () => {
-    expect(() => parseServiceCommandRecord('firestore-rules.ts')).toThrow(
-      "expected <service>-<artifact>-<operation>.ts",
+  it('derives a two-word route when the subject is the service itself', () => {
+    expect(parseServiceCommandRecord('auth-impersonate.ts')).toEqual({
+      file: 'auth-impersonate.ts',
+      identifier: 'authImpersonate',
+      path: ['auth', 'impersonate'],
+    });
+    expect(renderServiceCommandRegistry(['auth-impersonate.ts'])).toContain(
+      '{ path: ["auth","impersonate"], run: authImpersonate },',
+    );
+  });
+
+  it('rejects filenames that cannot be one unambiguous route', () => {
+    expect(() => parseServiceCommandRecord('firestore.ts')).toThrow(
+      'expected <service>-<artifact>-<operation>.ts or <service>-<operation>.ts',
     );
     expect(() => parseServiceCommandRecord('firestore-rules-lint-extra.ts')).toThrow(
-      "expected <service>-<artifact>-<operation>.ts",
+      'expected <service>-<artifact>-<operation>.ts or <service>-<operation>.ts',
     );
   });
 });

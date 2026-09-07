@@ -6,26 +6,33 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const recordsDirectory = resolve(packageRoot, 'src/cli/service-command-records');
 const outputPath = resolve(packageRoot, 'src/cli/service-commands.generated.ts');
-const recordPattern = /^([a-z0-9]+)-([a-z0-9]+)-([a-z0-9]+)\.ts$/;
+const recordPattern = /^[a-z0-9]+(-[a-z0-9]+){1,2}\.ts$/;
 
 export interface ServiceCommandRecordSource {
   file: string;
   identifier: string;
-  path: readonly [string, string, string];
+  path: readonly [string, string] | readonly [string, string, string];
 }
 
 function camelCase(parts: readonly string[]): string {
   return parts[0] + parts.slice(1).map((part) => part[0]!.toUpperCase() + part.slice(1)).join('');
 }
 
+/**
+ * The route is the filename: `<service>-<artifact>-<operation>.ts`, or
+ * `<service>-<operation>.ts` when the subject is the service itself and there
+ * is no artifact word (ADR-0012 Decision 2, restated by ADR-0013).
+ */
 export function parseServiceCommandRecord(file: string): ServiceCommandRecordSource {
-  const match = recordPattern.exec(file);
-  if (!match) {
+  if (!recordPattern.test(file)) {
     throw new Error(
-      `invalid service-command record filename '${file}'; expected <service>-<artifact>-<operation>.ts`,
+      `invalid service-command record filename '${file}'; expected <service>-<artifact>-<operation>.ts or <service>-<operation>.ts`,
     );
   }
-  const path = [match[1]!, match[2]!, match[3]!] as const;
+  const words = file.replace(/\.ts$/, '').split('-');
+  const path = (words.length === 2
+    ? [words[0]!, words[1]!]
+    : [words[0]!, words[1]!, words[2]!]) as ServiceCommandRecordSource['path'];
   return { file, identifier: camelCase(path), path };
 }
 

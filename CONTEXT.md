@@ -262,9 +262,15 @@ the same sandbox as the open application and Studio. `pyric bridge` provides a
 standalone sandbox bridge. `pyric mcp` is the stdio editor front: it attaches to
 a running development bridge when possible or hosts a headless sandbox.
 
-The default bridge contract is exactly 29 tool names: 20 forwarded to the
-sandbox and 9 rules tools that run in the MCP process without a browser peer.
-Each tool family is one record under
+The default bridge contract is exactly 41 tool names: 28 forwarded to the
+sandbox and 13 that run in the MCP process without a browser peer. A tool name
+is the whole command path joined with underscores, and no tool takes an `op`
+field (ADR-0013, amending ADR-0012). The forwarded set adds the eight
+`auth_create_user` through `auth_custom_token` tools, which administer the
+sandbox user store; the in-process set adds `auth_impersonate`, `auth_reset`,
+`auth_whoami`, and `auth_sessions`, which read and retarget the identity of
+each client the bridge holds in its consumer registry, and the identity the
+bridge records for its own MCP callers. Each tool family is one record under
 `packages/cli/src/bridge/tool-family-records/` (transport, order, and exact
 tool names); `packages/cli/scripts/generate-tool-family-registry.ts` renders
 the aggregate that `packages/cli/src/bridge/server/mcp-contract.ts` pins and
@@ -451,7 +457,7 @@ are the other workflows.
   the file-per-record convention to source: one public entry barrel per
   mirrored surface, one file per API family, sandbox code under `X/sandbox/`,
   tests mirroring the source path.
-- Ratified decisions live in `docs/decisions/` (ADR-0001 to ADR-0011). The two
+- Ratified decisions live in `docs/decisions/` (ADR-0001 to ADR-0013). The two
   that shape the current tree most are ADR-0009 (Firestore engine deepening)
   and ADR-0010 (the unified Astro site).
 - Preserve unrelated work in a dirty tree.

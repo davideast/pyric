@@ -170,7 +170,10 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (session.sessionId) sessions.delete(session.sessionId);
       pendingSessions.delete(session);
     };
-    const surface = getDefaultMcpToolSurface();
+    const surface = getDefaultMcpToolSurface({
+      consumers: bridge.consumers,
+      callerIdentity: bridge.callerIdentity,
+    });
     const server = buildMcpServer(bridge, {
       forwarded: surface.forwarded,
       inProcess: surface.inProcess,

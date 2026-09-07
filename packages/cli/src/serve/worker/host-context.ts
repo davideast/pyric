@@ -13,6 +13,7 @@ import type { Database } from 'pyric/database';
 import type { LocalSandbox, PersistenceBackend } from 'pyric/sandbox';
 import type { Auth, MintedSession } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
+import type { SandboxDispatch } from '../../bridge/client/dispatch.js';
 import {
   serializeError,
   type OutboundMessage,
@@ -208,12 +209,9 @@ export interface HostCtx {
    * Lazily-built agent tool dispatcher (the canonical sandbox tool set) bound to
    * THIS worker's sandbox. The bridge peer forwards `tool` messages here so the
    * agent executes against the one shared sandbox, not a separate in-page
-   * backend. Cached so the handler array is built once.
+   * backend. Cached so the handler array is built once per caller identity.
    */
-  toolDispatch?: (
-    name: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ ok: boolean; summary: string; data?: unknown }>;
+  toolDispatch?: SandboxDispatch;
   /**
    * Messaging host capability. Normal serve producers enable it because
    * Messaging is in the canonical SDK swap. Absent/false answers

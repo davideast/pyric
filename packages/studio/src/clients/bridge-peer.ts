@@ -72,7 +72,11 @@ export interface StudioBridgePeerOptions {
 export function studioBridgePeerOptions(db: ClientDb, url: string): ConnectBridgeOptions {
   return {
     url,
-    dispatcher: (_sandbox, name, args) => callTool(db, name, args),
+    // `actAs` is the identity the bridge holds for its MCP caller
+    // (`auth_impersonate`). Studio fronts the same SharedWorker the app page
+    // does, so it must relay the identity too — dropping it here would make a
+    // forwarded tool call run as admin whenever Studio holds the peer slot.
+    dispatcher: (_sandbox, name, args, actAs) => callTool(db, name, args, actAs),
     workerRelay: {
       op: (op) => relayWorkerOp(db, op),
       subscribe: (sub, onValue) => relayWorkerSub(db, sub, onValue),

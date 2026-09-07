@@ -1,6 +1,6 @@
 # 0012: One naming grammar for CLI commands and MCP tools
 
-Status: Accepted
+Status: Accepted; Decision 1's MCP naming and Resolution 2 amended by ADR-0013
 
 Date: 2026-09-02
 

@@ -8,7 +8,7 @@ into whatever runtime you use. They reach an agent two ways:
    registry** over MCP; the [Pyric agent plugin](../pyric-plugin/README.md)
    auto-wires it. Forwarded + in-process names are authored per family in
    `packages/cli/src/bridge/tool-family-records/` and pinned by
-   `packages/cli/src/bridge/server/mcp-contract.ts` (**29** tools today).
+   `packages/cli/src/bridge/server/mcp-contract.ts` (**41** tools today).
 2. **Programmatic** — import a factory and register the handlers with any agent
    framework (the playground does this with `@inbrowser/agent`).
 
@@ -65,6 +65,49 @@ database or requires a rules-loading tool call first.
 
 `rtdb_simulate_access` · `rtdb_crawl_structure`
 
+## Sandbox auth users — `createAuthUsersTools` (`@pyric/cli` bridge)
+
+`auth_create_user` · `auth_import_users` · `auth_get_user` ·
+`auth_list_users` · `auth_update_user` · `auth_delete_user` ·
+`auth_set_claims` · `auth_custom_token`
+
+These administer the one user pool the application, Studio, and rules
+evaluation share, calling the same `pyric/auth` sandbox driver the served
+worker's admin ops call. Creating a user does not sign anyone in, and a
+password is never returned. A user created under a dotted provider id
+(`google.com`, `oidc.acme`) with no password is assigned a generated
+`photoUrl`; `password`, `phone`, and anonymous users keep `photoUrl` null.
+
+## Auth identity — `createAuthIdentityTools` (`@pyric/cli` bridge)
+
+`auth_impersonate` · `auth_reset` · `auth_whoami` · `auth_sessions`
+
+`auth_impersonate` takes exactly one of `uid` (with optional `tenant` and
+`claims`), `admin: true`, or `anonymous: true`. `auth_reset` returns to the
+application session. Both take an optional `target`; `auth_sessions` reports
+the target id, platform, and current identity of every client connected to the
+bridge, and `auth_whoami` reports the identity the bridge holds for you.
+
+With a `target`, the bridge stores the identity on that client's registry entry
+and pushes it as an event, and that client's SDK stamps it on the operations it
+then issues. With no `target`, the bridge records the identity for you.
+
+With no `target`, the recorded identity governs the tool calls you then
+forward: the bridge puts it on the `tool-call` frame and the page dispatcher
+binds the Firestore data tools to it, so `firestore_get_document` and the rest
+of that family run with Security Rules enforced as that user. `admin` bypasses
+rules. A call that passes its own `as` argument uses that instead, and leaves
+the recorded identity in place. `sandbox_inspect`, the rules simulator, the
+Realtime Database inspectors, and the auth user-administration tools take no
+identity and keep bypassing rules.
+
+**A `target` still changes nothing about your own calls.** It retargets the
+named client and nothing else. Both the tool descriptions and the results say
+so.
+
+The same operations are on the CLI as `pyric auth impersonate`,
+`pyric auth reset`, `pyric auth whoami`, and `pyric auth sessions`.
+
 ## Index extraction — `pyric/rules/indexes`
 
 `firestore_extract_indexes` — derive composite-index definitions from query
@@ -109,6 +152,6 @@ registered on the default `pyric bridge` / `pyric sandbox --bridge` surface:
 
 ---
 
-**Default MCP bridge: 25 unique tool names** (see `DEFAULT_MCP_TOOL_NAMES` in
+**Default MCP bridge: 41 unique tool names** (see `DEFAULT_MCP_TOOL_NAMES` in
 `mcp-contract.ts`). Production shipping (rules, indexes, hosting, functions) is
 owned by `firebase-tools` or the Firebase Console.

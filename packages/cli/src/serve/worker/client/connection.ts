@@ -5,6 +5,7 @@
  */
 
 import type { InboundMessage } from '../protocol.js';
+import type { AuthLens } from 'pyric/sandbox';
 import type { WorkerOpPayload, WorkerSubPayload } from '../../../bridge/protocol.js';
 import {
   nextId,
@@ -141,8 +142,10 @@ export async function callTool(
   db: ClientDb,
   name: string,
   args: Record<string, unknown>,
+  /** The bridge caller's identity, when it has impersonated one. Relayed verbatim. */
+  actAs?: AuthLens,
 ): Promise<{ ok: boolean; summary: string; data?: unknown }> {
-  return (await rpc(db.port, { t: 'tool', id: nextId(), name, args })) as {
+  return (await rpc(db.port, { t: 'tool', id: nextId(), name, args, ...(actAs ? { actAs } : {}) })) as {
     ok: boolean;
     summary: string;
     data?: unknown;

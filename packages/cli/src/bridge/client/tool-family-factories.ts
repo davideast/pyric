@@ -17,6 +17,7 @@ import {
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { getInternalEnv } from 'pyric/sandbox/internal';
 import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
+import { createAuthUsersTools } from '../../auth/users.js';
 import type { ForwardedFamilyKey } from '../tool-families.js';
 
 /** Everything a forwarded family needs from one sandbox, built once per sandbox. */
@@ -31,4 +32,5 @@ export const SANDBOX_HANDLER_FACTORIES = {
   'firestore-data': ({ resolveDb }) => createFirestoreDataTools({ resolveDb }),
   'firestore-inspect': ({ sandbox }) => createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
   'rtdb-inspection': ({ sandbox }) => createRtdbInspectionTools({ resolveSandbox: () => sandbox }),
+  'auth-users': ({ sandbox }) => createAuthUsersTools({ resolveSandbox: () => sandbox }),
 } satisfies Record<ForwardedFamilyKey, (binding: SandboxBinding) => ToolHandler[]>;

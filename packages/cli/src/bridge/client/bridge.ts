@@ -26,6 +26,7 @@
 
 import type { LocalSandbox } from 'pyric/sandbox';
 import type {
+  AuthLens,
   BridgeMessage,
   HelloFromClient,
   ToolCallRequest,
@@ -136,7 +137,17 @@ export interface SandboxToolDispatcher {
    * (the bridge advertises only what this dispatcher reports it
    * can handle, so unknowns indicate wire-level drift).
    */
-  (sandbox: LocalSandbox, name: string, args: Record<string, unknown>): Promise<{
+  (
+    sandbox: LocalSandbox,
+    name: string,
+    args: Record<string, unknown>,
+    /**
+     * The identity the bridge holds for the MCP caller, from the `tool-call`
+     * frame. Absent means the caller never impersonated (the bridge omits the
+     * default `app-session`), and the dispatch runs as it always has.
+     */
+    actAs?: AuthLens,
+  ): Promise<{
     ok: boolean;
     summary: string;
     data?: unknown;
@@ -318,7 +329,7 @@ export function connectBridge(
   async function handleToolCall(req: ToolCallRequest) {
     let response: ToolCallResponse;
     try {
-      const result = await dispatcher(sandbox, req.name, req.args ?? {});
+      const result = await dispatcher(sandbox, req.name, req.args ?? {}, req.actAs);
       response = {
         type: 'tool-result',
         id: req.id,

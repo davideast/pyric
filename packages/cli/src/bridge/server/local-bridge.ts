@@ -10,7 +10,8 @@
  *
  * Because `buildSandboxDispatcher` is the SAME source the served bridge
  * advertises (pinned by `tool-parity.test.ts`), the headless tool surface is
- * identical to the served one, including the per-identity `as` arg.
+ * identical to the served one, including the per-identity `as` arg and the
+ * caller identity `auth_impersonate` records.
  *
  * See design rationale (headless mode).
  */
@@ -55,7 +56,11 @@ export function createLocalBridge(sandbox: LocalSandbox, opts: LocalBridgeOption
     // translate that here.
     async dispatch(name, args) {
       try {
-        return await dispatcher(name, args);
+        // Same rule as the forwarding bridge: the caller's recorded identity is
+        // the default for a call whose own arguments name none. `app-session`
+        // is sent as no identity at all, which is the historical behaviour.
+        const identity = base.callerIdentity.get();
+        return await dispatcher(name, args, identity.mode === 'app-session' ? undefined : identity);
       } catch (e) {
         return { ok: false, summary: e instanceof Error ? e.message : String(e) };
       } finally {

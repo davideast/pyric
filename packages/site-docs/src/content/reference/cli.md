@@ -58,6 +58,37 @@ The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/r
 | `--allowed-host <host>` | Add allowed Host headers. Use commas for multiple hosts. |
 | `--only hosting` | Accepted for Firebase CLI compatibility. Hosting is the only supported value. |
 
+## Auth identity
+
+These commands set and read who a bridge's clients act as. A client is a mobile runtime, a Studio tab, or a Node client attached to `pyric sandbox --bridge`. They need a running bridge, which they find through `.pyric/serve.json` in the project directory. Without one they print how to start it and exit `1`.
+
+```bash
+pyric auth sessions [--json]
+pyric auth whoami [--json]
+pyric auth impersonate <uid> [--tenant <id>] [--claims '<json>'] [--target <id>] [--json]
+pyric auth impersonate --admin [--target <id>] [--json]
+pyric auth impersonate --anonymous [--target <id>] [--json]
+pyric auth reset [--target <id>] [--json]
+```
+
+`sessions` prints each connected client's target id, platform, and current identity. Take the target id from that output and pass it as `--target`.
+
+`impersonate` takes exactly one of a uid, `--admin`, and `--anonymous`.
+
+| Selector | Meaning |
+|---|---|
+| `<uid>` | Act as that user. `--tenant` sets the Identity Platform tenant, and `--claims` takes a JSON object of custom claims that rules read as `request.auth.token.<name>`. |
+| `--admin` | Act with Security Rules bypassed. |
+| `--anonymous` | Act signed out. |
+
+`reset` returns to the application session, the user the app is signed in as.
+
+With `--target`, a command applies to the client it names and to nothing else. Without `--target`, it records your own identity on the bridge.
+
+Without `--target`, the identity you record governs the tool calls you then forward through the bridge. The Firestore data tools run under it with Security Rules enforced, `--admin` bypasses them, and a call that passes its own `as` argument uses that instead without changing what you recorded. `sandbox_inspect`, the rules simulator, the Realtime Database inspectors, and the auth user tools take no identity and keep bypassing rules.
+
+With `--target`, nothing about your own tool calls changes. Every command prints its scope after a successful call.
+
 ## Project configuration
 
 Create `pyric.json` in the project root to define defaults:

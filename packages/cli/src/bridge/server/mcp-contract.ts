@@ -3,6 +3,7 @@ import { assertExactToolNames, toolFamilies } from '../tool-families.js';
 import {
   getInProcessToolHandlers,
   getSandboxToolMetadata,
+  type InProcessToolContext,
   type ToolMetadata,
 } from './tool-metadata.js';
 
@@ -34,10 +35,15 @@ export interface DefaultMcpToolSurface {
 /**
  * Assemble the default MCP surface and fail closed if a factory changed
  * without a corresponding public-contract decision.
+ *
+ * `context` is handed to the in-process families; a bridge passes its own
+ * consumer registry and caller identity so the `auth_*` identity tools
+ * operate on the live bridge. The tool names are the same either way, so the
+ * contract assertions below do not depend on it.
  */
-export function getDefaultMcpToolSurface(): DefaultMcpToolSurface {
+export function getDefaultMcpToolSurface(context?: InProcessToolContext): DefaultMcpToolSurface {
   const forwarded = getSandboxToolMetadata();
-  const inProcess = getInProcessToolHandlers();
+  const inProcess = getInProcessToolHandlers(context);
   assertExactToolNames(
     'forwarded sandbox tools',
     forwarded.map((tool) => tool.name),

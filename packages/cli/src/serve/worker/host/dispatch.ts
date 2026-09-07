@@ -126,11 +126,19 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
  * agent runs the canonical sandbox tool set against THIS worker's sandbox (the
  * same instance the app + Studio use) instead of a separate in-page backend.
  * Replies with a `res` whose value is the `{ ok, summary, data }` result.
+ *
+ * The frame's `actAs` carries the identity the bridge holds for its MCP caller,
+ * so a tool call forwarded after `auth_impersonate` is rules-evaluated as that
+ * user. It reaches the dispatcher, not `lensDb`: the agent tool surface names
+ * its own identity seam (`as`), and that per-call argument still wins.
  */
 async function handleTool(ctx: HostCtx, port: PortLike, msg: ToolMessage): Promise<void> {
   try {
     ctx.toolDispatch ??= buildSandboxDispatcher(ctx.sandbox);
-    const result = await ctx.toolDispatch(msg.name, msg.args ?? {});
+    // `msg.actAs` is the identity the bridge holds for the MCP caller. The
+    // dispatcher applies it only where a tool has no identity argument of its
+    // own; it is NOT the `lensDb` path `op` frames take.
+    const result = await ctx.toolDispatch(msg.name, msg.args ?? {}, msg.actAs);
     // Pre-serialize via JSON BEFORE the structured-clone hop over the port. Read
     // results carry real firebase wrapper instances (Timestamp/GeoPoint/Bytes/
     // VectorValue) whose toJSON() produces the canonical agent-facing shapes.

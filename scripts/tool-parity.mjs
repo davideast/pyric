@@ -113,6 +113,10 @@ const MCP_CONTRIBUTIONS = [
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools', gate: 'forwarded' },
   { file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools', gate: 'forwarded' },
+  { file: `${TOOLS}/auth/users.ts`, factory: 'createAuthUsersTools', gate: 'forwarded' },
+  // The identity tools read the bridge process's client registry and caller
+  // identity, so they run in-process and report nothing without a live bridge.
+  { file: `${TOOLS}/auth/identity-tools.ts`, factory: 'createAuthIdentityTools', gate: 'in-process' },
   // getRulesToolHandlers → createFirestoreRulesTools, which spreads the
   // stdlib factory and adds firestore_test_rules only when a scope is
   // supplied (the default sandbox bridge supplies none).

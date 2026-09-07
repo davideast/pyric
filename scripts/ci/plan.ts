@@ -1,7 +1,12 @@
 #!/usr/bin/env bun
 import { appendFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { selectPrCheckSet, type ChangedPath, type CheckSetInput } from './check-set.ts';
+import {
+  requiresPackagingProof,
+  selectPrCheckSet,
+  type ChangedPath,
+  type CheckSetInput,
+} from './check-set.ts';
 
 export function parseNameStatus(output: string): ChangedPath[] {
   const fields = output.split('\0');
@@ -49,15 +54,26 @@ function main(): void {
       `${env('CI_BASE_SHA')}...${env('CI_HEAD_SHA')}`,
     ], { encoding: 'utf8' }))
     : [];
-  const checkSet = selectPrCheckSet({ event, labels: labels(), paths });
+  const prLabels = labels();
+  const checkSet = selectPrCheckSet({ event, labels: prLabels, paths });
   const mode = process.env.CI_SELECTION_MODE === 'enforce' ? 'enforce' : 'shadow';
   const effectiveCheckSet = mode === 'shadow' ? 'full' : checkSet;
-  const summary = JSON.stringify({ mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, paths }, null, 2);
+  // The packaging gate answers a question about published artifacts, which is
+  // orthogonal to how much of the suite runs. It is forced by the label or by a
+  // diff that invalidates what it proves; a non-PR event carries no diff to
+  // read, so the label is the only lever there.
+  const packaging = prLabels.includes('ci-packaging') || requiresPackagingProof(paths);
+  const summary = JSON.stringify(
+    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, packaging, paths },
+    null,
+    2,
+  );
   console.log(summary);
   const output = process.env.GITHUB_OUTPUT;
   if (output) {
     appendFileSync(output, `check-set=${effectiveCheckSet}\n`);
     appendFileSync(output, `predicted-check-set=${checkSet}\n`);
+    appendFileSync(output, `packaging=${String(packaging)}\n`);
     appendFileSync(output, `paths-json=${JSON.stringify(paths)}\n`);
   }
 }
