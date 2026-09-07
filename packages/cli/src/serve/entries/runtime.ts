@@ -34,6 +34,7 @@ import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
 import type { InitPayload } from '../init-payload.js';
+import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
@@ -124,6 +125,15 @@ if (!useWorker) try {
   const payload = (await res.json()) as InitPayload;
   bridgeUrlFromPayload = payload.bridgeUrl;
   activityTokenFromPayload = payload.activityToken ?? null;
+  // The avatar mint goes in BEFORE the first user record: the minted
+  // `photoURL` is stored on the record at creation, never recomputed. This
+  // server mounts the avatar route (`avatars: true`) → provider users get its
+  // URL; it does not (`false`) → they get Firebase's null. A payload without
+  // the flag leaves the sandbox's built-in data-URI mint, which needs no route.
+  const avatarMint = avatarMintForPayload(payload.avatars);
+  if (avatarMint) {
+    authOps.setAvatarMint(getAuth(sandbox), avatarMint);
+  }
   // Register RTDB with the persistence registry BEFORE enablePersistence
   // (below) so the restored tree rides the controller blob and is applied
   // during restore-on-attach — same eager-registration reasoning as the

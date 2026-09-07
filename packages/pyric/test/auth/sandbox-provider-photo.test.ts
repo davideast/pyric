@@ -8,21 +8,28 @@
  * the stored record, on the live `User`, and on the matching `providerData`
  * entry — and neither may blank a stored photo when the identity carries none.
  *
- * Nothing here assigns a photo: every value under test is supplied by the
- * identity, exactly as a real OAuth provider supplies one.
+ * An identity-supplied photo always wins. When the identity carries none, the
+ * backend mints a default at creation — the second describe block below covers
+ * that policy: federated providers get one, everyone else stays null.
  */
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   GoogleAuthProvider,
+  createUserWithEmailAndPassword,
   getAuth,
+  isSignInWithEmailLink,
   sandbox as authSandbox,
+  sendSignInLinkToEmail,
+  signInAnonymously,
+  signInWithEmailLink,
   signInWithPopup,
   type Auth,
   type AuthFlowResolver,
   type SignInIdentitySpec,
   type User,
 } from '../../src/auth/index.js';
+import { defaultAvatarDataUri } from '../../src/auth/sandbox/default-avatar.js';
 
 const PHOTO = 'https://cdn.example.com/avatars/ada.png';
 const OTHER_PHOTO = 'https://cdn.example.com/avatars/ada-2.png';
@@ -88,19 +95,24 @@ describe('provider sign-in photo (sandbox)', () => {
     expect(storedPhotoUrl(auth, 'ada')).toBe(PHOTO);
   });
 
-  it('picker mint without a photo leaves user.photoURL and providerData null', async () => {
+  it('picker mint without a photo gets the default avatar, not null', async () => {
     const auth = googleAuth();
+    const expected = defaultAvatarDataUri({
+      uid: 'ada',
+      displayName: null,
+      email: 'ada@example.com',
+    });
     const cred = await signInWithPopup(
       auth,
       new GoogleAuthProvider(),
       pickerResolver(auth, { uid: 'ada', email: 'ada@example.com' }),
     );
 
-    expect(cred.user.photoURL).toBeNull();
+    expect(cred.user.photoURL).toBe(expected);
     expect(
       cred.user.providerData?.find((entry) => entry.providerId === PROVIDER_ID)?.photoURL,
-    ).toBeNull();
-    expect(storedPhotoUrl(auth, 'ada')).toBeNull();
+    ).toBe(expected);
+    expect(storedPhotoUrl(auth, 'ada')).toBe(expected);
   });
 
   it('a bare resolver User carrying a photo records it on a fresh stored identity', async () => {
@@ -169,5 +181,146 @@ describe('provider sign-in photo (sandbox)', () => {
     expect(cred.user.uid).toBe('ada');
     expect(cred.user.photoURL).toBe(PHOTO);
     expect(storedPhotoUrl(auth, 'ada')).toBe(PHOTO);
+  });
+});
+
+describe('default avatar assignment (sandbox)', () => {
+  it('a bare federated identity with no photo is born with the default avatar', async () => {
+    const auth = googleAuth();
+    const expected = defaultAvatarDataUri({
+      uid: 'ada',
+      displayName: null,
+      email: 'ada@example.com',
+    });
+    const cred = await signInWithPopup(
+      auth,
+      new GoogleAuthProvider(),
+      bareResolver(bareUser('ada', 'ada@example.com', null)),
+    );
+
+    expect(cred.user.photoURL).toBe(expected);
+    expect(
+      cred.user.providerData?.find((entry) => entry.providerId === PROVIDER_ID)?.photoURL,
+    ).toBe(expected);
+    expect(storedPhotoUrl(auth, 'ada')).toBe(expected);
+  });
+
+  it('an identity-supplied photo wins over the mint', async () => {
+    const auth = googleAuth();
+    const cred = await signInWithPopup(
+      auth,
+      new GoogleAuthProvider(),
+      pickerResolver(auth, { uid: 'ada', email: 'ada@example.com', photoUrl: PHOTO }),
+    );
+
+    expect(cred.user.photoURL).toBe(PHOTO);
+    expect(storedPhotoUrl(auth, 'ada')).toBe(PHOTO);
+  });
+
+  it('email/password creation stays null — prod returns no photo for it', async () => {
+    const auth = getAuth(initializeSandbox());
+    const cred = await createUserWithEmailAndPassword(auth, 'pw@example.com', 'password123');
+
+    expect(cred.user.photoURL).toBeNull();
+    expect(storedPhotoUrl(auth, cred.user.uid)).toBeNull();
+  });
+
+  it('anonymous sign-in stays null', async () => {
+    const auth = getAuth(initializeSandbox());
+    const cred = await signInAnonymously(auth);
+
+    expect(cred.user.photoURL).toBeNull();
+    expect(storedPhotoUrl(auth, cred.user.uid)).toBeNull();
+  });
+
+  it('email-link account creation stays null', async () => {
+    const auth = getAuth(initializeSandbox());
+    await sendSignInLinkToEmail(auth, 'link@example.com', {
+      url: 'https://app.example.com/finish',
+      handleCodeInApp: true,
+    });
+    const mail = authSandbox.takeAuthMail(auth)!;
+    expect(isSignInWithEmailLink(auth, mail.link)).toBe(true);
+    const cred = await signInWithEmailLink(auth, 'link@example.com', mail.link);
+
+    expect(cred.user.photoURL).toBeNull();
+    expect(storedPhotoUrl(auth, cred.user.uid)).toBeNull();
+  });
+
+  it('a seeded federated SeedUser without a photo gets the mint and re-exports stably', () => {
+    const auth = getAuth(initializeSandbox());
+    authSandbox.seedUsers(auth, [
+      { uid: 'seeded', email: 'seeded@example.com', password: 'pw', providerId: 'google.com' },
+    ]);
+
+    const expected = defaultAvatarDataUri({
+      uid: 'seeded',
+      displayName: null,
+      email: 'seeded@example.com',
+    });
+    expect(storedPhotoUrl(auth, 'seeded')).toBe(expected);
+
+    const exported = authSandbox.exportUsers(auth);
+    expect(exported.find((seed) => seed.uid === 'seeded')?.photoUrl).toBe(expected);
+
+    // Re-seeding the export into a fresh sandbox is a fixed point: the photo
+    // is now caller-supplied, so the mint never runs again.
+    const other = getAuth(initializeSandbox());
+    authSandbox.seedUsers(other, exported);
+    expect(authSandbox.exportUsers(other)).toEqual(exported);
+  });
+
+  it('a seeded password SeedUser stays photo-less', () => {
+    const auth = getAuth(initializeSandbox());
+    authSandbox.seedUsers(auth, [{ uid: 'bare', email: 'bare@example.com', password: 'pw' }]);
+
+    expect(storedPhotoUrl(auth, 'bare')).toBeNull();
+    expect('photoUrl' in authSandbox.exportUsers(auth)[0]!).toBe(false);
+  });
+
+  it('a null mint restores Firebase behaviour: a federated sign-in yields null', async () => {
+    const auth = googleAuth();
+    authSandbox.setAvatarMint(auth, () => null);
+    const cred = await signInWithPopup(
+      auth,
+      new GoogleAuthProvider(),
+      pickerResolver(auth, { uid: 'ada', email: 'ada@example.com' }),
+    );
+
+    expect(cred.user.photoURL).toBeNull();
+    expect(storedPhotoUrl(auth, 'ada')).toBeNull();
+  });
+
+  it('a host mint receives the record being created and its value is stored verbatim', async () => {
+    const auth = googleAuth();
+    const seen: Array<{ uid: string; displayName: string | null; email: string | null; providerId: string }> = [];
+    authSandbox.setAvatarMint(auth, (input) => {
+      seen.push(input);
+      return `/avatars/${input.uid}`;
+    });
+    const cred = await signInWithPopup(
+      auth,
+      new GoogleAuthProvider(),
+      pickerResolver(auth, { uid: 'ada', email: 'ada@example.com', displayName: 'Ada' }),
+    );
+
+    expect(seen).toEqual([
+      { uid: 'ada', displayName: 'Ada', email: 'ada@example.com', providerId: PROVIDER_ID },
+    ]);
+    expect(cred.user.photoURL).toBe('/avatars/ada');
+    expect(storedPhotoUrl(auth, 'ada')).toBe('/avatars/ada');
+  });
+
+  it('an OIDC provider id counts as federated; a phone identity does not', () => {
+    const auth = getAuth(initializeSandbox());
+    authSandbox.seedUsers(auth, [
+      { uid: 'oidc', email: 'oidc@example.com', password: 'pw', providerId: 'oidc.acme' },
+      { uid: 'phone', email: 'phone@example.com', password: 'pw', providerId: 'phone' },
+    ]);
+
+    expect(storedPhotoUrl(auth, 'oidc')).toBe(
+      defaultAvatarDataUri({ uid: 'oidc', displayName: null, email: 'oidc@example.com' }),
+    );
+    expect(storedPhotoUrl(auth, 'phone')).toBeNull();
   });
 });

@@ -29,14 +29,8 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { avatarSeed } from 'pyric/auth/internal';
+import { AVATAR_ROUTE_PREFIX } from './avatar-url.js';
 import type { AssetOrigin, AssetRequest, AssetResolver } from './resolver.js';
-
-/** Every asset consumer mounts one segment under this prefix. Avatars are the
- *  first; an unknown consumer segment is a 404, never a fall-through. */
-export const ASSETS_ROUTE_PREFIX = '/__pyric/assets/';
-
-/** The avatar consumer's prefix. `<uid>` is the one segment that follows. */
-const AVATAR_ROUTE_PREFIX = `${ASSETS_ROUTE_PREFIX}avatar/`;
 
 /** Longest uid this route will look up. Firebase uids are 128 chars at most;
  *  256 leaves room for a mirror that mints longer ones without letting an

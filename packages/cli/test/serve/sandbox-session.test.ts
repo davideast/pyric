@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+import { initializeSandbox } from 'pyric/sandbox';
+import { getAuth, sandbox as authOps } from 'pyric/auth';
+
 import { createSandboxSession } from '../../src/serve/sandbox-session.js';
+import { avatarMintForPayload } from '../../src/serve/assets/avatar-url.js';
 import { saveManifest } from '../../src/serve/assets/manifest.js';
 
 const projects: string[] = [];
@@ -400,6 +404,40 @@ service cloud.firestore {
       response as unknown as ServerResponse,
       new URL('http://localhost/__pyric/assets/avatar/u1'),
     )).toBe(false);
+
+    await session.close();
+  });
+
+  it('the URL a provider user is minted with is a URL this session serves', async () => {
+    const root = project();
+    const session = await createSandboxSession({
+      projectDir: root,
+      firebaseConfig: null,
+      sdk: { dir: join(root, 'sdk') },
+      avatars: { enabled: true },
+    });
+
+    // Install the mint the served hosts install from this payload, then create
+    // a federated user exactly as a provider sign-in does.
+    const auth = getAuth(initializeSandbox());
+    authOps.setAvatarMint(auth, avatarMintForPayload(session.payload().avatars)!);
+    authOps.seedUsers(auth, [
+      { uid: 'google.com:ada@x.com', email: 'ada@x.com', password: 'pw', providerId: 'google.com' },
+    ]);
+    const minted = authOps.listUsers(auth)[0]!.photoUrl;
+    expect(minted).not.toBeNull();
+
+    // The minted URL, fetched back against the same session's namespace.
+    const response = new ResponseRecorder();
+    const handled = await session.handle(
+      { method: 'GET' } as IncomingMessage,
+      response as unknown as ServerResponse,
+      new URL(minted!, 'http://localhost'),
+    );
+    expect(handled).toBe(true);
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('image/svg+xml');
+    expect(response.body).toContain('<svg');
 
     await session.close();
   });

@@ -13,4 +13,10 @@
  * measure them. Shape subject to change without breaking-change semantics
  * across versions.
  */
-export { avatarSeed, defaultAvatarDataUri, defaultAvatarSvg } from './sandbox/default-avatar.js';
+export {
+  avatarSeed,
+  defaultAvatarDataUri,
+  defaultAvatarMint,
+  defaultAvatarSvg,
+} from './sandbox/default-avatar.js';
+export type { AvatarMint, AvatarMintInput } from './sandbox/default-avatar.js';

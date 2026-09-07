@@ -1,4 +1,8 @@
-/** Deterministic default-avatar generation: seed hashing + inline SVG data URI. */
+/**
+ * Deterministic default-avatar generation: seed hashing + inline SVG data URI,
+ * plus the mint hook the sandbox backend calls when it creates a
+ * provider-identity record with no photo of its own.
+ */
 
 const FNV_OFFSET_BASIS_A = 0x811c9dc5;
 const FNV_OFFSET_BASIS_B = 0x9e3779b9;
@@ -123,3 +127,30 @@ export function defaultAvatarSvg(input: DefaultAvatarInput): string {
 export function defaultAvatarDataUri(input: DefaultAvatarInput): string {
   return `data:image/svg+xml,${encodeSvgForDataUri(defaultAvatarSvg(input))}`;
 }
+
+/** Everything a mint knows about the record being created. The provider id is
+ *  the one the record is created under, so a mint can vary the image by
+ *  provider or refuse a provider outright. */
+export interface AvatarMintInput {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  providerId: string;
+}
+
+/**
+ * Assigns the `photoURL` a provider-created sandbox user is born with, or
+ * `null` for none. The backend calls it once, at record creation, and stores
+ * whatever it returns — the value is persisted, exported, and captured, so a
+ * mint must be deterministic in its input.
+ *
+ * Three mints exist. {@link defaultAvatarMint} is the built-in and needs no
+ * server. A served host replaces it with one that returns its
+ * `/__pyric/assets/avatar/<uid>` route, and a host with avatars disabled
+ * replaces it with one that returns `null` (Firebase's own behaviour when a
+ * provider supplies no photo).
+ */
+export type AvatarMint = (input: AvatarMintInput) => string | null;
+
+/** The no-server mint: a deterministic SVG data URI, resolvable anywhere. */
+export const defaultAvatarMint: AvatarMint = (input) => defaultAvatarDataUri(input);

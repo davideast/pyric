@@ -42,6 +42,7 @@ import {
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getAuth, sandbox as authSandboxOps, type SeedUser } from 'pyric/auth';
+import { defaultAvatarDataUri } from 'pyric/auth/internal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -577,8 +578,10 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
   });
 
   // ── Profile photo: the identity carries it, the seed record stores it, and
-  // the serialized user hands it back to the page. Nothing here ASSIGNS a
-  // photo — the value under test comes from the resolved identity.
+  // the serialized user hands it back to the page. An identity that carries
+  // NO photo gets the mint this worker was booted with — here, the built-in
+  // one, because this ctx never applied an init payload. `serve-init.test.ts`
+  // covers the payload-driven mints a real `pyric dev` boot installs.
   const PHOTO = 'https://cdn.example.com/avatars/ada.png';
 
   function exportedSeed(ctx: HostCtx, uid: string): SeedUser | undefined {
@@ -609,7 +612,7 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
     expect(exportedSeed(ctx, 'google.com:ada@x.com')?.photoUrl).toBe(PHOTO);
   });
 
-  it('an identity without a photo leaves the stored user photo-less', async () => {
+  it('an identity without a photo is born with the built-in default avatar', async () => {
     const ctx = await makeCtx();
     const port = fakePort();
     await enableProvider(ctx, port, 'google.com');
@@ -622,8 +625,13 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
       },
     }));
 
-    expect(cred.user.photoURL).toBeNull();
-    expect(exportedSeed(ctx, 'google.com:noel@x.com')?.photoUrl).toBeUndefined();
+    const expected = defaultAvatarDataUri({
+      uid: 'google.com:noel@x.com',
+      displayName: null,
+      email: 'noel@x.com',
+    });
+    expect(cred.user.photoURL).toBe(expected);
+    expect(exportedSeed(ctx, 'google.com:noel@x.com')?.photoUrl).toBe(expected);
   });
 
   it('re-accepting the identity without a photo does NOT clear the stored one', async () => {

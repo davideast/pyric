@@ -48,6 +48,7 @@ import {
   createAuthProjectStore,
   type AuthProjectStore,
 } from './sandbox/project-store.js';
+import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
 
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
@@ -248,6 +249,21 @@ export class SandboxBackend {
    *  persisted: a runtime wiring decision, not project config. */
   private providerEnforcementDelegated = false;
 
+  /**
+   * The hook that assigns a default `photoURL` to a federated-provider record
+   * at creation (see {@link makeStored}). The built-in mint returns a
+   * deterministic SVG data URI, which resolves with no server at all — so an
+   * in-page sandbox and any host that configures nothing behave identically.
+   *
+   * A HOST OVERRIDES IT ({@link setAvatarMint}): the served dev server swaps in
+   * a mint that returns its `/__pyric/assets/avatar/<uid>` route, and a server
+   * with avatars disabled swaps in one that returns `null`, which restores
+   * Firebase's own no-photo behaviour. Not persisted: a runtime wiring
+   * decision, not project config — but the URL it returns IS persisted, so a
+   * host must install its mint before any user record is created.
+   */
+  private avatarMint: AvatarMint = defaultAvatarMint;
+
   constructor(
     sandbox: Sandbox,
     session: Pick<Sandbox, 'currentUser' | 'onCurrentUserChanged'> = sandbox,
@@ -412,11 +428,26 @@ export class SandboxBackend {
 
   // ─── User DB ────────────────────────────────────────────────────────
 
-  /** Build a fresh {@link StoredUser} with admin-field defaults. */
+  /**
+   * Build a fresh {@link StoredUser} with admin-field defaults.
+   *
+   * THE ONE PLACE A DEFAULT PHOTO IS ASSIGNED. A federated-provider record
+   * that arrives without a photo gets one from {@link avatarMint} here, so
+   * `photoURL` is populated the instant the user object exists — never null
+   * for a moment and then patched. Every other path is untouched: an update,
+   * `updateProfile`, or `linkProvider` on an existing record never mints, and
+   * a caller-supplied photo always wins (see {@link mintsDefaultPhoto}).
+   *
+   * `signInProviderId` is the provider a flow is creating this record under,
+   * for the two paths that link the provider AFTER the record exists
+   * (`recordProviderSignIn`, `createSignInCredential`). Every other path
+   * carries its providers in `init.providerUserInfo`.
+   */
   private makeStored(
     init: Partial<StoredUser> & { uid: string },
+    signInProviderId: string | null = null,
   ): StoredUser {
-    return {
+    const record: StoredUser = {
       email: null,
       password: null,
       displayName: null,
@@ -431,6 +462,16 @@ export class SandboxBackend {
       lastLoginAt: null,
       ...init,
     };
+    const providerId = creationProviderId(record, signInProviderId);
+    if (mintsDefaultPhoto(record, providerId)) {
+      record.photoUrl = this.avatarMint({
+        uid: record.uid,
+        displayName: record.displayName,
+        email: record.email,
+        providerId,
+      });
+    }
+    return record;
   }
 
   /** Fan a coarse "user DB changed" notification out to
@@ -554,6 +595,17 @@ export class SandboxBackend {
    */
   setProviderEnforcementDelegated(delegated: boolean): void {
     this.providerEnforcementDelegated = delegated;
+  }
+
+  /**
+   * Install the {@link AvatarMint} this backend assigns default photos with,
+   * replacing the built-in data-URI mint. A host installs its mint during
+   * boot, before it seeds or signs anyone in: the minted URL is written into
+   * the stored record, so records created earlier keep the mint that was
+   * installed when they were created.
+   */
+  setAvatarMint(mint: AvatarMint): void {
+    this.avatarMint = mint;
   }
 
   /**
@@ -1333,7 +1385,7 @@ export class SandboxBackend {
         displayName: user.displayName,
         photoUrl: identityPhotoUrl,
         isAnonymous: user.isAnonymous,
-      });
+      }, providerId);
       this.usersByUid.set(user.uid, stored);
       if (user.email) this.usersByEmail.set(user.email.toLowerCase(), stored);
       changed = true;
@@ -1406,7 +1458,7 @@ export class SandboxBackend {
           displayName: spec.displayName ?? null,
           photoUrl: specPhotoUrl,
           customClaims: spec.customClaims ?? {},
-        });
+        }, providerId);
         this.usersByUid.set(stored.uid, stored);
         this.usersByEmail.set(spec.email.toLowerCase(), stored);
         this.notifyUsersChanged();
@@ -2283,6 +2335,44 @@ export class SandboxBackend {
  * blanking it, mirroring Firebase: a provider refresh updates the fields the
  * provider supplied and never clears one it omitted.
  */
+/**
+ * The provider a record is being created under: the provider a sign-in flow
+ * names explicitly, otherwise the first provider already on the record. Null
+ * when neither exists — an anonymous or provider-less record.
+ */
+function creationProviderId(
+  record: StoredUser,
+  signInProviderId: string | null,
+): string | null {
+  if (signInProviderId !== null) return signInProviderId;
+  const firstLinked = record.providerUserInfo[0];
+  if (firstLinked === undefined) return null;
+  return firstLinked.providerId;
+}
+
+/**
+ * Whether a freshly built record gets a default photo.
+ *
+ * Firebase populates `photoURL` only for federated identities: a real Google
+ * or GitHub sign-in always returns one, while `password`, `phone`, email-link,
+ * and anonymous users return null in production. Federated provider ids are
+ * exactly the dotted ones (`google.com`, `github.com`, `oidc.acme`,
+ * `saml.corp`); the first-party ids never contain a dot. Defaulting everyone
+ * would trade this divergence for a new one.
+ *
+ * A photo the caller supplied always wins — the mint only fills a record that
+ * would otherwise be photo-less.
+ */
+function mintsDefaultPhoto(
+  record: StoredUser,
+  providerId: string | null,
+): providerId is string {
+  if (record.photoUrl !== null) return false;
+  if (record.isAnonymous) return false;
+  if (providerId === null) return false;
+  return providerId.includes('.');
+}
+
 function refreshStoredPhoto(stored: StoredUser, photoUrl: string | null): boolean {
   if (photoUrl === null) return false;
   if (stored.photoUrl === photoUrl) return false;

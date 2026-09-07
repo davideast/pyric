@@ -26,6 +26,7 @@ export type {
   UpdateUserRequest,
 } from './sandbox-backend.js';
 export type { AuthMailResolver, OutboundAuthMail } from './sandbox-auth-flow.js';
+export type { AvatarMint, AvatarMintInput } from './sandbox/default-avatar.js';
 
 export {
   EmailAuthProvider,
