@@ -122,15 +122,14 @@ describe('RULES-B11 (rules-side): query-proof evaluation', () => {
       ).toBe(true);
     });
 
-    test('REJECT (conservative): disjunction over doc data is not unconditionally required', () => {
-      // `resource.data.a == 1 || resource.data.b == 2` — neither predicate is
-      // guaranteed, so no where() can prove it. Conservative reject (safe dir).
+    test('a query-guaranteed positive OR branch is sufficient', () => {
+      // Pinning a guarantees the left branch for every possible returned document.
       const { condition, fnMap } = listConditionOf(
         rules("allow list: if resource.data.a == 1 || resource.data.b == 2;"),
       );
       expect(
         evaluateQueryProof(condition, { where: [{ field: 'a', op: '==', value: 1 }] }, fnMap).provable,
-      ).toBe(false);
+      ).toBe(true);
     });
 
     test('REJECT (conservative): range/inequality predicate is not a dischargeable equality', () => {
@@ -258,7 +257,7 @@ service cloud.firestore {
       ).toBe(true);
     });
 
-    test('out-of-scope helper body (disjunction) stays unprovable with outOfScope residual', () => {
+    test('helper disjunction projects a sufficient residual and retains rejected-branch evidence', () => {
       const { condition, fnMap } = listConditionOf(`rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -269,11 +268,10 @@ service cloud.firestore {
   }
 }`);
       const r = evaluateQueryProof(condition, { where: [{ field: 'a', op: '==', value: 1 }] }, fnMap);
-      expect(r.provable).toBe(false);
-      if (r.provable) throw new Error('unreachable');
-      expect(r.residual.outOfScope).toBeDefined();
-      expect(r.residual.missing).toHaveLength(0);
-      expect(r.residual.mismatched).toHaveLength(0);
+      expect(r.provable).toBe(true);
+      if (!r.provable) throw new Error('expected residual');
+      expect(r.residualCondition).toBeDefined();
+      expect(r.proofFailure?.residual.outOfScope).toBeDefined();
     });
 
     test('mismatched value residual: where on the field, wrong value', () => {

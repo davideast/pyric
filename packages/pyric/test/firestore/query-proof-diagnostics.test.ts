@@ -9,7 +9,8 @@ import { LocalEnvironment } from '../../src/firestore/sandbox/local-environment.
 import type { RequestEvent } from '../../src/sandbox/types/events.js';
 
 const path = 'clubs/demo/seasons/2026/meets';
-const membership = "resource.data.visibility == 'public' && resource.data.status in ['scheduled', 'changed', 'cancelled', 'completed']";
+// Dynamic per-document allowed values remain unsupported: finite literal membership is now provable.
+const membership = "resource.data.visibility == 'public' && resource.data.status in resource.data.allowedStatuses";
 function rules(predicate: string, fallback = 'false', first = false) {
   const relevant = `match /clubs/{club}/seasons/{season}/meets/{id} {
       allow list: if request.query.limit <= 100 && (${predicate});
@@ -134,7 +135,7 @@ test('membership helpers and the published-or-staff shape retain allow-site attr
   for (const predicate of ['published(resource.data)', '(published(resource.data) || staff(club))']) {
     const env = new LocalEnvironment();
     try {
-      const source = rules(predicate).replace('allow list:', `function published(data) { return data.visibility == 'public' && data.status in ['scheduled']; }
+      const source = rules(predicate).replace('allow list:', `function published(data) { return data.visibility == 'public' && data.status in data.allowedStatuses; }
       function staff(club) { return exists(/databases/$(database)/documents/clubs/$(club)/members/me); }
       allow list:`);
       env.seed({ rules: source, documents: {} });

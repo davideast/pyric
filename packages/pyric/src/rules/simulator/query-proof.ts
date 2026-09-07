@@ -1,3 +1,4 @@
+import { queryResidual } from './query-proof-residual.js';
 /**
  * RULES-B11 (rules-side) — query-proof evaluation for `list` operations.
  *
@@ -31,16 +32,13 @@
  *    same predicate. Otherwise the query could return a non-matching doc, so
  *    prod rejects it — we return `provable: false`.
  *
- * Out of scope (documented as conservative REJECT, never a false ALLOW): rules
- * with disjunctions over doc data, inequality/range proofs, membership/type
- * checks, and any predicate that can't be reduced to a top-level equality after
- * user functions are inlined (helpers ARE inlined — a helper whose body is an
- * equality spine is proven the same as if it were written inline). The proof
- * demands FULL accounting: a rule is provable only when its entire
- * doc-dependence reduces to equality conjuncts the query discharges — one
- * doc-dependent non-equality conjunct anywhere on the spine rejects the whole
- * query, even if every equality is discharged. That is the safe direction
- * Pyric may conservatively reject shapes Firebase can prove.
+ * Additional supported facts: scalar equality/finite `in` values substitute
+ * exact candidate fields, and `array-contains` proves the corresponding positive
+ * membership predicate only. Positive OR branches can supply a sufficient proof.
+ * Every finite combination is evaluated through a document-independent residual,
+ * including query-pinned lookup paths; unpinned reads are never fabricated.
+ * Unbounded ranges, dynamic document-dependent collections, candidate identities,
+ * and unsupported syntax still fail closed. The finite expansion is capped at 30.
  */
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import type { Expression, FunctionDef, SourceLoc } from '../grammar/FirestoreAST.js';
@@ -49,7 +47,7 @@ import type { Expression, FunctionDef, SourceLoc } from '../grammar/FirestoreAST
 export interface QueryWhereConstraint {
   readonly field: string;
   readonly op: string;
-  readonly value: string | number | boolean | null;
+  readonly value: string | number | boolean | null | readonly (string | number | boolean | null)[];
 }
 
 /** The query constraints relevant to the proof. `where` is the load-bearing
@@ -98,7 +96,7 @@ export interface QueryProofResidual {
 }
 
 export type QueryProofResult =
-  | { provable: true; reason: string }
+  | { provable: true; reason: string; residualCondition?: Expression; proofFailure?: { kind: 'unsupported-predicate' | 'constraints-not-satisfied'; reason: string; residual: QueryProofResidual } }
   | { provable: false; kind: 'unsupported-predicate' | 'constraints-not-satisfied'; reason: string; residual: QueryProofResidual };
 
 /**
@@ -116,6 +114,19 @@ export type QueryProofResult =
  *   `== request.auth.uid` predicate is not recognized as a required equality.
  */
 export function evaluateQueryProof(
+  condition: Expression, constraints: QueryConstraints,
+  functions: Map<string, FunctionDef> = new Map(), authUid?: string,
+): QueryProofResult {
+  const equality = evaluateEqualityQueryProof(condition, constraints, functions, authUid);
+  if (equality.provable || equality.kind === 'constraints-not-satisfied') return equality;
+  const residual = queryResidual(condition, constraints, functions, authUid);
+  if (residual) return {provable: true,
+    reason: 'query-guaranteed facts reduce every candidate alternative to a document-independent residual',
+    residualCondition: residual.condition, proofFailure: residual.partial ? equality : undefined};
+  return equality;
+}
+
+function evaluateEqualityQueryProof(
   listCondition: Expression,
   constraints: QueryConstraints,
   fnMap: Map<string, FunctionDef> = new Map(),
@@ -145,9 +156,7 @@ export function evaluateQueryProof(
   if (!extraction.ok || extraction.required.length === 0) {
     const outOfScope =
       'list rule depends on per-document data through a predicate the query cannot discharge ' +
-      '(a rule is provable only when its entire doc-dependence reduces to top-level ' +
-      '`resource.data.field == value` conjunctions, including through inlined helpers — ' +
-      'disjunctions, ranges, `in`, membership/type checks, and nested paths are not provable)';
+      '(unconstrained candidate fields or unsupported query facts remain after helper expansion)';
     return {
       provable: false,
       kind: 'unsupported-predicate',
@@ -469,7 +478,7 @@ function isRequestAuthUid(e: Expression): boolean {
  * call's argument expressions for them. Pure structural map — the shared AST is
  * never mutated.
  */
-function substituteIdentifiers(expr: Expression, bindings: Map<string, Expression>): Expression {
+export function substituteIdentifiers(expr: Expression, bindings: Map<string, Expression>): Expression {
   const sub = (e: Expression): Expression => {
     switch (e.type) {
       case 'identifier':

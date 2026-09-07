@@ -10,7 +10,7 @@ test('rendered proof failure labels primary status and residual evidence distinc
   try {
     env.seed({ rules: `rules_version = '2'; service cloud.firestore {
       match /databases/{database}/documents {
-        match /meets/{id} { allow list: if resource.data.status in ['scheduled']; }
+        match /meets/{id} { allow list: if resource.data.status in resource.data.allowedStatuses; }
         match /{document=**} { allow read: if false; }
       }
     }`, documents: {} });

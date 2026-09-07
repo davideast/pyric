@@ -123,7 +123,7 @@ export interface QueryDenialDescriptor {
   readonly where?: readonly {
     readonly field: string;
     readonly op: string;
-    readonly value: string | number | boolean | null;
+    readonly value: string | number | boolean | null | readonly (string | number | boolean | null)[];
   }[];
   readonly limit?: number | null;
   readonly offset?: number | null;

@@ -139,12 +139,15 @@ export function queryConstraintsForProof(execution: QueryExecutionSpec): QueryCo
       const value = filter.value;
       if (
         value === null || typeof value === 'string' ||
-        typeof value === 'number' || typeof value === 'boolean'
+        typeof value === 'number' || typeof value === 'boolean' ||
+        (filter.op === 'in' && Array.isArray(value) && value.length > 0 && value.length <= 30 && value.every(item =>
+          item === null || typeof item === 'string' || typeof item === 'boolean' ||
+          (typeof item === 'number' && Number.isFinite(item))))
       ) {
         where.push(Object.freeze({
           field: filter.field,
           op: filter.op,
-          value,
+          value: Array.isArray(value) ? Object.freeze([...value]) : value,
         }));
       }
       return;

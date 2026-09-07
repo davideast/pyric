@@ -115,7 +115,7 @@ export function proveListQuery(
   // provable. Residual simulation receives ONLY those provable rules, so an
   // unprovable sibling cannot grant from a concrete placeholder document.
   const failures: QueryProofFailure[] = [];
-  const provableRules = new Set<AllowRule>();
+  const provableRules = new Map<AllowRule, AllowRule>();
   let applicableRuleCount = 0;
   for (const match of matches) {
     const functionScope = buildListRuleFunctionScope(match.functions);
@@ -155,13 +155,15 @@ export function proveListQuery(
       const result = evaluateQueryProof(rule.condition, constraints, fnMap, auth?.uid);
       const isProvable = result.provable === true;
       if (isProvable) {
-        provableRules.add(rule);
-      } else {
+        provableRules.set(rule, result.residualCondition ? {...rule, condition: result.residualCondition} : rule);
+      }
+      const failure = result.provable ? result.proofFailure : result;
+      if (failure) {
         failures.push({
-          kind: result.kind, reason: result.reason, residual: result.residual,
+          kind: failure.kind, reason: failure.reason, residual: failure.residual,
           rule: proofRuleInfo(rule, sourceString),
-          ...(result.residual.predicate ? { predicate: proofSourceInfo(
-            result.residual.predicate, result.residual.predicateLoc ?? rule.loc, sourceString,
+          ...(failure.residual.predicate ? { predicate: proofSourceInfo(
+            failure.residual.predicate, failure.residual.predicateLoc ?? rule.loc, sourceString,
           ) } : {}),
         });
       }
@@ -210,10 +212,10 @@ function proofSourceInfo(expression: string, loc: AllowRule['loc'], source = '')
 /** Preserve match paths and helper scopes while removing every rule the
  * static proof did not approve. This keeps residual execution and proof on
  * the exact same set of potentially granting rules. */
-function projectRules(ast: FirestoreRules, retained: ReadonlySet<AllowRule>): FirestoreRules {
+function projectRules(ast: FirestoreRules, retained: ReadonlyMap<AllowRule, AllowRule>): FirestoreRules {
   const projectBlock = (block: MatchBlock): MatchBlock => ({
     ...block,
-    allows: block.allows.filter((rule) => retained.has(rule)),
+    allows: block.allows.filter((rule) => retained.has(rule)).map(rule => retained.get(rule)!),
     children: block.children.map(projectBlock),
   });
   return {

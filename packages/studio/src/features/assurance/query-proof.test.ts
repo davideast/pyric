@@ -16,7 +16,7 @@ test('Assurance preserves primary proof attribution through a serialized report'
       rules: {firestore: `rules_version = '2'; service cloud.firestore {
         match /databases/{database}/documents {
           match /meets/{id} {
-            allow list: if resource.data.status in ['scheduled'];
+            allow list: if resource.data.status in resource.data.allowedStatuses;
             allow read: if false;
           }
         }

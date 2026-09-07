@@ -9,7 +9,7 @@ const rules = `rules_version = '2'; service cloud.firestore {
   match /databases/{database}/documents {
     match /meets/{id} {
       allow list: if request.query.limit <= 100 && resource.data.visibility == 'public'
-        && resource.data.status in ['scheduled', 'changed'];
+        && resource.data.status in resource.data.allowedStatuses;
     }
     match /{document=**} { allow read, write: if false; }
   }
@@ -54,6 +54,31 @@ test('query-proof evidence survives worker reads, listener errors, and captured 
     stop?.();
     await sleep();
     env.dispose();
+    globalThis.SharedWorker = previousWorker;
+  }
+});
+
+test('supported finite membership query reaches worker listeners', async () => {
+  const previousWorker = globalThis.SharedWorker;
+  const ctx = await makeHostCtx();
+  let stop: (() => void) | undefined;
+  try {
+    setRules(ctx.sandbox, rules.replace('resource.data.allowedStatuses', "['scheduled', 'changed']"));
+    const { db } = connectClientToHost(ctx, 'worker://query-proof-supported');
+    const q = client.query(client.collection(db, 'meets'),
+      client.where('visibility', '==', 'public'),
+      client.where('status', 'in', ['scheduled', 'changed']), client.limit(100));
+    expect((await client.getDocs(q)).empty).toBe(true);
+    let snapshots = 0;
+    const errors: unknown[] = [];
+    stop = client.onSnapshot(q, () => snapshots++, error => errors.push(error));
+    await sleep();
+    expect(snapshots).toBe(1);
+    expect(errors).toHaveLength(0);
+  } finally {
+    stop?.();
+    await sleep();
+    getInternalEnv(ctx.sandbox).dispose();
     globalThis.SharedWorker = previousWorker;
   }
 });

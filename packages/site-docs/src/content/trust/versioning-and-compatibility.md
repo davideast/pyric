@@ -29,7 +29,7 @@ Bumping the pinned Firebase version re-snapshots the upstream surface; the diff 
 
 ## Firestore query-proof limits
 
-List authorization uses a conservative proof engine. It supports document-independent rules and top-level equality conjunctions, including supported helper expansion. Document-dependent membership, ranges, and disjunctions are documented limitations (`firestore#24c`), not promises of Firebase parity.
+List authorization uses a conservative proof engine. It supports document-independent rules, scalar equality and finite `in` constraints, positive membership guaranteed by `array-contains`, and sufficient positive OR branches through helper expansion. Query-pinned scalar fields may also determine authorization lookup paths. Every finite alternative must pass the residual auth, lookup, and query-limit checks (at most 30 combinations). Unpinned data, dynamic per-document membership sets, candidate identities, and unbounded range proofs remain documented limitations (`firestore#24c`). These local tests do not establish hosted Firebase parity for an application ruleset.
 
 An unsupported query still returns `permission-denied`. Pyric adds a `queryProof` diagnostic to request events and the error's `denialContext` (also available in modular `FirebaseError.customData`). It distinguishes `unsupported-predicate`, `unsupported-path`, `constraints-not-satisfied`, `residual-denied`, and `no-rule`. Proof failures identify the authored rule separately from any residual expression that actually evaluated false. Captures and Studio preserve this distinction; older captures may lack it.
 
