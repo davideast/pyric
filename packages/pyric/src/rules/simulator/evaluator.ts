@@ -345,6 +345,38 @@ export function isKnownGlobal(name: string): boolean {
 
 // ═══ Binary operations with short-circuit ═══
 
+function evaluateShortCircuitOp(
+  determiningValue: boolean,
+  left: Expression,
+  right: Expression,
+  ctx: SimulationContext,
+  scope: Record<string, unknown>,
+): unknown {
+  let lv: unknown, lErr: unknown;
+  try {
+    lv = requireBoolean(evaluate(left, ctx, scope), left);
+  } catch (e) {
+    lErr = e;
+  }
+  if (lErr instanceof ResourceLimitError) throw lErr;
+  if (lErr === undefined && lv === determiningValue) {
+    ctx.trace?.skip(right);
+    return determiningValue;
+  }
+
+  let rv: unknown, rErr: unknown;
+  try {
+    rv = requireBoolean(evaluate(right, ctx, scope), right);
+  } catch (e) {
+    rErr = e;
+  }
+  if (rErr instanceof ResourceLimitError) throw rErr;
+  if (rErr === undefined && rv === determiningValue) return determiningValue;
+  if (lErr !== undefined) throw lErr;
+  if (rErr !== undefined) throw rErr;
+  return rv;
+}
+
 function evaluateBinaryOp(
   op: string, left: Expression, right: Expression,
   ctx: SimulationContext, scope: Record<string, unknown>,
@@ -362,47 +394,8 @@ function evaluateBinaryOp(
   // either errored or did not determine the result. If neither operand
   // determines the result and one errored, the error propagates (re-thrown)
   // so the handler DENYs.
-  if (op === '&&') {
-    let lv: unknown, lErr: unknown;
-    try { lv = requireBoolean(evaluate(left, ctx, scope), left); } catch (e) { lErr = e; }
-    // A resource-limit failure (the document access budget) fails the WHOLE
-    // request, it is not a CEL error value: a determining RHS must not
-    // absorb it into an ALLOW. Fail closed immediately.
-    // TODO(unverified): confirm against a live production capture that the
-    // 11th-access error is not absorbable. The Rules Test API does not
-    // enforce the budget, so the capture has to be a deployed ruleset.
-    if (lErr instanceof ResourceLimitError) throw lErr;
-    if (lErr === undefined && lv === false) {
-      // LHS is false → determines the result; RHS need not be evaluated.
-      ctx.trace?.skip(right);
-      return false;
-    }
-    // LHS errored or was true — RHS may absorb the error (if RHS is false)
-    // or determine the truthy result.
-    let rv: unknown, rErr: unknown;
-    try { rv = requireBoolean(evaluate(right, ctx, scope), right); } catch (e) { rErr = e; }
-    if (rErr === undefined && rv === false) return false; // RHS false absorbs any LHS error
-    if (lErr !== undefined) throw lErr;           // LHS error not absorbed
-    if (rErr !== undefined) throw rErr;           // RHS error, LHS was true
-    return rv;
-  }
-  if (op === '||') {
-    let lv: unknown, lErr: unknown;
-    try { lv = requireBoolean(evaluate(left, ctx, scope), left); } catch (e) { lErr = e; }
-    // See the `&&` branch: a resource-limit failure is not absorbable.
-    if (lErr instanceof ResourceLimitError) throw lErr;
-    if (lErr === undefined && lv === true) {
-      // LHS is true → determines the result; RHS need not be evaluated.
-      ctx.trace?.skip(right);
-      return true;
-    }
-    let rv: unknown, rErr: unknown;
-    try { rv = requireBoolean(evaluate(right, ctx, scope), right); } catch (e) { rErr = e; }
-    if (rErr === undefined && rv === true) return true; // RHS true absorbs any LHS error
-    if (lErr !== undefined) throw lErr;          // LHS error not absorbed
-    if (rErr !== undefined) throw rErr;          // RHS error, LHS was false
-    return rv;
-  }
+  if (op === '&&') return evaluateShortCircuitOp(false, left, right, ctx, scope);
+  if (op === '||') return evaluateShortCircuitOp(true, left, right, ctx, scope);
 
   const lv = evaluate(left, ctx, scope);
   const rv = evaluate(right, ctx, scope);
