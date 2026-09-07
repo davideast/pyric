@@ -65,9 +65,13 @@ class TodoViewModel(
         todosStream,
         effectiveUserFlow,
         _filter,
-        _errorMessage,
-        _isOperationInProgress
-    ) { todos, (uid, email), filter, error, inProgress ->
+        repository.activeEngine,
+        combine(
+            _errorMessage,
+            _isOperationInProgress,
+            repository.bridgeConnectionFlow()
+        ) { error, inProgress, connected -> Triple(error, inProgress, connected) }
+    ) { todos, (uid, email), filter, engine, (error, inProgress, connected) ->
         val filtered = when (filter) {
             TodoFilter.ALL -> todos
             TodoFilter.ACTIVE -> todos.filter { !it.completed }
@@ -80,9 +84,10 @@ class TodoViewModel(
             todos = todos,
             filteredTodos = filtered,
             filter = filter,
+            activeEngine = engine,
             isLoading = inProgress && todos.isEmpty(),
             errorMessage = error,
-            isConnected = repository.isBridgeConnected() && error == null,
+            isConnected = connected && error == null,
             currentUserId = uid,
             currentUserEmail = email,
             activeCount = activeCount,
@@ -93,6 +98,10 @@ class TodoViewModel(
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = TodoUiState(isLoading = true)
     )
+
+    fun setEngine(engine: dev.pyric.example.todo.data.DatabaseEngine) {
+        repository.setEngine(engine)
+    }
 
     fun setFilter(filter: TodoFilter) {
         _filter.value = filter

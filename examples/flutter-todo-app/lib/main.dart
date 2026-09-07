@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pyric_firestore/pyric_auth.dart';
+import 'package:pyric_firestore/pyric_database.dart';
 import 'package:pyric_firestore/pyric_debug.dart';
 import 'package:pyric_firestore/pyric_firestore.dart';
 import 'screens/todo_screen.dart';
@@ -8,9 +9,17 @@ import 'services/todo_repository.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Pyric pure-Dart platform adapters
-  PyricFirebaseAuthPlatform.registerWith();
-  PyricFirestorePlatform.registerWith();
+  // Initialize Pyric pure-Dart platform adapters with a shared bridge client
+  final auth = PyricFirebaseAuthPlatform();
+  FirebaseAuthPlatform.instance = auth;
+  PyricFirestorePlatform.registerWith(
+    bridgeClient: auth.bridgeClient,
+    credentialsProvider: auth,
+  );
+  PyricDatabase.registerWith(
+    bridgeClient: auth.bridgeClient,
+    credentialsProvider: auth,
+  );
 
   final debugController = PyricDebugController();
   final repository = TodoRepository();

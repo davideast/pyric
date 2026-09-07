@@ -27,5 +27,25 @@ data class Todo(
                 createdAt = snapshot.getTimestamp("createdAt")
             )
         }
+
+        fun fromRtdbSnapshot(snapshot: dev.pyric.database.DataSnapshot): Todo {
+            val map = snapshot.value as? Map<*, *>
+            val rawCreatedAt = map?.get("createdAt")
+            val timestamp = when (rawCreatedAt) {
+                is Number -> {
+                    val millis = rawCreatedAt.toLong()
+                    Timestamp(millis / 1000L, ((millis % 1000L) * 1_000_000L).toInt())
+                }
+                is Timestamp -> rawCreatedAt
+                else -> null
+            }
+            return Todo(
+                id = snapshot.key.orEmpty(),
+                title = (map?.get("title") as? String).orEmpty(),
+                completed = (map?.get("completed") as? Boolean) ?: false,
+                userId = (map?.get("userId") as? String).orEmpty(),
+                createdAt = timestamp
+            )
+        }
     }
 }

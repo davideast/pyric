@@ -1,5 +1,6 @@
 package dev.pyric.example.todo.ui.viewmodel
 
+import dev.pyric.example.todo.data.DatabaseEngine
 import dev.pyric.example.todo.data.Todo
 import dev.pyric.example.todo.data.TodoFilter
 
@@ -10,6 +11,7 @@ data class TodoUiState(
     val todos: List<Todo> = emptyList(),
     val filteredTodos: List<Todo> = emptyList(),
     val filter: TodoFilter = TodoFilter.ALL,
+    val activeEngine: DatabaseEngine = DatabaseEngine.RTDB,
     val isLoading: Boolean = true,
     val errorMessage: String? = null,
     val isConnected: Boolean = false,
