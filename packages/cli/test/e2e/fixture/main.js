@@ -33,11 +33,18 @@ window.__registerThenDeleteNamedAuth = async () => {
 // The test observes these: every onAuthStateChanged fire is recorded.
 window.__authLog = [];
 window.__authError = null;
+// The default-avatar tests read the current user's photoURL (Firebase
+// exposes it only on the User object, never in a DOM attribute) and bind an
+// <img> to it so the test can assert the pixels actually render.
+window.__photoURL = null;
 const status = document.getElementById('status');
+const avatar = document.getElementById('avatar');
 
 onAuthStateChanged(auth, (user) => {
   window.__authLog.push(user ? user.uid : null);
+  window.__photoURL = user ? user.photoURL : null;
   status.textContent = user ? 'signed-in:' + user.uid : 'signed-out';
+  if (avatar) avatar.src = user && user.photoURL ? user.photoURL : '';
 });
 
 document
