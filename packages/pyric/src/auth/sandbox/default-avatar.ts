@@ -1,0 +1,114 @@
+/** Deterministic default-avatar generation: seed hashing + inline SVG data URI. */
+
+const FNV_OFFSET_BASIS_A = 0x811c9dc5;
+const FNV_OFFSET_BASIS_B = 0x9e3779b9;
+const FNV_PRIME = 0x01000193;
+
+function fnv1a32(bytes: Uint8Array, offsetBasis: number): number {
+  let hash = offsetBasis;
+  for (let i = 0; i < bytes.length; i++) {
+    hash ^= bytes[i]!;
+    hash = Math.imul(hash, FNV_PRIME);
+  }
+  return hash >>> 0;
+}
+
+function toHex8(value: number): string {
+  return value.toString(16).padStart(8, '0');
+}
+
+/**
+ * Deterministic 64-bit seed for a uid, returned as 16 lowercase hex chars.
+ * FNV-1a 32-bit is run twice with different offset baskets (forward and
+ * reversed uid bytes) to spread the uid's entropy across both halves.
+ */
+export function avatarSeed(uid: string): string {
+  const forwardBytes = new TextEncoder().encode(uid);
+  const reversedBytes = new TextEncoder().encode([...uid].reverse().join(''));
+  const highHalf = fnv1a32(forwardBytes, FNV_OFFSET_BASIS_A);
+  const lowHalf = fnv1a32(reversedBytes, FNV_OFFSET_BASIS_B);
+  return toHex8(highHalf) + toHex8(lowHalf);
+}
+
+interface DefaultAvatarInput {
+  uid: string;
+  displayName?: string | null;
+  email?: string | null;
+}
+
+interface GradientHues {
+  hueStart: number;
+  hueEnd: number;
+  saturation: number;
+  lightness: number;
+}
+
+function gradientHuesFromSeed(seed: string): GradientHues {
+  const highHalf = Number.parseInt(seed.slice(0, 8), 16);
+  const lowHalf = Number.parseInt(seed.slice(8, 16), 16);
+  const hueStart = highHalf % 360;
+  const hueSpread = 40 + (lowHalf % 80);
+  const hueEnd = (hueStart + hueSpread) % 360;
+  const saturation = 60 + (highHalf % 16); // 60-75
+  const lightness = 45 + (lowHalf % 16); // 45-60
+  return { hueStart, hueEnd, saturation, lightness };
+}
+
+/** First Unicode code point of a string, safe for surrogate pairs (emoji, CJK). */
+function firstCodePoint(value: string): string | undefined {
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  const first = segmenter.segment(value)[Symbol.iterator]().next();
+  if (first.done) return undefined;
+  return first.value.segment;
+}
+
+function glyphFromInput(input: DefaultAvatarInput): string | undefined {
+  const displayNameFirst = input.displayName?.trim();
+  if (displayNameFirst) {
+    const glyph = firstCodePoint(displayNameFirst);
+    if (glyph) return glyph.toUpperCase();
+  }
+  const emailLocalPart = input.email?.split('@')[0]?.trim();
+  if (emailLocalPart) {
+    const glyph = firstCodePoint(emailLocalPart);
+    if (glyph) return glyph.toUpperCase();
+  }
+  return undefined;
+}
+
+/** Encode SVG markup for embedding as a `data:image/svg+xml,` URI. */
+function encodeSvgForDataUri(svg: string): string {
+  return encodeURIComponent(svg)
+    .replace(/'/g, '%27')
+    .replace(/\(/g, '%28')
+    .replace(/\)/g, '%29');
+}
+
+/**
+ * Deterministic default avatar for a user: a two-hue linear gradient plus a
+ * centred initial glyph, encoded as a `data:image/svg+xml,` URI.
+ */
+export function defaultAvatarDataUri(input: DefaultAvatarInput): string {
+  const seed = avatarSeed(input.uid);
+  const { hueStart, hueEnd, saturation, lightness } = gradientHuesFromSeed(seed);
+  const gradientId = `g${seed}`;
+  const glyph = glyphFromInput(input);
+
+  const glyphMarkup =
+    glyph === undefined
+      ? ''
+      : `<text x="64" y="64" font-family="system-ui, -apple-system, sans-serif" ` +
+        `font-size="56" fill="#fff" fill-opacity="0.9" text-anchor="middle" ` +
+        `dominant-baseline="central">${glyph}</text>`;
+
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">` +
+    `<defs><linearGradient id="${gradientId}" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0%" stop-color="hsl(${hueStart},${saturation}%,${lightness}%)"/>` +
+    `<stop offset="100%" stop-color="hsl(${hueEnd},${saturation}%,${lightness}%)"/>` +
+    `</linearGradient></defs>` +
+    `<rect width="128" height="128" fill="url(#${gradientId})"/>` +
+    `${glyphMarkup}</svg>`;
+
+  return `data:image/svg+xml,${encodeSvgForDataUri(svg)}`;
+}
