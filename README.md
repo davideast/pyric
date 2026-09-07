@@ -2,15 +2,23 @@
   <img src="https://pyric.dev/pyric-logo.svg" alt="Pyric" width="180" />
 </p>
 
-<h1 align="center">A Firebase that runs inside your app</h1>
-
-<p align="center">Keep the same <code>firebase/*</code> code. During <code>vite dev</code> those imports resolve to a local backend running in the page. A production build ships the real Firebase SDK, unchanged.</p>
+<h1 align="center">Firebase tooling for the agent era</h1>
+<p align="center">A local Firebase dev environment designed to give agents the freedom to build without production consequences.</p>
 
 <p align="center"><a href="https://pyric.dev">pyric.dev</a></p>
 
 <br />
 
-Application code stays canonical Firebase:
+<h2>pyric is a sandbox that emulates Firebase</h2>
+<ul>
+  <li><strong>Sandbox</strong> - Direct access to drive and monitor Firebase events and controls.</li>
+  <li><strong>Mirror SDKs</strong> - SDKs that mirror the public API surface of the official Firebase SDKs but communicate with the local sandbox instead of prod.</li>
+  <li><strong>Agent Tools</strong> - An agent has direct control over the sandbox through MCP or CLI: seed data, switch authenticated users, validate Security Rules, and more.</li>
+  <li><strong>Observability UI</strong> - A dashboard for viewing/editing data, monitoring live traffic to the sandbox, and inspecting Security Rules denials.</li>
+  <li><strong>Sandbox branching</strong> - Import, branch, reset, and manage your local sandbox data through UI, CLI, or MCP.</li>
+</ul>
+
+Application code still writes imports to standard Firebase SDKs. But behind the scenes, pyric swaps the standard SDK modules for pyric specific libraries that talk to the local pyric sandbox.
 
 ```ts
 // src/firebase.ts
