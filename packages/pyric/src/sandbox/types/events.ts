@@ -1,3 +1,4 @@
+import type { QueryProofDiagnostic } from './query-proof.js';
 /**
  * The sandbox event surface: every discriminated event variant the
  * sandbox can emit, the shared provenance/service/actor/lens types that
@@ -110,6 +111,7 @@ export interface SnapshotErrorEvent {
  * @see traffic-monitor-decision.md for the field-by-field rationale.
  */
 export interface RequestEvent {
+  queryProof?: QueryProofDiagnostic;
   /** Discriminator. */
   kind: 'request';
   /** Unique within a sandbox process. Useful for React list keys. */

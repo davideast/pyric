@@ -30,6 +30,7 @@ import { Badge } from '@pyric/ui/primitives';
 import { truncateVectorsForDisplay } from '@pyric/ui/firestore';
 import {
   explainDenial,
+  queryProofFailure,
   denialSeverity,
   projectTraceSteps,
   ruleVariables,
@@ -322,7 +323,8 @@ function FirestoreRuleDetail({
   exp: RuleExplanation;
   rulesSource?: string;
 }) {
-  const rawLine = denial.evaluatedRule?.line;
+  const failure = queryProofFailure(denial);
+  const rawLine = failure?.rule?.line ?? denial.evaluatedRule?.line;
   const line = resolveMarkedLine(rulesSource, rawLine);
   const cleanRulesSource = rulesSource !== undefined ? stripPyricSourceMap(rulesSource) : undefined;
   const allowed = denial.result === 'allow';
@@ -330,11 +332,17 @@ function FirestoreRuleDetail({
   return (
     <Field
       label={
-        exp.implicitDeny || !exp.ruleNode
+        failure ? `query proof — ${exp.ruleNode}` : exp.implicitDeny || !exp.ruleNode
           ? 'matched rule'
           : `matched rule — ${exp.ruleNode}${rawLine ? ` · line ${rawLine}` : ''}`
       }
     >
+      {failure?.predicate ? (
+        <div className="mb-3 text-sm text-slate-gray">
+          <p>Unsupported predicate{failure.predicate.citation ? ` · ${failure.predicate.citation}` : ''}</p>
+          <pre className="overflow-auto font-mono text-xs">{failure.predicate.expression}</pre>
+        </div>
+      ) : null}
       {showSource ? (
         <LazyRulesCodeEditor
           value={cleanRulesSource!}
@@ -342,11 +350,11 @@ function FirestoreRuleDetail({
           markLine={line}
           markKind={allowed ? 'allow' : 'deny'}
           minHeightRem={12}
-          ariaLabel={`Deployed firestore.rules — the ${allowed ? 'allowing' : 'denying'} rule is marked`}
+          ariaLabel={failure ? 'Deployed firestore.rules — the rule Pyric could not prove is marked' : `Deployed firestore.rules — the ${allowed ? 'allowing' : 'denying'} rule is marked`}
         />
       ) : (
         <pre className="overflow-auto rounded-md border border-border bg-content-bg p-3 font-mono text-xs leading-relaxed text-slate-gray">
-          {[...exp.ruleLines, ...exp.otherLines].join('\n') || '(no trace)'}
+          {[...(failure?.rule?.expression ? [failure.rule.expression] : []), ...exp.ruleLines, ...exp.otherLines].join('\n') || '(no trace)'}
         </pre>
       )}
     </Field>
@@ -363,7 +371,7 @@ function TraceWork({ denial }: { denial: Denial }) {
   const steps = projectTraceSteps(denial);
   if (steps.length === 0) return null;
   return (
-    <Field label="show the work — how the condition evaluated">
+    <Field label={queryProofFailure(denial) ? "residual evaluation — separate from the static proof" : "show the work — how the condition evaluated"}>
       <div
         data-pyric-ui="rules-debug-trace"
         className="flex flex-col gap-0.5 overflow-auto rounded-md border border-border bg-content-bg p-3"

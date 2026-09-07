@@ -2,6 +2,7 @@
  * Sandbox-layer error types: the error code union, the structured
  * denial-context payload, and the `SandboxError` class itself.
  */
+import type { QueryProofDiagnostic } from './query-proof.js';
 
 import type { AuthState } from './auth-state.js';
 
@@ -41,6 +42,7 @@ export type SandboxErrorCode =
  * reference traces.
  */
 export interface DenialContext {
+  queryProof?: QueryProofDiagnostic;
   /** The rule whose evaluation produced the denial (#370). */
   rule?: { line?: number; col?: number; column?: number; file?: string; citation?: string; expression?: string };
 

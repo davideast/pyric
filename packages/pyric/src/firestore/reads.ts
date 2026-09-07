@@ -5,6 +5,7 @@
  * any converter, and hand back a snapshot rehydrated to the modular-SDK
  * shape (see `snapshots.ts`).
  */
+import { withFirestoreFirebaseError } from './errors.js';
 import type {
   AdminDocumentSnapshot as ChainDocSnap,
   AdminQuerySnapshot as ChainQuerySnap,
@@ -58,7 +59,7 @@ export async function getDocs<T = DocumentData>(query: Query<T>): Promise<QueryS
   const client = clientStateFor(target);
   client.markStarted();
   const conv = converterOf(query);
-  const snap = await chainQueryFor(target, query).get();
+  const snap = await withFirestoreFirebaseError(() => chainQueryFor(target, query).get());
   client.cacheQuery(query as object);
   if (conv) {
     const c = conv as FirestoreDataConverter<T>;

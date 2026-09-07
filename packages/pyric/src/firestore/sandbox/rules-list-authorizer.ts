@@ -1,3 +1,6 @@
+import { queryExecutionDiagnostic, type QueryExecutionSpec } from './query-execution.js';
+import type { EvaluatedRuleInfo } from 'pyric/rules/internal';
+import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
 import type {
   SimulateFirestoreRulesHandler,
   TestCase,
@@ -37,6 +40,7 @@ export interface ListAuthorizationRequest {
   origin: 'listener' | 'user';
   bypassRules?: boolean;
   activityQuery?: unknown;
+  execution?: QueryExecutionSpec;
   triggeredBy?: TriggerInfo;
   /** Preserve the established request.time → event.at capture order. */
   timing?: { requestTime?: Timestamp; at: number };
@@ -123,64 +127,7 @@ export class RulesListAuthorizer {
     const proof = proveListQuery(evaluationAst, placeholderPath, auth, constraints, this.rules.source);
     const isUnprovable = proof.kind === 'unprovable';
     if (isUnprovable) {
-      const message =
-        `list ${path} denied: the query is statically unprovable for every possible ` +
-        `result (rules are not filters), so the whole query is rejected — ${proof.reason}`;
-      const remediation = renderQueryRemediation(proof.residual);
-      const reqEvent: {
-        at: number;
-        evalMs: number;
-        method: 'list';
-        path: string;
-        auth: any;
-        result: 'deny';
-        debugMessages: string[];
-        origin: any;
-        detail?: unknown;
-        triggeredBy?: unknown;
-      } = {
-        at: evalAt,
-        evalMs: performance.now() - evalStart,
-        method: 'list',
-        path,
-        auth,
-        result: 'deny',
-        debugMessages: [message],
-        origin,
-      };
-      const hasDetail = detail !== undefined;
-      if (hasDetail) {
-        reqEvent.detail = detail;
-      }
-      const hasTriggeredBy = triggeredBy !== undefined;
-      if (hasTriggeredBy) {
-        reqEvent.triggeredBy = triggeredBy;
-      }
-      this.emitRequest(reqEvent as any);
-
-      const errExtras: {
-        request: { method: 'list'; path: string; auth: any };
-        query: any;
-        remediation?: string;
-        rule?: any;
-      } = {
-        request: { method: 'list', path, auth },
-        query: constraints,
-      };
-      const isRemediationDefined = remediation !== undefined;
-      if (isRemediationDefined) {
-        const isRemediationNotEmpty = remediation !== '';
-        if (isRemediationNotEmpty) {
-          errExtras.remediation = remediation;
-        }
-      }
-      const hasProofRule = proof.rule !== undefined;
-      if (hasProofRule) {
-        errExtras.rule = proof.rule;
-      }
-      const error = makeError('permission-denied', message, errExtras as any);
-      this.emitUserDenial(origin, error);
-      return { allowed: false, error };
+      return this.denyQuery(request, proof, evalAt, performance.now() - evalStart, detail);
     }
 
     const evaluationSource = proof.kind === 'provable'
@@ -245,53 +192,8 @@ export class RulesListAuthorizer {
 
     const isNotPassed = result.state !== 'PASSED';
     if (isNotPassed) {
-      const evalRule = projectEvaluatedRule(result);
-      const reqEvent: {
-        at: number;
-        evalMs: number;
-        method: 'list';
-        path: string;
-        auth: any;
-        result: 'deny';
-        debugMessages: string[];
-        evaluatedRule?: unknown;
-        origin: any;
-        detail?: unknown;
-        triggeredBy?: unknown;
-      } = {
-        at: evalAt,
-        evalMs,
-        method: 'list',
-        path,
-        auth,
-        result: 'deny',
-        debugMessages,
-        evaluatedRule: evalRule,
-        origin,
-      };
-      const hasDetail = detail !== undefined;
-      if (hasDetail) {
-        reqEvent.detail = detail;
-      }
-      const hasTriggeredBy = triggeredBy !== undefined;
-      if (hasTriggeredBy) {
-        reqEvent.triggeredBy = triggeredBy;
-      }
-      this.emitRequest(reqEvent as any);
-
-      const errExtras: {
-        request: { method: 'list'; path: string; auth: any };
-        rule?: unknown;
-      } = {
-        request: { method: 'list', path, auth },
-      };
-      const hasRule = evalRule !== undefined;
-      if (hasRule) {
-        errExtras.rule = evalRule;
-      }
-      const error = makeError('permission-denied', `list ${path} denied by rules`, errExtras as any);
-      this.emitUserDenial(origin, error);
-      return { allowed: false, error };
+      return this.denyQuery(request, proof, evalAt, evalMs, detail,
+        debugMessages, projectEvaluatedRule(result));
     }
 
     this.emitRequest({
@@ -308,6 +210,52 @@ export class RulesListAuthorizer {
       ...(triggeredBy ? { triggeredBy } : {}),
     });
     return { allowed: true };
+  }
+
+  /** Combine local proof failures with actual residual evaluation, without
+   * ever putting rejected rules back into the authorization AST. */
+  private denyQuery(
+    request: ListAuthorizationRequest,
+    proof: ListProofVerdict,
+    at: number,
+    evalMs: number,
+    detail: EmitRequestInput['detail'],
+    residualReasons: string[] = [],
+    evaluatedRule?: EvaluatedRuleInfo,
+  ): ListAuthorizationResult {
+    const failures = proof.kind === 'no-rule' ? [] : proof.failures;
+    const primary = failures.find(failure => failure.kind !== 'constraints-not-satisfied') ?? failures[0];
+    const queryProof: QueryProofDiagnostic = {
+      kind: primary?.kind ?? (proof.kind === 'no-rule' ? 'no-rule' : 'residual-denied'),
+      failures,
+      query: request.activityQuery ?? (request.execution ? queryExecutionDiagnostic(request.execution) : undefined),
+    };
+    const message = primary
+      ? `list ${request.path} denied: Pyric found the query statically unprovable — ${primary.reason}`
+      : `list ${request.path} denied by rules`;
+    // The projected AST can have empty match blocks. Its no-allow summary
+    // does not describe the deployed ruleset when proof rejected siblings.
+    const reasons = primary
+      ? [message, ...residualReasons.filter(reason => !reason.startsWith('No allow rules found'))]
+      : residualReasons;
+    const remediation = primary ? renderQueryRemediation(primary.residual) : undefined;
+    const error = makeError('permission-denied', message, {
+      request: { method: 'list', path: request.path, auth: request.auth },
+      query: request.constraints,
+      queryProof,
+      ...(remediation ? { remediation } : {}),
+      ...(primary?.rule || evaluatedRule ? { rule: primary?.rule ?? evaluatedRule } : {}),
+    });
+    this.emitRequest({
+      at, evalMs, method: 'list', path: request.path, auth: request.auth,
+      result: 'deny', debugMessages: reasons, queryProof,
+      ...(evaluatedRule ? { evaluatedRule } : {}),
+      origin: request.origin,
+      ...(detail ? { detail } : {}),
+      ...(request.triggeredBy ? { triggeredBy: request.triggeredBy } : {}),
+    });
+    this.emitUserDenial(request.origin, error);
+    return { allowed: false, error };
   }
 
   private applyProof(

@@ -94,7 +94,9 @@ await getDocs(all);
 // deny: unprovable query — rules are not filters
 ```
 
-The sandbox enforces the same proof production does, so a query that lists in development lists in production.
+Pyric proves document-independent list rules and supported equality constraints, including through helpers. Document-dependent membership (`in`), ranges, and disjunctions remain outside its query-proof support, even when a query appears to satisfy the rule.
+
+These queries fail closed with `permission-denied`. The sandbox's structured query-proof diagnostic distinguishes an unsupported predicate from missing constraints or a failed auth/limit check, and identifies the relevant rule even when a fallback deny also matches. An unsupported proof means Pyric could not establish safety; it does not establish Firebase's decision. See [Versioning and compatibility](../trust/versioning-and-compatibility.md).
 
 ## Audit the whole project, not just the rules
 

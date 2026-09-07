@@ -23,6 +23,8 @@
  * any local-engine resolution, since `getInternalEnv` rejects remote
  * handles.
  */
+import { FIRESTORE_ERROR_CODES, type FirestoreSimError } from '../../firestore/sandbox/errors.js';
+import { FirestoreCompatError } from '../../firestore/sandbox/firestore-compat-error.js';
 
 import { SandboxError, type SandboxContext } from 'pyric/sandbox';
 import type {
@@ -36,6 +38,7 @@ import {
   BYPASS_RULES_SYMBOL,
   CONTEXT_SYMBOL,
   registerOnSnapshotImpl,
+  toSandboxError,
 } from './error-translation.js';
 import { getRemoteSnapshotRegistrar, registerRemoteOnSnapshotImpl } from './remote/listeners.js';
 import type { SnapshotObserver, Unsubscribe } from './types.js';
@@ -329,7 +332,7 @@ export function onSnapshot(
     onNext ?? (() => {}),
     options,
     ctx.auth,
-    onError,
+    onError ? (error) => onError(translateListenerError(error, ctx)) : undefined,
     followsCurrentUser,
     bypassRules,
     authScope,
@@ -395,3 +398,25 @@ function contextFromRef(ref: unknown): SandboxContext {
 // function (a static import back from remote/listeners.ts would be a cycle).
 registerOnSnapshotImpl(onSnapshot as (ref: unknown, ...args: unknown[]) => () => void);
 registerRemoteOnSnapshotImpl(onSnapshot as (ref: unknown, ...args: unknown[]) => () => void);
+
+/** The engine also accepts foreign listener errors; translate only its coded records. */
+function isSimError(error: unknown): error is FirestoreSimError {
+  return typeof error === 'object' && error !== null
+    && 'code' in error && FIRESTORE_ERROR_CODES.some(code => code === error.code)
+    && 'message' in error && typeof error.message === 'string';
+}
+
+function translateListenerError(error: unknown, ctx: SandboxContext): unknown {
+  if (!isSimError(error) || error.queryProof === undefined) return error;
+  const translated = toSandboxError(new FirestoreCompatError(error), {
+    ...ctx, auth: error.request ? error.request.auth : ctx.auth,
+  });
+  if (translated instanceof Error) {
+    // Existing listener consumers read these directly. Keep those aliases
+    // alongside the structured context used by worker serialization.
+    for (const field of ['request', 'resource', 'query', 'rule', 'queryProof'] as const) {
+      if (error[field] !== undefined) Object.assign(translated, { [field]: error[field] });
+    }
+  }
+  return translated;
+}

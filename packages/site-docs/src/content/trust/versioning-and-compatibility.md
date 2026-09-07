@@ -25,3 +25,12 @@ The same tested-against version appears everywhere a user forms an impression: t
 Today: Firebase's latest is 12.16.0, pyric's pinned conformance version is 12.13.0, so the tag is `fb12.13`. A `fb` tag can point at an alpha release — compatibility and stability are separate claims, and `alpha`, `latest`, and `fb12.13` can all resolve to the same publish, each making its own.
 
 Bumping the pinned Firebase version re-snapshots the upstream surface; the diff is the worklist, and the new line's tag appears only when `compat:check` passes against the new pin.
+
+
+## Firestore query-proof limits
+
+List authorization uses a conservative proof engine. It supports document-independent rules and top-level equality conjunctions, including supported helper expansion. Document-dependent membership, ranges, and disjunctions are documented limitations (`firestore#24c`), not promises of Firebase parity.
+
+An unsupported query still returns `permission-denied`. Pyric adds a `queryProof` diagnostic to request events and the error's `denialContext` (also available in modular `FirebaseError.customData`). It distinguishes `unsupported-predicate`, `unsupported-path`, `constraints-not-satisfied`, `residual-denied`, and `no-rule`. Proof failures identify the authored rule separately from any residual expression that actually evaluated false. Captures and Studio preserve this distinction; older captures may lack it.
+
+Query identity retains non-equality filters such as `in` separately from the proof projection. Operand identities may be bounded digests or opaque references; diagnostic collection does not inspect arbitrary application objects. Neither a local proof limitation nor successful local tests establish a production observation for an unverified query/rules combination.

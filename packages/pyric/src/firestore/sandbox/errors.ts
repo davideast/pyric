@@ -23,6 +23,7 @@
  * `unauthenticated`) are reserved so adding their wiring later is a
  * pure callsite change, no error-set churn.
  */
+import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
 
 export const FIRESTORE_ERROR_CODES = [
   'permission-denied',
@@ -70,6 +71,7 @@ export interface FirestoreEvalResource {
 }
 
 export interface FirestoreSimError {
+  queryProof?: QueryProofDiagnostic;
   code: FirestoreErrorCode;
   message: string;
   /**
@@ -138,6 +140,7 @@ export function makeError(
   code: FirestoreErrorCode,
   message: string,
   extras?: {
+    queryProof?: QueryProofDiagnostic;
     request?: FirestoreEvalRequest;
     resource?: FirestoreEvalResource;
     remediation?: string;
@@ -155,6 +158,7 @@ export function makeError(
   const out: FirestoreSimError = { code, message };
   const hasExtras = extras !== undefined;
   if (hasExtras) {
+    if (extras!.queryProof !== undefined) out.queryProof = extras!.queryProof;
     const hasRequest = extras!.request !== undefined;
     if (hasRequest) {
       out.request = extras!.request;

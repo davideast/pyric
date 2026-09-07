@@ -279,6 +279,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
         constraints: structured,
         bypassRules,
         ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
+        execution,
         origin: 'listener',
         ...(triggeredBy ? { triggeredBy } : {}),
         timing,
@@ -291,6 +292,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       auth,
       constraints: structured,
       ...(constraints?.activityQuery ? { activityQuery: constraints.activityQuery } : {}),
+      execution,
       origin: 'listener',
       ...(triggeredBy ? { triggeredBy } : {}),
       timing,
@@ -350,6 +352,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       constraints: proof,
       bypassRules,
       ...(activityQuery !== undefined ? { activityQuery } : {}),
+      execution,
       origin: 'user',
     });
     if (!authorization.allowed) return authorization;

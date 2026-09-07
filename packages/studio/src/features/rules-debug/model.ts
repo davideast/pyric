@@ -76,6 +76,7 @@ export interface Denial {
    *  an implicit deny (no rule evaluated), a simulator-error deny, and for
    *  RTDB/Storage (which don't emit a Firestore sub-expression trace). */
   evaluatedRule?: EvaluatedRuleInfo;
+  queryProof?: RequestEvent['queryProof'];
   /** Where the op came from (user op, listener re-eval, batch, transaction). */
   origin: RequestEvent['origin'] | SandboxOperationEvent['origin'];
   /** `'unsupported'` denials (simulator hit an unmodelled feature) are flagged
@@ -248,6 +249,7 @@ export function toDenial(e: DeniedSandboxEvent): Denial {
   };
   if ('matchedRule' in e && e.matchedRule) d.matchedRule = e.matchedRule;
   if ('evaluatedRule' in e && e.evaluatedRule) d.evaluatedRule = e.evaluatedRule;
+  if ('queryProof' in e && e.queryProof) d.queryProof = e.queryProof;
   if ('rules' in e && e.rules) d.rules = e.rules;
   const requestData = requestDataOf(e);
   if (requestData !== undefined) d.resourceData = requestData;
@@ -326,10 +328,31 @@ function rtdbPhase(denial: Denial): RulePhase {
   return m === 'get' || m === 'list' || m === 'listen' ? 'read' : 'write';
 }
 
+/** Static attribution is separate from the rule that actually evaluated. */
+export function queryProofFailure(denial: Denial): NonNullable<RequestEvent['queryProof']>['failures'][number] | undefined {
+  return denial.queryProof?.failures.find(failure => failure.kind === denial.queryProof?.kind);
+}
+
 export function explainDenial(denial: Denial): RuleExplanation {
   const engine = engineOf(denial);
   const ruleLines = denial.reasons.filter((l) => RULE_LINE.test(l));
   const otherLines = denial.reasons.filter((l) => !RULE_LINE.test(l));
+
+  const proofFailure = queryProofFailure(denial);
+  if (proofFailure) {
+    const unsupported = proofFailure.kind !== 'constraints-not-satisfied';
+    return {
+      headline: unsupported
+        ? `Query proof unsupported: Pyric could not prove ${denial.method} ${denial.path} safe. This does not establish Firebase's decision.`
+        : `The query constraints do not satisfy the list rule for ${denial.path}.`,
+      engine,
+      ruleNode: proofFailure.rule?.citation ?? 'list rule',
+      ruleExpression: proofFailure.rule?.expression,
+      ruleLines,
+      otherLines,
+      implicitDeny: false,
+    };
+  }
 
   if (denial.unsupported) {
     return {

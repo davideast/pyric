@@ -1,3 +1,4 @@
+import { activityValue } from './activity-query-value.js';
 import { topK } from './topk.js';
 import { firestoreValuesEqual } from './value-equality.js';
 import { compareValues, typeOrderRank } from './query-value-order.js';
@@ -158,6 +159,19 @@ export function queryConstraintsForProof(execution: QueryExecutionSpec): QueryCo
     offset: null,
     orderBy: execution.orders.length > 0 ? execution.orders[0]!.field : null,
   });
+}
+
+/** Describe every filter without traversing user-owned operands during diagnostics. */
+export function queryExecutionDiagnostic(execution: QueryExecutionSpec): unknown {
+  const filter = (entry: QueryFilter): unknown => entry.kind === 'where'
+    ? { kind: entry.kind, field: entry.field, op: entry.op, value: activityValue(entry.value) }
+    : { kind: entry.kind, filters: entry.filters.map(filter) };
+  return {
+    filters: execution.filters.map(filter), orders: execution.orders,
+    limitCount: execution.limitCount, limitFromEnd: execution.limitFromEnd,
+    ...(execution.start ? { start: { ...execution.start, values: execution.start.values.map(activityValue) } } : {}),
+    ...(execution.end ? { end: { ...execution.end, values: execution.end.values.map(activityValue) } } : {}),
+  };
 }
 
 export function gatherQueryRows(state: DocStore, scope: QueryScope): QueryRow[] {
