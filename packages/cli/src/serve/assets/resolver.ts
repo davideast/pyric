@@ -39,7 +39,14 @@ export interface ResolvedAsset {
 export interface AssetResolverOptions {
   dir: string;
   source?: AssetSource;
-  fallback: (req: AssetRequest) => { data: Uint8Array; contentType: string };
+  /** Produces bytes when nothing else can answer. `kind` says which case
+   *  this is: `interim` means a source is still generating behind this
+   *  response and the image should look provisional, `fallback` means the
+   *  answer is final for now (no source, or one that failed). */
+  fallback: (
+    req: AssetRequest,
+    kind: 'fallback' | 'interim',
+  ) => { data: Uint8Array; contentType: string };
   fetchImpl?: typeof fetch;
   /** How long a resolve waits for the source before serving the fallback
    *  bytes as an `interim` result while the source finishes in the
@@ -147,7 +154,7 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
     const winner = await Promise.race([pending, deadline]);
     clearTimeout(timer);
     if (winner !== null) return winner;
-    return { ...opts.fallback(req), origin: 'interim' };
+    return { ...opts.fallback(req, 'interim'), origin: 'interim' };
   }
 
   async function runSource(
@@ -159,12 +166,12 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
     try {
       result = await source(req);
     } catch {
-      return { ...opts.fallback(req), origin: 'fallback' };
+      return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
     }
 
     if ('data' in result) {
       const ext = extensionFor(result.contentType);
-      if (!ext) return { ...opts.fallback(req), origin: 'fallback' };
+      if (!ext) return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
       try {
         cacheSourceResult(opts.dir, manifest, req.key, result.data, result.contentType);
       } catch {
@@ -178,14 +185,14 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
     try {
       response = await fetchImpl(result.url);
     } catch {
-      return { ...opts.fallback(req), origin: 'fallback' };
+      return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
     }
     if (!response.ok) {
-      return { ...opts.fallback(req), origin: 'fallback' };
+      return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
     }
     const contentType = normalizeContentType(response.headers.get('content-type'));
     if (!contentType || !extensionFor(contentType)) {
-      return { ...opts.fallback(req), origin: 'fallback' };
+      return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
     }
     const data = new Uint8Array(await response.arrayBuffer());
     try {
@@ -224,7 +231,7 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
       if (hit) return { ...hit, origin: 'pool' };
     }
 
-    return { ...opts.fallback(req), origin: 'fallback' };
+    return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
   }
 
   return { resolve };

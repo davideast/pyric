@@ -103,10 +103,15 @@ export type RulesReloadResult =
  *  same deterministic SVG the in-page, no-server mode encodes as a data URI
  *  (`pyric/auth/internal`'s `defaultAvatarDataUri`), so served and in-page
  *  modes agree on a face for the same uid. */
-function defaultAvatarFallback(req: AssetRequest): { data: Uint8Array; contentType: string } {
+function defaultAvatarFallback(
+  req: AssetRequest,
+  kind: 'fallback' | 'interim',
+): { data: Uint8Array; contentType: string } {
   const displayName = typeof req.context.displayName === 'string' ? req.context.displayName : null;
   const email = typeof req.context.email === 'string' ? req.context.email : null;
-  const svg = defaultAvatarSvg({ uid: req.key, displayName, email });
+  // An interim response stands in for an image a source is still producing,
+  // so it renders the generating state rather than an image that looks final.
+  const svg = defaultAvatarSvg({ uid: req.key, displayName, email, pending: kind === 'interim' });
   return { data: new TextEncoder().encode(svg), contentType: 'image/svg+xml' };
 }
 

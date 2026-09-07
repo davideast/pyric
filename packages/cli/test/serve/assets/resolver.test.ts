@@ -345,6 +345,28 @@ describe('createAssetResolver: source deadline', () => {
     expect((await resolver.resolve(req('slow'))).origin).toBe('cache');
   });
 
+  it('tells the fallback which case it is serving, so an interim can look provisional', async () => {
+    const dir = tmp();
+    const kinds: string[] = [];
+    const fallback = (_req: AssetRequest, kind: 'fallback' | 'interim') => {
+      kinds.push(kind);
+      return fallbackBytes(kind);
+    };
+
+    const slow: AssetSource = async () => {
+      await sleep(40);
+      return { data: new TextEncoder().encode('portrait'), contentType: 'image/jpeg' };
+    };
+    await createAssetResolver({ dir, source: slow, fallback }).resolve(req('slow'));
+
+    const failing: AssetSource = () => {
+      throw new Error('boom');
+    };
+    await createAssetResolver({ dir: tmp(), source: failing, fallback }).resolve(req('broken'));
+
+    expect(kinds).toEqual(['interim', 'fallback']);
+  });
+
   it('by default a synchronous source still answers directly, without an interim', async () => {
     const dir = tmp();
     const source: AssetSource = () => ({

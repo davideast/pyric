@@ -83,4 +83,37 @@ describe('defaultAvatarSvg', () => {
     expect(svg.startsWith('<svg')).toBe(true);
     expect(defaultAvatarDataUri(input)).toBe(`data:image/svg+xml,${encodeURIComponent(svg).replace(/'/g, '%27').replace(/\(/g, '%28').replace(/\)/g, '%29')}`);
   });
+
+  it('renders a visibly distinct generating state when pending', () => {
+    const input = { uid: 'google-abc123', displayName: 'Ada Lovelace' };
+    const settled = defaultAvatarSvg(input);
+    const pending = defaultAvatarSvg({ ...input, pending: true });
+
+    // Same identity artwork, so the face does not change on upgrade.
+    expect(pending).toContain('<linearGradient');
+    expect(pending).toContain('>A</text>');
+    // ...but it must not be mistakable for a finished image.
+    expect(pending).not.toBe(settled);
+    expect(settled).not.toContain('animateTransform');
+    expect(pending).toContain('animateTransform');
+    expect(pending).toContain('repeatCount="indefinite"');
+    expect(pending).toContain('fill-opacity="0.55"'); // initial dimmed
+  });
+
+  it('keeps the pending ring inside the radius a circular crop cuts at', () => {
+    const pending = defaultAvatarSvg({ uid: 'u', displayName: 'Zed', pending: true });
+    // r=56 plus half of a 6-wide stroke reaches 59, inside the 64 radius.
+    expect(pending).toContain('r="56"');
+    expect(pending).toContain('stroke-width="6"');
+  });
+
+  it('is deterministic in the pending state too', () => {
+    const input = { uid: 'google-abc123', displayName: 'Ada Lovelace', pending: true };
+    expect(defaultAvatarSvg(input)).toBe(defaultAvatarSvg(input));
+  });
+
+  it('never animates the settled avatar the data URI mint produces', () => {
+    // In-page mode has no source and therefore no generating state.
+    expect(defaultAvatarDataUri({ uid: 'u', displayName: 'Ada' })).not.toContain('animateTransform');
+  });
 });
