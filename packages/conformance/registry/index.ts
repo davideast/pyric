@@ -11,6 +11,9 @@ import { firestoreSwiftRegistry } from './firestore-swift.ts';
 import { functionsRtdbRegistry } from './functions-rtdb.ts';
 import { messagingRegistry } from './messaging.ts';
 import { rtdbRegistry } from './rtdb.ts';
+import { rtdbFlutterRegistry } from './rtdb-flutter.ts';
+import { rtdbKotlinRegistry } from './rtdb-kotlin.ts';
+import { rtdbSwiftRegistry } from './rtdb-swift.ts';
 import { rulesRegistry } from './rules.ts';
 import { storageRegistry } from './storage.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
@@ -39,6 +42,9 @@ export const registriesByKey: Record<string, CompatibilitySurfaceRegistry> = Obj
     authFlutterRegistry,
     authKotlinRegistry,
     authSwiftRegistry,
+    rtdbFlutterRegistry,
+    rtdbKotlinRegistry,
+    rtdbSwiftRegistry,
   ].map((r) => [r.surface, r]),
 );
 
@@ -51,7 +57,7 @@ export function rowsForSurface(registry: CompatibilitySurfaceRegistry): Compatib
 
 export const allCompatibilityRows = surfaceRegistries.flatMap(rowsForSurface);
 
-export { authFlutterRegistry, authKotlinRegistry, authSwiftRegistry, firestoreKotlinRegistry };
+export { authFlutterRegistry, authKotlinRegistry, authSwiftRegistry, firestoreKotlinRegistry, rtdbFlutterRegistry, rtdbKotlinRegistry, rtdbSwiftRegistry };
 
 export type { Automation, CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus, ConformanceDisposition, DeveloperSurface, OracleConformanceCheck, Surface } from './types.ts';
 

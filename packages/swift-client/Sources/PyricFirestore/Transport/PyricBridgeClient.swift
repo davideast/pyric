@@ -464,7 +464,7 @@ public actor PyricBridgeClient {
                 denialContext: denialContext,
                 envelope: envelope
             )
-            if denialContext != nil {
+            if denialContext != nil || error.code == .permissionDenied {
                 for cont in denialContinuations.values {
                     cont.yield(error)
                 }
@@ -499,7 +499,7 @@ public actor PyricBridgeClient {
                 message: message,
                 denialContext: denialContext
             )
-            if denialContext != nil {
+            if denialContext != nil || error.code == .permissionDenied {
                 for cont in denialContinuations.values {
                     cont.yield(error)
                 }

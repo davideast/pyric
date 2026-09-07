@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "rtdb-flutter",
+  "contractSource": "firebase_database",
+  "observationPrefixes": [
+    "rtdb-flutter-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Dart Flutter client conforming to firebase_database via Pyric WebSocket bridge transport. Covers instance & connection, DatabaseReference navigation & properties, write operations, ServerValue sentinels, one-shot reads & DataSnapshot inspection, realtime listeners & streams, query ordering/filtering/limits, transactions, and OnDisconnect.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/flutter-client/test/rtdb_conformance_test.dart",
+  "climb": true,
+  "registry": "rtdb-flutter"
+}

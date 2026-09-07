@@ -39,9 +39,14 @@ if [[ -n "${SUITE:-}" ]]; then
   fi
 fi
 
+PACKAGE_DIR="$ROOT/packages/swift-client"
+if [[ "${SUITE:-}" == *ios-client* ]]; then
+  PACKAGE_DIR="$ROOT/packages/ios-client"
+fi
+
 # Execute swift test; allow test failure exit codes (red at birth)
 SWIFT_EXIT=0
-swift test --package-path "$ROOT/packages/swift-client" "${FILTER_ARG[@]}" --xunit-output "$XML_OUT" || SWIFT_EXIT=$?
+swift test --package-path "$PACKAGE_DIR" "${FILTER_ARG[@]}" --xunit-output "$XML_OUT" || SWIFT_EXIT=$?
 
 # SPM Swift Testing outputs <prefix>-swift-testing.xml instead of <prefix>.xml
 if [[ -f "$SWIFT_TESTING_XML" ]]; then

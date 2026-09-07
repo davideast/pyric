@@ -433,7 +433,9 @@ class PyricBridgeClient {
         denialContext: denialContext,
         envelope: envelope,
       );
-      if (denialContext != null) {
+      if (denialContext != null ||
+          code.toLowerCase().contains('permission') ||
+          message.toLowerCase().contains('permission_denied')) {
         _denialController.add(exception);
         onDenial?.call(exception);
       }
@@ -472,7 +474,9 @@ class PyricBridgeClient {
         message: message,
         denialContext: denialContext,
       );
-      if (denialContext != null) {
+      if (denialContext != null ||
+          code.toLowerCase().contains('permission') ||
+          message.toLowerCase().contains('permission_denied')) {
         _denialController.add(exception);
         onDenial?.call(exception);
       }
