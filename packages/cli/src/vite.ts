@@ -9,6 +9,11 @@
 export { pyric } from './serve/vite-plugin.js';
 export type { PyricOptions } from './serve/vite-plugin.js';
 export type { PyricRuntimeChipOption } from './serve/runtime/chip-config.js';
+// `avatars`'s option shape and the asset-source callback contract its
+// `{ source }` variant accepts — the types a caller needs to write
+// `pyric({ avatars })` without reaching into `serve/*` by relative path.
+export type { PyricAvatarsOptions } from './serve/avatars-config.js';
+export type { AssetRequest, AssetResult, AssetSource } from './serve/assets/resolver.js';
 
 // The benign node-builtin shims serve's bundler and this plugin apply when
 // bundling pyric's browser graph (`fs`/`path`/`url` reached via the rules

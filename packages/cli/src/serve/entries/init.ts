@@ -22,7 +22,8 @@ import {
   subscribeToActiveAuth,
   registerActiveAuth,
 } from './active-auth.js';
-import { sandbox } from './runtime.js';
+import { initPayload, sandbox } from './runtime.js';
+import { installAvatarUpgrades } from './avatar-upgrade.js';
 import { useWorker, workerDb } from './worker-runtime.js';
 import { ServeAuthHelper, customClaimsFromTokenClaims } from './auth-helper-core.js';
 import { installServeAuthResolver } from './auth-helper-runtime.js';
@@ -41,6 +42,10 @@ const helper = workerAuth
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
+        // Boundary map: the stored record's `photoUrl` becomes the picker
+        // identity's `photoURL`, so re-picking an identity hands its existing
+        // photo back to `auth.acceptIdentity`.
+        photoURL: user.photoUrl,
         customClaims: user.customClaims,
       })),
     })
@@ -60,6 +65,9 @@ const helper = workerAuth
           spec: {
             email: request.spec.email,
             displayName: request.spec.displayName,
+            // Boundary map: helper `photoURL` becomes the backend spec's
+            // `photoUrl`.
+            photoUrl: request.spec.photoURL,
             customClaims: request.spec.customClaims,
           },
         });
@@ -71,6 +79,13 @@ if (localAuth) authSandbox.setAuthFlowResolver(localAuth, resolver);
 
 if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   mountAuthHelperDialog(helper);
+  // A slow avatar source finishes after the browser already painted a
+  // placeholder. This page-level listener swaps in the finished image, so
+  // application code stays `<img src={user.photoURL}>` with nothing to poll.
+  // Not awaited: nothing below depends on the payload.
+  void initPayload.then((payload) => {
+    installAvatarUpgrades(payload?.avatarUpgrades === true);
+  });
   installPyricRuntimeChip({
     runtime: getPyricRuntimeStatus(),
     document,
@@ -103,6 +118,7 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
             uid: cred.user.uid,
             email: cred.user.email,
             displayName: cred.user.displayName,
+            photoURL: cred.user.photoURL,
             customClaims,
             providerId: 'password',
           };

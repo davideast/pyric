@@ -27,6 +27,7 @@ import {
   type ViteFunctionsDevelopmentOptions,
 } from './vite-functions-development.js';
 import type { ResolvedViteAiConfig } from './vite-ai-config.js';
+import { resolveAvatarsConfig, type PyricAvatarsOptions } from './avatars-config.js';
 import { resolveViteRulesConfig } from './vite-rules-source.js';
 import type { ViteWorkerRuntime, ViteWorkerRuntimeStatus } from './vite-worker-runtime.js';
 import { viteWorkerEpochSalt } from './vite-ai-config.js';
@@ -50,6 +51,7 @@ export interface ViteSandboxGenerationOptions {
   bridge: Omit<BridgeMountOptions, 'upgradeGuard'> | null;
   ui: boolean;
   functions: false | { region?: string; instance?: string; watch?: boolean };
+  avatars: PyricAvatarsOptions | undefined;
 }
 
 export interface ViteSandboxGenerationInput {
@@ -70,6 +72,7 @@ export interface ViteSandboxGenerationDependencies {
   readFirebaseJson: typeof readFirebaseJson;
   readFirebaseRc: typeof readFirebaseRc;
   resolveRulesConfig: typeof resolveViteRulesConfig;
+  resolveAvatarsConfig: typeof resolveAvatarsConfig;
   prepareWorker(runtime: ViteWorkerRuntime, epochSalt: string): Promise<void>;
   workerStatus(runtime: ViteWorkerRuntime): ViteWorkerRuntimeStatus;
   discoverFunctionsProject(cwd: string): FunctionsRtdbProject | null;
@@ -85,6 +88,7 @@ const DEFAULT_DEPENDENCIES: ViteSandboxGenerationDependencies = {
   readFirebaseJson,
   readFirebaseRc,
   resolveRulesConfig: resolveViteRulesConfig,
+  resolveAvatarsConfig,
   prepareWorker: (runtime, epochSalt) => runtime.prepare(epochSalt),
   workerStatus: (runtime) => runtime.status(),
   discoverFunctionsProject: discoverFunctionsRtdbProject,
@@ -133,6 +137,10 @@ export async function createViteSandboxGeneration(
       // firebase.json is optional for Vite development.
     }
     const rulesConfig = dependencies.resolveRulesConfig(cwd, options.rules, firebaseConfig);
+    // Config-time validation (an unresolvable set directory) must fail
+    // startup here, not the first `/__pyric/assets/avatar/*` request — see
+    // avatars-config.ts.
+    const avatarsConfig = dependencies.resolveAvatarsConfig(options.avatars, process.env, cwd);
 
     try {
       const epochSalt = viteWorkerEpochSalt(cwd, ai.engineWire, ai.mode);
@@ -194,6 +202,7 @@ export async function createViteSandboxGeneration(
       studio,
       bridgeUrl,
       ai: aiOptions,
+      avatars: avatarsConfig,
       aiProxyUpstream: ai.proxyUpstream,
       activity: (incident) => server.config.logger.warn(formatActivityWarning(incident)),
       logger: {

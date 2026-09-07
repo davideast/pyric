@@ -33,6 +33,24 @@ export interface InitPayload {
   capture?: boolean;
   messaging?: boolean;
   /**
+   * True exactly when `/__pyric/assets/avatar/<uid>` is mounted (`avatars`
+   * was not explicitly disabled — see `avatars-config.ts`). Only this flag
+   * travels to the page; the resolved set directory or source never does,
+   * mirroring the AI proxy's server-only-config asymmetry. A browser
+   * consumer that backfills `photoURL` from this flag is a later task.
+   */
+  avatars?: boolean;
+  /**
+   * True exactly when this server's avatars config carries a `source`, the
+   * only configuration whose images can arrive after the first request: a
+   * generated image supersedes the placeholder the browser was served while
+   * it ran. `avatars` says the route is mounted; this says an upgrade is
+   * possible at all. The page decides on this flag whether to open a
+   * listener, so the default and set-only configurations — final on the first
+   * request — open no connection.
+   */
+  avatarUpgrades?: boolean;
+  /**
    * Plugin-level AI config (`@pyric/cli/vite`'s `ai.engine`). Only the ENGINE
    * travels here — the OpenAI proxy upstream is a server-side namespace option
    * that never reaches the page. The worker host reads `ai.engine` into

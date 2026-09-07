@@ -62,6 +62,7 @@ import {
   SandboxSeedError,
   type SandboxSession,
 } from '../serve/sandbox-session.js';
+import { resolveAvatarsConfig } from '../serve/avatars-config.js';
 
 interface HostingConfig {
   public?: string;
@@ -325,6 +326,10 @@ export async function startServe(opts: {
       persistence: opts.persist ? { fresh: opts.fresh } : undefined,
       capture: opts.capture,
       studio: opts.ui ? { siteUiDir } : false,
+      // No CLI flag (design decision): `pyric sandbox` resolves avatars from
+      // `PYRIC_AVATARS` only, same precedence as the Vite plugin minus the
+      // explicit-option tier.
+      avatars: resolveAvatarsConfig(undefined, process.env, opts.cwd),
       bridgeUrl: () => mount && origin.port > 0 ? mount.wsUrl(origin) : null,
       activity: (incident) => logger.note(formatActivityWarning(incident)),
       beaconToken,

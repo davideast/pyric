@@ -51,3 +51,19 @@ export default defineConfig({
 ```
 
 The plugin hot-reloads Security Rules whenever the file is saved. If omitted, Pyric checks `firestore.modules.rules`, `firebase.json`, and `firestore.rules` automatically.
+
+## Give provider sign-ins a default photo
+
+With no configuration, a provider sign-in such as Google or GitHub gets a deterministic generated avatar, matching Firebase's own guarantee that a federated identity always carries a `photoURL`. Configure the `avatars` option to serve your own images instead:
+
+```ts
+export default defineConfig({
+  plugins: [
+    pyric({
+      avatars: './avatars/anime',
+    }),
+  ],
+});
+```
+
+A string names a pre-built avatar set directory; an object with a `source` function generates images in the dev server; `false` turns avatars off entirely. See [Assign default avatars to sandbox users](../build/default-avatars.md) for the set format, the source callback, and the `PYRIC_AVATARS` environment variable `pyric sandbox` reads instead.

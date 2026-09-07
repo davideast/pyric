@@ -41,7 +41,8 @@ import {
   type PersistenceBackend,
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { getAuth } from 'pyric/auth';
+import { getAuth, sandbox as authSandboxOps, type SeedUser } from 'pyric/auth';
+import { defaultAvatarDataUri } from 'pyric/auth/internal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -486,6 +487,7 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
       uid: 'google.com:alice@example.com',
       email: 'alice@example.com',
       displayName: 'Alice',
+      photoURL: null,
       customClaims: { role: 'admin' },
       providerId: 'google.com',
     };
@@ -518,7 +520,7 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
     await enableProvider(ctx, actor, 'github.com');
     await sendOp(ctx, actor, {
       t: 'op', id: id(), method: 'auth.acceptIdentity',
-      identity: { uid: 'github.com:bob@x.com', email: 'bob@x.com', displayName: null, customClaims: {}, providerId: 'github.com' },
+      identity: { uid: 'github.com:bob@x.com', email: 'bob@x.com', displayName: null, photoURL: null, customClaims: {}, providerId: 'github.com' },
     });
     await tick();
 
@@ -539,7 +541,7 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
     }));
     const res = await sendOp(ctx, port, {
       t: 'op', id: id(), method: 'auth.acceptIdentity',
-      identity: { uid: 'google.com:eve@x.com', email: 'eve@x.com', displayName: null, customClaims: {}, providerId: 'google.com' },
+      identity: { uid: 'google.com:eve@x.com', email: 'eve@x.com', displayName: null, photoURL: null, customClaims: {}, providerId: 'google.com' },
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe('auth/operation-not-allowed');
@@ -556,7 +558,7 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
     const port = fakePort();
     const identity = {
       uid: 'google.com:ann@x.com', email: 'ann@x.com', displayName: null,
-      customClaims: {}, providerId: 'google.com',
+      photoURL: null, customClaims: {}, providerId: 'google.com',
     };
 
     await enableProvider(ctx, port, 'google.com');
@@ -573,6 +575,82 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe('auth/operation-not-allowed');
+  });
+
+  // ── Profile photo: the identity carries it, the seed record stores it, and
+  // the serialized user hands it back to the page. An identity that carries
+  // NO photo gets the mint this worker was booted with — here, the built-in
+  // one, because this ctx never applied an init payload. `serve-init.test.ts`
+  // covers the payload-driven mints a real `pyric dev` boot installs.
+  const PHOTO = 'https://cdn.example.com/avatars/ada.png';
+
+  function exportedSeed(ctx: HostCtx, uid: string): SeedUser | undefined {
+    return authSandboxOps.exportUsers(getAuth(ctx.sandbox)).find((seed) => seed.uid === uid);
+  }
+
+  it('a photo-bearing identity seeds a stored user whose exported seed carries photoUrl', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await enableProvider(ctx, port, 'google.com');
+
+    const cred = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.acceptIdentity',
+      identity: {
+        uid: 'google.com:ada@x.com', email: 'ada@x.com', displayName: 'Ada',
+        photoURL: PHOTO, customClaims: {}, providerId: 'google.com',
+      },
+    }));
+
+    // Serialization: the wire user carries the photo (SerializedUser.photoURL).
+    expect(cred.user.photoURL).toBe(PHOTO);
+    expect(
+      cred.user.providerData.find((entry) => entry.providerId === 'google.com')?.photoURL,
+    ).toBe(PHOTO);
+    expect((await currentUser(ctx, port))?.photoURL).toBe(PHOTO);
+
+    // Round-trip: the stored record exports as a SeedUser carrying photoUrl.
+    expect(exportedSeed(ctx, 'google.com:ada@x.com')?.photoUrl).toBe(PHOTO);
+  });
+
+  it('an identity without a photo is born with the built-in default avatar', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await enableProvider(ctx, port, 'google.com');
+
+    const cred = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.acceptIdentity',
+      identity: {
+        uid: 'google.com:noel@x.com', email: 'noel@x.com', displayName: null,
+        photoURL: null, customClaims: {}, providerId: 'google.com',
+      },
+    }));
+
+    const expected = defaultAvatarDataUri({
+      uid: 'google.com:noel@x.com',
+      displayName: null,
+      email: 'noel@x.com',
+    });
+    expect(cred.user.photoURL).toBe(expected);
+    expect(exportedSeed(ctx, 'google.com:noel@x.com')?.photoUrl).toBe(expected);
+  });
+
+  it('re-accepting the identity without a photo does NOT clear the stored one', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await enableProvider(ctx, port, 'google.com');
+    const withPhoto = {
+      uid: 'google.com:ada@x.com', email: 'ada@x.com', displayName: 'Ada',
+      photoURL: PHOTO, customClaims: {}, providerId: 'google.com',
+    };
+
+    await sendOp(ctx, port, { t: 'op', id: id(), method: 'auth.acceptIdentity', identity: withPhoto });
+    const cred = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+      t: 'op', id: id(), method: 'auth.acceptIdentity',
+      identity: { ...withPhoto, photoURL: null },
+    }));
+
+    expect(cred.user.photoURL).toBe(PHOTO);
+    expect(exportedSeed(ctx, 'google.com:ada@x.com')?.photoUrl).toBe(PHOTO);
   });
 });
 

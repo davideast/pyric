@@ -18,6 +18,8 @@ import type { InitPayload } from '../../../src/serve/namespace.js';
 import type { OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../src/serve/worker/protocol.js';
 import { sandbox as authOps } from 'pyric/auth';
+import { avatarSeed, defaultAvatarDataUri } from 'pyric/auth/internal';
+import { avatarAssetUrl } from '../../../src/serve/assets/avatar-url.js';
 import {
   initializeSandbox,
   createMemoryBackend,
@@ -238,6 +240,86 @@ describe('applyServeInit — seed + authUsers', () => {
     });
     const res = getRes(port, 's1') as ResMessage & { ok: true };
     expect((res.value as { user: { uid: string } }).user.uid).toBe('u1');
+  });
+});
+
+describe('applyServeInit — avatar mint', () => {
+  const IDENTITY = {
+    uid: 'google.com:ada@x.com',
+    email: 'ada@x.com',
+    displayName: 'Ada',
+    photoURL: null,
+    customClaims: {},
+    providerId: 'google.com',
+  };
+
+  /** Bring a federated identity in the way the page's popup bridge does, and
+   *  report the `photoURL` the worker hands back. */
+  async function acceptIdentity(ctx: HostCtx): Promise<string | null> {
+    const port = fakePort();
+    await handleMessage(ctx, port, {
+      t: 'op', id: 'p1', method: 'auth.setProviderConfig', providerId: 'google.com', enabled: true,
+    });
+    await handleMessage(ctx, port, {
+      t: 'op', id: 'a1', method: 'auth.acceptIdentity', identity: IDENTITY,
+    });
+    const res = getRes(port, 'a1') as ResMessage & { ok: true };
+    return (res.value as { user: { photoURL: string | null } }).user.photoURL;
+  }
+
+  it('avatars: true mints this server’s avatar route, seed and hints included', async () => {
+    const ctx = await makeCtx();
+    applyServeInit(ctx, { ...basePayload, avatars: true }, { fetch: recordingFetch() });
+
+    const photoURL = await acceptIdentity(ctx);
+    expect(photoURL).not.toBeNull();
+    const url = new URL(photoURL!, 'http://localhost');
+    expect(url.pathname).toBe(`/__pyric/assets/avatar/${encodeURIComponent(IDENTITY.uid)}`);
+    expect(url.searchParams.get('d')).toBe(avatarSeed(IDENTITY.uid));
+    expect(url.searchParams.get('n')).toBe('Ada');
+    expect(url.searchParams.get('e')).toBe('ada@x.com');
+    expect(url.searchParams.get('p')).toBe('google.com');
+    // Relative: an <img> resolves it against the page, no token, same origin.
+    expect(photoURL!.startsWith('/__pyric/assets/avatar/')).toBe(true);
+  });
+
+  it('avatars: false restores Firebase’s null for a provider with no photo', async () => {
+    const ctx = await makeCtx();
+    applyServeInit(ctx, { ...basePayload, avatars: false }, { fetch: recordingFetch() });
+
+    expect(await acceptIdentity(ctx)).toBeNull();
+  });
+
+  it('a payload without the flag keeps the built-in data-URI mint', async () => {
+    const ctx = await makeCtx();
+    applyServeInit(ctx, basePayload, { fetch: recordingFetch() });
+
+    expect(await acceptIdentity(ctx)).toBe(defaultAvatarDataUri({
+      uid: IDENTITY.uid,
+      displayName: IDENTITY.displayName,
+      email: IDENTITY.email,
+    }));
+  });
+
+  it('seeded federated users are minted too — the mint is installed before the seed', async () => {
+    const ctx = await makeCtx();
+    applyServeInit(
+      ctx,
+      {
+        ...basePayload,
+        avatars: true,
+        authUsers: [{ uid: 'seeded', email: 's@x.com', password: 'pw123456', providerId: 'google.com' }],
+      },
+      { fetch: recordingFetch() },
+    );
+
+    const seeded = authOps.exportUsers(ensureAuth(ctx)).find((user) => user.uid === 'seeded');
+    expect(seeded?.photoUrl).toBe(avatarAssetUrl({
+      uid: 'seeded',
+      displayName: null,
+      email: 's@x.com',
+      providerId: 'google.com',
+    }));
   });
 });
 

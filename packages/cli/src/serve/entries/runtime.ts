@@ -34,6 +34,7 @@ import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
 import type { InitPayload } from '../init-payload.js';
+import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
@@ -114,16 +115,44 @@ if (!useWorker) {
 let bridgeUrlFromPayload: string | null = null;
 let activityTokenFromPayload: string | null = null;
 
+/**
+ * The one `/__pyric/init.json` read per page. The in-page path applies the
+ * whole payload below; the worker path leaves rules/seed/persist/capture to
+ * the SharedWorker and reads only the page-level fields (the bridge URL, and
+ * the avatar-upgrade flag `entries/init.ts` acts on), so both modes share this
+ * request rather than each issuing their own.
+ */
+const initPayloadRequest = (async (): Promise<InitPayload> => {
+  const res = await fetch('/__pyric/init.json');
+  if (!res.ok) throw new Error(`/__pyric/init.json → ${res.status}`);
+  return (await res.json()) as InitPayload;
+})();
+
+/**
+ * The payload for page-level consumers, `null` when it could not be read.
+ * Never rejects: the init block below owns reporting an init failure, and a
+ * consumer of one flag must not have to own it a second time. Awaiting this
+ * also keeps `initPayloadRequest`'s rejection handled.
+ */
+export const initPayload: Promise<InitPayload | null> = initPayloadRequest.catch(() => null);
+
 // ── init payload: fetch + apply (top-level await — see header) ────────
 // WORKER PATH: skipped — the worker fetches the same init.json and owns
 // rules/seed/persist/capture/session. Running it here too would double-POST
 // captures and fight the worker over the /__pyric/state writer lock.
 if (!useWorker) try {
-  const res = await fetch('/__pyric/init.json');
-  if (!res.ok) throw new Error(`/__pyric/init.json → ${res.status}`);
-  const payload = (await res.json()) as InitPayload;
+  const payload = await initPayloadRequest;
   bridgeUrlFromPayload = payload.bridgeUrl;
   activityTokenFromPayload = payload.activityToken ?? null;
+  // The avatar mint goes in BEFORE the first user record: the minted
+  // `photoURL` is stored on the record at creation, never recomputed. This
+  // server mounts the avatar route (`avatars: true`) → provider users get its
+  // URL; it does not (`false`) → they get Firebase's null. A payload without
+  // the flag leaves the sandbox's built-in data-URI mint, which needs no route.
+  const avatarMint = avatarMintForPayload(payload.avatars);
+  if (avatarMint) {
+    authOps.setAvatarMint(getAuth(sandbox), avatarMint);
+  }
   // Register RTDB with the persistence registry BEFORE enablePersistence
   // (below) so the restored tree rides the controller blob and is applied
   // during restore-on-attach — same eager-registration reasoning as the
@@ -499,8 +528,8 @@ if (bridgeUrlFromPayload) {
   // later is fine. Bridge-less pages just read a null bridgeUrl and stop.
   void (async () => {
     try {
-      const res = await fetch('/__pyric/init.json');
-      const url = res.ok ? ((await res.json()) as InitPayload).bridgeUrl : null;
+      const payload = await initPayload;
+      const url = payload?.bridgeUrl ?? null;
       if (url) await connectBridgePeer(url);
     } catch (e) {
       runtimeStatus.reportError(e, 'runtime');

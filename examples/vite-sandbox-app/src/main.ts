@@ -50,6 +50,7 @@ const db = getFirestore(app);
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const els = {
   status: $('auth-status'),
+  avatar: $<HTMLImageElement>('avatar'),
   signIn: $<HTMLButtonElement>('sign-in'),
   signOut: $<HTMLButtonElement>('sign-out'),
   form: $<HTMLFormElement>('add-post'),
@@ -65,7 +66,7 @@ let unsubscribePosts: (() => void) | undefined = undefined;
 onAuthStateChanged(auth, (user) => {
   const hasActiveSubscription = unsubscribePosts !== undefined;
   if (hasActiveSubscription) {
-    unsubscribePosts();
+    unsubscribePosts?.();
     unsubscribePosts = undefined;
   }
 
@@ -81,6 +82,16 @@ onAuthStateChanged(auth, (user) => {
       displayLabel = user.displayName as string;
     }
     els.status.textContent = 'Signed in as ' + displayLabel;
+    // Provider sign-ins always carry a photoURL, in the sandbox as in
+    // production; email/password and anonymous users have none.
+    const hasPhoto = user.photoURL !== null;
+    if (hasPhoto) {
+      els.avatar.src = user.photoURL as string;
+      els.avatar.hidden = false;
+    } else {
+      els.avatar.src = '';
+      els.avatar.hidden = true;
+    }
     els.signIn.hidden = true;
     els.signOut.hidden = false;
 
@@ -102,6 +113,8 @@ onAuthStateChanged(auth, (user) => {
     });
   } else {
     els.status.textContent = 'Signed out';
+    els.avatar.hidden = true;
+    els.avatar.src = '';
     els.signIn.hidden = false;
     els.signOut.hidden = true;
     els.posts.replaceChildren();

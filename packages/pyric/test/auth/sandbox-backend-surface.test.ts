@@ -86,6 +86,7 @@ const FROZEN_PROTOTYPE_METHODS = [
   'sanitizeLinkedProviders',
   'seedUsers',
   'selfTarget',
+  'setAvatarMint',
   'setCurrentUser',
   'setEmailVerified',
   'setMailResolver',

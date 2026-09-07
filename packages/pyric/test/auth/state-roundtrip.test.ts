@@ -32,6 +32,66 @@ describe('sandbox.exportUsers', () => {
     expect(ids.find((i) => i.email === 'b@x.com')?.providerId).toBe('google.com');
   });
 
+  it('round-trips photoUrl, phoneNumber, emailVerified and disabled', () => {
+    const a = wire();
+    authSandbox.createUser(a, {
+      uid: 'full',
+      email: 'full@x.com',
+      password: 'pw-full',
+      displayName: 'Full Record',
+      phoneNumber: '+15555550123',
+      photoUrl: 'https://cdn.example.com/full.png',
+      emailVerified: true,
+      disabled: true,
+      customClaims: { plan: 'pro' },
+    });
+    const exported = authSandbox.exportUsers(a);
+    expect(exported).toEqual([
+      {
+        uid: 'full',
+        email: 'full@x.com',
+        password: 'pw-full',
+        providerId: 'password',
+        displayName: 'Full Record',
+        photoUrl: 'https://cdn.example.com/full.png',
+        phoneNumber: '+15555550123',
+        customClaims: { plan: 'pro' },
+        emailVerified: true,
+        disabled: true,
+      },
+    ]);
+
+    const b = wire();
+    authSandbox.seedUsers(b, exported);
+    const restored = authSandbox.listUsers(b).find((u) => u.uid === 'full');
+    expect(restored).toMatchObject({
+      email: 'full@x.com',
+      displayName: 'Full Record',
+      photoUrl: 'https://cdn.example.com/full.png',
+      phoneNumber: '+15555550123',
+      emailVerified: true,
+      disabled: true,
+      customClaims: { plan: 'pro' },
+    });
+    expect(authSandbox.exportUsers(b)).toEqual(exported);
+  });
+
+  it('omits photoUrl, phoneNumber, emailVerified and disabled when unset', () => {
+    const a = wire();
+    authSandbox.seedUsers(a, [{ uid: 'bare', email: 'bare@x.com', password: 'pw' }]);
+    const [seed] = authSandbox.exportUsers(a);
+    expect(seed).toEqual({
+      uid: 'bare',
+      email: 'bare@x.com',
+      password: 'pw',
+      providerId: 'password',
+    });
+    expect('photoUrl' in seed!).toBe(false);
+    expect('phoneNumber' in seed!).toBe(false);
+    expect('emailVerified' in seed!).toBe(false);
+    expect('disabled' in seed!).toBe(false);
+  });
+
   it('passwordless provider identities export with the sentinel; anonymous are skipped', async () => {
     const a = wire();
     authSandbox.setAuthProviderConfig(a, 'google.com', true);

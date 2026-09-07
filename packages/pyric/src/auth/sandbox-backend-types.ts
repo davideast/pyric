@@ -32,6 +32,17 @@ export interface SeedUser {
   password: string;
   displayName?: string;
   customClaims?: Record<string, unknown>;
+  /** Profile photo URL, mirroring the stored record's `photoUrl`.
+   *  Omitted for records that carry none. */
+  photoUrl?: string;
+  /** Phone number on the record. Omitted for records that carry none. */
+  phoneNumber?: string;
+  /** Whether the address on the record is verified. Omitted when false
+   *  — the seeded default. */
+  emailVerified?: boolean;
+  /** Whether the account rejects every sign-in with
+   *  `auth/user-disabled`. Omitted when false — the seeded default. */
+  disabled?: boolean;
   /** Originating provider for this identity (e.g. `'google.com'`).
    *  Defaults to `'password'` — the natural provider for a record
    *  seeded with an email + password. A host seeding popup-flow
@@ -105,6 +116,9 @@ export interface SignInIdentitySpec {
   uid?: string;
   email: string;
   displayName?: string;
+  /** Profile photo for the identity, mirroring the stored record's
+   *  `photoUrl`. Omitted when the caller supplies none. */
+  photoUrl?: string;
   customClaims?: Record<string, unknown>;
 }
 

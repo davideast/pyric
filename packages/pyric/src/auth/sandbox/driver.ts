@@ -11,6 +11,7 @@ import type {
   UpdateUserRequest,
 } from '../sandbox-backend.js';
 import { targetOf, type SandboxTarget } from '../target.js';
+import type { AvatarMint } from './default-avatar.js';
 import type {
   Auth,
   AuthFlowResolver,
@@ -134,6 +135,18 @@ export const sandbox = {
 
   delegateProviderEnforcement(auth: Auth, delegated: boolean): void {
     requireSandbox(auth).backend.setProviderEnforcementDelegated(delegated);
+  },
+
+  /**
+   * Replace the mint that assigns a default `photoURL` to federated-provider
+   * users at creation. The built-in mint returns a deterministic SVG data URI;
+   * a served host installs one that returns its avatar route, and a host with
+   * avatars turned off installs `() => null` for Firebase's own no-photo
+   * behaviour. Install it during boot: the minted value is stored on each
+   * record as it is created.
+   */
+  setAvatarMint(auth: Auth, mint: AvatarMint): void {
+    requireSandbox(auth).backend.setAvatarMint(mint);
   },
 
   subscribeAuthProviderConfig(auth: Auth, callback: () => void): Unsubscribe {

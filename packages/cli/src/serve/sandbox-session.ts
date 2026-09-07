@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
+import { defaultAvatarSvg } from 'pyric/auth/internal';
 import type { FirebaseJson } from '../cli/firebase-json.js';
 import { createCaptureStore, type CaptureStore } from './capture-store.js';
 import type { InitPayload } from './init-payload.js';
@@ -17,6 +18,8 @@ import { createEventHub, createPyricNamespace } from './namespace.js';
 import type { BeaconReport } from '../register/beacon.js';
 import { diskProjectStore, diskWorkspace } from './studio/index.js';
 import type { ServeLogger } from './server.js';
+import { createAssetResolver, type AssetRequest, type AssetResolver } from './assets/resolver.js';
+import type { ResolvedAvatarsConfig } from './avatars-config.js';
 import {
   createStateStore,
   firestoreDocCount,
@@ -36,6 +39,10 @@ export interface SandboxSessionOptions {
   bridgeUrl?: () => string | null;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
+  /** Resolved `avatars` option (already reduced by `avatars-config.ts` from
+   *  whatever the caller — the Vite plugin or `pyric sandbox` — accepted).
+   *  Absent behaves like `{ enabled: false }`: no avatar route is mounted. */
+  avatars?: ResolvedAvatarsConfig;
   permissive?: boolean;
   logger?: ServeLogger;
   activity?: (incident: ActivityIncident) => void;
@@ -91,6 +98,54 @@ export type RulesReloadResult =
   | { kind: 'reloaded'; rulesHash: string; clients: number }
   | { kind: 'rejected'; error: Error };
 
+/** The generated fallback every avatars configuration falls back to when a
+ *  cache entry, pool, or configured source doesn't answer for a key: the
+ *  same deterministic SVG the in-page, no-server mode encodes as a data URI
+ *  (`pyric/auth/internal`'s `defaultAvatarDataUri`), so served and in-page
+ *  modes agree on a face for the same uid. */
+function defaultAvatarFallback(
+  req: AssetRequest,
+  kind: 'fallback' | 'interim',
+): { data: Uint8Array; contentType: string } {
+  const displayName = typeof req.context.displayName === 'string' ? req.context.displayName : null;
+  const email = typeof req.context.email === 'string' ? req.context.email : null;
+  // An interim response stands in for an image a source is still producing,
+  // so it renders the generating state rather than an image that looks final.
+  const svg = defaultAvatarSvg({ uid: req.key, displayName, email, pending: kind === 'interim' });
+  return { data: new TextEncoder().encode(svg), contentType: 'image/svg+xml' };
+}
+
+/** Build the avatar asset resolver from a resolved `avatars` config, or
+ *  `undefined` when avatars are disabled (or unconfigured) — `undefined`
+ *  means the `/__pyric/assets/avatar/*` route 404s entirely (namespace.ts).
+ *  The union in `ResolvedAvatarsConfig` guarantees `setDir` XOR `source`, so
+ *  a read-only set directory never receives cache writes: `createAssetResolver`
+ *  only writes when a `source` produced bytes it needs to cache.
+ *
+ *  `onMaterialised` is the session's push channel, passed in rather than
+ *  reached for: the resolver announces a key whose placeholder has just been
+ *  superseded, and the session turns that into an SSE event the page acts on. */
+function createAvatarsResolver(
+  config: ResolvedAvatarsConfig | undefined,
+  projectDir: string,
+  onMaterialised: (key: string) => void,
+): AssetResolver | undefined {
+  if (!config?.enabled) return undefined;
+  const dir = config.setDir ?? join(projectDir, '.pyric', 'assets', 'avatars');
+  return createAssetResolver({
+    dir,
+    source: config.source,
+    fallback: defaultAvatarFallback,
+    onMaterialised,
+    onSourceLimit: (limit) => {
+      console.error(
+        `[pyric] avatar source stopped after ${limit} generations this session; ` +
+          'later users get the built-in avatar. Restart to resume.',
+      );
+    },
+  });
+}
+
 export async function createSandboxSession(
   options: SandboxSessionOptions,
 ): Promise<SandboxSession> {
@@ -113,6 +168,16 @@ export async function createSandboxSession(
     }
   }
   const events = createEventHub();
+  // A background generation that lands in the cache is broadcast on the same
+  // hub the rules watchers use. The page, not the application, listens: it
+  // re-requests that uid's avatar so the finished image replaces the
+  // placeholder the browser is already showing.
+  const avatarsResolver = createAvatarsResolver(options.avatars, options.projectDir, (key) => {
+    events.broadcast('avatar-ready', { key });
+  });
+  // Only a configured source can produce an image that supersedes a
+  // placeholder, so only that case asks the page to open a connection.
+  const avatarUpgrades = Boolean(avatarsResolver) && options.avatars?.source !== undefined;
   const capture: CaptureStore | undefined = (options.capture ?? true)
     ? createCaptureStore(options.projectDir)
     : undefined;
@@ -179,6 +244,8 @@ export async function createSandboxSession(
       : seedUsers,
     messaging: true,
     ai: options.ai ?? null,
+    avatars: Boolean(avatarsResolver),
+    avatarUpgrades,
     permissive: Boolean(options.permissive),
   });
 
@@ -217,6 +284,7 @@ export async function createSandboxSession(
       : undefined,
     siteUiDir: options.studio ? options.studio.siteUiDir : undefined,
     workerVersion: options.sdk.workerVersion,
+    avatars: avatarsResolver,
     aiProxyUpstream: options.aiProxyUpstream,
     activity: options.activity,
     beacon: options.beacon,

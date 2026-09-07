@@ -19,3 +19,11 @@ project, credentials, or emulators.
 The app code uses canonical `firebase/*` imports everywhere. Switching between
 the sandbox and real Firebase is `vite dev` vs `vite build`, never what you
 wrote.
+
+Provider sign-ins get a profile photo by default, so `user.photoURL` is never
+null for them, as with real Google sign-in. `vite.config.ts` lists the
+`avatars` options commented out. `vite.avatars.ts` is a worked custom source
+that generates each user's photo with the Gemini image API; uncomment the
+import and the `avatars` option in `vite.config.ts` and set `GEMINI_API_KEY`
+to try it. This file is specific to the example: `pyric init` scaffolds the
+config without it.

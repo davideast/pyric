@@ -39,6 +39,26 @@ import {
  */
 const PROVIDER_SYNTHETIC_PASSWORD = '__pyric_popup_no_password__';
 
+/**
+ * The `photoUrl` a bridged provider identity should be seeded with.
+ *
+ * A provider sign-in refreshes the stored photo when the identity carries one,
+ * and leaves it alone when it does not — the same rule the in-page backend's
+ * `recordProviderSignIn` applies. `seedUsers` replaces the whole record, so an
+ * identity with no photo has to carry the stored value forward here or the
+ * re-seed would blank a photo an earlier sign-in established.
+ */
+function seedPhotoUrl(
+  auth: Auth,
+  uid: string,
+  identityPhotoURL: string | null,
+): string | undefined {
+  if (identityPhotoURL !== null) return identityPhotoURL;
+  const stored = authSandboxOps.listUsers(auth).find((user) => user.uid === uid);
+  if (!stored?.photoUrl) return undefined;
+  return stored.photoUrl;
+}
+
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
 
 /**
@@ -295,13 +315,16 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       // next time), and mint THIS PORT's session for it — provider users
       // have no password. Mirrors ServeAuthHelper.add's seeding.
       try {
-        const { uid, email, displayName, customClaims, providerId } = msg.identity;
+        const { uid, email, displayName, photoURL, customClaims, providerId } = msg.identity;
         authSandboxOps.assertAuthProviderEnabled(auth, providerId);
         authSandboxOps.seedUsers(auth, [{
           uid,
           email: email ?? '',
           password: PROVIDER_SYNTHETIC_PASSWORD,
           displayName: displayName ?? undefined,
+          // Boundary map: the protocol's `photoURL` becomes the seed record's
+          // `photoUrl`.
+          photoUrl: seedPhotoUrl(auth, uid, photoURL),
           customClaims: customClaims ?? {},
           providerId,
         }]);

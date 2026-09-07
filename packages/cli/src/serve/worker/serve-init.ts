@@ -38,6 +38,7 @@ import {
   primeEventHistory,
 } from 'pyric/sandbox/internal';
 import type { InitPayload } from '../namespace.js';
+import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from './activity-bootstrap.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
@@ -194,6 +195,17 @@ export function applyServeInit(
   if (payload.messaging === true) {
     ctx.messagingEnabled = true;
     result.messagingEnabled = true;
+  }
+
+  // 0b. Avatar mint — BEFORE any user record exists, because the minted
+  //     `photoURL` is written into the record at creation and never
+  //     recomputed. `avatars: true` means this server mounts the avatar route,
+  //     so provider users get its URL; `false` means it does not, so they get
+  //     Firebase's null. A payload without the flag leaves the sandbox's
+  //     built-in data-URI mint, which needs no route at all.
+  const avatarMint = avatarMintForPayload(payload.avatars);
+  if (avatarMint) {
+    authOps.setAvatarMint(ensureAuth(ctx), avatarMint);
   }
 
   // 1. Rules — deploy the project's ruleset, replacing the permissive starter

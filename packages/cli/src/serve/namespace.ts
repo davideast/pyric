@@ -8,6 +8,9 @@
  *                            fetched by the runtime chunk at module init
  *   /__pyric/beacon          the handshake beacon a pyric-launched child
  *                            POSTs once its interception is installed
+ *   /__pyric/assets/avatar/<uid>
+ *                            the image behind a sandbox user's photoURL,
+ *                            mounted only when an avatar resolver is wired
  *
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
@@ -26,6 +29,9 @@ import { handleActivity } from './activity-route.js';
 import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
 import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
 import { createSiteTreeHandler } from './site-tree.js';
+import { handleAvatar } from './assets/avatar-route.js';
+import { ASSETS_ROUTE_PREFIX } from './assets/avatar-url.js';
+import type { AssetResolver } from './assets/resolver.js';
 import { BEACON_PATH, type BeaconReport } from '../register/beacon.js';
 import { handleBeacon } from './beacon-route.js';
 export type { InitPayload } from './init-payload.js';
@@ -105,6 +111,11 @@ export interface NamespaceOptions {
    *  current fixture JSON (200) or 404 when nothing is captured yet, so the
    *  served worker can re-hydrate its event history on boot after a death. */
   capture?: { write(json: string): void; read(): string | null };
+  /** Resolves the image behind a sandbox user's `photoURL`; mounts
+   *  `GET /__pyric/assets/avatar/<uid>`. Absent means the whole
+   *  `/__pyric/assets/` prefix 404s, which is the sandbox's Firebase-null
+   *  behaviour for avatars. */
+  avatars?: AssetResolver;
   /** Unified Astro documentation + Studio tree, built for `/__pyric/ui/`. */
   siteUiDir?: string;
   /** Served SharedWorker epoch stamped only into Studio entry documents. */
@@ -507,6 +518,18 @@ export function createPyricNamespace(opts: NamespaceOptions) {
         }),
       );
       return true;
+    }
+    if (opts.avatars && url.pathname.startsWith(ASSETS_ROUTE_PREFIX)) {
+      // Security class: PUBLIC STATIC, the same class as `/__pyric/sdk/*`, and
+      // deliberately NOT one of the token-gated channels (state, capture,
+      // workspace, projects, activity). An `<img src>` cannot attach a session
+      // capability token, a custom header, or an Origin the page controls, so a
+      // token check here would not gate the route — it would break it. What
+      // still protects it is the layer above: `handleRequest`'s DNS-rebinding
+      // guard rejects any Host that is not loopback or an `--allowed-host`
+      // before this handler ever runs. The bytes served are generated avatars,
+      // which carry no secret the guard is protecting.
+      return handleAvatar(opts.avatars, req, res, url).then(() => true);
     }
     if (url.pathname.startsWith('/__pyric/sdk/')) {
       // basename() flattens any traversal attempt — the sdk dir is flat.

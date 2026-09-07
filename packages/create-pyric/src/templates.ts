@@ -490,13 +490,17 @@ const VITE_INDEX_HTML = (name: string): string => `<!doctype html>
       form { display: flex; gap: 0.5rem; margin: 1rem 0; }
       input { flex: 1; padding: 0.4rem 0.6rem; }
       ul { padding-left: 1.2rem; }
-      .status { color: #666; }
+      .status { color: #666; display: flex; align-items: center; gap: 0.5rem; }
+      .avatar { width: 32px; height: 32px; border-radius: 50%; }
     </style>
   </head>
   <body>
     <main>
       <h1>${name}</h1>
-      <p class="status" id="auth-status">Signed out</p>
+      <p class="status">
+        <img class="avatar" id="avatar" alt="" hidden />
+        <span id="auth-status">Signed out</span>
+      </p>
       <button id="sign-in">Sign in with Google</button>
       <button id="sign-out" hidden>Sign out</button>
       <!-- Visible even while signed out ON PURPOSE — submitting attempts the
@@ -564,6 +568,7 @@ const db = getFirestore(app);
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const els = {
   status: $('auth-status'),
+  avatar: $<HTMLImageElement>('avatar'),
   signIn: $<HTMLButtonElement>('sign-in'),
   signOut: $<HTMLButtonElement>('sign-out'),
   form: $<HTMLFormElement>('add-post'),
@@ -579,7 +584,7 @@ let unsubscribePosts: (() => void) | undefined = undefined;
 onAuthStateChanged(auth, (user) => {
   const hasActiveSubscription = unsubscribePosts !== undefined;
   if (hasActiveSubscription) {
-    unsubscribePosts();
+    unsubscribePosts?.();
     unsubscribePosts = undefined;
   }
 
@@ -595,6 +600,16 @@ onAuthStateChanged(auth, (user) => {
       displayLabel = user.displayName as string;
     }
     els.status.textContent = 'Signed in as ' + displayLabel;
+    // Provider sign-ins always carry a photoURL, in the sandbox as in
+    // production; email/password and anonymous users have none.
+    const hasPhoto = user.photoURL !== null;
+    if (hasPhoto) {
+      els.avatar.src = user.photoURL as string;
+      els.avatar.hidden = false;
+    } else {
+      els.avatar.src = '';
+      els.avatar.hidden = true;
+    }
     els.signIn.hidden = true;
     els.signOut.hidden = false;
 
@@ -616,6 +631,8 @@ onAuthStateChanged(auth, (user) => {
     });
   } else {
     els.status.textContent = 'Signed out';
+    els.avatar.hidden = true;
+    els.avatar.src = '';
     els.signIn.hidden = false;
     els.signOut.hidden = true;
     els.posts.replaceChildren();
@@ -671,8 +688,34 @@ import { pyric } from '@pyric/cli/vite';
 // self-contained sandbox preview you can serve under \`pyric sandbox\`, build with a
 // non-production mode: \`vite build --mode development\` (see the \`build:sandbox\`
 // script). That output is marked and can never be deployed.
+
+// A custom avatar generator lives in its own file so this config stays
+// small. The pyric example app ships vite.avatars.ts with a worked example
+// that calls an image API; write your own function of the same shape to
+// use the \`avatars.source\` option below.
+// import { nanoBananaAvatar } from './vite.avatars';
+
 export default defineConfig({
-  plugins: [pyric()],
+  plugins: [
+    pyric({
+      // Profile photos for provider sign-ins. The default needs no
+      // configuration: every federated sign-in gets a deterministic
+      // generated avatar. Comment exactly one option back in to try the
+      // alternatives.
+
+      // Firebase-null behaviour — photoURL stays null and the avatar
+      // route unmounts:
+      // avatars: false,
+
+      // A pre-created avatar set: a directory holding a manifest.json and
+      // image files; each user is deterministically assigned one:
+      // avatars: './avatars',
+
+      // Generate each user's photo once, on demand, with the function
+      // named in the commented import above:
+      // avatars: { source: nanoBananaAvatar },
+    }),
+  ],
 });
 `;
 
