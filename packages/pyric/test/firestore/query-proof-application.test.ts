@@ -177,6 +177,7 @@ test("public query listeners deliver supported membership results and reject bro
     query,
     where: filter,
     limit,
+    orderBy,
     onSnapshot,
   } = await import("../../src/firestore/index.js");
   const sandbox = initializeSandbox();
@@ -185,8 +186,8 @@ test("public query listeners deliver supported membership results and reject bro
     env.seed({
       rules,
       documents: {
-        "meets/a": { visibility: "public", status: "scheduled" },
-        "meets/b": { visibility: "public", status: "changed" },
+        "meets/a": { visibility: "public", status: "scheduled", time: { startsAt: 2 } },
+        "meets/b": { visibility: "public", status: "changed", time: { startsAt: 1 } },
         "meets/draft": { visibility: "public", status: "draft" },
       },
     });
@@ -202,6 +203,7 @@ test("public query listeners deliver supported membership results and reject bro
           collection(db, "meets"),
           filter("visibility", "==", "public"),
           filter("status", "in", statuses),
+          orderBy("time.startsAt"),
           limit(100),
         ),
         (snapshot) => {
