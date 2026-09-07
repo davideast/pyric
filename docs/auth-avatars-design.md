@@ -135,9 +135,14 @@ in one change).
 | Mode | Generated default | Static sets | Callback source |
 |---|---|---|---|
 | Vite plugin | yes | yes | yes |
-| `pyric sandbox` (static or Node) | yes | flag or environment variable | open question |
-| Next.js `withPyric` | yes | configured on the `pyric sandbox` server | same |
+| `pyric sandbox` (static or Node) | yes | `PYRIC_AVATARS` environment variable | not available |
+| Next.js `withPyric` | yes | configured on the `pyric sandbox` server | not available |
 | In-page, no CLI | yes, as a data URI | programmatic only | programmatic, runs in the page |
+
+The static path is environment-variable only by design: there is no `--avatars`
+flag, and a callback needs a module to host it, which only the Vite
+configuration provides. The environment variable selects a set directory or
+disables the feature.
 
 The avatar route serves plain same-origin `GET` requests because `img`
 elements cannot attach capability tokens or custom headers. The route is
