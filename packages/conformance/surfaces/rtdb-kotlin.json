@@ -1,0 +1,15 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "integration",
+  "developerSurface": "rtdb-kotlin",
+  "contractSource": "com.google.firebase:firebase-database",
+  "observationPrefixes": [
+    "rtdb-kotlin-"
+  ],
+  "coverage": true,
+  "scopeNote": "integration contract: Pure-Kotlin client conforming to com.google.firebase:firebase-database via Pyric WebSocket bridge transport. Covers instance & connection, DatabaseReference navigation & properties, write operations, ServerValue sentinels, one-shot reads & DataSnapshot inspection, realtime listeners & Flow streams, query ordering/filtering/limits, transactions, and OnDisconnect.",
+  "captureRigs": [],
+  "conformanceSuite": "packages/kt-client/src/test/kotlin/dev/pyric/database/RtdbConformanceTest.kt",
+  "climb": true,
+  "registry": "rtdb-kotlin"
+}

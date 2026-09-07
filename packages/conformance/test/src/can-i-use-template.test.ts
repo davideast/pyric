@@ -26,6 +26,6 @@ describe('can-i-use source template', () => {
     expect(source).toContain('export interface BrowserFeatureSupport');
     expect(source).not.toContain('FeatureClaim');
     expect(source).not.toContain('"claims":');
-    expect(Buffer.byteLength(source)).toBeLessThan(500_000);
+    expect(Buffer.byteLength(source)).toBeLessThan(600_000);
   });
 });

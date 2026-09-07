@@ -12,8 +12,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -30,9 +34,15 @@ class PyricBridgeClient(
     private var transport: BridgeTransport? = directTransport
     private var handshakeDeferred: CompletableDeferred<Unit>? = null
 
+    private val _connectionStateFlow = MutableStateFlow(false)
+    val connectionStateFlow: StateFlow<Boolean> = _connectionStateFlow.asStateFlow()
+
     @Volatile
     var isConnected: Boolean = false
-        private set
+        private set(value) {
+            field = value
+            _connectionStateFlow.value = value
+        }
 
     @Volatile
     var isDisposed: Boolean = false
@@ -63,6 +73,11 @@ class PyricBridgeClient(
 
     init {
         directTransport?.setListener(BridgeClientListener())
+        clientScope.launch {
+            try {
+                connect()
+            } catch (_: Throwable) {}
+        }
     }
 
     suspend fun connect() {
