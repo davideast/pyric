@@ -13,13 +13,17 @@
       [hidden] { display: none !important; }
       input { flex: 1; padding: 0.4rem 0.6rem; }
       ul { padding-left: 1.2rem; }
-      .status { color: #666; }
+      .status { color: #666; display: flex; align-items: center; gap: 0.5rem; }
+      .avatar { width: 32px; height: 32px; border-radius: 50%; }
     </style>
   </head>
   <body>
     <main>
       <h1>vite-sandbox-app</h1>
-      <p class="status" id="auth-status">Signed out</p>
+      <p class="status">
+        <img class="avatar" id="avatar" alt="" hidden />
+        <span id="auth-status">Signed out</span>
+      </p>
       <button id="sign-in">Sign in with Google</button>
       <button id="sign-out" hidden>Sign out</button>
       <!-- Visible even while signed out ON PURPOSE — submitting attempts the
