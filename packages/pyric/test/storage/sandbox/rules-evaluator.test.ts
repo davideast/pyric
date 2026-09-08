@@ -743,5 +743,38 @@ describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
 
     expect(result.allowed).toBe(true);
   });
+
+  it('preserves an explicit token.firebase.tenant over the top-level one, and the rest of the claims', () => {
+    const ruleset = parseStorageRules(`
+      rules_version = '2';
+      service firebase.storage {
+        match /b/{bucket}/o {
+          match /{allPaths=**} {
+            allow read: if request.auth.token.firebase.tenant == 'explicit-corp'
+                        && request.auth.token.firebase.sign_in_provider == 'password'
+                        && request.auth.token.role == 'editor';
+          }
+        }
+      }
+    `);
+
+    const result = evaluateStorageRules(ruleset, {
+      request: {
+        auth: {
+          uid: 'user-123',
+          tenant: 'acme-corp',
+          token: {
+            role: 'editor',
+            firebase: { tenant: 'explicit-corp', sign_in_provider: 'password' },
+          },
+        },
+        method: 'get',
+        path: 'b/my-bucket/o/tenant-doc.txt',
+      },
+      resource: null,
+    });
+
+    expect(result.allowed).toBe(true);
+  });
 });
 

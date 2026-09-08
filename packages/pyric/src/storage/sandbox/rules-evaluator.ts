@@ -26,6 +26,7 @@ import {
   numericValue as numVal,
   rulesEquals,
 } from './rules-values.js';
+import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
 
 export function evaluateStorageRules(
   rules: StorageRules,
@@ -159,7 +160,6 @@ function readProperty(obj: unknown, name: string): unknown {
   if (v === undefined) return new RuleError(`Property ${name} is undefined on object.`);
   return v;
 }
-
 
 /**
  * Raised when a user-defined function cannot be evaluated (undefined,
@@ -592,43 +592,22 @@ function isoToMillis(iso: string | undefined): number | undefined {
   return Number.isNaN(ms) ? undefined : ms;
 }
 
-function normalizeAuth(auth: NonNullable<EvaluationInput['request']['auth']>): Record<string, unknown> {
-  const raw = auth as unknown as Record<string, unknown>;
-  if (typeof raw.tenant !== 'string') {
-    return raw;
-  }
-  const tenant = raw.tenant;
-  let rawToken: Record<string, unknown> = {};
-  if (isRulesMap(raw.token)) {
-    rawToken = raw.token as Record<string, unknown>;
-  }
-  let rawFirebase: Record<string, unknown> = {};
-  if (isRulesMap(rawToken.firebase)) {
-    rawFirebase = rawToken.firebase as Record<string, unknown>;
-  }
-  const firebase: Record<string, unknown> = { ...rawFirebase };
-  if (firebase.tenant === undefined) {
-    firebase.tenant = tenant;
-  }
-  return {
-    ...raw,
-    token: {
-      ...rawToken,
-      firebase,
-    },
-  };
-}
-
 function buildRequestObject(input: EvaluationInput, now: number): Record<string, unknown> {
-  let requestAuth: unknown = new RuleError('Property auth is undefined on object.');
-  if (input.request.auth) {
-    requestAuth = normalizeAuth(input.request.auth);
-  }
-  return {
+  const auth = input.request.auth;
+  let requestAuth: unknown;
+  if (auth === null || auth === undefined) {
     // The production Storage engine represents anonymous auth as an absent
     // property, not a usable null value. Ordinary `request.auth != null`
     // gates still deny, while conditionals cannot incorrectly select a
     // fallback branch from the synthetic null.
+    requestAuth = new RuleError('Property auth is undefined on object.');
+  } else {
+    // Projecting a top-level `tenant` into `token.firebase.tenant` is one
+    // cross-surface rule about an identity, not a Storage rules concern, so
+    // the sandbox context owns it and every surface reads the same shape.
+    requestAuth = normalizeAuthState(auth);
+  }
+  const request: Record<string, unknown> = {
     auth: requestAuth,
     // Production treats an operation without an incoming object (notably
     // delete/read) as an absent binding. A direct null comparison errors just
@@ -641,4 +620,5 @@ function buildRequestObject(input: EvaluationInput, now: number): Record<string,
     // like `request.time < timestamp.date(2030, 1, 1)` are plain numerics.
     time: now,
   };
+  return request;
 }
