@@ -23,7 +23,7 @@ export interface SerializedUser {
   readonly phoneNumber: string | null;
   readonly isAnonymous: boolean;
   readonly providerId: string | null;
-  readonly tenantId?: string | null;
+  readonly tenantId: string | null;
   readonly providerData: ReadonlyArray<{
     readonly displayName: string | null;
     readonly email: string | null;

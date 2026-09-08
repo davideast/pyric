@@ -65,40 +65,8 @@ export class Transactions {
       resolveSentinels(proposed, now, current) as JsonValue,
       path === '/' ? '' : path,
     );
-    if (applyLocally) {
-      const priorRoot = this.state.tree.snapshot();
-      const priorPriorities = Object.fromEntries(this.state.priorities.entries());
-      const currentPriority = this.state.priorities.get(path);
-      const childPriors = this.children.snapshotParents();
-      this.state.tree.write(path, resolved);
-      this.state.priorities.replace(path, currentPriority);
-      this.values.fanOut([path]);
-      this.children.fanOut(childPriors);
-      const at = Date.now();
-      const evaluation = this.state.rules.evaluate('write', path === '/' ? '/' : path, {
-        auth, mockData: priorRoot as Record<string, unknown>, newData: resolved,
-      });
-      if (evaluation.check !== 'allow') {
-        this.state.events.operation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
-          at, durationMs: Date.now() - at, origin: 'transaction',
-          request: { data: proposed, resourceData: proposed },
-          resourceBefore: { data: current, exists: current !== null },
-          resourceAfter: { data: resolved, exists: resolved !== null },
-          groupId, groupKind: 'transaction',
-        });
-        const rollbackChildPriors = this.children.snapshotParents();
-        this.state.tree.restore(priorRoot);
-        this.state.priorities.restore(priorPriorities);
-        this.values.fanOut([path]);
-        this.children.fanOut(rollbackChildPriors);
-        throw transactionPermissionDenied();
-      }
-      this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation);
-      return { committed: true, val: resolved, key };
-    }
-
     const at = Date.now();
-    const evaluation = this.state.rules.evaluate('write', path === '/' ? '/' : path, {
+    const evaluation = this.state.rules.evaluate('write', path, {
       auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData: resolved,
     });
     if (evaluation.check !== 'allow') {
@@ -110,6 +78,16 @@ export class Transactions {
         groupId, groupKind: 'transaction',
       });
       throw transactionPermissionDenied();
+    }
+    if (applyLocally) {
+      const currentPriority = this.state.priorities.get(path);
+      const childPriors = this.children.snapshotParents();
+      this.state.tree.write(path, resolved);
+      this.state.priorities.replace(path, currentPriority);
+      this.values.fanOut([path]);
+      this.children.fanOut(childPriors);
+      this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation);
+      return { committed: true, val: resolved, key };
     }
     this.state.events.operation(auth, 'transaction', path, 'allow', evaluation, {
       at, durationMs: Date.now() - at, origin: 'transaction',

@@ -648,4 +648,133 @@ describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
   it('non-boolean || operand errors when undetermined: (false || 1) || !(false || 1) → DENY', () => {
     expect(evalCond('(false || 1) || !(false || 1)').allowed).toBe(false);
   });
+
+  it('strictly enforces boolean types on allow conditions and ternary predicates (fails closed on non-boolean)', () => {
+    const ruleset = parseStorageRules(`
+      rules_version = '2';
+      service firebase.storage {
+        match /b/{bucket}/o {
+          match /{allPaths=**} {
+            allow read: if request.auth.uid;
+            allow write: if ('non-empty-string' ? true : false);
+          }
+        }
+      }
+    `);
+
+    const readResult = evaluateStorageRules(ruleset, {
+      request: {
+        auth: { uid: 'user-123', token: {} },
+        method: 'get',
+        path: 'b/my-bucket/o/secret.txt',
+      },
+      resource: null,
+    });
+
+    const writeResult = evaluateStorageRules(ruleset, {
+      request: {
+        auth: { uid: 'user-123', token: {} },
+        method: 'write',
+        path: 'b/my-bucket/o/secret.txt',
+      },
+      resource: null,
+    });
+
+    expect(readResult.allowed).toBe(false);
+    expect(writeResult.allowed).toBe(false);
+  });
+
+  it('a non-boolean allow condition denies its own rule only: a later boolean rule still allows', () => {
+    const ruleset = parseStorageRules(`
+      rules_version = '2';
+      service firebase.storage {
+        match /b/{bucket}/o {
+          match /{allPaths=**} {
+            allow read: if request.auth.uid;
+            allow read: if request.auth != null;
+          }
+        }
+      }
+    `);
+
+    const result = evaluateStorageRules(ruleset, {
+      request: {
+        auth: { uid: 'user-123', token: {} },
+        method: 'get',
+        path: 'b/my-bucket/o/secret.txt',
+      },
+      resource: null,
+    });
+
+    expect(result.allowed).toBe(true);
+  });
+
+  it('a non-boolean ternary condition is an absorbable error: (1 ? true : false) || true → ALLOW', () => {
+    // Discriminator: a truthiness coercion would evaluate the conditional to
+    // `true` rather than to an error, so only absorption can be observed here.
+    expect(evalCond('(1 ? true : false) || true').allowed).toBe(true);
+  });
+
+  it('error && false still absorbs to false: !((1 ? true : false) && false) → ALLOW', () => {
+    expect(evalCond('!((1 ? true : false) && false)').allowed).toBe(true);
+  });
+
+  it('normalizes top-level tenant into request.auth.token.firebase.tenant while preserving custom claims', () => {
+    const ruleset = parseStorageRules(`
+      rules_version = '2';
+      service firebase.storage {
+        match /b/{bucket}/o {
+          match /{allPaths=**} {
+            allow read: if request.auth.token.firebase.tenant == 'acme-corp'
+                        && request.auth.token.role == 'editor';
+          }
+        }
+      }
+    `);
+
+    const result = evaluateStorageRules(ruleset, {
+      request: {
+        auth: { uid: 'user-123', tenant: 'acme-corp', token: { role: 'editor' } },
+        method: 'get',
+        path: 'b/my-bucket/o/tenant-doc.txt',
+      },
+      resource: null,
+    });
+
+    expect(result.allowed).toBe(true);
+  });
+
+  it('preserves an explicit token.firebase.tenant over the top-level one, and the rest of the claims', () => {
+    const ruleset = parseStorageRules(`
+      rules_version = '2';
+      service firebase.storage {
+        match /b/{bucket}/o {
+          match /{allPaths=**} {
+            allow read: if request.auth.token.firebase.tenant == 'explicit-corp'
+                        && request.auth.token.firebase.sign_in_provider == 'password'
+                        && request.auth.token.role == 'editor';
+          }
+        }
+      }
+    `);
+
+    const result = evaluateStorageRules(ruleset, {
+      request: {
+        auth: {
+          uid: 'user-123',
+          tenant: 'acme-corp',
+          token: {
+            role: 'editor',
+            firebase: { tenant: 'explicit-corp', sign_in_provider: 'password' },
+          },
+        },
+        method: 'get',
+        path: 'b/my-bucket/o/tenant-doc.txt',
+      },
+      resource: null,
+    });
+
+    expect(result.allowed).toBe(true);
+  });
 });
+

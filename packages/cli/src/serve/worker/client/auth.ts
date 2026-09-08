@@ -42,8 +42,10 @@ export interface ClientUser {
   readonly photoURL: string | null;
   readonly phoneNumber: string | null;
   readonly isAnonymous: boolean;
+  /** Tenant this user authenticated under, or `null` for the project-level
+   *  pool. Mirrors `firebase/auth`'s `User.tenantId`. */
+  readonly tenantId: string | null;
   readonly providerId: string | null;
-  readonly tenantId?: string | null;
   readonly providerData: SerializedUser['providerData'];
   getIdToken(forceRefresh?: boolean): Promise<string>;
   getIdTokenResult(forceRefresh?: boolean): Promise<SerializedIdTokenResult>;
@@ -65,7 +67,12 @@ export interface ClientAuth {
   readonly port: ClientPort;
   /** Local mirror of the worker's currentUser, updated from the stream. */
   currentUser: ClientUser | null;
-  /** Active multi-tenant ID, propagated over the port to stamp `request.auth.token.firebase.tenant`. */
+  /** Identity Platform tenant that subsequent sign-ins on THIS PORT
+   *  authenticate against, or `null` for the project-level pool. Assign
+   *  before calling a sign-in function: the value crosses the port with the
+   *  sign-in request, so the worker's session state carries it and rules
+   *  evaluate the port's operations with
+   *  `request.auth.token.firebase.tenant` set to it. */
   tenantId: string | null;
 }
 
@@ -84,6 +91,7 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
     photoURL: raw.photoURL,
     phoneNumber: raw.phoneNumber,
     isAnonymous: raw.isAnonymous,
+    tenantId: raw.tenantId,
     providerId: raw.providerId,
     tenantId: raw.tenantId ?? null,
     providerData: raw.providerData,
@@ -131,6 +139,7 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     wirePort(port);
   }
 
+<<<<<<< HEAD
   let _tenantId: string | null = null;
   const auth: ClientAuth = {
     __kind: 'client-auth',
@@ -144,6 +153,9 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
       void rpc(port, { t: 'op', id: nextId(), method: 'auth.setTenantId', tenantId: val });
     },
   };
+=======
+  const auth: ClientAuth = { __kind: 'client-auth', port, currentUser: null, tenantId: null };
+>>>>>>> origin/main
 
   // Internal authState subscription keeps `auth.currentUser` live.
   const subId = nextSubId();
@@ -176,12 +188,17 @@ export async function createUserWithEmailAndPassword(
   password: string,
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
+<<<<<<< HEAD
     t: 'op',
     id: nextId(),
     method: 'auth.createUser',
     email,
     password,
     ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
+=======
+    t: 'op', id: nextId(), method: 'auth.createUser', email, password,
+    tenantId: auth.tenantId,
+>>>>>>> origin/main
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
@@ -192,22 +209,31 @@ export async function signInWithEmailAndPassword(
   password: string,
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
+<<<<<<< HEAD
     t: 'op',
     id: nextId(),
     method: 'auth.signInEmail',
     email,
     password,
     ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
+=======
+    t: 'op', id: nextId(), method: 'auth.signInEmail', email, password,
+    tenantId: auth.tenantId,
+>>>>>>> origin/main
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
 
 export async function signInAnonymously(auth: ClientAuth): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
+<<<<<<< HEAD
     t: 'op',
     id: nextId(),
     method: 'auth.signInAnonymously',
     ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
+=======
+    t: 'op', id: nextId(), method: 'auth.signInAnonymously', tenantId: auth.tenantId,
+>>>>>>> origin/main
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
@@ -229,11 +255,16 @@ export async function acceptProviderCredential(
   identity: ResolvedIdentity,
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
+<<<<<<< HEAD
     t: 'op',
     id: nextId(),
     method: 'auth.acceptIdentity',
     identity,
     ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
+=======
+    t: 'op', id: nextId(), method: 'auth.acceptIdentity', identity,
+    tenantId: auth.tenantId,
+>>>>>>> origin/main
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
@@ -246,11 +277,16 @@ export async function restorePortSession(
   uid: string,
 ): Promise<ClientUser | null> {
   const raw = (await rpc(auth.port, {
+<<<<<<< HEAD
     t: 'op',
     id: nextId(),
     method: 'auth.restorePortSession',
     uid,
     ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
+=======
+    t: 'op', id: nextId(), method: 'auth.restorePortSession', uid,
+    tenantId: auth.tenantId,
+>>>>>>> origin/main
   })) as SerializedUser | null;
   const user = toClientUser(auth.port, raw);
   auth.currentUser = user;

@@ -16,8 +16,8 @@
  *   top of this layer.
  * - The `StoredMetadata` shape mirrors Firebase's `FullMetadata`
  *   minus the `ref` field (computed at consumption time) and
- *   `downloadTokens` (sandbox `getDownloadURL` derives a page-local object URL
- *   from the blob instead of minting Firebase download tokens).
+ *   `downloadTokens` (sandbox `getDownloadURL` encodes the blob into a `data:`
+ *   URI instead of minting Firebase download tokens).
  * - Database name is overridable so tests can isolate state per
  *   case via fake-indexeddb without colliding on the production
  *   default `pyric-storage`.

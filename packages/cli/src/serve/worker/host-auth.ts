@@ -188,6 +188,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = authSandboxOps.mintSession(auth, {
           kind: 'createPassword', email: msg.email, password: msg.password,
+          tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx); // new user record must be durable at ack
@@ -200,6 +201,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = authSandboxOps.mintSession(auth, {
           kind: 'password', email: msg.email, password: msg.password,
+          tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
         ok(port, msg.id, credReply(session, null));
@@ -214,7 +216,9 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           ok(port, msg.id, credReply(existing, null));
           break;
         }
-        const session = authSandboxOps.mintSession(auth, { kind: 'anonymous' });
+        const session = authSandboxOps.mintSession(auth, {
+          kind: 'anonymous', tenantId: msg.tenantId ?? null,
+        });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
         ok(port, msg.id, credReply(session, null));
@@ -234,7 +238,9 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         let session: MintedSession | null = null;
         try {
-          session = authSandboxOps.mintSession(auth, { kind: 'uid', uid: msg.uid });
+          session = authSandboxOps.mintSession(auth, {
+            kind: 'uid', uid: msg.uid, tenantId: msg.tenantId ?? null,
+          });
         } catch {
           session = null;
         }
@@ -415,7 +421,9 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           customClaims: customClaims ?? {},
           providerId,
         }]);
-        const session = authSandboxOps.mintSession(auth, { kind: 'uid', uid });
+        const session = authSandboxOps.mintSession(auth, {
+          kind: 'uid', uid, tenantId: msg.tenantId ?? null,
+        });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
         ok(port, msg.id, credReply(session, providerId));
