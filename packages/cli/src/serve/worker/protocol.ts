@@ -268,6 +268,9 @@ export interface SerializedUser {
   readonly photoURL: string | null;
   readonly phoneNumber: string | null;
   readonly isAnonymous: boolean;
+  /** Identity Platform tenant this session authenticated under, or `null`
+   *  for the project-level pool. Mirrors `firebase/auth`'s `User.tenantId`. */
+  readonly tenantId: string | null;
   readonly providerId: string | null;
   readonly providerData: ReadonlyArray<{
     readonly displayName: string | null;
@@ -332,6 +335,7 @@ export function serializeUser(
     photoURL?: string | null;
     phoneNumber?: string | null;
     isAnonymous: boolean;
+    tenantId?: string | null;
     providerId?: string;
     providerData?: ReadonlyArray<{
       displayName: string | null;
@@ -352,6 +356,7 @@ export function serializeUser(
     photoURL: user.photoURL ?? null,
     phoneNumber: user.phoneNumber ?? null,
     isAnonymous: user.isAnonymous,
+    tenantId: user.tenantId ?? null,
     providerId: user.providerId ?? null,
     providerData: (user.providerData ?? []).map((p) => ({
       displayName: p.displayName,
@@ -439,9 +444,13 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'listRootCollections' }
   | { t: 'op'; id: string; method: 'listSubcollections'; docPath: string }
   // ── Auth ops (surface: 'auth') ──────────────────────────────────────────
-  | { t: 'op'; id: string; method: 'auth.createUser'; email: string; password: string }
-  | { t: 'op'; id: string; method: 'auth.signInEmail'; email: string; password: string }
-  | { t: 'op'; id: string; method: 'auth.signInAnonymously' }
+  // `tenantId` on the sign-in ops carries the calling port's `Auth.tenantId`
+  // (absent or null means the project-level pool). Sessions are per-port, so
+  // the tenant travels with each request rather than being worker state: two
+  // ports can hold the same identity under different tenants.
+  | { t: 'op'; id: string; method: 'auth.createUser'; email: string; password: string; tenantId?: string | null }
+  | { t: 'op'; id: string; method: 'auth.signInEmail'; email: string; password: string; tenantId?: string | null }
+  | { t: 'op'; id: string; method: 'auth.signInAnonymously'; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.signOut' }
   | { t: 'op'; id: string; method: 'auth.getIdToken'; forceRefresh?: boolean }
   | { t: 'op'; id: string; method: 'auth.getIdTokenResult'; forceRefresh?: boolean }
@@ -456,9 +465,9 @@ export type OpMessage = (
   // existing identity (the uid the page persisted in web storage). Soft — the
   // reply value is the serialized user, or null when the uid no longer
   // resolves (deleted / disabled), so a stale record just means signed out.
-  | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string }
+  | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
   // Provider sign-in bridge: identity resolved in-page, signed in on the worker.
-  | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity }
+  | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity; tenantId?: string | null }
   // Admin user-DB ops (Pyric Studio data browse): mirror `pyric/auth`'s
   // `sandbox.{listUsers,createUser,updateUser,deleteUser,clearUsers}` over the
   // port. Records are plain JSON (AuthUserRecord); requests are plain objects.

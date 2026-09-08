@@ -43,6 +43,9 @@ export interface SeedUser {
   /** Whether the account rejects every sign-in with
    *  `auth/user-disabled`. Omitted when false — the seeded default. */
   disabled?: boolean;
+  /** Identity Platform tenant the record belongs to. Omitted for
+   *  untenanted identities. Absent is the seeded default. */
+  tenantId?: string;
   /** Originating provider for this identity (e.g. `'google.com'`).
    *  Defaults to `'password'` — the natural provider for a record
    *  seeded with an email + password. A host seeding popup-flow
@@ -56,11 +59,20 @@ export interface SeedUser {
  * per client sign-in shape, plus `uid` for existing identities
  * (session restore, provider-bridge accept).
  */
-export type MintSessionRequest =
+export type MintSessionRequest = TenantScope & (
   | { kind: 'anonymous' }
   | { kind: 'password'; email: string; password: string }
   | { kind: 'createPassword'; email: string; password: string }
-  | { kind: 'uid'; uid: string };
+  | { kind: 'uid'; uid: string }
+);
+
+/** The tenant a minted session authenticates under. Carried on every
+ *  {@link MintSessionRequest} because a detached session has no `Auth` handle
+ *  to read `tenantId` from: the caller (the SharedWorker host, acting for one
+ *  port's `ClientAuth`) states it per request. Absent means untenanted. */
+export interface TenantScope {
+  tenantId?: string | null;
+}
 
 /** A minted per-connection session: the `User` plus the {@link AuthState}
  *  its data contexts should carry (`sandbox.withAuth(state)`). */
@@ -148,6 +160,11 @@ export interface StoredUser {
   /** ISO timestamp of the most recent sign-in, or null if this
    *  identity never signed in. */
   lastLoginAt: string | null;
+  /** Identity Platform tenant this identity last signed in under, or
+   *  `null` for the project-level (untenanted) pool. Written from
+   *  `Auth.tenantId` at sign-in and read back on session restore, so a
+   *  restored user keeps the tenant it authenticated with. */
+  tenantId: string | null;
 }
 
 /**

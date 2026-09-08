@@ -108,10 +108,22 @@ function makeAuthHandle(target: Target, app?: FirebaseApp): Auth {
       return signOut(handle as Auth);
     },
   } as Auth;
-  return Object.defineProperty(handle, 'currentUser', {
+  Object.defineProperty(handle, 'currentUser', {
     enumerable: true,
     get(): User | null {
       return target.backend.getCurrentUser();
+    },
+  });
+  // `tenantId` is an accessor rather than a plain field so the value an app
+  // assigns is the value the backend reads when it fixes a sign-in's tenant.
+  // Every handle over one backend therefore agrees on the active tenant.
+  return Object.defineProperty(handle, 'tenantId', {
+    enumerable: true,
+    get(): string | null {
+      return target.backend.getTenantId();
+    },
+    set(tenantId: string | null): void {
+      target.backend.setTenantId(tenantId);
     },
   });
 }

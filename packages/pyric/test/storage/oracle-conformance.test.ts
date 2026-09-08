@@ -187,15 +187,11 @@ describe('oracle conformance (storage)', () => {
     expect(upload.metadata.size).toBe(obs.bodyLen as number);
 
     const url = await getDownloadURL(r);
-    try {
-      const read = new Uint8Array(await (await fetch(url)).arrayBuffer());
-      const bytesMatch = read.length === payload.length && read.every((b, i) => b === payload[i]);
-      expect(bytesMatch).toBe(obs.bytesMatch as boolean);
-      expect(obs.urlIsHttps).toBe(true); // production URL shape
-      expect(url.startsWith('blob:')).toBe(true); // sandbox's documented divergence
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    const read = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    const bytesMatch = read.length === payload.length && read.every((b, i) => b === payload[i]);
+    expect(bytesMatch).toBe(obs.bytesMatch as boolean);
+    expect(obs.urlIsHttps).toBe(true); // production URL shape
+    expect(url.startsWith('data:')).toBe(true); // sandbox portable data: URI
   });
 
   it('storage-uploadstring-base64-roundtrip', async () => {
@@ -204,13 +200,9 @@ describe('oracle conformance (storage)', () => {
     const r = ref(storage, 'roundtrip/hello.txt');
     await uploadString(r, 'aGVsbG8=', 'base64');
     const url = await getDownloadURL(r);
-    try {
-      const text = await (await fetch(url)).text();
-      expect(text).toBe(obs.downloadText as string);
-      expect(text === (obs.downloadText as string)).toBe(obs.textMatches as boolean);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    const text = await (await fetch(url)).text();
+    expect(text).toBe(obs.downloadText as string);
+    expect(text === (obs.downloadText as string)).toBe(obs.textMatches as boolean);
   });
 
   it('storage-upload-then-getmetadata (KNOWN DIVERGENCE: md5Hash)', async () => {
