@@ -1,6 +1,6 @@
 /**
- * Tests for Issue #159: Storage: getDownloadURL (local blob URL) and
- * resumable uploads with synthetic/mock progress events.
+ * Storage `getDownloadURL` and resumable uploads with synthetic progress
+ * events.
  */
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
@@ -34,8 +34,8 @@ function freshStorage(label: string) {
   return getStorageSandbox(sandbox, { dbName: uniqueDbName(label), rules: OPEN_RULES });
 }
 
-describe('getDownloadURL and resumable uploads (#159)', () => {
-  it('getDownloadURL returns a valid blob URL for stored objects', async () => {
+describe('getDownloadURL and resumable uploads', () => {
+  it('getDownloadURL returns a data URI for stored objects', async () => {
     const storage = freshStorage('download-url-valid');
     const fileRef = ref(storage, 'docs/readme.txt');
     await uploadBytes(fileRef, new Blob(['hello world'], { type: 'text/plain' }));
