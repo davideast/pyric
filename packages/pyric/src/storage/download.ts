@@ -21,6 +21,7 @@ import { getStorageService, storageAuth, storageOperationProvenance, targetOf } 
 import { enforceRules } from './enforce.js';
 import { resourceFromStored } from './sandbox/rules-resources.js';
 import { objectNotFound, invalidRootOperation } from './errors.js';
+import { arrayBufferToBase64 } from './base64.js';
 import type { StorageReference } from './reference.js';
 
 /**
@@ -54,10 +55,18 @@ export async function getBlob(
 }
 
 /**
- * Return a URL the current page can use to read the sandbox object. The URL is
- * created from the same rules-checked blob as {@link getBlob}. It is a
- * snapshot, cannot be shared outside the page, and stays
- * alive until the caller revokes it or the page unloads.
+ * Return a URL that reads the sandbox object, built from the same
+ * rules-checked blob as {@link getBlob}.
+ *
+ * The URL is a `data:<contentType>;base64,<payload>` URI: the object's bytes
+ * are carried inside the string itself. That makes it resolvable wherever the
+ * string travels (Node.js, an SSR render, a worker, a page) rather than only
+ * inside the realm that produced it. Production returns a token-signed HTTPS
+ * URL served by Google Cloud Storage instead; a consumer can rely on `fetch`
+ * of either form yielding the object's bytes and its content type.
+ *
+ * Objects stored without a content type read back as
+ * `application/octet-stream`.
  */
 export async function getDownloadURL(ref: StorageReference): Promise<string> {
   guardNonRoot(ref, 'getDownloadURL');
@@ -65,18 +74,6 @@ export async function getDownloadURL(ref: StorageReference): Promise<string> {
   const contentType = blob.type || 'application/octet-stream';
   const base64 = arrayBufferToBase64(await blob.arrayBuffer());
   return `data:${contentType};base64,${base64}`;
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(buffer).toString('base64');
-  }
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]!);
-  }
-  return btoa(binary);
 }
 
 /**
