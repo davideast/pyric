@@ -131,7 +131,6 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.setPersistence'; mode: AuthPersistenceMode }
   | { t: 'op'; id: string; method: 'auth.getCurrentUser' }
   | { t: 'op'; id: string; method: 'auth.updateProfile'; displayName?: string | null; photoURL?: string | null }
-<<<<<<< HEAD
   | { t: 'op'; id: string; method: 'auth.setTenantId'; tenantId: string | null }
   | { t: 'op'; id: string; method: 'auth.reload' }
   | { t: 'op'; id: string; method: 'auth.deleteUser' }
@@ -153,20 +152,8 @@ export type OpMessage = (
         uid?: string | null;
       };
     }
-  | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string }
-  | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity }
-=======
-  // Per-tab session restore (#754): re-establish THIS PORT's session for an
-  // existing identity (the uid the page persisted in web storage). Soft — the
-  // reply value is the serialized user, or null when the uid no longer
-  // resolves (deleted / disabled), so a stale record just means signed out.
   | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
-  // Provider sign-in bridge: identity resolved in-page, signed in on the worker.
   | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity; tenantId?: string | null }
-  // Admin user-DB ops (Pyric Studio data browse): mirror `pyric/auth`'s
-  // `sandbox.{listUsers,createUser,updateUser,deleteUser,clearUsers}` over the
-  // port. Records are plain JSON (AuthUserRecord); requests are plain objects.
->>>>>>> origin/main
   | { t: 'op'; id: string; method: 'auth.listUsers' }
   | { t: 'op'; id: string; method: 'auth.adminCreateUser'; request: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'auth.adminUpdateUser'; uid: string; request: Record<string, unknown> }
