@@ -49,6 +49,7 @@ export class ChildListeners {
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
       mockData: this.state.tree.snapshot() as Record<string, unknown>,
+      querySpec: spec,
     });
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {

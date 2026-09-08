@@ -6,7 +6,7 @@ import {
 import type { RuleError } from '../types.js';
 
 const ALLOWED_IDENTIFIERS: Record<string, Set<string>> = {
-  read: new Set(['auth', 'data', 'root', 'now']),
+  read: new Set(['auth', 'data', 'root', 'now', 'query']),
   write: new Set(['auth', 'data', 'newData', 'root', 'now']),
   validate: new Set(['auth', 'data', 'newData', 'root', 'now']),
 };

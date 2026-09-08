@@ -1,7 +1,7 @@
 import { DataSnapshot, evaluateRtdbExpression } from '../grammar/simulator.js';
 import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
-import { SimulationInputSchema } from './spec.js';
+import { SimulationInputSchema, type SimulationInput } from './spec.js';
 import type { SimulateResult } from './spec.js';
 
 interface AncestorMatch {
@@ -344,6 +344,25 @@ function projectPostWriteTree(
   return root;
 }
 
+function buildSimulatedQueryContext(
+  operation: string,
+  query: SimulationInput['query'],
+): EvalContext['query'] {
+  if (operation !== 'read' || !query) {
+    return null;
+  }
+  return {
+    orderByChild: query.orderByChild ?? null,
+    orderByKey: query.orderByKey ?? null,
+    orderByValue: query.orderByValue ?? null,
+    equalTo: query.equalTo ?? null,
+    limitToFirst: query.limitToFirst ?? null,
+    limitToLast: query.limitToLast ?? null,
+    startAt: query.startAt ?? null,
+    endAt: query.endAt ?? null,
+  };
+}
+
 export class SimulateHandler {
   execute(compiled: RtdbNode, rawInput: unknown): SimulateResult {
     const parsed = SimulationInputSchema.safeParse(rawInput);
@@ -358,7 +377,7 @@ export class SimulateHandler {
       };
     }
 
-    const { operation, path, auth, mockData, newData, updates } = parsed.data;
+    const { operation, path, auth, mockData, newData, updates, query } = parsed.data;
 
     try {
       const pathSegments = path.split('/').filter(Boolean);
@@ -417,6 +436,8 @@ export class SimulateHandler {
         };
       }
 
+      const contextQuery = buildSimulatedQueryContext(operation, query);
+
       const buildContext: ContextBuilder = (data, newDataArg, bindings) => {
         const pvBindings: Record<string, string> = {};
         for (const [k, v] of Object.entries(bindings)) {
@@ -430,6 +451,7 @@ export class SimulateHandler {
           root: rootData,
           now: Date.now(),
           pathVariableBindings: pvBindings,
+          query: contextQuery,
         };
       };
 

@@ -55,6 +55,17 @@ function processStringEscapes(raw: string): string {
   return out;
 }
 
+export interface SimulatedQuery {
+  orderByChild?: string | null;
+  orderByKey?: boolean | null;
+  orderByValue?: boolean | null;
+  equalTo?: string | number | boolean | null;
+  limitToFirst?: number | null;
+  limitToLast?: number | null;
+  startAt?: string | number | boolean | null;
+  endAt?: string | number | boolean | null;
+}
+
 export interface EvalContext {
   auth: SimulatedAuth | null;
   data: DataSnapshot;
@@ -62,6 +73,7 @@ export interface EvalContext {
   root: DataSnapshot;
   now: number;
   pathVariableBindings: Record<string, string>;
+  query?: SimulatedQuery | null;
 }
 
 export class DataSnapshot {
@@ -344,6 +356,7 @@ function getEvalSemantics(): Semantics {
         case 'newData': return ctx?.newData;
         case 'root': return ctx?.root;
         case 'now': return ctx?.now;
+        case 'query': return ctx?.query ?? null;
         default: return undefined;
       }
     },
