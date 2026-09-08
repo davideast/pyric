@@ -497,7 +497,7 @@ try {
     socket.on('open', () => socket.send(JSON.stringify({
       type: 'hello',
       protocol: 1,
-      tools: ['sandbox_inspect'],
+      tools: ['control_sandbox_environment'],
       sandboxId: 'packed-smoke-peer',
     })));
     socket.on('message', (raw) => {
@@ -529,7 +529,10 @@ try {
       `packed bridge MCP contract drifted\nexpected: ${expected.join(', ')}\nactual:   ${actual.join(', ')}`,
     );
   }
-  const called = await client.callTool({ name: 'sandbox_inspect', arguments: {} });
+  const called = await client.callTool({
+    name: 'control_sandbox_environment',
+    arguments: { action: 'reset_all' },
+  });
   const payload = JSON.parse(called.content[0].text);
   if (!payload.ok || payload.summary !== 'packed sandbox peer responded') {
     throw new Error(`unexpected forwarded result: ${JSON.stringify(payload)}`);

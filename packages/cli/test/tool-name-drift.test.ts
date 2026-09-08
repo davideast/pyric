@@ -43,13 +43,7 @@ const KNOWN_UNREGISTERED: Record<string, string> = {
   rtdb_update: 'no handler exists',
   rtdb_validated_write: 'no handler exists',
   // Legacy tools referenced in docs/skills replaced by Typed-Service Contract (12 tools + 7 pyric:// resources)
-  firestore_simulator_create: 'replaced by control_sandbox_environment / mutate_sandbox_data',
-  firestore_simulator_execute: 'replaced by mutate_sandbox_data',
-  firestore_simulator_read: 'replaced by query_sandbox_data',
-  firestore_simulator_events: 'replaced by pyric://sandbox/events',
-  firestore_get_document: 'replaced by query_sandbox_data / pyric://firestore/docs/{path}',
   firestore_list_documents: 'replaced by query_sandbox_data / pyric://firestore/docs/{path}',
-  firestore_create_document: 'replaced by mutate_sandbox_data',
   firestore_add_document: 'replaced by mutate_sandbox_data',
   firestore_batch_write: 'replaced by mutate_sandbox_data',
   firestore_query_where: 'replaced by query_sandbox_data',
@@ -64,10 +58,6 @@ const KNOWN_UNREGISTERED: Record<string, string> = {
   rules_stdlib_list: 'replaced by pyric://stdlib/rules/{module}',
   rules_stdlib_get: 'replaced by pyric://stdlib/rules/{module}',
   rules_resolve_modules: 'replaced by verify_security_rules',
-  auth_impersonate: 'replaced by switch_auth_identity',
-  auth_reset: 'replaced by switch_auth_identity',
-  auth_whoami: 'replaced by inspect_auth_flow',
-  auth_sessions: 'replaced by inspect_auth_flow',
 };
 
 const SCAN_ROOTS = ['pyric-plugin', '.agents/skills', 'packages/site-docs/src/content'];

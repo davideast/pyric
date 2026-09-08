@@ -23,38 +23,38 @@ describe('tool-parity extraction against the real codebase', () => {
   const playground = enumeratePlayground();
   const { rows, staleAnnotations } = audit();
 
-  test('the freshness guard reads the file that names every MCP factory', () => {
-    // A guard pointed at a file that references no factory passes vacuously,
-    // so the target must be the side map that wires each family.
+  test('the freshness guard reads the file that references MCP_TOOL_CONTRACTS', () => {
+    // A guard pointed at a file that references no contracts passes vacuously,
+    // so the target must be the side map that wires MCP_TOOL_CONTRACTS.
     expect(MCP_COMPOSITION_FILE).toBe('packages/cli/src/bridge/server/tool-family-factories.ts');
     const source = readFileSync(join(REPO_ROOT, MCP_COMPOSITION_FILE), 'utf8');
-    expect(source.match(/\bcreate[A-Z][A-Za-z]*Tool(?:s)?\b/g)?.length ?? 0).toBeGreaterThan(0);
+    expect(source.includes('MCP_TOOL_CONTRACTS')).toBe(true);
   });
 
   test('finds a sane minimum of tools overall', () => {
-    // 78 at time of writing; a hard floor of 20 catches "extraction
-    // silently found almost nothing" without churning on every add.
+    // Hard floor of 20 catches "extraction silently found almost nothing" without churning on every add.
     expect(rows.length).toBeGreaterThanOrEqual(20);
   });
 
   test('each surface finds a sane minimum', () => {
-    expect(mcp.size).toBeGreaterThanOrEqual(15); // 24 at time of writing
-    expect(playground.size).toBeGreaterThanOrEqual(15); // 27 at time of writing
+    expect(mcp.size).toBe(12); // Exact 12 verb-first action tools
+    expect(playground.size).toBeGreaterThanOrEqual(15); // 30 at time of writing
   });
 
-  test('known bridge tools are present (forwarded + in-process)', () => {
+  test('known bridge tools are present (the 12 verb-first action tools)', () => {
     for (const name of [
-      'firestore_simulator_create',
-      'firestore_simulator_execute',
-      'firestore_get_document',
-      'firestore_batch_write',
-      'sandbox_inspect',
-      'rtdb_simulate_access',
-      'rtdb_crawl_structure',
-      'firestore_simulate_rules',
-      'firestore_lint_rules',
-      'firestore_rules_stdlib_list',
-      'firestore_test_rules',
+      'switch_auth_identity',
+      'manage_auth_users',
+      'inspect_auth_flow',
+      'mutate_sandbox_data',
+      'query_sandbox_data',
+      'manage_storage_files',
+      'diagnose_rule_denial',
+      'verify_security_rules',
+      'dry_run_experiment',
+      'control_sandbox_environment',
+      'invoke_cloud_function',
+      'configure_ai_mock',
     ]) {
       expect(mcp.has(name)).toBe(true);
     }
