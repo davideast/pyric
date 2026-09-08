@@ -1,53 +1,53 @@
 {
   "_readme": "Exposure decisions for the tool parity audit (scripts/tool-parity.mjs). Every tool visible on either surface (MCP bridge / playground agent) must be recorded here as 'gap' (absence is a defect to fix) or 'deliberate' (absence is design, with the reason). Unannotated tools fail `bun run tool:parity --check`. Seeded from docs/design/TOOL-SYSTEM.md's exposure matrix.",
   "tools": {
-    "auth_create_user": {
+    "switch_auth_identity": {
       "decision": "deliberate",
-      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground seeds and inspects its own session pool with seed_auth_users / inspect_auth_users instead of the bridge user store"
+      "reason": "MCP bridge verb-first identity switching tool; Playground switches identity through its session UI and auth controls"
     },
-    "auth_import_users": {
+    "manage_auth_users": {
       "decision": "deliberate",
-      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground bulk-creates identities with seed_auth_users instead"
+      "reason": "MCP bridge verb-first Auth user administration tool; Playground seeds and inspects its own session pool with seed_auth_users / inspect_auth_users"
     },
-    "auth_get_user": {
+    "inspect_auth_flow": {
       "decision": "deliberate",
-      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground reads its own session pool with inspect_auth_users"
+      "reason": "MCP bridge outbox mail and session inspection tool; Playground inspects session state directly"
     },
-    "auth_list_users": {
+    "mutate_sandbox_data": {
       "decision": "deliberate",
-      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground reads its own session pool with inspect_auth_users"
+      "reason": "MCP bridge atomic data mutation tool for Firestore and Realtime Database; Playground uses its native session workspace"
     },
-    "auth_update_user": {
+    "query_sandbox_data": {
       "decision": "deliberate",
-      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground has no mutating user editor and reseeds instead"
+      "reason": "MCP bridge structured query tool for Firestore and Realtime Database; Playground uses its native session workspace"
     },
-    "auth_delete_user": {
+    "manage_storage_files": {
       "decision": "deliberate",
-      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground has no mutating user editor and reseeds instead"
+      "reason": "MCP bridge Cloud Storage object management tool; Playground manages storage files through its workspace tools"
     },
-    "auth_set_claims": {
+    "diagnose_rule_denial": {
       "decision": "deliberate",
-      "reason": "attached-sandbox user administration belongs on the MCP bridge; the Playground sets custom claims at seed time through seed_auth_users"
+      "reason": "MCP bridge AST-level security rules denial tracer; Playground reaches denial tracing through its native diagnostic tools"
     },
-    "auth_custom_token": {
+    "verify_security_rules": {
       "decision": "deliberate",
-      "reason": "attached-sandbox credential minting belongs on the MCP bridge; the Playground signs its session identities in directly"
+      "reason": "MCP bridge rules linter, module resolver, and suite simulator; Playground verifies rules inside its authoring workflow"
     },
-    "auth_impersonate": {
+    "dry_run_experiment": {
       "decision": "deliberate",
-      "reason": "operates on the bridge process's registry of connected clients and its caller identity, neither of which the Playground has; also reachable as `pyric auth impersonate`"
+      "reason": "MCP bridge copy-on-write sandbox branching and traffic regression verifier; external agent workflow"
     },
-    "auth_reset": {
+    "control_sandbox_environment": {
       "decision": "deliberate",
-      "reason": "operates on the bridge process's registry of connected clients and its caller identity, neither of which the Playground has; also reachable as `pyric auth reset`"
+      "reason": "MCP bridge environment control (reset_all, clock advance, network toggle); external agent workflow"
     },
-    "auth_whoami": {
+    "invoke_cloud_function": {
       "decision": "deliberate",
-      "reason": "reports the bridge process's caller identity, which the Playground has no equivalent of; also reachable as `pyric auth whoami`"
+      "reason": "MCP bridge callable/event Cloud Function invocation tool; external agent workflow"
     },
-    "auth_sessions": {
+    "configure_ai_mock": {
       "decision": "deliberate",
-      "reason": "lists the clients connected to the bridge process, which the Playground has no equivalent of; also reachable as `pyric auth sessions`"
+      "reason": "MCP bridge deterministic AI scripting and mock configuration tool; external agent workflow"
     },
     "pyric_can_i_use": {
       "decision": "deliberate",
@@ -61,49 +61,9 @@
       "decision": "deliberate",
       "reason": "Playground orchestration wrapper; external agents compose the MCP rules and inspection primitives directly"
     },
-    "firestore_add_document": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_batch_write": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_create_document": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_create_with_auto_id": {
-      "decision": "deliberate",
-      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
-    },
-    "firestore_delete_document": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
     "firestore_extract_indexes": {
       "decision": "deliberate",
       "reason": "artifact generation is exposed through `pyric firestore indexes generate`; external agents can invoke the CLI without a duplicate MCP tool"
-    },
-    "firestore_get_document": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_lint_rules": {
-      "decision": "deliberate",
-      "reason": "local MCP rules primitive; the Playground reaches linting through its native authoring workflow rather than a duplicate top-level handler"
-    },
-    "firestore_list_documents": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_query_where": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
-    "firestore_resolve_modules": {
-      "decision": "deliberate",
-      "reason": "local MCP rules primitive; the Playground resolves modules inside its native authoring and write workflow"
     },
     "firestore_rules_stdlib_get": {
       "decision": "deliberate",
@@ -121,65 +81,9 @@
       "decision": "deliberate",
       "reason": "service-aware rules-authoring reference intentionally shared across MCP and Playground"
     },
-    "rules_resolve_modules": {
-      "decision": "deliberate",
-      "reason": "local MCP Rules primitive; the Playground resolves modules inside its native authoring and write workflow"
-    },
-    "firestore_simulate_rules": {
-      "decision": "deliberate",
-      "reason": "local MCP rules primitive; the Playground reaches simulation through its diagnostic workflow rather than a duplicate top-level handler"
-    },
-    "firestore_simulator_batch": {
-      "decision": "deliberate",
-      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
-    },
-    "firestore_simulator_create": {
-      "decision": "deliberate",
-      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
-    },
-    "firestore_simulator_events": {
-      "decision": "deliberate",
-      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
-    },
-    "firestore_simulator_execute": {
-      "decision": "deliberate",
-      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
-    },
-    "firestore_simulator_read": {
-      "decision": "deliberate",
-      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
-    },
-    "firestore_simulator_redo": {
-      "decision": "deliberate",
-      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
-    },
-    "firestore_simulator_transaction": {
-      "decision": "deliberate",
-      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
-    },
-    "firestore_simulator_undo": {
-      "decision": "deliberate",
-      "reason": "stateful simulator operation for external MCP sessions; the Playground owns its simulator through higher-level session workflows"
-    },
-    "firestore_test_rules": {
-      "decision": "gap",
-      "reason": "Rules Test API verification is allowed but is not in the default credential-free MCP contract; it needs an explicit credential-aware adapter"
-    },
-    "firestore_update_document": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox CRUD belongs in MCP; the Playground uses its native session workspace instead of duplicating the bridge data plane"
-    },
     "inspect_auth_users": {
       "decision": "deliberate",
       "reason": "Playground session-inspection affordance; the default MCP contract currently exposes only ratified attached-sandbox tool families"
-    },
-    "rtdb_crawl_structure": {
-      "decision": "deliberate",
-      "reason": "bounded attached-sandbox inspection belongs in MCP; the Playground reads its own session state directly"
-    },
-    "rtdb_simulate_access": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox rules inspection belongs in MCP; the Playground uses its own session rules engine"
     },
     "run_workspace_tests": {
       "decision": "deliberate",
@@ -188,10 +92,6 @@
     "sandbox_discover_paths": {
       "decision": "deliberate",
       "reason": "Playground session-navigation affordance; MCP already exposes bounded list, query, and inspect primitives"
-    },
-    "sandbox_inspect": {
-      "decision": "deliberate",
-      "reason": "attached-sandbox diagnostic belongs in MCP; the Playground observes its session state directly"
     },
     "seed_auth_users": {
       "decision": "deliberate",

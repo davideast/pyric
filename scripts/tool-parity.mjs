@@ -104,39 +104,9 @@ const PYRIC = 'packages/pyric/src';
 const TOOLS = 'packages/cli/src';
 const PLAY = 'packages/playground/src/lib';
 
-/** The one bridge file that names every MCP tool factory; the freshness guard reads it. */
+/** The bridge file that defines every MCP tool contract; the freshness guard checks it. */
 export const MCP_COMPOSITION_FILE = `${TOOLS}/bridge/server/tool-family-factories.ts`;
-
-/** MCP bridge, sandbox mode — mirrors bridge/server/tool-family-factories.ts. */
-const MCP_CONTRIBUTIONS = [
-  { file: `${PYRIC}/rules/simulator-tools-impl.ts`, factory: 'createFirestoreSimulatorTools', gate: 'forwarded' },
-  { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'forwarded' },
-  { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools', gate: 'forwarded' },
-  { file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools', gate: 'forwarded' },
-  { file: `${TOOLS}/auth/users.ts`, factory: 'createAuthUsersTools', gate: 'forwarded' },
-  // The identity tools read the bridge process's client registry and caller
-  // identity, so they run in-process and report nothing without a live bridge.
-  { file: `${TOOLS}/auth/identity-tools.ts`, factory: 'createAuthIdentityTools', gate: 'in-process' },
-  // getRulesToolHandlers → createFirestoreRulesTools, which spreads the
-  // stdlib factory and adds firestore_test_rules only when a scope is
-  // supplied (the default sandbox bridge supplies none).
-  {
-    file: `${PYRIC}/rules/tools.ts`,
-    factory: 'createFirestoreRulesTools',
-    gate: 'in-process',
-    gates: { firestore_test_rules: 'in-process, scope-gated' },
-  },
-  { file: `${PYRIC}/rules/stdlib-tools.ts`, factory: 'createFirestoreRulesStdlibTools', gate: 'in-process' },
-  // createConformanceTools registers the shared createCanIUseTool factory,
-  // which owns the name literal for both the MCP and Playground surfaces;
-  // `via` points name extraction at it.
-  {
-    file: `${TOOLS}/conformance/tools.ts`,
-    factory: 'createConformanceTools',
-    via: { file: `${TOOLS}/conformance/can-i-use-tool.ts`, factory: 'createCanIUseTool' },
-    gate: 'in-process',
-  },
-];
+export const MCP_CONTRACT_REGISTRY_FILE = `${TOOLS}/bridge/contract/registry.ts`;
 
 /**
  * Playground agent — mirrors lib/tools/index.ts buildToolRegistry().
@@ -215,10 +185,12 @@ function assertCovered(rel, covered, { ignore = [] } = {}) {
 }
 
 function checkFreshness() {
-  assertCovered(
-    MCP_COMPOSITION_FILE,
-    new Set(MCP_CONTRIBUTIONS.map((c) => c.factory)),
-  );
+  const compositionSource = read(MCP_COMPOSITION_FILE);
+  if (!compositionSource.includes('MCP_TOOL_CONTRACTS')) {
+    throw new Error(
+      `tool-parity: ${MCP_COMPOSITION_FILE} does not reference MCP_TOOL_CONTRACTS — the freshness guard target is stale`,
+    );
+  }
   // Playground: every wrapper-style tool module (builder export, no name
   // literal) must have an explicit entry, or its tools would be missed.
   for (const { dir } of PLAYGROUND_DIRS) {
@@ -256,10 +228,10 @@ function addTool(surface, name, gate) {
 
 export function enumerateMcp() {
   const surface = new Map();
-  for (const c of MCP_CONTRIBUTIONS) {
-    for (const name of factoryNames((c.via ?? c).file, (c.via ?? c).factory)) {
-      addTool(surface, name, c.gates?.[name] ?? c.gate);
-    }
+  const registrySource = read(MCP_CONTRACT_REGISTRY_FILE);
+  const toolRe = /defineToolContract\(\{\s*name:\s*['"]([a-z][a-z0-9_]{2,})['"]/g;
+  for (const m of registrySource.matchAll(toolRe)) {
+    addTool(surface, m[1], 'forwarded');
   }
   return surface;
 }
