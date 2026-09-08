@@ -264,6 +264,27 @@ export class SandboxBackend {
    */
   private avatarMint: AvatarMint = defaultAvatarMint;
 
+  /**
+   * Tenant the NEXT sign-in through this handle authenticates against, or
+   * `null` for the project-level pool. Backs `Auth.tenantId`: the handle is a
+   * thin accessor over this field, so the value an app assigns before calling
+   * a sign-in function is the value {@link applyTenantScope} stamps onto the
+   * user and its stored record.
+   */
+  private tenantId: string | null = null;
+
+  /** Read `Auth.tenantId`. */
+  getTenantId(): string | null {
+    return this.tenantId;
+  }
+
+  /** Write `Auth.tenantId`. Takes effect on the next sign-in; the current
+   *  session keeps the tenant it authenticated with, matching prod, where the
+   *  tenant is fixed at the moment credentials are exchanged. */
+  setTenantId(tenantId: string | null): void {
+    this.tenantId = tenantId;
+  }
+
   constructor(
     sandbox: Sandbox,
     session: Pick<Sandbox, 'currentUser' | 'onCurrentUserChanged'> = sandbox,
@@ -460,6 +481,7 @@ export class SandboxBackend {
       emailVerified: false,
       createdAt: new Date().toISOString(),
       lastLoginAt: null,
+      tenantId: null,
       ...init,
     };
     const providerId = creationProviderId(record, signInProviderId);
@@ -760,6 +782,7 @@ export class SandboxBackend {
         emailVerified: u.emailVerified ?? false,
         disabled: u.disabled ?? false,
         providerUserInfo: [{ providerId: u.providerId ?? 'password' }],
+        tenantId: u.tenantId ?? null,
       });
       this.usersByEmail.set(u.email.toLowerCase(), record);
       this.usersByUid.set(u.uid, record);
@@ -794,6 +817,7 @@ export class SandboxBackend {
       if (Object.keys(u.customClaims).length > 0) seed.customClaims = u.customClaims;
       if (u.emailVerified) seed.emailVerified = true;
       if (u.disabled) seed.disabled = true;
+      if (u.tenantId !== null) seed.tenantId = u.tenantId;
       out.push(seed);
     }
     return out;
@@ -1220,6 +1244,13 @@ export class SandboxBackend {
    * pre-resolved promise on the fast path instead of ever suspending.
    */
   transitionCurrentUser(user: User | null, signInProvider?: string | null): Promise<void> {
+    // A `signInProvider` argument marks a REAL sign-in, which is the moment
+    // the tenant is fixed (the test driver omits it and leaves the tenant
+    // alone). Applied before the gate runs so a `beforeAuthStateChanged`
+    // callback inspecting the user sees the tenant it will sign in under.
+    if (user !== null && signInProvider !== undefined) {
+      this.scopeSignInToTenant(user);
+    }
     const hasActiveGate = this.beforeStateSubs.some((reg) => reg.active);
     if (!hasActiveGate || user === this.cachedUser) {
       this.setCurrentUser(user, signInProvider);
@@ -1247,6 +1278,21 @@ export class SandboxBackend {
    * test driver (`sandbox.setUser`), which leaves any previous value
    * in place.
    */
+  /**
+   * Fix a signing-in user to the handle's current {@link tenantId}. This is
+   * the sandbox's stand-in for Identity Platform resolving credentials against
+   * one tenant's user pool. The value lands in two places: on the `User` (so
+   * `user.tenantId` reads back, matching `firebase/auth`) and on the stored
+   * record (so a session restored after a reload, which rebuilds the user from
+   * that record, keeps the tenant it authenticated with).
+   */
+  private scopeSignInToTenant(user: User): void {
+    const tenantId = this.tenantId;
+    (user as Mutable<User>).tenantId = tenantId;
+    const stored = this.usersByUid.get(user.uid);
+    if (stored) stored.tenantId = tenantId;
+  }
+
   setCurrentUser(user: User | null, signInProvider?: string | null): void {
     if (user === null) {
       // Sign-out. Drop the cached token so a later re-sign-in for the
@@ -1307,7 +1353,9 @@ export class SandboxBackend {
     // Push to the sandbox under the guard so the synchronous subscriber
     // doesn't notify — we drive the fan-out below with the correct
     // id-token / auth-state split.
-    const nextState: AuthState = { uid: user.uid, token: claims };
+    const signedInState: NonNullable<AuthState> = { uid: user.uid, token: claims };
+    if (typeof user.tenantId === 'string') signedInState.tenant = user.tenantId;
+    const nextState: AuthState = signedInState;
     this.applyingTransition = true;
     try {
       this.session.currentUser = nextState;
@@ -1728,6 +1776,7 @@ export class SandboxBackend {
       emailVerified: stored.emailVerified,
       phoneNumber: stored.phoneNumber,
       providers: stored.providerUserInfo,
+      tenantId: stored.tenantId,
     });
   }
 
@@ -1778,21 +1827,24 @@ export class SandboxBackend {
    * authenticated session, same as real Firebase.
    */
   mintDetachedSession(request: MintSessionRequest): MintedSession {
+    const tenantId = request.tenantId ?? null;
     switch (request.kind) {
       case 'anonymous':
         this.assertProviderEnabled('anonymous');
-        return this.establishDetachedSession(this.mintAnonymousUser(), 'anonymous');
+        return this.establishDetachedSession(this.mintAnonymousUser(), 'anonymous', tenantId);
       case 'password':
         this.assertProviderEnabled('password');
         return this.establishDetachedSession(
           this.buildUserFromStored(this.validatePassword(request.email, request.password)),
           'password',
+          tenantId,
         );
       case 'createPassword':
         this.assertProviderEnabled('password');
         return this.establishDetachedSession(
           this.buildUserFromStored(this.createEmailPasswordUser(request.email, request.password)),
           'password',
+          tenantId,
         );
       case 'uid': {
         // restoreSession semantics minus the global set: an EXISTING
@@ -1807,7 +1859,7 @@ export class SandboxBackend {
         const providerId = stored.isAnonymous
           ? 'anonymous'
           : (stored.providerUserInfo[0]?.providerId ?? 'password');
-        return this.establishDetachedSession(this.buildUserFromStored(stored), providerId);
+        return this.establishDetachedSession(this.buildUserFromStored(stored), providerId, tenantId);
       }
     }
   }
@@ -1815,7 +1867,11 @@ export class SandboxBackend {
   /** The shared sign-in bookkeeping behind {@link mintDetachedSession} —
    *  everything {@link setCurrentUser} does for a real sign-in EXCEPT the
    *  global-session parts. */
-  private establishDetachedSession(user: User, signInProvider: string): MintedSession {
+  private establishDetachedSession(
+    user: User,
+    signInProvider: string,
+    tenantId: string | null,
+  ): MintedSession {
     this.signInProviderByUid.set(user.uid, signInProvider);
     const stored = this.usersByUid.get(user.uid);
     const claims = stored?.customClaims ?? {};
@@ -1824,7 +1880,12 @@ export class SandboxBackend {
       this.notifyUsersChanged();
     }
     this.tokenCache.set(user.uid, this.mintToken(user.uid, claims));
-    const state = { uid: user.uid, token: claims };
+    // The tenant rides on the session, not on the shared record: ports are
+    // independent sessions over one user pool, so two ports can hold the same
+    // identity under different tenants and neither may overwrite the other.
+    (user as Mutable<User>).tenantId = tenantId;
+    const state: NonNullable<AuthState> = { uid: user.uid, token: claims };
+    if (tenantId !== null) state.tenant = tenantId;
     this.emitAuthEvent('sign_in', {
       path: user.uid,
       auth: state,
@@ -1848,6 +1909,7 @@ export class SandboxBackend {
       return this.buildUserFromStored({
         ...stored,
         customClaims: state.token ?? stored.customClaims,
+        tenantId: state.tenant ?? stored.tenantId,
       });
     }
     return this.makeUser({
@@ -1856,6 +1918,7 @@ export class SandboxBackend {
       displayName: null,
       isAnonymous: state.uid.startsWith('anonymous-'),
       claims: state.token ?? {},
+      tenantId: state.tenant ?? null,
     });
   }
 
@@ -1975,6 +2038,8 @@ export class SandboxBackend {
     phoneNumber?: string | null;
     /** The identity's LINKED providers, from its stored record. */
     providers?: ProviderUserInfo[];
+    /** Tenant this identity authenticated under. Absent means untenanted. */
+    tenantId?: string | null;
   }): User {
     const photoURL = args.photoURL ?? null;
     const phoneNumber = args.phoneNumber ?? null;
@@ -2017,6 +2082,7 @@ export class SandboxBackend {
       photoURL,
       phoneNumber,
       isAnonymous: args.isAnonymous,
+      tenantId: args.tenantId ?? null,
       providerId,
       providerData,
       // Read LIVE claims by uid on each token call (not the claims frozen

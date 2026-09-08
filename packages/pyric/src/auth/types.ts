@@ -80,7 +80,7 @@ export interface UserInfo {
  * containing the fields the sandbox can synthesize faithfully.
  *
  * The heavier `User` surface the sandbox does NOT model (`metadata`,
- * `refreshToken`, `tenantId`, `reload()`, `delete()`, `toJSON()`) is
+ * `refreshToken`, `reload()`, `delete()`, `toJSON()`) is
  * intentionally not synthesized; its absence remains visible in the public
  * type census rather than being hidden behind placeholder values.
  */
@@ -106,6 +106,12 @@ export interface User {
   readonly phoneNumber?: string | null;
   /** True iff this user signed in via `signInAnonymously`. */
   readonly isAnonymous: boolean;
+  /** Identity Platform tenant this user authenticated under, or `null` for
+   *  the project-level pool. Set from {@link Auth.tenantId} at sign-in;
+   *  rules see the same value as `request.auth.token.firebase.tenant`.
+   *  Optional on the type so host helpers that synthesize a partial `User`
+   *  aren't forced to specify it; the sandbox backend always populates it. */
+  readonly tenantId?: string | null;
   /** The aggregate provider id (`'firebase'` for a real `User`;
    *  per-provider ids live in {@link providerData}). Optional on the
    *  type; always populated by the sandbox backend. */
@@ -286,7 +292,11 @@ export interface Auth {
   /** Currently signed-in user, or `null`. Snapshot value — read
    *  through `onAuthStateChanged` for live updates. */
   readonly currentUser: User | null;
-  /** Mutable Identity Platform tenant identifier. Defaults to `null`. */
+  /** Identity Platform tenant that subsequent sign-ins authenticate
+   *  against, or `null` for the project-level pool. Assign before calling a
+   *  sign-in function: the resulting {@link User} carries the same value on
+   *  `tenantId`, and rules evaluate the session with
+   *  `request.auth.token.firebase.tenant` set to it. */
   tenantId: string | null;
   /** Sign the current user out. Method form of the free `signOut(auth)`
    *  function — `firebase/auth`'s `Auth` exposes both, so consumer code
