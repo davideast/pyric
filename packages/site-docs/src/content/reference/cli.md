@@ -85,7 +85,7 @@ pyric auth reset [--target <id>] [--json]
 
 With `--target`, a command applies to the client it names and to nothing else. Without `--target`, it records your own identity on the bridge.
 
-Without `--target`, the identity you record governs the tool calls you then forward through the bridge. The Firestore data tools run under it with Security Rules enforced, `--admin` bypasses them, and a call that passes its own `as` argument uses that instead without changing what you recorded. `sandbox_inspect`, the rules simulator, the Realtime Database inspectors, and the auth user tools take no identity and keep bypassing rules.
+Without `--target`, the identity you record governs the tool calls you then forward through the bridge. `mutate_sandbox_data`, `query_sandbox_data`, `diagnose_rule_denial`, and `invoke_cloud_function` run under that ambient identity with Security Rules enforced (`--admin` bypasses them), while a tool call that passes its own inline `auth` override uses that instead without changing what you recorded. Resource reads (`pyric://sandbox/status`, `pyric://firestore/docs/{path}`, `pyric://database/tree/{path}`, etc.) and `manage_auth_users` inspect or manage sandbox state directly.
 
 With `--target`, nothing about your own tool calls changes. Every command prints its scope after a successful call.
 
