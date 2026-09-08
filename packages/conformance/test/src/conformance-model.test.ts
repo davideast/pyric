@@ -17,7 +17,7 @@ function one(query: string): FeatureSupport {
 
 describe('multi-axis conformance model', () => {
   it('supplies the shared assurance and rules-report projections in memory', () => {
-    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1637);
+    expect(Object.keys(model.assuranceNodeVerdicts)).toHaveLength(1639);
     expect(Object.keys(model.nodeVerdicts).length).toBeGreaterThan(Object.keys(model.assuranceNodeVerdicts).length);
     expect(model.rulesLanguage.capability.engines).toHaveLength(3);
     expect(model.rulesLanguage.coverage.engines).toHaveLength(3);
@@ -214,12 +214,12 @@ describe('multi-axis conformance model', () => {
     expect(result.caveats.join(' ')).toContain('not stock Firebase rules');
   });
 
-  it('aggregates every getDownloadURL row and explains its local URL divergence', () => {
+  it('aggregates every getDownloadURL row and explains its data URI divergence', () => {
     const result = one('getDownloadURL');
     expect(result).toMatchObject({ surface: 'storage', availability: 'available', fidelity: 'diverged', assurance: 'qualified' });
     expect(result.claims.map(({ id }) => id)).toContain('storage#51');
     expect(result.claims.map(({ id }) => id)).toContain('storage#52');
-    expect(result.caveats.join(' ')).toContain('page-local');
+    expect(result.caveats.join(' ')).toContain('data:<contentType>;base64,');
   });
 
   it('joins Messaging runtime and behavior claims under one developer surface', () => {

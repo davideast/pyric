@@ -26,6 +26,7 @@ import {
   numericValue as numVal,
   rulesEquals,
 } from './rules-values.js';
+import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
 
 export function evaluateStorageRules(
   rules: StorageRules,
@@ -76,32 +77,43 @@ export function evaluateStorageRules(
         if (!applies) continue;
         let result: boolean;
         try {
-          const value = rule.condition
-            ? evalExpr(rule.condition, {
-                input,
-                now: nowMillis,
-                params: newParams,
-                locals: {},
-                funcs: block.visibleFuncs ?? new Map(),
-                depth: 0,
-                firestoreLookup,
-                firestoreAccesses,
-              })
-            : true;
-          // An error value reaching the allow boundary DENIES, carrying
-          // production's own message (e.g. "Property name is undefined on
-          // object.") into the reason trace.
-          if (isErr(value)) {
+          let value: unknown = true;
+          if (rule.condition) {
+            value = evalExpr(rule.condition, {
+              input,
+              now: nowMillis,
+              params: newParams,
+              locals: {},
+              funcs: block.visibleFuncs ?? new Map(),
+              depth: 0,
+              firestoreLookup,
+              firestoreAccesses,
+            });
+          }
+          if (typeof value === 'boolean') {
+            result = value;
+          } else {
+            // Not a bool. Either the expression already produced an evaluation
+            // error, or CEL's boolean typing of the allow boundary makes one
+            // here: the same `RuleError` the ternary condition raises, rather
+            // than a truthiness coercion. Both DENY this rule with production's
+            // own message in the reason trace and continue to the next rule.
+            // Registry rows
+            // `storage-rules#storage.semantic.strict-boolean-allow-boundary`
+            // and `storage-rules#storage.semantic.strict-boolean-ternary-condition`
+            // carry the claim; corpus scenario
+            // `strict-boolean-allow-and-ternary` is the capture that verifies it.
+            let failure: RuleError;
+            if (isErr(value)) {
+              failure = value;
+            } else {
+              failure = new RuleError(`Allow condition expected bool, got ${describeType(value)}.`);
+            }
             reasons.push(
-              `match ${formatPath(block.segments)} ${input.request.method}: ${value.message}`,
+              `match ${formatPath(block.segments)} ${input.request.method}: ${failure.message}`,
             );
             continue;
           }
-          // Unverified: production's behavior for a non-boolean allow
-          // condition (a CEL type error there, rather than this truthiness
-          // coercion) has not been captured. The coercion stays as written
-          // until a production capture settles it.
-          result = truthy(value);
         } catch (err) {
           // Any function-evaluation failure (undefined function, wrong
           // arity, depth exceeded, error inside a body) denies this rule
@@ -147,13 +159,6 @@ function readProperty(obj: unknown, name: string): unknown {
   const v = obj[name as keyof typeof obj];
   if (v === undefined) return new RuleError(`Property ${name} is undefined on object.`);
   return v;
-}
-
-function truthy(v: unknown): boolean {
-  // An error value is never truthy: it denies. (Without this, a `RuleError`
-  // object would be truthy and every absent-property read would FALSE-ALLOW.)
-  if (isErr(v)) return false;
-  return v !== false && v !== null && v !== undefined && !(typeof v === 'number' && Number.isNaN(v));
 }
 
 /**
@@ -277,11 +282,15 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // An error condition denies the whole conditional; it must not fall
       // through to the alternate branch and potentially allow.
       if (isErr(c)) return c;
-      // Unverified: production's behavior for a non-boolean ternary
-      // condition (a CEL type error there, rather than this truthiness
-      // coercion) has not been captured. The coercion stays as written
-      // until a production capture settles it.
-      return truthy(c) ? evalExpr(expr.then, ctx) : evalExpr(expr.else, ctx);
+      // CEL types the condition as bool. A non-boolean condition is an
+      // evaluation error, which `&&` and `||` absorb like any other. Registry
+      // row `storage-rules#storage.semantic.strict-boolean-ternary-condition`
+      // carries the claim; corpus scenario `strict-boolean-allow-and-ternary`
+      // is the capture that would verify it.
+      if (typeof c !== 'boolean') {
+        return new RuleError(`Ternary condition expected bool, got ${describeType(c)}.`);
+      }
+      return c ? evalExpr(expr.then, ctx) : evalExpr(expr.else, ctx);
     }
     case 'in': {
       const el = evalExpr(expr.element, ctx);
@@ -584,12 +593,22 @@ function isoToMillis(iso: string | undefined): number | undefined {
 }
 
 function buildRequestObject(input: EvaluationInput, now: number): Record<string, unknown> {
-  return {
+  const auth = input.request.auth;
+  let requestAuth: unknown;
+  if (auth === null || auth === undefined) {
     // The production Storage engine represents anonymous auth as an absent
     // property, not a usable null value. Ordinary `request.auth != null`
     // gates still deny, while conditionals cannot incorrectly select a
     // fallback branch from the synthetic null.
-    auth: input.request.auth ?? new RuleError('Property auth is undefined on object.'),
+    requestAuth = new RuleError('Property auth is undefined on object.');
+  } else {
+    // Projecting a top-level `tenant` into `token.firebase.tenant` is one
+    // cross-surface rule about an identity, not a Storage rules concern, so
+    // the sandbox context owns it and every surface reads the same shape.
+    requestAuth = normalizeAuthState(auth);
+  }
+  const request: Record<string, unknown> = {
+    auth: requestAuth,
     // Production treats an operation without an incoming object (notably
     // delete/read) as an absent binding. A direct null comparison errors just
     // like a property read; neither may turn the missing value into an allow.
@@ -601,4 +620,5 @@ function buildRequestObject(input: EvaluationInput, now: number): Record<string,
     // like `request.time < timestamp.date(2030, 1, 1)` are plain numerics.
     time: now,
   };
+  return request;
 }

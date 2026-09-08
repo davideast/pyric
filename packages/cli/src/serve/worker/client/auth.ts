@@ -50,6 +50,9 @@ export interface ClientUser {
   readonly photoURL: string | null;
   readonly phoneNumber: string | null;
   readonly isAnonymous: boolean;
+  /** Tenant this user authenticated under, or `null` for the project-level
+   *  pool. Mirrors `firebase/auth`'s `User.tenantId`. */
+  readonly tenantId: string | null;
   readonly providerId: string | null;
   readonly providerData: SerializedUser['providerData'];
   getIdToken(forceRefresh?: boolean): Promise<string>;
@@ -72,6 +75,13 @@ export interface ClientAuth {
   readonly port: ClientPort;
   /** Local mirror of the worker's currentUser, updated from the stream. */
   currentUser: ClientUser | null;
+  /** Identity Platform tenant that subsequent sign-ins on THIS PORT
+   *  authenticate against, or `null` for the project-level pool. Assign
+   *  before calling a sign-in function: the value crosses the port with the
+   *  sign-in request, so the worker's session state carries it and rules
+   *  evaluate the port's operations with
+   *  `request.auth.token.firebase.tenant` set to it. */
+  tenantId: string | null;
 }
 
 /** Hidden per-`ClientUser` port handle so the top-level `updateProfile(user, …)`
@@ -89,6 +99,7 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
     photoURL: raw.photoURL,
     phoneNumber: raw.phoneNumber,
     isAnonymous: raw.isAnonymous,
+    tenantId: raw.tenantId,
     providerId: raw.providerId,
     providerData: raw.providerData,
     async getIdToken(forceRefresh?: boolean) {
@@ -143,7 +154,7 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     wirePort(port);
   }
 
-  const auth: ClientAuth = { __kind: 'client-auth', port, currentUser: null };
+  const auth: ClientAuth = { __kind: 'client-auth', port, currentUser: null, tenantId: null };
 
   // Internal authState subscription keeps `auth.currentUser` live. Per-port
   // sessions (#754): only THIS port's sign-ins/outs (and its session restore)
@@ -181,6 +192,7 @@ export async function createUserWithEmailAndPassword(
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.createUser', email, password,
+    tenantId: auth.tenantId,
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
@@ -256,13 +268,14 @@ export async function signInWithEmailAndPassword(
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.signInEmail', email, password,
+    tenantId: auth.tenantId,
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
 
 export async function signInAnonymously(auth: ClientAuth): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
-    t: 'op', id: nextId(), method: 'auth.signInAnonymously',
+    t: 'op', id: nextId(), method: 'auth.signInAnonymously', tenantId: auth.tenantId,
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
@@ -293,6 +306,7 @@ export async function acceptProviderCredential(
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.acceptIdentity', identity,
+    tenantId: auth.tenantId,
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
@@ -310,6 +324,7 @@ export async function restorePortSession(
 ): Promise<ClientUser | null> {
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.restorePortSession', uid,
+    tenantId: auth.tenantId,
   })) as SerializedUser | null;
   const user = toClientUser(auth.port, raw);
   auth.currentUser = user;

@@ -6,7 +6,7 @@
 
 import { bytesToBase64, base64ToBytes, storagePayloadTooLarge, MAX_STORAGE_OP_BYTES } from '../protocol.js';
 import type { FullMetadata, StringFormat } from 'pyric/storage';
-import { decodeString, defaultRawContentType } from 'pyric/storage/internal';
+import { arrayBufferToBase64, decodeString, defaultRawContentType } from 'pyric/storage/internal';
 import { dataRpc, nextId, wirePort } from './core.js';
 import { lastSegment } from './handles.js';
 import type { ClientDb, ClientPort } from './handles.js';
@@ -157,9 +157,17 @@ export async function getBlob(reference: ClientStorageReference): Promise<Blob> 
   })) as Blob;
 }
 
-/** Return a page-owned URL for an object read through the SharedWorker. */
+/**
+ * Return a `data:<contentType>;base64,<payload>` URI for an object read
+ * through the SharedWorker. Same shape the in-process `pyric/storage`
+ * `getDownloadURL` returns, so a URL produced in worker mode resolves in every
+ * context the page hands it to rather than only inside the page that made it.
+ */
 export async function getDownloadURL(reference: ClientStorageReference): Promise<string> {
-  return URL.createObjectURL(await getBlob(reference));
+  const blob = await getBlob(reference);
+  const contentType = blob.type || 'application/octet-stream';
+  const base64 = arrayBufferToBase64(await blob.arrayBuffer());
+  return `data:${contentType};base64,${base64}`;
 }
 
 // ─── Storage mutations + JSON-safe reads (worker-mode byte ops) ───────────
