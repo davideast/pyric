@@ -104,6 +104,7 @@ function makeAuthHandle(target: Target, app?: FirebaseApp): Auth {
   const handle = {
     [TARGET_SYMBOL]: target,
     ...(app ? { app } : {}),
+    tenantId: null,
     signOut(): Promise<void> {
       return signOut(handle as Auth);
     },

@@ -61,7 +61,22 @@ export async function getBlob(
  */
 export async function getDownloadURL(ref: StorageReference): Promise<string> {
   guardNonRoot(ref, 'getDownloadURL');
-  return URL.createObjectURL(await fetchBlob(ref, undefined));
+  const blob = await fetchBlob(ref, undefined);
+  const contentType = blob.type || 'application/octet-stream';
+  const base64 = arrayBufferToBase64(await blob.arrayBuffer());
+  return `data:${contentType};base64,${base64}`;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(buffer).toString('base64');
+  }
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
 }
 
 /**

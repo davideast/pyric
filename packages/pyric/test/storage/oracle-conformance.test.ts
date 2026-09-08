@@ -192,7 +192,7 @@ describe('oracle conformance (storage)', () => {
       const bytesMatch = read.length === payload.length && read.every((b, i) => b === payload[i]);
       expect(bytesMatch).toBe(obs.bytesMatch as boolean);
       expect(obs.urlIsHttps).toBe(true); // production URL shape
-      expect(url.startsWith('blob:')).toBe(true); // sandbox's documented divergence
+      expect(url.startsWith('data:')).toBe(true); // sandbox portable data: URI
     } finally {
       URL.revokeObjectURL(url);
     }

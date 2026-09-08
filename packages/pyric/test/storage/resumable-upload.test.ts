@@ -42,7 +42,7 @@ describe('getDownloadURL and resumable uploads (#159)', () => {
 
     const url = await getDownloadURL(fileRef);
     expect(typeof url).toBe('string');
-    expect(url.startsWith('blob:')).toBe(true);
+    expect(url.startsWith('data:')).toBe(true);
   });
 
   it('uploadBytesResumable emits mock progress events and completes', async () => {
@@ -87,7 +87,7 @@ describe('getDownloadURL and resumable uploads (#159)', () => {
     }
 
     const downloadUrl = await getDownloadURL(fileRef);
-    expect(downloadUrl.startsWith('blob:')).toBe(true);
+    expect(downloadUrl.startsWith('data:')).toBe(true);
   });
 
   it('supports object observer syntax for state_changed', async () => {

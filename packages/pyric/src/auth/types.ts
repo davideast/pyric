@@ -286,6 +286,8 @@ export interface Auth {
   /** Currently signed-in user, or `null`. Snapshot value — read
    *  through `onAuthStateChanged` for live updates. */
   readonly currentUser: User | null;
+  /** Mutable Identity Platform tenant identifier. Defaults to `null`. */
+  tenantId: string | null;
   /** Sign the current user out. Method form of the free `signOut(auth)`
    *  function — `firebase/auth`'s `Auth` exposes both, so consumer code
    *  written as `auth.signOut()` works unchanged (AUTH-GAP). */
