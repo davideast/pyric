@@ -171,6 +171,24 @@ export const authSwiftRows: CompatibilityRow[] = [
     api: 'AuthErrorCode', behavior: 'Enumerates standard Firebase Auth error codes (e.g. invalidEmail, wrongPassword, userNotFound).', featureKeys: ['authErrorCode'] }),
   row({ ref: 54, flipped: 'unit-backed', section: 'Error handling',
     api: 'AuthError', behavior: 'Conforms to LocalizedError and maps wire error codes to structured AuthErrorCode.', featureKeys: ['authError'] }),
+
+  // ── 9. OAuth Providers & Credential Authentication ────────────────────────
+  row({ ref: 55, flipped: 'unit-backed', section: 'OAuth providers & credential authentication',
+    api: 'GoogleAuthProvider.credential(withIDToken:accessToken:)',
+    behavior: 'Constructs an AuthCredential for Google Sign-In ("google.com") encapsulating ID token and access token.',
+    featureKeys: ['GoogleAuthProvider', 'credential'] }),
+  row({ ref: 56, flipped: 'unit-backed', section: 'OAuth providers & credential authentication',
+    api: 'OAuthProvider.credential(withProviderID:idToken:rawNonce:accessToken:)',
+    behavior: 'Constructs an OAuthCredential for arbitrary OAuth providers (e.g. "apple.com", "github.com") with ID token, access token, and optional raw nonce.',
+    featureKeys: ['OAuthProvider', 'credential'] }),
+  row({ ref: 57, flipped: 'unit-backed', section: 'OAuth providers & credential authentication',
+    api: 'Auth.signIn(with:)',
+    behavior: 'Authenticates a user with an AuthCredential asynchronously via bridge auth.signInWithCredential RPC, returning AuthDataResult and updating currentUser.',
+    featureKeys: ['signInWithCredential'] }),
+  row({ ref: 58, flipped: 'unit-backed', section: 'OAuth providers & credential authentication',
+    api: 'Auth.signIn(with:completion:)',
+    behavior: 'Authenticates a user with an AuthCredential using a completion closure.',
+    featureKeys: ['signInWithCredential'] }),
 ];
 
 export const authSwiftRegistry: CompatibilitySurfaceRegistry = {
@@ -218,6 +236,11 @@ export const authSwiftRegistry: CompatibilitySurfaceRegistry = {
       kind: 'table',
       prefix: '## Error handling\n',
       rows: authSwiftRows.filter((r) => r.section === 'Error handling'),
+    },
+    {
+      kind: 'table',
+      prefix: '## OAuth providers & credential authentication\n',
+      rows: authSwiftRows.filter((r) => r.section === 'OAuth providers & credential authentication'),
     },
   ],
 };

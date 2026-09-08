@@ -17,6 +17,11 @@ extension PyricBridgeAuthOps on PyricBridgeClient {
     return op('auth.signInAnonymously', {});
   }
 
+  /// Signs in a user with an OAuth credential payload.
+  Future<dynamic> authSignInWithCredential(Map<String, dynamic> credential) {
+    return op('auth.signInWithCredential', credential);
+  }
+
   /// Signs out the current user session.
   Future<dynamic> authSignOut() {
     return op('auth.signOut', {});

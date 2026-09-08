@@ -135,6 +135,20 @@ export const authKotlinRows: CompatibilityRow[] = [
     api: 'FirebaseFirestore actAs stamping', behavior: 'FirebaseFirestore automatically stamps the CredentialsProvider effective AuthLens on all document operations and queries.', featureKeys: ['actAs', 'firestore'], flipped: 'unit-backed' }),
   row({ ref: 36, section: '`CredentialsProvider` & Firestore Auth Coupling',
     api: 'FirebaseFirestore snapshot re-subscription', behavior: 'Active Firestore snapshots() flows automatically re-subscribe when CredentialsProvider emits a new AuthLens.', featureKeys: ['snapshots', 're-subscribe'], flipped: 'unit-backed' }),
+
+  // ── 9. OAuth Providers & Credential Authentication ─────────────────────
+  row({ ref: 37, section: 'OAuth providers & credential authentication',
+    api: 'GoogleAuthProvider.getCredential(idToken, accessToken)',
+    behavior: 'Creates an AuthCredential for Google Sign-In ("google.com") encapsulating the ID token and/or access token.',
+    featureKeys: ['GoogleAuthProvider', 'getCredential'], flipped: 'unit-backed' }),
+  row({ ref: 38, section: 'OAuth providers & credential authentication',
+    api: 'OAuthProvider.getCredential(providerId, idToken, accessToken)',
+    behavior: 'Creates an OAuthCredential for a generic OAuth provider (e.g. "apple.com", "github.com") encapsulating providerId, idToken, accessToken, and rawNonce.',
+    featureKeys: ['OAuthProvider', 'getCredential'], flipped: 'unit-backed' }),
+  row({ ref: 39, section: 'OAuth providers & credential authentication',
+    api: 'FirebaseAuth.signInWithCredential(credential)',
+    behavior: 'Authenticates a user with an OAuth/Google AuthCredential via bridge auth.signInWithCredential RPC, updating currentUser, providerData, and AuthLens.',
+    featureKeys: ['signInWithCredential'], flipped: 'unit-backed' }),
 ];
 
 const INTRO = `# Auth · Kotlin Conformance
@@ -189,6 +203,11 @@ export const authKotlinRegistry: CompatibilitySurfaceRegistry = {
       kind: 'table',
       prefix: '## `CredentialsProvider` & Firestore Auth Coupling\n',
       rows: authKotlinRows.filter((r) => r.section === '`CredentialsProvider` & Firestore Auth Coupling'),
+    },
+    {
+      kind: 'table',
+      prefix: '## OAuth providers & credential authentication\n',
+      rows: authKotlinRows.filter((r) => r.section === 'OAuth providers & credential authentication'),
     },
   ],
 };

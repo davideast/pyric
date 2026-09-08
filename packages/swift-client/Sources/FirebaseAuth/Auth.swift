@@ -225,6 +225,29 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         }
     }
 
+    public func signIn(with credential: AuthCredential) async throws -> AuthDataResult {
+        do {
+            let res = try await bridgeClient.authSignInWithCredential(params: credential.toWireParams())
+            return try handleAuthDataResult(res)
+        } catch {
+            throw AuthError.from(error: error)
+        }
+    }
+
+    public func signIn(
+        with credential: AuthCredential,
+        completion: (@Sendable (AuthDataResult?, Error?) -> Void)?
+    ) {
+        Task {
+            do {
+                let res = try await self.signIn(with: credential)
+                completion?(res, nil)
+            } catch {
+                completion?(nil, error)
+            }
+        }
+    }
+
     public func signOut() throws {
         stateLock.lock()
         _impersonatedLens = nil
