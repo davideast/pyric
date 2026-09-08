@@ -40,9 +40,6 @@ if [[ -n "${SUITE:-}" ]]; then
 fi
 
 PACKAGE_DIR="$ROOT/packages/swift-client"
-if [[ "${SUITE:-}" == *ios-client* ]]; then
-  PACKAGE_DIR="$ROOT/packages/ios-client"
-fi
 
 # Execute swift test; allow test failure exit codes (red at birth)
 SWIFT_EXIT=0
