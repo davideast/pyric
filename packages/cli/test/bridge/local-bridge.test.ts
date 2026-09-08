@@ -47,29 +47,34 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
     const bridge = createLocalBridge(sandbox);
 
     // Acting as alice: her own message is allowed.
-    const r1 = await bridge.dispatch('firestore_create_document', {
+    const r1 = await bridge.dispatch('mutate_sandbox_data', {
+      service: 'firestore',
+      action: 'set',
       path: 'rooms/r1/msgs/m1',
-      data: { author: 'alice', body: 'hi' },
-      as: { uid: 'alice' },
+      dataJson: JSON.stringify({ author: 'alice', body: 'hi' }),
+      auth: { mode: 'uid', uid: 'alice' },
     });
     expect(r1.ok).toBe(true);
 
     // Acting as bob, forging a message authored by alice: rules deny it, and the
     // bridge surfaces that as ok:false (it does not reject).
-    const r2 = await bridge.dispatch('firestore_create_document', {
+    const r2 = await bridge.dispatch('mutate_sandbox_data', {
+      service: 'firestore',
+      action: 'set',
       path: 'rooms/r1/msgs/m2',
-      data: { author: 'alice', body: 'forged' },
-      as: { uid: 'bob' },
+      dataJson: JSON.stringify({ author: 'alice', body: 'forged' }),
+      auth: { mode: 'uid', uid: 'bob' },
     });
     expect(r2.ok).toBe(false);
 
     // Reading back as bob (read allowed for any signed-in user) sees alice's doc.
-    const r3 = await bridge.dispatch('firestore_get_document', {
+    const r3 = await bridge.dispatch('query_sandbox_data', {
+      service: 'firestore',
       path: 'rooms/r1/msgs/m1',
-      as: { uid: 'bob' },
+      auth: { mode: 'uid', uid: 'bob' },
     });
     expect(r3.ok).toBe(true);
-    expect((r3.data as { data: unknown }).data).toEqual({ author: 'alice', body: 'hi' });
+    expect((r3.data as { results: Array<{ data: unknown }> }).results[0].data).toEqual({ author: 'alice', body: 'hi' });
   });
 
   it('builds an MCP server around the in-process sandbox without throwing', () => {
@@ -82,9 +87,11 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
     try {
       // Seed a doc (admin write) and persist.
       const s1 = initializeSandbox();
-      const w = await createLocalBridge(s1).dispatch('firestore_create_document', {
+      const w = await createLocalBridge(s1).dispatch('mutate_sandbox_data', {
+        service: 'firestore',
+        action: 'set',
         path: 'rooms/r/msgs/m1',
-        data: { author: 'alice', body: 'persisted' },
+        dataJson: JSON.stringify({ author: 'alice', body: 'persisted' }),
       });
       expect(w.ok).toBe(true);
       saveSandboxSnapshot(s1, dir);
@@ -92,11 +99,12 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
       // A fresh sandbox restores the same data from disk.
       const s2 = initializeSandbox();
       expect(loadSandboxSnapshot(s2, dir)).toBe(1);
-      const r = await createLocalBridge(s2).dispatch('firestore_get_document', {
+      const r = await createLocalBridge(s2).dispatch('query_sandbox_data', {
+        service: 'firestore',
         path: 'rooms/r/msgs/m1',
       });
       expect(r.ok).toBe(true);
-      expect((r.data as { data: unknown }).data).toEqual({ author: 'alice', body: 'persisted' });
+      expect((r.data as { results: Array<{ data: unknown }> }).results[0].data).toEqual({ author: 'alice', body: 'persisted' });
 
       // No file present -> null (nothing to restore).
       const empty = mkdtempSync(join(tmpdir(), 'pyric-headless-empty-'));

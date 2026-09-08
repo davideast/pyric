@@ -146,16 +146,19 @@ export async function runPackedMcpSmoke({
 
     const localCall = resultPayload(
       await request('tools/call', {
-        name: 'firestore_lint_rules',
-        arguments: { source: GOOD_RULES },
+        name: 'verify_security_rules',
+        arguments: { service: 'firestore', action: 'lint', source: GOOD_RULES },
       }),
-      'firestore_lint_rules',
+      'verify_security_rules',
     );
     if (!localCall.ok) throw new Error(`local MCP call failed: ${JSON.stringify(localCall)}`);
 
     const sandboxCall = resultPayload(
-      await request('tools/call', { name: 'sandbox_inspect', arguments: {} }),
-      'sandbox_inspect',
+      await request('tools/call', {
+        name: 'control_sandbox_environment',
+        arguments: { action: 'reset_all' },
+      }),
+      'control_sandbox_environment',
     );
     if (!sandboxCall.ok) {
       throw new Error(`sandbox MCP call failed: ${JSON.stringify(sandboxCall)}`);

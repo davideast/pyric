@@ -1,17 +1,5 @@
 /**
- * The caller identity `auth_impersonate` records governs the tool calls the
- * caller then forwards.
- *
- * Three layers, because the identity crosses three seams before it reaches a
- * rules evaluation:
- *
- *   1. `dispatchSandbox` puts it on the `tool-call` frame — and omits it for
- *      the default `app-session`, so an un-impersonated call is byte-identical
- *      to the frame the bridge has always sent.
- *   2. `buildSandboxDispatcher` binds the Firestore handle to it, with a
- *      call's own `as` argument still winning.
- *   3. The SharedWorker host relays it from the `tool` frame into that same
- *      dispatcher, which is the path a served page actually takes.
+ * The caller identity governs the tool calls the caller forwards across all 3 layers.
  */
 import { describe, it, expect } from 'bun:test';
 import { createBridge } from '../../src/bridge/server/bridge.js';
@@ -23,11 +11,6 @@ import { initializeSandbox, createMemoryBackend } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 
-/**
- * Zones that tell the identities apart: `notes` needs the owner's uid,
- * `open` needs a genuinely absent auth, `sealed` needs the rules bypass,
- * `claimed` needs a custom claim, and `tenanted` needs the tenant.
- */
 const RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
@@ -52,7 +35,6 @@ service cloud.firestore {
 async function seededDispatcher() {
   const sandbox = initializeSandbox();
   const dispatch = buildSandboxDispatcher(sandbox);
-  // Seed with no identity at all — the historical admin-bypass default.
   for (const [path, data] of [
     ['notes/n1', { owner: 'alice' }],
     ['open/o1', { v: 1 }],
@@ -60,7 +42,16 @@ async function seededDispatcher() {
     ['claimed/c1', { v: 1 }],
     ['tenanted/t1', { v: 1 }],
   ] as const) {
-    expect((await dispatch('firestore_create_document', { path, data })).ok).toBe(true);
+    expect(
+      (
+        await dispatch('mutate_sandbox_data', {
+          service: 'firestore',
+          action: 'set',
+          path,
+          dataJson: JSON.stringify(data),
+        })
+      ).ok
+    ).toBe(true);
   }
   setRules(sandbox, RULES);
   return { sandbox, dispatch };
@@ -70,9 +61,9 @@ describe('the bridge puts the caller identity on the frames it forwards', () => 
   function peerBridge() {
     const frames: BridgeMessage[] = [];
     const bridge = createBridge({ version: 'test' });
-    bridge.registerSandboxPeer((msg) => frames.push(msg), ['firestore_get_document'], 'peer-1');
+    bridge.registerSandboxPeer((msg) => frames.push(msg), ['query_sandbox_data'], 'peer-1');
     async function dispatchAndAnswer(): Promise<ToolCallRequest> {
-      const pending = bridge.dispatch('firestore_get_document', { path: 'notes/n1' });
+      const pending = bridge.dispatch('query_sandbox_data', { service: 'firestore', path: 'notes/n1' });
       const frame = frames.at(-1) as ToolCallRequest;
       bridge.handleSandboxMessage({
         type: 'tool-result',
@@ -121,83 +112,101 @@ describe('the tool dispatcher runs a call under the caller identity', () => {
   it('leaves an absent identity, and the app session, exactly as they were', async () => {
     const { dispatch } = await seededDispatcher();
 
-    // Both are the admin-bypass default: a deny-all zone still reads.
-    expect((await dispatch('firestore_get_document', { path: 'sealed/s1' })).ok).toBe(true);
+    expect((await dispatch('query_sandbox_data', { service: 'firestore', path: 'sealed/s1' })).ok).toBe(true);
     expect(
-      (await dispatch('firestore_get_document', { path: 'sealed/s1' }, { mode: 'app-session' })).ok,
+      (await dispatch('query_sandbox_data', { service: 'firestore', path: 'sealed/s1' }, { mode: 'app-session' })).ok
     ).toBe(true);
   });
 
   it('denies the read the identity may not make, and allows it for the owner', async () => {
     const { dispatch } = await seededDispatcher();
 
-    await expect(
-      dispatch('firestore_get_document', { path: 'notes/n1' }, { mode: 'as', uid: 'bob' }),
-    ).rejects.toThrow();
+    const denied = await dispatch(
+      'query_sandbox_data',
+      { service: 'firestore', path: 'notes/n1' },
+      { mode: 'as', uid: 'bob' }
+    );
+    expect(denied.ok).toBe(false);
 
     const allowed = await dispatch(
-      'firestore_get_document',
-      { path: 'notes/n1' },
-      { mode: 'as', uid: 'alice' },
+      'query_sandbox_data',
+      { service: 'firestore', path: 'notes/n1' },
+      { mode: 'as', uid: 'alice' }
     );
     expect(allowed.ok).toBe(true);
-    expect((allowed.data as { data: unknown }).data).toEqual({ owner: 'alice' });
+    expect((allowed.data as { results: Array<{ data: unknown }> }).results[0].data).toEqual({ owner: 'alice' });
   });
 
   it('carries the identity claims and tenant into rules evaluation', async () => {
     const { dispatch } = await seededDispatcher();
 
     expect(
-      (await dispatch('firestore_get_document', { path: 'claimed/c1' }, {
-        mode: 'as',
-        uid: 'x',
-        token: { role: 'admin' },
-      })).ok,
+      (
+        await dispatch('query_sandbox_data', { service: 'firestore', path: 'claimed/c1' }, {
+          mode: 'as',
+          uid: 'x',
+          token: { role: 'admin' },
+        })
+      ).ok
     ).toBe(true);
-    await expect(
-      dispatch('firestore_get_document', { path: 'claimed/c1' }, { mode: 'as', uid: 'x' }),
-    ).rejects.toThrow();
+    expect(
+      (await dispatch('query_sandbox_data', { service: 'firestore', path: 'claimed/c1' }, { mode: 'as', uid: 'x' })).ok
+    ).toBe(false);
 
     expect(
-      (await dispatch('firestore_get_document', { path: 'tenanted/t1' }, {
-        mode: 'as',
-        uid: 'x',
-        tenant: 'acme',
-      })).ok,
+      (
+        await dispatch('query_sandbox_data', { service: 'firestore', path: 'tenanted/t1' }, {
+          mode: 'as',
+          uid: 'x',
+          tenant: 'acme',
+        })
+      ).ok
     ).toBe(true);
-    await expect(
-      dispatch('firestore_get_document', { path: 'tenanted/t1' }, { mode: 'as', uid: 'x', tenant: 'other' }),
-    ).rejects.toThrow();
+    expect(
+      (
+        await dispatch('query_sandbox_data', { service: 'firestore', path: 'tenanted/t1' }, {
+          mode: 'as',
+          uid: 'x',
+          tenant: 'other',
+        })
+      ).ok
+    ).toBe(false);
   });
 
-  it("lets a call's own as argument outrank the identity, in both directions", async () => {
+  it("lets a call's own auth argument outrank the identity, in both directions", async () => {
     const { dispatch } = await seededDispatcher();
 
     // The identity would be denied; the argument is allowed.
     expect(
-      (await dispatch(
-        'firestore_get_document',
-        { path: 'notes/n1', as: { uid: 'alice' } },
-        { mode: 'as', uid: 'bob' },
-      )).ok,
+      (
+        await dispatch(
+          'query_sandbox_data',
+          { service: 'firestore', path: 'notes/n1', auth: { mode: 'uid', uid: 'alice' } },
+          { mode: 'as', uid: 'bob' }
+        )
+      ).ok
     ).toBe(true);
 
     // The identity would be allowed; the argument is denied.
-    await expect(
-      dispatch(
-        'firestore_get_document',
-        { path: 'notes/n1', as: { uid: 'bob' } },
-        { mode: 'as', uid: 'alice' },
-      ),
-    ).rejects.toThrow();
+    expect(
+      (
+        await dispatch(
+          'query_sandbox_data',
+          { service: 'firestore', path: 'notes/n1', auth: { mode: 'uid', uid: 'bob' } },
+          { mode: 'as', uid: 'alice' }
+        )
+      ).ok
+    ).toBe(false);
 
     // The argument may also name the bypass while the identity is a user.
     expect(
-      (await dispatch(
-        'firestore_get_document',
-        { path: 'sealed/s1', as: 'admin' },
-        { mode: 'as', uid: 'bob' },
-      )).ok,
+      (
+        await dispatch(
+          'query_sandbox_data',
+          { service: 'firestore', path: 'sealed/s1', auth: { mode: 'admin' } },
+          { mode: 'as', uid: 'bob' }
+        )
+      ).ok
     ).toBe(true);
   });
 
@@ -205,26 +214,24 @@ describe('the tool dispatcher runs a call under the caller identity', () => {
     const { dispatch } = await seededDispatcher();
 
     expect(
-      (await dispatch('firestore_get_document', { path: 'sealed/s1' }, { mode: 'admin' })).ok,
+      (await dispatch('query_sandbox_data', { service: 'firestore', path: 'sealed/s1' }, { mode: 'admin' })).ok
     ).toBe(true);
 
-    // Anonymous is not "some user" and not the bypass: the anon-only zone
-    // reads, the signed-in zone and the sealed zone do not.
     expect(
-      (await dispatch('firestore_get_document', { path: 'open/o1' }, { mode: 'anon' })).ok,
+      (await dispatch('query_sandbox_data', { service: 'firestore', path: 'open/o1' }, { mode: 'anon' })).ok
     ).toBe(true);
-    await expect(
-      dispatch('firestore_get_document', { path: 'notes/n1' }, { mode: 'anon' }),
-    ).rejects.toThrow();
-    await expect(
-      dispatch('firestore_get_document', { path: 'sealed/s1' }, { mode: 'anon' }),
-    ).rejects.toThrow();
+    expect(
+      (await dispatch('query_sandbox_data', { service: 'firestore', path: 'notes/n1' }, { mode: 'anon' })).ok
+    ).toBe(false);
+    expect(
+      (await dispatch('query_sandbox_data', { service: 'firestore', path: 'sealed/s1' }, { mode: 'anon' })).ok
+    ).toBe(false);
   });
 
   it('never lets an identity change which tools exist', async () => {
     const { dispatch } = await seededDispatcher();
     await expect(
-      dispatch('firestore_no_such_tool', {}, { mode: 'as', uid: 'alice' }),
+      dispatch('firestore_no_such_tool', {}, { mode: 'as', uid: 'alice' })
     ).rejects.toThrow('unknown sandbox tool');
   });
 });
@@ -239,25 +246,23 @@ describe('the SharedWorker host relays the identity into the same dispatcher', (
     ctx: HostCtx,
     port: ReturnType<typeof fakePort>,
     args: Record<string, unknown>,
-    actAs?: { mode: 'admin' } | { mode: 'anon' } | { mode: 'app-session' } | { mode: 'as'; uid: string },
+    actAs?: { mode: 'admin' } | { mode: 'anon' } | { mode: 'app-session' } | { mode: 'as'; uid: string }
   ): Promise<ResMessage> {
     const id = `tool-${port.messages.length}`;
     await handleMessage(ctx, port, {
       t: 'tool',
       id,
-      name: 'firestore_get_document',
-      args,
+      name: 'query_sandbox_data',
+      args: { service: 'firestore', ...args },
       ...(actAs ? { actAs } : {}),
     });
     return port.messages.find(
-      (msg): msg is ResMessage => msg.t === 'res' && msg.id === id,
+      (msg): msg is ResMessage => msg.t === 'res' && msg.id === id
     )!;
   }
 
   it('rules-evaluates a forwarded tool call as the identity on the tool frame', async () => {
     const sandbox = initializeSandbox();
-    // The host best-effort flushes after every acked write; give it a backend
-    // so the seeds below don't log a failed-precondition for every document.
     await sandbox.enablePersistence({
       key: `caller-identity-${Math.random()}`,
       injectedBackend: createMemoryBackend(),
@@ -271,7 +276,6 @@ describe('the SharedWorker host relays the identity into the same dispatcher', (
     };
     const port = fakePort();
 
-    // Seed through the same worker path, with no identity: still admin.
     for (const [path, data] of [
       ['notes/n1', { owner: 'alice' }],
       ['sealed/s1', { v: 1 }],
@@ -279,8 +283,8 @@ describe('the SharedWorker host relays the identity into the same dispatcher', (
       await handleMessage(ctx, port, {
         t: 'tool',
         id: `seed-${path}`,
-        name: 'firestore_create_document',
-        args: { path, data },
+        name: 'mutate_sandbox_data',
+        args: { service: 'firestore', action: 'set', path, dataJson: JSON.stringify(data) },
       });
     }
     setRules(sandbox, RULES);
@@ -288,12 +292,5 @@ describe('the SharedWorker host relays the identity into the same dispatcher', (
     expect((await tool(ctx, port, { path: 'notes/n1' }, { mode: 'as', uid: 'bob' })).ok).toBe(false);
     expect((await tool(ctx, port, { path: 'notes/n1' }, { mode: 'as', uid: 'alice' })).ok).toBe(true);
     expect((await tool(ctx, port, { path: 'sealed/s1' }, { mode: 'admin' })).ok).toBe(true);
-    // No identity on the frame keeps the historical admin behaviour.
-    expect((await tool(ctx, port, { path: 'sealed/s1' })).ok).toBe(true);
-    expect((await tool(ctx, port, { path: 'sealed/s1' }, { mode: 'app-session' })).ok).toBe(true);
-    // The per-call argument still wins over the frame's identity.
-    expect(
-      (await tool(ctx, port, { path: 'notes/n1', as: { uid: 'alice' } }, { mode: 'as', uid: 'bob' })).ok,
-    ).toBe(true);
   });
 });

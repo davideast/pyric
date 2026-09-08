@@ -1,69 +1,111 @@
 import { describe, expect, it } from 'bun:test';
-import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
+import { z } from 'zod';
+import { initializeSandbox } from 'pyric/sandbox';
+import { SANDBOX_TOOL_NAMES, buildSandboxDispatcher } from '../../src/bridge/client/dispatch.js';
 import {
   DEFAULT_MCP_FORWARDED_TOOL_NAMES,
   DEFAULT_MCP_IN_PROCESS_TOOL_NAMES,
+  DEFAULT_MCP_RESOURCE_URIS,
   DEFAULT_MCP_TOOL_NAMES,
   getDefaultMcpToolSurface,
 } from '../../src/bridge/server/mcp-contract.js';
+import {
+  assertFlatSchema,
+  MCP_RESOURCE_CONTRACTS,
+  MCP_TOOL_CONTRACTS,
+} from '../../src/bridge/contract/index.js';
 
-describe('default MCP tool contract', () => {
-  it('ratifies the exact public tools/list surface', () => {
-    expect(DEFAULT_MCP_TOOL_NAMES).toEqual([
-      'firestore_simulator_create',
-      'firestore_simulator_execute',
-      'firestore_simulator_read',
-      'firestore_simulator_batch',
-      'firestore_create_with_auto_id',
-      'firestore_simulator_undo',
-      'firestore_simulator_redo',
-      'firestore_simulator_events',
-      'firestore_simulator_transaction',
-      'firestore_get_document',
-      'firestore_list_documents',
-      'firestore_create_document',
-      'firestore_add_document',
-      'firestore_update_document',
-      'firestore_delete_document',
-      'firestore_batch_write',
-      'firestore_query_where',
-      'sandbox_inspect',
-      'rtdb_simulate_access',
-      'rtdb_crawl_structure',
-      'auth_create_user',
-      'auth_import_users',
-      'auth_get_user',
-      'auth_list_users',
-      'auth_update_user',
-      'auth_delete_user',
-      'auth_set_claims',
-      'auth_custom_token',
-      'firestore_simulate_rules',
-      'firestore_rules_stdlib_list',
-      'firestore_rules_stdlib_get',
-      'firestore_lint_rules',
-      'firestore_resolve_modules',
-      'rules_stdlib_list',
-      'rules_stdlib_get',
-      'rules_resolve_modules',
-      'pyric_can_i_use',
-      'auth_impersonate',
-      'auth_reset',
-      'auth_whoami',
-      'auth_sessions',
-    ]);
+describe('Seam 4 & 5: Typed-Service MCP Contract & Dispatch', () => {
+  it('registers the exact 12 Verb-First Action-Oriented Tools with zero legacy shims', () => {
+    const expectedTools = [
+      'switch_auth_identity',
+      'manage_auth_users',
+      'inspect_auth_flow',
+      'mutate_sandbox_data',
+      'query_sandbox_data',
+      'manage_storage_files',
+      'diagnose_rule_denial',
+      'verify_security_rules',
+      'dry_run_experiment',
+      'control_sandbox_environment',
+      'invoke_cloud_function',
+      'configure_ai_mock',
+    ];
+
+    expect([...DEFAULT_MCP_TOOL_NAMES].sort()).toEqual([...expectedTools].sort());
+    expect(DEFAULT_MCP_TOOL_NAMES.length).toBe(12);
+    expect(MCP_TOOL_CONTRACTS.length).toBe(12);
+  });
+
+  it('registers the exact 7 pyric:// MCP Resource URI Templates', () => {
+    const expectedResourceUris = [
+      'pyric://sandbox/status',
+      'pyric://sandbox/events',
+      'pyric://firestore/docs/{path}',
+      'pyric://database/tree/{path}',
+      'pyric://auth/users',
+      'pyric://storage/objects/{bucket}',
+      'pyric://stdlib/rules/{module}',
+    ];
+
+    expect([...DEFAULT_MCP_RESOURCE_URIS].sort()).toEqual([...expectedResourceUris].sort());
+    expect(DEFAULT_MCP_RESOURCE_URIS.length).toBe(7);
+    expect(MCP_RESOURCE_CONTRACTS.length).toBe(7);
+  });
+
+  it('enforces schema nesting depth <= 2 and rejects z.record(...) and level 3 objects', () => {
+    for (const contract of MCP_TOOL_CONTRACTS) {
+      expect(() => assertFlatSchema(contract.parameters, 2)).not.toThrow();
+    }
+
+    // Reject open-ended z.record(...)
+    const openRecordSchema = z.object({
+      metadata: z.record(z.string()),
+    });
+    expect(() => assertFlatSchema(openRecordSchema, 2)).toThrow(/z\.record/);
+
+    // Reject Level 3 object
+    const level3ObjectSchema = z.object({
+      level1: z.object({
+        level2: z.object({
+          level3: z.string(),
+        }),
+      }),
+    });
+    expect(() => assertFlatSchema(level3ObjectSchema, 2)).toThrow(/maximum nesting depth 2 exceeded/);
   });
 
   it('matches the browser dispatcher and live in-process handlers exactly', () => {
     const surface = getDefaultMcpToolSurface();
     expect(surface.forwarded.map((tool) => tool.name).sort()).toEqual(
-      [...DEFAULT_MCP_FORWARDED_TOOL_NAMES].sort(),
+      [...DEFAULT_MCP_FORWARDED_TOOL_NAMES].sort()
     );
     expect([...SANDBOX_TOOL_NAMES].sort()).toEqual(
-      [...DEFAULT_MCP_FORWARDED_TOOL_NAMES].sort(),
+      [...DEFAULT_MCP_FORWARDED_TOOL_NAMES].sort()
     );
     expect(surface.inProcess.map((tool) => tool.name).sort()).toEqual(
-      [...DEFAULT_MCP_IN_PROCESS_TOOL_NAMES].sort(),
+      [...DEFAULT_MCP_IN_PROCESS_TOOL_NAMES].sort()
     );
+  });
+
+  it('reads all 7 pyric:// MCP resources via buildSandboxDispatcher (Dual-Plane Parity)', async () => {
+    const sandbox = initializeSandbox();
+    const dispatch = buildSandboxDispatcher(sandbox);
+
+    const urisToRead = [
+      'pyric://sandbox/status',
+      'pyric://sandbox/events',
+      'pyric://firestore/docs/users',
+      'pyric://database/tree/root',
+      'pyric://auth/users',
+      'pyric://storage/objects/default',
+      'pyric://stdlib/rules/math',
+    ];
+
+    for (const uri of urisToRead) {
+      const res = await dispatch('resources/read', { uri });
+      expect(res.ok).toBe(true);
+      expect(res.data).toBeDefined();
+    }
   });
 });

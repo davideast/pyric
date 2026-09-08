@@ -30,6 +30,10 @@
     "./src/sandbox/internal/firebase-error.ts"
   ],
   "exports": {
+    "./actuation": {
+      "types": "./dist/actuation/index.d.ts",
+      "import": "./dist/actuation/index.js"
+    },
     "./app": {
       "types": "./dist/app/index.d.ts",
       "import": "./dist/app/index.js"

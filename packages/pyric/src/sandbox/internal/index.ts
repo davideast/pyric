@@ -15,6 +15,7 @@
  * scope summary".
  */
 export { getInternalEnv } from './sandbox-impl.js';
+export { parsePathSegments, canonicalizePath } from './path.js';
 export { stampProvenance } from './provenance.js';
 export { bindOperationContext } from '../sandbox-context.js';
 export {

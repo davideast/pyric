@@ -63,13 +63,13 @@ const OK: AuthToolResult = { ok: true, summary: 'You now act as admin.', data: {
 describe('impersonateArgs', () => {
   it('builds each of the three selectors', () => {
     expect(impersonateArgs(parsed('auth', 'impersonate', 'alice'))).toEqual({
-      args: { uid: 'alice' },
+      args: { mode: 'uid', uid: 'alice' },
     });
     expect(impersonateArgs(parsed('auth', 'impersonate', '--admin'))).toEqual({
-      args: { admin: true },
+      args: { mode: 'admin' },
     });
     expect(impersonateArgs(parsed('auth', 'impersonate', '--anonymous'))).toEqual({
-      args: { anonymous: true },
+      args: { mode: 'anonymous' },
     });
   });
 
@@ -83,16 +83,16 @@ describe('impersonateArgs', () => {
         ),
       ),
     ).toEqual({
-      args: { uid: 'alice', tenant: 'tenant-acme', claims: { role: 'editor', tier: 2 } },
+      args: { mode: 'uid', uid: 'alice', tenant: 'tenant-acme', claimsJson: '{"role":"editor","tier":2}' },
     });
   });
 
   it('carries --target through for each selector', () => {
     expect(impersonateArgs(parsed('auth', 'impersonate', 'alice', '--target', 'sess-1'))).toEqual({
-      args: { uid: 'alice', target: 'sess-1' },
+      args: { mode: 'uid', uid: 'alice', target: 'sess-1' },
     });
     expect(impersonateArgs(parsed('auth', 'impersonate', '--admin', '--target', 'sess-1'))).toEqual({
-      args: { admin: true, target: 'sess-1' },
+      args: { mode: 'admin', target: 'sess-1' },
     });
   });
 
@@ -165,7 +165,7 @@ describe('pyric auth sessions', () => {
     });
 
     expect(await runAuthSessions(parsed('auth', 'sessions'), h.deps)).toBe(0);
-    expect(h.calls).toEqual([{ tool: 'auth_sessions', args: {} }]);
+    expect(h.calls).toEqual([{ tool: 'inspect_auth_flow', args: { action: 'list_sessions' } }]);
     expect(h.stdout()).toContain('2 connected clients');
     expect(h.stdout()).toContain('sess-1  flutter (iPhone 17 Pro)  app session');
     expect(h.stdout()).toContain('sess-2  studio  as alice · tenant acme');
@@ -208,7 +208,7 @@ describe('pyric auth whoami', () => {
     const h = harness({ ok: true, summary: 'You act as admin.', data: {} });
 
     expect(await runAuthWhoami(parsed('auth', 'whoami'), h.deps)).toBe(0);
-    expect(h.calls).toEqual([{ tool: 'auth_whoami', args: {} }]);
+    expect(h.calls).toEqual([{ tool: 'inspect_auth_flow', args: { action: 'whoami' } }]);
     expect(h.stdout()).toContain('You act as admin.');
     expect(h.stdout()).toContain(SELF_SCOPE_NOTE);
   });
@@ -219,7 +219,7 @@ describe('pyric auth impersonate', () => {
     const h = harness(OK);
 
     expect(await runAuthImpersonate(parsed('auth', 'impersonate', 'alice'), h.deps)).toBe(0);
-    expect(h.calls).toEqual([{ tool: 'auth_impersonate', args: { uid: 'alice' } }]);
+    expect(h.calls).toEqual([{ tool: 'switch_auth_identity', args: { mode: 'uid', uid: 'alice' } }]);
     expect(h.stdout()).toContain(SELF_SCOPE_NOTE);
     expect(h.stdout()).not.toContain(TARGET_SCOPE_NOTE);
   });
@@ -239,11 +239,12 @@ describe('pyric auth impersonate', () => {
 
     expect(h.calls).toEqual([
       {
-        tool: 'auth_impersonate',
+        tool: 'switch_auth_identity',
         args: {
+          mode: 'uid',
           uid: 'alice',
           tenant: 'tenant-acme',
-          claims: { role: 'editor' },
+          claimsJson: '{"role":"editor"}',
           target: 'sess-1',
         },
       },
@@ -254,11 +255,11 @@ describe('pyric auth impersonate', () => {
   it('sends admin and anonymous without extra fields', async () => {
     const admin = harness(OK);
     await runAuthImpersonate(parsed('auth', 'impersonate', '--admin'), admin.deps);
-    expect(admin.calls).toEqual([{ tool: 'auth_impersonate', args: { admin: true } }]);
+    expect(admin.calls).toEqual([{ tool: 'switch_auth_identity', args: { mode: 'admin' } }]);
 
     const anonymous = harness(OK);
     await runAuthImpersonate(parsed('auth', 'impersonate', '--anonymous'), anonymous.deps);
-    expect(anonymous.calls).toEqual([{ tool: 'auth_impersonate', args: { anonymous: true } }]);
+    expect(anonymous.calls).toEqual([{ tool: 'switch_auth_identity', args: { mode: 'anonymous' } }]);
   });
 
   it('exits 1 on a bad selector combination, before contacting a bridge', async () => {
@@ -309,7 +310,7 @@ describe('pyric auth reset', () => {
     const h = harness({ ok: true, summary: 'You now act as app session.', data: {} });
 
     expect(await runAuthReset(parsed('auth', 'reset'), h.deps)).toBe(0);
-    expect(h.calls).toEqual([{ tool: 'auth_reset', args: {} }]);
+    expect(h.calls).toEqual([{ tool: 'switch_auth_identity', args: { mode: 'app-session' } }]);
     expect(h.stdout()).toContain(SELF_SCOPE_NOTE);
   });
 
@@ -317,7 +318,7 @@ describe('pyric auth reset', () => {
     const h = harness({ ok: true, summary: 'sess-1 now acts as app session.', data: {} });
 
     expect(await runAuthReset(parsed('auth', 'reset', '--target', 'sess-1'), h.deps)).toBe(0);
-    expect(h.calls).toEqual([{ tool: 'auth_reset', args: { target: 'sess-1' } }]);
+    expect(h.calls).toEqual([{ tool: 'switch_auth_identity', args: { mode: 'app-session', target: 'sess-1' } }]);
     expect(h.stdout()).toContain(TARGET_SCOPE_NOTE);
   });
 
@@ -380,6 +381,6 @@ describe('service command routing', () => {
     const argv = parseArgs(['auth', 'impersonate', 'alice']);
     // Mirrors dispatchServiceCommand's slice for a two-word path.
     expect(await runAuthImpersonate({ ...argv, positional: argv.positional.slice(1) }, h.deps)).toBe(0);
-    expect(h.calls[0]!.args).toEqual({ uid: 'alice' });
+    expect(h.calls[0]!.args).toEqual({ mode: 'uid', uid: 'alice' });
   });
 });

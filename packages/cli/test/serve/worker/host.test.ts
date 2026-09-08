@@ -1303,7 +1303,7 @@ describe('agent tool dispatch (worker hosts the canonical tools)', () => {
 
   it('routes a tool call to the sandbox dispatcher and replies with the result', async () => {
     const res = await sendOp(ctx, port, {
-      t: 'tool', id: 'tool-list', name: 'firestore_list_documents', args: { collection: 'posts' },
+      t: 'tool', id: 'tool-list', name: 'query_sandbox_data', args: { service: 'firestore', path: 'posts' },
     });
     expect(res.ok).toBe(true);
     expect((res as ResMessage & { ok: true }).value).toMatchObject({ ok: true });
@@ -1318,21 +1318,21 @@ describe('agent tool dispatch (worker hosts the canonical tools)', () => {
 
   it('agent write lands in the SAME sandbox the app reads (one shared backend)', async () => {
     const write = await sendOp(ctx, port, {
-      t: 'tool', id: 'tool-write', name: 'firestore_create_document',
-      args: { path: 'posts/p1', data: { title: 'from the agent' } },
+      t: 'tool', id: 'tool-write', name: 'mutate_sandbox_data',
+      args: { service: 'firestore', action: 'set', path: 'posts/p1', dataJson: JSON.stringify({ title: 'from the agent' }) },
     });
     expect((write as ResMessage & { ok: true }).value).toMatchObject({ ok: true });
 
     // Read it back through the tool dispatcher — same authoritative sandbox.
     const read = await sendOp(ctx, port, {
-      t: 'tool', id: 'tool-read', name: 'firestore_get_document', args: { path: 'posts/p1' },
+      t: 'tool', id: 'tool-read', name: 'query_sandbox_data', args: { service: 'firestore', path: 'posts/p1' },
     });
     const result = (read as ResMessage & { ok: true }).value as {
-      ok: boolean; data: { exists: boolean; data: { title: string } };
+      ok: boolean; data: { count: number; results: Array<{ data: { title: string } }> };
     };
     expect(result.ok).toBe(true);
-    expect(result.data.exists).toBe(true);
-    expect(result.data.data.title).toBe('from the agent');
+    expect(result.data.count).toBe(1);
+    expect(result.data.results[0].data.title).toBe('from the agent');
 
     // AND the app's own db handle (getFirestore(sandbox)) sees it too — proving
     // the agent and the app share one backend, not separate sandboxes.
@@ -1350,14 +1350,10 @@ describe('agent tool dispatch (worker hosts the canonical tools)', () => {
       spot: new GeoPoint(37.77, -122.41),
     });
     const read = await sendOp(ctx, port, {
-      t: 'tool', id: 'tool-wrap', name: 'firestore_get_document', args: { path: 'docs/wrap' },
+      t: 'tool', id: 'tool-wrap', name: 'query_sandbox_data', args: { service: 'firestore', path: 'docs/wrap' },
     });
     const value = (read as ResMessage & { ok: true }).value;
-    // Cloning the posted value (what the port does) must NOT change its JSON
-    // shape — proving it is already plain, not live wrapper instances. Without
-    // the pre-serialize this fails: structuredClone drops toJSON and mangles them.
     expect(JSON.stringify(structuredClone(value))).toBe(JSON.stringify(value));
-    // And no mangled wrapper internals leaked (the pre-fix clone shapes).
     const json = JSON.stringify(value);
     expect(json).not.toContain('_byteString'); // Bytes internal
     expect(json).not.toContain('_lat'); // GeoPoint internal
@@ -1373,8 +1369,8 @@ describe('agent tool dispatch (worker hosts the canonical tools)', () => {
 
     // The agent writes via a tool (admin-bypass path) on the SAME worker sandbox.
     await sendOp(ctx, port, {
-      t: 'tool', id: 'agent-live-write', name: 'firestore_create_document',
-      args: { path: 'posts/live', data: { title: 'agent live write' } },
+      t: 'tool', id: 'agent-live-write', name: 'mutate_sandbox_data',
+      args: { service: 'firestore', action: 'set', path: 'posts/live', dataJson: JSON.stringify({ title: 'agent live write' }) },
     });
     await tick();
 

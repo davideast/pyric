@@ -22,16 +22,21 @@ describe('sandbox tool parity (advertised == executable)', () => {
     expect(executable).toEqual(advertised);
   });
 
-  it('includes the data-plane + inspect tools that regressed (the bug this guards)', () => {
+  it('includes the 12 Verb-First action-oriented tools across data, auth, storage, and environment', () => {
     const names = new Set(SANDBOX_TOOL_NAMES);
     for (const t of [
-      'firestore_create_document',
-      'firestore_get_document',
-      'firestore_list_documents',
-      'firestore_update_document',
-      'firestore_delete_document',
-      'firestore_query_where',
-      'sandbox_inspect',
+      'switch_auth_identity',
+      'manage_auth_users',
+      'inspect_auth_flow',
+      'mutate_sandbox_data',
+      'query_sandbox_data',
+      'manage_storage_files',
+      'diagnose_rule_denial',
+      'verify_security_rules',
+      'dry_run_experiment',
+      'control_sandbox_environment',
+      'invoke_cloud_function',
+      'configure_ai_mock',
     ]) {
       expect(names.has(t)).toBe(true);
     }

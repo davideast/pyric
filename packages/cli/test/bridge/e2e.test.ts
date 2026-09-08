@@ -204,14 +204,16 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
     }
   });
 
-  test('round-trip: create → execute → read → undo → redo', async () => {
+  test('round-trip: set -> update -> branch fork -> branch discard', async () => {
     const peer = await connectFakePeer();
     const { client, close } = await makeMcpClient();
     try {
       // Seed
-      const create = await callToolText(client, 'firestore_simulator_create', {
-        rules: `rules_version = '2';\nservice cloud.firestore { match /databases/{db}/documents { match /{doc=**} { allow read, write: if true; } } }`,
-        documents: { 'users/u1': { name: 'Alice' } },
+      const create = await callToolText(client, 'mutate_sandbox_data', {
+        service: 'firestore',
+        action: 'set',
+        path: 'users/u1',
+        dataJson: JSON.stringify({ name: 'Alice' }),
       });
       expect(create.ok).toBe(true);
       expect(create.payload.ok).toBe(true);
@@ -220,31 +222,31 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
       const beforeWrite = peer.env.getDocument('users/u1');
       expect(beforeWrite?.name).toBe('Alice');
 
-      // Write
-      const write = await callToolText(client, 'firestore_simulator_execute', {
-        method: 'update',
+      // Update
+      const write = await callToolText(client, 'mutate_sandbox_data', {
+        service: 'firestore',
+        action: 'update',
         path: 'users/u1',
-        auth: null,
-        data: { name: 'Alice', age: 30 },
+        dataJson: JSON.stringify({ name: 'Alice', age: 30 }),
       });
       expect(write.ok).toBe(true);
-      const writeData = write.payload.data as { allowed: boolean };
-      expect(writeData.allowed).toBe(true);
 
       const afterWrite = peer.env.getDocument('users/u1');
       expect(afterWrite?.age).toBe(30);
 
-      // Undo
-      const undo = await callToolText(client, 'firestore_simulator_undo', {});
-      expect(undo.ok).toBe(true);
-      const undone = peer.env.getDocument('users/u1');
-      expect(undone?.age).toBeUndefined();
+      // Branch fork experiment
+      const fork = await callToolText(client, 'dry_run_experiment', {
+        action: 'fork',
+        branchId: 'exp-1',
+      });
+      expect(fork.ok).toBe(true);
 
-      // Redo (the previously half-wired tool)
-      const redo = await callToolText(client, 'firestore_simulator_redo', {});
-      expect(redo.ok).toBe(true);
-      const redone = peer.env.getDocument('users/u1');
-      expect(redone?.age).toBe(30);
+      // Discard branch
+      const discard = await callToolText(client, 'dry_run_experiment', {
+        action: 'discard',
+        branchId: 'exp-1',
+      });
+      expect(discard.ok).toBe(true);
     } finally {
       await close();
       peer.disconnect();
@@ -256,7 +258,9 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
     // No peer connected for this test.
     const { client, close } = await makeMcpClient();
     try {
-      const result = await callToolText(client, 'firestore_simulator_undo', {});
+      const result = await callToolText(client, 'control_sandbox_environment', {
+        action: 'reset_all',
+      });
       // The MCP HTTP transport wraps the bridge's error result in
       // a successful HTTP response with isError=true.
       expect(result.payload.ok).toBe(false);
@@ -275,9 +279,11 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
     const peer2 = await connectFakePeer();
     const { client, close } = await makeMcpClient();
     try {
-      const result = await callToolText(client, 'firestore_simulator_create', {
-        rules: `rules_version = '2';\nservice cloud.firestore { match /databases/{db}/documents { match /{doc=**} { allow read, write: if true; } } }`,
-        documents: { 'pings/p1': { ok: true } },
+      const result = await callToolText(client, 'mutate_sandbox_data', {
+        service: 'firestore',
+        action: 'set',
+        path: 'pings/p1',
+        dataJson: JSON.stringify({ ok: true }),
       });
       expect(result.payload.ok).toBe(true);
       const doc = peer2.env.getDocument('pings/p1');
@@ -289,20 +295,21 @@ describe('@pyric/cli/bridge end-to-end MCP bridge', () => {
     }
   });
 
-  test('rules in-process tool executes without a peer (firestore_lint_rules)', async () => {
-    // No peer needed — rules tools execute in Node.
+  test('verify_security_rules executes rule linting round-trip over peer', async () => {
+    const peer = await connectFakePeer();
     const { client, close } = await makeMcpClient();
     try {
-      const result = await callToolText(client, 'firestore_lint_rules', {
+      const result = await callToolText(client, 'verify_security_rules', {
+        service: 'firestore',
+        action: 'lint',
         source: `rules_version = '2';\nservice cloud.firestore { match /databases/{db}/documents { match /{doc=**} { allow read; } } }`,
       });
-      // The lint tool may report warnings or pass; assert it RAN to
-      // completion (data payload present) rather than asserting
-      // a specific outcome. The bridge round-trip is what's under test.
       expect(result.payload).toBeDefined();
       expect(typeof result.payload.summary).toBe('string');
     } finally {
       await close();
+      peer.disconnect();
+      await new Promise((r) => setTimeout(r, 50));
     }
   });
 });

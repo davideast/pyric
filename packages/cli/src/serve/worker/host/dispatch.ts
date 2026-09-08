@@ -139,6 +139,10 @@ async function handleTool(ctx: HostCtx, port: PortLike, msg: ToolMessage): Promi
     // dispatcher applies it only where a tool has no identity argument of its
     // own; it is NOT the `lensDb` path `op` frames take.
     const result = await ctx.toolDispatch(msg.name, msg.args ?? {}, msg.actAs);
+    if (!result.ok) {
+      fail(port, msg.id, new Error(result.summary));
+      return;
+    }
     // Pre-serialize via JSON BEFORE the structured-clone hop over the port. Read
     // results carry real firebase wrapper instances (Timestamp/GeoPoint/Bytes/
     // VectorValue) whose toJSON() produces the canonical agent-facing shapes.

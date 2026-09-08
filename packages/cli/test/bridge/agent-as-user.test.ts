@@ -35,59 +35,70 @@ describe('agent-as-a-distinct-user via the tool dispatcher (Slice D)', () => {
     const dispatch = buildSandboxDispatcher(sandbox);
 
     // Agent acting as alice creates her own message: allowed.
-    const r1 = await dispatch('firestore_create_document', {
+    const r1 = await dispatch('mutate_sandbox_data', {
+      service: 'firestore',
+      action: 'set',
       path: 'rooms/r1/msgs/m1',
-      data: { author: 'alice', body: 'hi' },
-      as: { uid: 'alice' },
+      dataJson: JSON.stringify({ author: 'alice', body: 'hi' }),
+      auth: { mode: 'uid', uid: 'alice' },
     });
     expect(r1.ok).toBe(true);
 
     // Agent acting as bob, forging a message authored by alice: denied.
-    await expect(
-      dispatch('firestore_create_document', {
-        path: 'rooms/r1/msgs/m2',
-        data: { author: 'alice', body: 'forged' },
-        as: { uid: 'bob' },
-      }),
-    ).rejects.toThrow();
+    const r2 = await dispatch('mutate_sandbox_data', {
+      service: 'firestore',
+      action: 'set',
+      path: 'rooms/r1/msgs/m2',
+      dataJson: JSON.stringify({ author: 'alice', body: 'forged' }),
+      auth: { mode: 'uid', uid: 'bob' },
+    });
+    expect(r2.ok).toBe(false);
 
     // Agent acting as bob, his own message: allowed.
-    const r3 = await dispatch('firestore_create_document', {
+    const r3 = await dispatch('mutate_sandbox_data', {
+      service: 'firestore',
+      action: 'set',
       path: 'rooms/r1/msgs/m3',
-      data: { author: 'bob', body: 'hey' },
-      as: { uid: 'bob' },
+      dataJson: JSON.stringify({ author: 'bob', body: 'hey' }),
+      auth: { mode: 'uid', uid: 'bob' },
     });
     expect(r3.ok).toBe(true);
 
     // Agent acting as bob reads alice's message (read allowed for any signed-in user).
-    const r4 = await dispatch('firestore_get_document', {
+    const r4 = await dispatch('query_sandbox_data', {
+      service: 'firestore',
       path: 'rooms/r1/msgs/m1',
-      as: { uid: 'bob' },
+      auth: { mode: 'uid', uid: 'bob' },
     });
     expect(r4.ok).toBe(true);
-    expect((r4.data as { data: unknown }).data).toEqual({ author: 'alice', body: 'hi' });
+    expect((r4.data as { results: Array<{ data: unknown }> }).results[0].data).toEqual({ author: 'alice', body: 'hi' });
 
-    // Custom claims ride the `as` arg: a role:admin claim satisfies a token-gated rule.
-    const r5 = await dispatch('firestore_create_document', {
+    // Custom claims ride the `auth` arg: a role:admin claim satisfies a token-gated rule.
+    const r5 = await dispatch('mutate_sandbox_data', {
+      service: 'firestore',
+      action: 'set',
       path: 'admin/x',
-      data: { v: 1 },
-      as: { uid: 'a', claims: { role: 'admin' } },
+      dataJson: JSON.stringify({ v: 1 }),
+      auth: { mode: 'uid', uid: 'a', claimsJson: JSON.stringify({ role: 'admin' }) },
     });
     expect(r5.ok).toBe(true);
 
     // The same op without the claim is denied.
-    await expect(
-      dispatch('firestore_create_document', {
-        path: 'admin/y',
-        data: { v: 1 },
-        as: { uid: 'b' },
-      }),
-    ).rejects.toThrow();
+    const r5Denied = await dispatch('mutate_sandbox_data', {
+      service: 'firestore',
+      action: 'set',
+      path: 'admin/y',
+      dataJson: JSON.stringify({ v: 1 }),
+      auth: { mode: 'uid', uid: 'b' },
+    });
+    expect(r5Denied.ok).toBe(false);
 
-    // No `as` (admin default) bypasses rules: seeding writes any author.
-    const r6 = await dispatch('firestore_create_document', {
+    // No `auth` (admin default) bypasses rules: seeding writes any author.
+    const r6 = await dispatch('mutate_sandbox_data', {
+      service: 'firestore',
+      action: 'set',
       path: 'rooms/r1/msgs/seed',
-      data: { author: 'system' },
+      dataJson: JSON.stringify({ author: 'system' }),
     });
     expect(r6.ok).toBe(true);
   });

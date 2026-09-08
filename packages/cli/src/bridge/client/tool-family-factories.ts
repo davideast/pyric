@@ -1,36 +1,40 @@
 /**
- * Browser-side factory for each forwarded tool family, bound to one
- * sandbox. Imports only browser-safe subpaths (`pyric/rules/internal`, never
- * `/node`); the Node side has its own map in `server/tool-family-factories.ts`.
- *
- * The keys are the family record filenames. `satisfies` against the keys
- * derived from the generated aggregate makes a missing or surplus entry a
- * compile error.
+ * Browser/Sandbox factory for the Typed-Service Contract tools.
  */
 import type { ToolHandler } from '@inbrowser/agent';
-import { createFirestoreSimulatorTools } from 'pyric/rules/internal';
-import {
-  createFirestoreDataTools,
-  createFirestoreInspectTools,
-  type FirestoreDataToolDeps,
-} from 'pyric/firestore';
-import type { LocalSandbox } from 'pyric/sandbox';
-import type { getInternalEnv } from 'pyric/sandbox/internal';
-import { createRtdbInspectionTools } from '../../rtdb/inspection.js';
-import { createAuthUsersTools } from '../../auth/users.js';
+import type { AuthLens, LocalSandbox } from 'pyric/sandbox';
 import type { ForwardedFamilyKey } from '../tool-families.js';
+import { MCP_TOOL_CONTRACTS } from '../contract/index.js';
 
-/** Everything a forwarded family needs from one sandbox, built once per sandbox. */
 export interface SandboxBinding {
   sandbox: LocalSandbox;
-  env: ReturnType<typeof getInternalEnv>;
-  resolveDb: FirestoreDataToolDeps['resolveDb'];
+  caller?: AuthLens;
 }
 
 export const SANDBOX_HANDLER_FACTORIES = {
-  'firestore-simulator': ({ env }) => createFirestoreSimulatorTools({ resolveSandbox: () => env }),
-  'firestore-data': ({ resolveDb }) => createFirestoreDataTools({ resolveDb }),
-  'firestore-inspect': ({ sandbox }) => createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
-  'rtdb-inspection': ({ sandbox }) => createRtdbInspectionTools({ resolveSandbox: () => sandbox }),
-  'auth-users': ({ sandbox }) => createAuthUsersTools({ resolveSandbox: () => sandbox }),
+  'typed-contract': (binding) =>
+    MCP_TOOL_CONTRACTS.map((contract) => ({
+      name: contract.name,
+      description: contract.description,
+      parameters: contract.jsonSchema,
+      execute: async (args: Record<string, unknown>) => {
+        const res = (await contract.execute(args as never, {
+          sandbox: binding.sandbox,
+          caller: binding.caller,
+        })) as Record<string, unknown> | undefined;
+
+        const ok = res && typeof res === 'object' && 'ok' in res ? Boolean(res.ok) : true;
+        const errorMsg =
+          res && typeof res === 'object' && 'error' in res && typeof res.error === 'string'
+            ? res.error
+            : undefined;
+        const summary = errorMsg ?? JSON.stringify(res ?? {});
+
+        return {
+          ok,
+          summary,
+          data: res,
+        };
+      },
+    })),
 } satisfies Record<ForwardedFamilyKey, (binding: SandboxBinding) => ToolHandler[]>;

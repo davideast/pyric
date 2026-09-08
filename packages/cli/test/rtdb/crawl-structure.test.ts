@@ -4,8 +4,8 @@ import { setData } from 'pyric/sandbox/database';
 
 import { buildSandboxDispatcher } from '../../src/bridge/client/dispatch.js';
 
-describe('rtdb_crawl_structure', () => {
-  test('describes the current local tree without returning leaf values', async () => {
+describe('query_sandbox_data and resources/read (database)', () => {
+  test('queries the root tree and reads a subtree resource', async () => {
     const sandbox = initializeSandbox();
     const dispatch = buildSandboxDispatcher(sandbox);
     setData(sandbox, {
@@ -14,45 +14,32 @@ describe('rtdb_crawl_structure', () => {
       '/version': 3,
     });
 
-    const result = await dispatch('rtdb_crawl_structure', {});
+    const result = await dispatch('query_sandbox_data', {
+      service: 'database',
+      path: '/',
+    });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: true,
-      summary: 'Crawled 3 object paths from /',
       data: {
-        path: '/',
-        childCount: 2,
-        truncated: false,
-        schema: { version: 'number' },
-        children: [
+        count: 1,
+        results: [
           {
-            path: '/users',
-            childCount: 2,
-            truncated: false,
-            schema: {},
-            children: [
-              {
-                path: '/users/alice',
-                childCount: 2,
-                truncated: false,
-                schema: { active: 'boolean', name: 'string' },
-                children: [],
+            path: '',
+            data: {
+              users: {
+                alice: { active: true, name: 'Alice' },
+                bob: { active: false, name: 'Bob' },
               },
-              {
-                path: '/users/bob',
-                childCount: 2,
-                truncated: false,
-                schema: { active: 'boolean', name: 'string' },
-                children: [],
-              },
-            ],
+              version: 3,
+            },
           },
         ],
       },
     });
   });
 
-  test('selects a subtree and reports depth and child truncation', async () => {
+  test('reads a subtree via pyric://database/tree/{path}', async () => {
     const sandbox = initializeSandbox();
     const dispatch = buildSandboxDispatcher(sandbox);
     setData(sandbox, {
@@ -60,29 +47,19 @@ describe('rtdb_crawl_structure', () => {
       '/groups/alpha': { owner: 'alice', users: { alice: true } },
     });
 
-    const result = await dispatch('rtdb_crawl_structure', {
-      path: '/groups',
-      maxDepth: 1,
-      maxChildren: 1,
+    const result = await dispatch('resources/read', {
+      uri: 'pyric://database/tree/groups/alpha',
     });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: true,
-      summary: 'Crawled 1 object paths from /groups',
       data: {
-        path: '/groups',
-        childCount: 2,
-        truncated: true,
-        schema: {},
-        children: [
-          {
-            path: '/groups/alpha',
-            childCount: 2,
-            truncated: true,
-            schema: { owner: 'string' },
-            children: [],
-          },
-        ],
+        path: '/groups/alpha',
+        exists: true,
+        value: {
+          owner: 'alice',
+          users: { alice: true },
+        },
       },
     });
   });

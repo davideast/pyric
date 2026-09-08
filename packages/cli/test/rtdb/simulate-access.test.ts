@@ -4,7 +4,7 @@ import { setData, setRules } from 'pyric/sandbox/database';
 
 import { buildSandboxDispatcher } from '../../src/bridge/client/dispatch.js';
 
-describe('rtdb_simulate_access', () => {
+describe('diagnose_rule_denial (database)', () => {
   test('uses the sandbox current rules and data on every call', async () => {
     const sandbox = initializeSandbox();
     const dispatch = buildSandboxDispatcher(sandbox);
@@ -24,15 +24,16 @@ describe('rtdb_simulate_access', () => {
       },
     });
 
-    const denied = await dispatch('rtdb_simulate_access', {
+    const denied = await dispatch('diagnose_rule_denial', {
+      service: 'database',
       operation: 'write',
       path: '/notes/n1',
       auth: { uid: 'alice' },
-      newData: { title: 'Missing owner' },
+      resourceDataJson: JSON.stringify({ title: 'Missing owner' }),
     });
     expect(denied).toMatchObject({
       ok: true,
-      data: { decision: 'DENY' },
+      data: { allowed: false },
     });
 
     setRules(sandbox, {
@@ -46,15 +47,16 @@ describe('rtdb_simulate_access', () => {
       },
     });
 
-    const allowed = await dispatch('rtdb_simulate_access', {
+    const allowed = await dispatch('diagnose_rule_denial', {
+      service: 'database',
       operation: 'write',
       path: '/notes/n1',
       auth: { uid: 'alice' },
-      newData: { title: 'Still a simulation' },
+      resourceDataJson: JSON.stringify({ title: 'Still a simulation' }),
     });
     expect(allowed).toMatchObject({
       ok: true,
-      data: { decision: 'ALLOW' },
+      data: { allowed: true },
     });
   });
 });

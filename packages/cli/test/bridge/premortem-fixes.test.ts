@@ -104,39 +104,18 @@ describe('Premortem fixes — A2 (session leak)', () => {
 describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
   test('SANDBOX_TOOL_NAMES covers every sandbox tool factory (no advertise/execute drift)', () => {
     expect(SANDBOX_TOOL_NAMES).toEqual([
-      // simulator family
-      'firestore_simulator_create',
-      'firestore_simulator_execute',
-      'firestore_simulator_read',
-      'firestore_simulator_batch',
-      'firestore_create_with_auto_id',
-      'firestore_simulator_undo',
-      'firestore_simulator_redo',
-      'firestore_simulator_events',
-      'firestore_simulator_transaction',
-      // data-plane family (now executable on the page peer, not just advertised)
-      'firestore_get_document',
-      'firestore_list_documents',
-      'firestore_create_document',
-      'firestore_add_document',
-      'firestore_update_document',
-      'firestore_delete_document',
-      'firestore_batch_write',
-      'firestore_query_where',
-      // inspect
-      'sandbox_inspect',
-      // local RTDB inspection
-      'rtdb_simulate_access',
-      'rtdb_crawl_structure',
-      // sandbox auth user administration
-      'auth_create_user',
-      'auth_import_users',
-      'auth_get_user',
-      'auth_list_users',
-      'auth_update_user',
-      'auth_delete_user',
-      'auth_set_claims',
-      'auth_custom_token',
+      'switch_auth_identity',
+      'manage_auth_users',
+      'inspect_auth_flow',
+      'mutate_sandbox_data',
+      'query_sandbox_data',
+      'manage_storage_files',
+      'diagnose_rule_denial',
+      'verify_security_rules',
+      'dry_run_experiment',
+      'control_sandbox_environment',
+      'invoke_cloud_function',
+      'configure_ai_mock',
     ]);
   });
 });

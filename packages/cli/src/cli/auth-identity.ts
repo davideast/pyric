@@ -96,7 +96,7 @@ export function impersonateArgs(
     if (parsed.flags.has('tenant') || parsed.flags.has('claims')) {
       return { error: '--tenant and --claims apply only to a uid.' };
     }
-    return { args: { ...(admin ? { admin: true } : { anonymous: true }), ...scope } };
+    return { args: { mode: admin ? 'admin' : 'anonymous', ...scope } };
   }
 
   const tenant = stringFlag(parsed, 'tenant');
@@ -104,7 +104,7 @@ export function impersonateArgs(
 
   const claimsRaw = stringFlag(parsed, 'claims');
   if (claimsRaw === null) return { error: '--claims requires a JSON object.' };
-  let claims: Record<string, unknown> | undefined;
+  let claimsJson: string | undefined;
   if (claimsRaw !== undefined) {
     let parsedClaims: unknown;
     try {
@@ -117,14 +117,15 @@ export function impersonateArgs(
     if (typeof parsedClaims !== 'object' || parsedClaims === null || Array.isArray(parsedClaims)) {
       return { error: '--claims must be a JSON object of custom claims.' };
     }
-    claims = parsedClaims as Record<string, unknown>;
+    claimsJson = JSON.stringify(parsedClaims);
   }
 
   return {
     args: {
+      mode: 'uid',
       uid,
       ...(tenant !== undefined ? { tenant } : {}),
-      ...(claims !== undefined ? { claims } : {}),
+      ...(claimsJson !== undefined ? { claimsJson } : {}),
       ...scope,
     },
   };
@@ -240,7 +241,7 @@ export async function runAuthSessions(
   parsed: ParsedArgs,
   deps: AuthIdentityDeps = {},
 ): Promise<number> {
-  return run('auth sessions', 'auth_sessions', {}, parsed, deps, (result, out) => {
+  return run('auth sessions', 'inspect_auth_flow', { action: 'list_sessions' }, parsed, deps, (result, out) => {
     out.write(`${result.summary}\n`);
     for (const session of (result.data as { sessions?: ListedSession[] })?.sessions ?? []) {
       const label = session.deviceLabel ? ` (${session.deviceLabel})` : '';
@@ -253,7 +254,7 @@ export async function runAuthWhoami(
   parsed: ParsedArgs,
   deps: AuthIdentityDeps = {},
 ): Promise<number> {
-  return run('auth whoami', 'auth_whoami', {}, parsed, deps, withScopeNote(SELF_SCOPE_NOTE));
+  return run('auth whoami', 'inspect_auth_flow', { action: 'whoami' }, parsed, deps, withScopeNote(SELF_SCOPE_NOTE));
 }
 
 /**
@@ -287,7 +288,7 @@ export async function runAuthImpersonate(
   }
   return run(
     'auth impersonate',
-    'auth_impersonate',
+    'switch_auth_identity',
     built.args,
     parsed,
     deps,
@@ -307,8 +308,8 @@ export async function runAuthReset(
   }
   return run(
     'auth reset',
-    'auth_reset',
-    scope,
+    'switch_auth_identity',
+    { mode: 'app-session', ...scope },
     parsed,
     deps,
     withScopeNote(scope.target === undefined ? SELF_SCOPE_NOTE : TARGET_SCOPE_NOTE),

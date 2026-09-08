@@ -241,11 +241,11 @@ describe('the auth user tools over a live bridge', () => {
     const { client, close } = await mcpClient();
     try {
       const listed = (await client.listTools()).tools.map((tool) => tool.name);
-      expect(listed).toContain('auth_create_user');
-      expect(listed).toContain('auth_impersonate');
-      expect(listed).toContain('auth_whoami');
+      expect(listed).toContain('manage_auth_users');
+      expect(listed).toContain('switch_auth_identity');
+      expect(listed).toContain('inspect_auth_flow');
       expect(listed.some((name) => name.includes('lens'))).toBe(false);
-      const create = (await client.listTools()).tools.find((t) => t.name === 'auth_create_user')!;
+      const create = (await client.listTools()).tools.find((t) => t.name === 'manage_auth_users')!;
       expect(Object.keys(create.inputSchema.properties ?? {})).not.toContain('op');
     } finally {
       await close();
@@ -258,12 +258,13 @@ describe('the auth user tools over a live bridge', () => {
     try {
       const created = payload(
         await client.callTool({
-          name: 'auth_create_user',
+          name: 'manage_auth_users',
           arguments: {
+            action: 'create',
             uid: 'ada',
             email: 'ada@example.com',
             password: 'password123',
-            claims: { role: 'admin' },
+            claimsJson: JSON.stringify({ role: 'admin' }),
           },
         }),
       );
@@ -272,52 +273,63 @@ describe('the auth user tools over a live bridge', () => {
 
       const imported = payload(
         await client.callTool({
-          name: 'auth_import_users',
-          arguments: { users: [{ email: 'goog@example.com', providers: ['google.com'] }] },
+          name: 'manage_auth_users',
+          arguments: {
+            action: 'import',
+            usersJson: JSON.stringify([{ email: 'goog@example.com', providers: ['google.com'] }]),
+          },
         }),
       );
       expect(imported.ok).toBe(true);
 
-      const listed = payload(await client.callTool({ name: 'auth_list_users', arguments: {} }));
+      const listed = payload(
+        await client.callTool({ name: 'manage_auth_users', arguments: { action: 'list' } }),
+      );
       const users = (listed.data as { users: Array<{ uid: string; photoUrl: string | null }> }).users;
       expect(users).toHaveLength(2);
       expect(users.find((user) => user.uid === 'ada')!.photoUrl).toBeNull();
       const federated = users.find((user) => user.uid !== 'ada')!;
-      expect(federated.photoUrl).toStartWith('data:image/svg+xml,');
+      expect(federated.photoUrl).toBeNull();
 
       const fetched = payload(
-        await client.callTool({ name: 'auth_get_user', arguments: { uid: 'ada' } }),
+        await client.callTool({
+          name: 'manage_auth_users',
+          arguments: { action: 'get', uid: 'ada' },
+        }),
       );
       expect((fetched.data as { user: { uid: string } }).user.uid).toBe('ada');
 
       const updated = payload(
         await client.callTool({
-          name: 'auth_update_user',
-          arguments: { uid: 'ada', displayName: 'Ada L' },
+          name: 'manage_auth_users',
+          arguments: { action: 'update', uid: 'ada', displayName: 'Ada L' },
         }),
       );
       expect((updated.data as { user: { displayName: string } }).user.displayName).toBe('Ada L');
 
       const claimed = payload(
         await client.callTool({
-          name: 'auth_set_claims',
-          arguments: { uid: 'ada', claims: { role: 'editor' } },
+          name: 'manage_auth_users',
+          arguments: { action: 'set_claims', uid: 'ada', claimsJson: JSON.stringify({ role: 'editor' }) },
         }),
       );
-      expect((claimed.data as { user: { claims: unknown } }).user.claims).toEqual({
+      expect((claimed.data as { user: { customClaims: unknown } }).user.customClaims).toEqual({
         role: 'editor',
       });
 
       const token = payload(
         await client.callTool({
-          name: 'auth_custom_token',
-          arguments: { uid: 'ada', claims: { role: 'admin' } },
+          name: 'manage_auth_users',
+          arguments: { action: 'mint_token', uid: 'ada', claimsJson: JSON.stringify({ role: 'admin' }) },
         }),
       );
       expect((token.data as { token: string }).token.length).toBeGreaterThan(0);
 
       const deleted = payload(
-        await client.callTool({ name: 'auth_delete_user', arguments: { uid: 'ada' } }),
+        await client.callTool({
+          name: 'manage_auth_users',
+          arguments: { action: 'delete', uid: 'ada' },
+        }),
       );
       expect(deleted.ok).toBe(true);
     } finally {
@@ -330,7 +342,7 @@ describe('the auth user tools over a live bridge', () => {
 
 /**
  * The core claim of the caller identity, at the outermost layer there is: a
- * real MCP client calls `auth_impersonate`, then calls a data tool, and the
+ * real MCP client calls `switch_auth_identity`, then calls a data tool, and the
  * bridge, the WebSocket, the page peer, and the sandbox's rules engine all sit
  * between the two calls.
  */
@@ -357,10 +369,20 @@ describe('the caller identity governs the tool calls the bridge forwards', () =>
 
   const read = async (path: string, args: Record<string, unknown> = {}) =>
     payload(
-      await client.callTool({ name: 'firestore_get_document', arguments: { path, ...args } }),
+      await client.callTool({
+        name: 'query_sandbox_data',
+        arguments: { service: 'firestore', path, ...args },
+      }),
     );
   const impersonate = async (args: Record<string, unknown>) =>
-    payload(await client.callTool({ name: 'auth_impersonate', arguments: args }));
+    payload(await client.callTool({ name: 'switch_auth_identity', arguments: args }));
+  const reset = async () =>
+    payload(
+      await client.callTool({
+        name: 'switch_auth_identity',
+        arguments: { mode: 'app-session' },
+      }),
+    );
 
   beforeAll(async () => {
     peer = await connectFakePeer(sandbox);
@@ -378,8 +400,8 @@ describe('the caller identity governs the tool calls the bridge forwards', () =>
     ] as const) {
       const created = payload(
         await client.callTool({
-          name: 'firestore_create_document',
-          arguments: { path, data },
+          name: 'mutate_sandbox_data',
+          arguments: { service: 'firestore', action: 'set', path, dataJson: JSON.stringify(data) },
         }),
       );
       expect(created.ok).toBe(true);
@@ -388,57 +410,61 @@ describe('the caller identity governs the tool calls the bridge forwards', () =>
   });
 
   afterAll(async () => {
-    await client.callTool({ name: 'auth_reset', arguments: {} });
+    await reset();
     await closeClient();
     peer.disconnect();
     await new Promise((r) => setTimeout(r, 50));
   });
 
   it('reads with rules bypassed while the caller holds the app session', async () => {
-    expect(await impersonate({ uid: 'zzz' })).toMatchObject({ ok: true });
-    expect(payload(await client.callTool({ name: 'auth_reset', arguments: {} })).ok).toBe(true);
+    expect(await impersonate({ mode: 'uid', uid: 'zzz' })).toMatchObject({ ok: true });
+    expect((await reset()).ok).toBe(true);
     expect((await read('sealed/s1')).ok).toBe(true);
   });
 
   it('denies a read the impersonated user may not make, and allows it after a reset', async () => {
-    expect((await impersonate({ uid: 'bob' })).ok).toBe(true);
+    expect((await impersonate({ mode: 'uid', uid: 'bob' })).ok).toBe(true);
     const denied = await read('notes/n1');
     expect(denied.ok).toBe(false);
     expect(denied.summary.toLowerCase()).toContain('denied by rules');
 
-    expect((await impersonate({ uid: 'alice' })).ok).toBe(true);
+    expect((await impersonate({ mode: 'uid', uid: 'alice' })).ok).toBe(true);
     const allowed = await read('notes/n1');
     expect(allowed.ok).toBe(true);
-    expect((allowed.data as { data: unknown }).data).toEqual({ owner: 'alice' });
+    expect((allowed.data as { results: Array<{ data: unknown }> }).results[0]!.data).toEqual({
+      owner: 'alice',
+    });
 
-    expect(payload(await client.callTool({ name: 'auth_reset', arguments: {} })).ok).toBe(true);
+    expect((await reset()).ok).toBe(true);
     expect((await read('sealed/s1')).ok).toBe(true);
   });
 
-  it("lets a call's own as argument outrank the recorded identity, which stays put", async () => {
-    expect((await impersonate({ uid: 'bob' })).ok).toBe(true);
+  it("lets a call's own auth argument outrank the recorded identity, which stays put", async () => {
+    expect((await impersonate({ mode: 'uid', uid: 'bob' })).ok).toBe(true);
 
-    expect((await read('notes/n1', { as: { uid: 'alice' } })).ok).toBe(true);
+    expect((await read('notes/n1', { auth: { mode: 'uid', uid: 'alice' } })).ok).toBe(true);
     expect(server.bridge.callerIdentity.get()).toEqual({ mode: 'as', uid: 'bob' });
-    const whoami = payload(await client.callTool({ name: 'auth_whoami', arguments: {} }));
+    const whoami = payload(
+      await client.callTool({ name: 'inspect_auth_flow', arguments: { action: 'whoami' } }),
+    );
     expect((whoami.data as { identity: string }).identity).toBe('as bob');
 
-    // The recorded identity is still the one in force for a call without `as`.
+    // The recorded identity is still the one in force for a call without `auth`.
     expect((await read('notes/n1')).ok).toBe(false);
   });
 
   it('bypasses rules for admin, and runs genuinely signed out for anonymous', async () => {
-    expect((await impersonate({ admin: true })).ok).toBe(true);
+    expect((await impersonate({ mode: 'admin' })).ok).toBe(true);
     expect((await read('sealed/s1')).ok).toBe(true);
 
-    expect((await impersonate({ anonymous: true })).ok).toBe(true);
+    expect((await impersonate({ mode: 'anonymous' })).ok).toBe(true);
     expect((await read('open/o1')).ok).toBe(true);
     expect((await read('notes/n1')).ok).toBe(false);
     expect((await read('sealed/s1')).ok).toBe(false);
   });
 
   it('leaves another connected client alone when the caller impersonates', async () => {
-    expect((await impersonate({ uid: 'alice' })).ok).toBe(true);
+    expect((await impersonate({ mode: 'uid', uid: 'alice' })).ok).toBe(true);
     expect(server.bridge.consumers.get('sess-live')?.activeLens).toEqual({ mode: 'app-session' });
   });
 });
