@@ -97,11 +97,13 @@ export function evaluateStorageRules(
             );
             continue;
           }
-          // Unverified: production's behavior for a non-boolean allow
-          // condition (a CEL type error there, rather than this truthiness
-          // coercion) has not been captured. The coercion stays as written
-          // until a production capture settles it.
-          result = truthy(value);
+          if (typeof value !== 'boolean') {
+            reasons.push(
+              `match ${formatPath(block.segments)} ${input.request.method}: expected boolean allow condition, got ${describeType(value)}`,
+            );
+            continue;
+          }
+          result = value;
         } catch (err) {
           // Any function-evaluation failure (undefined function, wrong
           // arity, depth exceeded, error inside a body) denies this rule
@@ -149,12 +151,6 @@ function readProperty(obj: unknown, name: string): unknown {
   return v;
 }
 
-function truthy(v: unknown): boolean {
-  // An error value is never truthy: it denies. (Without this, a `RuleError`
-  // object would be truthy and every absent-property read would FALSE-ALLOW.)
-  if (isErr(v)) return false;
-  return v !== false && v !== null && v !== undefined && !(typeof v === 'number' && Number.isNaN(v));
-}
 
 /**
  * Raised when a user-defined function cannot be evaluated (undefined,
@@ -277,11 +273,10 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // An error condition denies the whole conditional; it must not fall
       // through to the alternate branch and potentially allow.
       if (isErr(c)) return c;
-      // Unverified: production's behavior for a non-boolean ternary
-      // condition (a CEL type error there, rather than this truthiness
-      // coercion) has not been captured. The coercion stays as written
-      // until a production capture settles it.
-      return truthy(c) ? evalExpr(expr.then, ctx) : evalExpr(expr.else, ctx);
+      if (typeof c !== 'boolean') {
+        return new RuleError(`Ternary condition expected bool, got ${describeType(c)}.`);
+      }
+      return c ? evalExpr(expr.then, ctx) : evalExpr(expr.else, ctx);
     }
     case 'in': {
       const el = evalExpr(expr.element, ctx);
@@ -583,13 +578,35 @@ function isoToMillis(iso: string | undefined): number | undefined {
   return Number.isNaN(ms) ? undefined : ms;
 }
 
+function normalizeAuth(auth: NonNullable<EvaluationInput['request']['auth']>): Record<string, unknown> {
+  const raw = auth as unknown as Record<string, unknown>;
+  const tenant = typeof raw.tenant === 'string' ? raw.tenant : undefined;
+  if (tenant === undefined) return raw;
+  const rawToken = isRulesMap(raw.token) ? (raw.token as Record<string, unknown>) : {};
+  const rawFirebase = isRulesMap(rawToken.firebase)
+    ? (rawToken.firebase as Record<string, unknown>)
+    : {};
+  const firebase = rawFirebase.tenant === undefined
+    ? { ...rawFirebase, tenant }
+    : rawFirebase;
+  return {
+    ...raw,
+    token: {
+      ...rawToken,
+      firebase,
+    },
+  };
+}
+
 function buildRequestObject(input: EvaluationInput, now: number): Record<string, unknown> {
   return {
     // The production Storage engine represents anonymous auth as an absent
     // property, not a usable null value. Ordinary `request.auth != null`
     // gates still deny, while conditionals cannot incorrectly select a
     // fallback branch from the synthetic null.
-    auth: input.request.auth ?? new RuleError('Property auth is undefined on object.'),
+    auth: input.request.auth
+      ? normalizeAuth(input.request.auth)
+      : new RuleError('Property auth is undefined on object.'),
     // Production treats an operation without an incoming object (notably
     // delete/read) as an absent binding. A direct null comparison errors just
     // like a property read; neither may turn the missing value into an allow.
