@@ -176,7 +176,12 @@ export async function createUserWithEmailAndPassword(
   password: string,
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
-    t: 'op', id: nextId(), method: 'auth.createUser', email, password,
+    t: 'op',
+    id: nextId(),
+    method: 'auth.createUser',
+    email,
+    password,
+    ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
@@ -187,14 +192,22 @@ export async function signInWithEmailAndPassword(
   password: string,
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
-    t: 'op', id: nextId(), method: 'auth.signInEmail', email, password,
+    t: 'op',
+    id: nextId(),
+    method: 'auth.signInEmail',
+    email,
+    password,
+    ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
 
 export async function signInAnonymously(auth: ClientAuth): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
-    t: 'op', id: nextId(), method: 'auth.signInAnonymously',
+    t: 'op',
+    id: nextId(),
+    method: 'auth.signInAnonymously',
+    ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
@@ -216,7 +229,11 @@ export async function acceptProviderCredential(
   identity: ResolvedIdentity,
 ): Promise<ClientUserCredential> {
   const raw = (await rpc(auth.port, {
-    t: 'op', id: nextId(), method: 'auth.acceptIdentity', identity,
+    t: 'op',
+    id: nextId(),
+    method: 'auth.acceptIdentity',
+    identity,
+    ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }
@@ -229,7 +246,11 @@ export async function restorePortSession(
   uid: string,
 ): Promise<ClientUser | null> {
   const raw = (await rpc(auth.port, {
-    t: 'op', id: nextId(), method: 'auth.restorePortSession', uid,
+    t: 'op',
+    id: nextId(),
+    method: 'auth.restorePortSession',
+    uid,
+    ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
   })) as SerializedUser | null;
   const user = toClientUser(auth.port, raw);
   auth.currentUser = user;

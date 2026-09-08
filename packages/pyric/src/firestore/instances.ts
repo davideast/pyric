@@ -20,6 +20,7 @@ import {
   defaultClientApp,
   resolveClientApp,
 } from '../sandbox/internal/client-app.js';
+import { getAuthLens, onAuthLensChanged } from '../auth/modular.js';
 
 import {
   TARGET_SYMBOL,
@@ -83,6 +84,14 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
       if (authScope) {
         lifecycle.own(session.onCurrentUserChanged((user) => {
           getInternalEnv(sandbox).reevaluateLiveListeners(user, authScope);
+        }));
+        lifecycle.own(onAuthLensChanged((lens) => {
+          const effectiveUser = lens?.mode === 'anon'
+            ? null
+            : lens?.mode === 'as'
+              ? { uid: lens.uid, ...(lens.tenant ? { tenant: lens.tenant } : {}) }
+              : session.currentUser;
+          getInternalEnv(sandbox).reevaluateLiveListeners(effectiveUser, authScope);
         }));
       }
       const t: SandboxLiveTarget = {
@@ -285,9 +294,18 @@ function makeGetDb(
   currentUser: () => AuthState = () => sandbox.currentUser,
 ): () => SandboxFirestore {
   return () => {
-    const ctx = bindOperationContext(sandbox.withAuth(currentUser()), {
+    const lens = getAuthLens();
+    if (lens?.mode === 'admin') {
+      return getChainableAdminFirestore(sandbox);
+    }
+    const effectiveAuth: AuthState = lens?.mode === 'anon'
+      ? null
+      : lens?.mode === 'as'
+        ? { uid: lens.uid, ...(lens.tenant ? { tenant: lens.tenant } : {}) }
+        : currentUser();
+    const ctx = bindOperationContext(sandbox.withAuth(effectiveAuth), {
       source: { kind: 'app' },
-      authLens: { mode: 'app-session' },
+      authLens: lens ?? { mode: 'app-session' },
     });
     return getChainableFirestore(ctx);
   };
