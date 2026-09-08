@@ -132,6 +132,10 @@ export function expandVerb(verb: StorageGrantVerb | StorageRequestMethod): Stora
 export interface StorageAuth {
   uid: string;
   token?: Record<string, unknown>;
+  /** Multi-tenant identity. The evaluator projects it into
+   *  `request.auth.token.firebase.tenant` through the sandbox context's
+   *  shared normalization, preserving any explicit nested value. */
+  tenant?: string;
 }
 
 /** Inbound request bindings the rules see. */
