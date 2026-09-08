@@ -84,10 +84,13 @@ export function requireSessionUser(session: MintedSession | null, api: string): 
 export function remintSessionWithClaims(auth: Auth, session: MintedSession): MintedSession {
   const rawToken = (session.state.token ?? {}) as Record<string, unknown>;
   const { sub: _sub, firebase: _firebase, ...customClaims } = rawToken;
+  if (Object.keys(customClaims).length > 0) {
+    authSandboxOps.updateUser(auth, session.user.uid, { customClaims });
+  }
   return authSandboxOps.mintSession(auth, {
     kind: 'uid',
     uid: session.user.uid,
-    claims: customClaims,
+    ...(session.user.tenantId ? { tenant: session.user.tenantId } : {}),
   });
 }
 

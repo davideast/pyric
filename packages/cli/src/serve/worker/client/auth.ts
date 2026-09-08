@@ -91,9 +91,8 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
     photoURL: raw.photoURL,
     phoneNumber: raw.phoneNumber,
     isAnonymous: raw.isAnonymous,
-    tenantId: raw.tenantId,
-    providerId: raw.providerId,
     tenantId: raw.tenantId ?? null,
+    providerId: raw.providerId,
     providerData: raw.providerData,
     async getIdToken(forceRefresh?: boolean) {
       return (await rpc(port, {
