@@ -36,9 +36,10 @@ import {
   credReply,
   makeNoUserError,
   requirePortSession,
+  remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
-} from './host/auth-helpers.js';
+} from './host/auth-session-seeder.js';
 
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
 
@@ -331,10 +332,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.reload': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'reload');
-        const freshSession = authSandboxOps.mintSession(auth, {
-          kind: 'uid',
-          uid: session.user.uid,
-        });
+        const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         ok(port, msg.id, serializeUser(freshSession.user));
       } catch (e) { fail(port, msg.id, e); }
@@ -356,10 +354,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = requirePortSession(portSession(ctx, port), 'updateEmail');
         authSandboxOps.updateUser(auth, session.user.uid, { email: msg.email });
-        const freshSession = authSandboxOps.mintSession(auth, {
-          kind: 'uid',
-          uid: session.user.uid,
-        });
+        const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx);
         ok(port, msg.id, serializeUser(freshSession.user));
@@ -371,10 +366,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = requirePortSession(portSession(ctx, port), 'updatePassword');
         authSandboxOps.updateUser(auth, session.user.uid, { password: msg.password });
-        const freshSession = authSandboxOps.mintSession(auth, {
-          kind: 'uid',
-          uid: session.user.uid,
-        });
+        const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx);
         ok(port, msg.id, serializeUser(freshSession.user));

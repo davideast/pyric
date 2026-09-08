@@ -1,6 +1,6 @@
 /**
- * SharedWorker host — auth helpers extracted from `host-auth.ts` to keep
- * modules well under the `< 600` line ceiling (`docs/code-conventions.md`).
+ * SharedWorker host — session seeding, profile mutation, and OAuth credential
+ * resolution extracted from `host-auth.ts`.
  */
 
 import {
@@ -17,6 +17,18 @@ import { serializeUser } from '../protocol.js';
  * SeedUser shape. Matches `ServeAuthHelper`'s in-page constant in spirit.
  */
 export const PROVIDER_SYNTHETIC_PASSWORD = '__pyric_popup_no_password__';
+
+/** Payload describing an OAuth credential submitted for sign-in over the bridge. */
+export interface OAuthCredentialPayload {
+  readonly providerId: string;
+  readonly idToken?: string | null;
+  readonly accessToken?: string | null;
+  readonly rawNonce?: string | null;
+  readonly email?: string | null;
+  readonly displayName?: string | null;
+  readonly photoURL?: string | null;
+  readonly uid?: string | null;
+}
 
 /**
  * The `photoUrl` a bridged provider identity should be seeded with.
@@ -66,6 +78,20 @@ export function requireSessionUser(session: MintedSession | null, api: string): 
 }
 
 /**
+ * Re-mint an existing port session by UID while preserving any custom claims
+ * carried on `session.state.token`.
+ */
+export function remintSessionWithClaims(auth: Auth, session: MintedSession): MintedSession {
+  const rawToken = (session.state.token ?? {}) as Record<string, unknown>;
+  const { sub: _sub, firebase: _firebase, ...customClaims } = rawToken;
+  return authSandboxOps.mintSession(auth, {
+    kind: 'uid',
+    uid: session.user.uid,
+    claims: customClaims,
+  });
+}
+
+/**
  * Mutate a port session's `User` `displayName` / `photoURL` (and the first
  * `providerData` entry's) in place so a subsequent `auth.getCurrentUser`
  * reflects an `auth.updateProfile`. Fields are `readonly` at the type level
@@ -94,16 +120,7 @@ export function applyProfileToUser(
  */
 export function resolveOAuthCredentialUser(
   auth: Auth,
-  credential: {
-    providerId: string;
-    idToken?: string | null;
-    accessToken?: string | null;
-    rawNonce?: string | null;
-    email?: string | null;
-    displayName?: string | null;
-    photoURL?: string | null;
-    uid?: string | null;
-  },
+  credential: OAuthCredentialPayload,
 ): string {
   authSandboxOps.assertAuthProviderEnabled(auth, credential.providerId);
   const existingUsers = authSandboxOps.listUsers(auth);
@@ -113,7 +130,14 @@ export function resolveOAuthCredentialUser(
     if (byEmail) targetUid = byEmail.uid;
   }
   if (!targetUid) {
-    const fallbackId = credential.idToken ?? credential.accessToken ?? credential.email ?? 'user';
+    let fallbackId = 'user';
+    if (credential.idToken) {
+      fallbackId = credential.idToken;
+    } else if (credential.accessToken) {
+      fallbackId = credential.accessToken;
+    } else if (credential.email) {
+      fallbackId = credential.email;
+    }
     targetUid = `oauth-${credential.providerId}-${fallbackId}`;
   }
 

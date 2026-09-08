@@ -169,10 +169,12 @@ export function onSnapshot(
   );
   if (!opened && errorCallback) queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
 
+  let unsubscribed = false;
   const unsubLens = subscribeLens((newLens) => {
+    if (unsubscribed) return;
     closeSubscription(port, currentSubId);
     currentSubId = nextSubId();
-    openSnapshotSubscription(
+    const reopened = openSnapshotSubscription(
       port,
       currentSubId,
       subscription,
@@ -182,9 +184,13 @@ export function onSnapshot(
           : { t: 'sub', subId: currentSubId, target: descriptor }) satisfies InboundMessage,
       ),
     );
+    if (!reopened && errorCallback) {
+      queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
+    }
   });
 
   return () => {
+    unsubscribed = true;
     unsubLens();
     closeSubscription(port, currentSubId);
   };
