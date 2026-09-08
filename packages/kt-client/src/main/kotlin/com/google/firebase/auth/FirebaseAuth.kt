@@ -9,6 +9,7 @@ import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -136,6 +137,20 @@ class FirebaseAuth internal constructor(
         scope.launch {
             try {
                 val res = BridgeAuthOperations.signInAnonymously(bridgeClient)
+                val authResult = handleAuthSuccess(res)
+                tcs.setResult(authResult)
+            } catch (e: Exception) {
+                tcs.setException(wrapException(e))
+            }
+        }
+        return tcs.task
+    }
+
+    fun signInWithCredential(credential: AuthCredential): Task<AuthResult> {
+        val tcs = TaskCompletionSource<AuthResult>()
+        scope.launch {
+            try {
+                val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap())
                 val authResult = handleAuthSuccess(res)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
@@ -310,6 +325,10 @@ class FirebaseAuth internal constructor(
         }
 
         fun clearInstancesForTest() {
+            for (auth in instances.values) {
+                auth.scope.cancel()
+                auth.bridgeClient.terminate()
+            }
             instances.clear()
         }
     }

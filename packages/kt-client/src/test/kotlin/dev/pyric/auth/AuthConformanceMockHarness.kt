@@ -24,17 +24,6 @@ class AuthConformanceMockHarness {
         FirebaseAuth.clearInstancesForTest()
         FirebaseFirestore.clearInstancesForTest()
 
-        app = FirebaseApp.initializeApp(
-            "test-app",
-            FirebaseOptions.Builder()
-                .setProjectId("demo-test")
-                .setApiKey("fake-key")
-                .setApplicationId("fake-app")
-                .build()
-        )
-        auth = FirebaseAuth.getInstance(app, bridgeClient)
-        firestore = FirebaseFirestore(bridgeClient, app, "(default)", credentialsProvider = auth)
-
         transport.onServerReceive { messageJson ->
             val msg = JsonCodec.decodeMap(messageJson)
             val type = msg["type"] as? String
@@ -73,6 +62,13 @@ class AuthConformanceMockHarness {
                         "auth.signInAnonymously" -> {
                             transport.sendToClient(
                                 """{"type":"worker-res","id":"$id","ok":true,"value":{"user":{"uid":"anon-123","isAnonymous":true,"providerId":"firebase"}}}"""
+                            )
+                        }
+                        "auth.signInWithCredential" -> {
+                            val providerId = op["providerId"] as? String ?: "google.com"
+                            val idToken = op["idToken"] as? String ?: ""
+                            transport.sendToClient(
+                                """{"type":"worker-res","id":"$id","ok":true,"value":{"user":{"uid":"oauth-user-$providerId","email":"oauth@example.com","displayName":"OAuth User","isAnonymous":false,"emailVerified":true,"providerId":"firebase","providerData":[{"uid":"oauth-user-$providerId","email":"oauth@example.com","providerId":"$providerId"}]},"operationType":"signIn","providerId":"$providerId","idTokenUsed":"$idToken"}}"""
                             )
                         }
                         "auth.signOut" -> {
@@ -129,5 +125,16 @@ class AuthConformanceMockHarness {
                 }
             }
         }
+
+        app = FirebaseApp.initializeApp(
+            "test-app",
+            FirebaseOptions.Builder()
+                .setProjectId("demo-test")
+                .setApiKey("fake-key")
+                .setApplicationId("fake-app")
+                .build()
+        )
+        auth = FirebaseAuth.getInstance(app, bridgeClient)
+        firestore = FirebaseFirestore(bridgeClient, app, "(default)", credentialsProvider = auth)
     }
 }

@@ -107,10 +107,10 @@ GRADLE_LOG=$(mktemp)
 GRADLE_EXIT=0
 if [[ -z "${PYRIC_CLIMB:-}" && -t 1 ]]; then
   # Interactive mode: stream to stdout while capturing log
-  "$GRADLEW" -p "$KT_CLIENT_DIR" cleanTest test --tests "$TEST_CLASS" 2>&1 | tee "$GRADLE_LOG" || GRADLE_EXIT=$?
+  "$GRADLEW" -p "$KT_CLIENT_DIR" :cleanTest :test --tests "$TEST_CLASS" 2>&1 | tee "$GRADLE_LOG" || GRADLE_EXIT=$?
 else
   # Automated / Climb Lane mode: quiet execution, capture full log
-  "$GRADLEW" -p "$KT_CLIENT_DIR" cleanTest test --tests "$TEST_CLASS" > "$GRADLE_LOG" 2>&1 || GRADLE_EXIT=$?
+  "$GRADLEW" -p "$KT_CLIENT_DIR" :cleanTest :test --tests "$TEST_CLASS" > "$GRADLE_LOG" 2>&1 || GRADLE_EXIT=$?
 fi
 
 # 7. Locate and Copy JUnit XML Report

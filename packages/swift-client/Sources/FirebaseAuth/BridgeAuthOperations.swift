@@ -30,6 +30,13 @@ extension PyricBridgeClient {
         )
     }
 
+    public func authSignInWithCredential(params: [String: AnySendable]) async throws -> AnySendable {
+        try await op(
+            method: "auth.signInWithCredential",
+            params: params
+        )
+    }
+
     public func authSignOut() async throws {
         _ = try await op(
             method: "auth.signOut",
