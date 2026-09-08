@@ -24,11 +24,14 @@ import { assertFlatSchema, zodToJsonSchema } from './schema-depth.js';
  * caller identity lens (`ctx.caller`), or sandbox active identity lens.
  */
 function resolveEffectiveAuth(
-  explicitAuth: AuthOverrideInput | undefined,
+  explicitAuth: Partial<AuthOverrideInput> | undefined,
   ctx: ActuationContext
 ): AuthOverrideInput | undefined {
   if (explicitAuth) {
-    return explicitAuth;
+    return {
+      ...explicitAuth,
+      mode: explicitAuth.mode ?? (explicitAuth.uid ? 'uid' : 'anonymous'),
+    };
   }
   if (ctx.caller) {
     if (ctx.caller.mode === 'admin') return { mode: 'admin' };
