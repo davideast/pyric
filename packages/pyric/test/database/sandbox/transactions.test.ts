@@ -26,3 +26,34 @@ it('retries an overlapping re-entrant write and releases mutation history', () =
   expect(result).toEqual({ committed: true, val: 11, key: 'count' });
   expect(state.mutations.entries).toHaveLength(0);
 });
+
+it('never broadcasts speculative updates to active listeners when security rules reject a transaction', () => {
+  const state = new BackendState();
+  state.rules.setRules({
+    rules: {
+      counter: {
+        '.read': true,
+        '.write': "auth != null && auth.uid == 'admin'",
+      },
+    },
+  });
+  const values = new ValueListeners(state);
+  const children = new ChildListeners(state);
+  const transactions = new Transactions(state, values, children);
+
+  state.tree.write('/counter', 10);
+
+  const observedValues: unknown[] = [];
+  const unsub = values.onValue({ uid: 'admin' }, '/counter', (snap) => {
+    observedValues.push(snap.val());
+  });
+  observedValues.length = 0;
+
+  expect(() => {
+    transactions.run({ uid: 'intruder' }, '/counter', (curr) => ((curr as number | null) ?? 0) + 999);
+  }).toThrow('permission_denied');
+
+  unsub();
+  expect(observedValues).toEqual([]);
+});
+

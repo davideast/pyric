@@ -66,7 +66,7 @@ export class Transactions {
       path === '/' ? '' : path,
     );
     const at = Date.now();
-    const evaluation = this.state.rules.evaluate('write', path === '/' ? '/' : path, {
+    const evaluation = this.state.rules.evaluate('write', path, {
       auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData: resolved,
     });
     if (evaluation.check !== 'allow') {
