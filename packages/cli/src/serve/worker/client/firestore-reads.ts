@@ -10,7 +10,7 @@ import type {
   AggregateSpecDescriptor,
   InboundMessage,
 } from '../protocol.js';
-import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, openSnapshotSubscription, stampIssuer } from './core.js';
+import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
 import { makeDocSnapshot, makeQuerySnapshot } from './snapshots.js';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot } from './snapshots.js';
@@ -133,7 +133,7 @@ export function onSnapshot(
   callback: (snap: ClientDocSnapshot | ClientQuerySnapshot) => void,
   errorCallback?: (err: unknown) => void,
 ): Unsubscribe {
-  const subId = nextSubId();
+  let currentSubId = nextSubId();
   const port = target.port;
 
   const subscription = {
@@ -157,25 +157,41 @@ export function onSnapshot(
         ? (target as CollRefHandle).descriptor
         : (target as QueryHandle).descriptor;
 
-  // Stamp the active default lens onto the sub (Pyric Studio "watch as user")
-  // exactly as `dataRpc` does for ops, so a `setLens({mode:'as',uid})` choice
-  // makes listeners impersonate too. Omitted when no lens is set → byte-identical
-  // wire message, preserving the additive contract. The declared op source
-  // rides along the same way (client-constructed subs only — the relay's
-  // subs post verbatim).
   const opened = openSnapshotSubscription(
     port,
-    subId,
+    currentSubId,
     subscription,
     stampIssuer(
       (_defaultLens
-        ? { t: 'sub', subId, target: descriptor, actAs: _defaultLens }
-        : { t: 'sub', subId, target: descriptor }) satisfies InboundMessage,
+        ? { t: 'sub', subId: currentSubId, target: descriptor, actAs: _defaultLens }
+        : { t: 'sub', subId: currentSubId, target: descriptor }) satisfies InboundMessage,
     ),
   );
   if (!opened && errorCallback) queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
 
+  let unsubscribed = false;
+  const unsubLens = subscribeLens((newLens) => {
+    if (unsubscribed) return;
+    closeSubscription(port, currentSubId);
+    currentSubId = nextSubId();
+    const reopened = openSnapshotSubscription(
+      port,
+      currentSubId,
+      subscription,
+      stampIssuer(
+        (newLens
+          ? { t: 'sub', subId: currentSubId, target: descriptor, actAs: newLens }
+          : { t: 'sub', subId: currentSubId, target: descriptor }) satisfies InboundMessage,
+      ),
+    );
+    if (!reopened && errorCallback) {
+      queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
+    }
+  });
+
   return () => {
-    closeSubscription(port, subId);
+    unsubscribed = true;
+    unsubLens();
+    closeSubscription(port, currentSubId);
   };
 }

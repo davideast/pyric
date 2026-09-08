@@ -117,3 +117,29 @@ export {
   useDeviceLanguage,
 } from './user-lifecycle.js';
 export { sandbox } from './sandbox/driver.js';
+import type { AuthLens } from '../sandbox/types/operation.js';
+export type { AuthLens };
+
+let _activeAuthLens: AuthLens | undefined;
+const _authLensListeners = new Set<(lens: AuthLens | undefined) => void>();
+
+/** Switch the active AuthLens for subsequent data operations. */
+export function switchAuthLens(lens: AuthLens | undefined): void {
+  _activeAuthLens = lens && lens.mode === 'app-session' ? undefined : lens;
+  for (const cb of [..._authLensListeners]) {
+    cb(_activeAuthLens);
+  }
+}
+
+/** Return the currently active AuthLens, or undefined if using the default app session. */
+export function getAuthLens(): AuthLens | undefined {
+  return _activeAuthLens;
+}
+
+/** Subscribe to AuthLens changes. Returns an unsubscribe function. */
+export function onAuthLensChanged(cb: (lens: AuthLens | undefined) => void): () => void {
+  _authLensListeners.add(cb);
+  return () => {
+    _authLensListeners.delete(cb);
+  };
+}

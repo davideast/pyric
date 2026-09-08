@@ -8,6 +8,7 @@ import {
   nextSubId,
   openSnapshotSubscription,
   stampIssuer,
+  subscribeLens,
 } from './core.js';
 import type { ClientPort, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import {
@@ -69,25 +70,59 @@ function openValueSubscription(
   const listenOptions = typeof cancelCallbackOrOptions === 'function'
     ? options
     : cancelCallbackOrOptions;
-  const subId = nextSubId();
-  const msg: InboundMessage = _defaultLens
-    ? { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, actAs: _defaultLens }
-    : { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) } };
+  let currentSubId = nextSubId();
   let fired = false;
-  const opened = openSnapshotSubscription(ref.port, subId, {
+  let unsubscribed = false;
+
+  const makeSubMsg = (subId: string, lens: typeof _defaultLens): InboundMessage =>
+    lens
+      ? { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, actAs: lens }
+      : { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) } };
+
+  let unsubLens: () => void = () => {};
+
+  const subHandler = {
     port: ref.port,
-    next: (wire) => {
+    next: (wire: unknown) => {
       if (listenOptions?.onlyOnce && fired) return;
       fired = true;
-      if (listenOptions?.onlyOnce) closeSubscription(ref.port, subId);
+      if (listenOptions?.onlyOnce) {
+        unsubLens();
+        closeSubscription(ref.port, currentSubId);
+      }
       next(hydrateRtdbSnapshot(ref, wire));
     },
     error,
-  }, stampIssuer(msg));
+  };
+
+  const opened = openSnapshotSubscription(
+    ref.port,
+    currentSubId,
+    subHandler,
+    stampIssuer(makeSubMsg(currentSubId, _defaultLens)),
+  );
   if (!opened && error) {
     queueMicrotask(() => error(new Error('FIREBASE FATAL ERROR: Database has been deleted.')));
   }
-  return () => closeSubscription(ref.port, subId);
+
+  unsubLens = subscribeLens((newLens) => {
+    if (unsubscribed || (listenOptions?.onlyOnce && fired)) return;
+    closeSubscription(ref.port, currentSubId);
+    currentSubId = nextSubId();
+    openSnapshotSubscription(
+      ref.port,
+      currentSubId,
+      subHandler,
+      stampIssuer(makeSubMsg(currentSubId, newLens)),
+    );
+  });
+
+  return () => {
+    if (unsubscribed) return;
+    unsubscribed = true;
+    unsubLens();
+    closeSubscription(ref.port, currentSubId);
+  };
 }
 
 function registerListener(
