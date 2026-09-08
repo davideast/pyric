@@ -57,3 +57,24 @@ it('never broadcasts speculative updates to active listeners when security rules
   expect(observedValues).toEqual([]);
 });
 
+it('marks a locally applied transaction commit so an enclosing transaction detects the conflict', () => {
+  const state = new BackendState();
+  state.rules.setDefaultPolicy('allow');
+  const values = new ValueListeners(state);
+  const children = new ChildListeners(state);
+  const transactions = new Transactions(state, values, children);
+  state.tree.write('/count', 0);
+  const seen: unknown[] = [];
+  let nested = false;
+  const result = transactions.run(null, '/count', (current) => {
+    seen.push(current);
+    if (!nested) {
+      nested = true;
+      transactions.run(null, '/count', () => 10, { applyLocally: true });
+    }
+    return ((current as number | null) ?? 0) + 1;
+  });
+  expect(seen).toEqual([0, 10]);
+  expect(result).toEqual({ committed: true, val: 11, key: 'count' });
+});
+
