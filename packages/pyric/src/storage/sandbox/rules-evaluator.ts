@@ -580,15 +580,22 @@ function isoToMillis(iso: string | undefined): number | undefined {
 
 function normalizeAuth(auth: NonNullable<EvaluationInput['request']['auth']>): Record<string, unknown> {
   const raw = auth as unknown as Record<string, unknown>;
-  const tenant = typeof raw.tenant === 'string' ? raw.tenant : undefined;
-  if (tenant === undefined) return raw;
-  const rawToken = isRulesMap(raw.token) ? (raw.token as Record<string, unknown>) : {};
-  const rawFirebase = isRulesMap(rawToken.firebase)
-    ? (rawToken.firebase as Record<string, unknown>)
-    : {};
-  const firebase = rawFirebase.tenant === undefined
-    ? { ...rawFirebase, tenant }
-    : rawFirebase;
+  if (typeof raw.tenant !== 'string') {
+    return raw;
+  }
+  const tenant = raw.tenant;
+  let rawToken: Record<string, unknown> = {};
+  if (isRulesMap(raw.token)) {
+    rawToken = raw.token as Record<string, unknown>;
+  }
+  let rawFirebase: Record<string, unknown> = {};
+  if (isRulesMap(rawToken.firebase)) {
+    rawFirebase = rawToken.firebase as Record<string, unknown>;
+  }
+  const firebase: Record<string, unknown> = { ...rawFirebase };
+  if (firebase.tenant === undefined) {
+    firebase.tenant = tenant;
+  }
   return {
     ...raw,
     token: {
@@ -599,14 +606,16 @@ function normalizeAuth(auth: NonNullable<EvaluationInput['request']['auth']>): R
 }
 
 function buildRequestObject(input: EvaluationInput, now: number): Record<string, unknown> {
+  let requestAuth: unknown = new RuleError('Property auth is undefined on object.');
+  if (input.request.auth) {
+    requestAuth = normalizeAuth(input.request.auth);
+  }
   return {
     // The production Storage engine represents anonymous auth as an absent
     // property, not a usable null value. Ordinary `request.auth != null`
     // gates still deny, while conditionals cannot incorrectly select a
     // fallback branch from the synthetic null.
-    auth: input.request.auth
-      ? normalizeAuth(input.request.auth)
-      : new RuleError('Property auth is undefined on object.'),
+    auth: requestAuth,
     // Production treats an operation without an incoming object (notably
     // delete/read) as an absent binding. A direct null comparison errors just
     // like a property read; neither may turn the missing value into an allow.

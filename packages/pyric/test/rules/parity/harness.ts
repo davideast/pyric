@@ -69,20 +69,7 @@ export interface CaseRow {
 // takes (F3). No admin App needed — the credential alone mints the token.
 
 export function hasParitySecret(): boolean {
-  if (process.env.PARITY_SA_BASE64 || process.env.PARITY_PROJECT_ID) return true;
-  const configPath = join(homedir(), '.config', 'configstore', 'firebase-tools.json');
-  if (!existsSync(configPath)) return false;
-  try {
-    const data = JSON.parse(readFileSync(configPath, 'utf8')) as {
-      user?: { email: string };
-      users?: Record<string, { tokens?: { refresh_token?: string } }>;
-      tokens?: { refresh_token?: string };
-    };
-    const email = data.user?.email;
-    return Boolean((email && data.users?.[email]?.tokens?.refresh_token) || data.tokens?.refresh_token);
-  } catch {
-    return false;
-  }
+  return !!process.env.PARITY_SA_BASE64 || !!process.env.PARITY_PROJECT_ID || existsSync(join(homedir(), '.config', 'configstore', 'firebase-tools.json'));
 }
 
 export function parityScope(): ProjectScope {
