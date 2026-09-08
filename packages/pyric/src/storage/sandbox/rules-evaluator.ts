@@ -76,34 +76,43 @@ export function evaluateStorageRules(
         if (!applies) continue;
         let result: boolean;
         try {
-          const value = rule.condition
-            ? evalExpr(rule.condition, {
-                input,
-                now: nowMillis,
-                params: newParams,
-                locals: {},
-                funcs: block.visibleFuncs ?? new Map(),
-                depth: 0,
-                firestoreLookup,
-                firestoreAccesses,
-              })
-            : true;
-          // An error value reaching the allow boundary DENIES, carrying
-          // production's own message (e.g. "Property name is undefined on
-          // object.") into the reason trace.
-          if (isErr(value)) {
+          let value: unknown = true;
+          if (rule.condition) {
+            value = evalExpr(rule.condition, {
+              input,
+              now: nowMillis,
+              params: newParams,
+              locals: {},
+              funcs: block.visibleFuncs ?? new Map(),
+              depth: 0,
+              firestoreLookup,
+              firestoreAccesses,
+            });
+          }
+          if (typeof value === 'boolean') {
+            result = value;
+          } else {
+            // Not a bool. Either the expression already produced an evaluation
+            // error, or CEL's boolean typing of the allow boundary makes one
+            // here: the same `RuleError` the ternary condition raises, rather
+            // than a truthiness coercion. Both DENY this rule with production's
+            // own message in the reason trace and continue to the next rule.
+            // Registry rows
+            // `storage-rules#storage.semantic.strict-boolean-allow-boundary`
+            // and `storage-rules#storage.semantic.strict-boolean-ternary-condition`
+            // carry the claim; corpus scenario
+            // `strict-boolean-allow-and-ternary` is the capture that verifies it.
+            let failure: RuleError;
+            if (isErr(value)) {
+              failure = value;
+            } else {
+              failure = new RuleError(`Allow condition expected bool, got ${describeType(value)}.`);
+            }
             reasons.push(
-              `match ${formatPath(block.segments)} ${input.request.method}: ${value.message}`,
+              `match ${formatPath(block.segments)} ${input.request.method}: ${failure.message}`,
             );
             continue;
           }
-          if (typeof value !== 'boolean') {
-            reasons.push(
-              `match ${formatPath(block.segments)} ${input.request.method}: expected boolean allow condition, got ${describeType(value)}`,
-            );
-            continue;
-          }
-          result = value;
         } catch (err) {
           // Any function-evaluation failure (undefined function, wrong
           // arity, depth exceeded, error inside a body) denies this rule
@@ -273,6 +282,11 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // An error condition denies the whole conditional; it must not fall
       // through to the alternate branch and potentially allow.
       if (isErr(c)) return c;
+      // CEL types the condition as bool. A non-boolean condition is an
+      // evaluation error, which `&&` and `||` absorb like any other. Registry
+      // row `storage-rules#storage.semantic.strict-boolean-ternary-condition`
+      // carries the claim; corpus scenario `strict-boolean-allow-and-ternary`
+      // is the capture that would verify it.
       if (typeof c !== 'boolean') {
         return new RuleError(`Ternary condition expected bool, got ${describeType(c)}.`);
       }

@@ -684,6 +684,41 @@ describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
     expect(writeResult.allowed).toBe(false);
   });
 
+  it('a non-boolean allow condition denies its own rule only: a later boolean rule still allows', () => {
+    const ruleset = parseStorageRules(`
+      rules_version = '2';
+      service firebase.storage {
+        match /b/{bucket}/o {
+          match /{allPaths=**} {
+            allow read: if request.auth.uid;
+            allow read: if request.auth != null;
+          }
+        }
+      }
+    `);
+
+    const result = evaluateStorageRules(ruleset, {
+      request: {
+        auth: { uid: 'user-123', token: {} },
+        method: 'get',
+        path: 'b/my-bucket/o/secret.txt',
+      },
+      resource: null,
+    });
+
+    expect(result.allowed).toBe(true);
+  });
+
+  it('a non-boolean ternary condition is an absorbable error: (1 ? true : false) || true → ALLOW', () => {
+    // Discriminator: a truthiness coercion would evaluate the conditional to
+    // `true` rather than to an error, so only absorption can be observed here.
+    expect(evalCond('(1 ? true : false) || true').allowed).toBe(true);
+  });
+
+  it('error && false still absorbs to false: !((1 ? true : false) && false) → ALLOW', () => {
+    expect(evalCond('!((1 ? true : false) && false)').allowed).toBe(true);
+  });
+
   it('normalizes top-level tenant into request.auth.token.firebase.tenant while preserving custom claims', () => {
     const ruleset = parseStorageRules(`
       rules_version = '2';
