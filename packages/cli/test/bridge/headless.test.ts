@@ -33,7 +33,10 @@ import {
   saveStorageSidecar,
   loadStorageSidecar,
 } from '../../src/bridge/server/storage-sidecar.js';
-import { DEFAULT_MCP_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
+import {
+  DEFAULT_MCP_TOOL_NAMES,
+  getDefaultMcpToolSurface,
+} from '../../src/bridge/server/mcp-contract.js';
 import { applySeed } from '../../eval/seed.js';
 
 interface LoggedEvent {
@@ -70,9 +73,9 @@ function readEvents(path: string): LoggedEvent[] {
 }
 
 /** Start a headless session on an in-memory pair and return a connected client. */
-async function openSession(cwd: string, env: NodeJS.ProcessEnv) {
+async function openSession(cwd: string, env: NodeJS.ProcessEnv, surface?: string) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const exit = runHeadlessMcp(cwd, { env, transport: serverTransport });
+  const exit = runHeadlessMcp(cwd, { env, transport: serverTransport, surface });
   const client = new Client({ name: 'test', version: '0' });
   await client.connect(clientTransport);
   const close = async (): Promise<number> => {
@@ -183,7 +186,7 @@ describe('headless MCP session', () => {
     }
   });
 
-  it('loads project rules and serves the default surface for any surface id', async () => {
+  it('loads project rules and serves the legacy tool list when no variant is named', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-surface-'));
     try {
       writeFileSync(join(dir, 'firestore.rules'), "rules_version = '2';\n", 'utf8');
@@ -304,7 +307,84 @@ describe('headless event writer selection', () => {
     expect(createHeadlessEventWriter({ PYRIC_EVAL_LOG: '  ' })).toBe(null);
   });
 
-  it('builds a server for a surface id it does not recognise', () => {
+  it('builds a server for a surface id a renderer claims', () => {
     expect(buildHeadlessMcpServer(initializeSandbox(), { surface: 'noun-prefixed' })).toBeTruthy();
+  });
+
+  it('rejects a surface id no renderer claims, naming the ids that exist', () => {
+    expect(() => buildHeadlessMcpServer(initializeSandbox(), { surface: 'verb-infixed' })).toThrow(
+      /verb-prefixed/,
+    );
+  });
+});
+
+describe('the surface a headless session serves', () => {
+  it('serves the legacy tool surface unchanged when no variant is named', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-legacy-'));
+    try {
+      const session = await openSession(dir, {});
+      const listed = await session.client.listTools();
+      const legacy = getDefaultMcpToolSurface();
+      const expected = [
+        ...legacy.forwarded.map((tool) => tool.name),
+        ...legacy.inProcess.map((tool) => tool.name),
+      ].sort();
+      expect(listed.tools.map((tool) => tool.name).sort()).toEqual(expected);
+      await session.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('serves the named variant and stamps its operation on every event', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-variant-'));
+    try {
+      const logPath = join(dir, 'events.ndjson');
+      const session = await openSession(dir, {
+        ...evalEnv(logPath),
+        PYRIC_EVAL_VARIANT: 'verb-prefixed',
+      }, 'verb-prefixed');
+      const listed = await session.client.listTools();
+      expect(listed.tools.length).toBe(37);
+
+      const created = await session.client.callTool({
+        name: 'create_auth_user',
+        arguments: { uid: 'alice', email: 'alice@example.com', tenant: 'tenant-a' },
+      });
+      expect(created.isError).toBeFalsy();
+      await session.close();
+
+      const events = readEvents(logPath);
+      expect(events.length).toBe(1);
+      expect(events[0]!.tool).toBe('create_auth_user');
+      expect(events[0]!.operation).toBe('create_auth_user');
+      expect(events[0]!.action).toBe(null);
+      expect(events[0]!.run.callIndex).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('exits non-zero and says so on stderr for a surface id no renderer claims', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-unknown-'));
+    const written: string[] = [];
+    const priorWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string) => {
+      written.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const [, serverTransport] = InMemoryTransport.createLinkedPair();
+      const code = await runHeadlessMcp(dir, {
+        env: {},
+        transport: serverTransport,
+        surface: 'verb-infixed',
+      });
+      expect(code).toBe(1);
+      expect(written.join('')).toContain('verb-prefixed');
+    } finally {
+      process.stderr.write = priorWrite;
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

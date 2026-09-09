@@ -72,7 +72,7 @@ type CallToolInvocation = (request: unknown, extra: object) => Promise<unknown>;
  * that sees it. Returns the set the tool handlers mark to say they ran; a
  * finished request whose `extra` is not in the set never reached a handler.
  */
-function observeRejectedCalls(
+export function observeRejectedCalls(
   server: McpServer,
   onRejected: (rejection: RejectedToolCall) => void,
 ): WeakSet<object> {
@@ -105,7 +105,7 @@ function observeRejectedCalls(
   return handlerRan;
 }
 
-function toMcpResult(result: BridgeToolResult, project: string) {
+export function toMcpResult(result: BridgeToolResult, project: string) {
   // Wrap the bridge's tool result in MCP's content envelope. Include
   // sandbox provenance + project label in a metadata block so the calling
   // agent can always tell which target the tool hit.

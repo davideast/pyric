@@ -73,6 +73,27 @@ function routeFor(toolName: string, args: Args) {
   return DISCRIMINATOR_ROUTES.find((route) => route.tool === toolName && route.selects(args));
 }
 
+/**
+ * The operation a read of one resource template runs, or null when the name is
+ * not a resource of this variant. Reads arrive at the audit log under the
+ * resource name rather than a tool name, and the parameters a read resolves on
+ * are the template variables, plus the `uri` the server records alongside them.
+ */
+function resourceOperationFor(resourceName: string, args: Args): string | null {
+  const resource = DISCRIMINATOR_RESOURCES.find((candidate) => candidate.name === resourceName);
+  if (resource === undefined) return null;
+  const uri = typeof args.uri === 'string' ? args.uri : null;
+  const fromUri = uri === null ? null : matchResourceUri(resource.uriTemplate, uri);
+  const params: Record<string, string> = {};
+  for (const [key, value] of Object.entries(fromUri ?? args)) {
+    if (typeof value === 'string') params[key] = value;
+  }
+  const route = RESOURCE_ROUTES.find(
+    (candidate) => candidate.uriTemplate === resource.uriTemplate && candidate.selects(params),
+  );
+  return route?.operation ?? null;
+}
+
 function renderTool(name: string, description: string, parameters: RenderedTool['inputSchema']) {
   return { name, description, inputSchema: parameters };
 }
@@ -129,6 +150,8 @@ export function render(operations: readonly Operation[]): RenderedSurface {
     resolve(toolName: string, args: Args): ResolvedCall {
       const route = routeFor(toolName, args);
       if (route !== undefined) return { operation: route.operation, action: route.action };
+      const resourceOperation = resourceOperationFor(toolName, args);
+      if (resourceOperation !== null) return { operation: resourceOperation, action: null };
       const action = typeof args.action === 'string' ? args.action : null;
       return { operation: null, action };
     },
