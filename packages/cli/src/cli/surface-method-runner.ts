@@ -23,6 +23,7 @@ import { validateArguments } from '../bridge/surface/method-validation.js';
 import { methodByKey } from '../bridge/surface/methods/index.js';
 import type { OperationResult } from '../bridge/surface/types.js';
 import { argumentsFromFlags } from './surface-method-args.js';
+import { selectAllowProduction } from './mcp-proxy.js';
 import type { ParsedArgs } from './parse-args.js';
 
 /** Where output goes. A test supplies its own so it can read what was printed. */
@@ -30,6 +31,8 @@ export interface SurfaceMethodDeps {
   cwd?: string;
   stdout?: { write(text: string): void };
   stderr?: { write(text: string): void };
+  /** Environment `--allow-production`'s fallback is read from. Defaults to the process. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Exit code for a call the surface refused, distinct from a usage error. */
@@ -63,7 +66,9 @@ export async function runSurfaceMethod(
   const cwd = deps.cwd ?? process.cwd();
   const stdout = deps.stdout ?? process.stdout;
   const stderr = deps.stderr ?? process.stderr;
+  const env = deps.env ?? process.env;
   const method = methodByKey(key);
+  const allowProduction = selectAllowProduction(parsed, env);
 
   const read = argumentsFromFlags(method, parsed);
   if ('error' in read) {
@@ -78,7 +83,7 @@ export async function runSurfaceMethod(
   await loadStorageSidecar(storage, cwd);
 
   const ctx = createSurfaceContext(sandbox);
-  const rejection = validateArguments(method, read.args);
+  const rejection = validateArguments(method, read.args, allowProduction);
   if (rejection !== null) {
     stderr.write(`pyric: ${rejection.summary}\n`);
     return CALL_FAILED;

@@ -16,6 +16,7 @@
  */
 import { TOOL_DESCRIPTIONS } from '../descriptions.generated.js';
 import { toJsonSchema } from '../json-schema.js';
+import { mountedTool } from '../method-effects.js';
 import { METHODS, methodByName, TOOLS, toolByName } from '../methods/index.js';
 import {
   DESCRIBE_METHOD,
@@ -24,6 +25,7 @@ import {
   validateDescribe,
   validateMethodName,
 } from '../method-validation.js';
+import { renderToolDescription } from '../tool-description.js';
 import { operationIds, selectOperation } from '../method-types.js';
 import type { Args, Method, Tool } from '../method-types.js';
 import type {
@@ -38,13 +40,25 @@ import type {
 const ARGS_DESCRIPTION =
   'The arguments of the named method, under the SDK argument names. Call describe for one method schema.';
 
-/** The description one tool serves, which the build renders from its records. */
+/**
+ * The description one tool serves, which the build renders from its records.
+ *
+ * A tool whose mounted methods equal the source record's methods (the case
+ * every tool is in today: no `production` method exists yet) gets the
+ * generated description as-is. A tool that lost a method to production
+ * gating is described from its mounted methods only, so an unmounted method
+ * never appears in a description a client reads.
+ */
 export function describeTool(tool: Tool): string {
-  const description = TOOL_DESCRIPTIONS[tool.name];
-  if (description === undefined) {
-    throw new Error(`no generated description for tool '${tool.name}'; run generate-descriptions`);
+  const source = toolByName(tool.name);
+  if (source !== undefined && source.methods.length === tool.methods.length) {
+    const description = TOOL_DESCRIPTIONS[tool.name];
+    if (description === undefined) {
+      throw new Error(`no generated description for tool '${tool.name}'; run generate-descriptions`);
+    }
+    return description;
   }
-  return description;
+  return renderToolDescription(tool);
 }
 
 /**
@@ -103,7 +117,12 @@ function methodOrThrow(tool: Tool, name: string): Method {
   return method;
 }
 
-async function execute(tool: Tool, raw: Args, ctx: SurfaceContext): Promise<OperationResult> {
+async function execute(
+  tool: Tool,
+  raw: Args,
+  ctx: SurfaceContext,
+  allowProduction: boolean,
+): Promise<OperationResult> {
   const named = validateMethodName(tool, raw.method);
   if (named !== null) return named;
   const args = argsOf(raw);
@@ -114,7 +133,7 @@ async function execute(tool: Tool, raw: Args, ctx: SurfaceContext): Promise<Oper
     return describeMethod(methodOrThrow(tool, String(args.method)));
   }
   const method = methodOrThrow(tool, methodName);
-  const rejection = validateArguments(method, args);
+  const rejection = validateArguments(method, args, allowProduction);
   if (rejection !== null) return rejection;
   return method.handler(args, ctx);
 }
@@ -133,14 +152,24 @@ function resolveCall(toolName: string, raw: Args): ResolvedCall {
   return { operation: selectOperation(method, argsOf(raw)), action: named };
 }
 
-export function render(): RenderedSurface {
+/** Rendering options every renderer's type accepts; only `sdk-service` reads them. */
+export interface RenderOptions {
+  /** Mount `production` methods. Defaults to false, the safe default. */
+  allowProduction?: boolean;
+}
+
+export function render(options?: RenderOptions): RenderedSurface {
+  const allowProduction = options?.allowProduction ?? false;
   const reached = new Set(METHODS.flatMap((method) => operationIds(method)));
-  const tools: RenderedTool[] = TOOLS.map((tool) => ({
-    name: tool.name,
-    description: describeTool(tool),
-    inputSchema: toolSchema(tool),
-    execute: (args, ctx) => execute(tool, args, ctx),
-  }));
+  const tools: RenderedTool[] = TOOLS.map((tool) => {
+    const mounted = mountedTool(tool, allowProduction);
+    return {
+      name: mounted.name,
+      description: describeTool(mounted),
+      inputSchema: toolSchema(mounted),
+      execute: (args, ctx) => execute(mounted, args, ctx, allowProduction),
+    };
+  });
   if (reached.size === 0) throw new Error('sdk-service reaches no canonical operations');
   return { tools, resolve: resolveCall };
 }

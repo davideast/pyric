@@ -171,7 +171,7 @@ describe('the sdk-service validator', () => {
   it('requires an explicit confirmation to reset', async () => {
     const result = await call('sandbox', 'reset', {});
     expect(result.summary).toBe(
-      'sandbox.reset: confirm is missing. reset clears documents, database values, stored objects, and users in one call, so it takes an explicit confirmation. Pass confirm: true.',
+      'sandbox.reset: Discards every document, database value, stored object, and user in the sandbox. Pass confirm: true to proceed.',
     );
   });
 

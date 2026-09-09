@@ -15,6 +15,7 @@
  * calls: one for the method name, one for the arguments.
  */
 import type { z } from 'zod';
+import { refuseUnconfirmedDestructive, refuseUnmountedProduction } from './method-effects.js';
 import type { Args, Fail, InvalidArguments, Method, Tool } from './method-types.js';
 
 /** The method every tool carries for reading one method's schema. */
@@ -149,13 +150,27 @@ function fromZodIssue(
 /**
  * Check one call's arguments. Returns null when the call may run, or the
  * rejection the caller is handed instead of a handler's result.
+ *
+ * `allowProduction` enforces ADR-0014 Decision 5 for a `production` method:
+ * absent it defaults to disallowed, which is the safe default every direct
+ * caller (a test, a script) gets without naming it. The MCP path and the CLI
+ * path both thread the server's actual `--allow-production` state through
+ * here rather than re-checking the effect themselves.
  */
-export function validateArguments(method: Method, args: Args): InvalidArguments | null {
+export function validateArguments(
+  method: Method,
+  args: Args,
+  allowProduction = false,
+): InvalidArguments | null {
   const fail = failFor(method.tool, method.method);
+  const unmounted = refuseUnmountedProduction(method, allowProduction, fail);
+  if (unmounted !== null) return unmounted;
   const named = checkArgumentNames(method, args, fail);
   if (named !== null) return named;
   const parsed = method.args.safeParse(args);
   if (!parsed.success) return fromZodIssue(method, parsed.error.issues[0], fail, args);
+  const unconfirmed = refuseUnconfirmedDestructive(method, args, fail);
+  if (unconfirmed !== null) return unconfirmed;
   return method.validate?.(args, { fail }) ?? null;
 }
 
