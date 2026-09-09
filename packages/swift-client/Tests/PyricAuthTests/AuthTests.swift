@@ -380,6 +380,51 @@ struct AuthTests {
         #expect(mapped.message == "User missing")
     }
 
+    @Test("auth.tenantId propagates through signIn, populates user.tenantId, and updates currentAuthLens")
+    func testTenantIdPropagation() async throws {
+        let (auth, channel) = try await createMockAuth()
+        auth.tenantId = "tenant-acme"
+        #expect(auth.tenantId == "tenant-acme")
+
+        let signInTask = Task {
+            try await auth.signIn(withEmail: "tenant-user@example.com", password: "secret")
+        }
+
+        let frame = try await channel.awaitNextSentMessage()
+        #expect(frame["type"]?.stringValue == "worker-op")
+        let op = frame["op"]?.dictionaryValue
+        #expect(op?["method"]?.stringValue == "auth.signInEmail")
+        #expect(op?["tenantId"]?.stringValue == "tenant-acme")
+
+        let opId = frame["id"]?.stringValue ?? "rop-tenant"
+        try channel.simulateServerMessage([
+            "type": "worker-res",
+            "id": opId,
+            "ok": true,
+            "res": [
+                "user": [
+                    "uid": "uid-tenant-1",
+                    "email": "tenant-user@example.com",
+                    "tenantId": "tenant-acme"
+                ],
+                "operationType": "signIn"
+            ]
+        ])
+
+        let result = try await signInTask.value
+        #expect(result.user.uid == "uid-tenant-1")
+        #expect(result.user.tenantId == "tenant-acme")
+        #expect(auth.currentUser?.tenantId == "tenant-acme")
+
+        let lens = auth.currentAuthLens()
+        if case let .asUser(uid, tenant, _) = lens {
+            #expect(uid == "uid-tenant-1")
+            #expect(tenant == "tenant-acme")
+        } else {
+            Issue.record("Expected .asUser lens with tenant-acme, got \(lens)")
+        }
+    }
+
     // ── Helper ───────────────────────────────────────────────────────────────
 
     private func simulateSignIn(auth: Auth, channel: MockAuthChannel, uid: String) async throws -> User {

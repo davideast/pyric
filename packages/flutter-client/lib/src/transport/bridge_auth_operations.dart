@@ -3,18 +3,36 @@ import 'bridge_client.dart';
 /// Extension methods adding Auth-specific RPC conveniences to [PyricBridgeClient].
 extension PyricBridgeAuthOps on PyricBridgeClient {
   /// Signs in a user with email and password.
-  Future<dynamic> authSignInEmail(String email, String password) {
-    return op('auth.signInEmail', {'email': email, 'password': password});
+  Future<dynamic> authSignInEmail(
+    String email,
+    String password, {
+    String? tenantId,
+  }) {
+    return op('auth.signInEmail', {
+      'email': email,
+      'password': password,
+      if (tenantId != null) 'tenantId': tenantId,
+    });
   }
 
   /// Creates a new user with email and password.
-  Future<dynamic> authCreateUser(String email, String password) {
-    return op('auth.createUser', {'email': email, 'password': password});
+  Future<dynamic> authCreateUser(
+    String email,
+    String password, {
+    String? tenantId,
+  }) {
+    return op('auth.createUser', {
+      'email': email,
+      'password': password,
+      if (tenantId != null) 'tenantId': tenantId,
+    });
   }
 
   /// Signs in anonymously.
-  Future<dynamic> authSignInAnonymously() {
-    return op('auth.signInAnonymously', {});
+  Future<dynamic> authSignInAnonymously({String? tenantId}) {
+    return op('auth.signInAnonymously', {
+      if (tenantId != null) 'tenantId': tenantId,
+    });
   }
 
   /// Signs out the current user session.
@@ -52,9 +70,22 @@ extension PyricBridgeAuthOps on PyricBridgeClient {
     });
   }
 
+  /// Updates email address on the user profile.
+  Future<dynamic> authUpdateEmail(String newEmail) {
+    return op('auth.updateEmail', {'newEmail': newEmail});
+  }
+
+  /// Updates password on the user profile.
+  Future<dynamic> authUpdatePassword(String newPassword) {
+    return op('auth.updatePassword', {'newPassword': newPassword});
+  }
+
   /// Restores a previously persisted port session by UID.
-  Future<dynamic> authRestorePortSession(String uid) {
-    return op('auth.restorePortSession', {'uid': uid});
+  Future<dynamic> authRestorePortSession(String uid, {String? tenantId}) {
+    return op('auth.restorePortSession', {
+      'uid': uid,
+      if (tenantId != null) 'tenantId': tenantId,
+    });
   }
 
   /// Sets session persistence mode (e.g. 'LOCAL', 'SESSION', 'NONE').

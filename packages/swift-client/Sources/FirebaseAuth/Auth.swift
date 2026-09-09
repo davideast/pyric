@@ -40,11 +40,32 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     private let stateLock = NSLock()
 
     private var _currentUser: User?
+    private var _tenantId: String?
     private var _impersonatedLens: AuthLens?
     private var _lastEmittedLens: AuthLens = .anon
 
     public var currentUser: User? {
         stateLock.lock(); defer { stateLock.unlock() }; return _currentUser
+    }
+
+    public var tenantId: String? {
+        get {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return _tenantId
+        }
+        set {
+            stateLock.lock()
+            _tenantId = newValue
+            let currentLens = computeCurrentLensLocked()
+            _lastEmittedLens = currentLens
+            let lensConts = Array(authLensContinuations.values)
+            stateLock.unlock()
+
+            for cont in lensConts {
+                cont.yield(currentLens)
+            }
+        }
     }
 
     public var impersonatedLens: AuthLens? {
@@ -118,7 +139,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
             return lens
         }
         if let user = _currentUser {
-            return .asUser(uid: user.uid, tenant: user.tenant, token: user.claims.isEmpty ? nil : user.claims)
+            return .asUser(uid: user.uid, tenant: user.tenantId ?? _tenantId, token: user.claims.isEmpty ? nil : user.claims)
         }
         return .anon
     }
@@ -159,7 +180,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public func signIn(withEmail email: String, password: String) async throws -> AuthDataResult {
         do {
-            let res = try await bridgeClient.authSignInEmail(email: email, password: password)
+            let res = try await bridgeClient.authSignInEmail(email: email, password: password, tenantId: self.tenantId)
             return try handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
@@ -183,7 +204,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public func createUser(withEmail email: String, password: String) async throws -> AuthDataResult {
         do {
-            let res = try await bridgeClient.authCreateUser(email: email, password: password)
+            let res = try await bridgeClient.authCreateUser(email: email, password: password, tenantId: self.tenantId)
             return try handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
@@ -207,7 +228,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public func signInAnonymously() async throws -> AuthDataResult {
         do {
-            let res = try await bridgeClient.authSignInAnonymously()
+            let res = try await bridgeClient.authSignInAnonymously(tenantId: self.tenantId)
             return try handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
@@ -237,7 +258,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public func restoreSession(uid: String) async throws -> User? {
         do {
-            let res = try await bridgeClient.authRestorePortSession(uid: uid)
+            let res = try await bridgeClient.authRestorePortSession(uid: uid, tenantId: self.tenantId)
             if res.isNull {
                 applyUserTransition(nil)
                 return nil

@@ -310,6 +310,41 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       break;
     }
 
+    case 'auth.updateEmail': {
+      try {
+        const session = portSession(ctx, port);
+        if (!session) throw makeNoUserError('updateEmail');
+        authSandboxOps.updateUser(auth, session.user.uid, { email: msg.newEmail });
+        (session.user as { email: string | null }).email = msg.newEmail;
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, serializeUser(session.user));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.updatePassword': {
+      try {
+        const session = portSession(ctx, port);
+        if (!session) throw makeNoUserError('updatePassword');
+        authSandboxOps.updateUser(auth, session.user.uid, { password: msg.newPassword });
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, serializeUser(session.user));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.deleteUser': {
+      try {
+        const session = portSession(ctx, port);
+        if (!session) throw makeNoUserError('deleteUser');
+        authSandboxOps.deleteUser(auth, session.user.uid);
+        setPortSession(ctx, port, null);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
     case 'auth.acceptIdentity': {
       // Provider sign-in bridge: the page resolved a popup/redirect identity
       // in-page (ServeAuthHelper) and hands it here. GATE FIRST: the page

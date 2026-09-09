@@ -67,23 +67,30 @@ class FirestoreAuthIntegrationTest {
                     val method = op["method"] as String
 
                     when (method) {
-                        "auth.signInEmail" -> {
+                        "auth.signInEmail", "auth.createUser", "auth.signInAnonymously", "auth.signInWithCredential" -> {
                             val email = op["email"] as? String
-                            val userMap = if (email == "admin@example.com") {
-                                mapOf(
+                            val reqTenantId = op["tenantId"] as? String
+                            val userMap = when {
+                                email == "admin@example.com" -> mutableMapOf<String, Any?>(
                                     "uid" to "user-admin",
                                     "email" to "admin@example.com",
                                     "displayName" to "Admin",
                                     "isAnonymous" to false,
                                     "customClaims" to mapOf("role" to "admin", "tier" to "gold")
                                 )
-                            } else {
-                                mapOf(
+                                method == "auth.signInAnonymously" -> mutableMapOf<String, Any?>(
+                                    "uid" to "user-anon",
+                                    "isAnonymous" to true
+                                )
+                                else -> mutableMapOf<String, Any?>(
                                     "uid" to "user-alice",
-                                    "email" to "alice@example.com",
+                                    "email" to (email ?: "alice@example.com"),
                                     "displayName" to "Alice",
                                     "isAnonymous" to false
                                 )
+                            }
+                            if (reqTenantId != null) {
+                                userMap["tenantId"] = reqTenantId
                             }
                             val userJson = JsonCodec.encodeToString(userMap)
                             transport.sendToClient(
@@ -138,9 +145,8 @@ class FirestoreAuthIntegrationTest {
                     val sub = msg["sub"] as Map<String, Any?>
                     sentSubs.add(sub)
 
-                    @Suppress("UNCHECKED_CAST")
-                    val target = sub["target"] as? Map<String, Any?>
-                    val targetName = target?.get("target") as? String
+                    val targetName = (sub["target"] as? String)
+                        ?: (sub["target"] as? Map<*, *>)?.get("target") as? String
                     if (targetName == "authState") {
                         authStateSubId = subId
                         transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
@@ -476,5 +482,51 @@ class FirestoreAuthIntegrationTest {
         assertEquals("user-alice", tokenClaims["sub"])
 
         reg.remove()
+    }
+
+    @Test
+    fun testTenantIdFullLifecyclePropagation() {
+        auth.tenantId = "tenant-acme"
+        Tasks.await(auth.signInWithEmailAndPassword("alice@example.com", "secret"))
+
+        // 1. Verify signInEmail RPC payload included tenantId
+        val signInOp = sentOps.find { it["method"] == "auth.signInEmail" }
+        assertNotNull(signInOp)
+        assertEquals("tenant-acme", signInOp?.get("tenantId"))
+
+        // 2. Verify FirebaseUser exposes tenantId
+        assertEquals("tenant-acme", auth.currentUser?.tenantId)
+
+        // 3. Verify downstream Firestore operation includes tenant in actAs (Security Rules context)
+        val docRef = firestore.document("tenants/acme/users/alice")
+        Tasks.await(docRef.get())
+
+        val getOp = sentOps.find { it["method"] == "getDoc" }
+        assertNotNull(getOp)
+        @Suppress("UNCHECKED_CAST")
+        val actAs = getOp?.get("actAs") as Map<String, Any?>
+        assertEquals("as", actAs["mode"])
+        assertEquals("user-alice", actAs["uid"])
+        assertEquals("tenant-acme", actAs["tenant"])
+
+        // 4. Verify createUserWithEmailAndPassword, signInAnonymously, and signInWithCredential forward tenantId
+        auth.tenantId = "tenant-beta"
+        Tasks.await(auth.createUserWithEmailAndPassword("new@example.com", "secret"))
+        val createOp = sentOps.find { it["method"] == "auth.createUser" }
+        assertNotNull(createOp)
+        assertEquals("tenant-beta", createOp?.get("tenantId"))
+        assertEquals("tenant-beta", auth.currentUser?.tenantId)
+
+        Tasks.await(auth.signInAnonymously())
+        val anonOp = sentOps.find { it["method"] == "auth.signInAnonymously" }
+        assertNotNull(anonOp)
+        assertEquals("tenant-beta", anonOp?.get("tenantId"))
+        assertEquals("tenant-beta", auth.currentUser?.tenantId)
+
+        Tasks.await(auth.signInWithCredential(mapOf("providerId" to "google.com", "idToken" to "mock")))
+        val credOp = sentOps.find { it["method"] == "auth.signInWithCredential" }
+        assertNotNull(credOp)
+        assertEquals("tenant-beta", credOp?.get("tenantId"))
+        assertEquals("tenant-beta", auth.currentUser?.tenantId)
     }
 }

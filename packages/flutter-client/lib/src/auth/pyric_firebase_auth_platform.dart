@@ -32,6 +32,11 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   final StreamController<AuthLens> _lensController =
       StreamController<AuthLens>.broadcast();
 
+  String? _tenantId;
+  String? _languageCode;
+  String? _emulatorHost;
+  int? _emulatorPort;
+
   PyricFirebaseAuthPlatform({
     super.appInstance,
     PyricBridgeClient? bridgeClient,
@@ -162,6 +167,42 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   }
 
   @override
+  String? get tenantId => _tenantId;
+
+  @override
+  set tenantId(String? value) {
+    _tenantId = value;
+  }
+
+  @override
+  Future<void> setTenantId(String? tenantId) async {
+    _tenantId = tenantId;
+  }
+
+  @override
+  String? get languageCode => _languageCode;
+
+  @override
+  Future<void> setLanguageCode(String? languageCode) async {
+    _languageCode = languageCode;
+  }
+
+  String? get emulatorHost => _emulatorHost;
+
+  int? get emulatorPort => _emulatorPort;
+
+  @override
+  Future<void> useAuthEmulator(String host, int port) async {
+    _emulatorHost = host;
+    _emulatorPort = port;
+  }
+
+  @override
+  Future<void> setPersistence(Persistence persistence) async {
+    await _bridgeClient.authSetPersistence(persistence.name);
+  }
+
+  @override
   void sendAuthChangesEvent(String appName, UserPlatform? userPlatform) {
     _currentUser = userPlatform;
     _authStateController.add(userPlatform);
@@ -200,7 +241,7 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     final claims = user is PyricUserPlatform ? user.customClaims : null;
     return AuthLens.asUser(
       uid: user.uid,
-      tenant: user.tenantId,
+      tenant: user.tenantId ?? _tenantId,
       token: (claims != null && claims.isNotEmpty) ? claims : null,
     );
   }
@@ -232,8 +273,15 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     String password,
   ) async {
     try {
-      final res = await _bridgeClient.authSignInEmail(email, password);
+      final res = await _bridgeClient.authSignInEmail(
+        email,
+        password,
+        tenantId: _tenantId,
+      );
       final userMap = Map<String, dynamic>.from(res['user'] as Map);
+      if (_tenantId != null && userMap['tenantId'] == null) {
+        userMap['tenantId'] = _tenantId;
+      }
       if (res['claims'] != null && userMap['claims'] == null) {
         userMap['claims'] = res['claims'];
       }
@@ -261,8 +309,15 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     String password,
   ) async {
     try {
-      final res = await _bridgeClient.authCreateUser(email, password);
+      final res = await _bridgeClient.authCreateUser(
+        email,
+        password,
+        tenantId: _tenantId,
+      );
       final userMap = Map<String, dynamic>.from(res['user'] as Map);
+      if (_tenantId != null && userMap['tenantId'] == null) {
+        userMap['tenantId'] = _tenantId;
+      }
       if (res['claims'] != null && userMap['claims'] == null) {
         userMap['claims'] = res['claims'];
       }
@@ -291,8 +346,11 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   @override
   Future<UserCredentialPlatform> signInAnonymously() async {
     try {
-      final res = await _bridgeClient.authSignInAnonymously();
+      final res = await _bridgeClient.authSignInAnonymously(tenantId: _tenantId);
       final userMap = Map<String, dynamic>.from(res['user'] as Map);
+      if (_tenantId != null && userMap['tenantId'] == null) {
+        userMap['tenantId'] = _tenantId;
+      }
       if (res['claims'] != null && userMap['claims'] == null) {
         userMap['claims'] = res['claims'];
       }

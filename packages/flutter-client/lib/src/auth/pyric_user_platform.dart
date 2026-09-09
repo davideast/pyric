@@ -13,6 +13,13 @@ class PyricUserPlatform extends UserPlatform {
   /// Custom claims associated with this user identity.
   Map<String, dynamic>? customClaims;
 
+  String? _tenantId;
+
+  @override
+  String? get tenantId => _tenantId ?? super.tenantId;
+
+  set tenantId(String? value) => _tenantId = value;
+
   PyricUserPlatform._(
     super.auth,
     super.multiFactor,
@@ -82,6 +89,7 @@ class PyricUserPlatform extends UserPlatform {
       client,
     );
     user.customClaims = claims;
+    user.tenantId = data['tenantId'] as String?;
     return user;
   }
 
@@ -129,6 +137,34 @@ class PyricUserPlatform extends UserPlatform {
       displayName: profile['displayName'],
       photoURL: profile['photoURL'],
     );
+    if (res is Map) {
+      final updated = PyricUserPlatform.fromWire(
+        auth: auth,
+        data: Map<String, dynamic>.from(res),
+        client: _client,
+      );
+      auth.currentUser = updated;
+      auth.sendAuthChangesEvent(auth.app.name, updated);
+    }
+  }
+
+  @override
+  Future<void> updateEmail(String newEmail) async {
+    final res = await _client.authUpdateEmail(newEmail);
+    if (res is Map) {
+      final updated = PyricUserPlatform.fromWire(
+        auth: auth,
+        data: Map<String, dynamic>.from(res),
+        client: _client,
+      );
+      auth.currentUser = updated;
+      auth.sendAuthChangesEvent(auth.app.name, updated);
+    }
+  }
+
+  @override
+  Future<void> updatePassword(String newPassword) async {
+    final res = await _client.authUpdatePassword(newPassword);
     if (res is Map) {
       final updated = PyricUserPlatform.fromWire(
         auth: auth,

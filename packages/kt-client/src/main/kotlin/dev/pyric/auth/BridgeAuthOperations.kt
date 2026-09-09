@@ -6,19 +6,32 @@ import kotlinx.coroutines.flow.map
 
 object BridgeAuthOperations {
 
-    suspend fun createUser(client: PyricBridgeClient, email: String, password: String): Map<String, Any?> {
+    suspend fun createUser(client: PyricBridgeClient, email: String, password: String, tenantId: String? = null): Map<String, Any?> {
+        val params = mutableMapOf<String, Any?>("email" to email, "password" to password)
+        if (tenantId != null) params["tenantId"] = tenantId
         @Suppress("UNCHECKED_CAST")
-        return client.op("auth.createUser", mapOf("email" to email, "password" to password)) as? Map<String, Any?> ?: emptyMap()
+        return client.op("auth.createUser", params) as? Map<String, Any?> ?: emptyMap()
     }
 
-    suspend fun signInEmail(client: PyricBridgeClient, email: String, password: String): Map<String, Any?> {
+    suspend fun signInEmail(client: PyricBridgeClient, email: String, password: String, tenantId: String? = null): Map<String, Any?> {
+        val params = mutableMapOf<String, Any?>("email" to email, "password" to password)
+        if (tenantId != null) params["tenantId"] = tenantId
         @Suppress("UNCHECKED_CAST")
-        return client.op("auth.signInEmail", mapOf("email" to email, "password" to password)) as? Map<String, Any?> ?: emptyMap()
+        return client.op("auth.signInEmail", params) as? Map<String, Any?> ?: emptyMap()
     }
 
-    suspend fun signInAnonymously(client: PyricBridgeClient): Map<String, Any?> {
+    suspend fun signInAnonymously(client: PyricBridgeClient, tenantId: String? = null): Map<String, Any?> {
+        val params = mutableMapOf<String, Any?>()
+        if (tenantId != null) params["tenantId"] = tenantId
         @Suppress("UNCHECKED_CAST")
-        return client.op("auth.signInAnonymously", emptyMap()) as? Map<String, Any?> ?: emptyMap()
+        return client.op("auth.signInAnonymously", params) as? Map<String, Any?> ?: emptyMap()
+    }
+
+    suspend fun signInWithCredential(client: PyricBridgeClient, credential: Map<String, Any?>, tenantId: String? = null): Map<String, Any?> {
+        val params = mutableMapOf<String, Any?>("credential" to credential)
+        if (tenantId != null) params["tenantId"] = tenantId
+        @Suppress("UNCHECKED_CAST")
+        return client.op("auth.signInWithCredential", params) as? Map<String, Any?> ?: emptyMap()
     }
 
     suspend fun signOut(client: PyricBridgeClient) {
