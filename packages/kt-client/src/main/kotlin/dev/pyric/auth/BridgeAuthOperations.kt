@@ -34,6 +34,11 @@ object BridgeAuthOperations {
         return client.op("auth.signInWithCredential", params) as? Map<String, Any?> ?: emptyMap()
     }
 
+    suspend fun signInWithCredential(client: PyricBridgeClient, credentialMap: Map<String, Any?>): Map<String, Any?> {
+        @Suppress("UNCHECKED_CAST")
+        return client.op("auth.signInWithCredential", credentialMap) as? Map<String, Any?> ?: emptyMap()
+    }
+
     suspend fun signOut(client: PyricBridgeClient) {
         client.op("auth.signOut", emptyMap())
     }

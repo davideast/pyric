@@ -175,6 +175,7 @@ export function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMes
     const unsub = rtdbOnValue(
       ref as DatabaseReference | RtdbQuery,
       (snap) => post(port, { t: 'snap', subId: msg.subId, value: rtdbSnapToWire(snap) }),
+      (err) => post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } }),
     );
 
     if (!msg.actAs || msg.actAs.mode === 'app-session') {

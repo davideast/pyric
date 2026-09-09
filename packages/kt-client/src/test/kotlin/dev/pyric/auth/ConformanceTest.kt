@@ -391,4 +391,47 @@ class ConformanceTest {
         assertNotNull(snap)
         assertTrue(harness.sentSubs.isNotEmpty())
     }
+
+    // ── 9. OAuth Providers & Credential Authentication ─────────────────────
+    @Test
+    @DisplayName("auth-kotlin#37: GoogleAuthProvider.getCredential creates Google AuthCredential")
+    fun `auth-kotlin#37 GoogleAuthProvider getCredential creates Google AuthCredential`() {
+        val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential("google-id-token", "google-access-token")
+        assertEquals("google.com", credential.provider)
+        val wire = credential.toWireMap()
+        assertEquals("google.com", wire["providerId"])
+        assertEquals("google-id-token", wire["idToken"])
+        assertEquals("google-access-token", wire["accessToken"])
+    }
+
+    @Test
+    @DisplayName("auth-kotlin#38: OAuthProvider.getCredential creates generic OAuthCredential")
+    fun `auth-kotlin#38 OAuthProvider getCredential creates generic OAuthCredential`() {
+        val credential = com.google.firebase.auth.OAuthProvider.getCredential(
+            "apple.com",
+            "apple-id-token",
+            "apple-access-token",
+            "raw-nonce-123"
+        )
+        assertEquals("apple.com", credential.provider)
+        val wire = credential.toWireMap()
+        assertEquals("apple.com", wire["providerId"])
+        assertEquals("apple-id-token", wire["idToken"])
+        assertEquals("apple-access-token", wire["accessToken"])
+        assertEquals("raw-nonce-123", wire["rawNonce"])
+    }
+
+    @Test
+    @DisplayName("auth-kotlin#39: FirebaseAuth.signInWithCredential authenticates OAuth user and updates lens")
+    fun `auth-kotlin#39 FirebaseAuth signInWithCredential authenticates OAuth user and updates lens`() {
+        val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential("google-jwt-123", "google-acc-456")
+        val result = Tasks.await(harness.auth.signInWithCredential(credential))
+        assertNotNull(result.user)
+        assertEquals("oauth-user-google.com", result.user?.uid)
+        assertEquals("oauth@example.com", result.user?.email)
+        assertEquals("google.com", result.additionalUserInfo?.providerId)
+        val lens = harness.auth.getEffectiveLens()
+        assertTrue(lens is AuthLens.AsUser)
+        assertEquals("oauth-user-google.com", (lens as AuthLens.AsUser).uid)
+    }
 }

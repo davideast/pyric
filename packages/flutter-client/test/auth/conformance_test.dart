@@ -127,6 +127,77 @@ void main() {
       auth.currentUser = PyricUserPlatform.fromWire(auth: auth, data: sampleUserMap, client: client);
       expect(auth.currentUser?.uid, equals('user-123'));
     });
+
+    test('auth-flutter#49: GoogleAuthProvider.credential constructs google.com OAuthCredential', () {
+      final credential = GoogleAuthProvider.credential(
+        idToken: 'mock-google-id-token',
+        accessToken: 'mock-google-access-token',
+      );
+      expect(credential, isA<OAuthCredential>());
+      expect(credential.providerId, equals('google.com'));
+      expect(credential.signInMethod, equals('google.com'));
+      expect(credential.idToken, equals('mock-google-id-token'));
+      expect(credential.accessToken, equals('mock-google-access-token'));
+    });
+
+    test('auth-flutter#50: OAuthProvider.credential constructs custom OAuthCredential', () {
+      final provider = OAuthProvider('github.com');
+      final credential = provider.credential(
+        idToken: 'gh-id-tok',
+        accessToken: 'gh-access-tok',
+        rawNonce: 'gh-nonce',
+      );
+      expect(credential, isA<OAuthCredential>());
+      expect(credential.providerId, equals('github.com'));
+      expect(credential.idToken, equals('gh-id-tok'));
+      expect(credential.accessToken, equals('gh-access-tok'));
+      expect(credential.rawNonce, equals('gh-nonce'));
+    });
+
+    test('auth-flutter#51: FirebaseAuthPlatform.signInWithCredential authenticates with OAuthCredential', () async {
+      final credential = GoogleAuthProvider.credential(
+        idToken: 'mock-google-id-token',
+        accessToken: 'mock-google-access-token',
+      );
+      final future = auth.signInWithCredential(credential);
+      await Future<void>.delayed(Duration.zero);
+      final op = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.signInWithCredential',
+      );
+      expect(op['op']['providerId'], equals('google.com'));
+      expect(op['op']['idToken'], equals('mock-google-id-token'));
+      expect(op['op']['accessToken'], equals('mock-google-access-token'));
+
+      final oauthUserMap = {
+        ...sampleUserMap,
+        'uid': 'user-google-456',
+        'email': 'google-user@example.com',
+        'providerData': [
+          {
+            'providerId': 'google.com',
+            'uid': 'google-sub-456',
+            'email': 'google-user@example.com',
+            'displayName': 'Google User',
+            'photoURL': 'https://example.com/photo.jpg',
+          }
+        ],
+      };
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': op['id'],
+        'ok': true,
+        'value': {
+          'user': oauthUserMap,
+          'additionalUserInfo': {'isNewUser': true},
+          'operationType': 'signIn',
+        },
+      });
+      final cred = await future;
+      expect(cred.user?.uid, equals('user-google-456'));
+      expect(cred.user?.providerData.first.providerId, equals('google.com'));
+      expect(cred.additionalUserInfo?.isNewUser, isTrue);
+      expect(auth.currentUser?.uid, equals('user-google-456'));
+    });
   });
 
   // ── 3. Reactive State Streams ─────────────────────────────────────────────

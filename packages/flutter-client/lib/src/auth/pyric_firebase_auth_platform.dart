@@ -373,6 +373,53 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   }
 
   @override
+  Future<UserCredentialPlatform> signInWithCredential(
+    AuthCredential credential,
+  ) async {
+    try {
+      final credMap = credential.asMap();
+      final payload = <String, dynamic>{
+        'providerId': credential.providerId,
+        'signInMethod': credential.signInMethod,
+        if (credMap['idToken'] != null) 'idToken': credMap['idToken'],
+        if (credMap['accessToken'] != null)
+          'accessToken': credMap['accessToken'],
+        if (credMap['rawNonce'] != null) 'rawNonce': credMap['rawNonce'],
+      };
+      final res = await _bridgeClient.authSignInWithCredential(payload);
+      final userMap = Map<String, dynamic>.from(res['user'] as Map);
+      if (res['claims'] != null && userMap['claims'] == null) {
+        userMap['claims'] = res['claims'];
+      }
+      if (res['customClaims'] != null && userMap['customClaims'] == null) {
+        userMap['customClaims'] = res['customClaims'];
+      }
+      final user = PyricUserPlatform.fromWire(
+        auth: this,
+        data: userMap,
+        client: _bridgeClient,
+      );
+      _currentUser = user;
+      _authStateController.add(user);
+      _idTokenController.add(user);
+      _userChangesController.add(user);
+      final isNewUser = (res['additionalUserInfo'] is Map)
+          ? (res['additionalUserInfo']['isNewUser'] as bool? ?? false)
+          : false;
+      return PyricUserCredentialPlatform(
+        auth: this,
+        user: user,
+        additionalUserInfo: AdditionalUserInfo(
+          isNewUser: isNewUser,
+          providerId: credential.providerId,
+        ),
+      );
+    } catch (e) {
+      throw _mapAuthError(e);
+    }
+  }
+
+  @override
   Future<void> signOut() async {
     try {
       await _bridgeClient.authSignOut();

@@ -271,12 +271,13 @@ export const AUTH_LENS_STORAGE_KEY = 'pyric:auth-lens';
 
 type PersistedAuthLens =
   | Extract<AuthLens, { mode: 'admin' }>
-  | Extract<AuthLens, { mode: 'as' }>;
+  | Extract<AuthLens, { mode: 'as' }>
+  | Extract<AuthLens, { mode: 'anon' }>;
 
 export function isPersistedAuthLens(value: unknown): value is PersistedAuthLens {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as { mode?: unknown; uid?: unknown };
-  if (candidate.mode === 'admin') return true;
+  if (candidate.mode === 'admin' || candidate.mode === 'anon') return true;
   return candidate.mode === 'as' && typeof candidate.uid === 'string';
 }
 
@@ -370,6 +371,15 @@ export function setLens(lens: AuthLens | undefined): void {
 export function getLens(): AuthLens | undefined {
   return _defaultLens;
 }
+
+/** Alias for {@link setLens} exposed on the public Web Auth surface. */
+export const switchAuthLens = setLens;
+
+/** Alias for {@link getLens} exposed on the public Web Auth surface. */
+export const getAuthLens = getLens;
+
+/** Alias for {@link subscribeLens} exposed on the public Web Auth surface. */
+export const onAuthLensChanged = subscribeLens;
 
 /**
  * Module-level op-source declaration (Pyric Studio traffic attribution).

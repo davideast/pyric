@@ -166,6 +166,20 @@ class FirebaseAuth internal constructor(
         return tcs.task
     }
 
+    fun signInWithCredential(credential: AuthCredential): Task<AuthResult> {
+        val tcs = TaskCompletionSource<AuthResult>()
+        scope.launch {
+            try {
+                val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap())
+                val authResult = handleAuthSuccess(res)
+                tcs.setResult(authResult)
+            } catch (e: Exception) {
+                tcs.setException(wrapException(e))
+            }
+        }
+        return tcs.task
+    }
+
     fun signOut() {
         scope.launch {
             try {
@@ -331,7 +345,10 @@ class FirebaseAuth internal constructor(
         }
 
         fun clearInstancesForTest() {
-            instances.values.forEach { it.scope.cancel() }
+            for (auth in instances.values) {
+                auth.scope.cancel()
+                auth.bridgeClient.terminate()
+            }
             instances.clear()
         }
     }

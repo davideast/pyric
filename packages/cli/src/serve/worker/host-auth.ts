@@ -24,40 +24,22 @@ import {
   sandbox as authSandboxOps,
   type Auth,
   type MintedSession,
-  type User,
 } from 'pyric/auth';
 import {
   serializeUser,
   type OpMessage,
   type AuthSubMessage,
 } from './protocol.js';
-
-/**
- * Synthetic password seeded for bridged provider identities (popup/redirect).
- * Provider users never authenticate with a password — this just satisfies the
- * SeedUser shape. Matches `ServeAuthHelper`'s in-page constant in spirit.
- */
-const PROVIDER_SYNTHETIC_PASSWORD = '__pyric_popup_no_password__';
-
-/**
- * The `photoUrl` a bridged provider identity should be seeded with.
- *
- * A provider sign-in refreshes the stored photo when the identity carries one,
- * and leaves it alone when it does not — the same rule the in-page backend's
- * `recordProviderSignIn` applies. `seedUsers` replaces the whole record, so an
- * identity with no photo has to carry the stored value forward here or the
- * re-seed would blank a photo an earlier sign-in established.
- */
-function seedPhotoUrl(
-  auth: Auth,
-  uid: string,
-  identityPhotoURL: string | null,
-): string | undefined {
-  if (identityPhotoURL !== null) return identityPhotoURL;
-  const stored = authSandboxOps.listUsers(auth).find((user) => user.uid === uid);
-  if (!stored?.photoUrl) return undefined;
-  return stored.photoUrl;
-}
+import {
+  PROVIDER_SYNTHETIC_PASSWORD,
+  seedPhotoUrl,
+  credReply,
+  makeNoUserError,
+  requirePortSession,
+  remintSessionWithClaims,
+  applyProfileToUser,
+  resolveOAuthCredentialUser,
+} from './host/auth-session-seeder.js';
 
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
 
@@ -70,6 +52,8 @@ function seedPhotoUrl(
  * (see {@link setPortSession}).
  */
 const _authSubs = new WeakMap<HostCtx, Map<PortLike, Map<string, 'authState' | 'idToken'>>>();
+const _portTenants = new WeakMap<HostCtx, Map<PortLike, string | null>>();
+const _lastAuthStateUid = new WeakMap<PortLike, string | null>();
 
 export function authSubsFor(ctx: HostCtx): Map<PortLike, Map<string, 'authState' | 'idToken'>> {
   let m = _authSubs.get(ctx);
@@ -78,6 +62,19 @@ export function authSubsFor(ctx: HostCtx): Map<PortLike, Map<string, 'authState'
     _authSubs.set(ctx, m);
   }
   return m;
+}
+
+function portTenantsFor(ctx: HostCtx): Map<PortLike, string | null> {
+  let m = _portTenants.get(ctx);
+  if (!m) {
+    m = new Map();
+    _portTenants.set(ctx, m);
+  }
+  return m;
+}
+
+export function portTenant(ctx: HostCtx, port: PortLike): string | null {
+  return portTenantsFor(ctx).get(port) ?? null;
 }
 
 /**
@@ -111,19 +108,40 @@ export function portSession(ctx: HostCtx, port: PortLike): MintedSession | null 
  * idToken stream fires alongside authState, matching the real observers.
  */
 function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | null): void {
+  const tenant = portTenant(ctx, port);
+  if (session) {
+    session.state.tenant = tenant ?? undefined;
+    (session.user as { tenantId?: string | null }).tenantId = tenant ?? null;
+  }
   portSessionsFor(ctx).set(port, session);
 
+  // Clear cached session handles so they rebuild with the new session/tenant state
+  ctx.sessionDbs?.clear();
+  ctx.sessionRtdbs?.clear();
+  ctx.sessionStorages?.clear();
+
   // Prod parity on auth transitions: re-establish this port's session-bound
-  // Firestore listeners under the NEW identity, so a sign-out re-evaluates
+  // Firestore/RTDB listeners under the NEW identity, so a sign-out re-evaluates
   // live streams (auth-gated data is revoked, not leaked) and a sign-in
   // grants them. Studio-lens subs (explicit actAs) are untouched.
   ctx.resubscribePortSubs?.(port);
 
+  const newUid = session?.user.uid ?? null;
+  const lastUid = _lastAuthStateUid.has(port) ? _lastAuthStateUid.get(port)! : null;
+  const uidChanged = newUid !== lastUid;
+  _lastAuthStateUid.set(port, newUid);
+
   const serialized = serializeUser(session?.user ?? null);
   const bySubId = authSubsFor(ctx).get(port);
   if (!bySubId) return;
-  for (const [subId] of bySubId) {
-    post(port, { t: 'snap', subId, value: serialized });
+  for (const [subId, target] of bySubId) {
+    if (target === 'authState') {
+      if (uidChanged) {
+        post(port, { t: 'snap', subId, value: serialized });
+      }
+    } else {
+      post(port, { t: 'snap', subId, value: serialized });
+    }
   }
 }
 
@@ -156,18 +174,11 @@ function refreshPortAuthorization(
 /** Tear down a disconnected port's session (called from cleanupPort). */
 export function cleanupPortSession(ctx: HostCtx, port: PortLike): void {
   ctx.portSessions?.delete(port);
+  portTenantsFor(ctx).delete(port);
+  _lastAuthStateUid.delete(port);
 }
 
 // ─── Auth op handlers ─────────────────────────────────────────────────────
-
-/** Serialized UserCredential reply shape for a minted session. */
-function credReply(session: MintedSession, providerId: string | null) {
-  return {
-    user: serializeUser(session.user),
-    providerId,
-    operationType: 'signIn' as const,
-  };
-}
 
 export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   const auth = ensureAuth(ctx);
@@ -200,10 +211,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInAnonymously': {
       try {
-        // Match `firebase/auth` semantics per session: if THIS PORT is
-        // already anonymous, reuse that identity (StrictMode double-mounts
-        // must not leak a fresh uid per mount). Other ports' anonymous
-        // sessions are other users — that's the multi-user point.
         const existing = portSession(ctx, port);
         if (existing && existing.user.isAnonymous) {
           ok(port, msg.id, credReply(existing, null));
@@ -213,7 +220,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           kind: 'anonymous', tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
-        await bestEffortFlush(ctx); // anonymous sign-in creates a user record
+        await bestEffortFlush(ctx);
         ok(port, msg.id, credReply(session, null));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -228,8 +235,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     }
 
     case 'auth.restorePortSession': {
-      // Per-tab reload restore (#754): soft — an unknown/disabled uid means
-      // signed out (null), never an error. The page clears its stale record.
       try {
         let session: MintedSession | null = null;
         try {
@@ -247,7 +252,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.getIdToken': {
       try {
-        const session = requirePortSession(ctx, port, 'getIdToken');
+        const session = requirePortSession(portSession(ctx, port), 'getIdToken');
         const user = session.user;
         const token = await user.getIdToken(msg.forceRefresh);
         if (msg.forceRefresh) {
@@ -261,7 +266,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.getIdTokenResult': {
       try {
-        const session = requirePortSession(ctx, port, 'getIdTokenResult');
+        const session = requirePortSession(portSession(ctx, port), 'getIdTokenResult');
         const user = session.user;
         const r = await user.getIdTokenResult(msg.forceRefresh);
         if (msg.forceRefresh) refreshPortAuthorization(ctx, port, session, r.claims);
@@ -278,8 +283,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     }
 
     case 'auth.setPersistence': {
-      // Accepted for surface parity; the CLIENT's SessionStore owns where
-      // (or whether) the session uid is recorded. Nothing to do worker-side.
       ctx.sessionMode = msg.mode;
       ok(port, msg.id, null);
       break;
@@ -292,12 +295,28 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       break;
     }
 
+    case 'auth.setTenantId': {
+      try {
+        portTenantsFor(ctx).set(port, msg.tenantId);
+        const session = portSession(ctx, port);
+        if (session) {
+          session.state.tenant = msg.tenantId ?? undefined;
+          (session.user as { tenantId?: string | null }).tenantId = msg.tenantId ?? null;
+          ctx.sessionDbs?.clear();
+          ctx.sessionRtdbs?.clear();
+          ctx.sessionStorages?.clear();
+          ctx.resubscribePortSubs?.(port);
+          const serialized = serializeUser(session.user);
+          for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
+            if (target === 'idToken') post(port, { t: 'snap', subId, value: serialized });
+          }
+        }
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
     case 'auth.updateProfile': {
-      // Update THIS PORT's signed-in user's profile (displayName / photoURL).
-      // Updates the stored record (by uid) via the sandbox op, then mutates the
-      // port session's `User` in place so a subsequent `auth.getCurrentUser`
-      // (and the client mirror hydrated from the reply) is consistent. Does NOT
-      // fire onAuthStateChanged/onIdTokenChanged — matching firebase/auth.
       try {
         const session = portSession(ctx, port);
         if (!session) throw makeNoUserError('updateProfile');
@@ -305,7 +324,86 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         authSandboxOps.updateProfile(auth, session.user.uid, profile);
         applyProfileToUser(session.user, profile);
         await bestEffortFlush(ctx);
-        ok(port, msg.id, serializeUser(session.user));
+        const serialized = serializeUser(session.user);
+        for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
+          if (target === 'idToken') {
+            post(port, { t: 'snap', subId, value: serialized });
+          }
+        }
+        ok(port, msg.id, serialized);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.reload': {
+      try {
+        const session = requirePortSession(portSession(ctx, port), 'reload');
+        const freshSession = remintSessionWithClaims(auth, session);
+        setPortSession(ctx, port, freshSession);
+        ok(port, msg.id, serializeUser(freshSession.user));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.deleteUser': {
+      try {
+        const session = requirePortSession(portSession(ctx, port), 'deleteUser');
+        authSandboxOps.deleteUser(auth, session.user.uid);
+        setPortSession(ctx, port, null);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.updateEmail': {
+      try {
+        const session = requirePortSession(portSession(ctx, port), 'updateEmail');
+        authSandboxOps.updateUser(auth, session.user.uid, { email: msg.email });
+        const freshSession = remintSessionWithClaims(auth, session);
+        setPortSession(ctx, port, freshSession);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, serializeUser(freshSession.user));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.updatePassword': {
+      try {
+        const session = requirePortSession(portSession(ctx, port), 'updatePassword');
+        authSandboxOps.updateUser(auth, session.user.uid, { password: msg.password });
+        const freshSession = remintSessionWithClaims(auth, session);
+        setPortSession(ctx, port, freshSession);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, serializeUser(freshSession.user));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.updateCurrentUser': {
+      try {
+        if (msg.uid === null) {
+          setPortSession(ctx, port, null);
+          ok(port, msg.id, null);
+        } else {
+          const freshSession = authSandboxOps.mintSession(auth, {
+            kind: 'uid',
+            uid: msg.uid,
+          });
+          setPortSession(ctx, port, freshSession);
+          ok(port, msg.id, serializeUser(freshSession.user));
+        }
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.signInWithCredential': {
+      try {
+        const uid = resolveOAuthCredentialUser(auth, msg.credential);
+        const session = authSandboxOps.mintSession(auth, { kind: 'uid', uid });
+        setPortSession(ctx, port, session);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, credReply(session, msg.credential.providerId));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -346,15 +444,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     }
 
     case 'auth.acceptIdentity': {
-      // Provider sign-in bridge: the page resolved a popup/redirect identity
-      // in-page (ServeAuthHelper) and hands it here. GATE FIRST: the page
-      // sandbox delegates provider enforcement to this worker (its picker
-      // opens unconditionally), so THIS is where Studio's provider toggles
-      // bite — a disabled provider throws `auth/operation-not-allowed`
-      // before any user-DB write. Then seed it into the user DB (so rules
-      // `request.auth.token.*` claims resolve AND it shows in the picker
-      // next time), and mint THIS PORT's session for it — provider users
-      // have no password. Mirrors ServeAuthHelper.add's seeding.
       try {
         const { uid, email, displayName, photoURL, customClaims, providerId } = msg.identity;
         authSandboxOps.assertAuthProviderEnabled(auth, providerId);
@@ -363,8 +452,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           email: email ?? '',
           password: PROVIDER_SYNTHETIC_PASSWORD,
           displayName: displayName ?? undefined,
-          // Boundary map: the protocol's `photoURL` becomes the seed record's
-          // `photoUrl`.
           photoUrl: seedPhotoUrl(auth, uid, photoURL),
           customClaims: customClaims ?? {},
           providerId,
@@ -373,14 +460,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           kind: 'uid', uid, tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
-        await bestEffortFlush(ctx); // seeded provider identity must be durable
+        await bestEffortFlush(ctx);
         ok(port, msg.id, credReply(session, providerId));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     case 'auth.listUsers': {
-      // Admin user-DB enumeration (Pyric Studio data browse).
       try {
         ok(port, msg.id, authSandboxOps.listUsers(auth));
       } catch (e) { fail(port, msg.id, e); }
@@ -431,11 +517,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     }
 
     case 'auth.getProviderConfig': {
-      // Sign-in provider config (Pyric Studio S-AUTH "Sign-in providers"
-      // section). `setProviderConfig` emits a `provider_config_update`
-      // sandbox event, so a caller subscribed to the event stream (the
-      // worker's event feed, which `subscribeUsers` already rides) sees
-      // toggles live without a dedicated subscription message here.
       try {
         ok(port, msg.id, authSandboxOps.getAuthProviderConfig(auth));
       } catch (e) { fail(port, msg.id, e); }
@@ -454,47 +535,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       fail(port, msg.id, new Error(`Unknown auth method: ${String((msg as { method: unknown }).method)}`));
     }
   }
-}
-
-/** The port session's User, or throw `auth/no-current-user`. */
-function requireSessionUser(ctx: HostCtx, port: PortLike, api: string): User {
-  return requirePortSession(ctx, port, api).user;
-}
-
-function requirePortSession(ctx: HostCtx, port: PortLike, api: string): MintedSession {
-  const session = portSession(ctx, port);
-  if (!session) throw makeNoUserError(api);
-  return session;
-}
-
-/**
- * Mutate a port session's `User` `displayName` / `photoURL` (and the first
- * `providerData` entry's) in place so a subsequent `auth.getCurrentUser`
- * reflects an `auth.updateProfile`. Fields are `readonly` at the type level
- * but plain data at runtime; only an explicitly-provided field is applied
- * (`null` clears, `undefined` leaves untouched).
- */
-function applyProfileToUser(
-  user: User,
-  profile: { displayName?: string | null; photoURL?: string | null },
-): void {
-  const mutable = user as { -readonly [K in keyof User]: User[K] };
-  if (profile.displayName !== undefined) mutable.displayName = profile.displayName;
-  if (profile.photoURL !== undefined) mutable.photoURL = profile.photoURL;
-  const provider0 = user.providerData?.[0] as
-    | { -readonly [K in keyof NonNullable<User['providerData']>[number]]: NonNullable<User['providerData']>[number][K] }
-    | undefined;
-  if (provider0) {
-    if (profile.displayName !== undefined) provider0.displayName = profile.displayName;
-    if (profile.photoURL !== undefined) provider0.photoURL = profile.photoURL;
-  }
-}
-
-/** Build an `auth/no-current-user`-style error for token ops with no user. */
-function makeNoUserError(api: string): Error & { code: string } {
-  const err = new Error(`${api}: no current user is signed in.`) as Error & { code: string };
-  err.code = 'auth/no-current-user';
-  return err;
 }
 
 export function isAuthOp(method: OpMessage['method']): boolean {
@@ -520,9 +560,14 @@ export function handleAuthSub(ctx: HostCtx, port: PortLike, msg: AuthSubMessage)
   if (bySubId.has(msg.subId)) return; // idempotent
   bySubId.set(msg.subId, msg.target);
 
+  const currentUser = portSession(ctx, port)?.user ?? null;
+  if (msg.target === 'authState' && !_lastAuthStateUid.has(port)) {
+    _lastAuthStateUid.set(port, currentUser?.uid ?? null);
+  }
+
   // Initial fire — mirror the real observers, which invoke the callback once
   // with the current state on registration. Per-port: THIS port's session.
-  post(port, { t: 'snap', subId: msg.subId, value: serializeUser(portSession(ctx, port)?.user ?? null) });
+  post(port, { t: 'snap', subId: msg.subId, value: serializeUser(currentUser) });
 }
 
 export function handleAuthUnsub(ctx: HostCtx, port: PortLike, subId: string): boolean {

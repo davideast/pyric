@@ -71,6 +71,13 @@ export const authFlutterRows: CompatibilityRow[] = [
     api: 'FirebaseAuthPlatform.signOut()', behavior: 'Signs out active session via bridge auth.signOut RPC, clearing currentUser and emitting null on streams.', featureKeys: ['signOut'] }),
   row({ ref: 10, flipped: 'unit-backed', section: '`FirebaseAuthPlatform` — user authentication',
     api: 'FirebaseAuthPlatform.currentUser', behavior: 'Accesses cached UserPlatform instance or null when unauthenticated.', featureKeys: ['currentUser'] }),
+  row({ ref: 49, flipped: 'unit-backed', section: '`FirebaseAuthPlatform` — user authentication',
+    api: 'GoogleAuthProvider.credential({idToken, accessToken})', behavior: 'Constructs an OAuthCredential for google.com with idToken and accessToken.', featureKeys: ['GoogleAuthProvider', 'credential'] }),
+  row({ ref: 50, flipped: 'unit-backed', section: '`FirebaseAuthPlatform` — user authentication',
+    api: 'OAuthProvider(providerId).credential({idToken, accessToken, rawNonce})', behavior: 'Constructs a generic OAuthCredential with custom providerId, idToken, accessToken, and rawNonce.', featureKeys: ['OAuthProvider', 'credential'] }),
+  row({ ref: 51, flipped: 'unit-backed', section: '`FirebaseAuthPlatform` — user authentication',
+    api: 'FirebaseAuthPlatform.signInWithCredential(credential)', behavior: 'Authenticates user with an OAuthCredential via bridge auth.signInWithCredential RPC, updating currentUser and providerData.', featureKeys: ['signInWithCredential'] }),
+
 
   // ── 3. FirebaseAuthPlatform: Reactive State Streams ───────────────────────
   row({ ref: 11, flipped: 'unit-backed', section: '`FirebaseAuthPlatform` — reactive state streams',

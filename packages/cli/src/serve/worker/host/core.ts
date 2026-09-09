@@ -236,10 +236,10 @@ export function lensCacheKey(actAs: Extract<AuthLens, { mode: 'as' }>): string {
 
 /** Cache key for a real port session; claims and tenant are part of authorization identity. */
 export function sessionCacheKey(session: MintedSession): string {
-  const parts = [session.user.uid];
-  if (session.state.tenant !== undefined) parts.push(`tenant:${session.state.tenant}`);
-  if (session.state.token !== undefined) parts.push(JSON.stringify(session.state.token));
-  return parts.join(':');
+  const tenantPart = session.state.tenant ?? '';
+  return session.state.token === undefined
+    ? `${session.user.uid}:${tenantPart}`
+    : `${session.user.uid}:${tenantPart}:${JSON.stringify(session.state.token)}`;
 }
 
 /**
