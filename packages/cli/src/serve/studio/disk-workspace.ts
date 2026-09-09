@@ -28,6 +28,8 @@ import {
 } from 'node:fs';
 import { basename, dirname, join, posix, relative, resolve, sep } from 'node:path';
 
+import { readBranches } from './branch-store-reading.js';
+
 import type {
   WorkspaceChange,
   WorkspaceEntry,
@@ -187,6 +189,10 @@ export function diskWorkspace(dir: string): WorkspaceStore {
       const abs = resolveWorkspacePath(root, path);
       if (abs === root) throw new WorkspacePathError(path); // never nuke the root
       await rm(abs, { recursive: true, force: true });
+    },
+
+    async branches() {
+      return readBranches(root);
     },
 
     watch(cb) {

@@ -234,6 +234,7 @@ export type {
   ProjectMeta,
   ProjectStore,
   RemoteLifecycle,
+  WorkspaceBranch,
   WorkspaceChange,
   WorkspaceEntry,
   WorkspaceStore,

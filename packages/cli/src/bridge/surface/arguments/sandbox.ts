@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { SandboxEvent } from 'pyric/sandbox';
-import { listBranches } from 'pyric/sandbox/branches/store';
+import { BRANCH_NAME_PATTERN, listBranches } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
@@ -93,7 +93,7 @@ export const DEFAULT_SESSION_PATH = '.pyric/last-session.json';
 export const branchName = z
   .string()
   .regex(
-    /^[a-z0-9][a-z0-9._-]{0,63}$/,
+    BRANCH_NAME_PATTERN,
     'a branch name is 1 to 64 characters of lowercase letters, digits, dot, dash, or underscore, starting with a letter or digit',
   )
   .describe(

@@ -47,7 +47,7 @@ const EVENTS_FILE = 'events.json';
 const RULES_FILE = 'rules.firestore';
 
 /** The names a branch may take: one path segment, so a name can never escape the store. */
-const BRANCH_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+export const BRANCH_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 /** A branch name the store refuses. Thrown rather than returned: it is a caller mistake. */
 export class BranchNameError extends Error {
@@ -92,7 +92,7 @@ export interface SaveBranchOptions {
 
 /** Reject a name that is not one path segment of the branch store. */
 function assertBranchName(name: string): void {
-  if (!BRANCH_NAME.test(name)) throw new BranchNameError(name);
+  if (!BRANCH_NAME_PATTERN.test(name)) throw new BranchNameError(name);
 }
 
 /** The directory one branch occupies. */
@@ -209,7 +209,7 @@ export function listBranches(projectDir: string): BranchListing[] {
   const listed: BranchListing[] = [];
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    if (!BRANCH_NAME.test(entry.name)) continue;
+    if (!BRANCH_NAME_PATTERN.test(entry.name)) continue;
     const manifest = readManifest(join(root, entry.name));
     if (manifest === null) continue;
     listed.push({ name: entry.name, ...manifest });

@@ -24,6 +24,9 @@ import {
   ProjectIdError,
 } from './disk-project-store.js';
 import { createStudioRoutes } from './routes.js';
+import { fork, initializeSandbox } from 'pyric/sandbox';
+import { saveBranch } from 'pyric/sandbox/branches/store';
+import { getInternalEnv } from 'pyric/sandbox/internal';
 
 let dir: string;
 beforeEach(() => {
@@ -281,6 +284,34 @@ describe('createStudioRoutes', () => {
     );
     await res.done;
     expect(JSON.parse(res.body)).toEqual([{ path: 'a.txt', kind: 'file' }]);
+  });
+
+  it('GET /__pyric/workspace/branches returns the branches the store holds', async () => {
+    const ws = diskWorkspace(dir);
+    const sandbox = initializeSandbox();
+    getInternalEnv(sandbox).seed({ rules: '', documents: { 'notes/n1': { body: 'live' } } });
+    saveBranch(dir, 'draft', fork(sandbox.snapshot()), { base: 'live' });
+
+    const routes = createStudioRoutes({
+      workspace: ws,
+      sessionToken: testSessionToken,
+      boundHost: 'localhost',
+    });
+    const res = mockRes();
+    await routes(mockReq('GET'), res.res, new URL('http://localhost/__pyric/workspace/branches'));
+    await res.done;
+
+    const listed = JSON.parse(res.body) as Array<{
+      name: string;
+      base: string;
+      eventCount: number;
+      documents: Record<string, unknown>;
+    }>;
+    expect(listed).toHaveLength(1);
+    expect(listed[0]!.name).toBe('draft');
+    expect(listed[0]!.base).toBe('live');
+    expect(listed[0]!.eventCount).toBe(0);
+    expect(listed[0]!.documents['notes/n1']).toEqual({ body: 'live' });
   });
 
   it('returns 400 on path traversal', async () => {

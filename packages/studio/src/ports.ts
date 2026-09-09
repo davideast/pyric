@@ -30,6 +30,25 @@ export interface WorkspaceChange {
   type: 'create' | 'update' | 'delete';
 }
 
+/**
+ * One branch the project holds on disk, as the branch store reports it.
+ *
+ * The branch store's on-disk format — the manifest, the record bundle, the
+ * event log — is read by the store alone, on the server side of this port. What
+ * crosses the port is the branch already rebuilt: what the manifest recorded,
+ * plus the Firestore documents the branch holds after its events were applied.
+ */
+export interface WorkspaceBranch {
+  name: string;
+  /** When the branch was forked, as an ISO 8601 instant. */
+  created: string;
+  /** `live`, or the name of the checkpoint the fork was taken from. */
+  base: string;
+  eventCount: number;
+  /** The branch's Firestore documents, by document path. */
+  documents: Record<string, Record<string, unknown>>;
+}
+
 export interface WorkspaceStore {
   /** File contents, or `null` if it doesn't exist. */
   read(path: string): Promise<string | null>;
@@ -37,6 +56,8 @@ export interface WorkspaceStore {
   /** Entries directly under `dir` (project root when omitted). */
   list(dir?: string): Promise<WorkspaceEntry[]>;
   remove(path: string): Promise<void>;
+  /** The branches under `.pyric/state/branches`, rebuilt by the branch store. */
+  branches(): Promise<WorkspaceBranch[]>;
   /** Live edits (disk watcher / IDB change events). Returns an unsubscribe. */
   watch(cb: (change: WorkspaceChange) => void): () => void;
 }
