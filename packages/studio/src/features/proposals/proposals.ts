@@ -19,16 +19,16 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { discard, type Branch, type Divergence, type SandboxSnapshot } from 'pyric/sandbox';
-import { documentDivergences, forkFromSnapshot } from '../../shell/snapshot-branches.js';
+import { documentDivergences, forkFromSavedState } from '../../shell/saved-state-branches.js';
 import { getAdminFirestore, type Firestore } from 'pyric/firestore';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
+import { useStudioSnapshot } from '../../shell/studio-saved-states.js';
 import {
-  useStudioSnapshot,
   useStudioSeed,
   useStudioSeedAuth,
   type SeedOp,
   type AuthCreateOp,
-} from '../../shell/studio-data.js';
+} from '../../shell/studio-writes.js';
 
 /** Who staged the change (provenance, per the spec's `EventActor`). */
 export type ProposalActor = 'you' | 'studio' | `agent:${string}`;
@@ -163,7 +163,7 @@ async function stageProposal(
 ): Promise<Proposal> {
   const base = await getSnapshot();
   if (!base) throw new Error('No sandbox to stage a change against.');
-  const branch = await forkFromSnapshot(base);
+  const branch = await forkFromSavedState(base);
   let planResult: StagePlanResult | void;
   try {
     planResult = await input.plan(getAdminFirestore(branch.sandbox), base, branch);

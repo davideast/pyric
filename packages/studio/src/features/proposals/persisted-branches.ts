@@ -13,11 +13,11 @@
 import { useEffect, useState } from 'react';
 import { diffFullStates, type SandboxSnapshot } from 'pyric/sandbox';
 
-import { snapshotState } from '../../shell/snapshot-branches.js';
+import { savedStateOf } from '../../shell/saved-state-branches.js';
 
 import type { WorkspaceBranch, WorkspaceStore } from '../../ports.js';
 import { useEnvironment } from '../../shell/environment.js';
-import { useStudioSnapshot } from '../../shell/studio-data.js';
+import { useStudioSnapshot } from '../../shell/studio-saved-states.js';
 
 /** One branch as the panel renders it. */
 export interface PersistedBranch {
@@ -38,8 +38,8 @@ export interface PersistedBranch {
  * not a second opinion about it.
  */
 function divergencesFrom(branch: WorkspaceBranch, live: SandboxSnapshot): number {
-  const held = { ...snapshotState(live), firestore: branch.documents };
-  return diffFullStates(snapshotState(live), held).length;
+  const held = { ...savedStateOf(live), firestore: branch.documents };
+  return diffFullStates(savedStateOf(live), held).length;
 }
 
 /** Every branch the project holds, ordered by name. */

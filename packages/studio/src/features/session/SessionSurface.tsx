@@ -15,14 +15,15 @@ import { useState, useRef, type ChangeEvent } from 'react';
 import { ActivityActionItems, ActivityGrid, useActivityDigest } from '@pyric/ui/events';
 import type { ActivityRow, AnyActivityEvent } from '@pyric/ui/events';
 import { useDataNav, parseDocPath } from '../data/navigation.js';
+import { useStudioEvents } from '../../shell/studio-events.js';
 import {
-  useStudioEvents,
-  useStudioReset,
   useSandboxInstanceId,
   useStudioExport,
   useStudioImport,
   useSavedStates,
-} from '../../shell/studio-data.js';
+  type StudioSavedStates,
+} from '../../shell/studio-saved-states.js';
+import { useStudioReset } from '../../shell/studio-writes.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import { useProposals, focusProposal } from '../proposals/proposals.js';
 import { usePersistedBranches } from '../proposals/persisted-branches.js';
@@ -81,12 +82,17 @@ export function SessionSurface() {
     }
   };
 
-  // Saved states of THIS instance, which you can go back to
-  // between. Switch is a clobber, so it confirms; save prompts for a name.
-  const savedStates = useSavedStates();
+  // Saved states of THIS instance, which you can go back to. Save prompts for
+  // a name; restore is a clobber and delete discards the only copy of a state,
+  // so both confirm first.
+  const savedStates: StudioSavedStates = useSavedStates();
   const onSaveState = async () => {
-    const name = typeof window !== 'undefined' ? window.prompt('Save current sandbox as a state named:')?.trim() : '';
-    if (name) await savedStates.save(name);
+    if (typeof window === 'undefined') return;
+    const answered = window.prompt('Save current sandbox as a state named:');
+    if (answered === null) return;
+    const name = answered.trim();
+    if (name === '') return;
+    await savedStates.save(name);
   };
   const onRestoreState = async (name: string) => {
     if (

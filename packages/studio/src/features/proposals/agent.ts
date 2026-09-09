@@ -26,7 +26,7 @@ import { sandbox as authSandbox, getAuth, type CreateUserRequest } from 'pyric/a
 import { runAssist } from '../../ai/useAssist.js';
 import { useLlmClient } from '../../ai/inference.js';
 import { useProposals, useGovernanceMode, focusProposal } from './proposals.js';
-import type { AuthCreateOp } from '../../shell/studio-data.js';
+import type { AuthCreateOp } from '../../shell/studio-writes.js';
 
 const AGENT_SYSTEM = [
   'You make a requested change to a Firebase project using the tools provided.',

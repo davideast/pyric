@@ -24,10 +24,8 @@
  */
 
 import { DenialDetail } from '../rules-debug/index.js';
-import {
-  useStudioRuleEvaluations,
-  useStudioRulesSource,
-} from '../../shell/studio-data.js';
+import { useStudioRuleEvaluations } from '../../shell/studio-events.js';
+import { useStudioRulesSource } from '../../shell/studio-rules-source.js';
 
 export function TrafficRulesInspector({
   eventId,

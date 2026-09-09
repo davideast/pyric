@@ -30,7 +30,7 @@ import {
   type Sandbox,
   type SandboxSnapshot,
 } from 'pyric/sandbox';
-import { documentDivergences, forkFromSnapshot } from '../../shell/snapshot-branches.js';
+import { documentDivergences, forkFromSavedState } from '../../shell/saved-state-branches.js';
 import {
   getFirestore as getSandboxFirestore,
   doc,
@@ -181,7 +181,7 @@ export async function rerunAgainstRules(
   }
 
   if (isRtdb) {
-    const branch = await forkFromSnapshot(snapshot);
+    const branch = await forkFromSavedState(snapshot);
     try {
       const hasServices = snapshot.services !== undefined && Object.keys(snapshot.services).length > 0;
       if (hasServices) {
@@ -196,7 +196,7 @@ export async function rerunAgainstRules(
     }
   }
 
-  const branch = await forkFromSnapshot(snapshot, editedRules);
+  const branch = await forkFromSavedState(snapshot, editedRules);
   try {
     const result = await issueOp(branch.sandbox, denial);
     // Only a mutation that actually landed can diverge; a denied/read op leaves

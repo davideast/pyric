@@ -9,7 +9,7 @@
  */
 
 import { discard, type SandboxSnapshot } from 'pyric/sandbox';
-import { forkFromSnapshot } from '../../shell/snapshot-branches.js';
+import { forkFromSavedState } from '../../shell/saved-state-branches.js';
 import type { ToolHandler, ToolResult } from '@inbrowser/agent';
 import { rerunAgainstRules, issueOp } from '../rules-debug/rerun.js';
 import type { Denial as ModelDenial } from '../rules-debug/model.js';
@@ -99,7 +99,7 @@ export function makeTestRulesEditTool(deps: TestRulesEditDeps): ToolHandler {
       // 2. Regression: re-run a sample of recently-allowed ops under the edit.
       const regressions: string[] = [];
       for (const op of deps.recentOps.slice(0, 8)) {
-        const branch = await forkFromSnapshot(snap, rules);
+        const branch = await forkFromSavedState(snap, rules);
         try {
           const r = await issueOp(branch.sandbox, op);
           if (r.outcome === 'deny') regressions.push(`${op.method} ${op.path}`);

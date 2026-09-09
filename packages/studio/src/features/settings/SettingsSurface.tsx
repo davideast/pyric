@@ -19,8 +19,8 @@ import {
   useSavedStates,
   useStudioExport,
   useStudioImport,
-  useStudioReset,
-} from '../../shell/studio-data.js';
+} from '../../shell/studio-saved-states.js';
+import { useStudioReset } from '../../shell/studio-writes.js';
 import { useResourceIndex } from '../home/useResourceIndex.js';
 import { countInventory, inventoryLine } from './sandbox-inventory.js';
 

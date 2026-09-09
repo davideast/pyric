@@ -40,10 +40,8 @@ import {
 } from '@pyric/ui/rules';
 import { useDevSeed } from '../../dev/DevSeedProvider.js';
 import { useDataNav } from '../data/navigation.js';
-import {
-  useStudioEvents,
-  useStudioRulesSource,
-} from '../../shell/studio-data.js';
+import { useStudioEvents } from '../../shell/studio-events.js';
+import { useStudioRulesSource } from '../../shell/studio-rules-source.js';
 // NOTE: the AI assists (Explain this denial / Suggest a fix) were removed from
 // this surface in the design pass. They were bolted on as orphan buttons at the
 // end of the page with no real states. The engine (ai/useAssist, ai/explain,

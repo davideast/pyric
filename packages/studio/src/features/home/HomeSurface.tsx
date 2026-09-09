@@ -18,11 +18,9 @@ import { hrefFor, pushPath } from '../../shell/router.js';
 import { useServeInit } from '../../shell/serve-init.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import { setInlineCommandFocus } from '../../shell/command-k.js';
-import {
-  useSandboxInstanceId,
-  useStudioDataSource,
-  useStudioEvents,
-} from '../../shell/studio-data.js';
+import { useStudioDataSource } from '../../shell/studio-data.js';
+import { useStudioEvents } from '../../shell/studio-events.js';
+import { useSandboxInstanceId } from '../../shell/studio-saved-states.js';
 import { useDevSeed } from '../../dev/DevSeedProvider.js';
 import type { CommandTarget } from './command.js';
 import { CommandTypeahead } from './CommandTypeahead.js';
