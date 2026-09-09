@@ -11,7 +11,7 @@ import { afterAll, expect, it } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { canIUse } from '../../../src/conformance/index.js';
+import { runCanIUse } from '../../../src/cli/can-i-use.js';
 import {
   ALICE_ACTOR,
   ALICE_NOTE_RULES,
@@ -42,7 +42,71 @@ it('replays a capture, decides its cases, and reads a conformance claim', async 
   expect((kept.data as { diverged: number }).diverged).toBe(0);
 
   const claimed = await run('assurance.canIUse', { feature: 'setDoc' });
-  expect((claimed.data as { match: string }).match).toBe(canIUse('setDoc').match);
+  expect(claimed.ok).toBe(true);
+});
+
+it('names the first case that changed verdict when the cases diverge', async () => {
+  writeCapture(projectDir, '.pyric/last-session.json', await recordNoteSession());
+
+  const diverged = await run('assurance.verifyCases', { candidateRules: NO_NOTE_RULES });
+  const decided = diverged.data as {
+    diverged: number;
+    cases: Array<{ agrees: boolean; method: string; path: string }>;
+  };
+  const first = decided.cases.find((entry) => !entry.agrees);
+  if (first === undefined) throw new Error('no case diverged under rules that deny everything');
+  expect(decided.diverged).toBe(decided.cases.length);
+  expect(diverged.summary).toBe(
+    `${decided.diverged} of ${decided.cases.length} case(s) from '.pyric/last-session.json' changed verdict, starting with ${first.method} ${first.path}.`,
+  );
+});
+
+/**
+ * What `pyric can-i-use <feature>` prints and exits with, from the command's
+ * own code path rather than from the registry function underneath it. The
+ * method claims to answer what the command answers, so the command is what it
+ * is measured against.
+ */
+function runCanIUseCommand(feature: string): { code: number; printed: string } {
+  const chunks: string[] = [];
+  const original = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    const code = runCanIUse({ subcommand: null, flags: new Map(), positional: [feature] });
+    return { code, printed: chunks.join('') };
+  } finally {
+    process.stdout.write = original;
+  }
+}
+
+it('answers a feature exactly as pyric can-i-use answers it', async () => {
+  const conforming = runCanIUseCommand('getAfter');
+  const claimed = await run('assurance.canIUse', { feature: 'getAfter' });
+  expect(conforming.code).toBe(0);
+  expect(claimed.ok).toBe(true);
+  expect(conforming.printed).toContain(claimed.summary);
+
+  const unsupported = runCanIUseCommand('featureThatDoesNotExistAnywhere');
+  const missing = await run('assurance.canIUse', { feature: 'featureThatDoesNotExistAnywhere' });
+  expect(unsupported.code).toBe(1);
+  expect(unsupported.printed).toContain(
+    'No conformance feature matched "featureThatDoesNotExistAnywhere".',
+  );
+  expect(missing.ok).toBe(false);
+  expect(missing.summary).toBe(
+    "No conformance feature matched 'featureThatDoesNotExistAnywhere'.",
+  );
+
+  const misspelt = runCanIUseCommand('getDown');
+  const suggested = await run('assurance.canIUse', { feature: 'getDown' });
+  expect(misspelt.code).toBe(1);
+  expect(misspelt.printed).toContain('storage/getDownloadURL');
+  expect(suggested.ok).toBe(false);
+  expect(suggested.summary).toContain('storage/getDownloadURL');
+  expect((suggested.data as { match: string }).match).toBe('suggestions');
 });
 
 it('drives a campaign from attach through export and finds a real counterexample', async () => {
