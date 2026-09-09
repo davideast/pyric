@@ -273,6 +273,24 @@ struct AuthTests {
         try await updateTask.value
         #expect(user.displayName == "Renamed User")
         #expect(user.photoURL?.absoluteString == "https://example.com/photo.png")
+
+        let clearPhotoTask = Task {
+            try await user.updateProfile(displayName: "Renamed User", photoURL: nil)
+        }
+        let clearFrame = try await channel.awaitNextSentMessage()
+        let clearOpId = clearFrame["id"]?.stringValue ?? "rop-2"
+        try channel.simulateServerMessage([
+            "type": "worker-res",
+            "id": clearOpId,
+            "ok": true,
+            "res": [
+                "uid": "profile-user",
+                "displayName": "Renamed User",
+                "photoURL": NSNull()
+            ]
+        ])
+        try await clearPhotoTask.value
+        #expect(user.photoURL == nil)
     }
 
     // ── 3. Multi-Tenancy & Impersonation ─────────────────────────────────────

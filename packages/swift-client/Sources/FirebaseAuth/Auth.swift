@@ -480,9 +480,10 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
                     do {
                         for try await event in authSubStream {
                             guard !Task.isCancelled else { break }
+                            let userWire = event["user"] ?? event
                             if event.isNull {
                                 self.applyUserTransition(nil)
-                            } else if let user = User.fromWire(auth: self, wire: event) {
+                            } else if let user = User.fromWire(auth: self, wire: userWire) {
                                 self.applyUserTransition(user)
                             }
                         }

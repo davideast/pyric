@@ -192,8 +192,8 @@ public final class User: @unchecked Sendable, UserInfo {
         if let displayName = wire["displayName"] {
             self._displayName = displayName.stringValue
         }
-        if let photoURL = wire["photoURL"]?.stringValue {
-            self._photoURL = URL(string: photoURL)
+        if let photoURLVal = wire["photoURL"] {
+            self._photoURL = photoURLVal.stringValue.flatMap { URL(string: $0) }
         }
         if let phoneNumber = wire["phoneNumber"] {
             self._phoneNumber = phoneNumber.stringValue
