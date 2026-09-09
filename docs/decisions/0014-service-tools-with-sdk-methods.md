@@ -10,7 +10,8 @@ Date: 2026-09-09
 ADR-0012 gave both surfaces one grammar. Every operation is a path of words: a
 service word, an optional artifact word, and an operation word. The CLI joins
 them with spaces; the bridge folded the operation word into a required `op`
-field so twelve tools carried fifty-nine operations. ADR-0013 withdrew the fold
+field so one tool per service and artifact carried every operation of that
+family. ADR-0013 withdrew the fold
 five days later, on the argument that a client selects a tool by matching a
 request against names and descriptions, and the operation word is the part a
 request matches. It made the tool name the whole path joined with underscores,
@@ -108,8 +109,9 @@ pyric gains a capability. A closed set of service tools does not.
    does not have is not shipped. The clock methods are the standing case: there
    is no single clock seam that the write pipeline, listeners, rules
    `request.time`, and token minting all read, so `setClock`, `advanceClock`,
-   and `resetClock` ship after that seam exists and not before. The eval
-   measured what an inert method of this kind costs.
+   and `resetClock` ship after that seam exists and not before. The review of
+   the earlier proposal found a clock method of this kind that no part of the
+   sandbox read.
 
 ## What this changes
 
@@ -142,10 +144,10 @@ pyric gains a capability. A closed set of service tools does not.
   ADR-0012's original goal and it survives the change of grammar.
 - The eval harness measures completion, first call accepted, rejected calls,
   error calls, and calls per completed task, from the server-side event log, and
-  reruns in about an hour. Two thresholds gate a change of shape: a third vendor
-  showing a completion gap rather than a cost gap, or a count experiment showing
-  the flat shape degrading past thirty-seven operations where the service shape
-  does not. Neither has been run. The corpus gains tasks for each family as it
+  reruns in about an hour. Two findings would reopen this decision: a third
+  vendor showing a completion gap rather than a cost gap, or a count experiment
+  showing the flat shape degrading past thirty-seven operations where the
+  service shape does not. Neither has been run. The corpus gains tasks for each family as it
   lands, and the sweep reruns after the naming corrections and again after the
   assurance methods.
 - Two open questions. First, how the vocabulary invariant attests a
