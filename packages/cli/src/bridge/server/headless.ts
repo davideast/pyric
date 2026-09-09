@@ -37,8 +37,12 @@ import {
   loadStorageSidecar,
   STORAGE_SIDECAR_RELATIVE,
 } from './storage-sidecar.js';
-import { buildMcpServer } from './mcp.js';
+import { buildMcpServer, type RejectedToolCall } from './mcp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { registerRenderedSurface } from './surface-server.js';
+import { getDefaultMcpToolSurface } from './mcp-contract.js';
 import { renderSurface } from '../surface/index.js';
+import { createSurfaceContext } from '../surface/context.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
 import {
   createEvalLogWriter,
@@ -77,29 +81,42 @@ export interface HeadlessMcpServerOptions extends LocalBridgeOptions {
  */
 export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: HeadlessMcpServerOptions) {
   const bridge = createLocalBridge(sandbox, opts);
-  const surface = renderSurface(opts?.surface, {
-    consumers: bridge.consumers,
-    callerIdentity: bridge.callerIdentity,
-  });
   const onCallRejected = opts?.onCallRejected;
-  if (!onCallRejected) {
-    return buildMcpServer(bridge, surface);
+  const rejectionEvent = (rejection: RejectedToolCall): void => {
+    onCallRejected?.({
+      timestamp: new Date().toISOString(),
+      mode: 'sandbox',
+      project: bridge.project,
+      tool: rejection.tool,
+      args: rejection.args,
+      result: { ok: false, summary: rejection.message },
+      durationMs: rejection.durationMs,
+      schemaRejected: rejection.schemaRejected,
+      isError: true,
+    });
+  };
+
+  // No variant is the path the server has always taken: the default surface
+  // registered by `buildMcpServer`, with the bridge's own consumer registry and
+  // caller identity behind the in-process identity tools. A variant id renders
+  // the operation set instead and registers it through the surface adapter, on
+  // a server built here rather than there.
+  if (opts?.surface === undefined) {
+    const surface = getDefaultMcpToolSurface({
+      consumers: bridge.consumers,
+      callerIdentity: bridge.callerIdentity,
+    });
+    if (!onCallRejected) return buildMcpServer(bridge, surface);
+    return buildMcpServer(bridge, { ...surface, onCallRejected: rejectionEvent });
   }
-  return buildMcpServer(bridge, {
-    ...surface,
-    onCallRejected: (rejection) => {
-      onCallRejected({
-        timestamp: new Date().toISOString(),
-        mode: 'sandbox',
-        project: bridge.project,
-        tool: rejection.tool,
-        args: rejection.args,
-        result: { ok: false, summary: rejection.message },
-        durationMs: rejection.durationMs,
-        schemaRejected: rejection.schemaRejected,
-        isError: true,
-      });
-    },
+
+  // Throws for an id no renderer claims, which fails the session at startup
+  // rather than measuring the wrong surface.
+  const rendered = renderSurface(opts.surface);
+  const server = new McpServer({ name: 'pyric', version: bridge.version });
+  return registerRenderedSurface(server, bridge, rendered, createSurfaceContext(sandbox), {
+    onCallRejected: onCallRejected ? rejectionEvent : undefined,
+    onAfterCall: opts.onAfterDispatch,
   });
 }
 
@@ -271,10 +288,16 @@ export async function runHeadlessMcp(
     onAfterDispatch: scheduleSave,
     surface: options.surface,
   };
-  const server = buildHeadlessMcpServer(
-    sandbox,
-    withHeadlessEventWriter(baseServerOptions, evalLog),
-  );
+  // A surface id no renderer claims is a start-up failure, not a per-call one:
+  // serving the wrong surface would silently mislabel a whole run.
+  let server;
+  try {
+    server = buildHeadlessMcpServer(sandbox, withHeadlessEventWriter(baseServerOptions, evalLog));
+  } catch (e) {
+    process.off('exit', saveIfPendingAtExit);
+    log(e instanceof Error ? e.message : String(e));
+    return 1;
+  }
   const transport = options.transport ?? (await openStdioTransport());
 
   return await new Promise<number>((resolve) => {
