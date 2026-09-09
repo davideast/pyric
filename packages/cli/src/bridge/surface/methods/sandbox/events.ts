@@ -1,6 +1,14 @@
-/** Page through the sandbox's operation log. */
+/**
+ * Page through the sandbox's operation log.
+ *
+ * A cursor is an event id, so it means something only against the log that
+ * handed it out. A restore or a reset replaces that log, and a cursor from
+ * before it names no event. Starting from the top in that case reads like a
+ * continuation and is not one, so a cursor the log does not carry is refused.
+ */
 import { z } from 'zod';
 import { toOperationRecord, type OperationRecord } from 'pyric/sandbox';
+import { operationFailure } from '../../context.js';
 import type { MethodRecord } from '../../method-types.js';
 
 /** Methods the log carries that read state rather than change it. */
@@ -39,7 +47,12 @@ export default {
     let startIndex = 0;
     if (since !== undefined) {
       const at = history.findIndex((event) => event.id === since);
-      if (at !== -1) startIndex = at + 1;
+      if (at === -1) {
+        return operationFailure(
+          `The operation log carries no event '${since}'. Either the log was replaced, by a restore or a reset, or the cursor is not one this sandbox handed out. Call events without 'since' to read the log the sandbox holds now.`,
+        );
+      }
+      startIndex = at + 1;
     }
 
     const events: OperationRecord[] = [];

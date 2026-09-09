@@ -45,7 +45,8 @@ when one ships, it is not mounted unless the server is started with
 `checkpoint` writes a named on-disk snapshot of the live sandbox under
 `.pyric/state/checkpoints/`, `restore` puts one back, and `listCheckpoints`
 reports what is stored. `events` pages the operation log by cursor and filters
-it to denials or writes. `exportFixture` writes the live state as a fixture and
+it to denials or writes; a cursor from a log a restore or a reset replaced is
+refused rather than read as the start of the new log. `exportFixture` writes the live state as a fixture and
 `seedFromFixture` loads one back.
 
 The six branch methods work a Firestore change out on a copy before it reaches
