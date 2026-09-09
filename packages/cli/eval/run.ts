@@ -54,7 +54,8 @@ import { loadRows, loadTasks, selectRecords } from './load.js';
 import { applySeed } from './seed.js';
 import { buildEvalState, emptyEvalState } from './state.js';
 import { scoreRun, type SpawnOutcome } from './score.js';
-import { isThrottled, Pacer, type PacingOptions } from './pacing.js';
+import { classifyRunOutcome } from './outcome.js';
+import { DEFAULT_BUDGET_PER_WINDOW, isThrottled, Pacer, type PacingOptions } from './pacing.js';
 import { defaultServerCommand } from './providers/server-env.js';
 import { HEADLESS_STATE_RELATIVE } from '../src/bridge/server/headless.js';
 import { STORAGE_SIDECAR_RELATIVE } from './storage-sidecar.js';
@@ -84,6 +85,22 @@ export const WORKSPACE_DIR = 'workspace';
 
 /** Where state directories live: under the OS temp root, never under results. */
 export const STATE_ROOT = join(tmpdir(), 'pyric-eval');
+
+/**
+ * Where results live by default: under the OS temp root, never under the repo.
+ * A run directory holds the CLI's raw output and, for a provider that takes a
+ * config by path, the config file itself. A trusted-workspace agent that reads
+ * everything under its own repository must never find a corpus answer there,
+ * so results move out of the tree entirely. `--results-dir` overrides this.
+ */
+export const RESULTS_ROOT = join(tmpdir(), 'pyric-eval', 'results');
+
+/** Resolve the results directory from parsed flags, defaulting to `RESULTS_ROOT`. */
+export function resolveResultsDir(flags: Record<string, string | boolean>): string {
+  const override = flags['results-dir'];
+  if (typeof override === 'string') return override;
+  return RESULTS_ROOT;
+}
 
 /**
  * What is copied out of the state directory into the run directory once the
@@ -359,7 +376,8 @@ async function runOne(
     }
 
     let report: SpawnReport = { outcome: 'throttled', durationMs: 0 };
-    if (pacer.hasBudget(run.row.cli)) {
+    const budget = await pacer.reserveBudget(run.row.cli);
+    if (budget === 'ready') {
       report = await pacer.run(run.row.cli, () =>
         spawnInvocation(run, prepared.command, prepared.env, options.timeoutMs),
       );
@@ -367,7 +385,16 @@ async function runOne(
 
     collectState(run);
     const state = await buildEvalState(run.dir, join(run.dir, EVENTS_FILE));
-    const line = scoreRun({ run, spawn: report.outcome, durationMs: report.durationMs, state });
+    // The stdout and stderr the process just wrote may carry a quota refusal, a
+    // cut-off stream, or built-in tool use, none of which the event log or the
+    // sandbox can show. This only ever narrows a completed or crashed outcome.
+    const refinedOutcome = classifyRunOutcome(
+      run.row.cli,
+      report.outcome,
+      run.dir,
+      state.calls.length,
+    );
+    const line = scoreRun({ run, spawn: refinedOutcome, durationMs: report.durationMs, state });
     appendFileSync(resultsPath, `${JSON.stringify(line)}\n`, 'utf8');
     return line;
 }
@@ -409,11 +436,14 @@ async function main(argv: string[]): Promise<number> {
   const seedSelection = splitList(flags.seeds).map((seed) => Number(seed));
   const timeout = typeof flags.timeout === 'string' ? Number(flags.timeout) : DEFAULT_TIMEOUT_MS;
   const minGap = typeof flags['min-gap'] === 'string' ? Number(flags['min-gap']) : 5_000;
-  const budget = typeof flags.budget === 'string' ? Number(flags.budget) : 200;
+  const budget =
+    typeof flags.budget === 'string' ? Number(flags.budget) : DEFAULT_BUDGET_PER_WINDOW;
+  const noWait = flags['no-wait'] === true;
+  const resultsDir = resolveResultsDir(flags);
 
   const options: RunnerOptions = {
     repoRoot,
-    resultsDir: join(import.meta.dirname, 'results'),
+    resultsDir,
     runId: new Date().toISOString().replace(/[:.]/g, '-'),
     rows: selectRecords(allRows, splitList(flags.rows)),
     tasks: selectRecords(allTasks, splitList(flags.tasks)),
@@ -421,11 +451,13 @@ async function main(argv: string[]): Promise<number> {
     seeds: seedSelection,
     dryRun: flags['dry-run'] === true,
     timeoutMs: timeout,
-    pacing: { minGapMs: minGap, budgetPerWindow: budget },
+    pacing: { minGapMs: minGap, budgetPerWindow: budget, noWait },
   };
 
+  process.stderr.write(`results directory: ${resultsDir}\n`);
   const lines = await runAll(options);
   process.stderr.write(`${lines.length} runs recorded under ${options.runId}\n`);
+  process.stderr.write(`results directory: ${join(resultsDir, options.runId)}\n`);
   return 0;
 }
 

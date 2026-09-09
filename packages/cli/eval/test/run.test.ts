@@ -21,7 +21,9 @@ import {
   runAll,
   planRuns,
   parseArgs,
+  resolveResultsDir,
   RESULTS_FILE,
+  RESULTS_ROOT,
   STATE_ROOT,
   WORKSPACE_DIR,
   type RunnerOptions,
@@ -75,6 +77,9 @@ let runCounter = 0;
 
 function optionsFor(resultsDir: string): RunnerOptions {
   runCounter += 1;
+  // A ledger root of its own, so this run's budget never shares state with the
+  // real per-CLI ledger under the OS temp root, or with another test's ledger.
+  const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
   return {
     repoRoot: resolve(import.meta.dirname, '..', '..', '..', '..'),
     resultsDir,
@@ -85,7 +90,7 @@ function optionsFor(resultsDir: string): RunnerOptions {
     seeds: [],
     dryRun: false,
     timeoutMs: 60_000,
-    pacing: { minGapMs: 0, budgetPerWindow: 10 },
+    pacing: { minGapMs: 0, budgetPerWindow: 10, ledgerRoot },
     serverCommand: () => ['bun', STANDIN],
     providerFor: () => buildFake,
     transcripts: {
@@ -332,4 +337,31 @@ describe('planning and argument parsing', () => {
       variants: 'v',
     });
   });
+});
+
+describe('results live outside the repository', () => {
+  test('the default results directory is under the OS temp root, not the repo', () => {
+    expect(resolveResultsDir({})).toBe(RESULTS_ROOT);
+    expect(RESULTS_ROOT.startsWith(resolve(import.meta.dirname, '..'))).toBe(false);
+  });
+
+  test('--results-dir overrides the default', () => {
+    expect(resolveResultsDir({ 'results-dir': '/somewhere/else' })).toBe('/somewhere/else');
+  });
+});
+
+describe('a full quota ledger throttles a run instead of spawning it', () => {
+  test('reserveBudget denies the second run and no-wait records it as throttled', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [READ_TASK];
+    options.rows = [{ ...ROW, seeds: [1, 2] }];
+    options.pacing = { minGapMs: 0, budgetPerWindow: 1, ledgerRoot, noWait: true };
+
+    const lines = await runAll(options);
+    expect(lines).toHaveLength(2);
+    const outcomes = lines.map((line) => line.outcome).sort();
+    expect(outcomes).toEqual(['pass', 'throttled']);
+  }, 60_000);
 });

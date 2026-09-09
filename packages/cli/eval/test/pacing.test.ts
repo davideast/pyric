@@ -5,6 +5,9 @@
  * against the signals the runner documents.
  */
 import { describe, expect, test } from 'bun:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { BUDGET_WINDOW_MS, isThrottled, Pacer } from '../pacing.js';
 
 /** A clock the test advances by hand, so pacing is exercised without waiting. */
@@ -110,5 +113,79 @@ describe('pacing', () => {
       }),
     ).rejects.toThrow('crashed');
     await expect(pacer.run('claude', async () => 'ok')).resolves.toBe('ok');
+  });
+});
+
+describe('the quota ledger is shared across pacer instances', () => {
+  test('two pacer instances over one ledger share the budget', async () => {
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const clock = fakeClock();
+    const options = {
+      minGapMs: 0,
+      budgetPerWindow: 2,
+      now: clock.now,
+      sleep: clock.sleep,
+      ledgerRoot,
+      noWait: true,
+    };
+    const first = new Pacer(options);
+    const second = new Pacer(options);
+
+    expect(await first.reserveBudget('claude')).toBe('ready');
+    expect(await second.reserveBudget('claude')).toBe('ready');
+    // The budget is spent: neither instance has private room left, because both
+    // read and wrote the same ledger file.
+    expect(await first.reserveBudget('claude')).toBe('throttled');
+  });
+
+  test('a full ledger makes the second pacer wait until the oldest entry ages out', async () => {
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const clock = fakeClock();
+    const pacer = new Pacer({
+      minGapMs: 0,
+      budgetPerWindow: 1,
+      now: clock.now,
+      sleep: clock.sleep,
+      ledgerRoot,
+    });
+
+    expect(await pacer.reserveBudget('claude')).toBe('ready');
+    // The ledger is full. Without --no-wait, this call waits for the oldest
+    // entry to age out of the window rather than reporting throttled. The
+    // injected sleep advances the fake clock instead of really waiting.
+    expect(await pacer.reserveBudget('claude')).toBe('ready');
+  });
+
+  test('--no-wait records throttled instead of waiting', async () => {
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const clock = fakeClock();
+    const pacer = new Pacer({
+      minGapMs: 0,
+      budgetPerWindow: 1,
+      now: clock.now,
+      sleep: clock.sleep,
+      ledgerRoot,
+      noWait: true,
+    });
+
+    expect(await pacer.reserveBudget('claude')).toBe('ready');
+    expect(await pacer.reserveBudget('claude')).toBe('throttled');
+  });
+
+  test('a full ledger for one CLI does not throttle another', async () => {
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const clock = fakeClock();
+    const pacer = new Pacer({
+      minGapMs: 0,
+      budgetPerWindow: 1,
+      now: clock.now,
+      sleep: clock.sleep,
+      ledgerRoot,
+      noWait: true,
+    });
+
+    expect(await pacer.reserveBudget('claude')).toBe('ready');
+    expect(await pacer.reserveBudget('claude')).toBe('throttled');
+    expect(await pacer.reserveBudget('codex')).toBe('ready');
   });
 });
