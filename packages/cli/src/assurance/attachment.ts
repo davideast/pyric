@@ -188,61 +188,61 @@ function cloneSandboxTarget(
   source: AssuranceAttachmentSource,
 ): AssuranceAttachment {
   const snapshot = sandbox.snapshot();
-    const rtdbState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
-    const authUsers = authSandbox.exportUsers(getAuth(sandbox));
+  const rtdbState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
+  const authUsers = authSandbox.exportUsers(getAuth(sandbox));
 
-    const coverageGaps: AssuranceCoverageGap[] = [
-      {
-        service: "storage",
-        code: "storage-attachment-unavailable",
-        reason:
-          "The served runtime does not yet expose Storage rules or complete object enumeration; provide explicit Storage rules and objects in a fixture campaign.",
-      },
-    ];
-    if (!rules.firestore && Object.keys(snapshot.firestore).length > 0) {
-      coverageGaps.push({
-        service: "firestore",
-        code: "firestore-rules-unavailable",
-        reason:
-          "The running sandbox has Firestore data but no explicit project rules source.",
-      });
-    }
-    if (!rules.rtdb && hasRtdbState(rtdbState)) {
-      coverageGaps.push({
-        service: "rtdb",
-        code: "rtdb-rules-unavailable",
-        reason:
-          "The running sandbox has RTDB data but no explicit database rules source.",
-      });
-    }
+  const coverageGaps: AssuranceCoverageGap[] = [
+    {
+      service: "storage",
+      code: "storage-attachment-unavailable",
+      reason:
+        "The served runtime does not yet expose Storage rules or complete object enumeration; provide explicit Storage rules and objects in a fixture campaign.",
+    },
+  ];
+  if (!rules.firestore && Object.keys(snapshot.firestore).length > 0) {
+    coverageGaps.push({
+      service: "firestore",
+      code: "firestore-rules-unavailable",
+      reason:
+        "The running sandbox has Firestore data but no explicit project rules source.",
+    });
+  }
+  if (!rules.rtdb && hasRtdbState(rtdbState)) {
+    coverageGaps.push({
+      service: "rtdb",
+      code: "rtdb-rules-unavailable",
+      reason:
+        "The running sandbox has RTDB data but no explicit database rules source.",
+    });
+  }
 
-    return {
-      target: {
-        schema: ASSURANCE_TARGET_SCHEMA,
-        network: "forbid",
-        rules,
-        state: {
-          firestore: snapshot.firestore,
-          ...(rules.rtdb || hasRtdbState(rtdbState) ? { rtdb: rtdbState } : {}),
-          auth: {
-            users: authUsers.map((user) => ({
-              uid: user.uid,
-              email: user.email,
-              password: user.password,
-              ...(user.customClaims ? { customClaims: user.customClaims } : {}),
-              ...(user.emailVerified ? { emailVerified: true } : {}),
-              ...(user.disabled ? { disabled: true } : {}),
-            })),
-          },
+  return {
+    target: {
+      schema: ASSURANCE_TARGET_SCHEMA,
+      network: "forbid",
+      rules,
+      state: {
+        firestore: snapshot.firestore,
+        ...(rules.rtdb || hasRtdbState(rtdbState) ? { rtdb: rtdbState } : {}),
+        auth: {
+          users: authUsers.map((user) => ({
+            uid: user.uid,
+            email: user.email,
+            password: user.password,
+            ...(user.customClaims ? { customClaims: user.customClaims } : {}),
+            ...(user.emailVerified ? { emailVerified: true } : {}),
+            ...(user.disabled ? { disabled: true } : {}),
+          })),
         },
       },
-      source,
-      inventory: {
-        firestoreDocuments: Object.keys(snapshot.firestore).length,
-        rtdbPresent: hasRtdbState(rtdbState),
-        authUsers: authUsers.length,
-        storageObjects: 0,
-      },
-      coverageGaps,
-    };
+    },
+    source,
+    inventory: {
+      firestoreDocuments: Object.keys(snapshot.firestore).length,
+      rtdbPresent: hasRtdbState(rtdbState),
+      authUsers: authUsers.length,
+      storageObjects: 0,
+    },
+    coverageGaps,
+  };
 }
