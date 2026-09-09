@@ -10,11 +10,11 @@ import { join } from 'node:path';
 
 import {
   CASE_SERVICES,
-  DEFAULT_SESSION_PATH,
   REPLAY_SERVICES,
   readFixtureFile,
   verifiableService,
 } from '../../../../src/bridge/surface/arguments/assurance.js';
+import { CAPTURE_RELATIVE_PATH } from '../../../../src/serve/capture-store.js';
 import { failFor } from '../../../../src/bridge/surface/method-validation.js';
 import { recordNoteSession, writeCapture } from '../assurance-fixture.js';
 
@@ -36,8 +36,8 @@ describe('the services an assurance method names', () => {
 describe('reading a capture a method names', () => {
   it('reads a capture written inside the project directory', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-assurance-args-'));
-    writeCapture(dir, DEFAULT_SESSION_PATH, await recordNoteSession());
-    const read = readFixtureFile(dir, DEFAULT_SESSION_PATH, 'sessionPath', fail);
+    writeCapture(dir, CAPTURE_RELATIVE_PATH, await recordNoteSession());
+    const read = readFixtureFile(dir, CAPTURE_RELATIVE_PATH, 'sessionPath', fail);
     if (!('fixture' in read)) throw new Error(read.refusal.summary);
     expect(read.fixture.events.length).toBeGreaterThan(0);
   });

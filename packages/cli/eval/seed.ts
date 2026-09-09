@@ -13,6 +13,7 @@ import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { applyData, applyRules } from '../src/bridge/surface/seed-apply.js';
 import { saveSandboxSnapshot } from '../src/bridge/server/headless.js';
 import { saveStorageSidecar } from './storage-sidecar.js';
+import { CAPTURE_RELATIVE_PATH } from '../src/serve/capture-store.js';
 import type { EvalSeed } from './types.js';
 
 export { applyData, applyRules };
@@ -21,9 +22,6 @@ export { applyData, applyRules };
 export const FIRESTORE_RULES_FILE = 'firestore.rules';
 export const DATABASE_RULES_FILE = 'database.rules.json';
 export const STORAGE_RULES_FILE = 'storage.rules';
-
-/** Where a planted capture goes, which is where the assurance methods look for one. */
-export const SESSION_FILE = join('.pyric', 'last-session.json');
 
 /**
  * Write the capture a seed declares into the run's project directory.
@@ -37,7 +35,7 @@ export async function writeSessionFile(dir: string, seed: EvalSeed): Promise<voi
   const record = seed.session;
   if (record === undefined) return;
   const session = await record();
-  const path = join(dir, SESSION_FILE);
+  const path = join(dir, CAPTURE_RELATIVE_PATH);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(session)}\n`, 'utf8');
 }

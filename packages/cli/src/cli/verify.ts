@@ -18,6 +18,7 @@ import {
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
 import { resolveScope } from '../credentials/node/scope.js';
+import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
 import { parseRtdbRulesJson, stripJsonComments } from '../rtdb/rules-json.js';
 
 export type Fixture = PyricVerifyFixture;
@@ -32,8 +33,6 @@ export interface FixtureResult {
 export interface VerifyCliDeps {
   resolveScope?: typeof resolveScope;
 }
-
-export const SERVE_CAPTURE_PATH = '.pyric/last-session.json';
 
 export function loadFixture(path: string): Fixture {
   return parseVerifyFixture(JSON.parse(readFileSync(path, 'utf8')));
@@ -101,13 +100,13 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   }
 
   const target = parsed.positional[0];
-  const inputPath = resolve(cwd, target ?? SERVE_CAPTURE_PATH);
+  const inputPath = resolve(cwd, target ?? CAPTURE_RELATIVE_PATH);
   if (!existsSync(inputPath)) {
     if (target) {
       process.stderr.write(`pyric verify: no such fixture or directory: ${inputPath}\n`);
     } else {
       process.stderr.write(
-        `pyric verify: no captured session at ${SERVE_CAPTURE_PATH}.\n` +
+        `pyric verify: no captured session at ${CAPTURE_RELATIVE_PATH}.\n` +
           '  Run `pyric sandbox`, exercise your app, then `pyric verify`, or pass a fixture path.\n',
       );
     }
@@ -215,7 +214,7 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
 
 function runVerifyCases(parsed: ParsedArgs, cwd: string): number {
   const target = parsed.positional[1];
-  const inputPath = resolve(cwd, target ?? SERVE_CAPTURE_PATH);
+  const inputPath = resolve(cwd, target ?? CAPTURE_RELATIVE_PATH);
   if (!existsSync(inputPath)) {
     process.stderr.write(`pyric verify cases: no such fixture: ${inputPath}\n`);
     return 2;

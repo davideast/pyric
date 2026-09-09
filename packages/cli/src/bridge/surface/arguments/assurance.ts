@@ -14,9 +14,8 @@ import { z } from 'zod';
 
 import { parseVerifyFixture, type PyricVerifyFixture, type VerifiableService } from '../../../verify/index.js';
 import type { Fail, InvalidArguments } from '../method-types.js';
-import { DEFAULT_SESSION_PATH, projectPathWithin } from './sandbox.js';
-
-export { DEFAULT_SESSION_PATH };
+import { projectPathWithin } from './sandbox.js';
+import { CAPTURE_RELATIVE_PATH } from '../../../serve/capture-store.js';
 
 /** The services the replay engine evaluates, under the surface's own names. */
 export const REPLAY_SERVICES = ['firestore', 'database'] as const;
@@ -88,7 +87,7 @@ export function readFixtureFile(
     return {
       refusal: fail(
         `'${field}' is '${named}', and no file was read there.`,
-        `Pass '${field}' as a capture inside the project directory, such as '${DEFAULT_SESSION_PATH}'.`,
+        `Pass '${field}' as a capture inside the project directory, such as '${CAPTURE_RELATIVE_PATH}'.`,
         field,
       ),
     };
@@ -99,7 +98,7 @@ export function readFixtureFile(
     return {
       refusal: fail(
         `'${named}' is not a recorded session: ${error instanceof Error ? error.message : String(error)}`,
-        `Pass '${field}' as a capture the sandbox wrote, such as '${DEFAULT_SESSION_PATH}'.`,
+        `Pass '${field}' as a capture the sandbox wrote, such as '${CAPTURE_RELATIVE_PATH}'.`,
         field,
       ),
     };

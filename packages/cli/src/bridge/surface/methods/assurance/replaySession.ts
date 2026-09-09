@@ -11,9 +11,10 @@
  */
 import { z } from 'zod';
 
+import { CAPTURE_RELATIVE_PATH } from '../../../../serve/capture-store.js';
+
 import { verifyFixture, type VerifyDivergence } from '../../../../verify/index.js';
 import {
-  DEFAULT_SESSION_PATH,
   candidateRules,
   readFixtureFile,
   replayService,
@@ -68,16 +69,16 @@ export default {
       .string()
       .optional()
       .describe(
-        `The recorded session to replay, relative to the project directory. Defaults to ${DEFAULT_SESSION_PATH}.`,
+        `The recorded session to replay, relative to the project directory. Defaults to ${CAPTURE_RELATIVE_PATH}.`,
       ),
     candidateRules,
     service: replayService,
   }),
   operation: 'replay_assurance_session',
   renames: { session: 'sessionPath', fixture: 'sessionPath', rules: 'candidateRules' },
-  example: { sessionPath: DEFAULT_SESSION_PATH },
+  example: { sessionPath: CAPTURE_RELATIVE_PATH },
   async handler(args, ctx): Promise<OperationResult> {
-    const named = typeof args.sessionPath === 'string' ? args.sessionPath : DEFAULT_SESSION_PATH;
+    const named = typeof args.sessionPath === 'string' ? args.sessionPath : CAPTURE_RELATIVE_PATH;
     const read = readFixtureFile(
       ctx.projectDir,
       named,

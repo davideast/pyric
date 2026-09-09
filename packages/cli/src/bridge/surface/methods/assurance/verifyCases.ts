@@ -8,8 +8,9 @@
  */
 import { z } from 'zod';
 
+import { CAPTURE_RELATIVE_PATH } from '../../../../serve/capture-store.js';
+
 import {
-  DEFAULT_SESSION_PATH,
   candidateRules,
   caseService,
   readFixtureFile,
@@ -34,16 +35,16 @@ export default {
       .string()
       .optional()
       .describe(
-        `The capture the cases are derived from, relative to the project directory. Defaults to ${DEFAULT_SESSION_PATH}.`,
+        `The capture the cases are derived from, relative to the project directory. Defaults to ${CAPTURE_RELATIVE_PATH}.`,
       ),
     candidateRules,
     service: caseService,
   }),
   operation: 'verify_assurance_cases',
   renames: { sessionPath: 'fixture', session: 'fixture', rules: 'candidateRules' },
-  example: { fixture: DEFAULT_SESSION_PATH },
+  example: { fixture: CAPTURE_RELATIVE_PATH },
   async handler(args, ctx): Promise<OperationResult> {
-    const named = typeof args.fixture === 'string' ? args.fixture : DEFAULT_SESSION_PATH;
+    const named = typeof args.fixture === 'string' ? args.fixture : CAPTURE_RELATIVE_PATH;
     const read = readFixtureFile(
       ctx.projectDir,
       named,
