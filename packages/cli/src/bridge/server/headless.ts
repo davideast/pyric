@@ -28,6 +28,15 @@ import {
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
+import { getAuth } from 'pyric/auth';
+import { getAdminDatabase } from 'pyric/database';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import type { FirebaseStorage } from 'pyric/storage';
+import {
+  saveStorageSidecar,
+  loadStorageSidecar,
+  STORAGE_SIDECAR_RELATIVE,
+} from './storage-sidecar.js';
 import { buildMcpServer } from './mcp.js';
 import { renderSurface } from '../surface/index.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
@@ -107,6 +116,26 @@ export function loadProjectRules(sandbox: LocalSandbox, cwd: string): string | n
 }
 
 /**
+ * Open the services whose state a snapshot carries.
+ *
+ * `loadSnapshot` restores only services that are already registered, so a start
+ * that applies a snapshot before anything has touched auth, database, or
+ * storage drops those buckets without a word. Opening them first is what makes
+ * a restored session complete. Returns the storage handle, which the sidecar
+ * codec reads and writes; storage keeps its own durability and is not in the
+ * bundle at all.
+ */
+export function openPersistedServices(sandbox: LocalSandbox, cwd: string): FirebaseStorage {
+  getAuth(sandbox);
+  getAdminDatabase(sandbox);
+  // Storage rules are read only by the call that opens the service, so the
+  // project's rules have to be in hand here or not at all.
+  const rulesPath = join(cwd, 'storage.rules');
+  if (!existsSync(rulesPath)) return getAdminStorageSandbox(sandbox);
+  return getAdminStorageSandbox(sandbox, { rules: readFileSync(rulesPath, 'utf8') });
+}
+
+/**
  * Persist the sandbox to `<cwd>/.pyric/state/headless.json` using the v3 bundle
  * codec (the same `serializeToBuckets` + `bundleRecords` the worker uses). Atomic
  * tmp+rename so a crash mid-write never truncates the live file.
@@ -173,9 +202,10 @@ export function withHeadlessEventWriter(
 }
 
 /**
- * Run the headless MCP server over stdio. Loads `.pyric/state/headless.json` on
- * start, debounces a save after each dispatch, and flushes on shutdown. Resolves
- * with an exit code when the stdio transport closes (the editor disconnects).
+ * Run the headless MCP server over stdio. Loads `.pyric/state/headless.json` and
+ * the storage sidecar on start, debounces a save after each dispatch, and
+ * flushes both on shutdown. Resolves with an exit code when the stdio transport
+ * closes (the editor disconnects).
  *
  * With `PYRIC_EVAL_LOG` set, every tool call is appended to that file as NDJSON
  * and the per-project audit log is not written. Without it, nothing is recorded,
@@ -194,11 +224,17 @@ export async function runHeadlessMcp(
   if (evalLog) log(`recording tool events to ${evalLog.path}`);
 
   const sandbox = initializeSandbox();
+  // Before the snapshot, and before the transport serves a single call.
+  const storage = openPersistedServices(sandbox, cwd);
   const rulesPath = loadProjectRules(sandbox, cwd);
   log(rulesPath ? `rules loaded from ${rulesPath}` : `no firestore.rules found in ${cwd}`);
 
   const restored = loadSandboxSnapshot(sandbox, cwd);
   if (restored !== null) log(`restored ${restored} docs from ${join(cwd, HEADLESS_STATE_RELATIVE)}`);
+  const restoredObjects = await loadStorageSidecar(storage, cwd);
+  if (restoredObjects > 0) {
+    log(`restored ${restoredObjects} objects from ${join(cwd, STORAGE_SIDECAR_RELATIVE)}`);
+  }
 
   // Debounced persistence: a burst of writes collapses to one flush. The final
   // flush is synchronous and runs before the server closes, so the file a reader
@@ -244,6 +280,28 @@ export async function runHeadlessMcp(
   return await new Promise<number>((resolve) => {
     let stopping = false;
     const onStdinEnd = (): void => stop(0);
+    /**
+     * Write the storage sidecar. Storage reads are asynchronous, so this is the
+     * one part of the final flush that cannot be synchronous; it runs before
+     * the exit code resolves, which is before the process ends.
+     */
+    const flushStorage = async (): Promise<void> => {
+      try {
+        await saveStorageSidecar(storage, cwd);
+      } catch (e) {
+        log(`storage persist failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
+    const finishStop = async (code: number): Promise<number> => {
+      await flushStorage();
+      try {
+        await server.close();
+        return code;
+      } catch (e) {
+        log(`shutdown failed: ${e instanceof Error ? e.message : String(e)}`);
+        return code === 0 ? 1 : code;
+      }
+    };
     const stop = (code: number): void => {
       if (stopping) return;
       stopping = true;
@@ -253,13 +311,7 @@ export async function runHeadlessMcp(
       // guaranteed to run.
       flush();
       process.off('exit', saveIfPendingAtExit);
-      void server.close().then(
-        () => resolve(code),
-        (e) => {
-          log(`shutdown failed: ${e instanceof Error ? e.message : String(e)}`);
-          resolve(code === 0 ? 1 : code);
-        },
-      );
+      void finishStop(code).then(resolve);
     };
     transport.onclose = () => stop(0);
     // StdioServerTransport 1.29 no longer reports stdin EOF through onclose.

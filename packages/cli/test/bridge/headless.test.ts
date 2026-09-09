@@ -15,12 +15,26 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
+  ref as storageRef,
+  uploadBytes,
+  getBytes,
+  getMetadata,
+  deleteObject,
+} from 'pyric/storage';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import {
   runHeadlessMcp,
   buildHeadlessMcpServer,
   createHeadlessEventWriter,
+  openPersistedServices,
   HEADLESS_STATE_RELATIVE,
 } from '../../src/bridge/server/headless.js';
+import {
+  saveStorageSidecar,
+  loadStorageSidecar,
+} from '../../src/bridge/server/storage-sidecar.js';
 import { DEFAULT_MCP_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
+import { applySeed } from '../../eval/seed.js';
 
 interface LoggedEvent {
   tool: string;
@@ -178,6 +192,105 @@ describe('headless MCP session', () => {
       expect(listed.tools.map((tool) => tool.name).sort()).toEqual(
         [...DEFAULT_MCP_TOOL_NAMES].sort(),
       );
+      await session.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * Under Node the sandbox storage backend is one in-memory store per database
+ * name, so every sandbox in this test process shares a bucket. That is exactly
+ * the durability gap the sidecar exists to close, and it means a test proves
+ * nothing until the object is gone from memory: each of these deletes the
+ * object before reading it back, so what comes back can only have come from the
+ * file. It also means object counts are shared, so they are not asserted.
+ */
+async function forgetStoredObject(path: string): Promise<void> {
+  const storage = getAdminStorageSandbox(initializeSandbox());
+  await deleteObject(storageRef(storage, path));
+}
+
+describe('headless state that outlives the process', () => {
+  it('carries an uploaded object across a close and a reopen', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-storage-'));
+    try {
+      // Upload into a session's own sandbox, opened the way the server opens it.
+      const first = initializeSandbox();
+      const storage = openPersistedServices(first, dir);
+      await uploadBytes(storageRef(storage, 'covers/one.txt'), Uint8Array.from([1, 2, 3]), {
+        contentType: 'text/plain',
+      });
+      await saveStorageSidecar(storage, dir);
+      await forgetStoredObject('covers/one.txt');
+
+      // A second process reads it back through the same startup path.
+      const second = initializeSandbox();
+      const reopened = openPersistedServices(second, dir);
+      await loadStorageSidecar(reopened, dir);
+      const bytes = await getBytes(storageRef(reopened, 'covers/one.txt'));
+      expect([...new Uint8Array(bytes)]).toEqual([1, 2, 3]);
+      const metadata = await getMetadata(storageRef(reopened, 'covers/one.txt'));
+      expect(metadata.contentType).toBe('text/plain');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('loads the sidecar on start and writes it again on close', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-seeded-storage-'));
+    try {
+      await applySeed(dir, {
+        storage: [
+          {
+            path: 'covers/seeded.txt',
+            contentBase64: Buffer.from('seeded').toString('base64'),
+            contentType: 'text/plain',
+          },
+        ],
+      });
+      // Only the file holds the object now, so the session has to load it.
+      await forgetStoredObject('covers/seeded.txt');
+
+      const session = await openSession(dir, {});
+      await session.close();
+
+      // A session that started without the sidecar would have flushed an empty
+      // one over it, and this read would find nothing.
+      await forgetStoredObject('covers/seeded.txt');
+      const sandbox = initializeSandbox();
+      const storage = openPersistedServices(sandbox, dir);
+      await loadStorageSidecar(storage, dir);
+      const bytes = await getBytes(storageRef(storage, 'covers/seeded.txt'));
+      expect(Buffer.from(new Uint8Array(bytes)).toString('utf8')).toBe('seeded');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('restores auth and database buckets a snapshot carries', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-buckets-'));
+    try {
+      await applySeed(dir, {
+        users: [{ uid: 'alice', email: 'alice@example.com', claims: { role: 'editor' } }],
+        database: { app: { config: { theme: 'dark' } } },
+      });
+
+      const session = await openSession(dir, {});
+      const user = await session.client.callTool({
+        name: 'auth_get_user',
+        arguments: { uid: 'alice' },
+      });
+      expect(user.isError).toBeFalsy();
+      expect(JSON.stringify(user.content)).toContain('alice@example.com');
+
+      const crawl = await session.client.callTool({
+        name: 'rtdb_crawl_structure',
+        arguments: { path: '/app' },
+      });
+      expect(crawl.isError).toBeFalsy();
+      expect(JSON.stringify(crawl.content)).toContain('config');
       await session.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
