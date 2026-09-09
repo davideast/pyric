@@ -1,5 +1,9 @@
 /**
- * Report what a branch holds that its reference does not.
+ * Report the Firestore documents a branch holds that its reference does not.
+ *
+ * The comparison is Firestore alone. Storage objects, auth users, and the
+ * Realtime Database tree are never compared, because a branch does not carry a
+ * separate copy of them to compare.
  *
  * The reference is the live sandbox by default. It can also be a checkpoint,
  * read through the same loader `sandbox.checkpoint` writes with, so there is
@@ -23,7 +27,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'diff(branch, against?: live|<checkpoint name>)',
-  description: 'Report what a branch and its reference disagree on.',
+  description: 'Report the Firestore documents a branch and its reference differ on.',
   args: z.object({
     branch: branchName,
     against: z

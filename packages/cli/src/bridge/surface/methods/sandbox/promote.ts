@@ -1,8 +1,10 @@
 /**
  * Land a branch on the live sandbox and remove it.
  *
- * `promote` is destructive: it replaces live documents with the branch's, and
- * the branch it promoted is gone afterwards. The shared effect enforcement in
+ * `promote` is destructive: it replaces live Firestore documents with the
+ * branch's, and the branch it promoted is gone afterwards. It lands documents
+ * and nothing else: a branch forked under candidate rules leaves those rules
+ * on the branch, and the live sandbox keeps the rules it was running. The shared effect enforcement in
  * `method-validation.ts` refuses the call unless `args.confirm === true`
  * before this handler runs, so an unconfirmed call leaves both the live
  * sandbox and the branch directory exactly as they were.
@@ -21,13 +23,15 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'promote(branch, confirm)',
-  description: "Replace live documents with the branch's, then delete it.",
+  description: "Land the branch's Firestore documents on live, then delete it. Installs no rules.",
   args: z.object({
     branch: branchName,
     confirm: z
       .boolean()
       .optional()
-      .describe('Must be true. Promote overwrites live documents and deletes the branch.'),
+      .describe(
+        'Must be true. Promote overwrites live Firestore documents and deletes the branch.',
+      ),
   }),
   operation: 'promote_sandbox_branch',
   renames: { confirmed: 'confirm', force: 'confirm', yes: 'confirm' },

@@ -1,4 +1,11 @@
-/** Fork the live sandbox into a persisted branch. */
+/**
+ * Fork the live sandbox's Firestore documents into a persisted branch.
+ *
+ * A branch is Firestore. `fork` copies the live Firestore documents and the
+ * Realtime Database tree the snapshot carries; Storage objects, auth users,
+ * and the rules the live sandbox runs under are not branched, and the methods
+ * that follow (`diff`, `promote`) read and land Firestore documents alone.
+ */
 import { fork } from 'pyric/sandbox';
 import { saveBranch } from 'pyric/sandbox/branches/store';
 import { getInternalEnv } from 'pyric/sandbox/internal';
@@ -14,14 +21,14 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'fork(branch, candidateRules?)',
-  description: 'Copy live into a branch, optionally under candidate rules.',
+  description: 'Copy the live Firestore documents into a branch.',
   args: z.object({
     branch: branchName,
     candidateRules: z
       .string()
       .optional()
       .describe(
-        'Firestore rules source the branch runs under. The live sandbox keeps the rules it has.',
+        'Rules the branch evaluates its own writes under, as Firestore rules source or a Realtime Database rules.json body. They decide verdicts on the branch only: the live sandbox keeps the rules it has, and promote installs none.',
       ),
   }),
   operation: 'fork_sandbox_branch',

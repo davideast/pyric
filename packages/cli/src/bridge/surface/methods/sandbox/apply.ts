@@ -1,5 +1,8 @@
 /**
- * Apply a stream of sandbox events onto a persisted branch.
+ * Apply a stream of sandbox events onto a persisted branch's Firestore
+ * documents.
+ *
+ * Exactly one source is named per call.
  *
  * The events come from one of two places and never from a default: an event
  * list the caller passes, or a recorded session file the caller names. A call
@@ -50,7 +53,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'apply(branch, events? | sessionPath?)',
-  description: 'Re-issue events onto a branch. Name events or sessionPath, exactly one.',
+  description: "Re-issue events onto a branch's Firestore documents. Name one of events, sessionPath.",
   args: z.object({
     branch: branchName,
     events: z

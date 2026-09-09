@@ -48,18 +48,26 @@ reports what is stored. `events` pages the operation log by cursor and filters
 it to denials or writes. `exportFixture` writes the live state as a fixture and
 `seedFromFixture` loads one back.
 
-The six branch methods work a change out on a copy before it reaches the live
-sandbox. `fork` copies live into a named branch under
-`.pyric/state/branches/<branch>/`, optionally under a candidate Firestore
-ruleset the live sandbox never sees. `apply` re-issues sandbox events onto the
-branch, either from an `events` list or from a recorded session file named by
-`sessionPath` relative to the project directory; a call that names neither is
-refused. `diff` reports what the branch and its reference disagree on, against
-`live` by default or against a checkpoint by name. `promote` lands the branch
-on live and deletes it. `discard` deletes the branch and leaves live alone.
-`listBranches` reports every branch with when it was forked, how many events it
-carries, and how far it has drifted from live. A branch is a directory in the
-project, so it outlives the server that forked it.
+The six branch methods work a Firestore change out on a copy before it reaches
+the live sandbox. A branch holds Firestore documents: `fork` copies the live
+Firestore documents, and the Realtime Database tree, into a named branch under
+`.pyric/state/branches/<branch>/`, and Storage objects, auth users, and the
+rules the live sandbox runs under are not branched. `candidateRules` gives the
+branch its own rules, as Firestore rules source or a Realtime Database
+`rules.json` body; they decide the verdicts of writes made on the branch and
+nothing else. `apply` re-issues sandbox events onto the branch's Firestore
+documents, from an `events` list or from a recorded session file named by
+`sessionPath` relative to the project directory; a call that names neither, or
+both, is refused. `diff` compares Firestore documents alone, against `live` by
+default or against a checkpoint by name. `promote` lands the branch's Firestore
+documents on live and deletes the branch; it installs no rules, so the live
+sandbox keeps the rules it was running. `discard` deletes the branch and leaves
+live alone. `listBranches` reports every branch with when it was forked, how
+many events it carries, and how far its documents have drifted from live. A
+branch is a directory in the project, so it outlives the server that forked it.
+
+Extending branches past Firestore, so a fork carries Storage objects, auth
+users, and rules, is open work.
 
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path
