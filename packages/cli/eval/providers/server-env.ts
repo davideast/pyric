@@ -13,7 +13,7 @@ import type { EvalRun } from '../types.js';
 export function defaultServerCommand(repoRoot: string, variant: string): string[] {
   return [
     'node',
-    join(repoRoot, 'packages', 'cli', 'dist', 'bin', 'pyric.js'),
+    join(repoRoot, 'packages', 'cli', 'dist', 'cli', 'index.js'),
     'mcp',
     '--headless',
     '--surface',

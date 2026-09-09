@@ -8,7 +8,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
-import { getAdminFirestore, collection, doc, getDoc, getDocs } from 'pyric/firestore';
+import { getAdminFirestore, doc, getDoc } from 'pyric/firestore';
 import { getAdminDatabase, ref as databaseRef, get as databaseGet } from 'pyric/database';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { ref as storageRef, getMetadata } from 'pyric/storage';
@@ -57,6 +57,16 @@ export function readEvents(eventsPath: string): EvalEvent[] {
   return events;
 }
 
+/**
+ * A snapshot's existence flag. The modular surface exposes it as a method and
+ * the chainable one as a property, so both spellings are accepted here rather
+ * than pinning the eval to one of them.
+ */
+function snapshotExists(snap: { exists: boolean | (() => boolean) }): boolean {
+  if (typeof snap.exists === 'function') return snap.exists();
+  return snap.exists;
+}
+
 /** Every stored document, keyed by path, read through the rules-bypassing handle. */
 async function readDocuments(
   sandbox: LocalSandbox,
@@ -65,27 +75,34 @@ async function readDocuments(
   const db = getAdminFirestore(sandbox);
   for (const path of Object.keys(sandbox.snapshot().firestore)) {
     const snap = await getDoc(doc(db, path));
-    if (!snap.exists()) continue;
+    if (!snapshotExists(snap)) continue;
     documents.set(path, snap.data() as Record<string, unknown>);
   }
   return documents;
 }
 
-/** One listing per collection that holds at least one stored document. */
-async function readListings(
-  sandbox: LocalSandbox,
+/**
+ * One listing per collection that holds at least one stored document, derived
+ * from the documents already read. A collection listing is a projection of the
+ * same state, so it does not warrant a second round of queries.
+ */
+function readListings(
   documents: Map<string, Record<string, unknown>>,
-): Promise<Map<string, Array<{ id: string; data: Record<string, unknown> }>>> {
-  const db = getAdminFirestore(sandbox);
+): Map<string, Array<{ id: string; data: Record<string, unknown> }>> {
   const listings = new Map<string, Array<{ id: string; data: Record<string, unknown> }>>();
-  for (const path of documents.keys()) {
-    const parent = path.slice(0, path.lastIndexOf('/'));
-    if (listings.has(parent)) continue;
-    const snap = await getDocs(collection(db, parent));
-    listings.set(
-      parent,
-      snap.docs.map((entry) => ({ id: entry.id, data: entry.data() as Record<string, unknown> })),
-    );
+  for (const [path, data] of documents) {
+    const cut = path.lastIndexOf('/');
+    const parent = path.slice(0, cut);
+    const id = path.slice(cut + 1);
+    const existing = listings.get(parent);
+    if (existing === undefined) {
+      listings.set(parent, [{ id, data }]);
+      continue;
+    }
+    existing.push({ id, data });
+  }
+  for (const entries of listings.values()) {
+    entries.sort((a, b) => a.id.localeCompare(b.id));
   }
   return listings;
 }
@@ -145,7 +162,7 @@ async function readObjects(
 export async function buildEvalState(dir: string, eventsPath: string): Promise<EvalState> {
   const sandbox = await loadRunSandbox(dir);
   const documents = await readDocuments(sandbox);
-  const listings = await readListings(sandbox, documents);
+  const listings = readListings(documents);
   const users = readUsers(sandbox);
   const objects = await readObjects(sandbox);
 
