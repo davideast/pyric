@@ -50,7 +50,7 @@ const RULES_FILE = 'rules.firestore';
 export const BRANCH_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 /** A branch name the store refuses. Thrown rather than returned: it is a caller mistake. */
-export class BranchNameError extends Error {
+class BranchNameError extends Error {
   constructor(name: string) {
     super(
       `'${name}' is not a branch name. A branch name is 1 to 64 characters of lowercase letters, digits, dot, dash, or underscore, starting with a letter or digit.`,
@@ -96,7 +96,7 @@ function assertBranchName(name: string): void {
 }
 
 /** The directory one branch occupies. */
-export function branchDirectory(projectDir: string, name: string): string {
+function branchDirectory(projectDir: string, name: string): string {
   assertBranchName(name);
   return join(projectDir, BRANCH_STORE_RELATIVE, name);
 }

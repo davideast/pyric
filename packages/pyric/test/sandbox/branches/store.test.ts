@@ -12,8 +12,6 @@ import { apply, fork } from '../../../src/sandbox/branches/index.js';
 import {
   BRANCH_FORMAT,
   BRANCH_STORE_RELATIVE,
-  BranchNameError,
-  branchDirectory,
   listBranches,
   loadBranch,
   removeBranch,
@@ -52,8 +50,7 @@ describe('the branch store', () => {
     const branch = fork(live.snapshot(), RULES);
     saveBranch(projectDir, 'draft', branch, { base: 'live' });
 
-    const dir = branchDirectory(projectDir, 'draft');
-    expect(dir).toBe(join(projectDir, BRANCH_STORE_RELATIVE, 'draft'));
+    const dir = join(projectDir, BRANCH_STORE_RELATIVE, 'draft');
     const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as {
       format: string;
       base: string;
@@ -69,7 +66,10 @@ describe('the branch store', () => {
   it('keeps the branch name out of the manifest, because the directory carries it', () => {
     const branch = fork(liveSandbox().snapshot(), RULES);
     saveBranch(projectDir, 'draft', branch, { base: 'live' });
-    const raw = readFileSync(join(branchDirectory(projectDir, 'draft'), 'manifest.json'), 'utf8');
+    const raw = readFileSync(
+      join(projectDir, BRANCH_STORE_RELATIVE, 'draft', 'manifest.json'),
+      'utf8',
+    );
     expect(raw).not.toContain('draft');
   });
 
@@ -127,10 +127,10 @@ describe('the branch store', () => {
   it('refuses a branch name that would escape the branch directory', () => {
     const branch = fork(liveSandbox().snapshot(), RULES);
     expect(() => saveBranch(projectDir, '../escape', branch, { base: 'live' })).toThrow(
-      BranchNameError,
+      'is not a branch name',
     );
-    expect(() => loadBranch(projectDir, '..')).toThrow(BranchNameError);
-    expect(() => removeBranch(projectDir, 'a/b')).toThrow(BranchNameError);
+    expect(() => loadBranch(projectDir, '..')).toThrow('is not a branch name');
+    expect(() => removeBranch(projectDir, 'a/b')).toThrow('is not a branch name');
   });
 
   it('omits the rules file for a branch forked with no candidate rules', () => {

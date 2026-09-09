@@ -39,7 +39,7 @@ import {
 export const CHECKPOINT_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Where checkpoints for one project live. */
-export function checkpointsDir(projectDir: string): string {
+function checkpointsDir(projectDir: string): string {
   return join(projectDir, '.pyric', 'state', 'checkpoints');
 }
 
