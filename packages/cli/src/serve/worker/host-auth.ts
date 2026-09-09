@@ -412,8 +412,9 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = portSession(ctx, port);
         if (!session) throw makeNoUserError('updateEmail');
-        authSandboxOps.updateUser(auth, session.user.uid, { email: msg.newEmail });
-        (session.user as { email: string | null }).email = msg.newEmail;
+        const email = msg.email ?? (msg as { newEmail?: string }).newEmail ?? '';
+        authSandboxOps.updateUser(auth, session.user.uid, { email });
+        (session.user as { email: string | null }).email = email;
         await bestEffortFlush(ctx);
         ok(port, msg.id, serializeUser(session.user));
       } catch (e) { fail(port, msg.id, e); }
@@ -424,7 +425,8 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = portSession(ctx, port);
         if (!session) throw makeNoUserError('updatePassword');
-        authSandboxOps.updateUser(auth, session.user.uid, { password: msg.newPassword });
+        const password = msg.password ?? (msg as { newPassword?: string }).newPassword ?? '';
+        authSandboxOps.updateUser(auth, session.user.uid, { password });
         await bestEffortFlush(ctx);
         ok(port, msg.id, serializeUser(session.user));
       } catch (e) { fail(port, msg.id, e); }
