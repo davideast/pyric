@@ -73,6 +73,16 @@ public struct ServerTimestamp<Value: Codable & Sendable & Equatable>: Codable, E
                 return
             }
         }
+        if let ts = try? container.decode(Timestamp.self) {
+            if let dateVal = ts.dateValue() as? Value {
+                self.wrappedValue = dateVal
+                return
+            }
+            if let tsVal = ts as? Value {
+                self.wrappedValue = tsVal
+                return
+            }
+        }
         self.wrappedValue = try container.decode(Value.self)
     }
 
@@ -144,6 +154,10 @@ extension Firestore {
         public func encode<T: Encodable>(_ value: T) throws -> [String: Any] {
             let jsonEncoder = JSONEncoder()
             jsonEncoder.userInfo = userInfo
+            jsonEncoder.dateEncodingStrategy = .custom { date, encoder in
+                let ts = Timestamp(date: date)
+                try ts.encode(to: encoder)
+            }
             let data = try jsonEncoder.encode(value)
             guard let rawDict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 throw PyricFirestoreError.invalidArgument("Encoded top-level object must be a dictionary.")
@@ -208,6 +222,25 @@ extension Firestore {
                 mergedInfo[.pyricDocumentReference] = reference
             }
             jsonDecoder.userInfo = mergedInfo
+            jsonDecoder.dateDecodingStrategy = .custom { decoder in
+                if let ts = try? Timestamp(from: decoder) {
+                    return ts.dateValue()
+                }
+                let container = try decoder.singleValueContainer()
+                if let seconds = try? container.decode(Double.self) {
+                    return Date(timeIntervalSince1970: seconds)
+                }
+                if let isoString = try? container.decode(String.self),
+                   let date = ISO8601DateFormatter().date(from: isoString) {
+                    return date
+                }
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "Expected Timestamp dictionary, epoch Double, or ISO8601 String for Date"
+                    )
+                )
+            }
             return try jsonDecoder.decode(T.self, from: jsonData)
         }
 

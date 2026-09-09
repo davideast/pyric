@@ -46,10 +46,6 @@ class FirebaseAuth internal constructor(
     }
 
     var tenantId: String? = null
-        set(value) {
-            field = value
-            updateAuthLens()
-        }
 
     private val authStateListeners = CopyOnWriteArrayList<AuthStateListener>()
     private val idTokenListeners = CopyOnWriteArrayList<IdTokenListener>()
@@ -285,7 +281,7 @@ class FirebaseAuth internal constructor(
             AuthLens.AsUser(
                 uid = user.uid,
                 token = if (claims.isNotEmpty()) claims else null,
-                tenant = user.tenantId ?: tenantId
+                tenant = user.tenantId
             )
         } else {
             AuthLens.Anon

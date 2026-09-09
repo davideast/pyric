@@ -669,6 +669,15 @@ jobs:
         working-directory: packages/flutter-client
         run: flutter test
 
+      - name: Cache Swift build artifacts
+        if: matrix.sdk == 'swift'
+        uses: actions/cache@v4
+        with:
+          path: packages/swift-client/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('packages/swift-client/Package.swift', 'packages/swift-client/Sources/**/*.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
       - name: Run Swift client tests
         if: matrix.sdk == 'swift'
         run: swift test --package-path packages/swift-client

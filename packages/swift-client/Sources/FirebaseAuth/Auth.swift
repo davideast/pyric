@@ -139,7 +139,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
             return lens
         }
         if let user = _currentUser {
-            return .asUser(uid: user.uid, tenant: user.tenantId ?? _tenantId, token: user.claims.isEmpty ? nil : user.claims)
+            return .asUser(uid: user.uid, tenant: user.tenantId, token: user.claims.isEmpty ? nil : user.claims)
         }
         return .anon
     }
@@ -166,14 +166,9 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     // ── Emulation ────────────────────────────────────────────────────────────
 
     public func useEmulator(withHost host: String, port: Int) {
-        let endpoint = URL(string: "ws://\(host):\(port)/__pyric/sandbox")!
-        stateLock.lock()
-        subTask?.cancel()
-        remoteLensTask?.cancel()
-        self.bridgeClient = PyricBridgeClient(endpoint: endpoint, headers: ["Host": "\(host):\(port)"])
-        stateLock.unlock()
-        startRemoteLensSync()
-        startRemoteSync()
+        // Safe no-op: Pyric is already the active sandbox runtime.
+        _ = host
+        _ = port
     }
 
     // ── Operations ───────────────────────────────────────────────────────────

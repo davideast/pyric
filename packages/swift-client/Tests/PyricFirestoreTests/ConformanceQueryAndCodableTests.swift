@@ -481,10 +481,21 @@ struct ConformanceQueryAndCodableTests {
         #expect(op?["data"]?["createdAt"]?["__sentinel"]?.stringValue == "serverTimestamp")
     }
 
+    struct CodableDateModel: Codable, Equatable {
+        var title: String
+        @ServerTimestamp var createdAt: Date?
+    }
+
     @Test func `firestore-swift#105: DocumentSnapshot.data(as:decoder:) - Decodes document snapshot fields directly into Decodable model.`() async throws {
         let harness = try await ConformanceMockHarness.create()
         let snap = DocumentSnapshot(firestore: harness.firestore, path: "items/item-99", data: ["name": "Sword", "score": 250], exists: true)
         let item = try snap.data(as: CodableItemModel.self)
         #expect(item == CodableItemModel(id: "item-99", name: "Sword", score: 250))
+
+        let ts = Timestamp(seconds: 1720000000, nanoseconds: 0)
+        let dateSnap = DocumentSnapshot(firestore: harness.firestore, path: "notes/note-1", data: ["title": "Post", "createdAt": ts], exists: true)
+        let dateModel = try dateSnap.data(as: CodableDateModel.self)
+        #expect(dateModel.title == "Post")
+        #expect(dateModel.createdAt == ts.dateValue())
     }
 }
