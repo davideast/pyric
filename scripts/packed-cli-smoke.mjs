@@ -112,7 +112,20 @@ process.stdout.write('  ✓ packed pyric starts and reports its package + Fireba
 // deployment surface through generated help or stale dispatch code.
 const help = run(['--help']);
 expect(help.code === 0, 'pyric --help must exit 0', help);
-assertExact('packed pyric command inventory', advertisedCommands(help.stdout), contract.commands);
+// The help text advertises the whole derived `pyric <tool> <method>` family on
+// one row; the rows themselves are pinned in the contract's derivedCommands.
+const DERIVED_COMMAND_ROW = '<tool>';
+const advertised = advertisedCommands(help.stdout);
+expect(
+  advertised.includes(DERIVED_COMMAND_ROW),
+  'pyric --help must advertise the derived `pyric <tool> <method>` family',
+  help,
+);
+assertExact(
+  'packed pyric command inventory',
+  advertised.filter((command) => command !== DERIVED_COMMAND_ROW),
+  contract.commands,
+);
 expect(!help.stdout.includes('pyric deploy'), 'pyric --help must not advertise production deployment', help);
 expect(!help.stdout.includes('hosting:channel:deploy'), 'pyric --help must not advertise Hosting deployment', help);
 for (const command of [
