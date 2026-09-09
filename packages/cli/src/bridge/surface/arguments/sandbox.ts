@@ -14,9 +14,10 @@
  * be written six times and drift, so they live here and the records carry only
  * what is their own.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type { SandboxEvent } from 'pyric/sandbox';
+import { listBranches } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
@@ -99,9 +100,20 @@ export const branchName = z
     'The branch name, which is its directory under .pyric/state/branches. Lowercase letters, digits, dot, dash, and underscore.',
   );
 
-/** Whether the project already holds a branch under this name. */
+/**
+ * Whether the project already holds a branch under this name.
+ *
+ * The store decides what a branch is, so this reads its listing rather than
+ * the directory: a directory the store would skip is not a branch any method
+ * can load, and counting it would refuse a fork under a name nothing holds.
+ */
 export function branchExists(projectDir: string, name: string): boolean {
   return storedBranchNames(projectDir).includes(name);
+}
+
+/** Every branch the project holds, as the store lists them. */
+function storedBranchNames(projectDir: string): string[] {
+  return listBranches(projectDir).map((entry) => entry.name);
 }
 
 /** The one refusal every method that names a missing branch returns. */
@@ -123,16 +135,6 @@ export function refuseUnknownBranch(
     `Pass 'branch' as a branch the project holds, or call fork to create '${name}'.`,
     'branch',
   );
-}
-
-/** Every branch directory name the project holds, from the listing itself. */
-function storedBranchNames(projectDir: string): string[] {
-  const root = join(projectDir, '.pyric', 'state', 'branches');
-  if (!existsSync(root)) return [];
-  return readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort();
 }
 
 /**

@@ -10,6 +10,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { BRANCH_FORMAT, BRANCH_STORE_RELATIVE } from 'pyric/sandbox/branches/store';
 
 import {
   AGAINST_LIVE,
@@ -99,9 +100,25 @@ afterEach(() => {
   rmSync(projectDir, { recursive: true, force: true });
 });
 
-/** Create one branch directory, which is all these reads look at. */
+/** Create one branch the store would list: a directory with its manifest. */
 function plantBranch(name: string): void {
-  mkdirSync(join(projectDir, '.pyric', 'state', 'branches', name), { recursive: true });
+  const dir = join(projectDir, BRANCH_STORE_RELATIVE, name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'manifest.json'),
+    JSON.stringify({
+      format: BRANCH_FORMAT,
+      created: '2026-09-09T00:00:00.000Z',
+      base: 'live',
+      eventCount: 0,
+    }),
+    'utf8',
+  );
+}
+
+/** A directory under the branch store that the store never wrote. */
+function plantStrayDirectory(name: string): void {
+  mkdirSync(join(projectDir, BRANCH_STORE_RELATIVE, name), { recursive: true });
 }
 
 describe('branchName', () => {
@@ -119,10 +136,15 @@ describe('branchName', () => {
 });
 
 describe('branchExists', () => {
-  it('reads the branch directory listing', () => {
+  it('reads the branch listing the store reports', () => {
     expect(branchExists(projectDir, 'draft')).toBe(false);
     plantBranch('draft');
     expect(branchExists(projectDir, 'draft')).toBe(true);
+  });
+
+  it('does not count a directory the store would not list', () => {
+    plantStrayDirectory('not-a-branch');
+    expect(branchExists(projectDir, 'not-a-branch')).toBe(false);
   });
 });
 
@@ -138,6 +160,14 @@ describe('refuseUnknownBranch', () => {
     plantBranch('beta');
     const refusal = refuseUnknownBranch(projectDir, 'draft', fail);
     expect(refusal.summary).toContain('alpha, beta');
+  });
+
+  it('names no branch the listing would leave out', () => {
+    plantBranch('alpha');
+    plantStrayDirectory('not-a-branch');
+    const refusal = refuseUnknownBranch(projectDir, 'draft', fail);
+    expect(refusal.summary).toContain('alpha');
+    expect(refusal.summary).not.toContain('not-a-branch');
   });
 });
 
