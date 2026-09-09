@@ -15,6 +15,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import { createLocalBridge } from '../../src/bridge/server/local-bridge.js';
+import type { BridgeToolEvent } from '../../src/bridge/server/bridge.js';
 import {
   buildHeadlessMcpServer,
   saveSandboxSnapshot,
@@ -70,6 +71,45 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
     });
     expect(r3.ok).toBe(true);
     expect((r3.data as { data: unknown }).data).toEqual({ author: 'alice', body: 'hi' });
+  });
+
+  it('records one tool event per dispatch, success and failure alike', async () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, RULES);
+    const events: BridgeToolEvent[] = [];
+    const bridge = createLocalBridge(sandbox, { onToolEvent: (event) => events.push(event) });
+
+    await bridge.dispatch('firestore_create_document', {
+      path: 'rooms/r1/msgs/m1',
+      data: { author: 'alice', body: 'hi' },
+      as: { uid: 'alice' },
+    });
+    await bridge.dispatch('firestore_create_document', {
+      path: 'rooms/r1/msgs/m2',
+      data: { author: 'alice', body: 'forged' },
+      as: { uid: 'bob' },
+    });
+
+    expect(events.length).toBe(2);
+    const [allowed, denied] = events as [BridgeToolEvent, BridgeToolEvent];
+    expect(allowed.tool).toBe('firestore_create_document');
+    expect(allowed.mode).toBe('sandbox');
+    expect(allowed.project).toBe('sandbox');
+    expect(allowed.args).toMatchObject({ path: 'rooms/r1/msgs/m1' });
+    expect(allowed.result.ok).toBe(true);
+    expect(allowed.isError).toBe(false);
+    expect(typeof allowed.durationMs).toBe('number');
+    expect(denied.result.ok).toBe(false);
+    expect(denied.isError).toBe(true);
+  });
+
+  it('records nothing when no event hook is supplied', async () => {
+    const bridge = createLocalBridge(initializeSandbox());
+    const result = await bridge.dispatch('firestore_create_document', {
+      path: 'rooms/r1/msgs/m1',
+      data: { body: 'hi' },
+    });
+    expect(result.ok).toBe(true);
   });
 
   it('builds an MCP server around the in-process sandbox without throwing', () => {

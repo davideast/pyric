@@ -29,12 +29,36 @@ import {
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import { buildMcpServer } from './mcp.js';
-import { getDefaultMcpToolSurface } from './mcp-contract.js';
+import { renderSurface } from '../surface/index.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
+import {
+  createEvalLogWriter,
+  readEvalRunIdentity,
+  EVAL_LOG_ENV_KEY,
+  type AuditWriter,
+} from './audit.js';
+import type { BridgeToolEvent } from './bridge.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+
+/** The stdio transport is a late import: the SDK is heavy and only needed here. */
+async function openStdioTransport(): Promise<Transport> {
+  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
+  return new StdioServerTransport();
+}
 
 /** Where the headless sandbox snapshot is persisted (relative to the project
  *  dir). Deliberately separate from serve's `state.json` (different format). */
 export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
+
+export interface HeadlessMcpServerOptions extends LocalBridgeOptions {
+  /** Tool-surface variant id. Absent serves the default surface. */
+  surface?: string;
+  /**
+   * Called for a tool call the MCP SDK refused before any handler ran, so a
+   * schema rejection is still recorded. Absent leaves the server as it was.
+   */
+  onCallRejected?: (event: BridgeToolEvent) => void;
+}
 
 /**
  * Build the headless MCP server around an in-process sandbox. Pure: no I/O and
@@ -42,12 +66,32 @@ export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
  * the served bridge's construction (forwarded data-plane + in-process rules
  * tools), with `dispatch` bound to the local sandbox instead of a ws peer.
  */
-export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: LocalBridgeOptions) {
+export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: HeadlessMcpServerOptions) {
   const bridge = createLocalBridge(sandbox, opts);
-  return buildMcpServer(bridge, getDefaultMcpToolSurface({
+  const surface = renderSurface(opts?.surface, {
     consumers: bridge.consumers,
     callerIdentity: bridge.callerIdentity,
-  }));
+  });
+  const onCallRejected = opts?.onCallRejected;
+  if (!onCallRejected) {
+    return buildMcpServer(bridge, surface);
+  }
+  return buildMcpServer(bridge, {
+    ...surface,
+    onCallRejected: (rejection) => {
+      onCallRejected({
+        timestamp: new Date().toISOString(),
+        mode: 'sandbox',
+        project: bridge.project,
+        tool: rejection.tool,
+        args: rejection.args,
+        result: { ok: false, summary: rejection.message },
+        durationMs: rejection.durationMs,
+        schemaRejected: rejection.schemaRejected,
+        isError: true,
+      });
+    },
+  });
 }
 
 /**
@@ -89,15 +133,65 @@ export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number 
   return Object.keys(snap.firestore).length;
 }
 
+export interface HeadlessRunOptions {
+  /** Tool-surface variant id, from `--surface` or `PYRIC_TOOL_SURFACE`. */
+  surface?: string;
+  /** Environment to read the evaluation settings from. Defaults to the process. */
+  env?: NodeJS.ProcessEnv;
+  /**
+   * Transport to serve on. Defaults to stdio, which is what an editor and the
+   * evaluation runner both use; a test supplies an in-memory pair so it can
+   * close the session and observe the final flush.
+   */
+  transport?: Transport;
+}
+
+/**
+ * Build the tool-event writer for a headless session. Returns null when no
+ * evaluation log is named, which is the default and records nothing.
+ */
+export function createHeadlessEventWriter(env: NodeJS.ProcessEnv): AuditWriter | null {
+  const evalLogPath = env[EVAL_LOG_ENV_KEY];
+  if (evalLogPath === undefined || evalLogPath.trim() === '') return null;
+  return createEvalLogWriter(evalLogPath, readEvalRunIdentity(env));
+}
+
+/**
+ * Wire a session's event writer into the server options. Without a writer the
+ * options are left as they were, and the server records nothing.
+ */
+export function withHeadlessEventWriter(
+  options: HeadlessMcpServerOptions,
+  writer: AuditWriter | null,
+): HeadlessMcpServerOptions {
+  if (!writer) return options;
+  return {
+    ...options,
+    onToolEvent: (event) => writer.write(event),
+    onCallRejected: (event) => writer.write(event),
+  };
+}
+
 /**
  * Run the headless MCP server over stdio. Loads `.pyric/state/headless.json` on
  * start, debounces a save after each dispatch, and flushes on shutdown. Resolves
  * with an exit code when the stdio transport closes (the editor disconnects).
+ *
+ * With `PYRIC_EVAL_LOG` set, every tool call is appended to that file as NDJSON
+ * and the per-project audit log is not written. Without it, nothing is recorded,
+ * which is the behaviour headless mode has always had.
  */
-export async function runHeadlessMcp(cwd: string = process.cwd()): Promise<number> {
+export async function runHeadlessMcp(
+  cwd: string = process.cwd(),
+  options: HeadlessRunOptions = {},
+): Promise<number> {
   const log = (m: string): void => {
     process.stderr.write(`[pyric mcp headless] ${m}\n`);
   };
+
+  const env = options.env ?? process.env;
+  const evalLog = createHeadlessEventWriter(env);
+  if (evalLog) log(`recording tool events to ${evalLog.path}`);
 
   const sandbox = initializeSandbox();
   const rulesPath = loadProjectRules(sandbox, cwd);
@@ -106,28 +200,46 @@ export async function runHeadlessMcp(cwd: string = process.cwd()): Promise<numbe
   const restored = loadSandboxSnapshot(sandbox, cwd);
   if (restored !== null) log(`restored ${restored} docs from ${join(cwd, HEADLESS_STATE_RELATIVE)}`);
 
-  // Debounced persistence: a burst of writes collapses to one flush; the final
-  // flush runs on shutdown so a clean disconnect never loses the tail.
+  // Debounced persistence: a burst of writes collapses to one flush. The final
+  // flush is synchronous and runs before the server closes, so the file a reader
+  // opens after the session always contains the last writes. `pendingSave`
+  // covers the path where the process ends without reaching that flush.
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  const flush = (): void => {
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-      saveTimer = null;
-    }
+  let pendingSave = false;
+  const saveNow = (): void => {
+    pendingSave = false;
     try {
       saveSandboxSnapshot(sandbox, cwd);
     } catch (e) {
       log(`persist failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
-  const scheduleSave = (): void => {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(flush, 750);
+  const flush = (): void => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    saveNow();
   };
+  const scheduleSave = (): void => {
+    pendingSave = true;
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 750);
+  };
+  const saveIfPendingAtExit = (): void => {
+    if (pendingSave) saveNow();
+  };
+  process.once('exit', saveIfPendingAtExit);
 
-  const server = buildHeadlessMcpServer(sandbox, { onAfterDispatch: scheduleSave });
-  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
-  const transport = new StdioServerTransport();
+  const baseServerOptions: HeadlessMcpServerOptions = {
+    onAfterDispatch: scheduleSave,
+    surface: options.surface,
+  };
+  const server = buildHeadlessMcpServer(
+    sandbox,
+    withHeadlessEventWriter(baseServerOptions, evalLog),
+  );
+  const transport = options.transport ?? (await openStdioTransport());
 
   return await new Promise<number>((resolve) => {
     let stopping = false;
@@ -136,7 +248,11 @@ export async function runHeadlessMcp(cwd: string = process.cwd()): Promise<numbe
       if (stopping) return;
       stopping = true;
       process.stdin.off('end', onStdinEnd);
+      // Synchronous, and before `server.close()`: the debounced timer can hold
+      // writes that have not reached disk, and nothing after this point is
+      // guaranteed to run.
       flush();
+      process.off('exit', saveIfPendingAtExit);
       void server.close().then(
         () => resolve(code),
         (e) => {

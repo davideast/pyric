@@ -17,7 +17,12 @@
  */
 import type { LocalSandbox } from 'pyric/sandbox';
 import { buildSandboxDispatcher, SANDBOX_TOOL_NAMES } from '../client/dispatch.js';
-import { createBridge, type Bridge } from './bridge.js';
+import {
+  createBridge,
+  type Bridge,
+  type BridgeToolEvent,
+  type BridgeToolResult,
+} from './bridge.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
 
 export interface LocalBridgeOptions {
@@ -28,6 +33,13 @@ export interface LocalBridgeOptions {
   /** Called after each dispatch (success or failure). The headless runner uses
    *  this to schedule a debounced persistence flush so writes survive a restart. */
   onAfterDispatch?: () => void;
+  /**
+   * Called once for every finished tool call, success or failure. The forwarding
+   * bridge records these inside its own `dispatch`; the local bridge replaces
+   * that `dispatch`, so it records them here instead. In-process tools reach the
+   * same hook through the base bridge's `recordToolEvent`.
+   */
+  onToolEvent?: (event: BridgeToolEvent) => void;
 }
 
 /**
@@ -40,10 +52,20 @@ export function createLocalBridge(sandbox: LocalSandbox, opts: LocalBridgeOption
   // instanceId, health, recordToolEvent, the peer machinery), then override the
   // three members that differ when the sandbox is in-process rather than a ws
   // peer. The peer machinery stays idle because `dispatch` never touches it.
+  const project = opts.project ?? 'sandbox';
   const base = createBridge({
-    project: opts.project ?? 'sandbox',
+    project,
     version: opts.version ?? pyricVersion(),
+    onToolEvent: opts.onToolEvent,
   });
+  const recordEvent = (event: BridgeToolEvent): void => {
+    if (!opts.onToolEvent) return;
+    try {
+      opts.onToolEvent(event);
+    } catch {
+      // Event-log failures must not break tool dispatch.
+    }
+  };
   return {
     ...base,
     // The sandbox is in-process: always "connected", and the tool set is the
@@ -55,17 +77,31 @@ export function createLocalBridge(sandbox: LocalSandbox, opts: LocalBridgeOption
     // `buildSandboxDispatcher` throws on a tool error (e.g. a rules denial), so
     // translate that here.
     async dispatch(name, args) {
+      const startedAtMs = Date.now();
+      let result: BridgeToolResult;
       try {
         // Same rule as the forwarding bridge: the caller's recorded identity is
         // the default for a call whose own arguments name none. `app-session`
         // is sent as no identity at all, which is the historical behaviour.
         const identity = base.callerIdentity.get();
-        return await dispatcher(name, args, identity.mode === 'app-session' ? undefined : identity);
+        const actAs = identity.mode === 'app-session' ? undefined : identity;
+        result = await dispatcher(name, args, actAs);
       } catch (e) {
-        return { ok: false, summary: e instanceof Error ? e.message : String(e) };
+        result = { ok: false, summary: e instanceof Error ? e.message : String(e) };
       } finally {
         opts.onAfterDispatch?.();
       }
+      recordEvent({
+        timestamp: new Date(startedAtMs).toISOString(),
+        mode: 'sandbox',
+        project,
+        tool: name,
+        args,
+        result,
+        durationMs: Date.now() - startedAtMs,
+        isError: !result.ok,
+      });
+      return result;
     },
   };
 }
