@@ -67,7 +67,10 @@ export function buildInvocation(run: EvalRun): Invocation {
   return {
     command,
     env: {},
+    // `--mcp-config` takes a path, so the config lives in the run directory and
+    // the workspace the agent is started in stays empty.
     files: { [MCP_CONFIG_FILE]: `${JSON.stringify(config, null, 2)}\n` },
+    workspaceFiles: {},
   };
 }
 

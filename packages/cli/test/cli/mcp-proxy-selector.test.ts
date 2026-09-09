@@ -127,3 +127,46 @@ describe('mcp tool-surface selection', () => {
     expect(await selectedSurface([], {})).toBe(undefined);
   });
 });
+
+describe('mcp project-directory selection', () => {
+  async function selectedProjectDir(
+    argv: string[],
+    env: NodeJS.ProcessEnv,
+  ): Promise<string | undefined> {
+    let projectDir: string | undefined;
+    await runMcpProxy(mcpArgs(...argv), '/proj', {
+      discover: async () => null,
+      headless: async (_cwd, options) => {
+        projectDir = options.projectDir;
+        return 0;
+      },
+      env,
+    });
+    return projectDir;
+  }
+
+  it('takes the project directory from --project-dir', async () => {
+    expect(await selectedProjectDir(['--headless', '--project-dir', '/state/run-1'], {})).toBe(
+      '/state/run-1',
+    );
+  });
+
+  it('falls back to PYRIC_PROJECT_DIR', async () => {
+    expect(
+      await selectedProjectDir(['--headless'], { PYRIC_PROJECT_DIR: '/state/from-env' }),
+    ).toBe('/state/from-env');
+  });
+
+  it('prefers the flag over the environment', async () => {
+    expect(
+      await selectedProjectDir(['--headless', '--project-dir=/state/from-flag'], {
+        PYRIC_PROJECT_DIR: '/state/from-env',
+      }),
+    ).toBe('/state/from-flag');
+  });
+
+  it('selects no project directory when neither is set, so the server uses its cwd', async () => {
+    expect(await selectedProjectDir(['--headless'], {})).toBe(undefined);
+    expect(await selectedProjectDir([], {})).toBe(undefined);
+  });
+});

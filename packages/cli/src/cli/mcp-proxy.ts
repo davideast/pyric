@@ -33,7 +33,10 @@
  * `--headless` opts out of all of this: it forces the in-process sandbox and
  * never looks for a running bridge, so a run is reproducible whatever else is
  * on the machine. `--surface <id>` (or `PYRIC_TOOL_SURFACE`, with the flag
- * winning) selects the tool surface the headless server renders.
+ * winning) selects the tool surface the headless server renders, and
+ * `--project-dir <dir>` (or `PYRIC_PROJECT_DIR`, same precedence) names the
+ * directory that headless server reads its rules files and `.pyric/state` from.
+ * Absent both, the project directory is the process cwd.
  *
  * Discovery preference: the `.pyric/serve.json` pointer serve writes in the
  * project cwd (exact + project-correct), then a health probe across the scan
@@ -81,10 +84,15 @@ export interface McpProxyDeps {
 export interface HeadlessSelection {
   /** Tool-surface variant id, or undefined for the default surface. */
   surface?: string;
+  /** Project directory, or undefined to use the cwd the server is started in. */
+  projectDir?: string;
 }
 
 /** Environment variable naming the tool surface when `--surface` is absent. */
 export const TOOL_SURFACE_ENV_KEY = 'PYRIC_TOOL_SURFACE';
+
+/** Environment variable naming the project directory when `--project-dir` is absent. */
+export const PROJECT_DIR_ENV_KEY = 'PYRIC_PROJECT_DIR';
 
 /** `--headless` forces the in-process sandbox and skips discovery entirely. */
 function forcesHeadlessSandbox(parsed: ParsedArgs): boolean {
@@ -96,9 +104,27 @@ function forcesHeadlessSandbox(parsed: ParsedArgs): boolean {
  * the server serves its default surface.
  */
 function selectToolSurface(parsed: ParsedArgs, env: NodeJS.ProcessEnv): string | undefined {
-  const flagValue = parsed.flags?.get('surface');
+  return selectFlagOrEnv(parsed, 'surface', env, TOOL_SURFACE_ENV_KEY);
+}
+
+/**
+ * The project directory the headless server reads and writes. The flag wins
+ * over the environment; absent both, the server uses the cwd it was started in.
+ */
+function selectProjectDir(parsed: ParsedArgs, env: NodeJS.ProcessEnv): string | undefined {
+  return selectFlagOrEnv(parsed, 'project-dir', env, PROJECT_DIR_ENV_KEY);
+}
+
+/** A setting that comes from a flag, else the environment, else nowhere. */
+function selectFlagOrEnv(
+  parsed: ParsedArgs,
+  flag: string,
+  env: NodeJS.ProcessEnv,
+  envKey: string,
+): string | undefined {
+  const flagValue = parsed.flags?.get(flag);
   if (typeof flagValue === 'string' && flagValue !== '') return flagValue;
-  const envValue = env[TOOL_SURFACE_ENV_KEY];
+  const envValue = env[envKey];
   if (envValue !== undefined && envValue !== '') return envValue;
   return undefined;
 }
@@ -114,7 +140,10 @@ export async function runMcpProxy(
   };
 
   const env = deps.env ?? process.env;
-  const selection: HeadlessSelection = { surface: selectToolSurface(parsed, env) };
+  const selection: HeadlessSelection = {
+    surface: selectToolSurface(parsed, env),
+    projectDir: selectProjectDir(parsed, env),
+  };
   const runHeadless =
     deps.headless ??
     ((c: string, o: HeadlessSelection) =>

@@ -2,9 +2,12 @@
  * Antigravity provider.
  *
  * The CLI discovers MCP servers from `.agents/mcp_config.json` inside a directory
- * it has been given, so the config is written into the run directory and that
- * directory is added with `--add-dir`. The reasoning effort is part of the model
- * slug for this CLI, so no separate effort flag is passed.
+ * it has been given, and takes no path to the file itself. That makes it the one
+ * provider that has to write into the workspace: the config goes there and the
+ * workspace is the only directory `--add-dir` names, so the run's state, which
+ * lives elsewhere, is not among the files the agent can open. The reasoning
+ * effort is part of the model slug for this CLI, so no separate effort flag is
+ * passed.
  */
 import { join } from 'node:path';
 import type { EvalRun, Invocation } from '../types.js';
@@ -38,13 +41,14 @@ export function buildInvocation(run: EvalRun): Invocation {
     '--print-timeout',
     AGY_PRINT_TIMEOUT,
     '--add-dir',
-    run.dir,
+    run.workspaceDir,
   ];
 
   return {
     command,
     env: {},
-    files: { [AGY_CONFIG_FILE]: `${JSON.stringify(config, null, 2)}\n` },
+    files: {},
+    workspaceFiles: { [AGY_CONFIG_FILE]: `${JSON.stringify(config, null, 2)}\n` },
   };
 }
 

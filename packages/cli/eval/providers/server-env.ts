@@ -23,13 +23,18 @@ export function defaultServerCommand(repoRoot: string, variant: string): string[
 
 /**
  * The `PYRIC_EVAL_*` block section 3 reads at server start, plus the surface
- * selection and the events log target. Every provider puts this in the server's
- * env, never in the CLI's own env, so the values ride with the process that
- * writes the log.
+ * selection, the events log target and the project directory. Every provider
+ * puts this in the server's env, never in the CLI's own env, so the values ride
+ * with the process that writes the log.
+ *
+ * `PYRIC_PROJECT_DIR` is how the state directory reaches the server. It is not
+ * passed as a `--project-dir` argument, because the argument list is the part of
+ * an MCP config an agent reads first.
  */
 export function serverEnv(run: EvalRun): Record<string, string> {
   const effort = run.row.effort ?? '';
   return {
+    PYRIC_PROJECT_DIR: run.stateDir,
     PYRIC_EVAL_LOG: run.eventsPath,
     PYRIC_EVAL_RUN_ID: run.runId,
     PYRIC_EVAL_TASK_ID: run.task.id,
