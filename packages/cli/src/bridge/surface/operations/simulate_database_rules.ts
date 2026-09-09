@@ -27,9 +27,12 @@ export default {
   async handler(args, ctx) {
     const input = parameters.parse(args);
     const auth = identityFor(ctx, input.uid);
+    // The rules engine addresses the tree from the root, so a path is rooted
+    // here whether or not the caller wrote the leading separator.
+    const path = input.path.startsWith('/') ? input.path : `/${input.path}`;
 
     if (input.rules === undefined) {
-      const call: Record<string, unknown> = { operation: input.operation, path: input.path, auth };
+      const call: Record<string, unknown> = { operation: input.operation, path, auth };
       if (input.data !== undefined) call.newData = input.data;
       return callSandboxTool(ctx, 'rtdb_simulate_access', call);
     }
@@ -44,7 +47,7 @@ export default {
     const oneCase: RtdbCase = {
       expectation: 'ALLOW',
       operation: input.operation,
-      path: input.path,
+      path,
       auth: auth === null ? null : { uid: auth.uid, token: auth.claims },
       data: tree !== null && typeof tree === 'object' ? (tree as Record<string, unknown>) : {},
       ...(input.data !== undefined ? { newData: input.data } : {}),

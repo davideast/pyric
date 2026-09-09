@@ -209,13 +209,8 @@ const AUTH_ROUTES: DiscriminatorRoute[] = [
     operation: 'get_auth_user',
     translate: (args) => ({ uid: args.uid }),
   },
-  {
-    tool: 'manage_auth_users',
-    action: 'list',
-    selects: on('action', 'list'),
-    operation: 'list_auth_users',
-    translate: () => ({}),
-  },
+  // The user pool is read through the `pyric://auth/users` resource on this
+  // variant, so the tool's list action has no route of its own.
   {
     tool: 'manage_auth_users',
     action: 'update',

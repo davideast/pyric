@@ -1,8 +1,9 @@
 /** Evaluate one request against the Cloud Storage rules. */
 import { z } from 'zod';
-import { evaluateStorageRules, parseStorageRules } from 'pyric/storage';
+import { evaluateStorageRules, parseStorageRules, ref } from 'pyric/storage';
 import { operationFailure } from '../context.js';
-import { activeStorageRules } from '../storage-rules.js';
+import { storageFor } from '../service-handles.js';
+import { activeStorageRules, rulesRequestPath } from '../storage-rules.js';
 import type { OperationRecord } from '../types.js';
 
 const parameters = z.object({
@@ -44,8 +45,9 @@ export default {
       if (held !== null) auth = { uid: held.uid, token: held.token ?? {} };
     }
 
+    const object = ref(storageFor(ctx), input.path);
     const evaluated = evaluateStorageRules(parsed, {
-      request: { auth, method: input.operation, path: input.path },
+      request: { auth, method: input.operation, path: rulesRequestPath(object) },
       resource: null,
     });
     return {

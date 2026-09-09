@@ -4,7 +4,7 @@
  * The operation records author real nested objects, never JSON-encoded
  * strings, and never nest more than two object levels below the root. That
  * subset is small enough to convert here without a dependency, and small
- * enough that an unsupported construct is a authoring mistake worth throwing
+ * enough that an unsupported construct is an authoring mistake worth throwing
  * on rather than degrading to `{}`.
  */
 import { z } from 'zod';
