@@ -39,6 +39,7 @@ import {
   remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
+  type OAuthCredentialPayload,
 } from './host/auth-session-seeder.js';
 
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
@@ -405,7 +406,14 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInWithCredential': {
       try {
-        const uid = resolveOAuthCredentialUser(auth, msg.credential);
+        const rawMsg = msg as unknown as Record<string, unknown>;
+        const cred = (msg.credential ?? (typeof rawMsg.providerId === 'string' ? rawMsg : undefined)) as
+          | OAuthCredentialPayload
+          | undefined;
+        if (!cred || !cred.providerId) {
+          throw new Error('auth.signInWithCredential requires credential payload or providerId');
+        }
+        const uid = resolveOAuthCredentialUser(auth, cred);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'uid',
           uid,
@@ -413,7 +421,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
-        ok(port, msg.id, credReply(session, msg.credential.providerId));
+        ok(port, msg.id, credReply(session, cred.providerId));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

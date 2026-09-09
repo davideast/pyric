@@ -561,4 +561,44 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     expect(reminted.user.tenantId).toBe('tenant-gold');
     expect(reminted.state.tenant).toBe('tenant-gold');
   });
+
+  it('12. auth.signInWithCredential supports flattened payload from mobile clients (Swift and Flutter)', async () => {
+    const { ctx } = await createTestHarness();
+    const sentMessages: OutboundMessage[] = [];
+    const testPort: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        sentMessages.push(msg);
+      },
+    };
+
+    // Swift and Flutter send providerId, idToken, accessToken, rawNonce directly on the op message
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'flat-oauth-op',
+      method: 'auth.signInWithCredential',
+      providerId: 'google.com',
+      idToken: 'token-oauth-flat',
+      email: 'flat-mobile@example.com',
+      displayName: 'Flat Mobile User',
+      tenantId: 'tenant-mobile',
+    } as unknown as InboundMessage);
+
+    const res = sentMessages.find((m) => m.t === 'res' && m.id === 'flat-oauth-op') as {
+      t: 'res';
+      id: string;
+      ok: boolean;
+      value?: { user: { uid: string; email: string; tenantId?: string | null }; providerId: string };
+      error?: string;
+    };
+    expect(res).toBeDefined();
+    expect(res?.ok).toBe(true);
+    expect(res?.value?.user.email).toBe('flat-mobile@example.com');
+    expect(res?.value?.user.tenantId).toBe('tenant-mobile');
+    expect(res?.value?.providerId).toBe('google.com');
+
+    const session = portSession(ctx, testPort);
+    expect(session).not.toBeNull();
+    expect(session?.user.tenantId).toBe('tenant-mobile');
+  });
 });
+

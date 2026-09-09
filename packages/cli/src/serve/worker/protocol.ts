@@ -141,7 +141,7 @@ export type OpMessage = (
       t: 'op';
       id: string;
       method: 'auth.signInWithCredential';
-      credential: {
+      credential?: {
         providerId: string;
         idToken?: string | null;
         accessToken?: string | null;
@@ -151,6 +151,14 @@ export type OpMessage = (
         photoURL?: string | null;
         uid?: string | null;
       };
+      providerId?: string;
+      idToken?: string | null;
+      accessToken?: string | null;
+      rawNonce?: string | null;
+      email?: string | null;
+      displayName?: string | null;
+      photoURL?: string | null;
+      uid?: string | null;
       tenantId?: string | null;
     }
   | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
