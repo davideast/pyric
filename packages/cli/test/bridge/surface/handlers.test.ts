@@ -8,7 +8,10 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, expect, it } from 'bun:test';
-import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { getAuth, sandbox as authSandbox, signInWithEmailAndPassword } from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 
@@ -49,7 +52,8 @@ const sandbox = initializeSandbox();
 setRules(sandbox, TENANT_RULES);
 
 const surface = renderSurface(undefined);
-const ctx: SurfaceContext = createSurfaceContext(sandbox);
+const projectDir = mkdtempSync(join(tmpdir(), 'pyric-surface-handlers-'));
+const ctx: SurfaceContext = createSurfaceContext(sandbox, projectDir);
 const exercised = new Set<string>();
 
 /** Call one method through its service tool and record that it ran. */
@@ -267,6 +271,172 @@ it('inspects, seeds, and resets the sandbox', async () => {
   const rejected = await run('sandbox.seed', { snapshot: {} });
   expect(rejected.ok).toBe(false);
   expect(rejected.summary).toContain('snapshot');
+
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+});
+
+it('checkpoints, restores, pages events, and round-trips a fixture', async () => {
+  expect((await run('firestore.setDoc', { path: 'ledger/keep', data: { value: 1 } })).ok).toBe(
+    true,
+  );
+  expect((await run('database.set', { path: 'ledger/keep', value: 1 })).ok).toBe(true);
+  expect(
+    (await run('auth.createUser', { uid: 'checkpoint-erin', email: 'erin@example.com' })).ok,
+  ).toBe(true);
+
+  const checkpointed = await run('sandbox.checkpoint', { name: 'before-break' });
+  expect(checkpointed.ok).toBe(true);
+
+  // Break something after the checkpoint.
+  expect((await run('firestore.setDoc', { path: 'ledger/temp', data: { value: 2 } })).ok).toBe(
+    true,
+  );
+  expect((await run('database.set', { path: 'ledger/temp', value: 2 })).ok).toBe(true);
+  expect(
+    (await run('auth.createUser', { uid: 'checkpoint-frank', email: 'frank@example.com' })).ok,
+  ).toBe(true);
+
+  const listing = await run('sandbox.listCheckpoints');
+  expect(listing.ok).toBe(true);
+  expect(
+    (listing.data as { checkpoints: Array<{ name: string }> }).checkpoints.map((c) => c.name),
+  ).toContain('before-break');
+
+  const missingRestore = await run('sandbox.restore', { name: 'no-such-checkpoint', confirm: true });
+  expect(missingRestore.ok).toBe(false);
+  expect(missingRestore.summary).toContain('before-break');
+
+  const restored = await run('sandbox.restore', { name: 'before-break', confirm: true });
+  expect(restored.ok).toBe(true);
+
+  const keptDoc = await run('firestore.getDoc', { path: 'ledger/keep' });
+  expect((keptDoc.data as { data: { value: number } }).data.value).toBe(1);
+  const tempDoc = await run('firestore.getDoc', { path: 'ledger/temp' });
+  expect((tempDoc.data as { exists: boolean }).exists).toBe(false);
+
+  const keptValue = await run('database.get', { path: 'ledger/keep' });
+  expect((keptValue.data as { value: number }).value).toBe(1);
+  const tempValue = await run('database.get', { path: 'ledger/temp' });
+  expect((tempValue.data as { exists: boolean }).exists).toBe(false);
+
+  expect((await run('auth.getUser', { uid: 'checkpoint-frank' })).ok).toBe(false);
+  expect((await run('auth.getUser', { uid: 'checkpoint-erin' })).ok).toBe(true);
+
+  // Page the operation log: a burst of writes, then two pages with no overlap.
+  const before = await run('sandbox.events', { limit: 1 });
+  expect(before.ok).toBe(true);
+  await run('firestore.setDoc', { path: 'ledger/page-a', data: { n: 1 } });
+  await run('firestore.setDoc', { path: 'ledger/page-b', data: { n: 2 } });
+  const firstPage = await run('sandbox.events', {
+    since: (before.data as { nextCursor: string }).nextCursor,
+    limit: 1,
+    kind: 'writes',
+  });
+  expect(firstPage.ok).toBe(true);
+  const firstData = firstPage.data as { events: Array<{ id: string; path?: string }>; nextCursor: string | null };
+  expect(firstData.events).toHaveLength(1);
+  expect(firstData.nextCursor).not.toBeNull();
+  const secondPage = await run('sandbox.events', {
+    since: firstData.nextCursor!,
+    limit: 10,
+    kind: 'writes',
+  });
+  const secondData = secondPage.data as { events: Array<{ id: string }> };
+  const firstIds = new Set(firstData.events.map((event) => event.id));
+  for (const event of secondData.events) expect(firstIds.has(event.id)).toBe(false);
+
+  // Round-trip a fixture across a full reset.
+  const exported = await run('sandbox.exportFixture', { path: 'fixtures/round-trip.json' });
+  expect(exported.ok).toBe(true);
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+  const afterReset = await run('firestore.getDoc', { path: 'ledger/keep' });
+  expect((afterReset.data as { exists: boolean }).exists).toBe(false);
+
+  const reseeded = await run('sandbox.seedFromFixture', { path: 'fixtures/round-trip.json' });
+  expect(reseeded.ok).toBe(true);
+  const reseededDoc = await run('firestore.getDoc', { path: 'ledger/keep' });
+  expect((reseededDoc.data as { data: { value: number } }).data.value).toBe(1);
+
+  const withoutPasswords = await run('auth.getUser', { uid: 'checkpoint-erin' });
+  expect(withoutPasswords.ok).toBe(true);
+
+  const exportedWithPasswords = await run('sandbox.exportFixture', {
+    path: 'fixtures/with-passwords.json',
+    includePasswords: true,
+    confirm: true,
+  });
+  expect(exportedWithPasswords.ok).toBe(true);
+  const refusedWithoutConfirm = await run('sandbox.exportFixture', {
+    path: 'fixtures/refused.json',
+    includePasswords: true,
+  });
+  expect(refusedWithoutConfirm.ok).toBe(false);
+  expect(refusedWithoutConfirm.summary).toContain('confirm');
+});
+
+it('preserves a real password across a fixture round trip only when asked', async () => {
+  expect(
+    (
+      await run('auth.createUser', {
+        uid: 'password-holder',
+        email: 'holder@example.com',
+        password: 'super-secret-1',
+      })
+    ).ok,
+  ).toBe(true);
+
+  const withoutPasswords = await run('sandbox.exportFixture', { path: 'fixtures/no-password.json' });
+  expect(withoutPasswords.ok).toBe(true);
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+  expect((await run('sandbox.seedFromFixture', { path: 'fixtures/no-password.json' })).ok).toBe(
+    true,
+  );
+  await expect(
+    signInWithEmailAndPassword(getAuth(sandbox), 'holder@example.com', 'super-secret-1'),
+  ).rejects.toBeTruthy();
+
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+  expect(
+    (
+      await run('auth.createUser', {
+        uid: 'password-holder',
+        email: 'holder@example.com',
+        password: 'super-secret-1',
+      })
+    ).ok,
+  ).toBe(true);
+  const withPasswords = await run('sandbox.exportFixture', {
+    path: 'fixtures/with-password.json',
+    includePasswords: true,
+    confirm: true,
+  });
+  expect(withPasswords.ok).toBe(true);
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+  expect((await run('sandbox.seedFromFixture', { path: 'fixtures/with-password.json' })).ok).toBe(
+    true,
+  );
+  const signedIn = await signInWithEmailAndPassword(
+    getAuth(sandbox),
+    'holder@example.com',
+    'super-secret-1',
+  );
+  expect(signedIn.user.uid).toBe('password-holder');
+
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+});
+
+it('resets one service without touching the others', async () => {
+  expect((await run('firestore.setDoc', { path: 'scoped/doc', data: { kept: true } })).ok).toBe(
+    true,
+  );
+  expect((await run('database.set', { path: 'scoped/value', value: 'kept' })).ok).toBe(true);
+
+  expect((await run('sandbox.reset', { scope: 'database', confirm: true })).ok).toBe(true);
+
+  const doc = await run('firestore.getDoc', { path: 'scoped/doc' });
+  expect((doc.data as { exists: boolean }).exists).toBe(true);
+  const value = await run('database.get', { path: 'scoped/value' });
+  expect((value.data as { exists: boolean }).exists).toBe(false);
 
   expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
 });
