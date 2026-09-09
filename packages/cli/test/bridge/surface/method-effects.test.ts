@@ -28,8 +28,7 @@ import {
   PRODUCTION_DISABLED_HEADING,
   PRODUCTION_ENABLED_HEADING,
   allowProductionFrom,
-  refuseUnconfirmedDestructive,
-  refuseUnconfirmedProduction,
+  refuseUnconfirmed,
   refuseUnmountedProduction,
 } from '../../../src/bridge/surface/method-effects.js';
 import { METHODS, methodByKey, toolByName, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
@@ -80,7 +79,7 @@ describe('destructive refusal', () => {
 
   it('refuses a destructive call with no confirm', () => {
     const fail = failFor(destructive.tool, destructive.method);
-    const rejection = refuseUnconfirmedDestructive(destructive, {}, fail);
+    const rejection = refuseUnconfirmed('destructive', destructive, {}, fail);
     expect(rejection).not.toBeNull();
     expect(rejection?.data.field).toBe('confirm');
     expect(rejection?.data.tool).toBe('sandbox');
@@ -89,18 +88,18 @@ describe('destructive refusal', () => {
 
   it('refuses a destructive call with confirm false', () => {
     const fail = failFor(destructive.tool, destructive.method);
-    expect(refuseUnconfirmedDestructive(destructive, { confirm: false }, fail)).not.toBeNull();
+    expect(refuseUnconfirmed('destructive', destructive, { confirm: false }, fail)).not.toBeNull();
   });
 
   it('allows a destructive call with confirm true', () => {
     const fail = failFor(destructive.tool, destructive.method);
-    expect(refuseUnconfirmedDestructive(destructive, { confirm: true }, fail)).toBeNull();
+    expect(refuseUnconfirmed('destructive', destructive, { confirm: true }, fail)).toBeNull();
   });
 
   it('does not refuse a non-destructive call regardless of confirm', () => {
     const read = fakeMethod({ effect: 'read', method: 'readOnly', key: 'sandbox.readOnly' });
     const fail = failFor(read.tool, read.method);
-    expect(refuseUnconfirmedDestructive(read, {}, fail)).toBeNull();
+    expect(refuseUnconfirmed('destructive', read, {}, fail)).toBeNull();
   });
 
   it('goes through validateArguments, the one place both the MCP path and the CLI path call', () => {
@@ -148,16 +147,16 @@ describe('production gating', () => {
   it('stops refusing on the flag alone and refuses on the confirmation instead', () => {
     const fail = failFor(production.tool, production.method);
     expect(refuseUnmountedProduction(production, true, fail)).toBeNull();
-    const unconfirmed = refuseUnconfirmedProduction(production, {}, fail);
+    const unconfirmed = refuseUnconfirmed('production', production, {}, fail);
     expect(unconfirmed?.data.field).toBe('confirm');
-    expect(refuseUnconfirmedProduction(production, { confirm: true }, fail)).toBeNull();
+    expect(refuseUnconfirmed('production', production, { confirm: true }, fail)).toBeNull();
   });
 
   it('does not refuse a non-production call', () => {
     const read = fakeMethod({ effect: 'read', method: 'readOnly', key: 'sandbox.readOnly' });
     const fail = failFor(read.tool, read.method);
     expect(refuseUnmountedProduction(read, false, fail)).toBeNull();
-    expect(refuseUnconfirmedProduction(read, {}, fail)).toBeNull();
+    expect(refuseUnconfirmed('production', read, {}, fail)).toBeNull();
   });
 
   it('goes through validateArguments with allowProduction threaded in', () => {

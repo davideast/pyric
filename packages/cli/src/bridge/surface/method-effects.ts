@@ -70,18 +70,36 @@ export function methodStatus(method: Method, allowProduction: boolean): MethodSt
   return 'disabled';
 }
 
+/** The two effects that make the caller confirm before the call runs. */
+export type ConfirmingEffect = 'destructive' | 'production';
+
+/** What a production call spends, which a destructive call does not. */
+const PRODUCTION_STAKES = 'It reaches Google infrastructure with real credentials.';
+
+/** What the caller is being asked to confirm. */
+function confirmationSubject(effect: ConfirmingEffect, method: Method): string {
+  if (effect === 'production') return `${method.description} ${PRODUCTION_STAKES}`;
+  return method.description;
+}
+
 /**
- * Refuse a `destructive` call that did not pass `confirm: true`. Returns null
- * for every other effect, and for a destructive call that did confirm.
+ * Refuse a call of the named effect that did not pass `confirm: true`. Returns
+ * null for every other effect, and for a call of this one that did confirm.
+ *
+ * `destructive` and `production` ask the same thing of a caller and differ
+ * only in what is being spent, so the check is written once and the subject
+ * line says which. For production the flag opts a session in to the
+ * capability; the confirmation opts one call in to spending it.
  */
-export function refuseUnconfirmedDestructive(
+export function refuseUnconfirmed(
+  effect: ConfirmingEffect,
   method: Method,
   args: Args,
   fail: Fail,
 ): InvalidArguments | null {
-  if (method.effect !== 'destructive') return null;
+  if (method.effect !== effect) return null;
   if (args.confirm === true) return null;
-  return fail(method.description, 'Pass confirm: true to proceed.', 'confirm');
+  return fail(confirmationSubject(effect, method), 'Pass confirm: true to proceed.', 'confirm');
 }
 
 /**
@@ -98,28 +116,9 @@ export function refuseUnmountedProduction(
   if (method.effect !== 'production') return null;
   if (allowProduction) return null;
   return fail(
-    `${method.description} It reaches Google infrastructure with real credentials. ${PRODUCTION_DISABLED_HEADING}.`,
+    `${method.description} ${PRODUCTION_STAKES} ${PRODUCTION_DISABLED_HEADING}.`,
     `Use ${ALLOW_PRODUCTION_FLAG} on the process that owns this sandbox, then call again.`,
     undefined,
     'production_disabled',
-  );
-}
-
-/**
- * Refuse an enabled `production` call that did not pass `confirm: true`. The
- * flag opts a session in to the capability; the confirmation opts one call in
- * to spending it.
- */
-export function refuseUnconfirmedProduction(
-  method: Method,
-  args: Args,
-  fail: Fail,
-): InvalidArguments | null {
-  if (method.effect !== 'production') return null;
-  if (args.confirm === true) return null;
-  return fail(
-    `${method.description} It reaches Google infrastructure with real credentials.`,
-    'Pass confirm: true to proceed.',
-    'confirm',
   );
 }

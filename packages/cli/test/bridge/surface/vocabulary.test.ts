@@ -49,4 +49,15 @@ describe('the service-tool vocabulary', () => {
       }
     }
   });
+
+  /**
+   * The two generated lists are written sorted. `pyric.json` is authored by
+   * hand and has to match, or a name appended at the end is invisible to a
+   * reader looking for it and every future addition conflicts on the same
+   * line.
+   */
+  it('keeps the hand-authored pyric list sorted', () => {
+    const names = pyric as string[];
+    expect(names).toEqual([...names].sort());
+  });
 });

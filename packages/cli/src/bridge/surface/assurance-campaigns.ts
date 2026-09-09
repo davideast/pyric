@@ -15,8 +15,10 @@
  */
 import { getActiveRules } from 'pyric/sandbox/database';
 import type { LocalSandbox } from 'pyric/sandbox';
+import type { ToolContext } from '@inbrowser/agent';
 
 import { createOwnedSandboxAttachmentProvider } from '../../assurance/attachment.js';
+import type { AssuranceToolName } from '../../assurance/tool-names.js';
 import {
   AssuranceCampaignStore,
   createAssuranceTools,
@@ -79,13 +81,17 @@ function assuranceTools(ctx: SurfaceContext) {
  */
 export async function callAssuranceOperation(
   ctx: SurfaceContext,
-  name: string,
+  name: AssuranceToolName,
   args: Args,
 ): Promise<OperationResult> {
   const tool = assuranceTools(ctx).find((candidate) => candidate.name === name);
   if (tool === undefined) throw new Error(`the assurance library has no tool '${name}'`);
+  // The library's tools read nothing off the context but cancellation, and
+  // nothing here cancels, so the signal of a controller nobody aborts is the
+  // whole context one call needs.
+  const toolContext: ToolContext = { signal: new AbortController().signal };
   try {
-    const result = await tool.execute(args, { signal: new AbortController().signal } as never);
+    const result = await tool.execute(args, toolContext);
     return { ok: result.ok, summary: result.summary, data: result.data };
   } catch (error) {
     return operationFailure(error instanceof Error ? error.message : String(error));
