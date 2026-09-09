@@ -1,123 +1,60 @@
 /**
- * `pyric <tool> <method>` against a scratch project directory: the flags become
- * the record's arguments, the call runs the record's handler, and the state it
- * writes is the state the headless MCP server reads back.
+ * `surfaceMethodCommand`, the thin registry entry a generated `pyric <tool>
+ * <method>` command wraps: it returns a handler that lazily imports the
+ * runner (so `pyric --help` never pays for the sandbox import graph) and
+ * delegates to `runSurfaceMethod` with the key it was built for.
+ *
+ * The runner's own behaviour (flags to arguments, validation, state
+ * persistence) is `surface-method-runner.test.ts`'s subject; this file only
+ * pins that the wrapper resolves to the right key and reports through the
+ * process streams `runSurfaceMethod` defaults to when a caller supplies no
+ * deps, which is what every generated command does.
  */
-import 'fake-indexeddb/auto';
-import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { HEADLESS_STATE_RELATIVE } from '../../src/bridge/server/headless.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
-import { runSurfaceMethod } from '../../src/cli/surface-method-runner.js';
+import { surfaceMethodCommand } from '../../src/cli/surface-method-command.js';
 
-const workDir = mkdtempSync(join(tmpdir(), 'pyric-surface-cli-'));
+const workDir = mkdtempSync(join(tmpdir(), 'pyric-surface-command-'));
+const originalCwd = process.cwd();
 
-afterAll(() => rmSync(workDir, { recursive: true, force: true }));
+beforeAll(() => process.chdir(workDir));
+afterAll(() => {
+  process.chdir(originalCwd);
+  rmSync(workDir, { recursive: true, force: true });
+});
 
-interface Run {
-  code: number;
-  stdout: string;
-  stderr: string;
+/** Run one command handler, capturing what it wrote to stdout. */
+async function run(handler: (parsed: ReturnType<typeof parseArgs>) => Promise<number>, argv: string[]) {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  let captured = '';
+  process.stdout.write = ((chunk: string) => {
+    captured += chunk;
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    const code = await handler(parseArgs(argv));
+    return { code, stdout: captured };
+  } finally {
+    process.stdout.write = originalWrite;
+  }
 }
 
-async function run(key: string, argv: string[]): Promise<Run> {
-  let stdout = '';
-  let stderr = '';
-  const code = await runSurfaceMethod(key, parseArgs(argv), {
-    cwd: workDir,
-    stdout: { write: (text) => void (stdout += text) },
-    stderr: { write: (text) => void (stderr += text) },
-  });
-  return { code, stdout, stderr };
-}
-
-describe('pyric <tool> <method>', () => {
-  it('writes a document from flags, with the object argument as a JSON string', async () => {
-    const written = await run('firestore.setDoc', [
-      'firestore',
-      'setDoc',
-      '--path',
-      'posts/p1',
-      '--data',
-      '{"a":1}',
-    ]);
-    expect(written.stderr).toBe('');
-    expect(written.code).toBe(0);
-    expect(existsSync(join(workDir, HEADLESS_STATE_RELATIVE))).toBe(true);
-
-    const read = await run('firestore.getDoc', ['firestore', 'getDoc', '--path', 'posts/p1']);
-    expect(read.code).toBe(0);
-    expect(read.stdout).toContain('"a": 1');
+describe('surfaceMethodCommand', () => {
+  it('builds a handler that runs the record the key names', async () => {
+    const handler = surfaceMethodCommand('sandbox.inspect');
+    const result = await run(handler, ['sandbox', 'inspect', '--json']);
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toHaveProperty('ok', true);
   });
 
-  it('holds an impersonated identity in the state the next command reads', async () => {
-    const switched = await run('auth.createUser', [
-      'auth',
-      'createUser',
-      '--uid',
-      'alice',
-      '--email',
-      'alice@example.com',
-    ]);
-    expect(switched.code).toBe(0);
-
-    const impersonated = await run('auth.impersonate', [
-      'auth',
-      'impersonate',
-      '--uid',
-      'alice',
-    ]);
-    expect(impersonated.code).toBe(0);
-    expect(impersonated.stdout).toContain('Acting as alice');
-  });
-
-  it('prints the whole result as JSON on request', async () => {
-    const inspected = await run('sandbox.inspect', ['sandbox', 'inspect', '--json']);
-    expect(inspected.code).toBe(0);
-    expect(JSON.parse(inspected.stdout)).toHaveProperty('ok', true);
-  });
-
-  it('refuses a flag the record does not declare, naming the ones it does', async () => {
-    const rejected = await run('firestore.getDoc', ['firestore', 'getDoc', '--document', 'x']);
-    expect(rejected.code).toBe(1);
-    expect(rejected.stderr).toContain('has no --document');
-    expect(rejected.stderr).toContain('--path');
-  });
-
-  it('runs the record validator before the handler', async () => {
-    const rejected = await run('firestore.getDoc', ['firestore', 'getDoc', '--path', 'posts']);
-    expect(rejected.code).toBe(2);
-    expect(rejected.stderr).toContain('firestore.getDoc');
-    expect(rejected.stderr).toContain('even number of segments');
-  });
-
-  it('takes an enum argument as the word it is, not as JSON', async () => {
-    const linted = await run('rules.lint', [
-      'rules',
-      'lint',
-      '--service',
-      'firestore',
-      '--rules',
-      "rules_version = '2';\nservice cloud.firestore {\n}",
-    ]);
-    // Exit 1 is a usage error, which is what a word read as JSON would be.
-    expect(linted.stderr).not.toContain('JSON');
-    expect(linted.code).not.toBe(1);
-  });
-
-  it('refuses an object argument that is not JSON', async () => {
-    const rejected = await run('firestore.setDoc', [
-      'firestore',
-      'setDoc',
-      '--path',
-      'posts/p2',
-      '--data',
-      'a=1',
-    ]);
-    expect(rejected.code).toBe(1);
-    expect(rejected.stderr).toContain('not valid JSON');
+  it('gives two different keys two independently working handlers', async () => {
+    const other = surfaceMethodCommand('auth.whoami');
+    const result = await run(other, ['auth', 'whoami']);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('Acting as');
   });
 });
