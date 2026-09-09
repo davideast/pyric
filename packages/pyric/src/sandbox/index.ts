@@ -97,12 +97,12 @@ export type {
 } from './full-state.js';
 
 // Branches — fork/apply/diff/promote/discard experiments built on top of
-// `snapshot()` + `replay()`. A branch is an isolated in-memory sandbox
-// seeded from a `SandboxSnapshot`; `apply` re-issues events via `replay`,
-// `diff` is a focused doc-level structural diff (reuses `Divergence`),
-// `promote` lands the branch's mutations on a target, `discard` drops it.
-// Substrate for Studio's agent dry-run/accept, rules-edit branches, and
-// time-travel. See the design rationale.
+// `captureFullState()` + `applyFullState()`. A branch is an isolated
+// in-memory sandbox seeded from a `FullSandboxState`, so it carries every
+// service; `apply` re-issues captured writes onto it, `diff` walks the two
+// states service by service (reuses `Divergence`), `promote` writes that
+// same walk onto a target, `discard` drops it. Substrate for Studio's agent
+// dry-run/accept, rules-edit branches, and time-travel.
 export { apply, discard, diff, diffFullStates, fork, promote, promoteFullState } from './branches/index.js';
 export type {
   Branch,
