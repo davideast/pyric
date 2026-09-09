@@ -20,7 +20,8 @@ service cloud.firestore {
   },
   acceptedFirstOperations: ['lint_firestore_rules'],
   assert: (state) => {
-    if (!state.calls.some((c) => c.operation === 'lint_firestore_rules' && c.ok)) {
+    // A lint that reports errors is a completed lint, so ok is not required.
+    if (!state.calls.some((c) => c.operation === 'lint_firestore_rules')) {
       return 'the Firestore rules were never linted';
     }
     return true;

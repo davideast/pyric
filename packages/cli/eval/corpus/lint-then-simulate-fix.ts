@@ -21,7 +21,7 @@ service cloud.firestore {
   },
   acceptedFirstOperations: [],
   assert: (state) => {
-    if (!state.calls.some((c) => c.operation === 'lint_firestore_rules' && c.ok)) {
+    if (!state.calls.some((c) => c.operation === 'lint_firestore_rules')) {
       return 'the rules were never linted';
     }
     if (!state.calls.some((c) => c.operation === 'simulate_firestore_rules' && c.ok)) {

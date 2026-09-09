@@ -17,7 +17,8 @@ service firebase.storage {
   },
   acceptedFirstOperations: ['lint_storage_rules'],
   assert: (state) => {
-    if (!state.calls.some((c) => c.operation === 'lint_storage_rules' && c.ok)) {
+    // A lint that reports errors is a completed lint, so ok is not required.
+    if (!state.calls.some((c) => c.operation === 'lint_storage_rules')) {
       return 'the storage rules were never linted';
     }
     return true;

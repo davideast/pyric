@@ -16,7 +16,8 @@ const task: EvalTask = {
   },
   acceptedFirstOperations: ['lint_database_rules'],
   assert: (state) => {
-    if (!state.calls.some((c) => c.operation === 'lint_database_rules' && c.ok)) {
+    // A lint that reports errors is a completed lint, so ok is not required.
+    if (!state.calls.some((c) => c.operation === 'lint_database_rules')) {
       return 'the database rules were never linted';
     }
     return true;
