@@ -33,7 +33,7 @@ import {
   serializeToBuckets,
 } from '../persistence/chunk-format.js';
 import type { SandboxEvent, SandboxSnapshot } from '../types/index.js';
-import { apply, fork, type Branch } from './index.js';
+import { apply, fork, type Branch } from './engine.js';
 
 /** The tag every branch manifest carries, so an unrelated directory is not read as one. */
 export const BRANCH_FORMAT = 'pyric-branch-v1';
