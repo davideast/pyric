@@ -527,4 +527,31 @@ describe('the surface a headless session serves', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  // Step 3B: a branch outlives the session that forked it, because it is a
+  // directory in the project rather than state in the server.
+  it('lists a branch forked in an earlier session against the same project directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-branch-'));
+    try {
+      const first = await openSession(dir, {});
+      const forked = await first.client.callTool({
+        name: 'sandbox',
+        arguments: { method: 'fork', args: { branch: 'overnight' } },
+      });
+      expect(forked.isError).toBeFalsy();
+      await first.close();
+
+      const second = await openSession(dir, {});
+      const listed = await second.client.callTool({
+        name: 'sandbox',
+        arguments: { method: 'listBranches', args: {} },
+      });
+      expect(listed.isError).toBeFalsy();
+      const text = (listed.content as Array<{ text?: string }>).map((part) => part.text).join('');
+      expect(text).toContain('overnight');
+      await second.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

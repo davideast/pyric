@@ -32,6 +32,7 @@ Console to ship rules, indexes, hosting, and functions to a real project.
 | `pyric database rules validate <path>` | Validate Realtime Database rules expressions |
 | `pyric database rules generate` | Compile a constraints module to local `database.rules.json` without contacting production |
 | `pyric <tool> <method> [--<arg> <value>...]` | Call one method of the service surface (`firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`) against this project's sandbox, with the SDK's own method and argument names, e.g. `pyric rules lint --service firestore` or `pyric firestore setDoc --path posts/p1 --data '{"a":1}'`. Any argument reads from a file as `--<arg>-file <path>`, as text for a string argument and parsed JSON for an object one: `pyric rules lint --service firestore --rules-file firestore.rules`. The same records serve `pyric mcp`. |
+| `pyric sandbox fork\|apply\|diff\|promote\|discard\|listBranches` | Work a change out on a branch before it reaches the live sandbox. A branch is a directory under `.pyric/state/branches/<branch>/`, so it survives a restart: `pyric sandbox fork --branch draft`, `pyric sandbox apply --branch draft --sessionPath .pyric/last-session.json`, `pyric sandbox diff --branch draft`, then `pyric sandbox promote --branch draft --confirm` or `pyric sandbox discard --branch draft`. |
 
 Every command's full flags, defaults, exit codes, and environment variables are
 in the **[CLI reference](https://pyric.dev/docs/reference/cli/)**.

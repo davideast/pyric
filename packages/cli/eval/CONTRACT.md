@@ -53,8 +53,14 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `inspect_sandbox` | inspect | sandbox | state | none | Counts and status per service. |
 | `reset_sandbox` | reset | sandbox | state | none | |
 | `seed_sandbox` | seed | sandbox | state | `users?`, `firestore?`, `database?`, `storage?`, `firestoreRules?`, `databaseRules?`, `storageRules?` | Matches `EvalSeed`. Any other top-level key is rejected. |
+| `fork_sandbox_branch` | fork | sandbox | branch | `branch`, `candidateRules?` | Step 3B. Copies live into a persisted branch under `.pyric/state/branches/<branch>/`. |
+| `apply_sandbox_events` | apply | sandbox | events | `branch`, `events?` (array), `sessionPath?` | Step 3B. Exactly one of `events` and `sessionPath`; naming neither is refused. |
+| `diff_sandbox_branch` | diff | sandbox | branch | `branch`, `against?` (`live` or a checkpoint name) | Step 3B. Defaults to `live`. |
+| `promote_sandbox_branch` | promote | sandbox | branch | `branch`, `confirm` | Step 3B. Destructive: lands the branch on live and deletes it. |
+| `discard_sandbox_branch` | discard | sandbox | branch | `branch` | Step 3B. Deletes the branch; live is untouched. |
+| `list_sandbox_branches` | list | sandbox | branches | none | Step 3B. Name, created, base, event count, and divergences against live. |
 
-Forty-one operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of any parameter schema is at most two object levels below the root.
+Forty-seven operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of any parameter schema is at most two object levels below the root.
 
 ## 2. Surface variants
 

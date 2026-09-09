@@ -40,7 +40,20 @@ when one ships, it is not mounted unless the server is started with
 | `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
 | `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
-| `sandbox` | `inspect`, `seed`, `reset` (destructive; requires `confirm: true`) |
+| `sandbox` | `inspect`, `seed`, `reset` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
+
+The six branch methods work a change out on a copy before it reaches the live
+sandbox. `fork` copies live into a named branch under
+`.pyric/state/branches/<branch>/`, optionally under a candidate Firestore
+ruleset the live sandbox never sees. `apply` re-issues sandbox events onto the
+branch, either from an `events` list or from a recorded session file named by
+`sessionPath` relative to the project directory; a call that names neither is
+refused. `diff` reports what the branch and its reference disagree on, against
+`live` by default or against a checkpoint by name. `promote` lands the branch
+on live and deletes it. `discard` deletes the branch and leaves live alone.
+`listBranches` reports every branch with when it was forked, how many events it
+carries, and how far it has drifted from live. A branch is a directory in the
+project, so it outlives the server that forked it.
 
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path
