@@ -68,7 +68,7 @@ describe('the sdk-service tool set', () => {
     );
   });
 
-  it('gives every tool the same two top-level properties', () => {
+  it('gives every tool the same two top-level properties, args optional', () => {
     for (const tool of surface.tools) {
       const schema = tool.inputSchema as {
         type: string;
@@ -77,7 +77,7 @@ describe('the sdk-service tool set', () => {
       };
       expect(schema.type).toBe('object');
       expect(Object.keys(schema.properties)).toEqual(['method', 'args']);
-      expect(schema.required).toEqual(['method', 'args']);
+      expect(schema.required).toEqual(['method']);
       expect(schema.properties.args).toEqual({
         type: 'object',
         additionalProperties: true,
@@ -280,6 +280,28 @@ describe('the sandbox seed vocabulary', () => {
     const [stored] = authSandbox.exportUsers(auth);
     expect(stored?.tenantId).toBe('tenant-acme');
     expect(stored?.customClaims).toEqual({ role: 'admin' });
+  });
+});
+
+describe('optional args', () => {
+  it('accepts a call with no args to a no-argument method', async () => {
+    const sandbox = initializeSandbox();
+    const rendered = surface.tools.find((candidate) => candidate.name === 'storage');
+    if (!rendered) throw new Error('no rendered tool named storage');
+    const result = await rendered.execute({ method: 'listAll' }, createSurfaceContext(sandbox));
+    expect(result.ok).toBe(true);
+  });
+
+  it('gives the missing-field message, not a schema dump, when args is omitted for a required argument', async () => {
+    const sandbox = initializeSandbox();
+    const rendered = surface.tools.find((candidate) => candidate.name === 'firestore');
+    if (!rendered) throw new Error('no rendered tool named firestore');
+    const result = await rendered.execute({ method: 'getDoc' }, createSurfaceContext(sandbox));
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe(
+      "firestore.getDoc: argument 'path' is missing. The SDK signature is getDoc(path). " +
+        "Pass 'path'. Document path, for example users/alice.",
+    );
   });
 });
 
