@@ -21,7 +21,7 @@ import { promote } from 'pyric/sandbox';
 import { loadBranch, removeBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
-import { branchName, refuseUnknownBranch } from '../../arguments/branches.js';
+import { branchName, refuseUnknownBranch } from '../../arguments/sandbox.js';
 import { applyCheckpoint, captureCheckpoint } from '../../checkpoints.js';
 import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';

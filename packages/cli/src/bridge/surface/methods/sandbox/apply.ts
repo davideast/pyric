@@ -21,7 +21,7 @@ import {
   refuseAmbiguousSource,
   refuseUnknownBranch,
   resolveProjectPath,
-} from '../../arguments/branches.js';
+} from '../../arguments/sandbox.js';
 import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';

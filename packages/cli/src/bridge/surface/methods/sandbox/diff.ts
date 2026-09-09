@@ -15,7 +15,7 @@ import { diff } from 'pyric/sandbox';
 import { loadBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
-import { AGAINST_LIVE, branchName, refuseUnknownBranch } from '../../arguments/branches.js';
+import { AGAINST_LIVE, branchName, refuseUnknownBranch } from '../../arguments/sandbox.js';
 import { checkpointNames, checkpointSnapshot, readCheckpoint } from '../../checkpoints.js';
 import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';

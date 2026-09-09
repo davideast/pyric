@@ -11,7 +11,7 @@ import { saveBranch } from 'pyric/sandbox/branches/store';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { z } from 'zod';
 
-import { branchExists, branchName } from '../../arguments/branches.js';
+import { branchExists, branchName } from '../../arguments/sandbox.js';
 import { operationFailure } from '../../context.js';
 import type { MethodRecord } from '../../method-types.js';
 

@@ -9,7 +9,7 @@
 import { removeBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
-import { branchExists, branchName, refuseUnknownBranch } from '../../arguments/branches.js';
+import { branchExists, branchName, refuseUnknownBranch } from '../../arguments/sandbox.js';
 import { failFor } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';
 
