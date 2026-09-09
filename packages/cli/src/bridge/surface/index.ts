@@ -10,12 +10,10 @@
  */
 import { render as renderDiscriminator } from './render/discriminator.js';
 import { render as renderNounPrefixed } from './render/noun-prefixed.js';
-import { render as renderSdkService, type RenderOptions } from './render/sdk-service.js';
+import { render as renderSdkService } from './render/sdk-service.js';
 import { render as renderVerbPrefixed } from './render/verb-prefixed.js';
 import { render as renderVerbSuffixed } from './render/verb-suffixed.js';
-import type { RenderedSurface } from './types.js';
-
-export type { RenderOptions };
+import type { RenderedSurface, RenderOptions } from './types.js';
 
 type Renderer = (options?: RenderOptions) => RenderedSurface;
 
@@ -34,9 +32,10 @@ const RENDERERS: Readonly<Record<string, Renderer>> = {
 export const SURFACE_VARIANT_IDS: readonly string[] = Object.keys(RENDERERS);
 
 /**
- * Render one surface. No id renders the product surface. `options.allowProduction`
- * mounts `production` methods; only `sdk-service`, the product surface, reads
- * it, since the evaluation variants never run with production access.
+ * Render one surface. No id renders the product surface.
+ * `options.allowProduction` mounts `production` methods, and every renderer
+ * reads it, so a method the product surface withholds is withheld by every
+ * evaluation variant too.
  */
 export function renderSurface(
   surfaceId: string | undefined,
@@ -69,6 +68,7 @@ export type {
   RenderedResource,
   RenderedSurface,
   RenderedTool,
+  RenderOptions,
   ResolvedCall,
   SurfaceContext,
 } from './types.js';

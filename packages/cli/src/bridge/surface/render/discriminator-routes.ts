@@ -502,7 +502,11 @@ const ENVIRONMENT_ROUTES: DiscriminatorRoute[] = [
     action: 'reset_all',
     selects: on('action', 'reset_all'),
     operation: 'reset_sandbox',
-    translate: () => ({}),
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'confirm', args.confirm);
+      return call;
+    },
   },
   {
     tool: 'control_sandbox_environment',

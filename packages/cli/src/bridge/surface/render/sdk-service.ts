@@ -16,12 +16,12 @@
  */
 import { TOOL_DESCRIPTIONS } from '../descriptions.generated.js';
 import { toJsonSchema } from '../json-schema.js';
+import { callMethod } from '../method-call.js';
 import { mountedTool } from '../method-effects.js';
 import { METHODS, methodByName, TOOLS, toolByName } from '../methods/index.js';
 import {
   DESCRIBE_METHOD,
   methodNames,
-  validateArguments,
   validateDescribe,
   validateMethodName,
 } from '../method-validation.js';
@@ -32,6 +32,7 @@ import type {
   OperationResult,
   RenderedSurface,
   RenderedTool,
+  RenderOptions,
   ResolvedCall,
   SurfaceContext,
 } from '../types.js';
@@ -132,10 +133,7 @@ async function execute(
     if (rejection !== null) return rejection;
     return describeMethod(methodOrThrow(tool, String(args.method)));
   }
-  const method = methodOrThrow(tool, methodName);
-  const rejection = validateArguments(method, args, allowProduction);
-  if (rejection !== null) return rejection;
-  return method.handler(args, ctx);
+  return callMethod(methodOrThrow(tool, methodName), args, ctx, allowProduction);
 }
 
 /**
@@ -150,12 +148,6 @@ function resolveCall(toolName: string, raw: Args): ResolvedCall {
   const method = methodByName(tool, named);
   if (method === undefined) return { operation: null, action: named };
   return { operation: selectOperation(method, argsOf(raw)), action: named };
-}
-
-/** Rendering options every renderer's type accepts; only `sdk-service` reads them. */
-export interface RenderOptions {
-  /** Mount `production` methods. Defaults to false, the safe default. */
-  allowProduction?: boolean;
 }
 
 export function render(options?: RenderOptions): RenderedSurface {

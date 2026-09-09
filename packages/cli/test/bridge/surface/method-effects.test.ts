@@ -6,9 +6,12 @@
  * same functions this file tests, so there is exactly one place either kind
  * of refusal can drift.
  */
+import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
+import { initializeSandbox } from 'pyric/sandbox';
 
+import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface/index.js';
 import { failFor, validateArguments } from '../../../src/bridge/surface/method-validation.js';
 import {
   mountedMethods,
@@ -16,7 +19,7 @@ import {
   refuseUnconfirmedDestructive,
   refuseUnmountedProduction,
 } from '../../../src/bridge/surface/method-effects.js';
-import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/index.js';
+import { METHODS, methodByKey, TOOLS } from '../../../src/bridge/surface/methods/index.js';
 import type { Method, Tool } from '../../../src/bridge/surface/method-types.js';
 
 /** A method record built only for this test; never filed under `methods/`. */
@@ -152,5 +155,132 @@ describe('production gating', () => {
     for (const tool of TOOLS) {
       expect(mountedTool(tool, false).methods.length).toBe(tool.methods.length);
     }
+  });
+});
+
+/**
+ * Every rendered surface reaches a handler through `validateArguments`, so a
+ * destructive call is refused without `confirm` and a `production` method is
+ * unreachable on all of them alike. The three named surfaces are the
+ * `one-tool-per-method` builder under its three word orders, so rendering all
+ * three exercises that builder too.
+ */
+describe('every rendered surface passes through the one validator', () => {
+  const ctx = createSurfaceContext(initializeSandbox());
+
+  /** One surface, the tool a reset arrives on, and the arguments both ways. */
+  interface ResetCall {
+    surface: string;
+    tool: string;
+    unconfirmed: Record<string, unknown>;
+    confirmed: Record<string, unknown>;
+  }
+
+  const RESET_CALLS: readonly ResetCall[] = [
+    {
+      surface: 'sdk-service',
+      tool: 'sandbox',
+      unconfirmed: { method: 'reset', args: {} },
+      confirmed: { method: 'reset', args: { confirm: true } },
+    },
+    {
+      surface: 'verb-prefixed',
+      tool: 'reset_sandbox',
+      unconfirmed: {},
+      confirmed: { confirm: true },
+    },
+    {
+      surface: 'noun-prefixed',
+      tool: 'sandbox_reset',
+      unconfirmed: {},
+      confirmed: { confirm: true },
+    },
+    {
+      surface: 'verb-suffixed',
+      tool: 'reset_sandbox',
+      unconfirmed: {},
+      confirmed: { confirm: true },
+    },
+    {
+      surface: 'discriminator',
+      tool: 'control_sandbox_environment',
+      unconfirmed: { action: 'reset_all' },
+      confirmed: { action: 'reset_all', confirm: true },
+    },
+  ];
+
+  /** One rendered tool of one surface, or a failure naming what was asked for. */
+  function toolOf(surface: string, name: string, options?: { allowProduction?: boolean }) {
+    const rendered = renderSurface(surface, options).tools.find((tool) => tool.name === name);
+    if (rendered === undefined) throw new Error(`${surface} renders no tool named '${name}'`);
+    return rendered;
+  }
+
+  for (const call of RESET_CALLS) {
+    it(`${call.surface} refuses a reset with no confirm and runs one that confirms`, async () => {
+      const tool = toolOf(call.surface, call.tool);
+      const refused = await tool.execute(call.unconfirmed, ctx);
+      expect(refused.ok).toBe(false);
+      expect(refused.summary).toContain('confirm: true');
+
+      const ran = await tool.execute(call.confirmed, ctx);
+      expect(ran.ok).toBe(true);
+    });
+  }
+
+  /**
+   * Reclassify one loaded record as `production` for the duration of a check.
+   * No `production` record ships yet, so reclassifying a record every surface
+   * already carries is the only way to exercise the gate through a rendering.
+   */
+  async function asProduction(key: string, run: () => Promise<void>): Promise<void> {
+    const method = methodByKey(key);
+    const held = method.effect;
+    method.effect = 'production';
+    try {
+      await run();
+    } finally {
+      method.effect = held;
+    }
+  }
+
+  /** The tool a reclassified `sandbox.inspect` would be rendered as, per surface. */
+  const INSPECT_TOOLS: ReadonlyArray<[string, string]> = [
+    ['verb-prefixed', 'inspect_sandbox'],
+    ['noun-prefixed', 'sandbox_inspect'],
+    ['verb-suffixed', 'inspect_sandbox'],
+  ];
+
+  for (const [surface, tool] of INSPECT_TOOLS) {
+    it(`${surface} renders no tool for a production method unless production is allowed`, async () => {
+      await asProduction('sandbox.inspect', async () => {
+        const withheld = renderSurface(surface, { allowProduction: false }).tools;
+        expect(withheld.map((rendered) => rendered.name)).not.toContain(tool);
+        const mounted = renderSurface(surface, { allowProduction: true }).tools;
+        expect(mounted.map((rendered) => rendered.name)).toContain(tool);
+      });
+    });
+  }
+
+  it('sdk-service withholds a production method from its enum and refuses the call', async () => {
+    await asProduction('sandbox.inspect', async () => {
+      const sandbox = toolOf('sdk-service', 'sandbox', { allowProduction: false });
+      const schema = sandbox.inputSchema.properties as { method: { enum: string[] } };
+      expect(schema.method.enum).not.toContain('inspect');
+      const refused = await sandbox.execute({ method: 'inspect', args: {} }, ctx);
+      expect(refused.ok).toBe(false);
+      expect(refused.summary).toContain('no method');
+    });
+  });
+
+  it('discriminator refuses a production method behind a resource read', async () => {
+    await asProduction('sandbox.inspect', async () => {
+      const resources = renderSurface('discriminator').resources ?? [];
+      const status = resources.find((resource) => resource.name === 'sandbox_status');
+      if (status === undefined) throw new Error('the discriminator renders no sandbox_status');
+      const refused = await status.read('pyric://sandbox/status', ctx);
+      expect(refused.ok).toBe(false);
+      expect(refused.summary).toContain('--allow-production');
+    });
   });
 });

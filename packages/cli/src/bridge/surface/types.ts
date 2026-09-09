@@ -47,6 +47,12 @@ export interface ResolvedCall {
   action: string | null;
 }
 
+/** Rendering options every renderer accepts. */
+export interface RenderOptions {
+  /** Mount `production` methods. Defaults to false, the safe default. */
+  allowProduction?: boolean;
+}
+
 /** One variant's rendering: what the client sees, plus the audit resolver. */
 export interface RenderedSurface {
   tools: RenderedTool[];

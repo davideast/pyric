@@ -3,8 +3,8 @@
  * client that sorts tool names groups every method on one object together.
  */
 import { renderOneToolPerMethod } from './one-tool-per-method.js';
-import type { RenderedSurface } from '../types.js';
+import type { RenderedSurface, RenderOptions } from '../types.js';
 
-export function render(): RenderedSurface {
-  return renderOneToolPerMethod((words) => [words.service, words.object, words.verb]);
+export function render(options?: RenderOptions): RenderedSurface {
+  return renderOneToolPerMethod((words) => [words.service, words.object, words.verb], options);
 }

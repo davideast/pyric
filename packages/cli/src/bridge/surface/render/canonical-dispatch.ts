@@ -9,14 +9,18 @@
  * entries below are the ones where a canonical name and an SDK name differ,
  * and they are the whole difference between the two surfaces.
  */
+import { callMethod } from '../method-call.js';
 import { methodByKey } from '../methods/index.js';
 import type { Args } from '../method-types.js';
 import type { OperationResult, SurfaceContext } from '../types.js';
 
 /** One canonical operation's method, and the arguments it is called with. */
 interface CanonicalRoute {
-  /** `<tool>.<method>` of the record that implements this operation. */
-  key: string;
+  /**
+   * `<tool>.<method>` of the record that implements this operation, or how the
+   * arguments choose one when several records reach the same operation.
+   */
+  key: string | ((args: Args) => string);
   /** The record's arguments, from the canonical ones. Absent means unchanged. */
   toMethodArgs?(args: Args): Args;
 }
@@ -57,13 +61,30 @@ function forService(service: string, names: readonly string[]) {
   return (args: Args): Args => ({ service, ...pick(args, names) });
 }
 
-/** The identity method a canonical mode selects. */
+/**
+ * The identity switch: four records reach one canonical operation, so the mode
+ * names the record, and only the uid mode carries arguments to it.
+ */
 const IDENTITY_METHODS: Readonly<Record<string, string>> = {
   admin: 'auth.actAsAdmin',
   anonymous: 'auth.actAsAnonymous',
   'app-session': 'auth.useAppSession',
   uid: 'auth.impersonate',
 };
+
+function identityKey(args: Args): string {
+  const key = IDENTITY_METHODS[String(args.mode)];
+  if (key === undefined) throw new Error(`unknown identity mode '${String(args.mode)}'`);
+  return key;
+}
+
+function identityArgs(args: Args): Args {
+  if (args.mode !== 'uid') return {};
+  const call: Args = { uid: args.uid };
+  if (args.tenant !== undefined) call.tenantId = args.tenant;
+  if (args.claims !== undefined) call.customClaims = args.claims;
+  return call;
+}
 
 const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   get_firestore_document: { key: 'firestore.getDoc' },
@@ -116,9 +137,7 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     },
   },
 
-  // Four records reach this one operation, so the mode picks the record before
-  // the table is read; the entry is here so the operation is in the id list.
-  switch_auth_identity: { key: 'auth.impersonate' },
+  switch_auth_identity: { key: identityKey, toMethodArgs: identityArgs },
   get_auth_user: { key: 'auth.getUser' },
   update_auth_user: { key: 'auth.updateUser' },
   delete_auth_user: { key: 'auth.deleteUser' },
@@ -165,35 +184,33 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
 
   inspect_sandbox: { key: 'sandbox.inspect' },
   seed_sandbox: { key: 'sandbox.seed' },
-  // The canonical reset carries the confirmation in the surface that named it,
-  // so the method's own confirmation is already satisfied by the time the call
-  // reaches here.
-  reset_sandbox: { key: 'sandbox.reset', toMethodArgs: () => ({ confirm: true }) },
+  // The confirmation the destructive gate reads is the caller's own, so it is
+  // carried across rather than supplied here.
+  reset_sandbox: { key: 'sandbox.reset', toMethodArgs: (args) => pick(args, ['confirm']) },
 };
+
+/** The record a route names, or the one its arguments choose among. */
+function keyOf(route: CanonicalRoute, args: Args): string {
+  if (typeof route.key === 'string') return route.key;
+  return route.key(args);
+}
 
 /** Every canonical operation a surface may name. */
 export const CANONICAL_OPERATION_IDS: readonly string[] = Object.keys(ROUTES).sort();
 
-/** Run one canonical operation with the arguments that vocabulary spells. */
+/**
+ * Run one canonical operation with the arguments that vocabulary spells. The
+ * call goes through `callMethod`, so this surface enforces the same argument
+ * rules, destructive confirmation, and production gate as every other one.
+ */
 export async function runCanonicalOperation(
   operation: string,
   args: Args,
   ctx: SurfaceContext,
+  allowProduction = false,
 ): Promise<OperationResult> {
-  if (operation === 'switch_auth_identity') {
-    const key = IDENTITY_METHODS[String(args.mode)];
-    if (key === undefined) throw new Error(`unknown identity mode '${String(args.mode)}'`);
-    const identity = methodByKey(key);
-    const call: Args = {};
-    if (key === 'auth.impersonate') {
-      call.uid = args.uid;
-      if (args.tenant !== undefined) call.tenantId = args.tenant;
-      if (args.claims !== undefined) call.customClaims = args.claims;
-    }
-    return identity.handler(call, ctx);
-  }
   const route = ROUTES[operation];
   if (route === undefined) throw new Error(`unknown operation '${operation}'`);
-  const method = methodByKey(route.key);
-  return method.handler(route.toMethodArgs?.(args) ?? args, ctx);
+  const method = methodByKey(keyOf(route, args));
+  return callMethod(method, route.toMethodArgs?.(args) ?? args, ctx, allowProduction);
 }
