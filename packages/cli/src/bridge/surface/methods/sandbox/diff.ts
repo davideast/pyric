@@ -79,9 +79,10 @@ function report(
   against: string,
   divergences: ReturnType<typeof diff>,
 ): { ok: true; summary: string; data: unknown } {
+  const noun = divergences.length === 1 ? 'divergence' : 'divergences';
   return {
     ok: true,
-    summary: `Branch '${branch}' diverges from ${against} in ${divergences.length} places.`,
+    summary: `Branch '${branch}' has ${divergences.length} ${noun} from ${against}.`,
     data: { branch, against, divergences },
   };
 }

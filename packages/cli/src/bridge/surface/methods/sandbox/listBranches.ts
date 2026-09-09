@@ -34,9 +34,10 @@ export default {
       loaded.branch.sandbox.dispose();
       return { ...withoutFormat(entry), divergences };
     });
+    const noun = branches.length === 1 ? 'branch' : 'branches';
     return {
       ok: true,
-      summary: `The project holds ${branches.length} branches.`,
+      summary: `The project holds ${branches.length} ${noun}.`,
       data: { branches },
     };
   },
