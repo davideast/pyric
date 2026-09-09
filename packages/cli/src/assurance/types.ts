@@ -16,7 +16,12 @@ export interface AssuranceCoverageGap {
 export interface AssuranceAttachmentSource {
   requestedUrl: string;
   origin: string;
-  transport: "same-origin-shared-worker";
+  /**
+   * How the campaign reached the sandbox it cloned. A served page reaches it
+   * through the shared worker behind its own origin; a process that owns the
+   * sandbox reads it directly and contacts nothing.
+   */
+  transport: "same-origin-shared-worker" | "in-process-sandbox";
   readOnly: true;
   studioUrl: string;
 }

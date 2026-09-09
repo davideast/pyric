@@ -3,12 +3,12 @@
 This repo carries two MCP tool contracts, both sourced from
 `packages/cli/src/bridge/server/mcp-contract.ts`.
 
-1. **`pyric mcp`** (headless, the default): the **product surface**, six
+1. **`pyric mcp`** (headless, the default): the **product surface**, seven
    service tools, one per Firebase capability, rendered from the method
    records under `packages/cli/src/bridge/surface/methods/`. Every call is
    `{ method, args }`, where `method` is the SDK's own method name where the
    SDK has one, and pyric's own name where it does not. `DEFAULT_MCP_TOOL_NAMES`
-   is the exact list, and it is the six tools this section documents.
+   is the exact list, and it is the seven tools this section documents.
 2. **`pyric sandbox --bridge`** (or `pyric bridge`): the **transport
    surface** a browser sandbox peer executes, plus the rules and conformance
    tools that run in the bridge process. Its names are authored per family in
@@ -25,13 +25,14 @@ the same underlying tool-family factories the transport surface composes.
 
 ## The product surface: `pyric mcp` (headless, default)
 
-Six tools: `firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`.
-Every one of them answers `describe` with `args: { method }`, which returns
-that method's full argument schema, an example call, and its effect class
-(`read`, `write`, `destructive`, or `production`). A `destructive` call is
-refused unless `args.confirm === true`. No `production` method exists yet;
-when one ships, it is not mounted unless the server is started with
-`--allow-production`.
+Seven tools: `firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`,
+`assurance`. Every one of them answers `describe` with `args: { method }`,
+which returns that method's full argument schema, an example call, its
+effect class (`read`, `write`, `destructive`, or `production`), and its
+`status` on this server. A `destructive` call is refused unless
+`args.confirm === true`.
+
+A `production` method reaches Google infrastructure with real credentials. It is listed either way, under the heading `Production methods, disabled: start the server with --allow-production`, and `describe` reports it with `status: 'disabled'` and the sentence that enables it, so an agent reads what the surface can do and why this part of it will not run. What the opt-in gates is the call. Without `--allow-production` (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`, with the flag winning) on the process that owns the sandbox, every call is refused with that same sentence, and the refusal carries the code `production_disabled` rather than `invalid_arguments`, because the arguments were fine. With the flag, the call still requires `confirm: true`. `pyric assurance testRulesHosted` refuses the same way and names the same flag. Credentials are looked for last, from `FIREBASE_SA_BASE64`, `GOOGLE_APPLICATION_CREDENTIALS`, or Application Default Credentials, and a run that finds none is refused naming all three, so a network client is never built without the flag, the confirmation, and credentials all present.
 
 | Tool | Methods |
 |---|---|
@@ -41,6 +42,7 @@ when one ships, it is not mounted unless the server is started with
 | `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
 | `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
+| `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 
 `checkpoint` writes the whole live sandbox under a name into
 `.pyric/state/checkpoints/`: Firestore documents, the Realtime Database tree,
@@ -242,10 +244,16 @@ registered on the default `pyric bridge` / `pyric sandbox --bridge` surface:
 `firebase_assurance_inspect` · `firebase_assurance_minimize` ·
 `firebase_assurance_verify` · `firebase_assurance_export`
 
+The `assurance` service tool on the product surface reaches these same ten
+operations, one method each, against the sandbox the headless server owns.
+The two are the same library under two transports and neither is derived from
+the other, so a change to an operation's schema or its classification has to
+land in `createAssuranceTools` and is picked up by both.
+
 ---
 
 **Transport surface: 41 unique tool names** (see `BRIDGE_TOOL_NAMES` in
 `mcp-contract.ts`). The product surface `pyric mcp` serves by default is the
-six service tools documented above (`DEFAULT_MCP_TOOL_NAMES` in the same
+seven service tools documented above (`DEFAULT_MCP_TOOL_NAMES` in the same
 file). Production shipping (rules, indexes, hosting, functions) is owned by
 `firebase-tools` or the Firebase Console.

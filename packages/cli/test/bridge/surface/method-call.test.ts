@@ -55,11 +55,21 @@ describe('callMethod', () => {
   });
 
   it('refuses a production method unless allowProduction is passed true', async () => {
-    const production = fakeMethod({ effect: 'production' });
+    const production = fakeMethod({
+      effect: 'production',
+      args: z.object({ value: z.string(), confirm: z.boolean().optional() }),
+    });
     const refused = await callMethod(production, { value: 'hi' }, ctx);
     expect(refused.ok).toBe(false);
+    expect(refused.summary).toContain('--allow-production');
 
-    const allowed = await callMethod(production, { value: 'hi' }, ctx, true);
+    // Allowed, the call still confirms: the flag opts the session in and the
+    // confirmation opts this one call in.
+    const unconfirmed = await callMethod(production, { value: 'hi' }, ctx, true);
+    expect(unconfirmed.ok).toBe(false);
+    expect(unconfirmed.summary).toContain('confirm: true');
+
+    const allowed = await callMethod(production, { value: 'hi', confirm: true }, ctx, true);
     expect(allowed.ok).toBe(true);
   });
 

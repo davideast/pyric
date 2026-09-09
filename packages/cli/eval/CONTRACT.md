@@ -92,7 +92,7 @@ The variant is selected at server start by `pyric mcp --surface <variant-id>` or
 
 The headless server records one event per tool call through the bridge's existing `recordToolEvent` seam. When the environment variable `PYRIC_EVAL_LOG` names a file, events append there as NDJSON, one object per line, and nothing is written to the per-project audit log. When it is absent, behavior is unchanged.
 
-Effect enforcement (ADR-0014 Decision 5) runs once, in `method-validation.ts`'s `validateArguments`, which both the MCP dispatch path and `pyric <tool> <method>` call. A `destructive` method (today `sandbox.reset`, `sandbox.restore`, and `sandbox.promote`) is refused unless `args.confirm === true`; the refusal is an ordinary `InvalidArguments` rejection naming the field `confirm`. A `production` method is not mounted: it is absent from `tools/list`, `describe` does not answer for it, and a call naming it is refused, unless the headless server was started with `--allow-production` (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`, with the flag winning). The harness passes the flag nowhere, and it deletes `PYRIC_ALLOW_PRODUCTION` from the environment of every process it spawns, so the variable a maintainer has set for their own session cannot reach a run and a `production` method never mounts in one.
+Effect enforcement (ADR-0014 Decision 5) runs once, in `method-validation.ts`'s `validateArguments`, which both the MCP dispatch path and `pyric <tool> <method>` call. A `destructive` method (today `sandbox.reset`, `sandbox.restore`, `sandbox.deleteCheckpoint`, and `sandbox.promote`) is refused unless `args.confirm === true`; the refusal is an ordinary `InvalidArguments` rejection naming the field `confirm`. The `production` model is stated in `docs/agent-tools.md`. What is the harness's own is this: it passes `--allow-production` nowhere, and it deletes `PYRIC_ALLOW_PRODUCTION` from the environment of every process it spawns, so the variable a maintainer has set for their own session cannot reach a run and a `production` method is refused in one.
 
 Event shape (a superset of today's `BridgeToolEvent`):
 
@@ -239,7 +239,7 @@ Pacing: one CLI process at a time per CLI, a configurable minimum gap between sp
 
 Result line fields: `runId`, `row`, `variant`, `task`, `seed`, `outcome` (`pass`, `fail`, `timeout`, `throttled`, `crash`), `firstOperation`, `firstOperationAccepted`, `callCount`, `schemaRejections`, `errorCalls`, `durationMs`, `assertReason`.
 
-`packages/cli/eval/report.ts` reads one or more `runs.ndjson` files and prints, per variant and row, selection accuracy, argument validity, completion rate, mean calls per completed task, and a bootstrap 95% interval over tasks for each.
+`packages/cli/eval/report.ts` reads one or more `runs.ndjson` files and prints, per variant and row, selection accuracy, argument validity, completion rate, mean calls per completed task, mean error calls per completed task, and a bootstrap 95% interval over tasks for each.
 
 ## 7. Ownership
 

@@ -11,8 +11,9 @@ import { apply, type SandboxEvent } from 'pyric/sandbox';
 import { loadBranch, saveBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
+import { CAPTURE_RELATIVE_PATH } from '../../../../serve/capture-store.js';
+
 import {
-  DEFAULT_SESSION_PATH,
   branchName,
   readSessionEvents,
   refuseAmbiguousSource,
@@ -61,12 +62,12 @@ export default {
       .string()
       .optional()
       .describe(
-        `A recorded session file, relative to the project directory, such as ${DEFAULT_SESSION_PATH}.`,
+        `A recorded session file, relative to the project directory, such as ${CAPTURE_RELATIVE_PATH}.`,
       ),
   }),
   operation: 'apply_sandbox_events',
   renames: { session: 'sessionPath', history: 'events', log: 'events' },
-  example: { branch: 'draft', sessionPath: DEFAULT_SESSION_PATH },
+  example: { branch: 'draft', sessionPath: CAPTURE_RELATIVE_PATH },
   validate: (args, { fail }) => refuseAmbiguousSource(args, fail),
   async handler(args, ctx) {
     const name = String(args.branch);

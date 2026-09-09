@@ -1,45 +1,112 @@
 /**
  * Effect enforcement (ADR-0014 Decision 5): the server, not the caller,
- * decides whether a call runs.
+ * decides whether a call runs, and this is the one module that reads whether
+ * production is allowed at all.
  *
- * `destructive` and `production` are declared on every record, but they are
- * enforced here, once, and the two callers that dispatch a method call
- * through it: `render/sdk-service.ts` for the MCP path and
- * `cli/surface-method-runner.ts` for the CLI path. Neither renders its own
- * copy of either check.
+ * `destructive` and `production` are declared on every record and enforced
+ * here, once. Both refusals are folded into `validateArguments`, so the MCP
+ * path (`render/sdk-service.ts`) and the CLI path
+ * (`cli/surface-method-runner.ts`) get them without either rendering its own
+ * copy.
  *
- * `destructive` is a per-call refusal: `refuseUnconfirmedDestructive` is
- * called from `validateArguments`, so both paths get it for free. `production`
- * is two things: whether a method can be seen at all (`mountedMethods` /
- * `mountedTool`, which the MCP renderer uses to build the tool list a client
- * sees) and whether a call that already knows the method's name may run
- * (`refuseUnmountedProduction`, also folded into `validateArguments`, which is
- * what the CLI relies on since its commands are generated ahead of any
- * runtime flag and therefore cannot be hidden the way an MCP tool list can).
+ * The production model is opt-in and visible. A `production` method is always
+ * listed, under a heading that says it is disabled and names the flag that
+ * enables it, and `describe` answers for it with that status, so an agent
+ * reads what the surface can do and why this part of it will not run rather
+ * than discovering a capability by guessing at a name that is not there. What
+ * the opt-in gates is the call: without the flag every call to a production
+ * method is refused with the same sentence the heading carries, and with the
+ * flag the call still has to confirm.
  */
-import type { Args, Fail, InvalidArguments, Method, Tool } from './method-types.js';
+import type { Args, Fail, InvalidArguments, Method } from './method-types.js';
 
-/** The flag that mounts a `production` method. Named in every refusal. */
+/** The flag that enables a `production` method. Named in the heading and in every refusal. */
 export const ALLOW_PRODUCTION_FLAG = '--allow-production';
 
+/** The environment variable that enables `production` methods when the flag is absent. */
+export const ALLOW_PRODUCTION_ENV_KEY = 'PYRIC_ALLOW_PRODUCTION';
+
 /**
- * Refuse a `destructive` call that did not pass `confirm: true`. Returns null
- * for every other effect, and for a destructive call that did confirm.
+ * The only two values of `PYRIC_ALLOW_PRODUCTION` that enable production
+ * methods. The variable takes an exact word rather than anything truthy:
+ * enabling these methods hands a session real credentials and real Google
+ * infrastructure, so a variable set for some neighbouring purpose, or set to a
+ * word a reader would take for a refusal, opts nobody in.
  */
-export function refuseUnconfirmedDestructive(
+const ALLOW_PRODUCTION_ENV_VALUES: readonly string[] = ['1', 'true'];
+
+/**
+ * Whether `production` methods run. The flag wins over the environment; absent
+ * both, they do not. Every process that owns a sandbox reads it here: the
+ * headless MCP server and `pyric <tool> <method>` alike.
+ */
+export function allowProductionFrom(flagPresent: boolean, env: NodeJS.ProcessEnv): boolean {
+  if (flagPresent) return true;
+  const value = env[ALLOW_PRODUCTION_ENV_KEY];
+  if (value === undefined) return false;
+  return ALLOW_PRODUCTION_ENV_VALUES.includes(value);
+}
+
+/** The heading a description lists disabled production methods under. */
+export const PRODUCTION_DISABLED_HEADING = `Production methods, disabled: start the server with ${ALLOW_PRODUCTION_FLAG}`;
+
+/** The heading a description lists production methods under once they are enabled. */
+export const PRODUCTION_ENABLED_HEADING = `Production methods, enabled, which require confirm: true`;
+
+/** The sentence `describe` carries for a method this server would refuse to run. */
+export const PRODUCTION_ENABLING_SENTENCE = `Start the process that owns this sandbox with ${ALLOW_PRODUCTION_FLAG}, or set ${ALLOW_PRODUCTION_ENV_KEY} to 1 or true, and call again.`;
+
+/** Whether a call to one method would run on this server, as `describe` reports it. */
+export type MethodStatus = 'enabled' | 'disabled';
+
+/**
+ * The status `describe` reports for one method. Only a `production` method on
+ * a server that did not opt in is disabled; every other method runs, so the
+ * listing and the answer say the same thing about it.
+ */
+export function methodStatus(method: Method, allowProduction: boolean): MethodStatus {
+  if (method.effect !== 'production') return 'enabled';
+  if (allowProduction) return 'enabled';
+  return 'disabled';
+}
+
+/** The two effects that make the caller confirm before the call runs. */
+export type ConfirmingEffect = 'destructive' | 'production';
+
+/** What a production call spends, which a destructive call does not. */
+const PRODUCTION_STAKES = 'It reaches Google infrastructure with real credentials.';
+
+/** What the caller is being asked to confirm. */
+function confirmationSubject(effect: ConfirmingEffect, method: Method): string {
+  if (effect === 'production') return `${method.description} ${PRODUCTION_STAKES}`;
+  return method.description;
+}
+
+/**
+ * Refuse a call of the named effect that did not pass `confirm: true`. Returns
+ * null for every other effect, and for a call of this one that did confirm.
+ *
+ * `destructive` and `production` ask the same thing of a caller and differ
+ * only in what is being spent, so the check is written once and the subject
+ * line says which. For production the flag opts a session in to the
+ * capability; the confirmation opts one call in to spending it.
+ */
+export function refuseUnconfirmed(
+  effect: ConfirmingEffect,
   method: Method,
   args: Args,
   fail: Fail,
 ): InvalidArguments | null {
-  if (method.effect !== 'destructive') return null;
+  if (method.effect !== effect) return null;
   if (args.confirm === true) return null;
-  return fail(method.description, 'Pass confirm: true to proceed.', 'confirm');
+  return fail(confirmationSubject(effect, method), 'Pass confirm: true to proceed.', 'confirm');
 }
 
 /**
- * Refuse a `production` call unless the server was started with
- * `--allow-production`. Returns null for every other effect, and for a
- * production call when production is allowed.
+ * Refuse a `production` call unless the process that owns the sandbox was
+ * started with `--allow-production`. The refusal carries the same sentence the
+ * description's heading carries, so the reason a call failed reads as the
+ * reason the listing already gave.
  */
 export function refuseUnmountedProduction(
   method: Method,
@@ -49,32 +116,9 @@ export function refuseUnmountedProduction(
   if (method.effect !== 'production') return null;
   if (allowProduction) return null;
   return fail(
-    `${method.description} This touches Google infrastructure or real credentials, so it is not mounted by default.`,
-    `Restart the server with ${ALLOW_PRODUCTION_FLAG} to run it.`,
+    `${method.description} ${PRODUCTION_STAKES} ${PRODUCTION_DISABLED_HEADING}.`,
+    `Use ${ALLOW_PRODUCTION_FLAG} on the process that owns this sandbox, then call again.`,
+    undefined,
+    'production_disabled',
   );
-}
-
-/** Whether a method is mounted: every effect but `production` always is. */
-export function isMounted(method: Method, allowProduction: boolean): boolean {
-  return method.effect !== 'production' || allowProduction;
-}
-
-/** A method list filtered to what is mounted. Order is preserved. */
-export function mountedMethods(
-  methods: readonly Method[],
-  allowProduction: boolean,
-): readonly Method[] {
-  if (allowProduction) return methods;
-  return methods.filter((method) => isMounted(method, allowProduction));
-}
-
-/**
- * A tool filtered to its mounted methods only. Returns the same reference when
- * nothing is filtered, so a caller can tell a genuinely unfiltered tool apart
- * from one that lost a production method.
- */
-export function mountedTool(tool: Tool, allowProduction: boolean): Tool {
-  const methods = mountedMethods(tool.methods, allowProduction);
-  if (methods === tool.methods || methods.length === tool.methods.length) return tool;
-  return { ...tool, methods };
 }

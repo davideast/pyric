@@ -1,5 +1,5 @@
 /**
- * The loaded surface: six service tools and the methods behind them, and the
+ * The loaded surface: seven service tools and the methods behind them, and the
  * lookups every derived surface joins on.
  *
  * The list is not authored here. `scripts/generate-surface-manifest.ts` reads the `tools`

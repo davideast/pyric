@@ -140,74 +140,109 @@ export function createSandboxAttachmentProvider(
       );
     }
 
-    const snapshot = sandbox.snapshot();
-    const rtdbState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
-    const authUsers = authSandbox.exportUsers(getAuth(sandbox));
     const rules: LocalFirebaseTarget["rules"] = {};
     if (typeof payload.rules === "string" && payload.rules.trim()) {
       rules.firestore = payload.rules;
     }
     if (payload.databaseRules?.rules) rules.rtdb = payload.databaseRules;
 
-    const coverageGaps: AssuranceCoverageGap[] = [
-      {
-        service: "storage",
-        code: "storage-attachment-unavailable",
-        reason:
-          "The served runtime does not yet expose Storage rules or complete object enumeration; provide explicit Storage rules and objects in a fixture campaign.",
-      },
-    ];
-    if (!rules.firestore && Object.keys(snapshot.firestore).length > 0) {
-      coverageGaps.push({
-        service: "firestore",
-        code: "firestore-rules-unavailable",
-        reason:
-          "The running sandbox has Firestore data but no explicit project rules source.",
-      });
-    }
-    if (!rules.rtdb && hasRtdbState(rtdbState)) {
-      coverageGaps.push({
-        service: "rtdb",
-        code: "rtdb-rules-unavailable",
-        reason:
-          "The running sandbox has RTDB data but no explicit database rules source.",
-      });
-    }
+    return cloneSandboxTarget(sandbox, rules, {
+      requestedUrl: url,
+      origin,
+      transport: "same-origin-shared-worker",
+      readOnly: true,
+      studioUrl: `${origin}/__pyric/ui/assurance`,
+    });
+  };
+}
 
-    return {
-      target: {
-        schema: ASSURANCE_TARGET_SCHEMA,
-        network: "forbid",
-        rules,
-        state: {
-          firestore: snapshot.firestore,
-          ...(rules.rtdb || hasRtdbState(rtdbState) ? { rtdb: rtdbState } : {}),
-          auth: {
-            users: authUsers.map((user) => ({
-              uid: user.uid,
-              email: user.email,
-              password: user.password,
-              ...(user.customClaims ? { customClaims: user.customClaims } : {}),
-              ...(user.emailVerified ? { emailVerified: true } : {}),
-              ...(user.disabled ? { disabled: true } : {}),
-            })),
-          },
+/**
+ * Clone the sandbox this process owns, with no origin to assert and nothing
+ * to contact.
+ *
+ * The headless server holds the sandbox in its own memory, so the rules the
+ * served page would have published in its initialization metadata are read
+ * from the sandbox by the caller and handed in. Everything else about the
+ * campaign is the same: the state is copied, the campaign forbids the
+ * network, and the live sandbox is never probed or mutated.
+ */
+export function createOwnedSandboxAttachmentProvider(
+  sandbox: Sandbox,
+  rules: LocalFirebaseTarget["rules"],
+  studioUrl: string,
+): AssuranceAttachmentProvider {
+  return async ({ url }) =>
+    cloneSandboxTarget(sandbox, rules, {
+      requestedUrl: url,
+      origin: url,
+      transport: "in-process-sandbox",
+      readOnly: true,
+      studioUrl,
+    });
+}
+
+/** The campaign target, inventory, and coverage gaps one sandbox's state produces. */
+function cloneSandboxTarget(
+  sandbox: Sandbox,
+  rules: LocalFirebaseTarget["rules"],
+  source: AssuranceAttachmentSource,
+): AssuranceAttachment {
+  const snapshot = sandbox.snapshot();
+  const rtdbState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
+  const authUsers = authSandbox.exportUsers(getAuth(sandbox));
+
+  const coverageGaps: AssuranceCoverageGap[] = [
+    {
+      service: "storage",
+      code: "storage-attachment-unavailable",
+      reason:
+        "The served runtime does not yet expose Storage rules or complete object enumeration; provide explicit Storage rules and objects in a fixture campaign.",
+    },
+  ];
+  if (!rules.firestore && Object.keys(snapshot.firestore).length > 0) {
+    coverageGaps.push({
+      service: "firestore",
+      code: "firestore-rules-unavailable",
+      reason:
+        "The running sandbox has Firestore data but no explicit project rules source.",
+    });
+  }
+  if (!rules.rtdb && hasRtdbState(rtdbState)) {
+    coverageGaps.push({
+      service: "rtdb",
+      code: "rtdb-rules-unavailable",
+      reason:
+        "The running sandbox has RTDB data but no explicit database rules source.",
+    });
+  }
+
+  return {
+    target: {
+      schema: ASSURANCE_TARGET_SCHEMA,
+      network: "forbid",
+      rules,
+      state: {
+        firestore: snapshot.firestore,
+        ...(rules.rtdb || hasRtdbState(rtdbState) ? { rtdb: rtdbState } : {}),
+        auth: {
+          users: authUsers.map((user) => ({
+            uid: user.uid,
+            email: user.email,
+            password: user.password,
+            ...(user.customClaims ? { customClaims: user.customClaims } : {}),
+            ...(user.emailVerified ? { emailVerified: true } : {}),
+            ...(user.disabled ? { disabled: true } : {}),
+          })),
         },
       },
-      source: {
-        requestedUrl: url,
-        origin,
-        transport: "same-origin-shared-worker",
-        readOnly: true,
-        studioUrl: `${origin}/__pyric/ui/assurance`,
-      },
-      inventory: {
-        firestoreDocuments: Object.keys(snapshot.firestore).length,
-        rtdbPresent: hasRtdbState(rtdbState),
-        authUsers: authUsers.length,
-        storageObjects: 0,
-      },
-      coverageGaps,
-    };
+    },
+    source,
+    inventory: {
+      firestoreDocuments: Object.keys(snapshot.firestore).length,
+      rtdbPresent: hasRtdbState(rtdbState),
+      authUsers: authUsers.length,
+      storageObjects: 0,
+    },
+    coverageGaps,
   };
 }

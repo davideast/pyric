@@ -164,9 +164,14 @@ function markedOptional(signature: string, name: string): boolean | null {
   return found[1] === '?';
 }
 
-/** `confirm` on a destructive method is required by the effect enforcement. */
+/**
+ * `confirm` on a destructive or a production method is required by the effect
+ * enforcement rather than by the schema, which declares it optional so a call
+ * that omits it is refused by the enforcement's own message.
+ */
 function isEnforcedConfirm(method: Method, name: string): boolean {
-  return name === 'confirm' && method.effect === 'destructive';
+  if (name !== 'confirm') return false;
+  return method.effect === 'destructive' || method.effect === 'production';
 }
 
 describe('the signature line states which arguments are optional', () => {

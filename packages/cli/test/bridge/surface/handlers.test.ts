@@ -4,76 +4,33 @@
  * rules simulation that reads request.auth.token.firebase.tenant.
  *
  * The calls go through the rendered tool rather than straight to the handler,
- * so each one passes the validator the product would put in front of it.
+ * so each one passes the validator the product would put in front of it. The
+ * sandbox, the context, and the rules sources are the harness beside this
+ * file; what is here is the assertions.
  */
-import 'fake-indexeddb/auto';
 import { afterAll, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getAuth, sandbox as authSandbox, signInWithEmailAndPassword } from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
-import { setRules } from 'pyric/sandbox/firestore';
 
-import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface/index.js';
-import type { OperationResult, SurfaceContext } from '../../../src/bridge/surface/index.js';
+import { renderSurface } from '../../../src/bridge/surface/index.js';
+
 import { METHODS } from '../../../src/bridge/surface/methods/registry.js';
+import {
+  DATABASE_RULES,
+  SIGNED_IN_ONLY_STORAGE_RULES,
+  STORAGE_RULES,
+  TENANT_RULES,
+  ctx,
+  finishHandlerSuite,
+  projectDir,
+  run,
+  sandbox,
+  surface,
+} from './handler-harness.js';
 
-const TENANT_RULES = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /tenants/{docId} {
-      allow read, write: if request.auth.token.firebase.tenant == 'tenant-a';
-    }
-  }
-}`;
-
-const DATABASE_RULES = JSON.stringify({ rules: { '.read': true, '.write': true } });
-
-const STORAGE_RULES = `rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if true;
-    }
-  }
-}`;
-
-const SIGNED_IN_ONLY_STORAGE_RULES = `rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if request.auth != null;
-    }
-  }
-}`;
-
-const sandbox = initializeSandbox();
-setRules(sandbox, TENANT_RULES);
-
-const surface = renderSurface(undefined);
-// A project directory of its own, because the methods that reach the file
-// system must not leave `.pyric/` behind in the package this suite runs from.
-const projectDir = mkdtempSync(join(tmpdir(), 'pyric-handlers-'));
-const ctx: SurfaceContext = createSurfaceContext(sandbox, projectDir);
-const exercised = new Set<string>();
-
-/** Call one method through its service tool and record that it ran. */
-async function run(
-  key: string,
-  args: Record<string, unknown> = {},
-): Promise<OperationResult> {
-  const [toolName, method] = key.split('.');
-  const tool = surface.tools.find((candidate) => candidate.name === toolName);
-  if (!tool) throw new Error(`no rendered tool named ${toolName}`);
-  exercised.add(key);
-  return tool.execute({ method, args }, ctx);
-}
-
-afterAll(() => {
-  rmSync(projectDir, { recursive: true, force: true });
-  expect([...exercised].sort()).toEqual(METHODS.map((method) => method.key).sort());
-});
+afterAll(() => finishHandlerSuite('services'));
 
 it('projects a seeded tenant and claims into the token rules evaluate', async () => {
   const created = await run('auth.createUser', {

@@ -18,6 +18,7 @@ import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { SandboxEvent } from 'pyric/sandbox';
 import { BRANCH_NAME_PATTERN, listBranches } from 'pyric/sandbox/branches/store';
+import { CAPTURE_RELATIVE_PATH } from '../../../serve/capture-store.js';
 import { z } from 'zod';
 
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
@@ -81,9 +82,6 @@ export function checkUserFields(args: Args, fail: Fail): InvalidArguments | null
 
 /** The value of `against` that names the live sandbox rather than a checkpoint. */
 export const AGAINST_LIVE = 'live';
-
-/** The recorded session a `sandbox.apply` call reads when it names no other. */
-export const DEFAULT_SESSION_PATH = '.pyric/last-session.json';
 
 /**
  * The branch a method names. It is a directory name under the branch store, so
@@ -181,7 +179,7 @@ export function projectPathWithin(
   if (inside.startsWith('..') || isAbsolute(inside)) {
     return fail(
       `'${field}' is '${candidate}', which is outside the project directory.`,
-      `Pass '${field}' as a path inside the project directory, such as '${DEFAULT_SESSION_PATH}'.`,
+      `Pass '${field}' as a path inside the project directory, such as '${CAPTURE_RELATIVE_PATH}'.`,
       field,
     );
   }
@@ -227,7 +225,7 @@ export function refuseAmbiguousSource(args: Args, fail: Fail): InvalidArguments 
   }
   return fail(
     'apply names the events it applies, and this call named none.',
-    `Pass 'events' with the events to apply, or 'sessionPath' with a recorded session such as '${DEFAULT_SESSION_PATH}'.`,
+    `Pass 'events' with the events to apply, or 'sessionPath' with a recorded session such as '${CAPTURE_RELATIVE_PATH}'.`,
     'events',
   );
 }

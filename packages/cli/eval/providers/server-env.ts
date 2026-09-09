@@ -8,6 +8,8 @@
  * config file may carry.
  */
 import { join } from 'node:path';
+
+import { ALLOW_PRODUCTION_ENV_KEY } from '../../src/bridge/surface/method-effects.js';
 import type { EvalRun } from '../types.js';
 
 /**
@@ -76,7 +78,7 @@ export function serverEnv(run: EvalRun): Record<string, string> {
  * change what a sweep measures by having it set, so it is deleted rather than
  * merely left unset.
  */
-export const WITHHELD_ENV_KEYS: readonly string[] = ['PYRIC_ALLOW_PRODUCTION'];
+export const WITHHELD_ENV_KEYS: readonly string[] = [ALLOW_PRODUCTION_ENV_KEY];
 
 /**
  * The environment one spawned process is given: the parent's, then the run's
