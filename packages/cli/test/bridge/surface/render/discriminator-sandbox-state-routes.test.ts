@@ -22,6 +22,7 @@ describe('the sandbox state routes', () => {
       ['checkpoint', 'checkpoint_sandbox'],
       ['restore', 'restore_sandbox'],
       ['list_checkpoints', 'list_sandbox_checkpoints'],
+      ['delete_checkpoint', 'delete_sandbox_checkpoint'],
       ['events', 'list_sandbox_events'],
       ['export_fixture', 'export_sandbox_fixture'],
       ['seed_fixture', 'seed_sandbox_fixture'],

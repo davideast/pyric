@@ -43,6 +43,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
   sandbox: [
     'apply',
     'checkpoint',
+    'deleteCheckpoint',
     'diff',
     'discard',
     'events',
@@ -51,7 +52,6 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'inspect',
     'listBranches',
     'listCheckpoints',
-    'deleteCheckpoint',
     'promote',
     'reset',
     'restore',

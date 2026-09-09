@@ -171,7 +171,7 @@ describe('the sdk-service validator', () => {
   it('requires an explicit confirmation to reset', async () => {
     const result = await call('sandbox', 'reset', {});
     expect(result.summary).toBe(
-      'sandbox.reset: Discard everything, or one service via scope. Pass confirm: true to proceed.',
+      'sandbox.reset: Discard everything, or one service. Pass confirm: true to proceed.',
     );
   });
 

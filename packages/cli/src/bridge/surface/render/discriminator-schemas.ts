@@ -226,6 +226,7 @@ export const controlSandboxEnvironmentSchema = z.object({
       'checkpoint',
       'restore',
       'list_checkpoints',
+      'delete_checkpoint',
       'events',
       'export_fixture',
       'seed_fixture',
@@ -238,7 +239,9 @@ export const controlSandboxEnvironmentSchema = z.object({
   checkpointName: z
     .string()
     .optional()
-    .describe("Checkpoint name (when action is 'checkpoint' or 'restore')."),
+    .describe(
+      "Checkpoint name (when action is 'checkpoint', 'restore', or 'delete_checkpoint').",
+    ),
   fixturePath: z
     .string()
     .optional()

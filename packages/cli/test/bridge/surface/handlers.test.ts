@@ -325,6 +325,20 @@ it('checkpoints, restores, pages events, and round-trips a fixture', async () =>
   expect((await run('auth.getUser', { uid: 'checkpoint-frank' })).ok).toBe(false);
   expect((await run('auth.getUser', { uid: 'checkpoint-erin' })).ok).toBe(true);
 
+  // Deleting the checkpoint removes it from the listing and leaves the sandbox
+  // exactly as the restore left it.
+  const missingDelete = await run('sandbox.deleteCheckpoint', { name: 'no-such-checkpoint' });
+  expect(missingDelete.ok).toBe(false);
+  expect(missingDelete.summary).toContain('before-break');
+
+  const deleted = await run('sandbox.deleteCheckpoint', { name: 'before-break' });
+  expect(deleted.ok).toBe(true);
+  const afterDelete = await run('sandbox.listCheckpoints');
+  expect(
+    (afterDelete.data as { checkpoints: Array<{ name: string }> }).checkpoints.map((c) => c.name),
+  ).not.toContain('before-break');
+  expect((await run('firestore.getDoc', { path: 'ledger/keep' })).ok).toBe(true);
+
   // Page the operation log: a burst of writes, then two pages with no overlap.
   const before = await run('sandbox.events', { limit: 1 });
   expect(before.ok).toBe(true);
