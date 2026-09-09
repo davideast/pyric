@@ -8,7 +8,7 @@
  * shared fixture, built so the run loop has a real counterexample to find.
  */
 import { afterAll, expect, it } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { canIUse } from '../../../src/conformance/index.js';
@@ -54,21 +54,30 @@ it('drives a campaign from attach through export and finds a real counterexample
     campaignId: 'orders',
     target: OPEN_ORDER_TARGET,
   });
-  expect(started.ok).toBe(true);
+  expect((started.data as { services: string[] }).services).toEqual(['firestore']);
 
-  await run('assurance.map', {
+  const mapped = await run('assurance.map', {
     campaignId: 'orders',
     actors: [ALICE_ACTOR],
     observations: [OWNER_WRITE_OBSERVATION],
   });
-  await run('assurance.define', { campaignId: 'orders', invariants: [OWNER_ONLY_INVARIANT] });
+  expect(mapped.data as { actors: number; observations: number }).toMatchObject({
+    actors: 1,
+    observations: 1,
+  });
+
+  const defined = await run('assurance.define', {
+    campaignId: 'orders',
+    invariants: [OWNER_ONLY_INVARIANT],
+  });
+  expect((defined.data as { invariants: number }).invariants).toBe(1);
   const proposed = await run('assurance.propose', {
     campaignId: 'orders',
     observationId: OWNER_WRITE_OBSERVATION.id,
     invariantId: OWNER_ONLY_INVARIANT.id,
     mutations: [PAYLOAD_MUTATION],
   });
-  expect(proposed.ok).toBe(true);
+  expect((proposed.data as { probes: Array<{ id: string }> }).probes[0]?.id).toBe(PAYLOAD_PROBE_ID);
 
   const ran = await run('assurance.run', { campaignId: 'orders' });
   expect((ran.data as { summary: { localCounterexamples: number } }).summary.localCounterexamples)
@@ -100,8 +109,15 @@ it('drives a campaign from attach through export and finds a real counterexample
     campaignId: 'orders',
     path: '.pyric/assurance/orders.json',
   });
-  expect(exported.ok).toBe(true);
-  expect(existsSync(join(projectDir, '.pyric/assurance/orders.json'))).toBe(true);
+  const written = join(projectDir, '.pyric/assurance/orders.json');
+  expect(existsSync(written)).toBe(true);
+  const bundle = JSON.parse(readFileSync(written, 'utf8')) as {
+    redactions: string[];
+    campaign: { target: { state: { auth?: { users: Array<Record<string, unknown>> } } } };
+  };
+  expect(bundle.redactions).toContain('campaign.target.state.auth.users[].password');
+  expect(bundle.campaign.target.state.auth?.users[0]).not.toHaveProperty('password');
+  expect((exported.data as { path: string }).path).toBe('.pyric/assurance/orders.json');
 });
 
 it('refuses the hosted rules test on a server that did not opt in to production', async () => {
