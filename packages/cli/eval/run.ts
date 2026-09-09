@@ -30,13 +30,18 @@
  * ## What this closes, and what it does not
  *
  * The state directory still has to reach the server somehow, and the server is
- * spawned by the CLI from an MCP config the agent can read. Passing the path
- * through `PYRIC_PROJECT_DIR` in the config's env block rather than as a visible
- * `--project-dir` argument makes it one step further from an agent that is
- * skimming its own configuration, and nothing more. It is a mitigation, not a
- * wall: an agent determined to read its MCP config, follow the env block and
- * open the file it names can still do so.
+ * spawned by the CLI from an MCP config the agent can read. So the path is not
+ * in that config at all. Every run-specific variable, `PYRIC_PROJECT_DIR`,
+ * `PYRIC_EVAL_LOG` and the `PYRIC_EVAL_*` run block, is set on the CLI process
+ * itself, and the server the CLI spawns inherits it. A config file carries only
+ * `PYRIC_TOOL_SURFACE`, which the argument list already shows. An agent that
+ * reads its own configuration finds no path to follow.
  *
+ * `assertNoLeakedPaths` enforces that for every file a provider puts in the
+ * workspace, and throws rather than skipping, because a silent skip would let a
+ * leaking provider produce numbers that look like measurements.
+ *
+ * Reading the process environment is still open to an agent that thinks to look.
  * The only fully closed condition is `mcp-only` on Claude Code, where the
  * built-in tools are withdrawn and the surface under test is the only way to
  * touch anything. Every other row is measured knowing that.
@@ -238,6 +243,31 @@ function writeProviderFiles(base: string, files: Record<string, string>): void {
 }
 
 /**
+ * Refuse to write a workspace file that names the state directory or the events
+ * file. The agent can read everything in its workspace, so a path written there
+ * is a path it can follow, and the run would then measure file reading rather
+ * than the tool surface. This throws instead of dropping the file, because a run
+ * that quietly changed what it measures is worse than a run that stops.
+ */
+export function assertNoLeakedPaths(run: EvalRun, workspaceFiles: Record<string, string>): void {
+  // The events path sits inside the state directory, so it is tested first and
+  // the message names the most specific thing that was leaked.
+  const secrets: Array<[string, string]> = [
+    ['the events path', run.eventsPath],
+    ['the state directory', run.stateDir],
+  ];
+  for (const [relativePath, contents] of Object.entries(workspaceFiles)) {
+    for (const [label, secret] of secrets) {
+      if (secret.length > 0 && contents.includes(secret)) {
+        throw new Error(
+          `provider for ${run.row.cli} put ${label} in the workspace file ${relativePath}`,
+        );
+      }
+    }
+  }
+}
+
+/**
  * Prepare the run directory, the empty workspace, the seeded state directory and
  * the provider's files. The seed lands in the state directory, so the workspace
  * the CLI is started in holds only what the provider had to put there.
@@ -251,6 +281,7 @@ async function prepareRun(
   mkdirSync(run.stateDir, { recursive: true });
   await applySeed(run.stateDir, run.task.seed);
   const invocation = build(run);
+  assertNoLeakedPaths(run, invocation.workspaceFiles);
   writeProviderFiles(run.dir, invocation.files);
   writeProviderFiles(run.workspaceDir, invocation.workspaceFiles);
   writeFileSync(run.eventsPath, '', 'utf8');
