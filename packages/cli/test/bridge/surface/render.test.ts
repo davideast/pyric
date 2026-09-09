@@ -1,15 +1,19 @@
-/** Every variant exposes every operation exactly once, at a schema depth of at most two. */
+/**
+ * The surfaces the evaluation compares: each renders the same records, and each
+ * resolves back to the canonical operation vocabulary the audit log records.
+ */
 import { describe, expect, it } from 'bun:test';
 
 import { renderSurface, SURFACE_VARIANT_IDS } from '../../../src/bridge/surface/index.js';
-import { OPERATIONS } from '../../../src/bridge/surface/operations/index.js';
+import { METHODS } from '../../../src/bridge/surface/methods/index.js';
+import { operationIds } from '../../../src/bridge/surface/method-types.js';
 import { schemaDepth } from '../../../src/bridge/surface/json-schema.js';
 import {
   DISCRIMINATOR_ROUTES,
   DISCRIMINATOR_TOOLS,
 } from '../../../src/bridge/surface/render/discriminator-routes.js';
 import { RESOURCE_ROUTES } from '../../../src/bridge/surface/render/discriminator-resources.js';
-import { CANONICAL_OPERATION_IDS } from './canonical-operations.js';
+import { CANONICAL_OPERATION_IDS } from '../../../src/bridge/surface/render/canonical-dispatch.js';
 
 const NAMED_VARIANTS = ['verb-prefixed', 'noun-prefixed', 'verb-suffixed'];
 
@@ -23,14 +27,26 @@ function enumValues(toolName: string, field: string): string[] {
 
 describe('the named variants', () => {
   for (const variant of NAMED_VARIANTS) {
-    it(`${variant} renders one tool per operation, and every operation once`, () => {
+    it(`${variant} renders one tool per method, and every method once`, () => {
       const surface = renderSurface(variant);
-      expect(surface.tools).toHaveLength(OPERATIONS.length);
+      expect(surface.tools).toHaveLength(METHODS.length);
+      expect(new Set(surface.tools.map((tool) => tool.name)).size).toBe(METHODS.length);
+    });
 
-      const resolved = surface.tools.map((tool) => surface.resolve(tool.name, {}).operation);
-      expect(resolved.every((operation) => operation !== null)).toBe(true);
-      expect(new Set(resolved).size).toBe(OPERATIONS.length);
-      expect([...resolved].sort()).toEqual([...CANONICAL_OPERATION_IDS].sort());
+    it(`${variant} reaches every canonical operation across its tools`, () => {
+      const surface = renderSurface(variant);
+      const reached = new Set<string>();
+      for (const tool of surface.tools) {
+        // A method that chooses between operations is asked twice, once with
+        // the arguments that pick each branch, the same way a caller would.
+        for (const args of [{}, { service: 'database' }, { service: 'storage' }]) {
+          const call = surface.resolve(tool.name, args);
+          if (call.operation !== null) reached.add(call.operation);
+        }
+      }
+      const declared = new Set(METHODS.flatMap((method) => operationIds(method)));
+      expect(reached.size).toBeGreaterThan(0);
+      for (const operation of reached) expect(declared.has(operation)).toBe(true);
     });
 
     it(`${variant} keeps every rendered schema within two object levels`, () => {
@@ -40,16 +56,24 @@ describe('the named variants', () => {
     });
   }
 
-  it('names verb-prefixed tools with the canonical id itself', () => {
-    const names = renderSurface('verb-prefixed').tools.map((tool) => tool.name);
-    expect([...names].sort()).toEqual([...CANONICAL_OPERATION_IDS].sort());
+  it('spells one method three ways across the three word orders', () => {
+    expect(renderSurface('verb-prefixed').tools.map((tool) => tool.name)).toContain(
+      'create_auth_user',
+    );
+    expect(renderSurface('noun-prefixed').tools.map((tool) => tool.name)).toContain(
+      'auth_user_create',
+    );
+    expect(renderSurface('verb-suffixed').tools.map((tool) => tool.name)).toContain(
+      'create_user_auth',
+    );
   });
 
-  it('reorders the same words for the other two patterns', () => {
-    const nouns = renderSurface('noun-prefixed').tools.map((tool) => tool.name);
-    const verbs = renderSurface('verb-suffixed').tools.map((tool) => tool.name);
-    expect(nouns).toContain('auth_user_create');
-    expect(verbs).toContain('create_user_auth');
+  it('gives each identity method a name of its own', () => {
+    const names = renderSurface('verb-prefixed').tools.map((tool) => tool.name);
+    expect(names).toContain('impersonate_auth_user');
+    expect(names).toContain('become_auth_admin');
+    expect(names).toContain('become_auth_anonymous');
+    expect(names).toContain('adopt_auth_session');
   });
 });
 
@@ -121,20 +145,19 @@ describe('the discriminator variant', () => {
 });
 
 describe('surface selection', () => {
-  it('serves the default surface when no variant is asked for', () => {
+  it('serves the service tools when no surface is asked for', () => {
     const names = renderSurface(undefined).tools.map((tool) => tool.name);
-    expect(names).toContain('firestore_create_document');
-    expect(names).toContain('sandbox_inspect');
+    expect(names).toEqual(['firestore', 'database', 'storage', 'auth', 'rules', 'sandbox']);
   });
 
-  it('throws for an unknown variant, naming the ones that exist', () => {
+  it('throws for an unknown surface, naming the ones that exist', () => {
     expect(() => renderSurface('verb-infixed')).toThrow(/verb-prefixed/);
     expect(SURFACE_VARIANT_IDS).toEqual([
+      'sdk-service',
       'discriminator',
       'verb-prefixed',
       'noun-prefixed',
       'verb-suffixed',
-      'sdk-service',
     ]);
   });
 });

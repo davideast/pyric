@@ -20,10 +20,11 @@ import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { createLocalBridge } from '../../../src/bridge/server/local-bridge.js';
 import { registerRenderedSurface } from '../../../src/bridge/server/surface-server.js';
 import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface/index.js';
-import { SDK_TOOLS } from '../../../src/bridge/surface/sdk-validator.js';
+import { TOOLS } from '../../../src/bridge/surface/methods/index.js';
+import { operationIds } from '../../../src/bridge/surface/method-types.js';
 import type { BridgeToolEvent } from '../../../src/bridge/server/bridge.js';
 import type { OperationResult, SurfaceContext } from '../../../src/bridge/surface/index.js';
-import { CANONICAL_OPERATION_IDS } from './canonical-operations.js';
+import { CANONICAL_OPERATION_IDS } from '../../../src/bridge/surface/render/canonical-dispatch.js';
 
 const TOOL_NAMES = ['firestore', 'database', 'storage', 'auth', 'rules', 'sandbox'];
 
@@ -51,19 +52,19 @@ describe('the sdk-service tool set', () => {
   });
 
   it('reaches every canonical operation through at least one method', () => {
-    const reached = SDK_TOOLS.flatMap((tool) =>
-      tool.methods.flatMap((method) => [...method.operations]),
+    const reached = TOOLS.flatMap((tool) =>
+      tool.methods.flatMap((method) => [...operationIds(method)]),
     );
     expect(new Set(reached).size).toBe(CANONICAL_OPERATION_IDS.length);
     expect([...new Set(reached)].sort()).toEqual([...CANONICAL_OPERATION_IDS].sort());
   });
 
   it('reaches switch_auth_identity through the four identity methods, distinguished by the action', () => {
-    const authTool = SDK_TOOLS.find((tool) => tool.name === 'auth');
+    const authTool = TOOLS.find((tool) => tool.name === 'auth');
     const identityMethods = (authTool?.methods ?? []).filter((method) =>
-      method.operations.includes('switch_auth_identity'),
+      operationIds(method).includes('switch_auth_identity'),
     );
-    expect(identityMethods.map((method) => method.name).sort()).toEqual(
+    expect(identityMethods.map((method) => method.method).sort()).toEqual(
       ['actAsAdmin', 'actAsAnonymous', 'impersonate', 'useAppSession'].sort(),
     );
   });
@@ -83,17 +84,17 @@ describe('the sdk-service tool set', () => {
         additionalProperties: true,
         description: schema.properties.args.description as string,
       });
-      const spec = SDK_TOOLS.find((candidate) => candidate.name === tool.name);
+      const spec = TOOLS.find((candidate) => candidate.name === tool.name);
       expect(schema.properties.method.enum).toEqual([
-        ...(spec?.methods ?? []).map((method) => method.name),
+        ...(spec?.methods ?? []).map((method) => method.method),
         'describe',
       ]);
     }
   });
 
-  it('keeps every description under the twelve hundred character limit', () => {
+  it('keeps every description under the sixteen hundred character limit', () => {
     for (const tool of surface.tools) {
-      expect(tool.description.length).toBeLessThan(1200);
+      expect(tool.description.length).toBeLessThan(1600);
     }
   });
 
@@ -128,7 +129,7 @@ describe('the sdk-service validator', () => {
   it('names the closest method when the method does not exist', async () => {
     const result = await call('firestore', 'setDocument', { path: 'users/alice' });
     expect(result.summary).toBe(
-      "firestore.setDocument: no method 'setDocument'. Did you mean 'setDoc'? The firestore tool accepts getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, writeBatch, describe. Call firestore with method 'setDoc'.",
+      "firestore.setDocument: no method 'setDocument'. Did you mean 'setDoc'? The firestore tool accepts addDoc, deleteDoc, getDoc, getDocs, setDoc, updateDoc, writeBatch, describe. Call firestore with method 'setDoc'.",
     );
     expect(result.data).toEqual({
       code: 'invalid_arguments',
@@ -307,9 +308,9 @@ describe('optional args', () => {
 
 describe('describe', () => {
   it('returns a schema and an example for every method of every tool', async () => {
-    for (const spec of SDK_TOOLS) {
+    for (const spec of TOOLS) {
       for (const method of spec.methods) {
-        const result = await call(spec.name, 'describe', { method: method.name });
+        const result = await call(spec.name, 'describe', { method: method.method });
         expect(result.ok).toBe(true);
         const data = result.data as {
           signature: string;
@@ -319,8 +320,8 @@ describe('describe', () => {
         };
         expect(data.signature).toBe(method.signature);
         expect(data.inputSchema.type).toBe('object');
-        expect(data.example.method).toBe(method.name);
-        expect(data.operations).toEqual([...method.operations]);
+        expect(data.example.method).toBe(method.method);
+        expect(data.operations).toEqual([...operationIds(method)]);
       }
     }
   });

@@ -1,13 +1,10 @@
 /**
- * The `verb-suffixed` variant: the verb leads, the object follows, and the
+ * The `verb-suffixed` surface: the verb leads, the object follows, and the
  * service trails, so the name reads as the action on the thing.
  */
-import { renderOneToolPerOperation } from './one-tool-per-operation.js';
-import type { Operation, RenderedSurface } from '../types.js';
+import { renderOneToolPerMethod } from './one-tool-per-method.js';
+import type { RenderedSurface } from '../types.js';
 
-export function render(operations: readonly Operation[]): RenderedSurface {
-  return renderOneToolPerOperation(
-    operations,
-    (operation) => `${operation.verb}_${operation.object}_${operation.service}`,
-  );
+export function render(): RenderedSurface {
+  return renderOneToolPerMethod((words) => `${words.verb}_${words.object}_${words.service}`);
 }

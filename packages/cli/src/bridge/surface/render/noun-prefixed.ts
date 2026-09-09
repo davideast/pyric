@@ -1,13 +1,10 @@
 /**
- * The `noun-prefixed` variant: the subject leads and the verb trails, so a
- * client that sorts tool names groups every operation on one object together.
+ * The `noun-prefixed` surface: the subject leads and the verb trails, so a
+ * client that sorts tool names groups every method on one object together.
  */
-import { renderOneToolPerOperation } from './one-tool-per-operation.js';
-import type { Operation, RenderedSurface } from '../types.js';
+import { renderOneToolPerMethod } from './one-tool-per-method.js';
+import type { RenderedSurface } from '../types.js';
 
-export function render(operations: readonly Operation[]): RenderedSurface {
-  return renderOneToolPerOperation(
-    operations,
-    (operation) => `${operation.service}_${operation.object}_${operation.verb}`,
-  );
+export function render(): RenderedSurface {
+  return renderOneToolPerMethod((words) => `${words.service}_${words.object}_${words.verb}`);
 }

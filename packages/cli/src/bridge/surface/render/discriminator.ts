@@ -10,9 +10,7 @@
  * handler, so the same code runs here as under every other variant.
  */
 import { toJsonSchema } from '../json-schema.js';
-import { operationById } from '../operations/index.js';
 import type {
-  Operation,
   OperationResult,
   RenderedResource,
   RenderedSurface,
@@ -20,6 +18,7 @@ import type {
   ResolvedCall,
   SurfaceContext,
 } from '../types.js';
+import { CANONICAL_OPERATION_IDS, runCanonicalOperation } from './canonical-dispatch.js';
 import {
   DISCRIMINATOR_RESOURCES,
   RESOURCE_ROUTES,
@@ -53,17 +52,17 @@ function callIdentity(args: Args): CallIdentity | null {
 
 /** Run one operation, under a per-call identity override when the arguments carry one. */
 async function runUnderCallIdentity(
-  operation: Operation,
+  operation: string,
   translated: Args,
   args: Args,
   ctx: SurfaceContext,
 ): Promise<OperationResult> {
   const override = callIdentity(args);
-  if (override === null) return operation.handler(translated, ctx);
+  if (override === null) return runCanonicalOperation(operation, translated, ctx);
   const held = ctx.identity.describe();
   ctx.identity.switchTo(override);
   try {
-    return await operation.handler(translated, ctx);
+    return await runCanonicalOperation(operation, translated, ctx);
   } finally {
     ctx.identity.switchTo(held);
   }
@@ -109,8 +108,7 @@ function buildTools(): RenderedTool[] {
           summary: `${tool.name}: this combination is not available in this build.`,
         };
       }
-      const operation = operationById(route.operation);
-      return runUnderCallIdentity(operation, route.translate(args), args, ctx);
+      return runUnderCallIdentity(route.operation, route.translate(args), args, ctx);
     },
   }));
 }
@@ -131,13 +129,13 @@ function buildResources(): RenderedResource[] {
       if (route === undefined) {
         return { ok: false, summary: `${resource.name} is not available in this build.` };
       }
-      return operationById(route.operation).handler(route.translate(params), ctx);
+      return runCanonicalOperation(route.operation, route.translate(params), ctx);
     },
   }));
 }
 
-export function render(operations: readonly Operation[]): RenderedSurface {
-  const known = new Set(operations.map((operation) => operation.id));
+export function render(): RenderedSurface {
+  const known = new Set(CANONICAL_OPERATION_IDS);
   for (const route of DISCRIMINATOR_ROUTES) {
     if (!known.has(route.operation)) {
       throw new Error(`discriminator route names unknown operation '${route.operation}'`);

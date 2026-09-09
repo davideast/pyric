@@ -21,6 +21,7 @@ import { setRules } from 'pyric/sandbox/firestore';
 import { createLocalBridge } from '../../src/bridge/server/local-bridge.js';
 import { registerRenderedSurface } from '../../src/bridge/server/surface-server.js';
 import { createSurfaceContext, renderSurface } from '../../src/bridge/surface/index.js';
+import { METHODS } from '../../src/bridge/surface/methods/index.js';
 import type { BridgeToolEvent } from '../../src/bridge/server/bridge.js';
 
 const TENANT_RULES = `rules_version = '2';
@@ -81,14 +82,14 @@ function textOf(result: { content?: unknown }): string {
   return JSON.stringify(result.content ?? []);
 }
 
-describe('a one-tool-per-operation variant over a real MCP session', () => {
-  it('advertises every operation as its own tool', async () => {
+describe('a one-tool-per-method variant over a real MCP session', () => {
+  it('advertises every method as its own tool', async () => {
     const session = await openSurface('verb-prefixed');
     try {
       const listed = await session.client.listTools();
-      expect(listed.tools.length).toBe(41);
+      expect(listed.tools.length).toBe(METHODS.length);
       expect(listed.tools.map((tool) => tool.name)).toContain('create_auth_user');
-      expect(listed.tools.map((tool) => tool.name)).toContain('simulate_firestore_rules');
+      expect(listed.tools.map((tool) => tool.name)).toContain('simulate_rules_request');
     } finally {
       await session.close();
     }
@@ -102,15 +103,15 @@ describe('a one-tool-per-operation variant over a real MCP session', () => {
         arguments: {
           uid: 'alice',
           email: 'alice@example.com',
-          claims: { role: 'owner' },
-          tenant: 'tenant-a',
+          customClaims: { role: 'owner' },
+          tenantId: 'tenant-a',
         },
       });
       expect(created.isError).toBeFalsy();
 
       const simulated = await session.client.callTool({
-        name: 'simulate_firestore_rules',
-        arguments: { operation: 'get', path: 'tenants/t1', uid: 'alice' },
+        name: 'simulate_rules_request',
+        arguments: { service: 'firestore', operation: 'get', path: 'tenants/t1', uid: 'alice' },
       });
       expect(simulated.isError).toBeFalsy();
       expect(textOf(simulated)).toContain('get tenants/t1: ALLOW');
@@ -122,7 +123,7 @@ describe('a one-tool-per-operation variant over a real MCP session', () => {
       expect(session.events.map((event) => event.action)).toEqual([null, null]);
       expect(session.events.map((event) => event.tool)).toEqual([
         'create_auth_user',
-        'simulate_firestore_rules',
+        'simulate_rules_request',
       ]);
       for (const event of session.events) {
         expect(event.isError).toBe(false);
