@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { BRANCH_STORE_RELATIVE } from 'pyric/sandbox/branches/store';
 import { setRules } from 'pyric/sandbox/firestore';
+import { getInternalEnv } from 'pyric/sandbox/internal';
 
 import { createSurfaceContext, renderSurface } from '../../../../../src/bridge/surface/index.js';
 import type { OperationResult, SurfaceContext } from '../../../../../src/bridge/surface/index.js';
@@ -248,6 +249,38 @@ describe('sandbox.promote', () => {
     expect(read.ok).toBe(true);
     expect((read.data as { data: { body: string } }).data.body).toBe('landed');
     expect(existsSync(join(projectDir, BRANCH_STORE_RELATIVE, 'draft'))).toBe(false);
+  });
+
+  it('rolls the live sandbox back and keeps the branch when a write is refused', async () => {
+    await run('firestore.setDoc', { path: 'notes/n1', data: { body: 'live' } });
+    await run('sandbox.fork', { branch: 'draft' });
+    await run('sandbox.apply', {
+      branch: 'draft',
+      events: [
+        writeEvent('notes/landed', { body: 'first' }),
+        writeEvent('notes/refused', { body: 'second' }),
+      ],
+    });
+    const before = liveHash();
+
+    // A write the live admin plane will not take, planted so the promotion
+    // fails after it has already landed one document.
+    const env = getInternalEnv(sandbox) as unknown as {
+      adminSetDocument: (path: string, data: Record<string, unknown>) => void;
+    };
+    const accepted = env.adminSetDocument.bind(env);
+    env.adminSetDocument = (path, data) => {
+      if (path === 'notes/refused') throw new Error('the admin plane refused this write');
+      accepted(path, data);
+    };
+
+    const promoted = await run('sandbox.promote', { branch: 'draft', confirm: true });
+    env.adminSetDocument = accepted;
+
+    expect(promoted.ok).toBe(false);
+    expect(promoted.summary).toContain('draft');
+    expect(liveHash()).toBe(before);
+    expect(existsSync(join(projectDir, BRANCH_STORE_RELATIVE, 'draft'))).toBe(true);
   });
 
   it('is refused without confirm, and the branch and the live sandbox are untouched', async () => {

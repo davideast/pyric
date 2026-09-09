@@ -1,19 +1,29 @@
 /**
- * Land a branch on the live sandbox and remove it.
+ * Land a branch's Firestore documents on the live sandbox and remove it.
  *
  * `promote` is destructive: it replaces live Firestore documents with the
  * branch's, and the branch it promoted is gone afterwards. It lands documents
  * and nothing else: a branch forked under candidate rules leaves those rules
- * on the branch, and the live sandbox keeps the rules it was running. The shared effect enforcement in
- * `method-validation.ts` refuses the call unless `args.confirm === true`
- * before this handler runs, so an unconfirmed call leaves both the live
- * sandbox and the branch directory exactly as they were.
+ * on the branch, and the live sandbox keeps the rules it was running. The
+ * shared effect enforcement in `method-validation.ts` refuses the call unless
+ * `args.confirm === true` before this handler runs, so an unconfirmed call
+ * leaves both the live sandbox and the branch directory exactly as they were.
+ *
+ * The engine lands documents one at a time, so a write the live sandbox
+ * refuses partway through would otherwise leave live half-landed with no way
+ * back and the branch already deleted. This handler captures the live sandbox
+ * first, in memory rather than as a checkpoint a caller can name, and puts
+ * that capture back if any part of the landing throws. The branch is removed
+ * only after the whole promotion is on live, so a failed promotion is one a
+ * caller can read the reason for and run again.
  */
 import { promote } from 'pyric/sandbox';
 import { loadBranch, removeBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
 import { branchName, refuseUnknownBranch } from '../../arguments/branches.js';
+import { applyCheckpoint, captureCheckpoint } from '../../checkpoints.js';
+import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -23,7 +33,8 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'promote(branch, confirm)',
-  description: "Land the branch's Firestore documents on live, then delete it. Installs no rules.",
+  description:
+    "Land the branch's Firestore documents on live, then delete it. Installs no rules.",
   args: z.object({
     branch: branchName,
     confirm: z
@@ -42,7 +53,17 @@ export default {
     if (loaded === null) {
       return refuseUnknownBranch(ctx.projectDir, name, failFor('sandbox', 'promote'));
     }
-    promote(loaded.branch, ctx.sandbox);
+    const capture = await captureCheckpoint(ctx.sandbox);
+    try {
+      promote(loaded.branch, ctx.sandbox);
+    } catch (error) {
+      await applyCheckpoint(ctx.sandbox, capture);
+      loaded.branch.sandbox.dispose();
+      const reason = error instanceof Error ? error.message : String(error);
+      return operationFailure(
+        `Promoting branch '${name}' failed partway through: ${reason}. The live sandbox is back to what it held before the call, and the branch is still there to promote again.`,
+      );
+    }
     removeBranch(ctx.projectDir, name);
     return {
       ok: true,
