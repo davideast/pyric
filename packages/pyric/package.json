@@ -134,6 +134,14 @@
       "types": "./dist/sandbox/branches/store.d.ts",
       "import": "./dist/sandbox/branches/store.js"
     },
+    "./sandbox/checkpoints": {
+      "types": "./dist/sandbox/checkpoints/index.d.ts",
+      "import": "./dist/sandbox/checkpoints/index.js"
+    },
+    "./sandbox/checkpoints/directory": {
+      "types": "./dist/sandbox/checkpoints/directory-backend.d.ts",
+      "import": "./dist/sandbox/checkpoints/directory-backend.js"
+    },
     "./sandbox/firestore": {
       "types": "./dist/firestore/sandbox-controls.d.ts",
       "import": "./dist/firestore/sandbox-controls.js"

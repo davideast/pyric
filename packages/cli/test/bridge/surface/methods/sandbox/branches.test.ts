@@ -13,17 +13,25 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
-import { BRANCH_STORE_RELATIVE } from 'pyric/sandbox/branches/store';
+import { BRANCH_STORE_RELATIVE, loadBranch, saveBranch } from 'pyric/sandbox/branches/store';
 import { setRules } from 'pyric/sandbox/firestore';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 
 import { createSurfaceContext, renderSurface } from '../../../../../src/bridge/surface/index.js';
 import type { OperationResult, SurfaceContext } from '../../../../../src/bridge/surface/index.js';
+import { applyData, applyRules, type SandboxSeed } from '../../../../../src/bridge/surface/seed-apply.js';
 
 const OPEN_RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} { allow read, write: if true; }
+  }
+}`;
+
+const CLOSED_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if false; }
   }
 }`;
 
@@ -372,5 +380,124 @@ describe('the read methods', () => {
     await run('sandbox.diff', { branch: 'draft' });
     await run('sandbox.listBranches');
     expect(liveHash()).toBe(before);
+  });
+});
+
+/**
+ * A branch carries every service, so a divergence in any one of them has to
+ * reach `diff` under that service's name and land on live through `promote`.
+ * The plant goes straight onto the branch's own sandbox through the same seed
+ * the surface applies to live, because no tool method writes to a branch
+ * outside Firestore, and the read back goes through each service's own tool
+ * method rather than through the branch store.
+ */
+async function plantOnBranch(name: string, seed: SandboxSeed): Promise<void> {
+  const loaded = await loadBranch(projectDir, name);
+  if (loaded === null) throw new Error(`no branch named ${name}`);
+  await applyRules(loaded.branch.sandbox, seed);
+  await applyData(loaded.branch.sandbox, seed);
+  await saveBranch(projectDir, name, loaded.branch, {
+    base: loaded.manifest.base,
+    created: loaded.manifest.created,
+  });
+  loaded.branch.sandbox.dispose();
+}
+
+/** The services a diff named, deduplicated, in the order it reported them. */
+function servicesOf(result: OperationResult): string[] {
+  const divergences = (result.data as { divergences: Array<{ service: string }> }).divergences;
+  return [...new Set(divergences.map((entry) => entry.service))];
+}
+
+describe('the branch methods across every service', () => {
+  it('names firestore in the diff and lands the document on live', async () => {
+    await run('sandbox.fork', { branch: 'draft' });
+    await plantOnBranch('draft', { firestore: { 'notes/planted': { body: 'from the branch' } } });
+
+    expect(servicesOf(await run('sandbox.diff', { branch: 'draft' }))).toContain('firestore');
+
+    expect((await run('sandbox.promote', { branch: 'draft', confirm: true })).ok).toBe(true);
+    const read = await run('firestore.getDoc', { path: 'notes/planted' });
+    expect((read.data as { data: { body: string } }).data.body).toBe('from the branch');
+  });
+
+  it('names database in the diff and lands the value on live', async () => {
+    await run('sandbox.fork', { branch: 'draft' });
+    await plantOnBranch('draft', { database: { rooms: { one: { title: 'from the branch' } } } });
+
+    expect(servicesOf(await run('sandbox.diff', { branch: 'draft' }))).toContain('database');
+
+    expect((await run('sandbox.promote', { branch: 'draft', confirm: true })).ok).toBe(true);
+    const read = await run('database.get', { path: 'rooms/one' });
+    expect((read.data as { value: { title: string } }).value.title).toBe('from the branch');
+  });
+
+  it('names storage in the diff and lands the object on live', async () => {
+    await run('sandbox.fork', { branch: 'draft' });
+    await plantOnBranch('draft', {
+      storage: [
+        {
+          path: 'docs/planted.txt',
+          contentBase64: 'aGVsbG8=',
+          contentType: 'text/plain',
+          customMetadata: { owner: 'the branch' },
+        },
+      ],
+    });
+
+    expect(servicesOf(await run('sandbox.diff', { branch: 'draft' }))).toContain('storage');
+
+    expect((await run('sandbox.promote', { branch: 'draft', confirm: true })).ok).toBe(true);
+    const read = await run('storage.getMetadata', { path: 'docs/planted.txt' });
+    expect(read.ok).toBe(true);
+    expect((read.data as { customMetadata: Record<string, string> }).customMetadata.owner).toBe(
+      'the branch',
+    );
+  });
+
+  it('names auth in the diff and lands the account on live', async () => {
+    await run('sandbox.fork', { branch: 'draft' });
+    await plantOnBranch('draft', {
+      users: [{ uid: 'planted', email: 'planted@example.com', customClaims: { role: 'editor' } }],
+    });
+
+    expect(servicesOf(await run('sandbox.diff', { branch: 'draft' }))).toContain('auth');
+
+    expect((await run('sandbox.promote', { branch: 'draft', confirm: true })).ok).toBe(true);
+    const read = await run('auth.getUser', { uid: 'planted' });
+    expect(read.ok).toBe(true);
+    expect((read.data as { user: { email: string } }).user.email).toBe('planted@example.com');
+  });
+
+  it('names rules in the diff and lands the candidate ruleset on live', async () => {
+    await run('sandbox.fork', { branch: 'locked', candidateRules: { firestore: CLOSED_RULES } });
+
+    expect(servicesOf(await run('sandbox.diff', { branch: 'locked' }))).toContain('rules');
+
+    expect((await run('sandbox.promote', { branch: 'locked', confirm: true })).ok).toBe(true);
+    const linted = await run('rules.lint', { service: 'firestore' });
+    expect(linted.ok).toBe(true);
+    expect(JSON.stringify(linted.data)).toContain('never');
+  });
+
+  it('counts the divergences of each service in the summary', async () => {
+    await run('sandbox.fork', { branch: 'draft' });
+    await plantOnBranch('draft', {
+      firestore: { 'notes/planted': { body: 'a' } },
+      users: [{ uid: 'planted' }],
+    });
+
+    const diffed = await run('sandbox.diff', { branch: 'draft' });
+    expect(diffed.summary).toContain('firestore');
+    expect(diffed.summary).toContain('auth');
+    const counts = (diffed.data as { counts: Record<string, number> }).counts;
+    expect(counts.firestore).toBeGreaterThan(0);
+    expect(counts.auth).toBeGreaterThan(0);
+  });
+
+  it('accepts candidateRules as a string of Firestore rules', async () => {
+    const forked = await run('sandbox.fork', { branch: 'locked', candidateRules: CLOSED_RULES });
+    expect(forked.ok).toBe(true);
+    expect(servicesOf(await run('sandbox.diff', { branch: 'locked' }))).toContain('rules');
   });
 });
