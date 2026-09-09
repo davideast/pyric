@@ -90,21 +90,6 @@ describe('pacing', () => {
     expect(spawnedAt[1] as number).toBeGreaterThanOrEqual((spawnedAt[0] as number) + 5_000);
   });
 
-  test('a CLI stops having budget once the window is spent, and recovers after it', async () => {
-    const clock = fakeClock();
-    const pacer = new Pacer({ minGapMs: 0, budgetPerWindow: 2, now: clock.now, sleep: clock.sleep });
-    const work = async () => undefined;
-
-    expect(pacer.hasBudget('claude')).toBe(true);
-    await pacer.run('claude', work);
-    await pacer.run('claude', work);
-    expect(pacer.hasBudget('claude')).toBe(false);
-    expect(pacer.hasBudget('codex')).toBe(true);
-
-    clock.advance(BUDGET_WINDOW_MS);
-    expect(pacer.hasBudget('claude')).toBe(true);
-  });
-
   test('a failed run does not wedge the CLI', async () => {
     const clock = fakeClock();
     const pacer = new Pacer({ minGapMs: 0, budgetPerWindow: 10, now: clock.now, sleep: clock.sleep });

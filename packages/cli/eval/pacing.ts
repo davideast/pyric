@@ -197,10 +197,9 @@ export function isThrottled(exitCode: number | null, stderr: string): boolean {
   return THROTTLE_PATTERNS.some((pattern) => pattern.test(stderr));
 }
 
+/** In-process spawn spacing for one CLI. The budget itself lives in the ledger. */
 interface CliMeter {
   lastSpawnAt: number;
-  windowStartedAt: number;
-  spentInWindow: number;
 }
 
 /** Serializes and meters spawns per CLI. One instance per runner invocation. */
@@ -221,24 +220,9 @@ export class Pacer {
   private meterFor(cli: string): CliMeter {
     const existing = this.meters.get(cli);
     if (existing !== undefined) return existing;
-    const created: CliMeter = {
-      lastSpawnAt: Number.NEGATIVE_INFINITY,
-      windowStartedAt: this.now(),
-      spentInWindow: 0,
-    };
+    const created: CliMeter = { lastSpawnAt: Number.NEGATIVE_INFINITY };
     this.meters.set(cli, created);
     return created;
-  }
-
-  /** True once this CLI has spent its budget inside the current window. */
-  hasBudget(cli: string): boolean {
-    const meter = this.meterFor(cli);
-    const elapsed = this.now() - meter.windowStartedAt;
-    if (elapsed >= BUDGET_WINDOW_MS) {
-      meter.windowStartedAt = this.now();
-      meter.spentInWindow = 0;
-    }
-    return meter.spentInWindow < this.options.budgetPerWindow;
   }
 
   /**
@@ -288,7 +272,6 @@ export class Pacer {
         await this.sleep(this.options.minGapMs - waited);
       }
       meter.lastSpawnAt = this.now();
-      meter.spentInWindow += 1;
       return work();
     });
     // Keep the chain alive on failure so one crashed run does not wedge the CLI.
