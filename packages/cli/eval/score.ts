@@ -8,8 +8,13 @@
  */
 import type { EvalOutcome, EvalResultLine, EvalRun, EvalState } from './types.js';
 
-/** How the spawned process ended, before the task's own assertion is consulted. */
-export type SpawnOutcome = 'completed' | 'timeout' | 'throttled' | 'crash';
+/**
+ * How the spawned process ended, before the task's own assertion is consulted.
+ * `interrupted` and `bypassed` are never produced by the spawn itself; they are
+ * `outcome.ts` narrowing a `completed` or `crash` spawn after reading the CLI's
+ * captured stdout and stderr.
+ */
+export type SpawnOutcome = 'completed' | 'timeout' | 'throttled' | 'crash' | 'interrupted' | 'bypassed';
 
 export interface ScoreInput {
   run: EvalRun;
@@ -38,6 +43,17 @@ function isFirstOperationAccepted(accepted: string[], firstOperation: string | n
   if (accepted.length === 0) return true;
   if (firstOperation === null) return false;
   return accepted.includes(firstOperation);
+}
+
+/**
+ * Whether any logged call, not just the first, reached an accepted operation.
+ * A run can wander before finding the right call, and that recovery is still
+ * evidence the surface was usable, so this is reported alongside, never in
+ * place of, `firstOperationAccepted`.
+ */
+function isAcceptedOpReached(accepted: string[], calls: EvalState['calls']): boolean {
+  if (accepted.length === 0) return true;
+  return calls.some((call) => call.operation !== null && accepted.includes(call.operation));
 }
 
 /** A process that did not finish is never scored against the task's assertion. */
@@ -76,6 +92,7 @@ export function scoreRun(input: ScoreInput): EvalResultLine {
       run.task.acceptedFirstOperations,
       firstOperation,
     ),
+    acceptedOpReached: isAcceptedOpReached(run.task.acceptedFirstOperations, state.calls),
     callCount,
     schemaRejections,
     errorCalls,

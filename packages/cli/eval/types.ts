@@ -134,7 +134,21 @@ export interface Invocation {
 /** A provider module's single export. */
 export type BuildInvocation = (run: EvalRun) => Invocation;
 
-export type EvalOutcome = 'pass' | 'fail' | 'timeout' | 'throttled' | 'crash';
+/**
+ * `throttled`, `interrupted` and `bypassed` are infrastructure and bypass
+ * outcomes rather than a verdict on the task: a quota refusal, a stream cut
+ * off mid-run, or a run that touched the sandbox through the agent's own file
+ * tools instead of the surface under test. The reporter counts them
+ * separately and excludes them from the completion denominator.
+ */
+export type EvalOutcome =
+  | 'pass'
+  | 'fail'
+  | 'timeout'
+  | 'throttled'
+  | 'crash'
+  | 'interrupted'
+  | 'bypassed';
 
 /** One line of `results/<runId>/runs.ndjson`. */
 export interface EvalResultLine {
@@ -146,6 +160,8 @@ export interface EvalResultLine {
   outcome: EvalOutcome;
   firstOperation: string | null;
   firstOperationAccepted: boolean;
+  /** Whether any logged call, not just the first, reached an accepted operation. */
+  acceptedOpReached: boolean;
   callCount: number;
   schemaRejections: number;
   errorCalls: number;
