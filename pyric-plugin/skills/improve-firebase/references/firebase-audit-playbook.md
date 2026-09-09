@@ -14,7 +14,7 @@ user asks.
 1. **Collect rules.** Read `firestore.rules` and `database.rules.json` from the
    project, or pull deployed state through the Firebase Console or
    `firebase-tools`. Complete when every service in scope has a ruleset in
-   hand (or a finding that none exists — that is itself critical).
+   hand (or a finding that none exists, which is itself critical).
 
 2. **Collect data shape.** Map real paths by listing collections with
    `firestore_list_documents`, drilling into what you find; for RTDB use
@@ -43,7 +43,7 @@ user asks.
    signed-out, owner, other user, claim-holder), the hosted Rules Test API
    (`pyric verify --engine rules-test-api|both`), or `rtdb_simulate_access`.
    Complete when every critical/high finding cites a simulation, test, or
-   lint result — not just a reading of the rules.
+   lint result, not just a reading of the rules.
 
 6. **Report by severity.**
 

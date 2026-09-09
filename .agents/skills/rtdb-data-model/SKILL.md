@@ -31,7 +31,7 @@ pagination, and query shape — so design paths around the reads.
    payload is what the screen needs.
 
 4. **Plan writes for duplicated data.** Every denormalized copy gets a
-   multi-path fan-out write — a single call to the Realtime Database SDK's
+   multi-path fan-out write: a single call to the Realtime Database SDK's
    `update` with several full paths as keys updates all copies atomically.
    Complete when each duplicated field lists the paths one logical write
    touches.

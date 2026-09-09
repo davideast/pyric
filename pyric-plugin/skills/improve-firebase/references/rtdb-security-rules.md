@@ -39,8 +39,8 @@ revoke it. Lock the root, then open the smallest useful paths.
    cross-user denied, invalid shape denied. Complete when all four families
    pass per path.
 
-5. **Deploy.** Write the full `database.rules.json` — a deploy replaces the
-   entire ruleset — and ship it with `firebase deploy --only database` or the
+5. **Deploy.** Write the full `database.rules.json`, since a deploy replaces
+   the entire ruleset, and ship it with `firebase deploy --only database` or the
    Console. Complete when the deployed rules, read back through the Console or
    `firebase-tools`, match the file, and `rtdb_simulate_access` against a
    local copy of the same file still passes every case from step 4.
