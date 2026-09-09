@@ -170,7 +170,23 @@ Every run has three directories, because a CLI with built-in file tools that can
 For each run the runner:
 
 1. Creates all three, and applies the seed through the sandbox into the state directory, which is where the rules files and `.pyric/state/headless.json` are written.
-2. Writes the CLI config through a provider module, `providers/claude.ts`, `providers/codex.ts`, `providers/antigravity.ts`, each exporting `buildInvocation(run): { command: string[]; env: Record<string, string>; files: Record<string, string>; workspaceFiles: Record<string, string> }`. `files` are written relative to the run directory and `workspaceFiles` relative to the workspace. The MCP server command is the local build: `node <repo>/packages/cli/dist/cli/index.js mcp --headless --surface <variant>`, with the `PYRIC_EVAL_*` variables and `PYRIC_PROJECT_DIR` in the server's env block. The state directory reaches the server through that env block and never as a visible `--project-dir` argument, which is a mitigation and not a wall: `mcp-only` on Claude Code is the only fully closed condition.
+2. Writes the CLI config through a provider module, `providers/claude.ts`, `providers/codex.ts`, `providers/antigravity.ts`, each exporting `buildInvocation(run): { command: string[]; env: Record<string, string>; files: Record<string, string>; workspaceFiles: Record<string, string> }`. `files` are written relative to the run directory and `workspaceFiles` relative to the workspace. The MCP server command is the local build: `node <repo>/packages/cli/dist/cli/index.js mcp --headless --surface <variant>`.
+
+   Where each variable travels is fixed, because an agent with file tools can read the MCP config it was given and Antigravity's config has to sit in the agent's own workspace:
+
+   | Variable | Travels in |
+   |---|---|
+   | `PYRIC_PROJECT_DIR` | `Invocation.env`, the CLI process environment |
+   | `PYRIC_EVAL_LOG` | `Invocation.env` |
+   | `PYRIC_EVAL_RUN_ID`, `PYRIC_EVAL_TASK_ID`, `PYRIC_EVAL_VARIANT`, `PYRIC_EVAL_CLI`, `PYRIC_EVAL_MODEL`, `PYRIC_EVAL_EFFORT`, `PYRIC_EVAL_CONDITION`, `PYRIC_EVAL_SEED` | `Invocation.env` |
+   | `PYRIC_TOOL_SURFACE` | the MCP config's server `env` block, and nothing else goes there |
+   | `CODEX_HOME` | `Invocation.env`, for the codex provider only |
+
+   The runner spawns the CLI with `{ ...process.env, ...invocation.env }`, so the MCP server the CLI spawns inherits all of it. A server entry in a config file holds `command`, `args`, which still carry `--headless --surface <variant>`, and that one-variable `env` block. No `Invocation.env` value is ever written into a file placed in the workspace, and `run.ts` throws if a provider's `workspaceFiles` contain the state directory path or the events path.
+
+   The fake provider is the exception, because its replay client spawns the server itself rather than inheriting a CLI's environment: its plan file carries the full server environment, and the plan lives in the run directory, which no agent is given.
+
+   Reading the process environment is still open to an agent that thinks to look, so this is a mitigation and not a wall: `mcp-only` on Claude Code is the only fully closed condition.
 3. Spawns the CLI in the workspace with a hard timeout, captures stdout and stderr raw to files in the run directory, never parses them for scoring. A provider that names a directory to the CLI names the workspace and nothing else.
 4. Copies `events.ndjson`, `.pyric/state/headless.json` and `.pyric/state/storage.json` from the state directory into the run directory, deletes the state directory, then reads the copies, builds `EvalState`, runs the task's `assert`, and appends one line to `results/<runId>/runs.ndjson`.
 

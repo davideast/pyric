@@ -17,6 +17,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  assertNoLeakedPaths,
   runAll,
   planRuns,
   parseArgs,
@@ -270,6 +271,42 @@ describe('the run, the workspace and the state are three directories', () => {
     );
     expect(snapshot).toContain('written');
   }, 120_000);
+});
+
+describe('the runner refuses to hand the agent a path to the state', () => {
+  test('a provider that writes the state directory into the workspace stops the run', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [READ_TASK];
+    options.providerFor = () => (run) => {
+      const invocation = buildFake(run);
+      invocation.workspaceFiles = {
+        '.agents/mcp_config.json': JSON.stringify({ env: { PYRIC_PROJECT_DIR: run.stateDir } }),
+      };
+      return invocation;
+    };
+
+    await expect(runAll(options)).rejects.toThrow('the state directory in the workspace file');
+  }, 60_000);
+
+  test('the events path is caught the same way', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [READ_TASK];
+    options.providerFor = () => (run) => {
+      const invocation = buildFake(run);
+      invocation.workspaceFiles = { 'notes.md': `the log is at ${run.eventsPath}\n` };
+      return invocation;
+    };
+
+    await expect(runAll(options)).rejects.toThrow('the events path in the workspace file notes.md');
+  }, 60_000);
+
+  test('the workspace files the real providers produce pass the check', () => {
+    const options = optionsFor('/results');
+    const [run] = planRuns(options);
+    expect(() => assertNoLeakedPaths(run!, buildFake(run!).workspaceFiles)).not.toThrow();
+  });
 });
 
 describe('planning and argument parsing', () => {
