@@ -33,6 +33,15 @@ service firebase.storage {
   }
 }`;
 
+const SIGNED_IN_ONLY_STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}`;
+
 const sandbox = initializeSandbox();
 setRules(sandbox, TENANT_RULES);
 
@@ -265,8 +274,17 @@ it('installs Firestore and database rules into the running sandbox', async () =>
   const installedDatabase = await run('set_database_rules', { rules: DATABASE_RULES });
   expect(installedDatabase.ok).toBe(true);
 
-  const rejectedStorage = await run('set_storage_rules', { rules: STORAGE_RULES });
+  const installedStorage = await run('set_storage_rules', { rules: SIGNED_IN_ONLY_STORAGE_RULES });
+  expect(installedStorage.ok).toBe(true);
+  const anonymousRead = await run('simulate_storage_rules', {
+    operation: 'get',
+    path: 'uploads/report.pdf',
+  });
+  expect((anonymousRead.data as { allowed: boolean }).allowed).toBe(false);
+
+  const rejectedStorage = await run('set_storage_rules', { rules: 'not rules at all {' });
   expect(rejectedStorage.ok).toBe(false);
+  expect(rejectedStorage.summary).toContain('Storage rules did not parse');
 });
 
 it('reaches the same handler through the discriminator rendering', async () => {

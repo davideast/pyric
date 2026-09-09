@@ -19,6 +19,7 @@ export {
   bindStorageOperationContext,
   getAdminStorageSandbox,
   getStorageRulesResolution,
+  replaceStorageRules,
 } from './service.js';
 export {
   decodeString,

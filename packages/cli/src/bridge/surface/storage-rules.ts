@@ -1,10 +1,12 @@
 /**
  * The Cloud Storage rules the sandbox is running.
  *
- * Storage rules are supplied when the service is first opened, so the source
- * is read back from the opened service's resolution record rather than from a
- * setter. A sandbox whose storage service was opened without rules has none,
- * and the rules operations say so instead of evaluating an empty ruleset.
+ * The source is read back from the opened service's resolution record, which
+ * carries whatever the service is enforcing: the rules it opened with, or the
+ * ones a later `set` installed through `replaceStorageRules`. A sandbox whose
+ * storage service was opened without rules and never had any installed has
+ * none, and the rules operations say so instead of evaluating an empty
+ * ruleset.
  */
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { StorageReference } from 'pyric/storage';

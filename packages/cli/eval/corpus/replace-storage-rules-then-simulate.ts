@@ -18,11 +18,11 @@ service firebase.storage {
   },
   acceptedFirstOperations: ['set_storage_rules'],
   assert: (state) => {
-    if (!state.calls.some((c) => c.operation === 'set_storage_rules')) {
-      return 'the storage rules replacement was never attempted';
+    if (!state.calls.some((c) => c.operation === 'set_storage_rules' && c.ok)) {
+      return 'the stricter storage rules were never installed';
     }
     if (!state.calls.some((c) => c.operation === 'simulate_storage_rules' && c.ok)) {
-      return "the anonymous read of uploads/report.pdf was never checked";
+      return 'the anonymous read of uploads/report.pdf was never checked';
     }
     return true;
   },

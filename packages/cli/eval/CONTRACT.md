@@ -47,7 +47,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `simulate_storage_rules` | simulate | storage | rules | `operation`, `path`, `uid?`, `rules?` | |
 | `set_firestore_rules` | set | firestore | rules | `rules` | Installs a ruleset into the running sandbox. |
 | `set_database_rules` | set | database | rules | `rules` | Installs a ruleset into the running sandbox. |
-| `set_storage_rules` | set | storage | rules | `rules` | Storage rules are fixed when the service opens; this reports that instead of installing. |
+| `set_storage_rules` | set | storage | rules | `rules` | Installs a ruleset into the running sandbox. |
 | `list_rules_stdlib` | list | rules | stdlib | none | |
 | `get_rules_stdlib` | get | rules | stdlib | `module` | |
 | `inspect_sandbox` | inspect | sandbox | state | none | Counts and status per service. |

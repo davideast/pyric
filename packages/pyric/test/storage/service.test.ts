@@ -12,7 +12,13 @@ import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../src/app/internal.js';
 import { getStorage } from '../../src/storage/index.js';
-import { getStorageSandbox, getStorageService, targetOf } from '../../src/storage/service.js';
+import {
+  getStorageSandbox,
+  getStorageService,
+  replaceStorageRules,
+  targetOf,
+} from '../../src/storage/service.js';
+import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
 import { getStorageRulesResolution } from '../../src/storage/internal.js';
 
 function uniqueDbName(label: string): string {
@@ -235,4 +241,88 @@ service firebase.storage {
     expect(resolution?.source).not.toContain('import ');
   });
 
+});
+
+describe('replaceStorageRules', () => {
+  const OPEN_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileName} {
+      allow read, write: if true;
+    }
+  }
+}
+`;
+  const SIGNED_IN_ONLY_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileName} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+`;
+
+  it('replaces the ruleset an already open service enforces', async () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox, {
+      dbName: uniqueDbName('replace-rules'),
+      rules: OPEN_RULES,
+    });
+    await getStorageService(storage);
+
+    await replaceStorageRules(sandbox, SIGNED_IN_ONLY_RULES);
+
+    const service = await getStorageService(storage);
+    const installed = service.rules;
+    if (installed === null) throw new Error('expected a ruleset in force');
+    const evaluated = evaluateStorageRules(installed, {
+      request: { auth: null, method: 'get', path: 'b/pyric-default/o/uploads/report.pdf' },
+      resource: null,
+    });
+
+    expect(evaluated.allowed).toBe(false);
+    expect(getStorageRulesResolution(storage)?.source).toBe(SIGNED_IN_ONLY_RULES);
+  });
+
+  it('opens a service that is not open yet with the supplied rules', async () => {
+    const sandbox = initializeSandbox({});
+    await replaceStorageRules(sandbox, OPEN_RULES);
+    const storage = getStorageSandbox(sandbox);
+    await getStorageService(storage);
+
+    expect(getStorageRulesResolution(storage)?.source).toBe(OPEN_RULES);
+  });
+
+  it('leaves the ruleset in force when the new source does not parse', async () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox, {
+      dbName: uniqueDbName('reject-rules'),
+      rules: OPEN_RULES,
+    });
+    await getStorageService(storage);
+
+    let thrown: unknown = null;
+    try {
+      await replaceStorageRules(sandbox, 'not rules at all {');
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).not.toBeNull();
+    expect(getStorageRulesResolution(storage)?.source).toBe(OPEN_RULES);
+  });
+
+  it('still refuses a late differing rules option on the factory', async () => {
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox, {
+      dbName: uniqueDbName('guard-holds'),
+      rules: OPEN_RULES,
+    });
+    await getStorageService(storage);
+
+    expect(() => getStorageSandbox(sandbox, { rules: SIGNED_IN_ONLY_RULES })).toThrow(
+      /honored only on the FIRST storage/,
+    );
+  });
 });
