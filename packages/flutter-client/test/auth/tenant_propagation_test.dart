@@ -220,5 +220,122 @@ void main() {
       final res = await credFuture;
       expect(res.user?.tenantId, equals('tenant-oauth'));
     });
+
+    test('user mutations (updateProfile, updateEmail, updatePassword, reload) preserve existing customClaims and tenantId', () async {
+      await auth.setTenantId('tenant-omega');
+      final signInFuture = auth.signInWithEmailAndPassword('omega@example.com', 'secret');
+      await pumpEventQueue();
+
+      final signInOp = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.signInEmail',
+      );
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': signInOp['id'],
+        'ok': true,
+        'value': {
+          'user': {
+            'uid': 'uid-omega-1',
+            'email': 'omega@example.com',
+            'tenantId': 'tenant-omega',
+            'customClaims': {'tier': 'platinum'},
+          },
+        },
+      });
+      final cred = await signInFuture;
+      final user = cred.user as PyricUserPlatform;
+      expect(user.customClaims?['tier'], equals('platinum'));
+
+      // 1. updateProfile returns serialized user without customClaims or tenantId
+      final updateProfileFuture = user.updateProfile({'displayName': 'Omega Chief'});
+      await pumpEventQueue();
+      final profileOp = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.updateProfile',
+      );
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': profileOp['id'],
+        'ok': true,
+        'value': {
+          'uid': 'uid-omega-1',
+          'email': 'omega@example.com',
+          'displayName': 'Omega Chief',
+        },
+      });
+      await updateProfileFuture;
+
+      final userAfterProfile = auth.currentUser as PyricUserPlatform?;
+      expect(userAfterProfile?.displayName, equals('Omega Chief'));
+      expect(userAfterProfile?.tenantId, equals('tenant-omega'));
+      expect(userAfterProfile?.customClaims?['tier'], equals('platinum'));
+
+      // 2. updateEmail
+      final updateEmailFuture = userAfterProfile!.updateEmail('new-omega@example.com');
+      await pumpEventQueue();
+      final emailOp = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.updateEmail',
+      );
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': emailOp['id'],
+        'ok': true,
+        'value': {
+          'uid': 'uid-omega-1',
+          'email': 'new-omega@example.com',
+          'displayName': 'Omega Chief',
+        },
+      });
+      await updateEmailFuture;
+
+      final userAfterEmail = auth.currentUser as PyricUserPlatform?;
+      expect(userAfterEmail?.email, equals('new-omega@example.com'));
+      expect(userAfterEmail?.tenantId, equals('tenant-omega'));
+      expect(userAfterEmail?.customClaims?['tier'], equals('platinum'));
+
+      // 3. updatePassword
+      final updatePasswordFuture = userAfterEmail!.updatePassword('new-pass-123');
+      await pumpEventQueue();
+      final passOp = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.updatePassword',
+      );
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': passOp['id'],
+        'ok': true,
+        'value': {
+          'uid': 'uid-omega-1',
+          'email': 'new-omega@example.com',
+          'displayName': 'Omega Chief',
+        },
+      });
+      await updatePasswordFuture;
+
+      final userAfterPass = auth.currentUser as PyricUserPlatform?;
+      expect(userAfterPass?.tenantId, equals('tenant-omega'));
+      expect(userAfterPass?.customClaims?['tier'], equals('platinum'));
+
+      // 4. reload
+      final reloadFuture = userAfterPass!.reload();
+      await pumpEventQueue();
+      final reloadOp = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.getCurrentUser',
+      );
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': reloadOp['id'],
+        'ok': true,
+        'value': {
+          'uid': 'uid-omega-1',
+          'email': 'new-omega@example.com',
+          'displayName': 'Omega Chief',
+        },
+      });
+      await reloadFuture;
+
+      final userAfterReload = auth.currentUser as PyricUserPlatform?;
+      expect(userAfterReload?.tenantId, equals('tenant-omega'));
+      expect(userAfterReload?.customClaims?['tier'], equals('platinum'));
+    });
   });
 }
+

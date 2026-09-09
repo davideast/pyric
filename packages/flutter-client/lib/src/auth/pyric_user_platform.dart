@@ -131,6 +131,22 @@ class PyricUserPlatform extends UserPlatform {
     ));
   }
 
+  void _applyUpdatedUser(Map<String, dynamic> res) {
+    final updated = PyricUserPlatform.fromWire(
+      auth: auth,
+      data: res,
+      client: _client,
+    );
+    if (updated.customClaims == null && customClaims != null) {
+      updated.customClaims = customClaims;
+    }
+    if (updated.tenantId == null && tenantId != null) {
+      updated.tenantId = tenantId;
+    }
+    auth.currentUser = updated;
+    auth.sendAuthChangesEvent(auth.app.name, updated);
+  }
+
   @override
   Future<void> updateProfile(Map<String, String?> profile) async {
     final res = await _client.authUpdateProfile(
@@ -138,13 +154,7 @@ class PyricUserPlatform extends UserPlatform {
       photoURL: profile['photoURL'],
     );
     if (res is Map) {
-      final updated = PyricUserPlatform.fromWire(
-        auth: auth,
-        data: Map<String, dynamic>.from(res),
-        client: _client,
-      );
-      auth.currentUser = updated;
-      auth.sendAuthChangesEvent(auth.app.name, updated);
+      _applyUpdatedUser(Map<String, dynamic>.from(res));
     }
   }
 
@@ -152,13 +162,7 @@ class PyricUserPlatform extends UserPlatform {
   Future<void> updateEmail(String newEmail) async {
     final res = await _client.authUpdateEmail(newEmail);
     if (res is Map) {
-      final updated = PyricUserPlatform.fromWire(
-        auth: auth,
-        data: Map<String, dynamic>.from(res),
-        client: _client,
-      );
-      auth.currentUser = updated;
-      auth.sendAuthChangesEvent(auth.app.name, updated);
+      _applyUpdatedUser(Map<String, dynamic>.from(res));
     }
   }
 
@@ -166,13 +170,7 @@ class PyricUserPlatform extends UserPlatform {
   Future<void> updatePassword(String newPassword) async {
     final res = await _client.authUpdatePassword(newPassword);
     if (res is Map) {
-      final updated = PyricUserPlatform.fromWire(
-        auth: auth,
-        data: Map<String, dynamic>.from(res),
-        client: _client,
-      );
-      auth.currentUser = updated;
-      auth.sendAuthChangesEvent(auth.app.name, updated);
+      _applyUpdatedUser(Map<String, dynamic>.from(res));
     }
   }
 
@@ -180,13 +178,7 @@ class PyricUserPlatform extends UserPlatform {
   Future<void> reload() async {
     final res = await _client.authGetCurrentUser();
     if (res is Map) {
-      final updated = PyricUserPlatform.fromWire(
-        auth: auth,
-        data: Map<String, dynamic>.from(res),
-        client: _client,
-      );
-      auth.currentUser = updated;
-      auth.sendAuthChangesEvent(auth.app.name, updated);
+      _applyUpdatedUser(Map<String, dynamic>.from(res));
     }
   }
 
