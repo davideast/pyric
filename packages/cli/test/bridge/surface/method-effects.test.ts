@@ -93,6 +93,7 @@ describe('destructive refusal', () => {
   it('names every destructive method today', () => {
     const destructiveRecords = METHODS.filter((method) => method.effect === 'destructive');
     expect(destructiveRecords.map((method) => method.key).sort()).toEqual([
+      'sandbox.deleteCheckpoint',
       'sandbox.promote',
       'sandbox.reset',
       'sandbox.restore',

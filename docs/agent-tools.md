@@ -40,13 +40,13 @@ when one ships, it is not mounted unless the server is started with
 | `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
 | `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
-| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint`, `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
+| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
 
 `checkpoint` writes the whole live sandbox under a name into
 `.pyric/state/checkpoints/`: Firestore documents, the Realtime Database tree,
 Storage objects with their bytes and metadata, auth accounts, and the three
 rule sources. `restore` puts one back, `listCheckpoints` reports what is
-stored, and `deleteCheckpoint` removes one and leaves the sandbox alone. `events` pages the operation log by cursor and filters
+stored, and `deleteCheckpoint` discards one and leaves the sandbox alone. A checkpoint is the only copy of the state it holds, so that call is destructive and takes `confirm: true`. `events` pages the operation log by cursor and filters
 it to denials or writes; a cursor from a log a restore or a reset replaced is
 refused rather than read as the start of the new log. `exportFixture` writes the live state as a fixture and
 `seedFromFixture` loads one back. The fixture carries the sandbox's seeded

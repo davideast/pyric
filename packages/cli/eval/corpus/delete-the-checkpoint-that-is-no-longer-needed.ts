@@ -3,7 +3,7 @@ import type { EvalTask } from '../types.js';
 const task: EvalTask = {
   id: 'delete-the-checkpoint-that-is-no-longer-needed',
   prompt:
-    'Checkpoint the sandbox as pre-cleanup before you delete the archived note, then delete the note. The cleanup worked, so the checkpoint is no longer needed: delete it and show me what checkpoints are left.',
+    'Checkpoint the sandbox as pre-cleanup before you delete the archived note, then delete the note. The cleanup worked, so the checkpoint is no longer needed: discard it and show me what checkpoints are left.',
   seed: {
     firestore: {
       'demo/archived-note': { archived: true },

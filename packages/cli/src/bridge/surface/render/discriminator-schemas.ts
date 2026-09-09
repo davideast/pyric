@@ -274,7 +274,7 @@ export const controlSandboxEnvironmentSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Must be true for the two actions that replace or discard state: 'reset_all', which clears the services in scope, and 'restore', which discards every change made since the checkpoint.",
+      "Must be true for the three actions that replace or discard state: 'reset_all', which clears the services in scope, 'restore', which discards every change made since the checkpoint, and 'delete_checkpoint', which discards the only copy of a saved state.",
     ),
   seedSnapshotJson: z
     .string()

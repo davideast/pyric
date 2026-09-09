@@ -327,11 +327,22 @@ it('checkpoints, restores, pages events, and round-trips a fixture', async () =>
 
   // Deleting the checkpoint removes it from the listing and leaves the sandbox
   // exactly as the restore left it.
-  const missingDelete = await run('sandbox.deleteCheckpoint', { name: 'no-such-checkpoint' });
+  const unconfirmedDelete = await run('sandbox.deleteCheckpoint', { name: 'before-break' });
+  expect(unconfirmedDelete.ok).toBe(false);
+  expect((unconfirmedDelete.data as { field?: string }).field).toBe('confirm');
+  expect(
+    ((await run('sandbox.listCheckpoints')).data as { checkpoints: Array<{ name: string }> })
+      .checkpoints.map((c) => c.name),
+  ).toContain('before-break');
+
+  const missingDelete = await run('sandbox.deleteCheckpoint', {
+    name: 'no-such-checkpoint',
+    confirm: true,
+  });
   expect(missingDelete.ok).toBe(false);
   expect(missingDelete.summary).toContain('before-break');
 
-  const deleted = await run('sandbox.deleteCheckpoint', { name: 'before-break' });
+  const deleted = await run('sandbox.deleteCheckpoint', { name: 'before-break', confirm: true });
   expect(deleted.ok).toBe(true);
   const afterDelete = await run('sandbox.listCheckpoints');
   expect(

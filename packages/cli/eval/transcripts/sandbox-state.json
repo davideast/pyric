@@ -12,7 +12,7 @@
     { "tool": "firestore", "args": { "method": "deleteDoc", "args": { "path": "demo/archived-note" } } },
     {
       "tool": "sandbox",
-      "args": { "method": "deleteCheckpoint", "args": { "name": "pre-cleanup" } }
+      "args": { "method": "deleteCheckpoint", "args": { "name": "pre-cleanup", "confirm": true } }
     },
     { "tool": "sandbox", "args": { "method": "listCheckpoints", "args": {} } }
   ],
