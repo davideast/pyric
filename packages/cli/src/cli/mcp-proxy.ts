@@ -37,9 +37,9 @@
  * `--project-dir <dir>` (or `PYRIC_PROJECT_DIR`, same precedence) names the
  * directory that headless server reads its rules files and `.pyric/state` from.
  * Absent both, the project directory is the process cwd. `--allow-production`
- * (or `PYRIC_ALLOW_PRODUCTION`) mounts `production` methods on the headless
- * server; absent, a `production` method is neither listed nor callable
- * (ADR-0014 Decision 5).
+ * (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`) mounts `production`
+ * methods on the headless server; absent, a `production` method is neither
+ * listed nor callable (ADR-0014 Decision 5).
  *
  * Discovery preference: the `.pyric/serve.json` pointer serve writes in the
  * project cwd (exact + project-correct), then a health probe across the scan
@@ -137,16 +137,25 @@ function selectFlagOrEnv(
   return undefined;
 }
 
+/** The only two values of `PYRIC_ALLOW_PRODUCTION` that mount production methods. */
+const ALLOW_PRODUCTION_ENV_VALUES: readonly string[] = ['1', 'true'];
+
 /**
  * Whether `production` methods mount (ADR-0014 Decision 5). The flag wins over
  * the environment; absent both, production methods do not mount. Shared with
  * `pyric <tool> <method>` (`surface-method-runner.ts`), so the two paths that
  * start a session read the flag the same way.
+ *
+ * The environment fallback takes an exact word rather than anything truthy.
+ * Mounting these methods hands a session real credentials and real Google
+ * infrastructure, so a variable set for some neighbouring purpose, or set to a
+ * word a reader would take for a refusal, opts nobody in.
  */
 export function selectAllowProduction(parsed: ParsedArgs, env: NodeJS.ProcessEnv): boolean {
   if (parsed.flags?.get('allow-production') === true) return true;
   const envValue = env[ALLOW_PRODUCTION_ENV_KEY];
-  return envValue !== undefined && envValue !== '' && envValue !== '0' && envValue !== 'false';
+  if (envValue === undefined) return false;
+  return ALLOW_PRODUCTION_ENV_VALUES.includes(envValue);
 }
 
 export async function runMcpProxy(

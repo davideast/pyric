@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { FakePlan } from './fake.js';
+import { spawnEnv } from './server-env.js';
 
 async function main(): Promise<number> {
   const planPath = process.argv[2];
@@ -23,7 +24,7 @@ async function main(): Promise<number> {
   const transport = new StdioClientTransport({
     command: plan.server.command,
     args: plan.server.args,
-    env: { ...(process.env as Record<string, string>), ...plan.server.env },
+    env: spawnEnv(process.env, plan.server.env),
     stderr: 'inherit',
   });
   const client = new Client({ name: 'pyric-fake-provider', version: '1' });
