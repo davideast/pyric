@@ -13,7 +13,7 @@
  * is gone afterwards, and the run directory ends up holding the copies.
  */
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -21,7 +21,9 @@ import {
   runAll,
   planRuns,
   parseArgs,
+  readTranscripts,
   resolveResultsDir,
+  REPLAY_LEDGER_KEY,
   RESULTS_FILE,
   RESULTS_ROOT,
   STATE_ROOT,
@@ -337,6 +339,45 @@ describe('planning and argument parsing', () => {
       variants: 'v',
     });
   });
+});
+
+describe('a replay run is driven from a transcript file', () => {
+  test('the transcripts flag reads one canned call list per task id', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'pyric-transcripts-')), 'transcripts.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        'read-the-seeded-post': [
+          { tool: 'firestore', args: { method: 'getDoc', args: { path: 'posts/p1' } } },
+        ],
+      }),
+      'utf8',
+    );
+
+    const transcripts = readTranscripts(path);
+    expect(transcripts['read-the-seeded-post']).toHaveLength(1);
+    expect(transcripts['read-the-seeded-post']?.[0]?.tool).toBe('firestore');
+  });
+
+  test('a transcript that is not a list of calls is refused by name', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'pyric-transcripts-')), 'transcripts.json');
+    writeFileSync(path, JSON.stringify({ 'read-the-seeded-post': 'getDoc' }), 'utf8');
+    expect(() => readTranscripts(path)).toThrow('read-the-seeded-post');
+  });
+
+  test('a replayed run meters under its own ledger, never a metered account', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [READ_TASK];
+    options.pacing = { minGapMs: 0, budgetPerWindow: 10, ledgerRoot };
+
+    await runAll(options);
+
+    // The row names Claude, but nothing called Claude, so the account's window
+    // must be untouched and the replay must be counted on its own.
+    expect(readdirSync(ledgerRoot)).toEqual([`${REPLAY_LEDGER_KEY}.json`]);
+  }, 120_000);
 });
 
 describe('results live outside the repository', () => {

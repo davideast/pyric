@@ -46,7 +46,15 @@
  * built-in tools are withdrawn and the surface under test is the only way to
  * touch anything. Every other row is measured knowing that.
  */
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -62,7 +70,7 @@ import { STORAGE_SIDECAR_RELATIVE } from './storage-sidecar.js';
 import { buildInvocation as buildClaude } from './providers/claude.js';
 import { buildInvocation as buildCodex } from './providers/codex.js';
 import { buildInvocation as buildAntigravity } from './providers/antigravity.js';
-import { buildInvocation as buildFake } from './providers/fake.js';
+import { buildInvocation as buildFake, type FakeCall } from './providers/fake.js';
 import type { BuildInvocation, EvalResultLine, EvalRow, EvalRun, EvalTask } from './types.js';
 
 /** The four surface variants under test, in the order the contract lists them. */
@@ -359,6 +367,18 @@ export async function runAll(options: RunnerOptions): Promise<EvalResultLine[]> 
   return lines;
 }
 
+/**
+ * The ledger a run is metered against. A run that replays a canned transcript
+ * calls no model, so it spends no metered account and must not consume a real
+ * CLI's window: it meters under its own name instead.
+ */
+export const REPLAY_LEDGER_KEY = 'replay';
+
+function ledgerKeyFor(options: RunnerOptions, run: EvalRun): string {
+  if (options.transcripts !== undefined) return REPLAY_LEDGER_KEY;
+  return run.row.cli;
+}
+
 /** Prepare, spawn, collect, and score one run. Returns null for a dry run. */
 async function runOne(
   options: RunnerOptions,
@@ -366,37 +386,38 @@ async function runOne(
   pacer: Pacer,
   resultsPath: string,
 ): Promise<EvalResultLine | null> {
-    const build = providerFor(options, run.row);
-    const prepared = await prepareRun(run, build);
+  const build = providerFor(options, run.row);
+  const prepared = await prepareRun(run, build);
 
-    if (options.dryRun) {
-      const layout = { dir: run.dir, workspace: run.workspaceDir, state: run.stateDir };
-      process.stdout.write(`${JSON.stringify({ ...layout, ...prepared })}\n`);
-      return null;
-    }
+  if (options.dryRun) {
+    const layout = { dir: run.dir, workspace: run.workspaceDir, state: run.stateDir };
+    process.stdout.write(`${JSON.stringify({ ...layout, ...prepared })}\n`);
+    return null;
+  }
 
-    let report: SpawnReport = { outcome: 'throttled', durationMs: 0 };
-    const budget = await pacer.reserveBudget(run.row.cli);
-    if (budget === 'ready') {
-      report = await pacer.run(run.row.cli, () =>
-        spawnInvocation(run, prepared.command, prepared.env, options.timeoutMs),
-      );
-    }
-
-    collectState(run);
-    const state = await buildEvalState(run.dir, join(run.dir, EVENTS_FILE));
-    // The stdout and stderr the process just wrote may carry a quota refusal, a
-    // cut-off stream, or built-in tool use, none of which the event log or the
-    // sandbox can show. This only ever narrows a completed or crashed outcome.
-    const refinedOutcome = classifyRunOutcome(
-      run.row.cli,
-      report.outcome,
-      run.dir,
-      state.calls.length,
+  const ledgerKey = ledgerKeyFor(options, run);
+  let report: SpawnReport = { outcome: 'throttled', durationMs: 0 };
+  const budget = await pacer.reserveBudget(ledgerKey);
+  if (budget === 'ready') {
+    report = await pacer.run(ledgerKey, () =>
+      spawnInvocation(run, prepared.command, prepared.env, options.timeoutMs),
     );
-    const line = scoreRun({ run, spawn: refinedOutcome, durationMs: report.durationMs, state });
-    appendFileSync(resultsPath, `${JSON.stringify(line)}\n`, 'utf8');
-    return line;
+  }
+
+  collectState(run);
+  const state = await buildEvalState(run.dir, join(run.dir, EVENTS_FILE));
+  // The stdout and stderr the process just wrote may carry a quota refusal, a
+  // cut-off stream, or built-in tool use, none of which the event log or the
+  // sandbox can show. This only ever narrows a completed or crashed outcome.
+  const refinedOutcome = classifyRunOutcome(
+    run.row.cli,
+    report.outcome,
+    run.dir,
+    state.calls.length,
+  );
+  const line = scoreRun({ run, spawn: refinedOutcome, durationMs: report.durationMs, state });
+  appendFileSync(resultsPath, `${JSON.stringify(line)}\n`, 'utf8');
+  return line;
 }
 
 /** Parse `--flag value` pairs and boolean flags out of the argument list. */
@@ -413,6 +434,21 @@ export function parseArgs(argv: string[]): Record<string, string | boolean> {
     }
     parsed[name] = next;
     index += 1;
+  }
+  return parsed;
+}
+
+/**
+ * Read the canned transcripts a replay run drives the real binary with, from a
+ * JSON object keyed by task id. The transcripts are a harness input rather than
+ * a corpus property, so they live in a file the caller names instead of on the
+ * task record, which states only what the agent is asked and what must be true
+ * afterwards.
+ */
+export function readTranscripts(path: string): Record<string, FakeCall[]> {
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as Record<string, FakeCall[]>;
+  for (const [taskId, calls] of Object.entries(parsed)) {
+    if (!Array.isArray(calls)) throw new Error(`transcript for ${taskId} is not a list of calls`);
   }
   return parsed;
 }
@@ -453,6 +489,14 @@ async function main(argv: string[]): Promise<number> {
     timeoutMs: timeout,
     pacing: { minGapMs: minGap, budgetPerWindow: budget, noWait },
   };
+
+  // Naming a transcript file selects the fake provider: the replay client
+  // drives the real server over stdio with canned calls, so the whole pipeline
+  // runs without a model and without spending a metered account.
+  if (typeof flags.transcripts === 'string') {
+    options.transcripts = readTranscripts(flags.transcripts);
+    options.providerFor = () => buildFake;
+  }
 
   process.stderr.write(`results directory: ${resultsDir}\n`);
   const lines = await runAll(options);
