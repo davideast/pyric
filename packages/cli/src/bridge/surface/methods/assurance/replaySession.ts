@@ -114,8 +114,11 @@ export default {
       divergences.length === 0
         ? `Replaying '${named}' under the candidate rules changed no recorded verdict.`
         : `Replaying '${named}' under the candidate rules changed ${verdicts.length} verdict(s) and left ${state.length} state divergence(s).`;
+    // The read succeeded whatever it found, so a replay that reports what
+    // breaks is not an error. What broke is in the data, and a caller that
+    // asks what breaks is asking for exactly that.
     return {
-      ok: divergences.length === 0,
+      ok: true,
       summary,
       data: {
         sessionPath: named,

@@ -74,8 +74,10 @@ export default {
       failed.length === 0
         ? `All ${run.cases.length} case(s) from '${named}' reached the verdict the capture holds.`
         : `${failed.length} of ${run.cases.length} case(s) from '${named}' changed verdict, starting with ${failed[0]!.method} ${failed[0]!.path}.`;
+    // The cases were decided, which is what the call is for. A case that
+    // changed verdict is the answer, not a failure of the call.
     return {
-      ok: failed.length === 0,
+      ok: true,
       summary,
       data: {
         fixture: named,

@@ -37,11 +37,14 @@ export default {
   renames: { runId: 'campaignId', out: 'path', file: 'path' },
   example: { campaignId: 'first-pass', path: '.pyric/assurance/first-pass.json' },
   async handler(args, ctx) {
-    const exported = await callAssuranceOperation(ctx, 'firebase_assurance_export', {
-      campaignId: args.campaignId,
-    });
-    if (!exported.ok || args.path === undefined) return exported;
-
+    // The path is settled before the campaign is exported, so a call that
+    // names somewhere the bundle cannot be written is refused rather than
+    // exporting a bundle and then dropping it.
+    if (args.path === undefined) {
+      return callAssuranceOperation(ctx, 'firebase_assurance_export', {
+        campaignId: args.campaignId,
+      });
+    }
     const resolved = projectPathWithin(
       ctx.projectDir,
       String(args.path),
@@ -49,6 +52,11 @@ export default {
       failFor('assurance', 'export'),
     );
     if (!('path' in resolved)) return resolved;
+
+    const exported = await callAssuranceOperation(ctx, 'firebase_assurance_export', {
+      campaignId: args.campaignId,
+    });
+    if (!exported.ok) return exported;
     try {
       mkdirSync(dirname(resolved.path), { recursive: true });
       writeFileSync(resolved.path, `${JSON.stringify(exported.data, null, 2)}\n`, 'utf8');

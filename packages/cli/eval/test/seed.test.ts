@@ -12,6 +12,7 @@ import {
   applySeed,
   DATABASE_RULES_FILE,
   FIRESTORE_RULES_FILE,
+  SESSION_FILE,
   STORAGE_RULES_FILE,
 } from '../seed.js';
 import { buildEvalState } from '../state.js';
@@ -112,5 +113,25 @@ describe('seed and state round trip', () => {
     expect(readFileSync(join(dir, FIRESTORE_RULES_FILE), 'utf8')).toBe(ALLOW_ALL_FIRESTORE);
     expect(readFileSync(join(dir, STORAGE_RULES_FILE), 'utf8')).toBe(ALLOW_ALL_STORAGE);
     expect(readFileSync(join(dir, DATABASE_RULES_FILE), 'utf8')).toContain('".read"');
+  });
+
+  test('a declared session is planted where the assurance methods look for one', async () => {
+    const dir = runDir();
+    const session = {
+      schema: 'pyric.verify.fixture.v1',
+      description: 'one recorded write',
+      events: [],
+      services: {},
+    };
+    await applySeed(dir, { session });
+
+    expect(existsSync(join(dir, SESSION_FILE))).toBe(true);
+    expect(JSON.parse(readFileSync(join(dir, SESSION_FILE), 'utf8'))).toEqual(session);
+  });
+
+  test('a seed that declares no session plants no capture', async () => {
+    const dir = runDir();
+    await applySeed(dir, { firestore: { 'posts/p1': { title: 'hi' } } });
+    expect(existsSync(join(dir, SESSION_FILE))).toBe(false);
   });
 });

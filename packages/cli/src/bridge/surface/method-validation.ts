@@ -28,8 +28,8 @@ export const DESCRIBE_METHOD = 'describe';
 
 /** A rejection builder bound to one tool and method. */
 export function failFor(tool: string, method: string): Fail {
-  return (body, fix, field) => {
-    const data: InvalidArguments['data'] = { code: 'invalid_arguments', tool, method, fix };
+  return (body, fix, field, code = 'invalid_arguments') => {
+    const data: InvalidArguments['data'] = { code, tool, method, fix };
     if (field !== undefined) data.field = field;
     return { ok: false, summary: `${tool}.${method}: ${body} ${fix}`, data };
   };

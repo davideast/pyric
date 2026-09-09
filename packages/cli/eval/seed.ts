@@ -7,7 +7,7 @@
  * tool calls on setup.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { applyData, applyRules } from '../src/bridge/surface/seed-apply.js';
@@ -21,6 +21,25 @@ export { applyData, applyRules };
 export const FIRESTORE_RULES_FILE = 'firestore.rules';
 export const DATABASE_RULES_FILE = 'database.rules.json';
 export const STORAGE_RULES_FILE = 'storage.rules';
+
+/** Where a planted capture goes, which is where the assurance methods look for one. */
+export const SESSION_FILE = join('.pyric', 'last-session.json');
+
+/**
+ * Write the capture a seed declares into the run's project directory.
+ *
+ * A recorded session is not sandbox state, so it does not travel through the
+ * snapshot the way documents and accounts do. It is a file the app left
+ * behind, and a task that asks an agent to replay the last session needs one
+ * on disk before the server starts.
+ */
+export function writeSessionFile(dir: string, seed: EvalSeed): void {
+  const session = seed.session;
+  if (session === undefined) return;
+  const path = join(dir, SESSION_FILE);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(session)}\n`, 'utf8');
+}
 
 /** Write each declared rules source into the run directory as its own file. */
 export function writeRulesFiles(dir: string, seed: EvalSeed): void {
@@ -49,6 +68,7 @@ export async function applySeed(dir: string, seed: EvalSeed): Promise<LocalSandb
   await applyRules(sandbox, seed);
   await applyData(sandbox, seed);
   writeRulesFiles(dir, seed);
+  writeSessionFile(dir, seed);
   saveSandboxSnapshot(sandbox, dir);
   await saveStorageSidecar(getAdminStorageSandbox(sandbox), dir);
   return sandbox;

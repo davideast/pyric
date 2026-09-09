@@ -3,10 +3,11 @@
  *
  * One campaign, built to reach a real counterexample rather than to exercise
  * a code path: the target's rules let anyone write an order, an observation
- * records the owner doing so, an invariant says only the owner may, and a
- * payload mutation changes three fields the owner never sent. The rules allow
- * it, which is the counterexample the run loop is supposed to find and the
- * minimizer is supposed to shrink.
+ * records the owner writing her own, an invariant says an order's owner is
+ * never rewritten to another account, and a payload mutation does exactly
+ * that. The rules allow it, which is the counterexample the run loop is
+ * supposed to find, the minimizer is supposed to shrink, and the owner rules
+ * are supposed to close.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -119,14 +120,14 @@ export const OWNER_WRITE_OBSERVATION = {
 /** The boundary the campaign is judging against. */
 export const OWNER_ONLY_INVARIANT = {
   id: 'orders-are-owner-only',
-  statement: 'Only the owner of an order may change it.',
+  statement: "An order's owner is never rewritten to another account.",
   service: 'firestore',
   expected: 'DENY',
   source: 'declared',
   confidence: 'authoritative',
 };
 
-/** One payload change alice never made, in three fields the minimizer can shrink. */
+/** One payload change alice never made, in four fields the minimizer can shrink. */
 export const PAYLOAD_MUTATION = {
   dimension: 'payload',
   description: 'rewrite the order with fields the owner never sent',
@@ -134,7 +135,7 @@ export const PAYLOAD_MUTATION = {
     service: 'firestore',
     method: 'set',
     path: 'orders/o1',
-    data: { owner: 'alice', total: 999, refunded: true, adminNote: 'comped' },
+    data: { owner: 'bob', total: 999, refunded: true, adminNote: 'comped' },
   },
 };
 

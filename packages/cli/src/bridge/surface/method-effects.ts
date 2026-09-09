@@ -83,6 +83,8 @@ export function refuseUnmountedProduction(
   return fail(
     `${method.description} It reaches Google infrastructure with real credentials. ${PRODUCTION_DISABLED_HEADING}.`,
     `Use ${ALLOW_PRODUCTION_FLAG} on the process that owns this sandbox, then call again.`,
+    undefined,
+    'production_disabled',
   );
 }
 

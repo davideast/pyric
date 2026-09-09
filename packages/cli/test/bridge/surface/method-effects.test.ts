@@ -139,6 +139,10 @@ describe('production gating', () => {
     expect(rejection?.summary).toContain(ALLOW_PRODUCTION_FLAG);
     expect(rejection?.summary).toContain(PRODUCTION_DISABLED_HEADING);
     expect(rejection?.data.field).toBeUndefined();
+    // Not a schema rejection: the arguments were fine and the server was not
+    // started for the call, which the evaluation counts as an error rather
+    // than as the caller getting the arguments wrong.
+    expect(rejection?.data.code).toBe('production_disabled');
   });
 
   it('stops refusing on the flag alone and refuses on the confirmation instead', () => {

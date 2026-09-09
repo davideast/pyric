@@ -9,11 +9,20 @@ import type { SandboxSeed } from '../src/bridge/surface/seed-apply.js';
 
 /**
  * State loaded into the sandbox before a run starts. Tasks never seed by tool
- * call. This is the same declaration the `sandbox.seed` method validates
- * against, not a second copy of its fields, so a task's seed and an agent's
- * own seed call cannot drift apart.
+ * call. The sandbox half is the same declaration the `sandbox.seed` method
+ * validates against, not a second copy of its fields, so a task's seed and an
+ * agent's own seed call cannot drift apart.
+ *
+ * `session` is the one field the sandbox seed has no place for, because a
+ * recorded session is not sandbox state: it is a file a previous run of the
+ * app left in the project directory. The assurance methods read it from
+ * there, so a task about replaying a capture needs the seeder to plant one,
+ * and the field says which capture to plant.
  */
-export type EvalSeed = SandboxSeed;
+export type EvalSeed = SandboxSeed & {
+  /** A capture written to `.pyric/last-session.json` in the run's project directory. */
+  session?: Record<string, unknown>;
+};
 
 /**
  * One recorded tool call, read back from the events NDJSON.

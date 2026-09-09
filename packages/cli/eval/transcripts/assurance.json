@@ -1,0 +1,485 @@
+{
+  "replay-last-session-under-closed-rules": [
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "replaySession",
+        "args": {
+          "candidateRules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /orders/{id} { allow read, write: if false; }\n  }\n}"
+        }
+      }
+    }
+  ],
+  "check-whether-snapshot-listeners-are-supported": [
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "canIUse",
+        "args": {
+          "feature": "onSnapshot"
+        }
+      }
+    }
+  ],
+  "run-the-recorded-cases-against-owner-rules": [
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "verifyCases",
+        "args": {
+          "candidateRules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /orders/{id} {\n      allow read: if request.auth.uid == resource.data.owner;\n      allow write: if request.auth.uid == request.resource.data.owner;\n    }\n  }\n}"
+        }
+      }
+    }
+  ],
+  "test-the-candidate-rules-on-the-real-project": [
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "testRulesHosted",
+        "args": {
+          "service": "firestore",
+          "rules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /orders/{id} { allow read, write: if false; }\n  }\n}",
+          "cases": [
+            {
+              "description": "alice writes her own order",
+              "expectation": "ALLOW",
+              "method": "create",
+              "path": "orders/o1",
+              "auth": {
+                "uid": "alice"
+              },
+              "data": {
+                "owner": "alice",
+                "total": 10
+              }
+            }
+          ],
+          "confirm": true
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "verifyCases",
+        "args": {
+          "candidateRules": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /orders/{id} { allow read, write: if false; }\n  }\n}"
+        }
+      }
+    }
+  ],
+  "clone-the-sandbox-and-state-the-boundary": [
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "attach",
+        "args": {
+          "campaignId": "orders"
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "map",
+        "args": {
+          "campaignId": "orders",
+          "actors": [
+            {
+              "id": "alice",
+              "acquisition": {
+                "kind": "fixture-user",
+                "uid": "alice"
+              }
+            }
+          ],
+          "observations": [
+            {
+              "id": "alice-writes-own-order",
+              "actorId": "alice",
+              "operation": {
+                "service": "firestore",
+                "method": "set",
+                "path": "orders/o1",
+                "data": {
+                  "owner": "alice",
+                  "total": 10
+                }
+              },
+              "result": "ALLOW",
+              "source": "captured"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "define",
+        "args": {
+          "campaignId": "orders",
+          "invariants": [
+            {
+              "id": "orders-are-owner-only",
+              "statement": "An order's owner is never rewritten to another account.",
+              "service": "firestore",
+              "expected": "DENY",
+              "source": "declared",
+              "confidence": "authoritative"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "find-out-who-else-can-write-an-order": [
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "attach",
+        "args": {
+          "campaignId": "orders"
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "map",
+        "args": {
+          "campaignId": "orders",
+          "actors": [
+            {
+              "id": "alice",
+              "acquisition": {
+                "kind": "fixture-user",
+                "uid": "alice"
+              }
+            }
+          ],
+          "observations": [
+            {
+              "id": "alice-writes-own-order",
+              "actorId": "alice",
+              "operation": {
+                "service": "firestore",
+                "method": "set",
+                "path": "orders/o1",
+                "data": {
+                  "owner": "alice",
+                  "total": 10
+                }
+              },
+              "result": "ALLOW",
+              "source": "captured"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "define",
+        "args": {
+          "campaignId": "orders",
+          "invariants": [
+            {
+              "id": "orders-are-owner-only",
+              "statement": "An order's owner is never rewritten to another account.",
+              "service": "firestore",
+              "expected": "DENY",
+              "source": "declared",
+              "confidence": "authoritative"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "propose",
+        "args": {
+          "campaignId": "orders",
+          "observationId": "alice-writes-own-order",
+          "invariantId": "orders-are-owner-only",
+          "mutations": [
+            {
+              "dimension": "payload",
+              "description": "rewrite the order with fields the owner never sent",
+              "operation": {
+                "service": "firestore",
+                "method": "set",
+                "path": "orders/o1",
+                "data": {
+                  "owner": "bob",
+                  "total": 999,
+                  "refunded": true,
+                  "adminNote": "comped"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "run",
+        "args": {
+          "campaignId": "orders"
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "inspect",
+        "args": {
+          "campaignId": "orders",
+          "probeId": "alice-writes-own-order-payload-1"
+        }
+      }
+    }
+  ],
+  "shrink-the-counterexample-and-file-it": [
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "attach",
+        "args": {
+          "campaignId": "orders"
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "map",
+        "args": {
+          "campaignId": "orders",
+          "actors": [
+            {
+              "id": "alice",
+              "acquisition": {
+                "kind": "fixture-user",
+                "uid": "alice"
+              }
+            }
+          ],
+          "observations": [
+            {
+              "id": "alice-writes-own-order",
+              "actorId": "alice",
+              "operation": {
+                "service": "firestore",
+                "method": "set",
+                "path": "orders/o1",
+                "data": {
+                  "owner": "alice",
+                  "total": 10
+                }
+              },
+              "result": "ALLOW",
+              "source": "captured"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "define",
+        "args": {
+          "campaignId": "orders",
+          "invariants": [
+            {
+              "id": "orders-are-owner-only",
+              "statement": "An order's owner is never rewritten to another account.",
+              "service": "firestore",
+              "expected": "DENY",
+              "source": "declared",
+              "confidence": "authoritative"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "propose",
+        "args": {
+          "campaignId": "orders",
+          "observationId": "alice-writes-own-order",
+          "invariantId": "orders-are-owner-only",
+          "mutations": [
+            {
+              "dimension": "payload",
+              "description": "rewrite the order with fields the owner never sent",
+              "operation": {
+                "service": "firestore",
+                "method": "set",
+                "path": "orders/o1",
+                "data": {
+                  "owner": "bob",
+                  "total": 999,
+                  "refunded": true,
+                  "adminNote": "comped"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "run",
+        "args": {
+          "campaignId": "orders"
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "minimize",
+        "args": {
+          "campaignId": "orders",
+          "probeId": "alice-writes-own-order-payload-1"
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "export",
+        "args": {
+          "campaignId": "orders",
+          "path": ".pyric/assurance/orders.json"
+        }
+      }
+    }
+  ],
+  "check-the-owner-rules-close-the-hole": [
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "attach",
+        "args": {
+          "campaignId": "orders"
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "map",
+        "args": {
+          "campaignId": "orders",
+          "actors": [
+            {
+              "id": "alice",
+              "acquisition": {
+                "kind": "fixture-user",
+                "uid": "alice"
+              }
+            }
+          ],
+          "observations": [
+            {
+              "id": "alice-writes-own-order",
+              "actorId": "alice",
+              "operation": {
+                "service": "firestore",
+                "method": "set",
+                "path": "orders/o1",
+                "data": {
+                  "owner": "alice",
+                  "total": 10
+                }
+              },
+              "result": "ALLOW",
+              "source": "captured"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "define",
+        "args": {
+          "campaignId": "orders",
+          "invariants": [
+            {
+              "id": "orders-are-owner-only",
+              "statement": "An order's owner is never rewritten to another account.",
+              "service": "firestore",
+              "expected": "DENY",
+              "source": "declared",
+              "confidence": "authoritative"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "propose",
+        "args": {
+          "campaignId": "orders",
+          "observationId": "alice-writes-own-order",
+          "invariantId": "orders-are-owner-only",
+          "mutations": [
+            {
+              "dimension": "payload",
+              "description": "rewrite the order with fields the owner never sent",
+              "operation": {
+                "service": "firestore",
+                "method": "set",
+                "path": "orders/o1",
+                "data": {
+                  "owner": "bob",
+                  "total": 999,
+                  "refunded": true,
+                  "adminNote": "comped"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "run",
+        "args": {
+          "campaignId": "orders"
+        }
+      }
+    },
+    {
+      "tool": "assurance",
+      "args": {
+        "method": "verify",
+        "args": {
+          "campaignId": "orders",
+          "rules": {
+            "firestore": "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /orders/{id} {\n      allow read: if request.auth.uid == resource.data.owner;\n      allow write: if request.auth.uid == request.resource.data.owner;\n    }\n  }\n}"
+          }
+        }
+      }
+    }
+  ]
+}
