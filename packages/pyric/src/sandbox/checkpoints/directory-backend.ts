@@ -22,9 +22,9 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, w
 import { join } from 'node:path';
 
 import {
-  CHECKPOINT_FORMAT,
   CHECKPOINT_NAME_PATTERN,
   assertCheckpointName,
+  isCheckpointEnvelope,
   type Checkpoint,
   type CheckpointBackend,
   type CheckpointListing,
@@ -49,16 +49,14 @@ function checkpointPath(projectDir: string, name: string): string {
 /** One checkpoint read off disk, or null when the file is absent or not one. */
 function readCheckpointFile(path: string): Checkpoint | null {
   if (!existsSync(path)) return null;
-  let parsed: Partial<Checkpoint>;
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<Checkpoint>;
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
     return null;
   }
-  if (parsed.format !== CHECKPOINT_FORMAT) return null;
-  if (typeof parsed.at !== 'number') return null;
-  if (parsed.counts === undefined || parsed.state === undefined) return null;
-  return parsed as Checkpoint;
+  if (!isCheckpointEnvelope(parsed)) return null;
+  return parsed;
 }
 
 /** Every name the directory holds that could be a checkpoint, ordered. */

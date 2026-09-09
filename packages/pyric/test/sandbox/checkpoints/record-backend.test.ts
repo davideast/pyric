@@ -103,6 +103,29 @@ describe('the record checkpoint backend', () => {
     expect(await backend.remove('nightly')).toBe(false);
   });
 
+  it('skips a record that carries no format tag rather than reading it as state', async () => {
+    const backend = recordCheckpointBackend(store);
+    await backend.write('nightly', await populatedCheckpoint());
+    await store.putRecords(
+      'pyric:checkpoint:nightly',
+      new Map([['value', { value: { at: Date.now(), counts: {}, state: {} } }]]),
+    );
+
+    expect(await backend.read('nightly')).toBeNull();
+    expect(await backend.list()).toEqual([]);
+  });
+
+  it('skips a record whose format tag is another writer\'s', async () => {
+    const backend = recordCheckpointBackend(store);
+    await backend.write('nightly', await populatedCheckpoint());
+    await store.putRecords(
+      'pyric:checkpoint:nightly',
+      new Map([['value', { value: { format: 'someone-elses-v9', at: 1, counts: {}, state: {} } }]]),
+    );
+
+    expect(await backend.read('nightly')).toBeNull();
+  });
+
   it('refuses a name that is not one record key', async () => {
     const backend = recordCheckpointBackend(store);
     expect(backend.read('a/b')).rejects.toThrow(CheckpointNameError);

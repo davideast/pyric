@@ -17,6 +17,7 @@
 import type { PersistenceBackend } from '../persistence/types.js';
 import {
   assertCheckpointName,
+  isCheckpointEnvelope,
   type Checkpoint,
   type CheckpointBackend,
   type CheckpointListing,
@@ -53,13 +54,12 @@ async function readCheckpointRecord(
   name: string,
 ): Promise<Checkpoint | null> {
   const record = (await store.getRecord(CHECKPOINT_PREFIX + name, RECORD_ID)) as
-    | { value?: Checkpoint }
+    | { value?: unknown }
     | null
     | undefined;
-  const checkpoint = record?.value;
-  if (checkpoint === undefined || checkpoint === null) return null;
-  if (typeof checkpoint.at !== 'number') return null;
-  return checkpoint;
+  const held = record?.value;
+  if (!isCheckpointEnvelope(held)) return null;
+  return held;
 }
 
 /**

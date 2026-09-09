@@ -22,6 +22,7 @@ export {
   CHECKPOINT_NAME_PATTERN,
   CheckpointNameError,
   assertCheckpointName,
+  isCheckpointEnvelope,
 } from './types.js';
 export type {
   Checkpoint,

@@ -85,6 +85,24 @@ export interface CheckpointBackend {
   remove(name: string): Promise<boolean>;
 }
 
+/**
+ * Whether one value a backend read back is a checkpoint this project wrote.
+ *
+ * Every backend asks before returning a value as state. A file, or a record,
+ * that carries no format tag, carries another writer's, or is missing the
+ * counts or the state is not a checkpoint, and returning it would put whatever
+ * it holds into a sandbox on the next restore.
+ */
+export function isCheckpointEnvelope(value: unknown): value is Checkpoint {
+  if (value === null || typeof value !== 'object') return false;
+  const candidate = value as Partial<Checkpoint>;
+  if (candidate.format !== CHECKPOINT_FORMAT) return false;
+  if (typeof candidate.at !== 'number') return false;
+  if (candidate.counts === undefined) return false;
+  if (candidate.state === undefined) return false;
+  return true;
+}
+
 /** Reject a name that is not one segment of a backend's keyspace. */
 export function assertCheckpointName(name: string): void {
   if (!CHECKPOINT_NAME_PATTERN.test(name)) throw new CheckpointNameError(name);
