@@ -241,10 +241,6 @@ export const controlSandboxEnvironmentSchema = z.object({
     .string()
     .optional()
     .describe("Fixture file path, relative to the project (when action is 'export_fixture' or 'seed_fixture')."),
-  includePasswords: z
-    .boolean()
-    .optional()
-    .describe("Carry real password hashes into the fixture (when action is 'export_fixture')."),
   since: z.string().optional().describe("Cursor from a prior 'events' call."),
   limit: z.number().optional().describe("Maximum events to return (when action is 'events')."),
   kind: z

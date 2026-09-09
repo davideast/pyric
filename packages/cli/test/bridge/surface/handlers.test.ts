@@ -8,7 +8,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getAuth, sandbox as authSandbox, signInWithEmailAndPassword } from 'pyric/auth';
@@ -360,24 +360,18 @@ it('checkpoints, restores, pages events, and round-trips a fixture', async () =>
   const reseededDoc = await run('firestore.getDoc', { path: 'ledger/keep' });
   expect((reseededDoc.data as { data: { value: number } }).data.value).toBe(1);
 
-  const withoutPasswords = await run('auth.getUser', { uid: 'checkpoint-erin' });
-  expect(withoutPasswords.ok).toBe(true);
+  const readBack = await run('auth.getUser', { uid: 'checkpoint-erin' });
+  expect(readBack.ok).toBe(true);
 
-  const exportedWithPasswords = await run('sandbox.exportFixture', {
-    path: 'fixtures/with-passwords.json',
-    includePasswords: true,
-    confirm: true,
-  });
-  expect(exportedWithPasswords.ok).toBe(true);
-  const refusedWithoutConfirm = await run('sandbox.exportFixture', {
+  const refusedPasswordExport = await run('sandbox.exportFixture', {
     path: 'fixtures/refused.json',
     includePasswords: true,
   });
-  expect(refusedWithoutConfirm.ok).toBe(false);
-  expect(refusedWithoutConfirm.summary).toContain('confirm');
+  expect(refusedPasswordExport.ok).toBe(false);
+  expect(refusedPasswordExport.summary).toContain("unknown argument 'includePasswords'");
 });
 
-it('preserves a real password across a fixture round trip only when asked', async () => {
+it('leaves a real password out of a fixture the surface writes', async () => {
   expect(
     (
       await run('auth.createUser', {
@@ -388,8 +382,11 @@ it('preserves a real password across a fixture round trip only when asked', asyn
     ).ok,
   ).toBe(true);
 
-  const withoutPasswords = await run('sandbox.exportFixture', { path: 'fixtures/no-password.json' });
-  expect(withoutPasswords.ok).toBe(true);
+  const exported = await run('sandbox.exportFixture', { path: 'fixtures/no-password.json' });
+  expect(exported.ok).toBe(true);
+  const body = readFileSync(join(projectDir, 'fixtures', 'no-password.json'), 'utf8');
+  expect(body).not.toContain('super-secret-1');
+
   expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
   expect((await run('sandbox.seedFromFixture', { path: 'fixtures/no-password.json' })).ok).toBe(
     true,
@@ -397,33 +394,6 @@ it('preserves a real password across a fixture round trip only when asked', asyn
   await expect(
     signInWithEmailAndPassword(getAuth(sandbox), 'holder@example.com', 'super-secret-1'),
   ).rejects.toBeTruthy();
-
-  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
-  expect(
-    (
-      await run('auth.createUser', {
-        uid: 'password-holder',
-        email: 'holder@example.com',
-        password: 'super-secret-1',
-      })
-    ).ok,
-  ).toBe(true);
-  const withPasswords = await run('sandbox.exportFixture', {
-    path: 'fixtures/with-password.json',
-    includePasswords: true,
-    confirm: true,
-  });
-  expect(withPasswords.ok).toBe(true);
-  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
-  expect((await run('sandbox.seedFromFixture', { path: 'fixtures/with-password.json' })).ok).toBe(
-    true,
-  );
-  const signedIn = await signInWithEmailAndPassword(
-    getAuth(sandbox),
-    'holder@example.com',
-    'super-secret-1',
-  );
-  expect(signedIn.user.uid).toBe('password-holder');
 
   expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
 });

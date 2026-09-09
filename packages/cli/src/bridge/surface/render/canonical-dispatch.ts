@@ -201,7 +201,7 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   },
   export_sandbox_fixture: {
     key: 'sandbox.exportFixture',
-    toMethodArgs: (args) => pick(args, ['path', 'includePasswords', 'confirm']),
+    toMethodArgs: (args) => pick(args, ['path']),
   },
   seed_sandbox_fixture: { key: 'sandbox.seedFromFixture' },
 

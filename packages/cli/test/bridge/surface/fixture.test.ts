@@ -40,7 +40,7 @@ describe('buildFixture / writeFixtureFile / readFixtureFile / applyFixture', () 
       { uid: 'alice', email: 'alice@example.com', password: 'super-secret', tenantId: 'tenant-a' },
     ]);
 
-    const fixture = await buildFixture(sandbox, false);
+    const fixture = await buildFixture(sandbox);
     expect(fixture.firestore?.['rooms/lobby']).toEqual({ open: true });
     const alice = fixture.users?.find((user) => user.uid === 'alice');
     expect(alice?.tenantId).toBe('tenant-a');
@@ -60,19 +60,15 @@ describe('buildFixture / writeFixtureFile / readFixtureFile / applyFixture', () 
     expect(restoredAlice?.tenantId).toBe('tenant-a');
   });
 
-  it('carries the real password only when asked', async () => {
+  it('never carries a password out of the sandbox', async () => {
     const sandbox = initializeSandbox();
     authSandbox.seedUsers(getAuth(sandbox), [
       { uid: 'bob', email: 'bob@example.com', password: 'plain-password' },
     ]);
 
-    const redacted = await buildFixture(sandbox, false);
-    expect(redacted.users?.find((user) => user.uid === 'bob')?.password).toBeUndefined();
-
-    const withPassword = await buildFixture(sandbox, true);
-    expect(withPassword.users?.find((user) => user.uid === 'bob')?.password).toBe(
-      'plain-password',
-    );
+    const fixture = await buildFixture(sandbox);
+    expect(fixture.users?.find((user) => user.uid === 'bob')?.password).toBeUndefined();
+    expect(JSON.stringify(fixture)).not.toContain('plain-password');
   });
 
   it('reads back null for a fixture that does not exist', () => {

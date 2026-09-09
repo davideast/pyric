@@ -42,10 +42,7 @@ export function fixturePathWithin(projectDir: string, given: string): { path: st
 }
 
 /** Build a fixture from the live sandbox's current state. */
-export async function buildFixture(
-  sandbox: LocalSandbox,
-  includePasswords: boolean,
-): Promise<SandboxSeed> {
+export async function buildFixture(sandbox: LocalSandbox): Promise<SandboxSeed> {
   const firestore = snapshotDocuments(sandbox);
   const database = (await databaseGet(databaseRef(getAdminDatabase(sandbox)))).val() as
     | Record<string, unknown>
@@ -56,7 +53,6 @@ export async function buildFixture(
     if (user.email !== undefined) record.email = user.email;
     if (user.customClaims !== undefined) record.customClaims = user.customClaims;
     if (user.tenantId !== undefined) record.tenantId = user.tenantId;
-    if (includePasswords && user.password !== undefined) record.password = user.password;
     return record;
   });
 
