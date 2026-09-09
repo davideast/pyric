@@ -1,0 +1,95 @@
+{
+  "stage-a-plan-then-walk-away": [
+    { "tool": "sandbox", "args": { "method": "fork", "args": { "branch": "price-bump" } } },
+    {
+      "tool": "sandbox",
+      "args": {
+        "method": "apply",
+        "args": {
+          "branch": "price-bump",
+          "events": [
+            {
+              "kind": "write",
+              "method": "set",
+              "path": "products/p1",
+              "data": { "name": "Anvil", "price": 140 },
+              "auth": null,
+              "requestTime": { "seconds": 1700000000, "nanoseconds": 0 }
+            },
+            {
+              "kind": "write",
+              "method": "set",
+              "path": "products/p2",
+              "data": { "name": "Rope", "price": 32 },
+              "auth": null,
+              "requestTime": { "seconds": 1700000000, "nanoseconds": 0 }
+            }
+          ]
+        }
+      }
+    },
+    { "tool": "sandbox", "args": { "method": "diff", "args": { "branch": "price-bump" } } }
+  ],
+  "promote-the-reviewed-branch": [
+    { "tool": "sandbox", "args": { "method": "fork", "args": { "branch": "copy-fix" } } },
+    {
+      "tool": "sandbox",
+      "args": {
+        "method": "apply",
+        "args": {
+          "branch": "copy-fix",
+          "events": [
+            {
+              "kind": "write",
+              "method": "set",
+              "path": "pages/home",
+              "data": { "title": "Everything for the coyote", "live": true },
+              "auth": null,
+              "requestTime": { "seconds": 1700000000, "nanoseconds": 0 }
+            }
+          ]
+        }
+      }
+    },
+    { "tool": "sandbox", "args": { "method": "diff", "args": { "branch": "copy-fix" } } },
+    {
+      "tool": "sandbox",
+      "args": { "method": "promote", "args": { "branch": "copy-fix", "confirm": true } }
+    }
+  ],
+  "throw-away-the-experiment-branch": [
+    { "tool": "sandbox", "args": { "method": "fork", "args": { "branch": "spike" } } },
+    {
+      "tool": "sandbox",
+      "args": {
+        "method": "apply",
+        "args": {
+          "branch": "spike",
+          "events": [
+            {
+              "kind": "write",
+              "method": "set",
+              "path": "settings/flags",
+              "data": { "beta": true, "rollout": 100 },
+              "auth": null,
+              "requestTime": { "seconds": 1700000000, "nanoseconds": 0 }
+            }
+          ]
+        }
+      }
+    },
+    { "tool": "sandbox", "args": { "method": "discard", "args": { "branch": "spike" } } }
+  ],
+  "list-the-open-branches": [
+    { "tool": "sandbox", "args": { "method": "fork", "args": { "branch": "after-holiday" } } },
+    { "tool": "sandbox", "args": { "method": "listBranches", "args": {} } }
+  ],
+  "diff-against-a-checkpoint-that-is-not-there": [
+    { "tool": "sandbox", "args": { "method": "fork", "args": { "branch": "audit" } } },
+    {
+      "tool": "sandbox",
+      "args": { "method": "diff", "args": { "branch": "audit", "against": "friday-night" } }
+    },
+    { "tool": "sandbox", "args": { "method": "diff", "args": { "branch": "audit" } } }
+  ]
+}

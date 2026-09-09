@@ -204,7 +204,17 @@ For each run the runner:
 
 `--dry-run` prepares everything, prints the run, workspace and state directories with the invocation, and spawns nothing.
 
-A fourth provider, `providers/fake.ts`, replays a canned transcript against the real headless server so the whole pipeline is testable without a model.
+A fourth provider, `providers/fake.ts`, replays a canned transcript against the real headless server so the whole pipeline is testable without a model. `--transcripts <file>` selects it and reads one canned call list per task id; the call lists live under `eval/transcripts/`, named by the family of tasks they drive. The branch family sweeps with:
+
+```
+bun packages/cli/eval/run.ts \
+  --rows claude-fable-5-1-low-mcp-only \
+  --tasks stage-a-plan-then-walk-away,promote-the-reviewed-branch,throw-away-the-experiment-branch,list-the-open-branches,diff-against-a-checkpoint-that-is-not-there \
+  --variants sdk-service \
+  --transcripts packages/cli/eval/transcripts/sandbox-branches.json \
+  --no-wait --min-gap 0
+bun packages/cli/eval/report.ts <results>/runs.ndjson
+```
 
 Pacing: one CLI process at a time per CLI, a configurable minimum gap between spawns per CLI, and a per-CLI budget per five-hour window; a rejected or rate-limited run is recorded with outcome `throttled`, not retried.
 

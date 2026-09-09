@@ -13,7 +13,7 @@ contract. The `id` field equals the filename without its extension. A record car
 
 ## Distribution
 
-Sixty-four tasks:
+Sixty-nine tasks:
 
 - 15 auth and tenant: seed a tenant user with claims, switch the active identity, list users, set
   or revoke claims, delete an account.
@@ -28,6 +28,9 @@ Sixty-four tasks:
 - 9 multi-step: two or three operations in sequence, such as seeding a tenant user, writing a
   document as that user, and reading it back. Three of these install rules with `set` and then
   read the effect back through `simulate`, one per service.
+- 5 branches: fork a copy, apply a plan to it, diff it, and then either promote it, discard it,
+  list what is open, or recover from a checkpoint name nothing answers to. One of them says
+  plainly that nothing should land, and its assert fails if a promote call was made at all.
 
 ## Rules for new tasks
 
