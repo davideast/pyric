@@ -51,10 +51,16 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `list_rules_stdlib` | list | rules | stdlib | none | |
 | `get_rules_stdlib` | get | rules | stdlib | `module` | |
 | `inspect_sandbox` | inspect | sandbox | state | none | Counts and status per service. |
-| `reset_sandbox` | reset | sandbox | state | none | |
+| `reset_sandbox` | reset | sandbox | state | `scope?` (`all`, `firestore`, `database`, `storage`, `auth`), `confirm` | `scope` narrows the reset to one service; default is `all`. |
 | `seed_sandbox` | seed | sandbox | state | `users?`, `firestore?`, `database?`, `storage?`, `firestoreRules?`, `databaseRules?`, `storageRules?` | Matches `EvalSeed`. Any other top-level key is rejected. |
+| `checkpoint_sandbox` | checkpoint | sandbox | state | `name` | Saves the whole sandbox under a name. Overwrites a checkpoint of the same name. |
+| `restore_sandbox` | restore | sandbox | state | `name`, `confirm` | Replaces the live sandbox with a named checkpoint. |
+| `list_sandbox_checkpoints` | list | sandbox | checkpoints | none | Names, save time, and per-service counts. |
+| `list_sandbox_events` | list | sandbox | events | `since?`, `limit?`, `kind?` (`all`, `denials`, `writes`) | Cursor-paged operation log; the result carries `nextCursor`. |
+| `export_sandbox_fixture` | export | sandbox | fixture | `path`, `includePasswords?`, `confirm?` | Writes a fixture file. `includePasswords: true` requires `confirm: true`. |
+| `seed_sandbox_fixture` | seed | sandbox | fixture | `path` | Loads a fixture written by `export_sandbox_fixture` on top of live state. |
 
-Forty-one operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of any parameter schema is at most two object levels below the root.
+Forty-seven operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of any parameter schema is at most two object levels below the root.
 
 ## 2. Surface variants
 
@@ -79,7 +85,7 @@ The variant is selected at server start by `pyric mcp --surface <variant-id>` or
 
 The headless server records one event per tool call through the bridge's existing `recordToolEvent` seam. When the environment variable `PYRIC_EVAL_LOG` names a file, events append there as NDJSON, one object per line, and nothing is written to the per-project audit log. When it is absent, behavior is unchanged.
 
-Effect enforcement (ADR-0014 Decision 5) runs once, in `method-validation.ts`'s `validateArguments`, which both the MCP dispatch path and `pyric <tool> <method>` call. A `destructive` method (today only `sandbox.reset`) is refused unless `args.confirm === true`; the refusal is an ordinary `InvalidArguments` rejection naming the field `confirm`. A `production` method is not mounted: it is absent from `tools/list`, `describe` does not answer for it, and a call naming it is refused, unless the headless server was started with `--allow-production` (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`, with the flag winning). The harness passes the flag nowhere, and it deletes `PYRIC_ALLOW_PRODUCTION` from the environment of every process it spawns, so the variable a maintainer has set for their own session cannot reach a run and a `production` method never mounts in one.
+Effect enforcement (ADR-0014 Decision 5) runs once, in `method-validation.ts`'s `validateArguments`, which both the MCP dispatch path and `pyric <tool> <method>` call. A `destructive` method (today `sandbox.reset` and `sandbox.restore`) is refused unless `args.confirm === true`; the refusal is an ordinary `InvalidArguments` rejection naming the field `confirm`. A `production` method is not mounted: it is absent from `tools/list`, `describe` does not answer for it, and a call naming it is refused, unless the headless server was started with `--allow-production` (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`, with the flag winning). The harness passes the flag nowhere, and it deletes `PYRIC_ALLOW_PRODUCTION` from the environment of every process it spawns, so the variable a maintainer has set for their own session cannot reach a run and a `production` method never mounts in one.
 
 Event shape (a superset of today's `BridgeToolEvent`):
 
