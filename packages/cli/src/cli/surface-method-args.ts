@@ -6,10 +6,24 @@
  * arrives as a JSON string and is parsed here against the record's own schema.
  * That difference is the CLI's shape, not the surface's, so it lives here
  * rather than on the record.
+ *
+ * The same reasoning gives every argument a second spelling. A ruleset, a seed,
+ * and a document body are things a project keeps in a file, and a shell that
+ * has to inline one loses the newlines a rules source is written with. So any
+ * argument written `--<arg>` may instead be written `--<arg>-file <path>`, and
+ * the file is read as that argument's own kind: text for a string argument,
+ * parsed JSON for an object or array one. The convention is derived from the
+ * names a record already declares, so a new record carries it without saying
+ * anything, and no record knows the CLI has a filesystem.
  */
+import { readFileSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import type { z } from 'zod';
 import type { Args, Method } from '../bridge/surface/method-types.js';
 import type { ParsedArgs } from './parse-args.js';
+
+/** The suffix that reads an argument from a file rather than from the flag. */
+export const FILE_FLAG_SUFFIX = '-file';
 
 /** What one argument of a record's schema accepts on a command line. */
 type ArgumentKind = 'string' | 'number' | 'boolean' | 'json';
@@ -52,6 +66,50 @@ export function flagNames(method: Method): string[] {
   return Object.keys(method.args.shape);
 }
 
+/** The argument a `--<arg>-file` flag names, or null when it names none. */
+function fileFlagArgument(flag: string, known: readonly string[]): string | null {
+  if (!flag.endsWith(FILE_FLAG_SUFFIX)) return null;
+  const name = flag.slice(0, -FILE_FLAG_SUFFIX.length);
+  if (!known.includes(name)) return null;
+  return name;
+}
+
+/** Read one argument's value out of the file a `--<arg>-file` flag names. */
+function valueFromFile(
+  method: Method,
+  name: string,
+  raw: string | boolean | Array<string | boolean>,
+  cwd: string,
+): { value: unknown } | { error: string } {
+  const kind = argumentKind(method.args.shape[name] as z.ZodTypeAny);
+  if (kind !== 'string' && kind !== 'json') {
+    return {
+      error: `--${name} is a ${kind}, so it has no file form. Pass --${name} <value>.`,
+    };
+  }
+  if (typeof raw !== 'string') {
+    return { error: `--${name}${FILE_FLAG_SUFFIX} needs a path. Pass --${name}${FILE_FLAG_SUFFIX} <path>.` };
+  }
+
+  let path = raw;
+  if (!isAbsolute(raw)) path = resolve(cwd, raw);
+  let contents: string;
+  try {
+    contents = readFileSync(path, 'utf8');
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { error: `--${name}${FILE_FLAG_SUFFIX} could not read '${raw}': ${detail}.` };
+  }
+
+  if (kind === 'string') return { value: contents };
+  try {
+    return { value: JSON.parse(contents) as unknown };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { error: `--${name}${FILE_FLAG_SUFFIX} read '${raw}', which is not valid JSON: ${detail}.` };
+  }
+}
+
 /** Read one flag's value, converted to what the schema expects. */
 function valueFor(
   method: Method,
@@ -83,21 +141,39 @@ function valueFor(
 /**
  * The record's arguments, from the flags a command line carried. An unknown
  * flag is refused by name so a mistyped argument fails here rather than being
- * silently dropped on the way to the handler.
+ * silently dropped on the way to the handler, and an argument supplied twice,
+ * once inline and once from a file, is refused rather than resolved by order.
  */
-export function argumentsFromFlags(method: Method, parsed: ParsedArgs): ArgumentsOrError {
+export function argumentsFromFlags(
+  method: Method,
+  parsed: ParsedArgs,
+  cwd: string = process.cwd(),
+): ArgumentsOrError {
   const known = flagNames(method);
   const args: Args = {};
-  for (const [name, raw] of parsed.flags) {
-    if (RESERVED_FLAGS.has(name)) continue;
-    if (!known.includes(name)) {
+  for (const [flag, raw] of parsed.flags) {
+    if (RESERVED_FLAGS.has(flag)) continue;
+    const fromFile = fileFlagArgument(flag, known);
+    const name = fromFile ?? flag;
+    if (fromFile === null && !known.includes(flag)) {
       return {
-        error: `pyric ${method.tool} ${method.method} has no --${name}. It accepts ${known
-          .map((flag) => `--${flag}`)
-          .join(', ')}.`,
+        error: `pyric ${method.tool} ${method.method} has no --${flag}. It accepts ${known
+          .map((accepted) => `--${accepted}`)
+          .join(', ')}, and reads any of them from a file as --<arg>${FILE_FLAG_SUFFIX} <path>.`,
       };
     }
-    const read = valueFor(method, name, raw);
+    if (args[name] !== undefined) {
+      return {
+        error: `--${name} was supplied twice, inline and from a file. Pass one of --${name} and --${name}${FILE_FLAG_SUFFIX}.`,
+      };
+    }
+
+    let read: { value: unknown } | { error: string };
+    if (fromFile === null) {
+      read = valueFor(method, name, raw);
+    } else {
+      read = valueFromFile(method, name, raw, cwd);
+    }
     if ('error' in read) return read;
     args[name] = read.value;
   }

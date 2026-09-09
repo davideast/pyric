@@ -123,9 +123,11 @@ COMMANDS
                              project's sandbox: firestore, database, storage,
                              auth, rules, and sandbox, with the SDK's own method
                              and argument names. Arguments are flags, and an
-                             object or array argument is a JSON string:
+                             object or array argument is a JSON string. Any
+                             argument reads from a file as --<arg>-file <path>:
                              pyric auth impersonate --uid alice
                              pyric firestore setDoc --path posts/p1 --data '{"a":1}'
+                             pyric rules lint --service firestore --rules-file firestore.rules
                              The same records serve \`pyric mcp\`, so the two
                              surfaces cannot drift. --json prints the whole result.
   auth sessions              List the clients connected to a running sandbox

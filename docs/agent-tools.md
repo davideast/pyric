@@ -49,6 +49,20 @@ posts/p1 --data '{"a":1}'` and an MCP call with `{ method: "setDoc", args:
 identical sandbox state. See `docs/decisions/0014-service-tools-with-sdk-methods.md`
 for the design rationale.
 
+Any argument may be read from a file instead of the command line, as
+`--<arg>-file <path>`, and the file is read as that argument's own kind: text
+for a string argument, parsed JSON for an object or array one. A relative path
+resolves against the working directory.
+
+```
+pyric rules lint --service firestore --rules-file firestore.rules
+pyric firestore setDoc --path posts/p1 --data-file post.json
+```
+
+The file form is derived from the argument names a record declares rather than
+declared on the record, so every method has it and no method mentions it. An
+argument passed both inline and from a file is refused.
+
 ## The transport surface: `pyric sandbox --bridge` / `pyric bridge`
 
 Counts and names below are generated from the factory sources (grep

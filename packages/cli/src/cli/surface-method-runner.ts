@@ -6,8 +6,9 @@
  * so the CLI cannot drift from the surface: it reads the same schema, runs the
  * same validator, calls the same handler, and persists to the same state file
  * `pyric mcp --headless` reads. The only difference is the transport, and the
- * one thing the transport changes is that an object argument arrives as a JSON
- * string.
+ * two things the transport changes are that an object argument arrives as a
+ * JSON string, and that any argument may instead be read from a file with
+ * `--<arg>-file <path>`.
  */
 import { initializeSandbox } from 'pyric/sandbox';
 import {
@@ -70,7 +71,7 @@ export async function runSurfaceMethod(
   const method = methodByKey(key);
   const allowProduction = selectAllowProduction(parsed, env);
 
-  const read = argumentsFromFlags(method, parsed);
+  const read = argumentsFromFlags(method, parsed, cwd);
   if ('error' in read) {
     stderr.write(`pyric: ${read.error}\n`);
     return USAGE_ERROR;

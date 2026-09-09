@@ -9,6 +9,7 @@ import { TOOLS } from '../src/bridge/surface/methods/registry.js';
 interface ReleaseContract {
   schema: 'pyric.cli.release-contract.v1';
   commands: string[];
+  derivedCommands: string[];
   exports: string[];
   removedExports: string[];
   mcpTools: string[];
@@ -35,6 +36,13 @@ function advertisedCommands(help: string): string[] {
     .map((cell) => cell.replace(/\s+(?:\[|<).*$/, ''));
 }
 
+/**
+ * The help text advertises the whole derived family on one row, because a
+ * thirty-seven-row help section is not a help section. The rows themselves are
+ * pinned in the contract instead, one per `pyric <tool> <method>`.
+ */
+const DERIVED_COMMAND_ROW = '<tool>';
+
 describe('ratified @pyric/cli release contract', () => {
   it('pins every advertised command exactly', () => {
     const result = spawnSync('bun', [cliEntry, '--help'], {
@@ -44,7 +52,19 @@ describe('ratified @pyric/cli release contract', () => {
     });
     expect(result.status).toBe(0);
     expect(result.stderr).toBe('');
-    expect(advertisedCommands(result.stdout).sort()).toEqual([...contract.commands].sort());
+    const advertised = advertisedCommands(result.stdout);
+    expect(advertised).toContain(DERIVED_COMMAND_ROW);
+    const explicit = advertised.filter((command) => command !== DERIVED_COMMAND_ROW);
+    expect(explicit.sort()).toEqual([...contract.commands].sort());
+  });
+
+  it('pins every derived `pyric <tool> <method>` command exactly', () => {
+    const derived = TOOLS.flatMap((tool) =>
+      tool.methods.map((method) => `${tool.name} ${method.method}`),
+    ).sort();
+    expect(derived).toEqual([...contract.derivedCommands].sort());
+    expect(contract.derivedCommands).toEqual([...contract.derivedCommands].sort());
+    expect(contract.commands).not.toContain(DERIVED_COMMAND_ROW);
   });
 
   it('pins every retained and intentionally removed package export exactly', () => {
