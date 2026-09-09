@@ -57,6 +57,22 @@ function sdkUriTemplate(uriTemplate: string): string {
   return uriTemplate.replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, '{+$1}');
 }
 
+/**
+ * Whether a result is a surface's own argument rejection. A variant that
+ * validates arguments itself, rather than leaving it to the client's schema
+ * checker, refuses the call before any handler runs and says so in the result.
+ * Recording that the same way as an SDK-level rejection is what keeps the
+ * argument-validity metric comparable across variants: the agent got the
+ * arguments wrong either way, and where the refusal happened is an accident of
+ * how thin the variant's top-level schema is.
+ */
+function isArgumentRejection(result: OperationResult): boolean {
+  if (result.ok) return false;
+  const data = result.data;
+  if (data === null || typeof data !== 'object') return false;
+  return (data as { code?: unknown }).code === 'invalid_arguments';
+}
+
 /** The operation result shape, from whatever a handler returned. */
 function normalise(result: OperationResult): OperationResult {
   return { ok: result.ok, summary: result.summary, data: result.data };
@@ -88,7 +104,7 @@ function recordCall(
     durationMs: Date.now() - fields.startedAtMs,
     operation: fields.operation,
     action: fields.action,
-    schemaRejected: false,
+    schemaRejected: isArgumentRejection(fields.result),
     isError: !fields.result.ok,
   };
   bridge.recordToolEvent(event);

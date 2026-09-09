@@ -134,6 +134,7 @@ describe('surface selection', () => {
       'verb-prefixed',
       'noun-prefixed',
       'verb-suffixed',
+      'sdk-service',
     ]);
   });
 });
