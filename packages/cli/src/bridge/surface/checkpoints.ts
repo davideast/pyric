@@ -18,6 +18,7 @@ import {
   parseBundle,
   serializeToBuckets,
   type LocalSandbox,
+  type SandboxSnapshot,
 } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
@@ -134,6 +135,11 @@ export function readCheckpoint(projectDir: string, name: string): CheckpointFile
   const path = checkpointPath(projectDir, name);
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, 'utf8')) as CheckpointFile;
+}
+
+/** The sandbox state one checkpoint file carries, for a comparison against it. */
+export function checkpointSnapshot(file: CheckpointFile): SandboxSnapshot {
+  return deserializeFromBuckets(parseBundle(file.bundle));
 }
 
 /** Replace the live sandbox's entire state with a checkpoint's. */

@@ -199,34 +199,33 @@ describe('sandbox.apply', () => {
 });
 
 describe('sandbox.diff', () => {
-  it('compares against a named checkpoint and refuses one that does not exist', async () => {
-    await run('firestore.setDoc', { path: 'notes/n1', data: { body: 'live' } });
+  it('reports a divergence planted between a checkpoint and a branch', async () => {
+    await run('firestore.setDoc', { path: 'notes/kept', data: { body: 'shared' } });
+    const saved = await run('sandbox.checkpoint', { name: 'nightly' });
+    expect(saved.ok).toBe(true);
+
+    await run('firestore.setDoc', { path: 'notes/planted', data: { body: 'after' } });
     await run('sandbox.fork', { branch: 'draft' });
-
-    const refused = await run('sandbox.diff', { branch: 'draft', against: 'nightly' });
-    expect(refused.ok).toBe(false);
-    expect(refused.summary).toContain('nightly');
-
-    const checkpoints = join(projectDir, '.pyric', 'state', 'checkpoints');
-    mkdirSync(checkpoints, { recursive: true });
-    writeFileSync(
-      join(checkpoints, 'nightly.json'),
-      JSON.stringify({ firestore: {}, services: {} }),
-    );
 
     const diffed = await run('sandbox.diff', { branch: 'draft', against: 'nightly' });
     expect(diffed.ok).toBe(true);
     const paths = (diffed.data as { divergences: Array<{ path: string }> }).divergences.map(
       (entry) => entry.path,
     );
-    expect(paths).toContain('notes/n1');
+    expect(paths).toContain('notes/planted');
+    expect(paths).not.toContain('notes/kept');
+  });
+
+  it('refuses a checkpoint name the project does not hold', async () => {
+    await run('sandbox.fork', { branch: 'draft' });
+    const refused = await run('sandbox.diff', { branch: 'draft', against: 'nightly' });
+    expect(refused.ok).toBe(false);
+    expect(refused.summary).toContain('nightly');
   });
 
   it('names the checkpoints that do exist when the named one does not', async () => {
     await run('sandbox.fork', { branch: 'draft' });
-    const checkpoints = join(projectDir, '.pyric', 'state', 'checkpoints');
-    mkdirSync(checkpoints, { recursive: true });
-    writeFileSync(join(checkpoints, 'before-migration.json'), JSON.stringify({ firestore: {} }));
+    await run('sandbox.checkpoint', { name: 'before-migration' });
 
     const refused = await run('sandbox.diff', { branch: 'draft', against: 'nightly' });
     expect(refused.ok).toBe(false);

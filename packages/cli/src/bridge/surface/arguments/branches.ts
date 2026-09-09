@@ -3,24 +3,17 @@
  * the project directory.
  *
  * Six method records name a branch, four of them have to say the same thing
- * when the project holds no branch by that name, and two of them read a file
+ * when the project holds no branch by that name, and one of them reads a file
  * the caller named. Those are the pieces that would otherwise be written six
  * times and drift, so they live here and the records carry only what is their
  * own.
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import type { SandboxEvent, SandboxSnapshot } from 'pyric/sandbox';
-import {
-  deserializeFromBuckets,
-  parseBundle,
-} from 'pyric/sandbox';
+import type { SandboxEvent } from 'pyric/sandbox';
 import { z } from 'zod';
 
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
-
-/** Where a step that creates checkpoints writes them, relative to the project. */
-export const CHECKPOINT_STORE_RELATIVE = join('.pyric', 'state', 'checkpoints');
 
 /** The value of `against` that names the live sandbox rather than a checkpoint. */
 export const AGAINST_LIVE = 'live';
@@ -77,46 +70,6 @@ function storedBranchNames(projectDir: string): string[] {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-}
-
-/** Every checkpoint name the project holds, from the directory a checkpoint method writes. */
-export function storedCheckpointNames(projectDir: string): string[] {
-  const root = join(projectDir, CHECKPOINT_STORE_RELATIVE);
-  if (!existsSync(root)) return [];
-  return readdirSync(root)
-    .filter((file) => file.endsWith('.json'))
-    .map((file) => file.slice(0, -'.json'.length))
-    .sort();
-}
-
-/**
- * The snapshot one checkpoint file carries.
- *
- * The file is written by the checkpoint methods, and it is one of two shapes:
- * the v3 record bundle the headless state file uses, or a plain snapshot
- * object with a `firestore` map. Both are read here, and anything else is a
- * file this method cannot compare against rather than a file it guesses at.
- */
-export function readCheckpointSnapshot(path: string): SandboxSnapshot | null {
-  const raw = readFileSync(path, 'utf8');
-  const records = parseBundle(raw);
-  if (records.size > 0) {
-    const { firestore, services } = deserializeFromBuckets(records);
-    return { firestore, services };
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (parsed === null || typeof parsed !== 'object') return null;
-  const shaped = parsed as { firestore?: unknown; services?: unknown };
-  if (typeof shaped.firestore !== 'object' || shaped.firestore === null) return null;
-  const services = typeof shaped.services === 'object' && shaped.services !== null
-    ? (shaped.services as Record<string, unknown>)
-    : {};
-  return { firestore: shaped.firestore as SandboxSnapshot['firestore'], services };
 }
 
 /** A path inside the project directory, or a refusal naming why it is not one. */

@@ -2,24 +2,17 @@
  * Report what a branch holds that its reference does not.
  *
  * The reference is the live sandbox by default. It can also be a checkpoint,
- * which is a file another method writes; this method reads that file and never
- * creates one, so a name with no file behind it is refused with the names that
- * do have one rather than compared against nothing.
+ * read through the same loader `sandbox.checkpoint` writes with, so there is
+ * one definition of what a checkpoint file is. This method never creates one,
+ * so a name with no file behind it is refused with the names that do have one
+ * rather than compared against nothing.
  */
 import { diff } from 'pyric/sandbox';
 import { loadBranch } from 'pyric/sandbox/branches/store';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { z } from 'zod';
 
-import {
-  AGAINST_LIVE,
-  CHECKPOINT_STORE_RELATIVE,
-  branchName,
-  readCheckpointSnapshot,
-  refuseUnknownBranch,
-  storedCheckpointNames,
-} from '../../arguments/branches.js';
+import { AGAINST_LIVE, branchName, refuseUnknownBranch } from '../../arguments/branches.js';
+import { checkpointNames, checkpointSnapshot, readCheckpoint } from '../../checkpoints.js';
 import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -54,19 +47,12 @@ export default {
       return report(name, AGAINST_LIVE, divergences);
     }
 
-    const path = join(ctx.projectDir, CHECKPOINT_STORE_RELATIVE, `${against}.json`);
-    if (!existsSync(path)) {
+    const file = readCheckpoint(ctx.projectDir, against);
+    if (file === null) {
       loaded.branch.sandbox.dispose();
       return refuseMissingCheckpoint(ctx.projectDir, against);
     }
-    const snapshot = readCheckpointSnapshot(path);
-    if (snapshot === null) {
-      loaded.branch.sandbox.dispose();
-      return operationFailure(
-        `The checkpoint file for '${against}' is not a sandbox snapshot this method can read.`,
-      );
-    }
-    const divergences = diff(loaded.branch, snapshot);
+    const divergences = diff(loaded.branch, checkpointSnapshot(file));
     loaded.branch.sandbox.dispose();
     return report(name, against, divergences);
   },
@@ -88,7 +74,7 @@ function report(
 
 /** Refuse a checkpoint name nothing on disk answers to, naming the ones that exist. */
 function refuseMissingCheckpoint(projectDir: string, against: string) {
-  const known = storedCheckpointNames(projectDir);
+  const known = checkpointNames(projectDir);
   if (known.length === 0) {
     return operationFailure(
       `No checkpoint named '${against}'. The project holds no checkpoints, so the only reference is ${AGAINST_LIVE}.`,

@@ -1,7 +1,7 @@
 /**
  * The branch methods' shared argument vocabulary: the branch-name shape, the
  * two refusals four records reuse, the project-relative path check, and the
- * two file readers.
+ * session-file reader.
  */
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -10,16 +10,13 @@ import { join } from 'node:path';
 
 import {
   AGAINST_LIVE,
-  CHECKPOINT_STORE_RELATIVE,
   DEFAULT_SESSION_PATH,
   branchExists,
   branchName,
-  readCheckpointSnapshot,
   readSessionEvents,
   refuseAmbiguousSource,
   refuseUnknownBranch,
   resolveProjectPath,
-  storedCheckpointNames,
 } from '../../../../src/bridge/surface/arguments/branches.js';
 import { failFor } from '../../../../src/bridge/surface/method-validation.js';
 
@@ -129,29 +126,6 @@ describe('readSessionEvents', () => {
     const path = join(projectDir, 'other.json');
     writeFileSync(path, JSON.stringify({ nothing: true }));
     expect(readSessionEvents(path)).toBeNull();
-  });
-});
-
-describe('the checkpoint reads', () => {
-  it('lists the checkpoint names the project holds', () => {
-    expect(storedCheckpointNames(projectDir)).toEqual([]);
-    const dir = join(projectDir, CHECKPOINT_STORE_RELATIVE);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'nightly.json'), '{}');
-    writeFileSync(join(dir, 'notes.txt'), 'x');
-    expect(storedCheckpointNames(projectDir)).toEqual(['nightly']);
-  });
-
-  it('reads a plain snapshot object', () => {
-    const path = join(projectDir, 'checkpoint.json');
-    writeFileSync(path, JSON.stringify({ firestore: { 'notes/n1': { body: 'a' } } }));
-    expect(readCheckpointSnapshot(path)?.firestore['notes/n1']).toEqual({ body: 'a' });
-  });
-
-  it('reports nothing for a file that is not a snapshot', () => {
-    const path = join(projectDir, 'not-a-checkpoint.json');
-    writeFileSync(path, JSON.stringify({ hello: 'world' }));
-    expect(readCheckpointSnapshot(path)).toBeNull();
   });
 });
 
