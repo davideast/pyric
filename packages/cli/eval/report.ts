@@ -55,6 +55,10 @@ export interface CellReport {
   /** Completion restricted to runs that logged at least one MCP call. */
   completionEngaged: Interval;
   meanCallsPerCompletedTask: Interval;
+  /** Share of runs in which the server rejected at least one call on schema. */
+  runsWithARejection: Interval;
+  /** Mean wall-clock seconds one run took. */
+  meanDurationSeconds: Interval;
   infrastructure: InfrastructureCounts;
 }
 
@@ -130,6 +134,26 @@ const meanCallsPerCompletedTask: Statistic = (runs) => {
   let calls = 0;
   for (const run of passed) calls += run.callCount;
   return calls / passed.length;
+};
+
+/**
+ * Share of runs the server rejected at least one call in. Counted over runs
+ * that reached the task, like completion, because a throttled or bypassed run
+ * made no calls to reject and would only dilute the rate.
+ */
+const runsWithARejection: Statistic = (runs) => {
+  const eligible = eligibleForCompletion(runs);
+  if (eligible.length === 0) return Number.NaN;
+  return eligible.filter((run) => run.schemaRejections > 0).length / eligible.length;
+};
+
+/** Mean wall-clock seconds one run took, over the runs that reached the task. */
+const meanDurationSeconds: Statistic = (runs) => {
+  const eligible = eligibleForCompletion(runs);
+  if (eligible.length === 0) return Number.NaN;
+  let totalMs = 0;
+  for (const run of eligible) totalMs += run.durationMs;
+  return totalMs / eligible.length / 1000;
 };
 
 /** Counts of the three infrastructure and bypass outcomes in a pooled run set. */
@@ -224,6 +248,8 @@ export function buildReport(runs: EvalResultLine[], seed: number = BOOTSTRAP_SEE
       completion: bootstrap(tasks, completion, seed),
       completionEngaged: bootstrap(tasks, completionEngaged, seed),
       meanCallsPerCompletedTask: bootstrap(tasks, meanCallsPerCompletedTask, seed),
+      runsWithARejection: bootstrap(tasks, runsWithARejection, seed),
+      meanDurationSeconds: bootstrap(tasks, meanDurationSeconds, seed),
       infrastructure: infrastructureCounts(cellRuns),
     });
   }
@@ -437,6 +463,8 @@ export function renderReport(reports: CellReport[]): string {
     lines.push(`  completion           ${formatRate(report.completion)}`);
     lines.push(`  completion (engaged) ${formatRate(report.completionEngaged)}`);
     lines.push(`  calls per completion ${formatCount(report.meanCallsPerCompletedTask)}`);
+    lines.push(`  runs with a rejection${formatRate(report.runsWithARejection)}`);
+    lines.push(`  mean duration        ${formatCount(report.meanDurationSeconds)} s`);
     const { throttled, interrupted, bypassed } = report.infrastructure;
     if (throttled + interrupted + bypassed > 0) {
       lines.push('  infrastructure and bypass');

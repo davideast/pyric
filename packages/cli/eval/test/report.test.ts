@@ -158,6 +158,37 @@ describe('infrastructure and bypass outcomes', () => {
   });
 });
 
+describe('the two threshold metrics the eval gate reads', () => {
+  test('the rejection rate counts runs, not calls, over the runs that reached the task', () => {
+    const runs = [
+      line({ task: 't1', schemaRejections: 0 }),
+      line({ task: 't2', schemaRejections: 3 }),
+      line({ task: 't3', schemaRejections: 1 }),
+      line({ task: 't4', outcome: 'throttled', schemaRejections: 0 }),
+    ];
+    const report = buildReport(runs, 42)[0];
+    // Two of the three runs that reached the task carried a rejection; the
+    // throttled run never reached it and is not in the denominator.
+    expect(report?.runsWithARejection.value).toBeCloseTo(2 / 3, 10);
+  });
+
+  test('mean duration is reported in seconds over the runs that reached the task', () => {
+    const runs = [
+      line({ task: 't1', durationMs: 10_000 }),
+      line({ task: 't2', durationMs: 20_000 }),
+      line({ task: 't3', outcome: 'bypassed', durationMs: 900_000 }),
+    ];
+    const report = buildReport(runs, 42)[0];
+    expect(report?.meanDurationSeconds.value).toBeCloseTo(15, 10);
+  });
+
+  test('both appear in the printed report', () => {
+    const rendered = renderReport(buildReport(mixedRuns(), 42));
+    expect(rendered).toContain('runs with a rejection');
+    expect(rendered).toContain('mean duration');
+  });
+});
+
 describe('engaged-run completion', () => {
   test('a run with zero calls is excluded from the engaged completion rate', () => {
     const runs = [
