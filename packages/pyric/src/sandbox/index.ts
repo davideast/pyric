@@ -82,6 +82,19 @@ export type {
 export { replay } from './replay/index.js';
 export type { Divergence, ReplayOptions, ReplayResult } from './replay/index.js';
 
+// Full sandbox state: the whole sandbox as one JSON value, and the total
+// replace that installs one. Firestore documents, the Realtime Database tree,
+// Storage objects with their bytes and metadata, auth accounts, and the three
+// rule sources. This is what a branch forks from and promotes onto.
+export { captureFullState, applyFullState } from './full-state.js';
+export type {
+  AuthAccountsState,
+  DatabaseRuleset,
+  FullSandboxState,
+  SandboxRuleSources,
+  StorageObjectState,
+} from './full-state.js';
+
 // Branches — fork/apply/diff/promote/discard experiments built on top of
 // `snapshot()` + `replay()`. A branch is an isolated in-memory sandbox
 // seeded from a `SandboxSnapshot`; `apply` re-issues events via `replay`,
