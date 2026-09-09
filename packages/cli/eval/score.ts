@@ -6,19 +6,21 @@
  * for a human to read and is never evidence: the only evidence is what the
  * server logged and what the sandbox holds.
  */
+import type { ClassifiedOutcome } from './outcome.js';
 import type { EvalOutcome, EvalResultLine, EvalRun, EvalState } from './types.js';
 
-/**
- * How the spawned process ended, before the task's own assertion is consulted.
- * `interrupted` and `bypassed` are never produced by the spawn itself; they are
- * `outcome.ts` narrowing a `completed` or `crash` spawn after reading the CLI's
- * captured stdout and stderr.
- */
-export type SpawnOutcome = 'completed' | 'timeout' | 'throttled' | 'crash' | 'interrupted' | 'bypassed';
+/** How `spawnInvocation` itself can report a finished process ending. */
+export type SpawnOutcome = 'completed' | 'timeout' | 'throttled' | 'crash';
 
 export interface ScoreInput {
   run: EvalRun;
-  spawn: SpawnOutcome;
+  /**
+   * `outcome.ts` narrows a `completed` or `crash` spawn outcome into
+   * `interrupted` or `bypassed` by reading the CLI's captured stdout and
+   * stderr before the run reaches the scorer, so this is what `scoreRun`
+   * actually receives.
+   */
+  spawn: ClassifiedOutcome;
   durationMs: number;
   state: EvalState;
   /** Why the harness itself failed, for a `crash` that never reached the CLI. */
@@ -57,7 +59,7 @@ function isAcceptedOpReached(accepted: string[], calls: EvalState['calls']): boo
 }
 
 /** A process that did not finish is never scored against the task's assertion. */
-function isScorable(spawn: SpawnOutcome): boolean {
+function isScorable(spawn: ClassifiedOutcome): boolean {
   return spawn === 'completed';
 }
 

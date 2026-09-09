@@ -27,8 +27,13 @@ export const CLI_SIGNALS: Record<string, CliSignals> = {
   codex: CODEX_SIGNALS,
 };
 
-/** The outcomes `classifyOutcome` can return: a spawn outcome, or a refinement of one. */
-export type RefinedOutcome = SpawnOutcome | 'interrupted' | 'bypassed';
+/**
+ * The outcomes `classifyOutcome` can return: a spawn outcome unchanged, or its
+ * narrowing into `interrupted` or `bypassed`. This, not `SpawnOutcome`, is
+ * what `scoreRun` actually receives, since every run is classified before it
+ * is scored.
+ */
+export type ClassifiedOutcome = SpawnOutcome | 'interrupted' | 'bypassed';
 
 function matchesAny(patterns: RegExp[], text: string): boolean {
   return patterns.some((pattern) => pattern.test(text));
@@ -47,7 +52,7 @@ export function classifyOutcome(
   stdout: string,
   stderr: string,
   callCount: number,
-): RefinedOutcome {
+): ClassifiedOutcome {
   if (spawn !== 'completed' && spawn !== 'crash') return spawn;
 
   const signals = CLI_SIGNALS[cli];
@@ -84,7 +89,7 @@ export function classifyRunOutcome(
   spawn: SpawnOutcome,
   runDir: string,
   callCount: number,
-): RefinedOutcome {
+): ClassifiedOutcome {
   const stdout = readCapturedStream(runDir, 'stdout.log');
   const stderr = readCapturedStream(runDir, 'stderr.log');
   return classifyOutcome(cli, spawn, stdout, stderr, callCount);
