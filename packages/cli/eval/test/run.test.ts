@@ -8,7 +8,7 @@
  * is the one the runner wrote.
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runAll, planRuns, parseArgs, RESULTS_FILE, type RunnerOptions } from '../run.js';
@@ -163,6 +163,24 @@ describe('the fake provider drives the whole pipeline', () => {
       callIndex: 0,
     });
   }, 120_000);
+});
+
+describe('a dry run prepares everything and spawns nothing', () => {
+  test('the config files exist and no results are recorded', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [READ_TASK];
+    options.dryRun = true;
+
+    const lines = await runAll(options);
+    expect(lines).toHaveLength(0);
+    expect(existsSync(join(resultsDir, 'pipeline', RESULTS_FILE))).toBe(false);
+
+    const dir = join(resultsDir, 'pipeline', 'fake-row', 'verb-prefixed', 'read-the-seeded-post', '1');
+    expect(existsSync(join(dir, 'fake-plan.json'))).toBe(true);
+    expect(existsSync(join(dir, '.pyric', 'state', 'headless.json'))).toBe(true);
+    expect(existsSync(join(dir, 'stdout.log'))).toBe(false);
+  }, 60_000);
 });
 
 describe('planning and argument parsing', () => {

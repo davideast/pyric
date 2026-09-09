@@ -5,7 +5,7 @@
  * disagrees with its filename is rejected, because the filename is the join key
  * and must exist nowhere else.
  */
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { EvalRow, EvalTask } from './types.js';
@@ -25,6 +25,7 @@ export class RecordIdMismatchError extends Error {
 
 /** Filenames under `dir` that are records, sorted by their stable key. */
 function recordKeys(dir: string): string[] {
+  if (!existsSync(dir)) throw new Error(`no record directory at ${dir}`);
   const entries = readdirSync(dir, { withFileTypes: true });
   const keys: string[] = [];
   for (const entry of entries) {
