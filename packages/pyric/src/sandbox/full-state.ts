@@ -26,14 +26,19 @@
  * same services for the same reason.
  */
 
-import { getAuth } from '../auth/instances.js';
-import type { SandboxBackend, SeedUser } from '../auth/sandbox-backend.js';
-import { targetOf } from '../auth/target.js';
+import { getAuth, sandbox as authSandbox, type Auth, type SeedUser } from '../auth/index.js';
 import { getOrCreateBackend } from '../database/sandbox/backend-for.js';
 import type { RtdbBackend } from '../database/sandbox/backend.js';
 import type { JsonValue } from '../database/sandbox/data-tree.js';
-import { deleteObject, getBytes, getMetadata, listAll, ref, uploadBytes } from '../storage/index.js';
-import type { FirebaseStorage } from '../storage/service.js';
+import {
+  deleteObject,
+  getBytes,
+  getMetadata,
+  listAll,
+  ref,
+  uploadBytes,
+  type FirebaseStorage,
+} from '../storage/index.js';
 import {
   arrayBufferToBase64,
   base64ToBytes,
@@ -115,9 +120,9 @@ export interface FullSandboxState {
   rules: SandboxRuleSources;
 }
 
-/** The auth backend behind one sandbox, created on first reach the way `getAuth` does. */
-function authBackendFor(sandbox: LocalSandbox): SandboxBackend {
-  return targetOf(getAuth(sandbox)).backend;
+/** The auth handle onto one sandbox, created on first reach the way `getAuth` does. */
+function authFor(sandbox: LocalSandbox): Auth {
+  return getAuth(sandbox);
 }
 
 /** The default Realtime Database backend behind one sandbox. */
@@ -185,7 +190,7 @@ async function captureStorage(storage: FirebaseStorage): Promise<StorageObjectSt
 export async function captureFullState(sandbox: LocalSandbox): Promise<FullSandboxState> {
   const env = getInternalEnv(sandbox);
   const database = databaseBackendFor(sandbox);
-  const auth = authBackendFor(sandbox);
+  const auth = authFor(sandbox);
   const storage = storageFor(sandbox);
 
   const rules: SandboxRuleSources = {
@@ -198,7 +203,10 @@ export async function captureFullState(sandbox: LocalSandbox): Promise<FullSandb
     firestore: structuredClone(env.snapshot()) as Record<string, Record<string, unknown>>,
     database: databaseStateWithoutRules(database),
     storage: await captureStorage(storage),
-    auth: { users: auth.exportUsers(), providers: auth.exportProviderConfig() },
+    auth: {
+      users: authSandbox.exportUsers(auth),
+      providers: authSandbox.exportProviderConfig(auth),
+    },
     rules: structuredClone(rules),
   };
 }
@@ -227,10 +235,10 @@ function applyDatabase(sandbox: LocalSandbox, state: FullSandboxState): void {
 
 /** Replace the target's auth account store with exactly the accounts the state holds. */
 function applyAuth(sandbox: LocalSandbox, accounts: AuthAccountsState): void {
-  const backend = authBackendFor(sandbox);
-  backend.clearUsers();
-  if (accounts.users.length > 0) backend.seedUsers(structuredClone(accounts.users));
-  backend.restoreProviderConfig({ ...accounts.providers });
+  const auth = authFor(sandbox);
+  authSandbox.clearUsers(auth);
+  if (accounts.users.length > 0) authSandbox.seedUsers(auth, structuredClone(accounts.users));
+  authSandbox.restoreProviderConfig(auth, { ...accounts.providers });
 }
 
 /** Replace the target's bucket with exactly the objects the state holds. */

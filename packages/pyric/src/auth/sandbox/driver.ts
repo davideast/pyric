@@ -121,6 +121,23 @@ export const sandbox = {
     return requireSandbox(auth).backend.subscribeUsers(callback);
   },
 
+  /**
+   * Which sign-in providers are enabled, keyed by provider id.
+   *
+   * The whole-state form, beside {@link getAuthProviderConfig}'s listing: it
+   * is what a capture writes down and what {@link restoreProviderConfig} takes
+   * back, so a state capture reaches the account store through this namespace
+   * rather than through the backend handle.
+   */
+  exportProviderConfig(auth: Auth): Record<string, boolean> {
+    return requireSandbox(auth).backend.exportProviderConfig();
+  },
+
+  /** Replace the provider configuration with exactly the one given. */
+  restoreProviderConfig(auth: Auth, config: Record<string, boolean>): void {
+    requireSandbox(auth).backend.restoreProviderConfig(config);
+  },
+
   getAuthProviderConfig(auth: Auth): Array<{ providerId: string; enabled: boolean }> {
     return requireSandbox(auth).backend.listProviderConfig();
   },

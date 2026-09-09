@@ -14,8 +14,7 @@
  * name and turns them into that service's writes.
  */
 
-import { getAuth } from '../../auth/instances.js';
-import { targetOf } from '../../auth/target.js';
+import { getAuth, sandbox as authSandbox } from '../../auth/index.js';
 import { getOrCreateBackend } from '../../database/sandbox/backend-for.js';
 import type { JsonValue } from '../../database/sandbox/data-tree.js';
 import { deleteObject, ref, uploadBytes } from '../../storage/index.js';
@@ -132,7 +131,7 @@ function promoteAuth(
   next: FullSandboxState,
   divergences: readonly BranchDivergence[],
 ): void {
-  const backend = targetOf(getAuth(target)).backend;
+  const auth = getAuth(target);
   const accounts = new Map(next.auth.users.map((user) => [user.uid, user]));
   const changed: FullSandboxState['auth']['users'] = [];
   let providersDiverged = false;
@@ -143,13 +142,13 @@ function promoteAuth(
     }
     const account = accounts.get(path);
     if (account === undefined) {
-      backend.deleteUser(path);
+      authSandbox.deleteUser(auth, path);
       continue;
     }
     changed.push(account);
   }
-  if (changed.length > 0) backend.seedUsers(structuredClone(changed));
-  if (providersDiverged) backend.restoreProviderConfig({ ...next.auth.providers });
+  if (changed.length > 0) authSandbox.seedUsers(auth, structuredClone(changed));
+  if (providersDiverged) authSandbox.restoreProviderConfig(auth, { ...next.auth.providers });
 }
 
 /**
