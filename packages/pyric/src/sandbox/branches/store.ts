@@ -13,6 +13,7 @@
  *     base/storage.json        objects with base64 bytes and metadata,
  *     base/auth.json           accounts and provider config, and the three
  *     base/rules.json          rule sources
+ *     state/<service>.json   what the branch holds now, the same five files
  *
  * One file per service rather than one bundle, so a reader opening the
  * directory sees which services a branch carries without decoding anything,
@@ -20,10 +21,15 @@
  * directory name is the branch name and is the join key, so the manifest does
  * not repeat it: the directory is the index, exactly as the authored record
  * convention states. `base` is `live` or the name of the checkpoint the fork
- * was taken from. A branch is stored as its base plus its events rather than
- * as its current state, so what `loadBranch` returns is reproduced by the same
- * `fork` and `apply` the engine runs, and the file a reader opens cannot
- * disagree with the engine about what the branch is.
+ * was taken from.
+ *
+ * Why the branch carries two states rather than a base and a replayable log.
+ * The event log records Firestore writes, which is one of the five services a
+ * branch holds. A branch that had uploaded a Storage object or created an
+ * account could not be rebuilt from its base and its log, so the log is what
+ * was applied and `state/` is what the branch holds. `base/` stays because a
+ * promotion is a delta against it: state on the target the branch never
+ * touched has to survive landing, and only the base says which state that is.
  *
  * This module reads and writes files, so it is Node only and is published at
  * the `pyric/sandbox/branches/store` subpath rather than from the browser
@@ -32,9 +38,9 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { FullSandboxState } from '../full-state.js';
+import { captureFullState, type FullSandboxState } from '../full-state.js';
 import type { SandboxEvent } from '../types/index.js';
-import { apply, fork, type Branch, type BranchCandidateRules } from './engine.js';
+import { fork, type Branch, type BranchCandidateRules } from './engine.js';
 
 /** The tag every branch manifest carries, so an unrelated directory is not read as one. */
 export const BRANCH_FORMAT = 'pyric-branch-v2';
@@ -46,11 +52,12 @@ const MANIFEST_FILE = 'manifest.json';
 const EVENTS_FILE = 'events.json';
 const CANDIDATE_RULES_FILE = 'candidate-rules.json';
 const BASE_DIRECTORY = 'base';
+const STATE_DIRECTORY = 'state';
 
-/** The base state's services, in the order the directory lists them. */
-const BASE_SERVICES = ['firestore', 'database', 'storage', 'auth', 'rules'] as const;
+/** The services a stored state names, in the order the directory lists them. */
+const STATE_SERVICES = ['firestore', 'database', 'storage', 'auth', 'rules'] as const;
 
-type BaseService = (typeof BASE_SERVICES)[number];
+type StateService = (typeof STATE_SERVICES)[number];
 
 /** The names a branch may take: one path segment, so a name can never escape the store. */
 export const BRANCH_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -107,37 +114,41 @@ export function branchDirectory(projectDir: string, name: string): string {
   return join(projectDir, BRANCH_STORE_RELATIVE, name);
 }
 
-/** The file one service's slice of the base state occupies. */
-function baseServicePath(dir: string, service: BaseService): string {
-  return join(dir, BASE_DIRECTORY, `${service}.json`);
+/** The file one service's slice of a stored state occupies. */
+function stateServicePath(dir: string, stateDir: string, service: StateService): string {
+  return join(dir, stateDir, `${service}.json`);
 }
 
-/** Write the base state as one file per service. */
-function writeBaseState(dir: string, base: FullSandboxState): void {
-  mkdirSync(join(dir, BASE_DIRECTORY), { recursive: true });
-  for (const service of BASE_SERVICES) {
-    writeFileSync(baseServicePath(dir, service), `${JSON.stringify(base[service])}\n`, 'utf8');
+/** Write one full state as one file per service. */
+function writeState(dir: string, stateDir: string, state: FullSandboxState): void {
+  mkdirSync(join(dir, stateDir), { recursive: true });
+  for (const service of STATE_SERVICES) {
+    writeFileSync(
+      stateServicePath(dir, stateDir, service),
+      `${JSON.stringify(state[service])}\n`,
+      'utf8',
+    );
   }
 }
 
 /** Read one service's slice back, or null when the branch directory has no such file. */
-function readBaseService(dir: string, service: BaseService): unknown {
-  const path = baseServicePath(dir, service);
+function readStateService(dir: string, stateDir: string, service: StateService): unknown {
+  const path = stateServicePath(dir, stateDir, service);
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
-/** The base state one branch directory carries. */
-function readBaseState(dir: string): FullSandboxState {
+/** One full state a branch directory carries, under `base/` or under `state/`. */
+function readState(dir: string, stateDir: string): FullSandboxState {
   return {
-    firestore: (readBaseService(dir, 'firestore') ?? {}) as FullSandboxState['firestore'],
-    database: readBaseService(dir, 'database') as FullSandboxState['database'],
-    storage: (readBaseService(dir, 'storage') ?? []) as FullSandboxState['storage'],
-    auth: (readBaseService(dir, 'auth') ?? {
+    firestore: (readStateService(dir, stateDir, 'firestore') ?? {}) as FullSandboxState['firestore'],
+    database: readStateService(dir, stateDir, 'database') as FullSandboxState['database'],
+    storage: (readStateService(dir, stateDir, 'storage') ?? []) as FullSandboxState['storage'],
+    auth: (readStateService(dir, stateDir, 'auth') ?? {
       users: [],
       providers: {},
     }) as FullSandboxState['auth'],
-    rules: (readBaseService(dir, 'rules') ?? {
+    rules: (readStateService(dir, stateDir, 'rules') ?? {
       firestore: '',
       database: null,
       storage: null,
@@ -147,15 +158,16 @@ function readBaseState(dir: string): FullSandboxState {
 
 /**
  * Write one branch to its own directory, replacing whatever was there. The
- * base state and the event log are written from the branch itself, so a save
- * after an `apply` records exactly what the engine holds.
+ * base, the current state, and the event log are all written from the branch
+ * itself, so a save after an `apply` or after a write on any service records
+ * exactly what the engine holds.
  */
-export function saveBranch(
+export async function saveBranch(
   projectDir: string,
   name: string,
   branch: Branch,
   options: SaveBranchOptions,
-): BranchManifest {
+): Promise<BranchManifest> {
   const dir = branchDirectory(projectDir, name);
   const manifest: BranchManifest = {
     format: BRANCH_FORMAT,
@@ -163,8 +175,10 @@ export function saveBranch(
     base: options.base,
     eventCount: branch.events.length,
   };
+  const current = await captureFullState(branch.sandbox);
   mkdirSync(dir, { recursive: true });
-  writeBaseState(dir, branch.base);
+  writeState(dir, BASE_DIRECTORY, branch.base);
+  writeState(dir, STATE_DIRECTORY, current);
   writeFileSync(join(dir, EVENTS_FILE), `${JSON.stringify(branch.events)}\n`, 'utf8');
   const candidateRulesPath = join(dir, CANDIDATE_RULES_FILE);
   const hasCandidateRules = Object.keys(branch.candidateRules).length > 0;
@@ -217,9 +231,10 @@ function readEvents(dir: string): SandboxEvent[] {
 
 /**
  * Rebuild one branch from its directory, or null when the project has no
- * branch by that name. The branch is rebuilt the way it was built: `fork` on
- * the stored base, then `apply` of the stored events, so a loaded branch and a
- * branch that never left memory are the same value.
+ * branch by that name. The branch's sandbox is forked onto the stored current
+ * state, and the stored base and event log are restored beside it, so a loaded
+ * branch and a branch that never left memory are the same value in every
+ * service rather than only in the one the event log records.
  */
 export async function loadBranch(
   projectDir: string,
@@ -228,9 +243,14 @@ export async function loadBranch(
   const dir = branchDirectory(projectDir, name);
   const manifest = readManifest(dir);
   if (manifest === null) return null;
-  const branch = await fork(readBaseState(dir), readCandidateRules(dir));
-  const events = readEvents(dir);
-  if (events.length > 0) apply(branch, events);
+  const forked = await fork(readState(dir, STATE_DIRECTORY), readCandidateRules(dir));
+  const branch: Branch = {
+    sandbox: forked.sandbox,
+    candidateRules: forked.candidateRules,
+    base: readState(dir, BASE_DIRECTORY),
+    events: readEvents(dir),
+    discarded: false,
+  };
   return { name, branch, manifest };
 }
 

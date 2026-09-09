@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { getOrCreateBackend } from '../../../src/database/sandbox/backend-for.js';
 import { apply, fork } from '../../../src/sandbox/branches/index.js';
 import {
   BRANCH_FORMAT,
@@ -21,6 +22,8 @@ import {
 } from '../../../src/sandbox/branches/store.js';
 import { captureFullState } from '../../../src/sandbox/index.js';
 import { getInternalEnv } from '../../../src/sandbox/internal/sandbox-impl.js';
+import { ref as storageRef, uploadBytes } from '../../../src/storage/index.js';
+import { getAdminStorageSandbox } from '../../../src/storage/internal.js';
 import { CANDIDATE_FIRESTORE_RULES, populatedSandbox } from './fixtures.js';
 
 let projectDir: string;
@@ -41,7 +44,7 @@ async function populatedBranch(candidate?: string) {
 describe('the branch store', () => {
   it('writes one directory per branch, named by the branch', async () => {
     const branch = await populatedBranch();
-    saveBranch(projectDir, 'draft', branch, { base: 'live' });
+    await saveBranch(projectDir, 'draft', branch, { base: 'live' });
 
     const dir = branchDirectory(projectDir, 'draft');
     expect(dir).toBe(join(projectDir, BRANCH_STORE_RELATIVE, 'draft'));
@@ -59,7 +62,7 @@ describe('the branch store', () => {
   });
 
   it('writes the base state as one file per service', async () => {
-    saveBranch(projectDir, 'draft', await populatedBranch(), { base: 'live' });
+    await saveBranch(projectDir, 'draft', await populatedBranch(), { base: 'live' });
     const base = join(branchDirectory(projectDir, 'draft'), 'base');
 
     for (const service of ['firestore', 'database', 'storage', 'auth', 'rules']) {
@@ -72,7 +75,7 @@ describe('the branch store', () => {
   });
 
   it('keeps the branch name out of the manifest, because the directory carries it', async () => {
-    saveBranch(projectDir, 'draft', await populatedBranch(), { base: 'live' });
+    await saveBranch(projectDir, 'draft', await populatedBranch(), { base: 'live' });
     const raw = readFileSync(join(branchDirectory(projectDir, 'draft'), 'manifest.json'), 'utf8');
     expect(raw).not.toContain('draft');
   });
@@ -87,7 +90,7 @@ describe('the branch store', () => {
     });
     apply(branch, branch.sandbox.history());
     const expected = await captureFullState(branch.sandbox);
-    saveBranch(projectDir, 'draft', branch, { base: 'live' });
+    await saveBranch(projectDir, 'draft', branch, { base: 'live' });
 
     const loaded = await loadBranch(projectDir, 'draft');
     expect(loaded).not.toBeNull();
@@ -98,7 +101,7 @@ describe('the branch store', () => {
 
   it('round trips the candidate rules the fork installed', async () => {
     const branch = await populatedBranch(CANDIDATE_FIRESTORE_RULES);
-    saveBranch(projectDir, 'draft', branch, { base: 'live' });
+    await saveBranch(projectDir, 'draft', branch, { base: 'live' });
 
     const loaded = await loadBranch(projectDir, 'draft');
     expect(loaded!.branch.candidateRules).toEqual({ firestore: CANDIDATE_FIRESTORE_RULES });
@@ -106,8 +109,8 @@ describe('the branch store', () => {
   });
 
   it('lists every stored branch by directory name, with its manifest fields', async () => {
-    saveBranch(projectDir, 'beta', await populatedBranch(), { base: 'live' });
-    saveBranch(projectDir, 'alpha', await populatedBranch(), { base: 'nightly' });
+    await saveBranch(projectDir, 'beta', await populatedBranch(), { base: 'live' });
+    await saveBranch(projectDir, 'alpha', await populatedBranch(), { base: 'nightly' });
 
     const listed = listBranches(projectDir);
     expect(listed.map((entry) => entry.name)).toEqual(['alpha', 'beta']);
@@ -120,7 +123,7 @@ describe('the branch store', () => {
   });
 
   it('skips a directory that holds no manifest rather than failing the listing', async () => {
-    saveBranch(projectDir, 'good', await populatedBranch(), { base: 'live' });
+    await saveBranch(projectDir, 'good', await populatedBranch(), { base: 'live' });
     mkdirSync(join(projectDir, BRANCH_STORE_RELATIVE, 'rubble'), { recursive: true });
     writeFileSync(join(projectDir, BRANCH_STORE_RELATIVE, 'rubble', 'other.txt'), 'x');
     expect(listBranches(projectDir).map((entry) => entry.name)).toEqual(['good']);
@@ -131,7 +134,7 @@ describe('the branch store', () => {
   });
 
   it('removes a branch directory and reports whether there was one', async () => {
-    saveBranch(projectDir, 'draft', await populatedBranch(), { base: 'live' });
+    await saveBranch(projectDir, 'draft', await populatedBranch(), { base: 'live' });
     expect(removeBranch(projectDir, 'draft')).toBe(true);
     expect(listBranches(projectDir)).toEqual([]);
     expect(removeBranch(projectDir, 'draft')).toBe(false);
@@ -139,7 +142,7 @@ describe('the branch store', () => {
 
   it('refuses a branch name that would escape the branch directory', async () => {
     const branch = await populatedBranch();
-    expect(() => saveBranch(projectDir, '../escape', branch, { base: 'live' })).toThrow(
+    expect(saveBranch(projectDir, '../escape', branch, { base: 'live' })).rejects.toThrow(
       BranchNameError,
     );
     expect(loadBranch(projectDir, '..')).rejects.toThrow(BranchNameError);
@@ -147,11 +150,38 @@ describe('the branch store', () => {
   });
 
   it('omits the candidate rules file for a branch forked with none', async () => {
-    saveBranch(projectDir, 'plain', await populatedBranch(), { base: 'live' });
+    await saveBranch(projectDir, 'plain', await populatedBranch(), { base: 'live' });
     const path = join(branchDirectory(projectDir, 'plain'), 'candidate-rules.json');
     expect(existsSync(path)).toBe(false);
 
     const loaded = await loadBranch(projectDir, 'plain');
     expect(loaded!.branch.candidateRules).toEqual({});
+  });
+});
+
+describe('the branch store across every service', () => {
+  it('reloads a branch that diverged in a service no event log carries', async () => {
+    const branch = await populatedBranch();
+    getOrCreateBackend(branch.sandbox).adminSet('rooms/two', { title: 'branch only' });
+    await uploadBytes(
+      storageRef(getAdminStorageSandbox(branch.sandbox), 'docs/branch.txt'),
+      new Uint8Array([9, 9]),
+      { contentType: 'text/plain' },
+    );
+    const expected = await captureFullState(branch.sandbox);
+    await saveBranch(projectDir, 'draft', branch, { base: 'live' });
+
+    const loaded = await loadBranch(projectDir, 'draft');
+    expect(await captureFullState(loaded!.branch.sandbox)).toEqual(expected);
+  });
+
+  it('keeps the forked base as the baseline a promotion is a delta against', async () => {
+    const branch = await populatedBranch();
+    getOrCreateBackend(branch.sandbox).adminSet('rooms/two', { title: 'branch only' });
+    await saveBranch(projectDir, 'draft', branch, { base: 'live' });
+
+    const loaded = await loadBranch(projectDir, 'draft');
+    expect(loaded!.branch.base).toEqual(branch.base);
+    expect(loaded!.branch.base).not.toEqual(await captureFullState(loaded!.branch.sandbox));
   });
 });
