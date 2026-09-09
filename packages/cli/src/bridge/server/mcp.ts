@@ -41,11 +41,15 @@ export interface RejectedToolCall {
   schemaRejected: boolean;
 }
 
-/** Text the SDK prefixes onto an argument validation failure. */
-const INPUT_VALIDATION_PREFIX = 'Input validation error:';
+/**
+ * Text the SDK puts in front of an argument validation failure. It is not at
+ * the start of the returned message: the SDK raises an `McpError`, whose own
+ * message prefixes the JSON-RPC code, and returns that text to the client.
+ */
+const INPUT_VALIDATION_MARKER = 'Input validation error:';
 
 function isArgumentValidationFailure(message: string): boolean {
-  return message.startsWith(INPUT_VALIDATION_PREFIX);
+  return message.includes(INPUT_VALIDATION_MARKER);
 }
 
 /** First text block of an MCP result, which is where the SDK puts its error. */

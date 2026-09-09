@@ -38,6 +38,13 @@ import {
   type AuditWriter,
 } from './audit.js';
 import type { BridgeToolEvent } from './bridge.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+
+/** The stdio transport is a late import: the SDK is heavy and only needed here. */
+async function openStdioTransport(): Promise<Transport> {
+  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
+  return new StdioServerTransport();
+}
 
 /** Where the headless sandbox snapshot is persisted (relative to the project
  *  dir). Deliberately separate from serve's `state.json` (different format). */
@@ -131,6 +138,38 @@ export interface HeadlessRunOptions {
   surface?: string;
   /** Environment to read the evaluation settings from. Defaults to the process. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Transport to serve on. Defaults to stdio, which is what an editor and the
+   * evaluation runner both use; a test supplies an in-memory pair so it can
+   * close the session and observe the final flush.
+   */
+  transport?: Transport;
+}
+
+/**
+ * Build the tool-event writer for a headless session. Returns null when no
+ * evaluation log is named, which is the default and records nothing.
+ */
+export function createHeadlessEventWriter(env: NodeJS.ProcessEnv): AuditWriter | null {
+  const evalLogPath = env[EVAL_LOG_ENV_KEY];
+  if (evalLogPath === undefined || evalLogPath.trim() === '') return null;
+  return createEvalLogWriter(evalLogPath, readEvalRunIdentity(env));
+}
+
+/**
+ * Wire a session's event writer into the server options. Without a writer the
+ * options are left as they were, and the server records nothing.
+ */
+export function withHeadlessEventWriter(
+  options: HeadlessMcpServerOptions,
+  writer: AuditWriter | null,
+): HeadlessMcpServerOptions {
+  if (!writer) return options;
+  return {
+    ...options,
+    onToolEvent: (event) => writer.write(event),
+    onCallRejected: (event) => writer.write(event),
+  };
 }
 
 /**
@@ -151,12 +190,8 @@ export async function runHeadlessMcp(
   };
 
   const env = options.env ?? process.env;
-  const evalLogPath = env[EVAL_LOG_ENV_KEY];
-  let evalLog: AuditWriter | null = null;
-  if (evalLogPath !== undefined && evalLogPath.trim() !== '') {
-    evalLog = createEvalLogWriter(evalLogPath, readEvalRunIdentity(env));
-    log(`recording tool events to ${evalLog.path}`);
-  }
+  const evalLog = createHeadlessEventWriter(env);
+  if (evalLog) log(`recording tool events to ${evalLog.path}`);
 
   const sandbox = initializeSandbox();
   const rulesPath = loadProjectRules(sandbox, cwd);
@@ -196,18 +231,15 @@ export async function runHeadlessMcp(
   };
   process.once('exit', saveIfPendingAtExit);
 
-  const serverOptions: HeadlessMcpServerOptions = {
+  const baseServerOptions: HeadlessMcpServerOptions = {
     onAfterDispatch: scheduleSave,
     surface: options.surface,
   };
-  if (evalLog) {
-    const writer = evalLog;
-    serverOptions.onToolEvent = (event) => writer.write(event);
-    serverOptions.onCallRejected = (event) => writer.write(event);
-  }
-  const server = buildHeadlessMcpServer(sandbox, serverOptions);
-  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
-  const transport = new StdioServerTransport();
+  const server = buildHeadlessMcpServer(
+    sandbox,
+    withHeadlessEventWriter(baseServerOptions, evalLog),
+  );
+  const transport = options.transport ?? (await openStdioTransport());
 
   return await new Promise<number>((resolve) => {
     let stopping = false;
@@ -220,6 +252,7 @@ export async function runHeadlessMcp(
       // writes that have not reached disk, and nothing after this point is
       // guaranteed to run.
       flush();
+      process.off('exit', saveIfPendingAtExit);
       void server.close().then(
         () => resolve(code),
         (e) => {
