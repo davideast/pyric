@@ -43,7 +43,7 @@ import {
 import {
   DEFAULT_MCP_TOOL_NAMES,
 } from '../../src/bridge/server/mcp-contract.js';
-import { METHODS } from '../../src/bridge/surface/methods/index.js';
+import { METHODS } from '../../src/bridge/surface/methods/registry.js';
 import { applySeed } from '../../eval/seed.js';
 
 interface LoggedEvent {

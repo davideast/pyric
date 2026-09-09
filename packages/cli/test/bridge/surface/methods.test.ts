@@ -13,7 +13,7 @@ import {
 } from '../../../src/bridge/surface/generate-manifest.js';
 import { schemaDepth, toJsonSchema } from '../../../src/bridge/surface/json-schema.js';
 import { operationIds } from '../../../src/bridge/surface/method-types.js';
-import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/index.js';
+import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import { CANONICAL_OPERATION_IDS } from '../../../src/bridge/surface/render/canonical-dispatch.js';
 
 const SURFACE_DIRECTORY = join(

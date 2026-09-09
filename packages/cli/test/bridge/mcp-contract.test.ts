@@ -10,7 +10,7 @@ import {
   DEFAULT_MCP_TOOL_NAMES,
   getBridgeToolSurface,
 } from '../../src/bridge/server/mcp-contract.js';
-import { TOOLS } from '../../src/bridge/surface/methods/index.js';
+import { TOOLS } from '../../src/bridge/surface/methods/registry.js';
 import { renderSurface } from '../../src/bridge/surface/index.js';
 
 /** The methods each service tool carries, in the order its directory lists them. */

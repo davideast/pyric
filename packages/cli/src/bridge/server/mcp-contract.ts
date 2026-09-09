@@ -13,7 +13,7 @@
  */
 import type { ToolHandler } from '@inbrowser/agent';
 import { assertExactToolNames, toolFamilies } from '../tool-families.js';
-import { TOOLS } from '../surface/methods/index.js';
+import { TOOLS } from '../surface/methods/registry.js';
 import {
   getInProcessToolHandlers,
   getSandboxToolMetadata,

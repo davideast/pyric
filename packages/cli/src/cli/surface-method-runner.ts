@@ -20,7 +20,7 @@ import {
 import { loadStorageSidecar, saveStorageSidecar } from '../bridge/server/storage-sidecar.js';
 import { createSurfaceContext } from '../bridge/surface/context.js';
 import { validateArguments } from '../bridge/surface/method-validation.js';
-import { methodByKey } from '../bridge/surface/methods/index.js';
+import { methodByKey } from '../bridge/surface/methods/registry.js';
 import type { OperationResult } from '../bridge/surface/types.js';
 import { argumentsFromFlags } from './surface-method-args.js';
 import { selectAllowProduction } from './mcp-proxy.js';

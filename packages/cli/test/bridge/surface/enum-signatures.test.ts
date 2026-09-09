@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'bun:test';
 import type { z } from 'zod';
 
-import { TOOLS } from '../../../src/bridge/surface/methods/index.js';
+import { TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 
 /** Every enum's values reachable from a Zod schema, walking objects, arrays, and wrappers. */
 function enumValues(schema: z.ZodTypeAny, seen = new Set<z.ZodTypeAny>()): string[][] {

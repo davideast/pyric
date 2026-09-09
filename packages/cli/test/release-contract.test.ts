@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { DEFAULT_MCP_TOOL_NAMES } from '../src/bridge/server/mcp-contract.js';
-import { TOOLS } from '../src/bridge/surface/methods/index.js';
+import { TOOLS } from '../src/bridge/surface/methods/registry.js';
 
 interface ReleaseContract {
   schema: 'pyric.cli.release-contract.v1';

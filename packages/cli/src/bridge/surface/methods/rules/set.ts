@@ -1,7 +1,7 @@
 /** Install a ruleset into the running sandbox. */
 import { z } from 'zod';
 import { checkRulesParse, RENAMES, service } from '../../arguments/rules.js';
-import { rulesEngineFor } from '../../rules-engines/index.js';
+import { rulesEngineFor } from '../../rules-engines/registry.js';
 import type { MethodRecord } from '../../method-types.js';
 
 const EXAMPLE_RULES = [

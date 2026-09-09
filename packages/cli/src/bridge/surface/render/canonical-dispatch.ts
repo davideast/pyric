@@ -10,7 +10,7 @@
  * and they are the whole difference between the two surfaces.
  */
 import { callMethod } from '../method-call.js';
-import { methodByKey } from '../methods/index.js';
+import { methodByKey } from '../methods/registry.js';
 import type { Args } from '../method-types.js';
 import type { OperationResult, SurfaceContext } from '../types.js';
 

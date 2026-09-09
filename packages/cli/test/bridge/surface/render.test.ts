@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import { renderSurface, SURFACE_VARIANT_IDS } from '../../../src/bridge/surface/index.js';
-import { METHODS } from '../../../src/bridge/surface/methods/index.js';
+import { METHODS } from '../../../src/bridge/surface/methods/registry.js';
 import { operationIds } from '../../../src/bridge/surface/method-types.js';
 import { schemaDepth } from '../../../src/bridge/surface/json-schema.js';
 import {

@@ -1,5 +1,6 @@
 /**
- * The loaded surface: six service tools and the methods behind them.
+ * The loaded surface: six service tools and the methods behind them, and the
+ * lookups every derived surface joins on.
  *
  * The list is not authored here. `../generate-manifest.ts` reads the `tools`
  * and `methods` directories and renders `../manifest.generated.ts`; this loader

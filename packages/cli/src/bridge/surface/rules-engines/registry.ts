@@ -1,4 +1,8 @@
-/** The rules engine each service brings, keyed by the name the `rules` tool takes. */
+/**
+ * The rules engine each service brings, keyed by the name the `rules` tool
+ * takes. The directory holds one engine per file and this record set names
+ * them, so a service that gains rules is one new file and one new entry.
+ */
 import { DATABASE_RULES } from './database.js';
 import { FIRESTORE_RULES } from './firestore.js';
 import { STORAGE_RULES } from './storage.js';
@@ -20,5 +24,3 @@ export function rulesEngineFor(service: string): RulesEngine {
   if (engine === undefined) throw new Error(`no rules engine for service '${service}'`);
   return engine;
 }
-
-export type { RulesEngine, RulesRequest } from './types.js';

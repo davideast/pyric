@@ -1,7 +1,8 @@
 /** Evaluate one request against one service's ruleset. */
 import { z } from 'zod';
 import { checkOperation, RENAMES, service } from '../../arguments/rules.js';
-import { rulesEngineFor, type RulesRequest } from '../../rules-engines/index.js';
+import { rulesEngineFor } from '../../rules-engines/registry.js';
+import type { RulesRequest } from '../../rules-engines/types.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {

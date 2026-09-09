@@ -9,7 +9,7 @@ import { join } from 'node:path';
 
 import { TOOL_DESCRIPTIONS } from '../../../src/bridge/surface/descriptions.generated.js';
 import { renderDescriptionModule } from '../../../src/bridge/surface/generate-descriptions.js';
-import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/index.js';
+import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import { renderSurface } from '../../../src/bridge/surface/index.js';
 import {
   DESCRIPTION_LIMIT,

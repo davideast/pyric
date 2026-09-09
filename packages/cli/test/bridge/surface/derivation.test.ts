@@ -20,7 +20,7 @@ import {
   renderSurfaceManifest,
   surfaceSources,
 } from '../../../src/bridge/surface/generate-manifest.js';
-import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/index.js';
+import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import { renderToolDescriptions } from '../../../src/bridge/surface/tool-description.js';
 import { SANDBOX_METHOD_WORDS } from '../../../src/cli/parse-args.js';
 import { SERVICE_COMMANDS } from '../../../src/cli/service-commands.generated.js';

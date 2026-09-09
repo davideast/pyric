@@ -20,7 +20,7 @@ import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { createLocalBridge } from '../../../src/bridge/server/local-bridge.js';
 import { registerRenderedSurface } from '../../../src/bridge/server/surface-server.js';
 import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface/index.js';
-import { TOOLS } from '../../../src/bridge/surface/methods/index.js';
+import { TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import { operationIds } from '../../../src/bridge/surface/method-types.js';
 import type { BridgeToolEvent } from '../../../src/bridge/server/bridge.js';
 import type { OperationResult, SurfaceContext } from '../../../src/bridge/surface/index.js';

@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 
-import { TOOLS } from '../../../src/bridge/surface/methods/index.js';
+import { TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import firebaseAdmin from '../../../src/bridge/surface/sdk-names/firebase-admin.json' with { type: 'json' };
 import firebaseJs from '../../../src/bridge/surface/sdk-names/firebase-js.json' with { type: 'json' };
 import pyric from '../../../src/bridge/surface/sdk-names/pyric.json' with { type: 'json' };

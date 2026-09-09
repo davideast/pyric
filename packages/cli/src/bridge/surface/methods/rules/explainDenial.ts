@@ -10,7 +10,7 @@ import { checkOperation, RENAMES } from '../../arguments/rules.js';
 import { explainFirestoreDenial } from '../../rules-engines/firestore.js';
 import { quoted } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';
-import type { RulesRequest } from '../../rules-engines/index.js';
+import type { RulesRequest } from '../../rules-engines/types.js';
 
 export default {
   tool: 'rules',

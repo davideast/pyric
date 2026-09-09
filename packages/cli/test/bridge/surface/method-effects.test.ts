@@ -24,7 +24,7 @@ import {
   refuseUnconfirmedDestructive,
   refuseUnmountedProduction,
 } from '../../../src/bridge/surface/method-effects.js';
-import { METHODS, methodByKey, TOOLS } from '../../../src/bridge/surface/methods/index.js';
+import { METHODS, methodByKey, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import type { Method, Tool } from '../../../src/bridge/surface/method-types.js';
 
 /** A method record built only for this test; never filed under `methods/`. */

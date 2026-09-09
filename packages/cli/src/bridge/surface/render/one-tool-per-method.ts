@@ -10,7 +10,7 @@
 import { toJsonSchema } from '../json-schema.js';
 import { callMethod } from '../method-call.js';
 import { mountedMethods } from '../method-effects.js';
-import { METHODS } from '../methods/index.js';
+import { METHODS } from '../methods/registry.js';
 import { selectOperation } from '../method-types.js';
 import type { Method } from '../method-types.js';
 import type { RenderedSurface, RenderedTool, RenderOptions } from '../types.js';

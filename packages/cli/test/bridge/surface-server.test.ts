@@ -21,7 +21,7 @@ import { setRules } from 'pyric/sandbox/firestore';
 import { createLocalBridge } from '../../src/bridge/server/local-bridge.js';
 import { registerRenderedSurface } from '../../src/bridge/server/surface-server.js';
 import { createSurfaceContext, renderSurface } from '../../src/bridge/surface/index.js';
-import { METHODS } from '../../src/bridge/surface/methods/index.js';
+import { METHODS } from '../../src/bridge/surface/methods/registry.js';
 import type { BridgeToolEvent } from '../../src/bridge/server/bridge.js';
 
 const TENANT_RULES = `rules_version = '2';

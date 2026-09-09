@@ -53,7 +53,7 @@ export function renderSurface(
 
 export { createSurfaceContext } from './context.js';
 export { ALLOW_PRODUCTION_FLAG } from './method-effects.js';
-export { CANONICAL_OPERATIONS, METHODS, METHODS_BY_KEY, TOOLS } from './methods/index.js';
+export { CANONICAL_OPERATIONS, METHODS, METHODS_BY_KEY, TOOLS } from './methods/registry.js';
 export type {
   Args,
   Method,

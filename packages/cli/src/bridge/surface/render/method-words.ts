@@ -9,7 +9,7 @@
  * operation's own words; the identity methods do not, because four of them
  * share one operation and each still needs a name of its own.
  */
-import { METHODS } from '../methods/index.js';
+import { METHODS } from '../methods/registry.js';
 import { operationIds } from '../method-types.js';
 
 /**

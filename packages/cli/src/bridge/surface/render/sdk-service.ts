@@ -18,7 +18,7 @@ import { TOOL_DESCRIPTIONS } from '../descriptions.generated.js';
 import { toJsonSchema } from '../json-schema.js';
 import { callMethod } from '../method-call.js';
 import { mountedTool } from '../method-effects.js';
-import { methodByName, TOOLS, toolByName } from '../methods/index.js';
+import { methodByName, TOOLS, toolByName } from '../methods/registry.js';
 import {
   DESCRIBE_METHOD,
   methodNames,

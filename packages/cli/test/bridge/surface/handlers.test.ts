@@ -14,7 +14,7 @@ import { setRules } from 'pyric/sandbox/firestore';
 
 import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface/index.js';
 import type { OperationResult, SurfaceContext } from '../../../src/bridge/surface/index.js';
-import { METHODS } from '../../../src/bridge/surface/methods/index.js';
+import { METHODS } from '../../../src/bridge/surface/methods/registry.js';
 
 const TENANT_RULES = `rules_version = '2';
 service cloud.firestore {

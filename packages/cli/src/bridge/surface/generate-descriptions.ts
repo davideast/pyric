@@ -10,7 +10,7 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TOOLS } from './methods/index.js';
+import { TOOLS } from './methods/registry.js';
 import { renderToolDescriptions } from './tool-description.js';
 
 const outputPath = resolve(dirname(fileURLToPath(import.meta.url)), 'descriptions.generated.ts');

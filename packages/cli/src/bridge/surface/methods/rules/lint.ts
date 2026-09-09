@@ -1,7 +1,7 @@
 /** Check one service's ruleset for errors without evaluating a request. */
 import { z } from 'zod';
 import { checkService, RENAMES, service } from '../../arguments/rules.js';
-import { rulesEngineFor } from '../../rules-engines/index.js';
+import { rulesEngineFor } from '../../rules-engines/registry.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
