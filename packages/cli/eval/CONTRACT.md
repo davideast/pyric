@@ -57,7 +57,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `restore_sandbox` | restore | sandbox | state | `name`, `confirm` | Replaces the live sandbox with a named checkpoint. |
 | `list_sandbox_checkpoints` | list | sandbox | checkpoints | none | Names, save time, and per-service counts. |
 | `list_sandbox_events` | list | sandbox | events | `since?`, `limit?`, `kind?` (`all`, `denials`, `writes`) | Cursor-paged operation log; the result carries `nextCursor`. |
-| `export_sandbox_fixture` | export | sandbox | fixture | `path` | Writes a seed fixture file. Passwords are never written. |
+| `export_sandbox_fixture` | export | sandbox | fixture | `path`, `excludePasswords?` | Writes a seed fixture file. The seeded passwords are carried unless `excludePasswords: true`. |
 | `seed_sandbox_fixture` | seed | sandbox | fixture | `path` | Loads a fixture written by `export_sandbox_fixture` on top of live state. |
 | `fork_sandbox_branch` | fork | sandbox | branch | `branch`, `candidateRules?` | Copies live into a persisted branch under `.pyric/state/branches/<branch>/`. |
 | `apply_sandbox_events` | apply | sandbox | events | `branch`, `events?` (array), `sessionPath?` | Exactly one of `events` and `sessionPath`; naming neither is refused. |

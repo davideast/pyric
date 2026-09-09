@@ -1,10 +1,10 @@
 /**
  * Write a fixture of the live sandbox's state to a file.
  *
- * The fixture carries no password. A sandbox password is a credential, and the
- * agent surface has no method that writes one to disk: the human path for a
- * state file that keeps real passwords is `pyric snapshot --include-passwords`,
- * where a person chooses it at a terminal.
+ * The fixture carries the sandbox's passwords, because a sandbox password is a
+ * seeded test value rather than a credential, and a fixture that dropped it
+ * reads back a user who cannot sign in. `excludePasswords` leaves them out for
+ * a fixture that is going somewhere those values should not follow.
  */
 import { z } from 'zod';
 import { buildFixture, writeFixtureFile } from '../../fixture.js';
@@ -17,10 +17,16 @@ export default {
   method: 'exportFixture',
   sdkOrigin: 'pyric',
   effect: 'write',
-  signature: 'exportFixture(path)',
-  description: 'Write the sandbox to a seed fixture file. No passwords.',
+  signature: 'exportFixture(path, excludePasswords?)',
+  description: 'Write the sandbox to a seed fixture file, passwords included.',
   args: z.object({
     path: z.string().describe('Where to write the fixture, inside the project directory.'),
+    excludePasswords: z
+      .boolean()
+      .optional()
+      .describe(
+        'Leave the seeded passwords out of the fixture. Default false: a fixture carries them, so a user it seeds back can sign in.',
+      ),
   }),
   operation: 'export_sandbox_fixture',
   example: { path: 'fixtures/scenario.json' },
@@ -33,14 +39,15 @@ export default {
       failFor('sandbox', 'exportFixture'),
     );
     if (!('path' in resolved)) return resolved;
-    const fixture = await buildFixture(ctx.sandbox);
+    const excludePasswords = args.excludePasswords === true;
+    const fixture = await buildFixture(ctx.sandbox, excludePasswords);
     writeFixtureFile(resolved.path, fixture);
     const docs = Object.keys(fixture.firestore ?? {}).length;
     const users = fixture.users?.length ?? 0;
     return {
       ok: true,
       summary: `Wrote a fixture of ${docs} doc(s) and ${users} user(s) to ${given}.`,
-      data: { path: given, docs, users },
+      data: { path: given, docs, users, excludePasswords },
     };
   },
 } satisfies MethodRecord;

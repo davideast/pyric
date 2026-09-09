@@ -363,15 +363,15 @@ it('checkpoints, restores, pages events, and round-trips a fixture', async () =>
   const readBack = await run('auth.getUser', { uid: 'checkpoint-erin' });
   expect(readBack.ok).toBe(true);
 
-  const refusedPasswordExport = await run('sandbox.exportFixture', {
+  const refusedOldName = await run('sandbox.exportFixture', {
     path: 'fixtures/refused.json',
     includePasswords: true,
   });
-  expect(refusedPasswordExport.ok).toBe(false);
-  expect(refusedPasswordExport.summary).toContain("unknown argument 'includePasswords'");
+  expect(refusedOldName.ok).toBe(false);
+  expect(refusedOldName.summary).toContain("unknown argument 'includePasswords'");
 });
 
-it('leaves a real password out of a fixture the surface writes', async () => {
+it('exports the seeded password by default and withholds it when asked', async () => {
   expect(
     (
       await run('auth.createUser', {
@@ -382,11 +382,23 @@ it('leaves a real password out of a fixture the surface writes', async () => {
     ).ok,
   ).toBe(true);
 
-  const exported = await run('sandbox.exportFixture', { path: 'fixtures/no-password.json' });
-  expect(exported.ok).toBe(true);
-  const body = readFileSync(join(projectDir, 'fixtures', 'no-password.json'), 'utf8');
-  expect(body).not.toContain('super-secret-1');
+  const carried = await run('sandbox.exportFixture', { path: 'fixtures/with-password.json' });
+  expect(carried.ok).toBe(true);
+  expect(readFileSync(join(projectDir, 'fixtures', 'with-password.json'), 'utf8')).toContain(
+    'super-secret-1',
+  );
 
+  const withheld = await run('sandbox.exportFixture', {
+    path: 'fixtures/no-password.json',
+    excludePasswords: true,
+  });
+  expect(withheld.ok).toBe(true);
+  expect(readFileSync(join(projectDir, 'fixtures', 'no-password.json'), 'utf8')).not.toContain(
+    'super-secret-1',
+  );
+
+  // The password the fixture carried signs in after a reset; the one it
+  // withheld does not, which is the difference the flag names.
   expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
   expect((await run('sandbox.seedFromFixture', { path: 'fixtures/no-password.json' })).ok).toBe(
     true,
@@ -394,6 +406,17 @@ it('leaves a real password out of a fixture the surface writes', async () => {
   await expect(
     signInWithEmailAndPassword(getAuth(sandbox), 'holder@example.com', 'super-secret-1'),
   ).rejects.toBeTruthy();
+
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+  expect((await run('sandbox.seedFromFixture', { path: 'fixtures/with-password.json' })).ok).toBe(
+    true,
+  );
+  const signedIn = await signInWithEmailAndPassword(
+    getAuth(sandbox),
+    'holder@example.com',
+    'super-secret-1',
+  );
+  expect(signedIn.user.uid).toBe('password-holder');
 
   expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
 });

@@ -33,7 +33,10 @@ import {
 } from './seed-apply.js';
 
 /** Build a fixture from the live sandbox's current state. */
-export async function buildFixture(sandbox: LocalSandbox): Promise<SandboxSeed> {
+export async function buildFixture(
+  sandbox: LocalSandbox,
+  excludePasswords = false,
+): Promise<SandboxSeed> {
   const firestore = snapshotDocuments(sandbox);
   const database = (await databaseGet(databaseRef(getAdminDatabase(sandbox)))).val() as
     | Record<string, unknown>
@@ -44,6 +47,7 @@ export async function buildFixture(sandbox: LocalSandbox): Promise<SandboxSeed> 
     if (user.email !== undefined) record.email = user.email;
     if (user.customClaims !== undefined) record.customClaims = user.customClaims;
     if (user.tenantId !== undefined) record.tenantId = user.tenantId;
+    if (!excludePasswords && user.password !== undefined) record.password = user.password;
     return record;
   });
 

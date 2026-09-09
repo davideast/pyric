@@ -568,7 +568,11 @@ const ENVIRONMENT_ROUTES: DiscriminatorRoute[] = [
     action: 'export_fixture',
     selects: on('action', 'export_fixture'),
     operation: 'export_sandbox_fixture',
-    translate: (args) => ({ path: args.fixturePath }),
+    translate: (args) => {
+      const call: Args = { path: args.fixturePath };
+      assign(call, 'excludePasswords', args.excludePasswords);
+      return call;
+    },
   },
   {
     tool: 'control_sandbox_environment',

@@ -31,7 +31,7 @@ describe('buildFixture / writeFixtureFile / readFixtureFile / applyFixture', () 
     expect(fixture.firestore?.['rooms/lobby']).toEqual({ open: true });
     const alice = fixture.users?.find((user) => user.uid === 'alice');
     expect(alice?.tenantId).toBe('tenant-a');
-    expect(alice?.password).toBeUndefined();
+    expect(alice?.password).toBe('super-secret');
 
     const projectDir = tmpProjectDir();
     const path = join(projectDir, 'fixtures', 'scenario.json');
@@ -47,15 +47,18 @@ describe('buildFixture / writeFixtureFile / readFixtureFile / applyFixture', () 
     expect(restoredAlice?.tenantId).toBe('tenant-a');
   });
 
-  it('never carries a password out of the sandbox', async () => {
+  it('carries the seeded password by default, and leaves it out when asked', async () => {
     const sandbox = initializeSandbox();
     authSandbox.seedUsers(getAuth(sandbox), [
       { uid: 'bob', email: 'bob@example.com', password: 'plain-password' },
     ]);
 
-    const fixture = await buildFixture(sandbox);
-    expect(fixture.users?.find((user) => user.uid === 'bob')?.password).toBeUndefined();
-    expect(JSON.stringify(fixture)).not.toContain('plain-password');
+    const carried = await buildFixture(sandbox);
+    expect(carried.users?.find((user) => user.uid === 'bob')?.password).toBe('plain-password');
+
+    const withheld = await buildFixture(sandbox, true);
+    expect(withheld.users?.find((user) => user.uid === 'bob')?.password).toBeUndefined();
+    expect(JSON.stringify(withheld)).not.toContain('plain-password');
   });
 
   it('reads back null for a fixture that does not exist', () => {

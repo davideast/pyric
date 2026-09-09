@@ -29,9 +29,9 @@ export interface SeedUserEntry {
   customClaims?: Record<string, unknown>;
   tenantId?: string;
   /**
-   * The real password to seed, rather than the synthetic `seed-<uid>` one. A
-   * fixture the surface writes never carries one, so this is set only by a
-   * seed a person or the harness authored.
+   * The real password to seed, rather than the synthetic `seed-<uid>` one.
+   * `exportFixture` carries it unless the call passed `excludePasswords`, so a
+   * fixture round trip preserves sign-in by default.
    */
   password?: string;
 }

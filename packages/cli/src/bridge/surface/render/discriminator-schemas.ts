@@ -241,6 +241,12 @@ export const controlSandboxEnvironmentSchema = z.object({
     .string()
     .optional()
     .describe("Fixture file path, relative to the project (when action is 'export_fixture' or 'seed_fixture')."),
+  excludePasswords: z
+    .boolean()
+    .optional()
+    .describe(
+      "Leave the seeded passwords out of the fixture (when action is 'export_fixture'). Default false.",
+    ),
   since: z.string().optional().describe("Cursor from a prior 'events' call."),
   limit: z.number().optional().describe("Maximum events to return (when action is 'events')."),
   kind: z
