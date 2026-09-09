@@ -447,4 +447,35 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     expect(emailRes?.ok).toBe(true);
     expect(emailRes?.value?.email).toBe('flutter-new@example.com');
   });
+
+  it('9. auth.tenantId propagates through auth.signInWithCredential to user.tenantId', async () => {
+    const { ctx } = await createTestHarness();
+    const sentMessages: OutboundMessage[] = [];
+    const testPort: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        sentMessages.push(msg);
+      },
+    };
+
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'oauth-tenant-op',
+      method: 'auth.signInWithCredential',
+      credential: {
+        providerId: 'google.com',
+        idToken: 'token-oauth-999',
+        email: 'oauth-tenant@example.com',
+      },
+      tenantId: 'tenant-oauth-1',
+    } as unknown as InboundMessage);
+
+    const oauthRes = sentMessages.find((m) => m.t === 'res' && m.id === 'oauth-tenant-op') as {
+      t: 'res';
+      id: string;
+      ok: boolean;
+      value?: { user: { tenantId?: string | null } };
+    };
+    expect(oauthRes?.ok).toBe(true);
+    expect(oauthRes?.value?.user?.tenantId).toBe('tenant-oauth-1');
+  });
 });

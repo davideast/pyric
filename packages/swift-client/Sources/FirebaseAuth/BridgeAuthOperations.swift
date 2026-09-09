@@ -42,10 +42,14 @@ extension PyricBridgeClient {
         )
     }
 
-    public func authSignInWithCredential(params: [String: AnySendable]) async throws -> AnySendable {
-        try await op(
+    public func authSignInWithCredential(params: [String: AnySendable], tenantId: String? = nil) async throws -> AnySendable {
+        var merged = params
+        if let tenantId {
+            merged["tenantId"] = .string(tenantId)
+        }
+        return try await op(
             method: "auth.signInWithCredential",
-            params: params
+            params: merged
         )
     }
 

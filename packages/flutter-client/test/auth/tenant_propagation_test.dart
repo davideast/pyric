@@ -187,5 +187,38 @@ void main() {
       expect(currentUser?.tenantId, equals('tenant-gamma'));
       expect(currentUser?.customClaims?['role'], equals('manager'));
     });
+
+    test('auth.tenantId propagates through signInWithCredential to wire payload and user.tenantId', () async {
+      await auth.setTenantId('tenant-oauth');
+      final credFuture = auth.signInWithCredential(
+        GoogleAuthProvider.credential(
+          idToken: 'id-token-123',
+          accessToken: 'access-token-456',
+        ),
+      );
+      await pumpEventQueue();
+
+      final oauthOp = harness.sentMessages.lastWhere(
+        (m) =>
+            m['type'] == 'worker-op' &&
+            m['op']?['method'] == 'auth.signInWithCredential',
+      );
+      expect(oauthOp['op']['tenantId'], equals('tenant-oauth'));
+
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': oauthOp['id'],
+        'ok': true,
+        'value': {
+          'user': {
+            'uid': 'uid-oauth-1',
+            'email': 'oauth@example.com',
+          },
+        },
+      });
+
+      final res = await credFuture;
+      expect(res.user?.tenantId, equals('tenant-oauth'));
+    });
   });
 }

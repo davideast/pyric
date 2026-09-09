@@ -448,6 +448,43 @@ struct AuthTests {
         let res = try await signInTask.value
         return res.user
     }
+
+    @Test("signIn(with: credential) propagates auth.tenantId to wire payload")
+    func testSignInWithCredentialPropagatesTenantId() async throws {
+        let (auth, channel) = try await createMockAuth()
+        auth.tenantId = "tenant-swift-oauth"
+
+        let cred = GoogleAuthProvider.credential(withIDToken: "id-tok-123", accessToken: "acc-tok-456")
+        let signInTask = Task {
+            try await auth.signIn(with: cred)
+        }
+
+        let frame = try await channel.awaitNextSentMessage()
+        guard let op = frame["op"]?.dictionaryValue else {
+            Issue.record("Missing op payload")
+            return
+        }
+        #expect(op["method"]?.stringValue == "auth.signInWithCredential")
+        #expect(op["tenantId"]?.stringValue == "tenant-swift-oauth")
+
+        let opId = frame["id"]?.stringValue ?? "rop-1"
+        try channel.simulateServerMessage([
+            "type": "worker-res",
+            "id": opId,
+            "ok": true,
+            "res": [
+                "user": [
+                    "uid": "swift-oauth-uid",
+                    "email": "oauth@swift.com",
+                    "tenantId": "tenant-swift-oauth"
+                ],
+                "operationType": "signIn"
+            ]
+        ])
+
+        let res = try await signInTask.value
+        #expect(res.user.tenantId == "tenant-swift-oauth")
+    }
 }
 
 private final class EventRecorder<T: Sendable>: @unchecked Sendable {

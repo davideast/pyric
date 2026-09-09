@@ -108,8 +108,11 @@ export function portSession(ctx: HostCtx, port: PortLike): MintedSession | null 
  * idToken stream fires alongside authState, matching the real observers.
  */
 function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | null): void {
-  const tenant = portTenant(ctx, port);
   if (session) {
+    const tenant = session.user.tenantId ?? portTenant(ctx, port);
+    if (tenant) {
+      portTenantsFor(ctx).set(port, tenant);
+    }
     session.state.tenant = tenant ?? undefined;
     (session.user as { tenantId?: string | null }).tenantId = tenant ?? null;
   }
@@ -401,8 +404,12 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInWithCredential': {
       try {
-        const uid = resolveOAuthCredentialUser(auth, msg.credential);
-        const session = authSandboxOps.mintSession(auth, { kind: 'uid', uid });
+        const uid = resolveOAuthCredentialUser(auth, msg.credential, msg.tenantId);
+        const session = authSandboxOps.mintSession(auth, {
+          kind: 'uid',
+          uid,
+          tenantId: msg.tenantId ?? null,
+        });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
         ok(port, msg.id, credReply(session, msg.credential.providerId));

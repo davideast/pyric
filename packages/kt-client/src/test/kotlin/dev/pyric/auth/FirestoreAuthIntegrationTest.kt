@@ -4,6 +4,7 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.AggregateField
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.EventListener
@@ -527,6 +528,13 @@ class FirestoreAuthIntegrationTest {
         val credOp = sentOps.find { it["method"] == "auth.signInWithCredential" }
         assertNotNull(credOp)
         assertEquals("tenant-beta", credOp?.get("tenantId"))
+        assertEquals("tenant-beta", auth.currentUser?.tenantId)
+
+        sentOps.clear()
+        Tasks.await(auth.signInWithCredential(GoogleAuthProvider.getCredential("typed-id-token", "typed-access-token")))
+        val typedCredOp = sentOps.find { it["method"] == "auth.signInWithCredential" }
+        assertNotNull(typedCredOp)
+        assertEquals("tenant-beta", typedCredOp?.get("tenantId"))
         assertEquals("tenant-beta", auth.currentUser?.tenantId)
     }
 }

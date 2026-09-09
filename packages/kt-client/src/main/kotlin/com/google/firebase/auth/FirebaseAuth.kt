@@ -166,7 +166,7 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch {
             try {
-                val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap())
+                val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap(), tenantId)
                 val authResult = handleAuthSuccess(res)
                 tcs.setResult(authResult)
             } catch (e: Exception) {

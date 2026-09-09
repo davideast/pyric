@@ -151,6 +151,7 @@ export type OpMessage = (
         photoURL?: string | null;
         uid?: string | null;
       };
+      tenantId?: string | null;
     }
   | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity; tenantId?: string | null }

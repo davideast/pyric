@@ -396,8 +396,14 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
           'accessToken': credMap['accessToken'],
         if (credMap['rawNonce'] != null) 'rawNonce': credMap['rawNonce'],
       };
-      final res = await _bridgeClient.authSignInWithCredential(payload);
+      final res = await _bridgeClient.authSignInWithCredential(
+        payload,
+        tenantId: _tenantId,
+      );
       final userMap = Map<String, dynamic>.from(res['user'] as Map);
+      if (_tenantId != null && userMap['tenantId'] == null) {
+        userMap['tenantId'] = _tenantId;
+      }
       if (res['claims'] != null && userMap['claims'] == null) {
         userMap['claims'] = res['claims'];
       }

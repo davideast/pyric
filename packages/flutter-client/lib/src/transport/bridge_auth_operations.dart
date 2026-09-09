@@ -36,8 +36,14 @@ extension PyricBridgeAuthOps on PyricBridgeClient {
   }
 
   /// Signs in a user with an OAuth credential payload.
-  Future<dynamic> authSignInWithCredential(Map<String, dynamic> credential) {
-    return op('auth.signInWithCredential', credential);
+  Future<dynamic> authSignInWithCredential(
+    Map<String, dynamic> credential, {
+    String? tenantId,
+  }) {
+    return op('auth.signInWithCredential', {
+      ...credential,
+      if (tenantId != null) 'tenantId': tenantId,
+    });
   }
 
   /// Signs out the current user session.

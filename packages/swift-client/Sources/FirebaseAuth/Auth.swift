@@ -243,7 +243,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public func signIn(with credential: AuthCredential) async throws -> AuthDataResult {
         do {
-            let res = try await bridgeClient.authSignInWithCredential(params: credential.toWireParams())
+            let res = try await bridgeClient.authSignInWithCredential(params: credential.toWireParams(), tenantId: self.tenantId)
             return try handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
