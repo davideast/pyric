@@ -11,7 +11,7 @@ import {
 } from 'pyric/database';
 import { checkPath, RENAMES } from '../../arguments/database.js';
 import { databaseFor } from '../../service-handles.js';
-import { quoted } from '../../method-validation.js';
+import { quoted } from '../../closest-name.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {

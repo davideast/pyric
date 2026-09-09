@@ -8,7 +8,7 @@
 import { z } from 'zod';
 import { requestMethodOf, requestMethodsOf, RENAMES } from '../../arguments/rules.js';
 import { explainFirestoreDenial } from '../../rules-engines/firestore.js';
-import { quoted } from '../../method-validation.js';
+import { quoted } from '../../closest-name.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { RulesRequest } from '../../rules-engines/types.js';
 

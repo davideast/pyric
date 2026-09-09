@@ -9,7 +9,7 @@
  */
 import { z } from 'zod';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
-import { closest, quoted } from '../method-validation.js';
+import { closest, quoted } from '../closest-name.js';
 
 /** The fields a `seed` users entry accepts, after the Admin SDK rename. */
 const USER_FIELDS = ['uid', 'email', 'customClaims', 'tenantId'] as const;

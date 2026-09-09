@@ -14,7 +14,7 @@
 import { z } from 'zod';
 import { RULES_SERVICES, rulesEngineFor } from '../rules-engines/registry.js';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
-import { quoted } from '../method-validation.js';
+import { quoted } from '../closest-name.js';
 
 /** The services that carry Security Rules, from the engine records. */
 export const SERVICES: readonly string[] = RULES_SERVICES;

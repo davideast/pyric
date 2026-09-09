@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
-import { quoted } from '../method-validation.js';
+import { quoted } from '../closest-name.js';
 
 /** Characters a Realtime Database key cannot hold. */
 const FORBIDDEN = ['.', '#', '$', '[', ']'];

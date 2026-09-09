@@ -8,7 +8,7 @@
  */
 import { z } from 'zod';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
-import { quoted } from '../method-validation.js';
+import { quoted } from '../closest-name.js';
 
 /** The shortest password Firebase Authentication accepts. */
 const MINIMUM_PASSWORD = 6;

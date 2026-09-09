@@ -8,7 +8,7 @@ import {
   RENAMES,
 } from '../../arguments/storage.js';
 import { decodeBase64, storageFor } from '../../service-handles.js';
-import { quoted } from '../../method-validation.js';
+import { quoted } from '../../closest-name.js';
 import type { Args, MethodRecord } from '../../method-types.js';
 
 export default {
