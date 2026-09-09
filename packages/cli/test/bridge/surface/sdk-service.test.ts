@@ -20,6 +20,7 @@ import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { createLocalBridge } from '../../../src/bridge/server/local-bridge.js';
 import { registerRenderedSurface } from '../../../src/bridge/server/surface-server.js';
 import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface/index.js';
+import { PRODUCTION_ENABLING_SENTENCE } from '../../../src/bridge/surface/method-effects.js';
 import { TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import { operationIds } from '../../../src/bridge/surface/method-types.js';
 import type { BridgeToolEvent } from '../../../src/bridge/server/bridge.js';
@@ -336,6 +337,40 @@ describe('describe', () => {
     expect(result.summary).toBe(
       "sandbox.describe: args.method is missing. describe reads one method schema, so it names the method to read. Pass args: { method: 'apply' }.",
     );
+  });
+});
+
+describe('describe reports whether a method would run', () => {
+  /** One `describe` answer for `testRulesHosted`, on a server with or without the opt-in. */
+  async function describeHosted(allowProduction: boolean): Promise<Record<string, unknown>> {
+    const rendered = renderSurface('sdk-service', { allowProduction });
+    const tool = rendered.tools.find((candidate) => candidate.name === 'assurance');
+    if (!tool) throw new Error('the sdk-service surface renders no assurance tool');
+    const result = await tool.execute(
+      { method: 'describe', args: { method: 'testRulesHosted' } },
+      createSurfaceContext(initializeSandbox()),
+    );
+    return result.data as Record<string, unknown>;
+  }
+
+  it('reports a production method as disabled, and how to enable it, without the flag', async () => {
+    const data = await describeHosted(false);
+    expect(data.effect).toBe('production');
+    expect(data.status).toBe('disabled');
+    expect(data.enabling).toBe(PRODUCTION_ENABLING_SENTENCE);
+  });
+
+  it('reports the same method as enabled once the server opted in', async () => {
+    const data = await describeHosted(true);
+    expect(data.status).toBe('enabled');
+    expect(data.enabling).toBeUndefined();
+  });
+
+  it('reports every other method as enabled either way', async () => {
+    const result = await call('firestore', 'describe', { method: 'setDoc' });
+    const data = result.data as Record<string, unknown>;
+    expect(data.status).toBe('enabled');
+    expect(data.enabling).toBeUndefined();
   });
 });
 

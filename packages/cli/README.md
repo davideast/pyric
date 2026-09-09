@@ -24,7 +24,7 @@ Console to ship rules, indexes, hosting, and functions to a real project.
 | `pyric snapshot` | Promote saved sandbox state to a committable fixture. Load it with `pyric sandbox --seed <fixture>`. Supports `--out`, `--port`, `--force`, and `--json`. |
 | `pyric verify` | Replay a captured sandbox session against candidate rules (`--engine sandbox\|rules-test-api\|both`). Hosted Rules Test API needs SA/ADC via `FIREBASE_SA_BASE64` / `GOOGLE_APPLICATION_CREDENTIALS` |
 | `pyric can-i-use <feature>` | Query the canonical conformance model for availability, behaviour fidelity, assurance eligibility, caveats, and evidence. Only an exact canonical feature name exits 0; ambiguous names, spelling suggestions, and missing features exit 1. Accepts `--json`. |
-| `pyric mcp` | Start the stdio MCP server. Headless (the default) it hosts an in-process sandbox and serves seven service tools, one per Firebase capability. `--allow-production` enables the `production` methods, which are listed but refused without it. |
+| `pyric mcp` | Start the stdio MCP server. Headless (the default) it hosts an in-process sandbox and serves seven service tools, one per Firebase capability. `--allow-production` enables the `production` methods, which are listed but refused without it; `describe` reports them with `status: 'disabled'` and the sentence that enables it. |
 | `pyric firestore rules validate <path>` | Validate Firestore rules structure |
 | `pyric firestore rules resolve <path>` | Resolve `2+modules` imports into a Firebase rules artifact |
 | `pyric firestore indexes generate <path...>` | Derive composite-index definitions from application source |

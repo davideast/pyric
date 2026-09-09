@@ -53,6 +53,23 @@ export const PRODUCTION_DISABLED_HEADING = `Production methods, disabled: start 
 /** The heading a description lists production methods under once they are enabled. */
 export const PRODUCTION_ENABLED_HEADING = `Production methods, enabled, which require confirm: true`;
 
+/** The sentence `describe` carries for a method this server would refuse to run. */
+export const PRODUCTION_ENABLING_SENTENCE = `Start the process that owns this sandbox with ${ALLOW_PRODUCTION_FLAG}, or set ${ALLOW_PRODUCTION_ENV_KEY} to 1 or true, and call again.`;
+
+/** Whether a call to one method would run on this server, as `describe` reports it. */
+export type MethodStatus = 'enabled' | 'disabled';
+
+/**
+ * The status `describe` reports for one method. Only a `production` method on
+ * a server that did not opt in is disabled; every other method runs, so the
+ * listing and the answer say the same thing about it.
+ */
+export function methodStatus(method: Method, allowProduction: boolean): MethodStatus {
+  if (method.effect !== 'production') return 'enabled';
+  if (allowProduction) return 'enabled';
+  return 'disabled';
+}
+
 /**
  * Refuse a `destructive` call that did not pass `confirm: true`. Returns null
  * for every other effect, and for a destructive call that did confirm.

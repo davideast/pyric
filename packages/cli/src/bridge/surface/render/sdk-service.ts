@@ -10,9 +10,10 @@
  * `customClaims`; not only that a path is a string, but that a document path
  * has an even number of segments.
  *
- * Every tool also answers `describe`, which returns one method's full schema and
- * an example call. That is the escape hatch the thin top-level schema costs: an
- * agent that cannot read the arguments off the tool list can ask for them.
+ * Every tool also answers `describe`, which returns one method's full schema, an
+ * example call, and whether a call to it would run on this server. That is the
+ * escape hatch the thin top-level schema costs: an agent that cannot read the
+ * arguments off the tool list can ask for them.
  */
 import { TOOL_DESCRIPTIONS } from '../descriptions.generated.js';
 import { toJsonSchema } from '../json-schema.js';
@@ -24,6 +25,7 @@ import {
   validateDescribe,
   validateMethodName,
 } from '../method-validation.js';
+import { methodStatus, PRODUCTION_ENABLING_SENTENCE } from '../method-effects.js';
 import { renderToolDescription } from '../tool-description.js';
 import { operationIds, selectOperation } from '../method-types.js';
 import type { Args, Method, Tool } from '../method-types.js';
@@ -90,22 +92,30 @@ function argsOf(raw: Args): Args {
   return supplied as Args;
 }
 
-/** One method's schema and example, as `describe` returns them. */
-function describeMethod(method: Method): OperationResult {
-  return {
-    ok: true,
-    summary: `${method.key}: ${method.signature}`,
-    data: {
-      tool: method.tool,
-      method: method.method,
-      signature: method.signature,
-      summary: method.description,
-      effect: method.effect,
-      operations: [...operationIds(method)],
-      inputSchema: toJsonSchema(method.args),
-      example: { method: method.method, args: method.example },
-    },
+/**
+ * One method's schema and example, as `describe` returns them, plus whether a
+ * call to it would run on this server.
+ *
+ * A `production` method is listed on a server that did not opt in, so
+ * `describe` has to say that calling it would be refused and how to enable it.
+ * Every other method, and a production method on a server that did opt in, is
+ * reported as enabled.
+ */
+function describeMethod(method: Method, allowProduction: boolean): OperationResult {
+  const status = methodStatus(method, allowProduction);
+  const data: Record<string, unknown> = {
+    tool: method.tool,
+    method: method.method,
+    signature: method.signature,
+    summary: method.description,
+    effect: method.effect,
+    status,
+    operations: [...operationIds(method)],
+    inputSchema: toJsonSchema(method.args),
+    example: { method: method.method, args: method.example },
   };
+  if (status === 'disabled') data.enabling = PRODUCTION_ENABLING_SENTENCE;
+  return { ok: true, summary: `${method.key}: ${method.signature}`, data };
 }
 
 /** One method, past the point where the validator has already accepted its name. */
@@ -128,7 +138,7 @@ async function execute(
   if (methodName === DESCRIBE_METHOD) {
     const rejection = validateDescribe(tool, args);
     if (rejection !== null) return rejection;
-    return describeMethod(methodOrThrow(tool, String(args.method)));
+    return describeMethod(methodOrThrow(tool, String(args.method)), allowProduction);
   }
   return callMethod(methodOrThrow(tool, methodName), args, ctx, allowProduction);
 }

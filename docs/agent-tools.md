@@ -27,11 +27,12 @@ the same underlying tool-family factories the transport surface composes.
 
 Seven tools: `firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`,
 `assurance`. Every one of them answers `describe` with `args: { method }`,
-which returns that method's full argument schema, an example call, and its
-effect class (`read`, `write`, `destructive`, or `production`). A
-`destructive` call is refused unless `args.confirm === true`.
+which returns that method's full argument schema, an example call, its
+effect class (`read`, `write`, `destructive`, or `production`), and its
+`status` on this server. A `destructive` call is refused unless
+`args.confirm === true`.
 
-A `production` method reaches Google infrastructure with real credentials. It is listed either way, under the heading `Production methods, disabled: start the server with --allow-production`, and `describe` answers for it with its effect class, so an agent reads what the surface can do and why this part of it will not run. What the opt-in gates is the call. Without `--allow-production` (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`, with the flag winning) on the process that owns the sandbox, every call is refused with that same sentence, and the refusal carries the code `production_disabled` rather than `invalid_arguments`, because the arguments were fine. With the flag, the call still requires `confirm: true`. `pyric assurance testRulesHosted` refuses the same way and names the same flag. Credentials are looked for last, from `FIREBASE_SA_BASE64`, `GOOGLE_APPLICATION_CREDENTIALS`, or Application Default Credentials, and a run that finds none is refused naming all three, so a network client is never built without the flag, the confirmation, and credentials all present.
+A `production` method reaches Google infrastructure with real credentials. It is listed either way, under the heading `Production methods, disabled: start the server with --allow-production`, and `describe` reports it with `status: 'disabled'` and the sentence that enables it, so an agent reads what the surface can do and why this part of it will not run. What the opt-in gates is the call. Without `--allow-production` (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`, with the flag winning) on the process that owns the sandbox, every call is refused with that same sentence, and the refusal carries the code `production_disabled` rather than `invalid_arguments`, because the arguments were fine. With the flag, the call still requires `confirm: true`. `pyric assurance testRulesHosted` refuses the same way and names the same flag. Credentials are looked for last, from `FIREBASE_SA_BASE64`, `GOOGLE_APPLICATION_CREDENTIALS`, or Application Default Credentials, and a run that finds none is refused naming all three, so a network client is never built without the flag, the confirmation, and credentials all present.
 
 | Tool | Methods |
 |---|---|
