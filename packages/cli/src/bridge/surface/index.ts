@@ -11,6 +11,7 @@ import { OPERATIONS } from './operations/index.js';
 import { render as renderDefault } from './render/default.js';
 import { render as renderDiscriminator } from './render/discriminator.js';
 import { render as renderNounPrefixed } from './render/noun-prefixed.js';
+import { render as renderSdkService } from './render/sdk-service.js';
 import { render as renderVerbPrefixed } from './render/verb-prefixed.js';
 import { render as renderVerbSuffixed } from './render/verb-suffixed.js';
 import type { Operation, RenderedSurface } from './types.js';
@@ -22,6 +23,7 @@ const RENDERERS: Readonly<Record<string, Renderer>> = {
   'verb-prefixed': renderVerbPrefixed,
   'noun-prefixed': renderNounPrefixed,
   'verb-suffixed': renderVerbSuffixed,
+  'sdk-service': renderSdkService,
 };
 
 /** The variant ids a server accepts. */
