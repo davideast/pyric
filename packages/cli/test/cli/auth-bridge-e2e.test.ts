@@ -2,10 +2,15 @@
  * The auth tool families against a real bridge over real MCP.
  *
  * The unit tests inject the transport; this one does not. It starts the
- * standalone bridge, registers a client in its registry, and runs the CLI
- * commands with their default `callTool`, so the MCP handshake, the
- * registration of all twelve `auth_*` tools, and the CLI's result parsing are
- * all exercised.
+ * standalone bridge, registers a client in its registry, and runs `pyric auth
+ * reset` / `pyric auth sessions` with their default `callTool` (the two
+ * identity commands that still need a running bridge, because "connected
+ * clients" is a concept only a bridge has), and calls the bridge's
+ * `auth_impersonate` / `auth_whoami` tools directly over MCP (the CLI reaches
+ * different, local-state commands for those names now:
+ * `pyric auth impersonate` / `pyric auth whoami`, covered under
+ * `test/bridge/surface/`), so the MCP handshake, the registration of all
+ * twelve `auth_*` tools, and the bridge's own result shape are all exercised.
  *
  * It also pins the fact the tool descriptions state: an identity set here
  * changes a client's registry entry, or the bridge's record of the caller,
@@ -22,10 +27,8 @@ import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../src/bridge/client
 import { isBridgeMessage } from '../../src/bridge/protocol.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import {
-  runAuthImpersonate,
   runAuthReset,
   runAuthSessions,
-  runAuthWhoami,
   type AuthIdentityDeps,
 } from '../../src/cli/auth-identity.js';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
@@ -92,29 +95,31 @@ describe('pyric auth identity commands over a live bridge', () => {
   });
 
   it('impersonates a uid with a tenant and claims on a named target', async () => {
-    const out: string[] = [];
-    const err: string[] = [];
-
-    expect(
-      await runAuthImpersonate(
-        parsed(
-          'auth', 'impersonate', 'alice',
-          '--tenant', 'tenant-acme',
-          '--claims', '{"role":"editor"}',
-          '--target', 'sess-live',
-        ),
-        deps(out, err),
-      ),
-    ).toBe(0);
-    expect(err.join('')).toBe('');
-    expect(server.bridge.consumers.get('sess-live')?.activeLens).toEqual({
-      mode: 'as',
-      uid: 'alice',
-      tenant: 'tenant-acme',
-      token: { role: 'editor' },
-    });
-    expect(clientFrames.at(-1)).toMatchObject({ type: 'worker-event', event: 'remote-lens' });
-    expect(out.join('')).toContain('applies to the named client only');
+    const { client, close } = await mcpClient();
+    try {
+      const result = payload(
+        await client.callTool({
+          name: 'auth_impersonate',
+          arguments: {
+            uid: 'alice',
+            tenant: 'tenant-acme',
+            claims: { role: 'editor' },
+            target: 'sess-live',
+          },
+        }),
+      );
+      expect(result.ok).toBe(true);
+      expect(server.bridge.consumers.get('sess-live')?.activeLens).toEqual({
+        mode: 'as',
+        uid: 'alice',
+        tenant: 'tenant-acme',
+        token: { role: 'editor' },
+      });
+      expect(clientFrames.at(-1)).toMatchObject({ type: 'worker-event', event: 'remote-lens' });
+      expect(result.summary).toContain('applies to the named client only');
+    } finally {
+      await close();
+    }
   });
 
   it('resets a named target back to the application session', async () => {
@@ -128,37 +133,42 @@ describe('pyric auth identity commands over a live bridge', () => {
   });
 
   it('records the caller identity and reads it back through whoami', async () => {
-    const out: string[] = [];
-    const err: string[] = [];
+    const { client, close } = await mcpClient();
+    try {
+      const impersonated = payload(
+        await client.callTool({ name: 'auth_impersonate', arguments: { admin: true } }),
+      );
+      expect(impersonated.ok).toBe(true);
+      expect(server.bridge.callerIdentity.get()).toEqual({ mode: 'admin' });
+      // The client the previous test reset must be untouched by a self call.
+      expect(server.bridge.consumers.get('sess-live')?.activeLens).toEqual({ mode: 'app-session' });
 
-    expect(await runAuthImpersonate(parsed('auth', 'impersonate', '--admin'), deps(out, err))).toBe(0);
-    expect(server.bridge.callerIdentity.get()).toEqual({ mode: 'admin' });
-    // The client the previous test reset must be untouched by a self call.
-    expect(server.bridge.consumers.get('sess-live')?.activeLens).toEqual({ mode: 'app-session' });
+      const whoami = payload(await client.callTool({ name: 'auth_whoami', arguments: {} }));
+      expect(whoami.summary).toContain('admin');
+      expect(whoami.summary).toContain('applied to the tool calls you forward through it');
 
-    const whoOut: string[] = [];
-    expect(await runAuthWhoami(parsed('auth', 'whoami'), deps(whoOut, err))).toBe(0);
-    expect(whoOut.join('')).toContain('admin');
-    expect(whoOut.join('')).toContain(
-      'applied to the tool calls you forward through it',
-    );
-
-    expect(await runAuthReset(parsed('auth', 'reset'), deps([], err))).toBe(0);
-    expect(server.bridge.callerIdentity.get()).toEqual({ mode: 'app-session' });
-    expect(err.join('')).toBe('');
+      const reset = payload(await client.callTool({ name: 'auth_reset', arguments: {} }));
+      expect(reset.ok).toBe(true);
+      expect(server.bridge.callerIdentity.get()).toEqual({ mode: 'app-session' });
+    } finally {
+      await close();
+    }
   });
 
   it('reports an unknown target with exit 2', async () => {
-    const out: string[] = [];
-    const err: string[] = [];
-
-    expect(
-      await runAuthImpersonate(
-        parsed('auth', 'impersonate', '--anonymous', '--target', 'sess-missing'),
-        deps(out, err),
-      ),
-    ).toBe(2);
-    expect(err.join('')).toContain('sess-missing');
+    const { client, close } = await mcpClient();
+    try {
+      const result = payload(
+        await client.callTool({
+          name: 'auth_impersonate',
+          arguments: { anonymous: true, target: 'sess-missing' },
+        }),
+      );
+      expect(result.ok).toBe(false);
+      expect(result.summary).toContain('sess-missing');
+    } finally {
+      await close();
+    }
   });
 });
 

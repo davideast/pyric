@@ -30,9 +30,9 @@ describe('service command dispatcher', () => {
 
     expect(() =>
       createServiceCommandRegistry([
-        { path: ['firestore', 'rules', 'lint'], run },
-        { path: ['firestore', 'rules', 'lint'], run },
+        { path: ['firestore', 'rules', 'validate'], run },
+        { path: ['firestore', 'rules', 'validate'], run },
       ]),
-    ).toThrow("duplicate service command 'firestore rules lint'");
+    ).toThrow("duplicate service command 'firestore rules validate'");
   });
 });

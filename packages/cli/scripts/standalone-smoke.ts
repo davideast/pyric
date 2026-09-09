@@ -43,14 +43,15 @@ const help = run(['--help']);
 check('--help', help.code === 0 && help.out.includes('USAGE'));
 
 const work = mkdtempSync(join(tmpdir(), 'pyric-smoke-'));
-const rulesPath = join(work, 'firestore.rules');
-writeFileSync(
-  rulesPath,
+const rulesSource =
   'rules_version = "2";\nservice cloud.firestore {\n  match /databases/{db}/documents {\n' +
-    '    match /{doc=**} { allow read, write: if false; }\n  }\n}\n',
-);
-const lint = run(['firestore', 'rules', 'lint', rulesPath]);
-check('firestore rules lint', lint.code === 0 && lint.out.includes('"metrics"'));
+  '    match /{doc=**} { allow read, write: if false; }\n  }\n}\n';
+const rulesPath = join(work, 'firestore.rules');
+writeFileSync(rulesPath, rulesSource);
+// Linting a ruleset is `rules lint` on the service surface now (one method
+// record shared with `pyric mcp`), not a namespaced `firestore rules` command.
+const lint = run(['rules', 'lint', '--service', 'firestore', '--rules', rulesSource, '--json']);
+check('rules lint --service firestore', lint.code === 0 && lint.out.includes('"metrics"'));
 const validate = run(['firestore', 'rules', 'validate', rulesPath]);
 check('firestore rules validate', validate.code === 0);
 
