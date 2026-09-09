@@ -49,7 +49,8 @@ it to denials or writes; a cursor from a log a restore or a reset replaced is
 refused rather than read as the start of the new log. `exportFixture` writes the live state as a fixture and
 `seedFromFixture` loads one back. The fixture carries the sandbox's seeded
 passwords, so a user it seeds back can sign in; `excludePasswords: true` leaves
-them out.
+them out. The file is the seed shape `sandbox.seed` accepts, not the state file
+`pyric snapshot` writes.
 
 The six branch methods work a change out on a copy before it reaches the live
 sandbox. `fork` copies live into a named branch under

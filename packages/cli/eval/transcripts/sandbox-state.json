@@ -1,7 +1,7 @@
 {
   "checkpoint-before-cleanup-then-restore": [
     { "tool": "sandbox", "args": { "method": "checkpoint", "args": { "name": "before-cleanup" } } },
-    { "tool": "firestore", "args": { "method": "deleteDoc", "args": { "path": "demo/legacy" } } },
+    { "tool": "firestore", "args": { "method": "deleteDoc", "args": { "path": "demo/archived-note" } } },
     {
       "tool": "sandbox",
       "args": { "method": "restore", "args": { "name": "before-cleanup", "confirm": true } }
