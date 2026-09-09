@@ -23,8 +23,26 @@ import type {
 } from '../full-state.js';
 import type { Divergence } from '../replay/index.js';
 
-/** One divergence, tagged with the service whose state it concerns. */
-export type BranchDivergence = Divergence & { service: SandboxService };
+/**
+ * One divergence, tagged with the service whose state it concerns.
+ *
+ * Always a `real-divergence`. The replay engine's other kinds classify drift a
+ * captured write licenses, and a branch carries no such metadata, so state
+ * against state has only the one honest classification.
+ */
+export type BranchDivergence = Extract<Divergence, { kind: 'real-divergence' }> & {
+  service: SandboxService;
+};
+
+/**
+ * The path auth's provider configuration reports under, in place of a uid. The
+ * leading dot is the same convention {@link DATABASE_PRIORITY_FIELD} uses, and
+ * it keeps the entry outside the uid keyspace the rest of the auth records use.
+ */
+export const AUTH_PROVIDER_CONFIG_PATH = '.providers';
+
+/** The field a Realtime Database priority reports under, beside its path. */
+export const DATABASE_PRIORITY_FIELD = '.priority';
 
 /** One change to the Realtime Database tree, at the shallowest path that differs. */
 export interface TreeChange {
@@ -189,7 +207,13 @@ function diffDatabase(before: FullSandboxState, after: FullSandboxState): Branch
   for (const path of paths) {
     if (jsonEqual(beforePriorities[path], afterPriorities[path])) continue;
     out.push(
-      divergenceAt('database', path, '.priority', beforePriorities[path], afterPriorities[path]),
+      divergenceAt(
+        'database',
+        path,
+        DATABASE_PRIORITY_FIELD,
+        beforePriorities[path],
+        afterPriorities[path],
+      ),
     );
   }
   return out;
@@ -246,7 +270,7 @@ function diffAuth(before: AuthAccountsState, after: AuthAccountsState): BranchDi
     out.push(
       divergenceAt(
         'auth',
-        'providers',
+        AUTH_PROVIDER_CONFIG_PATH,
         providerId,
         before.providers[providerId],
         after.providers[providerId],

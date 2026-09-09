@@ -252,12 +252,20 @@ async function applyStorage(
 }
 
 /**
- * Install the Storage ruleset the state carries. A sandbox captured while
- * Storage ran without rules carries null, and the target is left as it is:
- * there is no source to install, and no way to un-install one.
+ * Whether a captured Storage ruleset is one a target can be given.
+ *
+ * A sandbox captured while Storage ran without rules carries null. There is no
+ * source to install and no way to un-install one, so a null source means no
+ * change. Both writers read this: the total replace below, and the delta a
+ * branch promotion writes.
  */
+export function installsStorageRules(source: string | null): source is string {
+  return source !== null;
+}
+
+/** Install the Storage ruleset the state carries, where it carries one. */
 async function applyStorageRules(sandbox: LocalSandbox, source: string | null): Promise<void> {
-  if (source === null) return;
+  if (!installsStorageRules(source)) return;
   await replaceStorageRules(sandbox, source);
 }
 
