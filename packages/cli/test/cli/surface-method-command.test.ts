@@ -94,6 +94,20 @@ describe('pyric <tool> <method>', () => {
     expect(rejected.stderr).toContain('even number of segments');
   });
 
+  it('takes an enum argument as the word it is, not as JSON', async () => {
+    const linted = await run('rules.lint', [
+      'rules',
+      'lint',
+      '--service',
+      'firestore',
+      '--rules',
+      "rules_version = '2';\nservice cloud.firestore {\n}",
+    ]);
+    // Exit 1 is a usage error, which is what a word read as JSON would be.
+    expect(linted.stderr).not.toContain('JSON');
+    expect(linted.code).not.toBe(1);
+  });
+
   it('refuses an object argument that is not JSON', async () => {
     const rejected = await run('firestore.setDoc', [
       'firestore',

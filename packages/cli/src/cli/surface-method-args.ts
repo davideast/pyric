@@ -27,12 +27,17 @@ function unwrap(schema: z.ZodTypeAny): z.ZodTypeAny {
   return schema;
 }
 
-/** How one argument is written on a command line. */
+/**
+ * How one argument is written on a command line. An enum is written as the word
+ * itself, the same way the MCP surface carries it, rather than as a quoted JSON
+ * string: `--service firestore`, not `--service '"firestore"'`.
+ */
 export function argumentKind(schema: z.ZodTypeAny): ArgumentKind {
   const typeName = (unwrap(schema)._def as { typeName: string }).typeName;
   if (typeName === 'ZodNumber') return 'number';
   if (typeName === 'ZodBoolean') return 'boolean';
   if (typeName === 'ZodString') return 'string';
+  if (typeName === 'ZodEnum') return 'string';
   return 'json';
 }
 
