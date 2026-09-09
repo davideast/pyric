@@ -22,7 +22,7 @@ export default {
   method: 'diff',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'diff(branch, against)',
+  signature: 'diff(branch, against?: live|<checkpoint name>)',
   description: 'Report what a branch and its reference disagree on.',
   args: z.object({
     branch: branchName,

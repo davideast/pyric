@@ -13,7 +13,7 @@ export default {
   method: 'fork',
   sdkOrigin: 'pyric',
   effect: 'write',
-  signature: 'fork(branch, candidateRules)',
+  signature: 'fork(branch, candidateRules?)',
   description: 'Copy live into a branch, optionally under candidate rules.',
   args: z.object({
     branch: branchName,

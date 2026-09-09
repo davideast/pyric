@@ -49,8 +49,8 @@ export default {
   method: 'apply',
   sdkOrigin: 'pyric',
   effect: 'write',
-  signature: 'apply(branch, events, sessionPath)',
-  description: 'Re-issue events onto a branch, from a list or a session file.',
+  signature: 'apply(branch, events? | sessionPath?)',
+  description: 'Re-issue events onto a branch. Name events or sessionPath, exactly one.',
   args: z.object({
     branch: branchName,
     events: z

@@ -142,3 +142,45 @@ describe('enums appear in the signature line', () => {
     }
   }
 });
+
+/** Whether a schema field is optional, past the wrapper chain. */
+function isOptional(schema: z.ZodTypeAny): boolean {
+  const def = schema._def as { typeName: string; innerType?: z.ZodTypeAny };
+  if (def.typeName === 'ZodOptional' || def.typeName === 'ZodDefault') return true;
+  if (def.typeName === 'ZodNullable' && def.innerType !== undefined) {
+    return isOptional(def.innerType);
+  }
+  return false;
+}
+
+/**
+ * Whether a signature marks one argument optional, or null when the signature
+ * does not name the argument at all.
+ */
+function markedOptional(signature: string, name: string): boolean | null {
+  const token = new RegExp(`(?:^|[^A-Za-z0-9_])${name}([^A-Za-z0-9_]|$)`);
+  const found = signature.match(token);
+  if (found === null) return null;
+  return found[1] === '?';
+}
+
+/** `confirm` on a destructive method is required by the effect enforcement. */
+function isEnforcedConfirm(method: Method, name: string): boolean {
+  return name === 'confirm' && method.effect === 'destructive';
+}
+
+describe('the signature line states which arguments are optional', () => {
+  for (const tool of TOOLS) {
+    for (const method of tool.methods) {
+      const shape = method.args.shape as Record<string, z.ZodTypeAny>;
+      for (const name of Object.keys(shape)) {
+        it(`${tool.name}.${method.method} marks '${name}' the way its schema declares it`, () => {
+          const marked = markedOptional(method.signature, name);
+          expect(marked).not.toBeNull();
+          const required = isEnforcedConfirm(method, name) || !isOptional(shape[name]!);
+          expect(marked).toBe(!required);
+        });
+      }
+    }
+  }
+});
