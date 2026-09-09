@@ -389,6 +389,7 @@ export async function updateCurrentUser(
 ): Promise<void> {
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.updateCurrentUser', uid: user?.uid ?? null,
+    tenantId: user?.tenantId ?? auth.tenantId ?? null,
   })) as SerializedUser | null;
   auth.currentUser = toClientUser(auth.port, raw);
 }

@@ -394,6 +394,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           const freshSession = authSandboxOps.mintSession(auth, {
             kind: 'uid',
             uid: msg.uid,
+            tenantId: msg.tenantId ?? portTenant(ctx, port) ?? null,
           });
           setPortSession(ctx, port, freshSession);
           ok(port, msg.id, serializeUser(freshSession.user));

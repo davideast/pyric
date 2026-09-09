@@ -19,6 +19,8 @@ import {
   type HostCtx,
   type PortLike,
 } from '../host.js';
+import { portSession } from '../host-auth.js';
+import { remintSessionWithClaims } from '../host/auth-session-seeder.js';
 import type {
   InboundMessage,
   OutboundMessage,
@@ -100,7 +102,7 @@ async function createTestHarness() {
   const clientRtdb: ClientRtdb = { __kind: 'client-rtdb', port: clientPort };
   const clientAuth = getClientAuth(clientDb);
 
-  return { ctx, sandbox, clientPort, clientDb, clientRtdb, clientAuth };
+  return { ctx, sandbox, clientPort, hostPort, clientDb, clientRtdb, clientAuth };
 }
 
 describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
@@ -477,5 +479,86 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     };
     expect(oauthRes?.ok).toBe(true);
     expect(oauthRes?.value?.user?.tenantId).toBe('tenant-oauth-1');
+  });
+
+  it('10. multi-tenant user retains tenantId across reload, updateEmail, updatePassword, and updateCurrentUser', async () => {
+    const { ctx, hostPort, clientAuth } = await createTestHarness();
+
+    clientAuth.tenantId = 'tenant-corp';
+    const cred = await createUserWithEmailAndPassword(clientAuth, 'tenant-user@example.com', 'initialPass123');
+    const user = cred.user;
+    expect(user.tenantId).toBe('tenant-corp');
+
+    // reload
+    authSandboxOps.updateUser(ctx.auth!, user.uid, { displayName: 'Tenant User Reloaded' });
+    await reload(user);
+    expect(user.displayName).toBe('Tenant User Reloaded');
+    expect(user.tenantId).toBe('tenant-corp');
+    const sessionAfterReload = portSession(ctx, hostPort);
+    expect(sessionAfterReload?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterReload?.state.tenant).toBe('tenant-corp');
+
+    // updateEmail
+    await updateEmail(user, 'tenant-user-updated@example.com');
+    expect(user.email).toBe('tenant-user-updated@example.com');
+    const sessionAfterEmail = portSession(ctx, hostPort);
+    expect(sessionAfterEmail?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterEmail?.state.tenant).toBe('tenant-corp');
+
+    // updatePassword
+    await updatePassword(user, 'newTenantPass789');
+    const sessionAfterPassword = portSession(ctx, hostPort);
+    expect(sessionAfterPassword?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterPassword?.state.tenant).toBe('tenant-corp');
+
+    // updateCurrentUser
+    await updateCurrentUser(clientAuth, null);
+    expect(clientAuth.currentUser).toBeNull();
+    await updateCurrentUser(clientAuth, user);
+    expect(clientAuth.currentUser?.tenantId).toBe('tenant-corp');
+    const sessionAfterUpdateCurrent = portSession(ctx, hostPort);
+    expect(sessionAfterUpdateCurrent?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterUpdateCurrent?.state.tenant).toBe('tenant-corp');
+
+    // updateCurrentUser on a second port with un-set clientAuth.tenantId
+    let clientPort2!: ClientPort;
+    const hostPort2: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        clientPort2.onmessage?.({ data: msg } as MessageEvent<OutboundMessage>);
+      },
+    };
+    clientPort2 = {
+      onmessage: null,
+      postMessage(msg: InboundMessage) {
+        void handleMessage(ctx, hostPort2, msg);
+      },
+      start() {},
+    };
+    wirePort(clientPort2);
+    const clientDb2: ClientDb = { __kind: 'client-db', port: clientPort2 };
+    const clientAuth2 = getClientAuth(clientDb2);
+
+    await updateCurrentUser(clientAuth2, user);
+    expect(clientAuth2.currentUser?.tenantId).toBe('tenant-corp');
+    const sessionAfterUpdateCurrent2 = portSession(ctx, hostPort2);
+    expect(sessionAfterUpdateCurrent2?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterUpdateCurrent2?.state.tenant).toBe('tenant-corp');
+  });
+
+  it('11. remintSessionWithClaims preserves session.user.tenantId and session.state.tenant', () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    const session = authSandboxOps.mintSession(auth, {
+      kind: 'createPassword',
+      email: 'tenant-direct@example.com',
+      password: 'password123',
+      tenantId: 'tenant-gold',
+    });
+    expect(session.user.tenantId).toBe('tenant-gold');
+    expect(session.state.tenant).toBe('tenant-gold');
+
+    const reminted = remintSessionWithClaims(auth, session);
+    expect(reminted.user.tenantId).toBe('tenant-gold');
+    expect(reminted.state.tenant).toBe('tenant-gold');
   });
 });

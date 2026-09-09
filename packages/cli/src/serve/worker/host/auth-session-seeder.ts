@@ -90,7 +90,7 @@ export function remintSessionWithClaims(auth: Auth, session: MintedSession): Min
   return authSandboxOps.mintSession(auth, {
     kind: 'uid',
     uid: session.user.uid,
-    ...(session.user.tenantId ? { tenant: session.user.tenantId } : {}),
+    ...(session.user.tenantId ? { tenantId: session.user.tenantId } : {}),
   });
 }
 

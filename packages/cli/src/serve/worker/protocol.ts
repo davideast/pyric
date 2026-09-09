@@ -136,7 +136,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.deleteUser' }
   | { t: 'op'; id: string; method: 'auth.updateEmail'; email?: string; newEmail?: string; uid?: string }
   | { t: 'op'; id: string; method: 'auth.updatePassword'; password?: string; newPassword?: string; uid?: string }
-  | { t: 'op'; id: string; method: 'auth.updateCurrentUser'; uid: string | null }
+  | { t: 'op'; id: string; method: 'auth.updateCurrentUser'; uid: string | null; tenantId?: string | null }
   | {
       t: 'op';
       id: string;
