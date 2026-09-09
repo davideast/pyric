@@ -37,9 +37,10 @@
  * `--project-dir <dir>` (or `PYRIC_PROJECT_DIR`, same precedence) names the
  * directory that headless server reads its rules files and `.pyric/state` from.
  * Absent both, the project directory is the process cwd. `--allow-production`
- * (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`) mounts `production`
- * methods on the headless server; absent, a `production` method is neither
- * listed nor callable (ADR-0014 Decision 5).
+ * (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`) enables `production`
+ * methods on the headless server; absent, a `production` method is still
+ * listed, under a heading that says it is disabled, and every call to one is
+ * refused (ADR-0014 Decision 5).
  *
  * Discovery preference: the `.pyric/serve.json` pointer serve writes in the
  * project cwd (exact + project-correct), then a health probe across the scan
@@ -48,6 +49,7 @@
  */
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import type { ParsedArgs } from './parse-args.js';
+import { allowProductionFrom } from '../bridge/surface/method-effects.js';
 import { discoverServe, SCAN_PORTS } from '../serve/discovery.js';
 
 // Discovery (pointer + identity-pinned health probing) lives in
@@ -99,9 +101,6 @@ export const TOOL_SURFACE_ENV_KEY = 'PYRIC_TOOL_SURFACE';
 /** Environment variable naming the project directory when `--project-dir` is absent. */
 export const PROJECT_DIR_ENV_KEY = 'PYRIC_PROJECT_DIR';
 
-/** Environment variable that mounts `production` methods when `--allow-production` is absent. */
-export const ALLOW_PRODUCTION_ENV_KEY = 'PYRIC_ALLOW_PRODUCTION';
-
 /** `--headless` forces the in-process sandbox and skips discovery entirely. */
 function forcesHeadlessSandbox(parsed: ParsedArgs): boolean {
   return parsed.flags?.get('headless') === true;
@@ -137,25 +136,14 @@ function selectFlagOrEnv(
   return undefined;
 }
 
-/** The only two values of `PYRIC_ALLOW_PRODUCTION` that mount production methods. */
-const ALLOW_PRODUCTION_ENV_VALUES: readonly string[] = ['1', 'true'];
-
 /**
- * Whether `production` methods mount (ADR-0014 Decision 5). The flag wins over
- * the environment; absent both, production methods do not mount. Shared with
- * `pyric <tool> <method>` (`surface-method-runner.ts`), so the two paths that
- * start a session read the flag the same way.
- *
- * The environment fallback takes an exact word rather than anything truthy.
- * Mounting these methods hands a session real credentials and real Google
- * infrastructure, so a variable set for some neighbouring purpose, or set to a
- * word a reader would take for a refusal, opts nobody in.
+ * Whether `production` methods run (ADR-0014 Decision 5), read from this
+ * command's flags. The rule itself, including which environment values count,
+ * lives on the surface in `method-effects.ts`, so the MCP path and `pyric
+ * <tool> <method>` cannot drift apart on what opting in means.
  */
 export function selectAllowProduction(parsed: ParsedArgs, env: NodeJS.ProcessEnv): boolean {
-  if (parsed.flags?.get('allow-production') === true) return true;
-  const envValue = env[ALLOW_PRODUCTION_ENV_KEY];
-  if (envValue === undefined) return false;
-  return ALLOW_PRODUCTION_ENV_VALUES.includes(envValue);
+  return allowProductionFrom(parsed.flags?.get('allow-production') === true, env);
 }
 
 export async function runMcpProxy(

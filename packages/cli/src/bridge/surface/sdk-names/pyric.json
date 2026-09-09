@@ -25,5 +25,18 @@
   "set",
   "simulate",
   "useAppSession",
-  "whoami"
+  "whoami",
+  "replaySession",
+  "verifyCases",
+  "canIUse",
+  "attach",
+  "start",
+  "map",
+  "define",
+  "propose",
+  "run",
+  "minimize",
+  "verify",
+  "export",
+  "testRulesHosted"
 ]

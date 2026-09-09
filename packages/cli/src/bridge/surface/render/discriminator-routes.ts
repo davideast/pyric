@@ -1,5 +1,5 @@
 /**
- * The twelve intent tools, and the routes for the auth, data, storage, and
+ * The thirteen intent tools, and the routes for the auth, data, storage, and
  * rules families.
  *
  * A discriminator value with no canonical counterpart has no route and
@@ -8,6 +8,7 @@
  * arguments, is `discriminator-route-shapes.ts`. This module assembles the
  * whole set in tool order.
  */
+import { ASSURANCE_ROUTES } from './discriminator-assurance-routes.js';
 import { BRANCH_ROUTES } from './discriminator-branch-routes.js';
 import { SANDBOX_STATE_ROUTES } from './discriminator-sandbox-state-routes.js';
 import type { Args, DiscriminatorRoute, DiscriminatorTool } from './discriminator-route-shapes.js';
@@ -26,6 +27,7 @@ import {
   dryRunExperimentSchema,
   inspectAuthFlowSchema,
   invokeCloudFunctionSchema,
+  judgeAuthorizationRiskSchema,
   manageAuthUsersSchema,
   manageStorageFilesSchema,
   mutateSandboxDataSchema,
@@ -82,6 +84,12 @@ export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
     description:
       "Lint security rules, resolve '2+modules' imports, run assertion test suites, or check Pyric conformance.",
     parameters: verifySecurityRulesSchema,
+  },
+  {
+    name: 'judge_authorization_risk',
+    description:
+      'Replay a captured session against candidate rules, decide its cases locally or on the hosted Rules Test API, and drive an authorization campaign from attach through export.',
+    parameters: judgeAuthorizationRiskSchema,
   },
   {
     name: 'dry_run_experiment',
@@ -452,6 +460,7 @@ export const DISCRIMINATOR_ROUTES: readonly DiscriminatorRoute[] = [
   ...DATA_ROUTES,
   ...STORAGE_ROUTES,
   ...RULES_ROUTES,
+  ...ASSURANCE_ROUTES,
   ...BRANCH_ROUTES,
   ...SANDBOX_STATE_ROUTES,
 ];

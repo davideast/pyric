@@ -16,7 +16,11 @@
  */
 import type { z } from 'zod';
 import { closest, quoted } from './closest-name.js';
-import { refuseUnconfirmedDestructive, refuseUnmountedProduction } from './method-effects.js';
+import {
+  refuseUnconfirmedDestructive,
+  refuseUnconfirmedProduction,
+  refuseUnmountedProduction,
+} from './method-effects.js';
 import type { Args, Fail, InvalidArguments, Method, Tool } from './method-types.js';
 
 /** The method every tool carries for reading one method's schema. */
@@ -197,6 +201,8 @@ export function validateArguments(
   if (!parsed.success) return fromZodIssue(method, parsed.error.issues[0], fail, args);
   const unconfirmed = refuseUnconfirmedDestructive(method, args, fail);
   if (unconfirmed !== null) return unconfirmed;
+  const unconfirmedProduction = refuseUnconfirmedProduction(method, args, fail);
+  if (unconfirmedProduction !== null) return unconfirmedProduction;
   return method.validate?.(args, { fail }) ?? null;
 }
 

@@ -26,7 +26,7 @@ import type { BridgeToolEvent } from '../../../src/bridge/server/bridge.js';
 import type { OperationResult, SurfaceContext } from '../../../src/bridge/surface/index.js';
 import { CANONICAL_OPERATION_IDS } from '../../../src/bridge/surface/render/canonical-dispatch.js';
 
-const TOOL_NAMES = ['firestore', 'database', 'storage', 'auth', 'rules', 'sandbox'];
+const TOOL_NAMES = ['firestore', 'database', 'storage', 'auth', 'rules', 'sandbox', 'assurance'];
 
 const surface = renderSurface('sdk-service');
 

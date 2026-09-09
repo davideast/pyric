@@ -105,8 +105,8 @@ describe('the named variants', () => {
 describe('the discriminator variant', () => {
   const surface = renderSurface('discriminator');
 
-  it('renders the twelve intent tools and the seven resource templates', () => {
-    expect(surface.tools).toHaveLength(12);
+  it('renders the thirteen intent tools and the seven resource templates', () => {
+    expect(surface.tools).toHaveLength(13);
     expect(surface.resources).toHaveLength(7);
   });
 
@@ -172,7 +172,7 @@ describe('the discriminator variant', () => {
 describe('surface selection', () => {
   it('serves the service tools when no surface is asked for', () => {
     const names = renderSurface(undefined).tools.map((tool) => tool.name);
-    expect(names).toEqual(['firestore', 'database', 'storage', 'auth', 'rules', 'sandbox']);
+    expect(names).toEqual(['firestore', 'database', 'storage', 'auth', 'rules', 'sandbox', 'assurance']);
   });
 
   it('throws for an unknown surface, naming the ones that exist', () => {

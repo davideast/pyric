@@ -209,6 +209,28 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   },
   seed_sandbox_fixture: { key: 'sandbox.seedFromFixture' },
 
+  // Judging rules before they ship.
+  replay_assurance_session: {
+    key: 'assurance.replaySession',
+    toMethodArgs: (args) => pick(args, ['sessionPath', 'candidateRules', 'service']),
+  },
+  verify_assurance_cases: {
+    key: 'assurance.verifyCases',
+    toMethodArgs: (args) => pick(args, ['fixture', 'candidateRules', 'service']),
+  },
+  check_assurance_feature: { key: 'assurance.canIUse' },
+  attach_assurance_target: { key: 'assurance.attach' },
+  start_assurance_campaign: { key: 'assurance.start' },
+  map_assurance_campaign: { key: 'assurance.map' },
+  define_assurance_invariants: { key: 'assurance.define' },
+  propose_assurance_probes: { key: 'assurance.propose' },
+  run_assurance_probes: { key: 'assurance.run' },
+  inspect_assurance_probe: { key: 'assurance.inspect' },
+  minimize_assurance_probe: { key: 'assurance.minimize' },
+  verify_assurance_rules: { key: 'assurance.verify' },
+  export_assurance_campaign: { key: 'assurance.export' },
+  test_assurance_rules_hosted: { key: 'assurance.testRulesHosted' },
+
   // The persisted branches.
   fork_sandbox_branch: { key: 'sandbox.fork' },
   apply_sandbox_events: { key: 'sandbox.apply' },

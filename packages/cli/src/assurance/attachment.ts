@@ -140,14 +140,56 @@ export function createSandboxAttachmentProvider(
       );
     }
 
-    const snapshot = sandbox.snapshot();
-    const rtdbState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
-    const authUsers = authSandbox.exportUsers(getAuth(sandbox));
     const rules: LocalFirebaseTarget["rules"] = {};
     if (typeof payload.rules === "string" && payload.rules.trim()) {
       rules.firestore = payload.rules;
     }
     if (payload.databaseRules?.rules) rules.rtdb = payload.databaseRules;
+
+    return cloneSandboxTarget(sandbox, rules, {
+      requestedUrl: url,
+      origin,
+      transport: "same-origin-shared-worker",
+      readOnly: true,
+      studioUrl: `${origin}/__pyric/ui/assurance`,
+    });
+  };
+}
+
+/**
+ * Clone the sandbox this process owns, with no origin to assert and nothing
+ * to contact.
+ *
+ * The headless server holds the sandbox in its own memory, so the rules the
+ * served page would have published in its initialization metadata are read
+ * from the sandbox by the caller and handed in. Everything else about the
+ * campaign is the same: the state is copied, the campaign forbids the
+ * network, and the live sandbox is never probed or mutated.
+ */
+export function createOwnedSandboxAttachmentProvider(
+  sandbox: Sandbox,
+  rules: LocalFirebaseTarget["rules"],
+  studioUrl: string,
+): AssuranceAttachmentProvider {
+  return async ({ url }) =>
+    cloneSandboxTarget(sandbox, rules, {
+      requestedUrl: url,
+      origin: url,
+      transport: "in-process-sandbox",
+      readOnly: true,
+      studioUrl,
+    });
+}
+
+/** The campaign target, inventory, and coverage gaps one sandbox's state produces. */
+function cloneSandboxTarget(
+  sandbox: Sandbox,
+  rules: LocalFirebaseTarget["rules"],
+  source: AssuranceAttachmentSource,
+): AssuranceAttachment {
+  const snapshot = sandbox.snapshot();
+    const rtdbState = rtdbSandbox.snapshotState(getAdminDatabase(sandbox));
+    const authUsers = authSandbox.exportUsers(getAuth(sandbox));
 
     const coverageGaps: AssuranceCoverageGap[] = [
       {
@@ -194,13 +236,7 @@ export function createSandboxAttachmentProvider(
           },
         },
       },
-      source: {
-        requestedUrl: url,
-        origin,
-        transport: "same-origin-shared-worker",
-        readOnly: true,
-        studioUrl: `${origin}/__pyric/ui/assurance`,
-      },
+      source,
       inventory: {
         firestoreDocuments: Object.keys(snapshot.firestore).length,
         rtdbPresent: hasRtdbState(rtdbState),
@@ -209,5 +245,4 @@ export function createSandboxAttachmentProvider(
       },
       coverageGaps,
     };
-  };
 }

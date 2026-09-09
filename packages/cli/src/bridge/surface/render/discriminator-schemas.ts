@@ -193,6 +193,62 @@ export const verifySecurityRulesSchema = z.object({
     .describe("Test cases when action is 'simulate_suite'."),
 });
 
+export const judgeAuthorizationRiskSchema = z.object({
+  action: z
+    .enum([
+      'replay_session',
+      'verify_cases',
+      'test_rules_hosted',
+      'attach',
+      'start',
+      'map',
+      'define',
+      'propose',
+      'run',
+      'inspect',
+      'minimize',
+      'verify',
+      'export',
+    ])
+    .describe('Assurance operation.'),
+  campaignId: z.string().optional().describe('Identifier of the assurance campaign.'),
+  probeId: z.string().optional().describe('Identifier of one probe within the campaign.'),
+  observationId: z.string().optional().describe("Known-good observation when action is 'propose'."),
+  invariantId: z.string().optional().describe("Invariant a proposed probe is judged against."),
+  sessionPath: z
+    .string()
+    .optional()
+    .describe('Recorded session or fixture path, relative to the project directory.'),
+  candidateRules: z
+    .string()
+    .optional()
+    .describe('Candidate Firestore security rules source the run evaluates.'),
+  service: z
+    .enum(['firestore', 'database'])
+    .optional()
+    .describe("Service whose rules a replay evaluates."),
+  recordsJson: z
+    .string()
+    .optional()
+    .describe('JSON-encoded actors, invariants, or mutations, depending on the action.'),
+  targetJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded campaign target when action is 'start'."),
+  casesJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded rules test cases when action is 'test_rules_hosted'."),
+  exportPath: z
+    .string()
+    .optional()
+    .describe("Where to write the exported bundle when action is 'export'."),
+  confirm: z
+    .boolean()
+    .optional()
+    .describe("Must be true to reach Firebase's hosted Rules Test API."),
+});
+
 export const dryRunExperimentSchema = z.object({
   action: z
     .enum(['fork', 'apply', 'diff', 'promote', 'discard', 'list'])
