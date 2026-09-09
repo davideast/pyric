@@ -13,7 +13,7 @@
  * is gone afterwards, and the run directory ends up holding the copies.
  */
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -21,7 +21,11 @@ import {
   runAll,
   planRuns,
   parseArgs,
+  readTranscripts,
+  resolveResultsDir,
+  REPLAY_LEDGER_KEY,
   RESULTS_FILE,
+  RESULTS_ROOT,
   STATE_ROOT,
   WORKSPACE_DIR,
   type RunnerOptions,
@@ -75,6 +79,9 @@ let runCounter = 0;
 
 function optionsFor(resultsDir: string): RunnerOptions {
   runCounter += 1;
+  // A ledger root of its own, so this run's budget never shares state with the
+  // real per-CLI ledger under the OS temp root, or with another test's ledger.
+  const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
   return {
     repoRoot: resolve(import.meta.dirname, '..', '..', '..', '..'),
     resultsDir,
@@ -85,7 +92,7 @@ function optionsFor(resultsDir: string): RunnerOptions {
     seeds: [],
     dryRun: false,
     timeoutMs: 60_000,
-    pacing: { minGapMs: 0, budgetPerWindow: 10 },
+    pacing: { minGapMs: 0, budgetPerWindow: 10, ledgerRoot },
     serverCommand: () => ['bun', STANDIN],
     providerFor: () => buildFake,
     transcripts: {
@@ -332,4 +339,70 @@ describe('planning and argument parsing', () => {
       variants: 'v',
     });
   });
+});
+
+describe('a replay run is driven from a transcript file', () => {
+  test('the transcripts flag reads one canned call list per task id', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'pyric-transcripts-')), 'transcripts.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        'read-the-seeded-post': [
+          { tool: 'firestore', args: { method: 'getDoc', args: { path: 'posts/p1' } } },
+        ],
+      }),
+      'utf8',
+    );
+
+    const transcripts = readTranscripts(path);
+    expect(transcripts['read-the-seeded-post']).toHaveLength(1);
+    expect(transcripts['read-the-seeded-post']?.[0]?.tool).toBe('firestore');
+  });
+
+  test('a transcript that is not a list of calls is refused by name', () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'pyric-transcripts-')), 'transcripts.json');
+    writeFileSync(path, JSON.stringify({ 'read-the-seeded-post': 'getDoc' }), 'utf8');
+    expect(() => readTranscripts(path)).toThrow('read-the-seeded-post');
+  });
+
+  test('a replayed run meters under its own ledger, never a metered account', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [READ_TASK];
+    options.pacing = { minGapMs: 0, budgetPerWindow: 10, ledgerRoot };
+
+    await runAll(options);
+
+    // The row names Claude, but nothing called Claude, so the account's window
+    // must be untouched and the replay must be counted on its own.
+    expect(readdirSync(ledgerRoot)).toEqual([`${REPLAY_LEDGER_KEY}.json`]);
+  }, 120_000);
+});
+
+describe('results live outside the repository', () => {
+  test('the default results directory is under the OS temp root, not the repo', () => {
+    expect(resolveResultsDir({})).toBe(RESULTS_ROOT);
+    expect(RESULTS_ROOT.startsWith(resolve(import.meta.dirname, '..'))).toBe(false);
+  });
+
+  test('--results-dir overrides the default', () => {
+    expect(resolveResultsDir({ 'results-dir': '/somewhere/else' })).toBe('/somewhere/else');
+  });
+});
+
+describe('a full quota ledger throttles a run instead of spawning it', () => {
+  test('reserveBudget denies the second run and no-wait records it as throttled', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [READ_TASK];
+    options.rows = [{ ...ROW, seeds: [1, 2] }];
+    options.pacing = { minGapMs: 0, budgetPerWindow: 1, ledgerRoot, noWait: true };
+
+    const lines = await runAll(options);
+    expect(lines).toHaveLength(2);
+    const outcomes = lines.map((line) => line.outcome).sort();
+    expect(outcomes).toEqual(['pass', 'throttled']);
+  }, 60_000);
 });

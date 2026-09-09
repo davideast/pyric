@@ -1,16 +1,26 @@
 /**
- * Reporting. Reads one or more `runs.ndjson` files and prints, per variant and
- * row, the four numbers the eval exists to compare, each with a bootstrap 95%
- * interval.
+ * Reporting. Reads one or more `runs.ndjson` files, or one or more results
+ * directories, and prints, per variant and row, the numbers the eval exists to
+ * compare, each with a bootstrap 95% interval.
  *
  * The resampling unit is the task, not the run. Seeds of one task are repeats
  * of the same question, so treating them as independent would understate the
  * interval. Resampling tasks with replacement and pooling every run of each
  * drawn task keeps the interval honest about how few distinct questions the
  * corpus asks.
+ *
+ * A results directory is re-derived rather than trusted verbatim: every run
+ * whose event log is intact is re-scored against the current corpus, so a
+ * corrected assertion or a fixed classifier applies to runs already paid for.
+ * This folds what used to be `rescore.ts` into the one reporting tool.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import type { EvalResultLine } from './types.js';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { loadRows, loadTasks } from './load.js';
+import { classifyRunOutcome } from './outcome.js';
+import { scoreRun } from './score.js';
+import { buildEvalState } from './state.js';
+import type { EvalResultLine, EvalRow, EvalRun, EvalState, EvalTask } from './types.js';
 
 /** Resamples per interval. Fixed so two reports over the same data agree. */
 export const BOOTSTRAP_RESAMPLES = 1000;
@@ -23,15 +33,33 @@ export interface Interval {
   high: number;
 }
 
+/** Outcomes that are infrastructure or bypass signals, not a verdict on the task. */
+const INFRA_OUTCOMES: ReadonlySet<string> = new Set(['throttled', 'interrupted', 'bypassed']);
+
+export interface InfrastructureCounts {
+  throttled: number;
+  interrupted: number;
+  bypassed: number;
+}
+
 export interface CellReport {
   variant: string;
   row: string;
   runs: number;
   tasks: number;
   selectionAccuracy: Interval;
+  /** Whether any logged call, not just the first, reached an accepted operation. */
+  acceptedOpReached: Interval;
   argumentValidity: Interval;
   completion: Interval;
+  /** Completion restricted to runs that logged at least one MCP call. */
+  completionEngaged: Interval;
   meanCallsPerCompletedTask: Interval;
+  /** Share of runs in which the server rejected at least one call on schema. */
+  runsWithARejection: Interval;
+  /** Mean wall-clock seconds one run took. */
+  meanDurationSeconds: Interval;
+  infrastructure: InfrastructureCounts;
 }
 
 /**
@@ -58,6 +86,13 @@ const selectionAccuracy: Statistic = (runs) => {
   return accepted / runs.length;
 };
 
+/** Whether any logged call, not just the first, reached an accepted operation. */
+const acceptedOpReached: Statistic = (runs) => {
+  if (runs.length === 0) return Number.NaN;
+  const reached = runs.filter((run) => run.acceptedOpReached).length;
+  return reached / runs.length;
+};
+
 /** Share of logged calls the server accepted rather than rejecting on schema. */
 const argumentValidity: Statistic = (runs) => {
   let calls = 0;
@@ -70,10 +105,28 @@ const argumentValidity: Statistic = (runs) => {
   return (calls - rejected) / calls;
 };
 
+/**
+ * Runs whose outcome carries a verdict on the task rather than an
+ * infrastructure or bypass signal. A throttled, interrupted or bypassed run
+ * never reached the task, so it would understate completion to count it as a
+ * failure; it is reported on its own instead, under `infrastructure`.
+ */
+function eligibleForCompletion(runs: EvalResultLine[]): EvalResultLine[] {
+  return runs.filter((run) => !INFRA_OUTCOMES.has(run.outcome));
+}
+
 const completion: Statistic = (runs) => {
-  if (runs.length === 0) return Number.NaN;
-  return runs.filter((run) => run.outcome === 'pass').length / runs.length;
+  const eligible = eligibleForCompletion(runs);
+  if (eligible.length === 0) return Number.NaN;
+  return eligible.filter((run) => run.outcome === 'pass').length / eligible.length;
 };
+
+/** Runs that logged at least one MCP call, engaging the surface under test. */
+function engagedRuns(runs: EvalResultLine[]): EvalResultLine[] {
+  return runs.filter((run) => run.callCount > 0);
+}
+
+const completionEngaged: Statistic = (runs) => completion(engagedRuns(runs));
 
 const meanCallsPerCompletedTask: Statistic = (runs) => {
   const passed = runs.filter((run) => run.outcome === 'pass');
@@ -82,6 +135,35 @@ const meanCallsPerCompletedTask: Statistic = (runs) => {
   for (const run of passed) calls += run.callCount;
   return calls / passed.length;
 };
+
+/**
+ * Share of runs the server rejected at least one call in. Counted over runs
+ * that reached the task, like completion, because a throttled or bypassed run
+ * made no calls to reject and would only dilute the rate.
+ */
+const runsWithARejection: Statistic = (runs) => {
+  const eligible = eligibleForCompletion(runs);
+  if (eligible.length === 0) return Number.NaN;
+  return eligible.filter((run) => run.schemaRejections > 0).length / eligible.length;
+};
+
+/** Mean wall-clock seconds one run took, over the runs that reached the task. */
+const meanDurationSeconds: Statistic = (runs) => {
+  const eligible = eligibleForCompletion(runs);
+  if (eligible.length === 0) return Number.NaN;
+  let totalMs = 0;
+  for (const run of eligible) totalMs += run.durationMs;
+  return totalMs / eligible.length / 1000;
+};
+
+/** Counts of the three infrastructure and bypass outcomes in a pooled run set. */
+function infrastructureCounts(runs: EvalResultLine[]): InfrastructureCounts {
+  return {
+    throttled: runs.filter((run) => run.outcome === 'throttled').length,
+    interrupted: runs.filter((run) => run.outcome === 'interrupted').length,
+    bypassed: runs.filter((run) => run.outcome === 'bypassed').length,
+  };
+}
 
 /** Group runs by task id, preserving a stable task order for the resampler. */
 function byTask(runs: EvalResultLine[]): EvalResultLine[][] {
@@ -161,9 +243,14 @@ export function buildReport(runs: EvalResultLine[], seed: number = BOOTSTRAP_SEE
       runs: cellRuns.length,
       tasks: tasks.length,
       selectionAccuracy: bootstrap(tasks, selectionAccuracy, seed),
+      acceptedOpReached: bootstrap(tasks, acceptedOpReached, seed),
       argumentValidity: bootstrap(tasks, argumentValidity, seed),
       completion: bootstrap(tasks, completion, seed),
+      completionEngaged: bootstrap(tasks, completionEngaged, seed),
       meanCallsPerCompletedTask: bootstrap(tasks, meanCallsPerCompletedTask, seed),
+      runsWithARejection: bootstrap(tasks, runsWithARejection, seed),
+      meanDurationSeconds: bootstrap(tasks, meanDurationSeconds, seed),
+      infrastructure: infrastructureCounts(cellRuns),
     });
   }
   return reports;
@@ -174,13 +261,183 @@ export function readResults(paths: string[]): EvalResultLine[] {
   const runs: EvalResultLine[] = [];
   for (const path of paths) {
     if (!existsSync(path)) throw new Error(`no results file at ${path}`);
-    for (const line of readFileSync(path, 'utf8').split('\n')) {
-      const trimmed = line.trim();
-      if (trimmed.length === 0) continue;
-      runs.push(JSON.parse(trimmed) as EvalResultLine);
-    }
+    for (const line of readNdjsonLines(path)) runs.push(line);
   }
   return runs;
+}
+
+const RUNS_FILE_NAME = 'runs.ndjson';
+
+function readNdjsonLines(path: string): EvalResultLine[] {
+  if (!existsSync(path)) return [];
+  const runs: EvalResultLine[] = [];
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    runs.push(JSON.parse(trimmed) as EvalResultLine);
+  }
+  return runs;
+}
+
+/** Directory entries that are themselves directories, sorted for a stable walk. */
+function listDirs(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+}
+
+/** Joins the fields that identify one run, for matching a recorded line to its directory. */
+function runKey(row: string, variant: string, task: string, seed: number): string {
+  return `${row} ${variant} ${task} ${seed}`;
+}
+
+/** Outcomes worth re-deriving: a completed run, or a crash that still has its log. */
+const RESCORABLE_OUTCOMES: ReadonlySet<string> = new Set(['pass', 'fail', 'crash']);
+
+/**
+ * Options for `loadRunLines`. Both default to the real corpus and matrix;
+ * tests inject their own so a directory can be re-derived without depending on
+ * the checked-in records.
+ */
+export interface LoadRunLinesOptions {
+  tasks?: Map<string, EvalTask>;
+  rows?: Map<string, EvalRow>;
+}
+
+/**
+ * Whether a run the runner recorded as a crash may be re-scored from its log.
+ *
+ * The runner writes an empty `events.ndjson` while it prepares a run, so the
+ * file existing proves nothing. Only a log with at least one recorded call
+ * proves the CLI itself ran and used the surface, which is what makes
+ * `completed` an honest base to re-score from: the crash was then the harness
+ * failing afterward, during collection or scoring. An empty log means the
+ * harness died before or during the spawn, and scoring the task's assertion
+ * against a sandbox the CLI never touched would report a harness failure as a
+ * design failure.
+ */
+function crashRecoveredByLog(state: EvalState): boolean {
+  return state.calls.length > 0;
+}
+
+/**
+ * One run directory's line, re-derived from its event log rather than trusted
+ * from `runs.ndjson`, or null when the log does not support re-deriving it and
+ * the recorded line stands. The recorded outcome supplies the duration and
+ * decides whether a crash is recoverable; everything about whether the task
+ * passed comes fresh from the log and the current corpus.
+ */
+async function rederiveRun(
+  runDir: string,
+  runId: string,
+  row: EvalRow,
+  variant: string,
+  task: EvalTask,
+  seed: number,
+  recorded: EvalResultLine | undefined,
+): Promise<EvalResultLine | null> {
+  const eventsPath = join(runDir, 'events.ndjson');
+  const state = await buildEvalState(runDir, eventsPath);
+
+  const recordedCrash = recorded === undefined || recorded.outcome === 'crash';
+  if (recordedCrash && !crashRecoveredByLog(state)) return null;
+
+  const priorDurationMs = recorded?.durationMs ?? 0;
+  const refined = classifyRunOutcome(row.cli, 'completed', runDir, state.calls.length);
+  const run: EvalRun = {
+    runId,
+    row,
+    variant,
+    task,
+    seed,
+    dir: runDir,
+    workspaceDir: join(runDir, 'workspace'),
+    stateDir: runDir,
+    eventsPath,
+    serverCommand: [],
+    repoRoot: runDir,
+  };
+  return scoreRun({ run, spawn: refined, durationMs: priorDurationMs, state });
+}
+
+/** A row for a directory name the matrix no longer names, so classification still runs. */
+function fallbackRow(rowId: string): EvalRow {
+  return { id: rowId, cli: rowId as EvalRow['cli'], model: 'unknown', condition: 'agent-default', seeds: [] };
+}
+
+/**
+ * Walk one results directory (`<runId>/<row>/<variant>/<task>/<seed>/`) and
+ * produce one result line per run, re-deriving every run whose event log is
+ * intact and whose recorded outcome (or absence of one) means the process
+ * completed or crashed after the CLI had already run.
+ */
+async function rederiveDirectory(
+  resultsDir: string,
+  tasks: Map<string, EvalTask>,
+  rows: Map<string, EvalRow>,
+): Promise<EvalResultLine[]> {
+  const runId = basename(resultsDir);
+  const recorded = new Map<string, EvalResultLine>();
+  for (const line of readNdjsonLines(join(resultsDir, RUNS_FILE_NAME))) {
+    recorded.set(runKey(line.row, line.variant, line.task, line.seed), line);
+  }
+
+  const out: EvalResultLine[] = [];
+  for (const rowId of listDirs(resultsDir)) {
+    const row = rows.get(rowId) ?? fallbackRow(rowId);
+    for (const variant of listDirs(join(resultsDir, rowId))) {
+      for (const taskId of listDirs(join(resultsDir, rowId, variant))) {
+        const task = tasks.get(taskId);
+        if (task === undefined) continue;
+        for (const seedName of listDirs(join(resultsDir, rowId, variant, taskId))) {
+          const seed = Number(seedName);
+          const runDir = join(resultsDir, rowId, variant, taskId, seedName);
+          const existing = recorded.get(runKey(rowId, variant, taskId, seed));
+          const eventsPath = join(runDir, 'events.ndjson');
+
+          const rescorable = existing === undefined || RESCORABLE_OUTCOMES.has(existing.outcome);
+          if (!rescorable || !existsSync(eventsPath)) {
+            if (existing !== undefined) out.push(existing);
+            continue;
+          }
+
+          const rederived = await rederiveRun(runDir, runId, row, variant, task, seed, existing);
+          if (rederived !== null) {
+            out.push(rederived);
+            continue;
+          }
+          if (existing !== undefined) out.push(existing);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Read every result line out of the named paths, each either a `runs.ndjson`
+ * file (trusted verbatim) or a results directory (re-derived from every run's
+ * event log against the current corpus). This is what makes a corrected
+ * assertion or a fixed classifier apply to runs already paid for.
+ */
+export async function loadRunLines(
+  paths: string[],
+  options: LoadRunLinesOptions = {},
+): Promise<EvalResultLine[]> {
+  const tasks = options.tasks ?? (await loadTasks());
+  const rows = options.rows ?? (await loadRows());
+  const lines: EvalResultLine[] = [];
+  for (const path of paths) {
+    if (!existsSync(path)) throw new Error(`no results at ${path}`);
+    if (statSync(path).isDirectory()) {
+      lines.push(...(await rederiveDirectory(path, tasks, rows)));
+    } else {
+      lines.push(...readNdjsonLines(path));
+    }
+  }
+  return lines;
 }
 
 function formatRate(interval: Interval): string {
@@ -201,19 +458,57 @@ export function renderReport(reports: CellReport[]): string {
   for (const report of reports) {
     lines.push(`${report.variant} / ${report.row}  (${report.runs} runs, ${report.tasks} tasks)`);
     lines.push(`  selection accuracy   ${formatRate(report.selectionAccuracy)}`);
+    lines.push(`  accepted op reached  ${formatRate(report.acceptedOpReached)}`);
     lines.push(`  argument validity    ${formatRate(report.argumentValidity)}`);
     lines.push(`  completion           ${formatRate(report.completion)}`);
+    lines.push(`  completion (engaged) ${formatRate(report.completionEngaged)}`);
     lines.push(`  calls per completion ${formatCount(report.meanCallsPerCompletedTask)}`);
+    lines.push(`  runs with a rejection${formatRate(report.runsWithARejection)}`);
+    lines.push(`  mean duration        ${formatCount(report.meanDurationSeconds)} s`);
+    const { throttled, interrupted, bypassed } = report.infrastructure;
+    if (throttled + interrupted + bypassed > 0) {
+      lines.push('  infrastructure and bypass');
+      lines.push(`    throttled          ${throttled}`);
+      lines.push(`    interrupted        ${interrupted}`);
+      lines.push(`    bypassed           ${bypassed}`);
+    }
     lines.push('');
   }
   return lines.join('\n');
 }
 
-if (import.meta.main) {
-  const paths = process.argv.slice(2);
-  if (paths.length === 0) {
-    process.stderr.write('usage: report.ts <runs.ndjson> [more.ndjson ...]\n');
-    process.exit(2);
+/** Parse a trailing `--json <path>` pair out of the argument list, if present. */
+function parseJsonFlag(argv: string[]): { paths: string[]; jsonOut: string | null } {
+  const paths: string[] = [];
+  let jsonOut: string | null = null;
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index] as string;
+    if (token === '--json') {
+      jsonOut = argv[index + 1] ?? null;
+      index += 1;
+      continue;
+    }
+    paths.push(token);
   }
-  process.stdout.write(renderReport(buildReport(readResults(paths))));
+  return { paths, jsonOut };
+}
+
+async function main(argv: string[]): Promise<number> {
+  const { paths, jsonOut } = parseJsonFlag(argv);
+  if (paths.length === 0) {
+    process.stderr.write(
+      'usage: report.ts <runs.ndjson | results-dir> [more ...] [--json <out.ndjson>]\n',
+    );
+    return 2;
+  }
+  const lines = await loadRunLines(paths);
+  process.stdout.write(renderReport(buildReport(lines)));
+  if (jsonOut !== null) {
+    writeFileSync(jsonOut, lines.map((line) => JSON.stringify(line)).join('\n') + '\n', 'utf8');
+  }
+  return 0;
+}
+
+if (import.meta.main) {
+  process.exit(await main(process.argv.slice(2)));
 }
