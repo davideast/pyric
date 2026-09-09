@@ -71,6 +71,8 @@ The variant is selected at server start by `pyric mcp --surface <variant-id>` or
 
 `pyric mcp --headless` forces the in-process sandbox and never attaches to a running bridge. Without the flag, behavior is unchanged.
 
+`--project-dir <dir>`, with `PYRIC_PROJECT_DIR` as the environment fallback and the flag winning, names the directory the headless server reads `firestore.rules`, `storage.rules`, `.pyric/state/headless.json` and `.pyric/state/storage.json` from and writes them back to. A relative value resolves against the process cwd. Absent both, the project directory is the process cwd, which is the behavior every existing caller gets.
+
 The headless server records one event per tool call through the bridge's existing `recordToolEvent` seam. When the environment variable `PYRIC_EVAL_LOG` names a file, events append there as NDJSON, one object per line, and nothing is written to the per-project audit log. When it is absent, behavior is unchanged.
 
 Event shape (a superset of today's `BridgeToolEvent`):
@@ -155,12 +157,24 @@ The fourteen rows are the agreed matrix. Claude Fable 5.1 rows exist in both con
 
 ## 6. Runner
 
-`packages/cli/eval/run.ts`, invoked as `bun run --cwd packages/cli eval -- [--rows a,b] [--tasks x,y] [--variants v] [--dry-run]`. For each run it:
+`packages/cli/eval/run.ts`, invoked as `bun run --cwd packages/cli eval -- [--rows a,b] [--tasks x,y] [--variants v] [--dry-run]`.
 
-1. Creates `packages/cli/eval/results/<runId>/<row>/<variant>/<task>/<seed>/` as the working directory, writes `firestore.rules` and the other seed artifacts, and applies the seed through the sandbox to produce `.pyric/state/headless.json`.
-2. Writes the CLI config through a provider module, `providers/claude.ts`, `providers/codex.ts`, `providers/antigravity.ts`, each exporting `buildInvocation(run): { command: string[]; env: Record<string, string>; files: Record<string, string> }`. The MCP server command is the local build: `node <repo>/packages/cli/dist/bin/pyric.js mcp --headless --surface <variant>`, with the `PYRIC_EVAL_*` variables in the server's env block.
-3. Spawns the CLI with a hard timeout, captures stdout and stderr raw to files, never parses them for scoring.
-4. Reads `events.ndjson` (the `PYRIC_EVAL_LOG` target inside the run directory) and the final snapshot, builds `EvalState`, runs the task's `assert`, and appends one line to `results/<runId>/runs.ndjson`.
+Every run has three directories, because a CLI with built-in file tools that can read the sandbox state off disk answers the task without calling a tool and the run then measures file reading rather than the tool surface:
+
+| Directory | Path | Holds |
+|---|---|---|
+| run | `packages/cli/eval/results/<runId>/<row>/<variant>/<task>/<seed>/` | raw output, the provider config files a CLI takes by path, and the copies of the state after the run |
+| workspace | `<run>/workspace/` | nothing but the files a provider has no other way to deliver, today only Antigravity's `.agents/mcp_config.json` |
+| state | `<tmpdir>/pyric-eval/<runId>/<row>/<variant>/<task>/<seed>/` | the seeded rules files, `.pyric/state/headless.json`, the storage sidecar, `events.ndjson` |
+
+For each run the runner:
+
+1. Creates all three, and applies the seed through the sandbox into the state directory, which is where the rules files and `.pyric/state/headless.json` are written.
+2. Writes the CLI config through a provider module, `providers/claude.ts`, `providers/codex.ts`, `providers/antigravity.ts`, each exporting `buildInvocation(run): { command: string[]; env: Record<string, string>; files: Record<string, string>; workspaceFiles: Record<string, string> }`. `files` are written relative to the run directory and `workspaceFiles` relative to the workspace. The MCP server command is the local build: `node <repo>/packages/cli/dist/cli/index.js mcp --headless --surface <variant>`, with the `PYRIC_EVAL_*` variables and `PYRIC_PROJECT_DIR` in the server's env block. The state directory reaches the server through that env block and never as a visible `--project-dir` argument, which is a mitigation and not a wall: `mcp-only` on Claude Code is the only fully closed condition.
+3. Spawns the CLI in the workspace with a hard timeout, captures stdout and stderr raw to files in the run directory, never parses them for scoring. A provider that names a directory to the CLI names the workspace and nothing else.
+4. Copies `events.ndjson`, `.pyric/state/headless.json` and `.pyric/state/storage.json` from the state directory into the run directory, deletes the state directory, then reads the copies, builds `EvalState`, runs the task's `assert`, and appends one line to `results/<runId>/runs.ndjson`.
+
+`--dry-run` prepares everything, prints the run, workspace and state directories with the invocation, and spawns nothing.
 
 A fourth provider, `providers/fake.ts`, replays a canned transcript against the real headless server so the whole pipeline is testable without a model.
 

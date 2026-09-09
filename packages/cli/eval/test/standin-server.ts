@@ -4,11 +4,14 @@
  * The real server is built on another branch. This one implements only what the
  * runner depends on: it speaks stdio MCP, renders two operations under their
  * verb-prefixed names, appends one section 3 event per call to `PYRIC_EVAL_LOG`,
- * and flushes `.pyric/state/headless.json` before it exits. Everything it does
- * not need is left out on purpose, so it never becomes a second implementation
- * the eval quietly depends on.
+ * and flushes `.pyric/state/headless.json` before it exits. It honours
+ * `PYRIC_PROJECT_DIR` the way the real server does, because the runner points
+ * both at a state directory away from the process cwd. Everything it does not
+ * need is left out on purpose, so it never becomes a second implementation the
+ * eval quietly depends on.
  */
 import { appendFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -16,7 +19,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, doc, getDoc, setDoc } from 'pyric/firestore';
 import { loadSandboxSnapshot, saveSandboxSnapshot } from '../../src/bridge/server/headless.js';
 
-const cwd = process.cwd();
+const projectDir = resolve(process.cwd(), process.env.PYRIC_PROJECT_DIR ?? '.');
 const logPath = process.env.PYRIC_EVAL_LOG;
 
 const runBlock = {
@@ -60,7 +63,7 @@ function record(
 }
 
 const sandbox = initializeSandbox();
-loadSandboxSnapshot(sandbox, cwd);
+loadSandboxSnapshot(sandbox, projectDir);
 const db = getAdminFirestore(sandbox);
 
 const server = new McpServer({ name: 'pyric-standin', version: '1' });
@@ -98,7 +101,7 @@ const server = new McpServer({ name: 'pyric-standin', version: '1' });
 const transport = new StdioServerTransport();
 
 function shutdown(): void {
-  saveSandboxSnapshot(sandbox, cwd);
+  saveSandboxSnapshot(sandbox, projectDir);
   void server.close().then(() => process.exit(0));
 }
 

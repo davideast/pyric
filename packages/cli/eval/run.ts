@@ -1,13 +1,48 @@
 /**
- * The runner. For every row, variant, task and seed it prepares a working
- * directory, seeds the sandbox, asks the row's provider for an invocation,
- * spawns it under a hard timeout, then scores the run from the event log and
- * the final state.
+ * The runner. For every row, variant, task and seed it prepares a workspace and
+ * a state directory, seeds the sandbox, asks the row's provider for an
+ * invocation, spawns it under a hard timeout, then scores the run from the event
+ * log and the final state.
  *
  * Nothing about the agent's stdout is evidence. It is captured verbatim for a
  * human, and scoring reads only the server's log and the sandbox.
+ *
+ * ## Three directories, because the state is what is being measured
+ *
+ * A CLI with built-in file tools can answer a task by reading the sandbox state
+ * off disk instead of calling a single MCP tool, and the run then measures the
+ * agent's file reading rather than the tool surface. So no run puts the state
+ * where the agent is:
+ *
+ *   run directory        `<results>/<row>/<variant>/<task>/<seed>/`
+ *     Results and the provider config files the CLI takes by path. The CLI is
+ *     never started here and is never handed this path.
+ *   workspace            `<run>/workspace/`
+ *     Where the CLI is started, and the only directory a provider may name in a
+ *     directory flag. Holds nothing but the files a provider has no other way to
+ *     deliver, which today is Antigravity's `.agents/mcp_config.json`.
+ *   state directory      `<tmpdir>/pyric-eval/<runId>/<row>/<variant>/<task>/<seed>/`
+ *     The seeded rules files, `.pyric/state/headless.json`, the storage sidecar
+ *     and `events.ndjson`. Outside the results tree entirely, so no relative
+ *     walk from the workspace reaches it. Copied into the run directory after
+ *     the process exits, so results stay self-contained, then deleted.
+ *
+ * ## What this closes, and what it does not
+ *
+ * The state directory still has to reach the server somehow, and the server is
+ * spawned by the CLI from an MCP config the agent can read. Passing the path
+ * through `PYRIC_PROJECT_DIR` in the config's env block rather than as a visible
+ * `--project-dir` argument makes it one step further from an agent that is
+ * skimming its own configuration, and nothing more. It is a mitigation, not a
+ * wall: an agent determined to read its MCP config, follow the env block and
+ * open the file it names can still do so.
+ *
+ * The only fully closed condition is `mcp-only` on Claude Code, where the
+ * built-in tools are withdrawn and the surface under test is the only way to
+ * touch anything. Every other row is measured knowing that.
  */
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { loadRows, loadTasks, selectRecords } from './load.js';
@@ -16,6 +51,8 @@ import { buildEvalState } from './state.js';
 import { scoreRun, type SpawnOutcome } from './score.js';
 import { isThrottled, Pacer, type PacingOptions } from './pacing.js';
 import { defaultServerCommand } from './providers/server-env.js';
+import { HEADLESS_STATE_RELATIVE } from '../src/bridge/server/headless.js';
+import { STORAGE_SIDECAR_RELATIVE } from './storage-sidecar.js';
 import { buildInvocation as buildClaude } from './providers/claude.js';
 import { buildInvocation as buildCodex } from './providers/codex.js';
 import { buildInvocation as buildAntigravity } from './providers/antigravity.js';
@@ -33,9 +70,25 @@ export const DEFAULT_VARIANTS = [
 /** Ceiling for one agent process. Above the longest provider print timeout. */
 export const DEFAULT_TIMEOUT_MS = 12 * 60 * 1000;
 
-/** The events file name inside a run directory, exported as `PYRIC_EVAL_LOG`. */
+/** The events file name inside a state directory, exported as `PYRIC_EVAL_LOG`. */
 export const EVENTS_FILE = 'events.ndjson';
 export const RESULTS_FILE = 'runs.ndjson';
+
+/** The directory inside a run directory the CLI is started in. */
+export const WORKSPACE_DIR = 'workspace';
+
+/** Where state directories live: under the OS temp root, never under results. */
+export const STATE_ROOT = join(tmpdir(), 'pyric-eval');
+
+/**
+ * What is copied out of the state directory into the run directory once the
+ * process has exited, so a finished result carries its own evidence.
+ */
+export const COLLECTED_FILES = [
+  EVENTS_FILE,
+  HEADLESS_STATE_RELATIVE,
+  STORAGE_SIDECAR_RELATIVE,
+] as const;
 
 const PROVIDERS: Record<string, BuildInvocation> = {
   claude: buildClaude,
@@ -55,6 +108,8 @@ export interface RunnerOptions {
   seeds: number[];
   dryRun: boolean;
   timeoutMs: number;
+  /** Root of the state directories. Defaults to `STATE_ROOT` under the temp dir. */
+  stateRoot?: string;
   pacing: PacingOptions;
   /** Overrides the MCP server command, so a test can drive a stand-in server. */
   serverCommand?: (variant: string) => string[];
@@ -77,14 +132,9 @@ export function planRuns(options: RunnerOptions): EvalRun[] {
     for (const variant of options.variants) {
       for (const task of options.tasks) {
         for (const seed of seedsFor(row, options.seeds)) {
-          const dir = join(
-            options.resultsDir,
-            options.runId,
-            row.id,
-            variant,
-            task.id,
-            String(seed),
-          );
+          const leaf = join(options.runId, row.id, variant, task.id, String(seed));
+          const dir = join(options.resultsDir, leaf);
+          const stateDir = join(options.stateRoot ?? STATE_ROOT, leaf);
           const serverCommand =
             options.serverCommand?.(variant) ?? defaultServerCommand(options.repoRoot, variant);
           const run: EvalRun = {
@@ -94,7 +144,9 @@ export function planRuns(options: RunnerOptions): EvalRun[] {
             task,
             seed,
             dir,
-            eventsPath: join(dir, EVENTS_FILE),
+            workspaceDir: join(dir, WORKSPACE_DIR),
+            stateDir,
+            eventsPath: join(stateDir, EVENTS_FILE),
             serverCommand,
             repoRoot: options.repoRoot,
           };
@@ -141,7 +193,9 @@ async function spawnInvocation(
   let stdout = '';
   let stderr = '';
   const child = spawn(executable, args, {
-    cwd: run.dir,
+    // The workspace, never the run directory: what the process can see from its
+    // own cwd is part of what the run measures.
+    cwd: run.workspaceDir,
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -174,21 +228,49 @@ async function spawnInvocation(
   return { outcome: 'completed', durationMs };
 }
 
-/** Prepare the working directory, the seed state and the provider's files. */
+/** Write one provider file, creating the directories above it. */
+function writeProviderFiles(base: string, files: Record<string, string>): void {
+  for (const [relativePath, contents] of Object.entries(files)) {
+    const target = join(base, relativePath);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, contents, 'utf8');
+  }
+}
+
+/**
+ * Prepare the run directory, the empty workspace, the seeded state directory and
+ * the provider's files. The seed lands in the state directory, so the workspace
+ * the CLI is started in holds only what the provider had to put there.
+ */
 async function prepareRun(
   run: EvalRun,
   build: BuildInvocation,
 ): Promise<{ command: string[]; env: Record<string, string> }> {
   mkdirSync(run.dir, { recursive: true });
-  await applySeed(run.dir, run.task.seed);
+  mkdirSync(run.workspaceDir, { recursive: true });
+  mkdirSync(run.stateDir, { recursive: true });
+  await applySeed(run.stateDir, run.task.seed);
   const invocation = build(run);
-  for (const [relativePath, contents] of Object.entries(invocation.files)) {
+  writeProviderFiles(run.dir, invocation.files);
+  writeProviderFiles(run.workspaceDir, invocation.workspaceFiles);
+  writeFileSync(run.eventsPath, '', 'utf8');
+  return { command: invocation.command, env: invocation.env };
+}
+
+/**
+ * Copy the evidence out of the state directory into the run directory and drop
+ * the state directory. Scoring then reads the copies, so a results tree is
+ * complete on its own and no temporary directory outlives the run that made it.
+ */
+function collectState(run: EvalRun): void {
+  for (const relativePath of COLLECTED_FILES) {
+    const source = join(run.stateDir, relativePath);
+    if (!existsSync(source)) continue;
     const target = join(run.dir, relativePath);
     mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, contents, 'utf8');
+    copyFileSync(source, target);
   }
-  writeFileSync(join(run.dir, EVENTS_FILE), '', 'utf8');
-  return { command: invocation.command, env: invocation.env };
+  rmSync(run.stateDir, { recursive: true, force: true });
 }
 
 /** Execute the plan and append one result line per run. Returns those lines. */
@@ -204,7 +286,8 @@ export async function runAll(options: RunnerOptions): Promise<EvalResultLine[]> 
     const prepared = await prepareRun(run, build);
 
     if (options.dryRun) {
-      process.stdout.write(`${JSON.stringify({ dir: run.dir, ...prepared })}\n`);
+      const layout = { dir: run.dir, workspace: run.workspaceDir, state: run.stateDir };
+      process.stdout.write(`${JSON.stringify({ ...layout, ...prepared })}\n`);
       continue;
     }
 
@@ -215,7 +298,8 @@ export async function runAll(options: RunnerOptions): Promise<EvalResultLine[]> 
       );
     }
 
-    const state = await buildEvalState(run.dir, run.eventsPath);
+    collectState(run);
+    const state = await buildEvalState(run.dir, join(run.dir, EVENTS_FILE));
     const line = scoreRun({ run, spawn: report.outcome, durationMs: report.durationMs, state });
     appendFileSync(resultsPath, `${JSON.stringify(line)}\n`, 'utf8');
     lines.push(line);

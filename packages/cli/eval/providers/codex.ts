@@ -89,8 +89,11 @@ export function buildInvocation(run: EvalRun): Invocation {
 
   return {
     command,
+    // `CODEX_HOME` takes a path, so the home lives in the run directory and the
+    // workspace the agent is started in stays empty.
     env: { CODEX_HOME: join(run.dir, CODEX_HOME_DIR) },
     files: { [CODEX_CONFIG_FILE]: renderConfig(run) },
+    workspaceFiles: {},
   };
 }
 

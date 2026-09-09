@@ -6,12 +6,25 @@
  * the process that writes the log, the log reaches the scorer, the flushed
  * snapshot reaches the task's assertion, and the result file the reporter reads
  * is the one the runner wrote.
+ *
+ * It also pins the directory split the measurement depends on: the workspace the
+ * CLI is started in holds nothing but the provider's own files, the state the
+ * run reads and writes lives under the temp root while the process is alive and
+ * is gone afterwards, and the run directory ends up holding the copies.
  */
 import { describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { runAll, planRuns, parseArgs, RESULTS_FILE, type RunnerOptions } from '../run.js';
+import {
+  runAll,
+  planRuns,
+  parseArgs,
+  RESULTS_FILE,
+  STATE_ROOT,
+  WORKSPACE_DIR,
+  type RunnerOptions,
+} from '../run.js';
 import { buildInvocation as buildFake } from '../providers/fake.js';
 import { buildReport, readResults } from '../report.js';
 import type { EvalResultLine, EvalRow, EvalState, EvalTask } from '../types.js';
@@ -53,11 +66,18 @@ const WRITE_TASK: EvalTask = {
   tags: ['firestore', 'write'],
 };
 
+/**
+ * State directories are keyed by run id under one shared temp root, so each test
+ * takes its own id and no two tests can meet in the same directory.
+ */
+let runCounter = 0;
+
 function optionsFor(resultsDir: string): RunnerOptions {
+  runCounter += 1;
   return {
     repoRoot: resolve(import.meta.dirname, '..', '..', '..', '..'),
     resultsDir,
-    runId: 'pipeline',
+    runId: `pipeline-${runCounter}`,
     rows: [ROW],
     tasks: [READ_TASK, WRITE_TASK],
     variants: ['verb-prefixed'],
@@ -98,7 +118,7 @@ describe('the fake provider drives the whole pipeline', () => {
     expect(write.firstOperation).toBe('write_firestore_document');
     expect(write.callCount).toBe(1);
 
-    const resultsPath = join(resultsDir, 'pipeline', RESULTS_FILE);
+    const resultsPath = join(resultsDir, options.runId, RESULTS_FILE);
     const persisted = readResults([resultsPath]);
     expect(persisted).toHaveLength(2);
 
@@ -137,7 +157,7 @@ describe('the fake provider drives the whole pipeline', () => {
 
     const eventsPath = join(
       resultsDir,
-      'pipeline',
+      options.runId,
       'fake-row',
       'verb-prefixed',
       'read-the-seeded-post',
@@ -152,7 +172,7 @@ describe('the fake provider drives the whole pipeline', () => {
     expect(event.tool).toBe('get_firestore_document');
     expect(event.operation).toBe('get_firestore_document');
     expect(event.run).toMatchObject({
-      runId: 'pipeline',
+      runId: options.runId,
       taskId: 'read-the-seeded-post',
       variant: 'verb-prefixed',
       cli: 'claude',
@@ -174,13 +194,82 @@ describe('a dry run prepares everything and spawns nothing', () => {
 
     const lines = await runAll(options);
     expect(lines).toHaveLength(0);
-    expect(existsSync(join(resultsDir, 'pipeline', RESULTS_FILE))).toBe(false);
+    expect(existsSync(join(resultsDir, options.runId, RESULTS_FILE))).toBe(false);
 
-    const dir = join(resultsDir, 'pipeline', 'fake-row', 'verb-prefixed', 'read-the-seeded-post', '1');
-    expect(existsSync(join(dir, 'fake-plan.json'))).toBe(true);
-    expect(existsSync(join(dir, '.pyric', 'state', 'headless.json'))).toBe(true);
-    expect(existsSync(join(dir, 'stdout.log'))).toBe(false);
+    const [run] = planRuns(options);
+    expect(existsSync(join(run!.dir, 'fake-plan.json'))).toBe(true);
+    expect(existsSync(join(run!.stateDir, '.pyric', 'state', 'headless.json'))).toBe(true);
+    expect(existsSync(join(run!.dir, 'stdout.log'))).toBe(false);
   }, 60_000);
+});
+
+describe('the run, the workspace and the state are three directories', () => {
+  test('the plan puts the workspace under the run directory and the state under the temp root', () => {
+    const options = optionsFor('/results');
+    const [run] = planRuns(options);
+    expect(run!.dir).toBe(
+      join('/results', options.runId, 'fake-row', 'verb-prefixed', 'read-the-seeded-post', '1'),
+    );
+    expect(run!.workspaceDir).toBe(join(run!.dir, WORKSPACE_DIR));
+    expect(run!.stateDir).toBe(
+      join(STATE_ROOT, options.runId, 'fake-row', 'verb-prefixed', 'read-the-seeded-post', '1'),
+    );
+    expect(run!.eventsPath).toBe(join(run!.stateDir, 'events.ndjson'));
+    // Nothing in the results tree is on the path the CLI is given.
+    expect(run!.stateDir.startsWith('/results')).toBe(false);
+  });
+
+  test('the workspace the fake provider is started in holds nothing at all', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [READ_TASK];
+    const [planned] = planRuns(options);
+
+    await runAll(options);
+
+    // The fake provider passes its plan by path, so its workspace is empty. A
+    // seed file or a snapshot appearing here is the leak this split closes.
+    expect(readdirSync(planned!.workspaceDir)).toEqual([]);
+  }, 120_000);
+
+  test('the state lives under the temp root during the run and is gone after it', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [READ_TASK];
+    const [planned] = planRuns(options);
+
+    // The provider is asked for its invocation while the run is being prepared,
+    // which is the one moment the state directory is guaranteed to be seeded.
+    let seenDuringRun: string[] = [];
+    options.providerFor = () => (run) => {
+      seenDuringRun = readdirSync(run.stateDir);
+      return buildFake(run);
+    };
+
+    await runAll(options);
+
+    expect(planned!.stateDir.startsWith(STATE_ROOT)).toBe(true);
+    expect(seenDuringRun).toContain('.pyric');
+    expect(existsSync(planned!.stateDir)).toBe(false);
+  }, 120_000);
+
+  test('the run directory holds the copied events and snapshot when the run is over', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-runner-'));
+    const options = optionsFor(resultsDir);
+    options.tasks = [WRITE_TASK];
+    const [planned] = planRuns(options);
+
+    const lines = await runAll(options);
+    expect(lines[0]?.outcome).toBe('pass');
+
+    const events = readFileSync(join(planned!.dir, 'events.ndjson'), 'utf8');
+    expect(events).toContain('write_firestore_document');
+    const snapshot = readFileSync(
+      join(planned!.dir, '.pyric', 'state', 'headless.json'),
+      'utf8',
+    );
+    expect(snapshot).toContain('written');
+  }, 120_000);
 });
 
 describe('planning and argument parsing', () => {

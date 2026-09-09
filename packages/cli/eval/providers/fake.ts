@@ -32,9 +32,12 @@ export function buildInvocation(run: EvalRun): Invocation {
   const transcript = run.fakeTranscript ?? [];
   const plan: FakePlan = { server: serverEntry(run), transcript };
   return {
+    // The plan is passed by path, so it lives in the run directory and the
+    // workspace the client is started in stays empty.
     command: ['bun', FAKE_CLIENT, join(run.dir, FAKE_PLAN_FILE)],
     env: {},
     files: { [FAKE_PLAN_FILE]: `${JSON.stringify(plan, null, 2)}\n` },
+    workspaceFiles: {},
   };
 }
 

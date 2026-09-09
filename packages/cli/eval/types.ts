@@ -84,8 +84,25 @@ export interface EvalRun {
   variant: string;
   task: EvalTask;
   seed: number;
-  /** Absolute working directory for this run. */
+  /**
+   * Absolute run directory, under the results tree. Holds the raw output, the
+   * provider config files the CLI is handed by path, and, once the process has
+   * exited, the copies of the state the run produced. The CLI is never started
+   * here and is never told this path.
+   */
   dir: string;
+  /**
+   * Absolute directory the CLI is started in, and the only directory a provider
+   * that takes a directory flag is allowed to name. It holds nothing but the
+   * files a provider must place there, so a built-in file tool finds no state.
+   */
+  workspaceDir: string;
+  /**
+   * Absolute directory the seeder writes and the headless server is pointed at,
+   * outside the results tree entirely. Copied into `dir` after the run and then
+   * deleted.
+   */
+  stateDir: string;
   /** Absolute path of the NDJSON events file, exported as `PYRIC_EVAL_LOG`. */
   eventsPath: string;
   /** The MCP server command the CLI is configured to spawn. */
@@ -99,11 +116,19 @@ export interface EvalRun {
   fakeTranscript?: Array<{ tool: string; args: Record<string, unknown> }>;
 }
 
-/** What a provider module returns. Files are written relative to the run directory. */
+/**
+ * What a provider module returns.
+ *
+ * `files` are written relative to the run directory and `workspaceFiles`
+ * relative to the workspace. A provider puts a file in the workspace only when
+ * the CLI can find it no other way; everything a CLI accepts as a path belongs
+ * in the run directory, out of the agent's reach.
+ */
 export interface Invocation {
   command: string[];
   env: Record<string, string>;
   files: Record<string, string>;
+  workspaceFiles: Record<string, string>;
 }
 
 /** A provider module's single export. */

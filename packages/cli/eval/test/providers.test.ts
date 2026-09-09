@@ -21,6 +21,10 @@ const TASK: EvalTask = {
   tags: ['firestore', 'read'],
 };
 
+const RUN_DIR = '/runs/run-1/row/verb-prefixed/read-a-post/7';
+const WORKSPACE_DIR = `${RUN_DIR}/workspace`;
+const STATE_DIR = '/state/run-1/row/verb-prefixed/read-a-post/7';
+
 function runFor(row: EvalRow, variant = 'verb-prefixed'): EvalRun {
   return {
     runId: 'run-1',
@@ -28,8 +32,10 @@ function runFor(row: EvalRow, variant = 'verb-prefixed'): EvalRun {
     variant,
     task: TASK,
     seed: 7,
-    dir: '/runs/run-1/row/verb-prefixed/read-a-post/7',
-    eventsPath: '/runs/run-1/row/verb-prefixed/read-a-post/7/events.ndjson',
+    dir: RUN_DIR,
+    workspaceDir: WORKSPACE_DIR,
+    stateDir: STATE_DIR,
+    eventsPath: `${STATE_DIR}/events.ndjson`,
     serverCommand: ['node', '/repo/packages/cli/dist/cli/index.js', 'mcp', '--headless', '--surface', variant],
     repoRoot: '/repo',
   };
@@ -74,11 +80,13 @@ describe('provider invocations', () => {
       '--permission-mode',
       'dontAsk',
       '--mcp-config',
-      '/runs/run-1/row/verb-prefixed/read-a-post/7/mcp-config.json',
+      `${RUN_DIR}/mcp-config.json`,
       '--strict-mcp-config',
       '--allowedTools',
       'mcp__pyric__*',
     ]);
+    // The config is handed over by path, so nothing lands in the workspace.
+    expect(invocation.workspaceFiles).toEqual({});
 
     const config = JSON.parse(invocation.files['mcp-config.json'] as string) as Record<
       string,
@@ -96,7 +104,8 @@ describe('provider invocations', () => {
       ]);
     }
     expect(config.mcpServers?.pyric.env).toEqual({
-      PYRIC_EVAL_LOG: '/runs/run-1/row/verb-prefixed/read-a-post/7/events.ndjson',
+      PYRIC_PROJECT_DIR: STATE_DIR,
+      PYRIC_EVAL_LOG: `${STATE_DIR}/events.ndjson`,
       PYRIC_EVAL_RUN_ID: 'run-1',
       PYRIC_EVAL_TASK_ID: 'read-a-post',
       PYRIC_EVAL_VARIANT: 'verb-prefixed',
@@ -144,9 +153,9 @@ describe('provider invocations', () => {
       CODEX_PROFILE,
       TASK.prompt,
     ]);
-    expect(invocation.env).toEqual({
-      CODEX_HOME: '/runs/run-1/row/verb-prefixed/read-a-post/7/codex-home',
-    });
+    expect(invocation.env).toEqual({ CODEX_HOME: `${RUN_DIR}/codex-home` });
+    // `CODEX_HOME` is a path, so nothing lands in the workspace.
+    expect(invocation.workspaceFiles).toEqual({});
 
     const config = invocation.files['codex-home/config.toml'] as string;
     expect(config).toContain(`[profiles.${CODEX_PROFILE}]`);
@@ -155,6 +164,7 @@ describe('provider invocations', () => {
     expect(config).toContain('[mcp_servers.pyric]');
     expect(config).toContain('command = "node"');
     expect(config).toContain('PYRIC_TOOL_SURFACE = "verb-prefixed"');
+    expect(config).toContain(`PYRIC_PROJECT_DIR = "${STATE_DIR}"`);
   });
 
   test('antigravity', () => {
@@ -178,15 +188,19 @@ describe('provider invocations', () => {
       '--print-timeout',
       '10m',
       '--add-dir',
-      '/runs/run-1/row/verb-prefixed/read-a-post/7',
+      WORKSPACE_DIR,
     ]);
 
-    const config = JSON.parse(invocation.files['.agents/mcp_config.json'] as string) as {
+    // The one provider whose config has to be in the workspace, because the CLI
+    // discovers it by directory and takes no path to the file.
+    expect(Object.keys(invocation.files)).toEqual([]);
+    const config = JSON.parse(invocation.workspaceFiles['.agents/mcp_config.json'] as string) as {
       mcpServers: { pyric: { command: string; args: string[]; env: Record<string, string> } };
     };
     expect(config.mcpServers.pyric.command).toBe('node');
     expect(config.mcpServers.pyric.env.PYRIC_EVAL_EFFORT).toBe('');
     expect(config.mcpServers.pyric.env.PYRIC_TOOL_SURFACE).toBe('verb-prefixed');
+    expect(config.mcpServers.pyric.env.PYRIC_PROJECT_DIR).toBe(STATE_DIR);
   });
 
   test('fake', () => {
@@ -201,17 +215,28 @@ describe('provider invocations', () => {
     run.fakeTranscript = [{ tool: 'get_firestore_document', args: { path: 'posts/p1' } }];
     const invocation = buildFake(run);
     expect(invocation.command[0]).toBe('bun');
-    expect(invocation.command[2]).toBe(
-      '/runs/run-1/row/verb-prefixed/read-a-post/7/fake-plan.json',
-    );
+    expect(invocation.command[2]).toBe(`${RUN_DIR}/fake-plan.json`);
+    expect(invocation.workspaceFiles).toEqual({});
 
     const plan = JSON.parse(invocation.files['fake-plan.json'] as string) as {
-      server: { command: string; args: string[] };
+      server: { command: string; args: string[]; env: Record<string, string> };
       transcript: Array<{ tool: string; args: Record<string, unknown> }>;
     };
     expect(plan.server.command).toBe('node');
+    expect(plan.server.env.PYRIC_PROJECT_DIR).toBe(STATE_DIR);
     expect(plan.transcript).toEqual([
       { tool: 'get_firestore_document', args: { path: 'posts/p1' } },
     ]);
+  });
+
+  test('the state directory reaches the server through the env, not the argument list', () => {
+    const invocation = buildClaude(runFor(CLAUDE_ROW));
+    const config = JSON.parse(invocation.files['mcp-config.json'] as string) as {
+      mcpServers: { pyric: { args: string[]; env: Record<string, string> } };
+    };
+    const server = config.mcpServers.pyric;
+    expect(server.args).not.toContain('--project-dir');
+    expect(server.args.join(' ')).not.toContain(STATE_DIR);
+    expect(server.env.PYRIC_PROJECT_DIR).toBe(STATE_DIR);
   });
 });
