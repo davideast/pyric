@@ -404,7 +404,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInWithCredential': {
       try {
-        const uid = resolveOAuthCredentialUser(auth, msg.credential, msg.tenantId);
+        const uid = resolveOAuthCredentialUser(auth, msg.credential);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'uid',
           uid,

@@ -124,7 +124,6 @@ export function applyProfileToUser(
 export function resolveOAuthCredentialUser(
   auth: Auth,
   credential: OAuthCredentialPayload,
-  tenantId?: string | null,
 ): string {
   authSandboxOps.assertAuthProviderEnabled(auth, credential.providerId);
   const existingUsers = authSandboxOps.listUsers(auth);
@@ -169,7 +168,6 @@ export function resolveOAuthCredentialUser(
       email: credential.email ?? undefined,
       displayName: credential.displayName ?? undefined,
       photoUrl: credential.photoURL ?? undefined,
-      tenantId: tenantId ?? undefined,
       providerUserInfo: [{ providerId: credential.providerId }],
     });
   }
