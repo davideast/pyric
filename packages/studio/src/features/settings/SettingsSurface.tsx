@@ -7,7 +7,7 @@
  * counting ops), and each action carries a one-line consequence plus a small
  * directional glyph (state→file, file→state, fork, loop-back). Reset shows
  * its cost by restating the live inventory in an inline two-step confirm (no
- * modal). Branches list under the actions; their empty state is the teacher.
+ * modal). Saved states list under the actions; their empty state is the teacher.
  */
 
 import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
@@ -16,11 +16,11 @@ import { instanceSlug } from '../../shell/instance-slug.js';
 import { useServeInit } from '../../shell/serve-init.js';
 import {
   useSandboxInstanceId,
-  useStudioBranches,
+  useSavedStates,
   useStudioExport,
   useStudioImport,
-  useStudioReset,
-} from '../../shell/studio-data.js';
+} from '../../shell/studio-saved-states.js';
+import { useStudioReset } from '../../shell/studio-writes.js';
 import { useResourceIndex } from '../home/useResourceIndex.js';
 import { countInventory, inventoryLine } from './sandbox-inventory.js';
 
@@ -62,8 +62,8 @@ function GlyphImport() {
   );
 }
 
-/** Fork: the current line keeps going; a copy branches off. */
-function GlyphBranch() {
+/** A saved state: the current line keeps going; a copy is kept aside. */
+function GlyphSavedState() {
   return (
     <svg {...glyphProps()}>
       <circle cx="7" cy="6" r="2.4" />
@@ -125,15 +125,15 @@ export function SettingsSurface() {
   const reset = useStudioReset();
   const exportState = useStudioExport();
   const importState = useStudioImport();
-  const branches = useStudioBranches();
+  const savedStates = useSavedStates();
   const serve = useServeInit();
   const fileRef = useRef<HTMLInputElement>(null);
   const slug = instanceSlug(useSandboxInstanceId());
   const [resetting, setResetting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
-  const [namingBranch, setNamingBranch] = useState(false);
-  const [branchName, setBranchName] = useState('');
+  const [namingState, setNamingState] = useState(false);
+  const [stateName, setStateName] = useState('');
 
   // The live inventory — the same index the Home typeahead builds (no new
   // backend ops). One build on mount is enough for a settings visit; `ensure`
@@ -192,27 +192,27 @@ export function SettingsSurface() {
     }
   };
 
-  const onSaveBranch = async () => {
-    const name = branchName.trim();
+  const onSaveState = async () => {
+    const name = stateName.trim();
     if (!name) return;
-    await branches.save(name);
-    setBranchName('');
-    setNamingBranch(false);
+    await savedStates.save(name);
+    setStateName('');
+    setNamingState(false);
   };
 
-  const onSwitchBranch = async (name: string) => {
+  const onRestoreState = async (name: string) => {
     if (
       typeof window !== 'undefined' &&
-      !window.confirm(`Switch to branch "${name}"? This replaces the current sandbox state.`)
+      !window.confirm(`Restore saved state "${name}"? This replaces the current sandbox state.`)
     ) {
       return;
     }
-    await branches.switchTo(name);
+    await savedStates.restore(name);
   };
 
-  const onDeleteBranch = async (name: string) => {
-    if (typeof window !== 'undefined' && !window.confirm(`Delete branch "${name}"?`)) return;
-    await branches.remove(name);
+  const onDeleteState = async (name: string) => {
+    if (typeof window !== 'undefined' && !window.confirm(`Delete saved state "${name}"?`)) return;
+    await savedStates.remove(name);
   };
 
   return (
@@ -257,10 +257,10 @@ export function SettingsSurface() {
               onClick={() => fileRef.current?.click()}
             />
             <ActionTile
-              glyph={<GlyphBranch />}
-              name="Save branch"
+              glyph={<GlyphSavedState />}
+              name="Save state"
               caption="Keeps a copy you can return to."
-              onClick={() => setNamingBranch((v) => !v)}
+              onClick={() => setNamingState((v) => !v)}
             />
             <ActionTile
               glyph={<GlyphReset />}
@@ -279,39 +279,39 @@ export function SettingsSurface() {
             onChange={onImportFile}
           />
 
-          {/* Transient: name the branch inline (no prompt dialog). */}
-          {namingBranch ? (
+          {/* Transient: name the saved state inline (no prompt dialog). */}
+          {namingState ? (
             <form
               className="studio-sandbox__name-row"
               onSubmit={(e) => {
                 e.preventDefault();
-                void onSaveBranch();
+                void onSaveState();
               }}
             >
               <input
                 className="studio-sandbox__name-input"
                 type="text"
-                value={branchName}
-                placeholder="branch name"
-                aria-label="Branch name"
+                value={stateName}
+                placeholder="saved state name"
+                aria-label="Saved state name"
                 autoFocus
-                onChange={(e) => setBranchName(e.target.value)}
+                onChange={(e) => setStateName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
-                    setNamingBranch(false);
-                    setBranchName('');
+                    setNamingState(false);
+                    setStateName('');
                   }
                 }}
               />
-              <button type="submit" className="studio-button" disabled={!branchName.trim()}>
+              <button type="submit" className="studio-button" disabled={!stateName.trim()}>
                 Save
               </button>
               <button
                 type="button"
                 className="studio-button"
                 onClick={() => {
-                  setNamingBranch(false);
-                  setBranchName('');
+                  setNamingState(false);
+                  setStateName('');
                 }}
               >
                 Cancel
@@ -347,18 +347,18 @@ export function SettingsSurface() {
             </div>
           ) : null}
 
-          {/* Secondary tier: saved branches. The empty state teaches what
-              "Save branch" is for. */}
-          {branches.branches.length > 0 ? (
-            <div className="studio-settings__branches">
-              {branches.branches.map((name) => (
-                <div key={name} className="studio-settings__branch">
+          {/* Secondary tier: saved states. The empty state teaches what
+              "Save state" is for. */}
+          {savedStates.names.length > 0 ? (
+            <div className="studio-settings__saved-states">
+              {savedStates.names.map((name) => (
+                <div key={name} className="studio-settings__saved-state">
                   <span className="mono">{name}</span>
-                  <span className="studio-settings__branch-actions">
-                    <button type="button" className="studio-button" onClick={() => void onSwitchBranch(name)}>
-                      Switch
+                  <span className="studio-settings__saved-state-actions">
+                    <button type="button" className="studio-button" onClick={() => void onRestoreState(name)}>
+                      Restore
                     </button>
-                    <button type="button" className="studio-button" onClick={() => void onDeleteBranch(name)}>
+                    <button type="button" className="studio-button" onClick={() => void onDeleteState(name)}>
                       Delete
                     </button>
                   </span>
@@ -366,8 +366,8 @@ export function SettingsSurface() {
               ))}
             </div>
           ) : (
-            <p className="studio-sandbox__branches-empty">
-              No branches yet — Save branch keeps this exact state to come back to.
+            <p className="studio-sandbox__saved-states-empty">
+              No saved states yet. Save state keeps this exact sandbox to come back to.
             </p>
           )}
         </section>

@@ -37,7 +37,7 @@ import {
   defaultFormatTime,
   type TimeWindow,
 } from '@pyric/ui/traffic';
-import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-data.js';
+import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
 import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
 import {
   filterByVerdict,

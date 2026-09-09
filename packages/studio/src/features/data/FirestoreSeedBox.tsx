@@ -8,7 +8,8 @@
 import { useMemo, useState } from 'react';
 import { useAssist } from '../../ai/useAssist.js';
 import { AssistPanel } from '../../ai/AssistPanel.js';
-import { useStudioDataSource, useStudioSeed, type SeedOp } from '../../shell/studio-data.js';
+import { useStudioDataSource } from '../../shell/studio-data.js';
+import { useStudioSeed, type SeedOp } from '../../shell/studio-writes.js';
 import { SEED_SYSTEM, buildSeedPrompt, makeProposeSeedTool } from './seed.js';
 import './seed.css';
 

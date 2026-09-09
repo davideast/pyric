@@ -83,7 +83,7 @@ export async function runSurfaceMethod(
   loadProjectRules(sandbox, cwd);
   await loadStorageSidecar(storage, cwd);
 
-  const ctx = createSurfaceContext(sandbox);
+  const ctx = createSurfaceContext(sandbox, cwd);
   const rejection = validateArguments(method, read.args, allowProduction);
   if (rejection !== null) {
     stderr.write(`pyric: ${rejection.summary}\n`);

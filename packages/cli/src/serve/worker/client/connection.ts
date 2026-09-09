@@ -110,25 +110,34 @@ export async function importWorkerState(db: ClientDb, bundle: string): Promise<v
   await rpc(db.port, { t: 'op', id: nextId(), method: 'importState', bundle });
 }
 
-/** Phase 3: save the live sandbox as a named branch (a saved state bundle). */
-export async function saveWorkerBranch(db: ClientDb, name: string): Promise<void> {
-  await rpc(db.port, { t: 'op', id: nextId(), method: 'saveBranch', name });
+/** One saved state as a listing reports it: the name, when it was taken, and its counts. */
+export interface WorkerCheckpoint {
+  name: string;
+  at: number;
+  counts: { firestore: number; database: number; storage: number; auth: number };
 }
 
-/** Phase 3: list this instance's saved branch names. */
-export async function listWorkerBranches(db: ClientDb): Promise<string[]> {
-  const r = (await rpc(db.port, { t: 'op', id: nextId(), method: 'listBranches' })) as { branches?: string[] };
-  return r.branches ?? [];
+/** Save the whole sandbox under a name, replacing whatever that name held. */
+export async function saveWorkerCheckpoint(db: ClientDb, name: string): Promise<void> {
+  await rpc(db.port, { t: 'op', id: nextId(), method: 'checkpoint', name });
 }
 
-/** Phase 3 (clobber): switch the live sandbox to a named branch's state. */
-export async function switchWorkerBranch(db: ClientDb, name: string): Promise<void> {
-  await rpc(db.port, { t: 'op', id: nextId(), method: 'switchBranch', name });
+/** This instance's saved states, ordered by name. */
+export async function listWorkerCheckpoints(db: ClientDb): Promise<WorkerCheckpoint[]> {
+  const r = (await rpc(db.port, { t: 'op', id: nextId(), method: 'listCheckpoints' })) as {
+    checkpoints?: WorkerCheckpoint[];
+  };
+  return r.checkpoints ?? [];
 }
 
-/** Phase 3: delete a named branch. */
-export async function deleteWorkerBranch(db: ClientDb, name: string): Promise<void> {
-  await rpc(db.port, { t: 'op', id: nextId(), method: 'deleteBranch', name });
+/** Clobber: replace the whole sandbox with a named saved state. */
+export async function restoreWorkerCheckpoint(db: ClientDb, name: string): Promise<void> {
+  await rpc(db.port, { t: 'op', id: nextId(), method: 'restore', name });
+}
+
+/** Delete one saved state. */
+export async function deleteWorkerCheckpoint(db: ClientDb, name: string): Promise<void> {
+  await rpc(db.port, { t: 'op', id: nextId(), method: 'deleteCheckpoint', name });
 }
 
 /**

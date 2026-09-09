@@ -43,7 +43,7 @@
   text-decoration: underline;
 }
 
-.session__branches {
+.session__saved-states {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -52,17 +52,17 @@
   font-size: 12px;
   color: var(--faint);
 }
-.session__branches-label {
+.session__saved-states-label {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--faint);
 }
-.session__branch {
+.session__saved-state {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
-.session__branch-name {
+.session__saved-state-name {
   font-family: var(--font-mono);
   color: var(--muted);
 }

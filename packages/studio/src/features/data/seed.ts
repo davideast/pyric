@@ -6,7 +6,7 @@
  */
 
 import type { ToolHandler, ToolResult } from '@inbrowser/agent';
-import type { SeedOp } from '../../shell/studio-data.js';
+import type { SeedOp } from '../../shell/studio-writes.js';
 
 export const SEED_SYSTEM =
   'You generate Firestore seed data for a LOCAL sandbox from a natural-language ' +

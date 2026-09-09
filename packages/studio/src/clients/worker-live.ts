@@ -52,10 +52,11 @@ import {
   getWorkerInstanceId,
   exportWorkerState,
   importWorkerState,
-  saveWorkerBranch,
-  listWorkerBranches,
-  switchWorkerBranch,
-  deleteWorkerBranch,
+  saveWorkerCheckpoint,
+  listWorkerCheckpoints,
+  restoreWorkerCheckpoint,
+  deleteWorkerCheckpoint,
+  type WorkerCheckpoint,
   subscribeEvents,
   setLens as workerSetLens,
   getLens as workerGetLens,
@@ -227,14 +228,14 @@ export interface WorkerLivePlane {
   exportState(): Promise<string>;
   /** Phase 2 (clobber): replace this sandbox's ENTIRE state with a bundle. */
   importState(bundle: string): Promise<void>;
-  /** Phase 3: save the live sandbox as a named branch (a saved state). */
-  saveBranch(name: string): Promise<void>;
-  /** Phase 3: list this instance's saved branch names. */
-  listBranches(): Promise<string[]>;
-  /** Phase 3 (clobber): switch the live sandbox to a named branch. */
-  switchBranch(name: string): Promise<void>;
-  /** Phase 3: delete a named branch. */
-  deleteBranch(name: string): Promise<void>;
+  /** Save the whole sandbox under a name, replacing whatever that name held. */
+  saveState(name: string): Promise<void>;
+  /** This instance's saved states, with when each was taken and its counts. */
+  listStates(): Promise<WorkerCheckpoint[]>;
+  /** Clobber: replace the whole sandbox with a named saved state. */
+  restoreState(name: string): Promise<void>;
+  /** Delete one saved state. */
+  deleteState(name: string): Promise<void>;
   /**
    * Connected-page presence (#227): this Studio tab's logical client id, so
    * the shell can label the matching registry entry "This page".
@@ -399,10 +400,10 @@ export function connectWorkerLive(
     instanceId: () => getWorkerInstanceId(db),
     exportState: () => exportWorkerState(db),
     importState: (bundle) => importWorkerState(db, bundle),
-    saveBranch: (name) => saveWorkerBranch(db, name),
-    listBranches: () => listWorkerBranches(db),
-    switchBranch: (name) => switchWorkerBranch(db, name),
-    deleteBranch: (name) => deleteWorkerBranch(db, name),
+    saveState: (name) => saveWorkerCheckpoint(db, name),
+    listStates: () => listWorkerCheckpoints(db),
+    restoreState: (name) => restoreWorkerCheckpoint(db, name),
+    deleteState: (name) => deleteWorkerCheckpoint(db, name),
     feed,
     setLens: (lens) => workerSetLens(lens),
     getLens: () => workerGetLens() as StudioLens | undefined,

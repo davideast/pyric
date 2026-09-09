@@ -7,7 +7,7 @@
  * call, which is what these tests do.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { arrayBufferToBase64 } from '../../src/storage/base64.js';
+import { arrayBufferToBase64, base64ToBytes } from '../../src/storage/base64.js';
 
 const globals = globalThis as { Buffer?: unknown };
 const realBuffer = globals.Buffer;
@@ -54,6 +54,29 @@ describe('arrayBufferToBase64', () => {
     for (const length of [1, 2, 3, 4, 5]) {
       const bytes = bufferOf(Array.from({ length }, (_, i) => i * 37 % 256));
       expect(withoutBuffer(() => arrayBufferToBase64(bytes))).toBe(arrayBufferToBase64(bytes));
+    }
+  });
+});
+
+describe('base64ToBytes', () => {
+  it('decodes an empty string to no bytes on both branches', () => {
+    expect(Array.from(base64ToBytes(''))).toEqual([]);
+    expect(Array.from(withoutBuffer(() => base64ToBytes('')))).toEqual([]);
+  });
+
+  it('decodes high bytes identically on both branches', () => {
+    const expected = [0x00, 0x7f, 0x80, 0xfe, 0xff];
+
+    expect(Array.from(base64ToBytes('AH+A/v8='))).toEqual(expected);
+    expect(Array.from(withoutBuffer(() => base64ToBytes('AH+A/v8=')))).toEqual(expected);
+  });
+
+  it('round-trips every remainder length on both branches', () => {
+    for (const length of [1, 2, 3, 4, 5]) {
+      const source = Array.from({ length }, (_, i) => (i * 37) % 256);
+      const encoded = arrayBufferToBase64(bufferOf(source));
+      expect(Array.from(base64ToBytes(encoded))).toEqual(source);
+      expect(Array.from(withoutBuffer(() => base64ToBytes(encoded)))).toEqual(source);
     }
   });
 });

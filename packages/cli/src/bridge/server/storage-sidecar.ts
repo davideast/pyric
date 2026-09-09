@@ -11,62 +11,22 @@
  * same final flush that writes the snapshot. Without that, storage reads back
  * empty on the next start and an object uploaded in one session is gone in the
  * next.
+ *
+ * What a bucket's contents are, and how they are read out and written back, is
+ * `bridge/surface/storage-state.ts`. This module is the file: where it lives
+ * and when it is written.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { FirebaseStorage } from 'pyric/storage';
 import {
-  ref as storageRef,
-  uploadBytes,
-  getBytes,
-  getMetadata,
-  listAll,
-  type FirebaseStorage,
-} from 'pyric/storage';
+  exportStorage,
+  restoreStorage,
+  type StorageObjectRecord,
+} from '../surface/storage-state.js';
 
 /** Where the sidecar lives, relative to the run directory. */
 export const STORAGE_SIDECAR_RELATIVE = join('.pyric', 'state', 'storage.json');
-
-/** One stored object, in the shape the sidecar holds it. */
-export interface StorageObjectRecord {
-  path: string;
-  contentBase64: string;
-  contentType?: string;
-  metadata: Record<string, unknown>;
-}
-
-/**
- * Every object path in the bucket. `listAll` reports one level, so the walk
- * descends into each prefix it returns.
- */
-export async function listStoredPaths(storage: FirebaseStorage): Promise<string[]> {
-  const paths: string[] = [];
-  const pending = [''];
-  while (pending.length > 0) {
-    const prefix = pending.pop() as string;
-    const listing = await listAll(storageRef(storage, prefix));
-    for (const item of listing.items) paths.push(item.fullPath);
-    for (const child of listing.prefixes) pending.push(child.fullPath);
-  }
-  paths.sort();
-  return paths;
-}
-
-/** Read every object out of the bucket into sidecar records. */
-export async function exportStorage(storage: FirebaseStorage): Promise<StorageObjectRecord[]> {
-  const records: StorageObjectRecord[] = [];
-  for (const path of await listStoredPaths(storage)) {
-    const metadata = await getMetadata(storageRef(storage, path));
-    const bytes = await getBytes(storageRef(storage, path));
-    const record: StorageObjectRecord = {
-      path,
-      contentBase64: Buffer.from(new Uint8Array(bytes)).toString('base64'),
-      metadata: metadata.customMetadata ?? {},
-    };
-    if (metadata.contentType !== undefined) record.contentType = metadata.contentType;
-    records.push(record);
-  }
-  return records;
-}
 
 /** Write the bucket's contents to `<dir>/.pyric/state/storage.json`. */
 export async function saveStorageSidecar(storage: FirebaseStorage, dir: string): Promise<void> {
@@ -81,26 +41,5 @@ export async function loadStorageSidecar(storage: FirebaseStorage, dir: string):
   const path = join(dir, STORAGE_SIDECAR_RELATIVE);
   if (!existsSync(path)) return 0;
   const records = JSON.parse(readFileSync(path, 'utf8')) as StorageObjectRecord[];
-  for (const record of records) {
-    const bytes = Uint8Array.from(Buffer.from(record.contentBase64, 'base64'));
-    const settable: { contentType?: string; customMetadata?: Record<string, string> } = {};
-    if (record.contentType !== undefined) settable.contentType = record.contentType;
-    const custom = toCustomMetadata(record.metadata);
-    if (custom !== null) settable.customMetadata = custom;
-    await uploadBytes(storageRef(storage, record.path), bytes, settable);
-  }
-  return records.length;
-}
-
-/** Storage custom metadata is a string map; anything else is dropped rather than coerced. */
-function toCustomMetadata(metadata: Record<string, unknown>): Record<string, string> | null {
-  const entries: Record<string, string> = {};
-  let found = false;
-  for (const [key, value] of Object.entries(metadata)) {
-    if (typeof value !== 'string') continue;
-    entries[key] = value;
-    found = true;
-  }
-  if (!found) return null;
-  return entries;
+  return restoreStorage(storage, records);
 }

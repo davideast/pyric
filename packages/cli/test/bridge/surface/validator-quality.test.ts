@@ -58,7 +58,24 @@ const REJECTIONS: Array<[string, string, Record<string, unknown>]> = [
   ['firestore', 'getDocs', { path: 'users', constraints: [{ type: 'where', field: 'role', op: '=', value: 'admin' }] }],
   ['rules', 'explainDenial', { service: 'storage', operation: 'get', path: 'uploads/hello.txt' }],
   ['rules', 'set', { service: 'firestore', rules: 'not rules at all {' }],
+  ['sandbox', 'checkpoint', { name: '../evil' }],
 ];
+
+/** The rejections whose message must quote the value the caller sent. */
+const QUOTED_VALUES: Array<[string, string, Record<string, unknown>, string]> = [
+  ['sandbox', 'checkpoint', { name: '../evil' }, "'../evil'"],
+];
+
+describe('a rejection quotes the value it refused', () => {
+  for (const [tool, method, args, quoted] of QUOTED_VALUES) {
+    it(`${tool}.${method} names ${quoted} rather than calling it missing`, async () => {
+      const result = await call(tool, method, args);
+      expect(result.ok).toBe(false);
+      expect(result.summary).toContain(quoted);
+      expect(result.summary).not.toContain('missing');
+    });
+  }
+});
 
 describe('validator message quality', () => {
   for (const [tool, method, args] of REJECTIONS) {

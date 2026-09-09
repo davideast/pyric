@@ -9,8 +9,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'inspect()',
-  description:
-    'Report the loaded rules, the document census, and the recent requests and denials.',
+  description: 'Report loaded rules, document counts, and denials.',
   args: z.object({}),
   operation: 'inspect_sandbox',
   example: {},

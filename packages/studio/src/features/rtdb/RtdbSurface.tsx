@@ -23,7 +23,7 @@
 import { useMemo, useState } from 'react';
 import { RtdbPathBar, RtdbTree, useRtdbTree, type RtdbApi } from '@pyric/ui/rtdb';
 import { useEnvironment } from '../../shell/environment.js';
-import { useSandboxInstanceId } from '../../shell/studio-data.js';
+import { useSandboxInstanceId } from '../../shell/studio-saved-states.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import type { WorkerLivePlane } from '../../clients/worker-live.js';
 import './rtdb.css';

@@ -23,8 +23,6 @@
  */
 
 import {
-  fork,
-  diff,
   discard,
   type AuthState,
   type Divergence,
@@ -32,6 +30,7 @@ import {
   type Sandbox,
   type SandboxSnapshot,
 } from 'pyric/sandbox';
+import { documentDivergences, forkFromSavedState } from '../../shell/saved-state-branches.js';
 import {
   getFirestore as getSandboxFirestore,
   doc,
@@ -149,6 +148,13 @@ export interface EditedRulesetRerun {
  * @param editedRules The candidate ruleset to test.
  * @param live        Diff reference: the live sandbox/snapshot to compare against.
  */
+/** The state behind a diff reference, read when the reference is a sandbox. */
+function snapshotOf(reference: LocalSandbox | SandboxSnapshot): SandboxSnapshot {
+  const asSandbox = reference as LocalSandbox;
+  if (typeof asSandbox.snapshot === 'function') return asSandbox.snapshot();
+  return reference as SandboxSnapshot;
+}
+
 export async function rerunAgainstRules(
   snapshot: SandboxSnapshot,
   denial: Denial,
@@ -175,7 +181,7 @@ export async function rerunAgainstRules(
   }
 
   if (isRtdb) {
-    const branch = fork(snapshot, '');
+    const branch = await forkFromSavedState(snapshot);
     try {
       const hasServices = snapshot.services !== undefined && Object.keys(snapshot.services).length > 0;
       if (hasServices) {
@@ -190,12 +196,14 @@ export async function rerunAgainstRules(
     }
   }
 
-  const branch = fork(snapshot, editedRules);
+  const branch = await forkFromSavedState(snapshot, editedRules);
   try {
     const result = await issueOp(branch.sandbox, denial);
     // Only a mutation that actually landed can diverge; a denied/read op leaves
     // the branch identical to its base, so `diff` is naturally empty there.
-    const divergences = result.outcome === 'allow' ? diff(branch, live) : [];
+    const allowed = result.outcome === 'allow';
+    const reference = snapshotOf(live);
+    const divergences = allowed ? documentDivergences(branch, reference) : [];
     return { result, diff: divergences, lint };
   } finally {
     discard(branch);

@@ -110,7 +110,7 @@ const ROUTABLE_METHODS = {
     'rtdb.goOnline',
     'rtdb.transactionCommit',
   ],
-  connection: ['getVersion', 'exportState', 'importState', 'saveBranch', 'listBranches', 'switchBranch', 'deleteBranch'],
+  connection: ['getVersion', 'exportState', 'importState', 'checkpoint', 'listCheckpoints', 'restore', 'deleteCheckpoint'],
   studio: ['getSnapshot', 'resetAll'],
   presence: [
     'presence.register',

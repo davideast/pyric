@@ -15,12 +15,25 @@ import type { SandboxSeed } from '../src/bridge/surface/seed-apply.js';
  */
 export type EvalSeed = SandboxSeed;
 
-/** One recorded tool call, read back from the events NDJSON. */
+/**
+ * One recorded tool call, read back from the events NDJSON.
+ *
+ * `args` and `data` are what the agent sent and what it got back, carried
+ * through so a task can assert on the conversation and not only on its
+ * result: whether a second page continued from the first page's cursor is a
+ * question the final sandbox state cannot answer.
+ *
+ * `args` is the tool's own arguments, so its shape follows the variant: the
+ * service tools nest the method's arguments under `args`, and the
+ * discriminator tools spell them at the top level.
+ */
 export interface EvalCall {
   operation: string | null;
   tool: string;
   ok: boolean;
   schemaRejected: boolean;
+  args: Record<string, unknown>;
+  data: unknown;
 }
 
 /** The final sandbox snapshot plus the call log, as a task's `assert` sees it. */

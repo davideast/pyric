@@ -51,6 +51,10 @@ function createMemoryWorkspace(): WorkspaceStore {
     async remove(path) {
       if (files.delete(path)) notify({ path, type: 'delete' });
     },
+    async branches() {
+      // The branch store is a directory only a served project has.
+      return [];
+    },
     watch(cb) {
       watchers.add(cb);
       return () => watchers.delete(cb);

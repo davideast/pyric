@@ -27,8 +27,9 @@ import type {
   PersistenceBackend,
   ProjectStore,
   RemoteLifecycle,
+  WorkspaceStore,
 } from './ports.js';
-import { httpProjectStore, httpPersistence } from './clients/index.js';
+import { httpProjectStore, httpPersistence, httpWorkspace } from './clients/index.js';
 import { createMemoryProjectStore } from './clients/memory-project-store.js';
 import {
   connectWorkerLive,
@@ -72,6 +73,13 @@ export type StudioMode = 'local' | 'browser' | 'hosted';
 export interface StudioEnvironment {
   mode: StudioMode;
   projects: ProjectStore;
+  /**
+   * The project's own file tree. Present in `local` mode, where the served
+   * routes back it with the directory the server was started in. Studio reads
+   * the persisted branch store through it, because a branch is a directory
+   * under `.pyric/state/branches/` rather than state the worker holds.
+   */
+  workspace?: WorkspaceStore;
   /** Sandbox durable state (already polymorphic in pyric). */
   persistence: PersistenceBackend;
   remote?: RemoteLifecycle;
@@ -195,7 +203,7 @@ export function createStudioEnvironment(
       });
     }
 
-    return {
+    const environment: StudioEnvironment = {
       mode,
       projects: staticBuild ? createMemoryProjectStore() : httpProjectStore(baseUrl),
       persistence,
@@ -207,6 +215,10 @@ export function createStudioEnvironment(
         void live?.dispose();
       },
     };
+    // A static build has no server behind `/__pyric/workspace`, so it gets no
+    // workspace port at all rather than one whose every read fails.
+    if (!staticBuild) environment.workspace = httpWorkspace(baseUrl);
+    return environment;
   }
 
   throw new Error(
@@ -222,6 +234,7 @@ export type {
   ProjectMeta,
   ProjectStore,
   RemoteLifecycle,
+  WorkspaceBranch,
   WorkspaceChange,
   WorkspaceEntry,
   WorkspaceStore,

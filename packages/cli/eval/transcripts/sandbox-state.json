@@ -1,0 +1,78 @@
+{
+  "checkpoint-before-cleanup-then-restore": [
+    { "tool": "sandbox", "args": { "method": "checkpoint", "args": { "name": "before-cleanup" } } },
+    { "tool": "firestore", "args": { "method": "deleteDoc", "args": { "path": "demo/archived-note" } } },
+    {
+      "tool": "sandbox",
+      "args": { "method": "restore", "args": { "name": "before-cleanup", "confirm": true } }
+    }
+  ],
+  "delete-the-checkpoint-that-is-no-longer-needed": [
+    { "tool": "sandbox", "args": { "method": "checkpoint", "args": { "name": "pre-cleanup" } } },
+    { "tool": "firestore", "args": { "method": "deleteDoc", "args": { "path": "demo/archived-note" } } },
+    {
+      "tool": "sandbox",
+      "args": { "method": "deleteCheckpoint", "args": { "name": "pre-cleanup", "confirm": true } }
+    },
+    { "tool": "sandbox", "args": { "method": "listCheckpoints", "args": {} } }
+  ],
+  "clear-database-only-leave-firestore": [
+    {
+      "tool": "sandbox",
+      "args": { "method": "reset", "args": { "scope": "database", "confirm": true } }
+    }
+  ],
+  "export-fixture-then-reload-after-reset": [
+    {
+      "tool": "sandbox",
+      "args": { "method": "exportFixture", "args": { "path": "fixtures/scenario.json" } }
+    },
+    { "tool": "sandbox", "args": { "method": "reset", "args": { "confirm": true } } },
+    {
+      "tool": "sandbox",
+      "args": { "method": "seedFromFixture", "args": { "path": "fixtures/scenario.json" } }
+    }
+  ],
+  "list-checkpoints-restore-after-import": [
+    { "tool": "sandbox", "args": { "method": "checkpoint", "args": { "name": "morning-state" } } },
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "setDoc",
+        "args": { "path": "status/doc", "data": { "phase": "importing" } }
+      }
+    },
+    { "tool": "sandbox", "args": { "method": "checkpoint", "args": { "name": "after-import" } } },
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "setDoc",
+        "args": { "path": "status/doc", "data": { "phase": "broken" } }
+      }
+    },
+    { "tool": "sandbox", "args": { "method": "listCheckpoints", "args": {} } },
+    {
+      "tool": "sandbox",
+      "args": { "method": "restore", "args": { "name": "after-import", "confirm": true } }
+    }
+  ],
+  "page-through-events-after-a-burst": [
+    {
+      "tool": "firestore",
+      "args": { "method": "setDoc", "args": { "path": "scratch/a", "data": { "n": 1 } } }
+    },
+    {
+      "tool": "firestore",
+      "args": { "method": "setDoc", "args": { "path": "scratch/b", "data": { "n": 2 } } }
+    },
+    {
+      "tool": "firestore",
+      "args": { "method": "setDoc", "args": { "path": "scratch/c", "data": { "n": 3 } } }
+    },
+    { "tool": "sandbox", "args": { "method": "events", "args": { "limit": 2 } } },
+    {
+      "tool": "sandbox",
+      "args": { "method": "events", "args": { "limit": 2, "since": "<nextCursor>" } }
+    }
+  ]
+}

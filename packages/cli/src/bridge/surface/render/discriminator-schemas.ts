@@ -10,6 +10,8 @@
  */
 import { z } from 'zod';
 
+import { RESET_SCOPES } from '../methods/sandbox/reset.js';
+
 export const switchAuthIdentitySchema = z.object({
   mode: z
     .enum(['uid', 'admin', 'anonymous', 'app-session'])
@@ -193,9 +195,17 @@ export const verifySecurityRulesSchema = z.object({
 
 export const dryRunExperimentSchema = z.object({
   action: z
-    .enum(['fork', 'apply', 'diff', 'promote', 'discard'])
+    .enum(['fork', 'apply', 'diff', 'promote', 'discard', 'list'])
     .describe('Branch lifecycle operation.'),
   branchId: z.string().optional().describe('Identifier of the experiment branch.'),
+  against: z
+    .string()
+    .optional()
+    .describe("Reference a diff compares against: 'live', or a checkpoint name."),
+  confirm: z
+    .boolean()
+    .optional()
+    .describe("Must be true to promote, which overwrites live state (when action is 'promote')."),
   candidateRules: z
     .string()
     .optional()
@@ -208,8 +218,46 @@ export const dryRunExperimentSchema = z.object({
 
 export const controlSandboxEnvironmentSchema = z.object({
   action: z
-    .enum(['reset_all', 'advance_clock', 'set_network', 'seed'])
+    .enum([
+      'reset_all',
+      'advance_clock',
+      'set_network',
+      'seed',
+      'checkpoint',
+      'restore',
+      'list_checkpoints',
+      'delete_checkpoint',
+      'events',
+      'export_fixture',
+      'seed_fixture',
+    ])
     .describe('Environment control action.'),
+  scope: z
+    .enum(RESET_SCOPES)
+    .optional()
+    .describe("Service to reset alone (when action is 'reset_all'). Default is all."),
+  checkpointName: z
+    .string()
+    .optional()
+    .describe(
+      "Checkpoint name (when action is 'checkpoint', 'restore', or 'delete_checkpoint').",
+    ),
+  fixturePath: z
+    .string()
+    .optional()
+    .describe("Fixture file path, relative to the project (when action is 'export_fixture' or 'seed_fixture')."),
+  excludePasswords: z
+    .boolean()
+    .optional()
+    .describe(
+      "Leave the seeded passwords out of the fixture (when action is 'export_fixture'). Default false.",
+    ),
+  since: z.string().optional().describe("Cursor from a prior 'events' call."),
+  limit: z.number().optional().describe("Maximum events to return (when action is 'events')."),
+  kind: z
+    .enum(['all', 'denials', 'writes'])
+    .optional()
+    .describe("Event filter (when action is 'events')."),
   advanceMs: z
     .number()
     .optional()
@@ -225,7 +273,9 @@ export const controlSandboxEnvironmentSchema = z.object({
   confirm: z
     .boolean()
     .optional()
-    .describe("Must be true to reset (when action is 'reset_all'). Reset discards every service."),
+    .describe(
+      "Must be true for the three actions that replace or discard state: 'reset_all', which clears the services in scope, 'restore', which discards every change made since the checkpoint, and 'delete_checkpoint', which discards the only copy of a saved state.",
+    ),
   seedSnapshotJson: z
     .string()
     .optional()

@@ -50,14 +50,41 @@ function argumentSummary(method: Method, name: string): string {
 }
 
 /**
- * Reject an argument name the schema does not declare, preferring a known
- * rename over a spelling guess, because a name borrowed from a neighbouring API
- * is a different mistake from a typo and takes a different correction.
+ * The method's own answer for one argument name, when it has one.
+ *
+ * `validate` is where a record states the rules a schema cannot, and an
+ * argument name is one of them: a name that asks for the opposite of what the
+ * method already does is neither a rename nor a typo, and only the record can
+ * say so. The answer counts as the method's own when it points at the name
+ * being checked, so a rule about some other argument does not pre-empt the
+ * unknown-name message the caller needs.
+ */
+function methodAnswerFor(
+  method: Method,
+  args: Args,
+  name: string,
+  fail: Fail,
+): InvalidArguments | null {
+  const answered = method.validate?.(args, { fail }) ?? null;
+  if (answered === null) return null;
+  if (answered.data.field !== name) return null;
+  return answered;
+}
+
+/**
+ * Reject an argument name the schema does not declare, preferring the method's
+ * own answer over a rename and a rename over a spelling guess. A name
+ * borrowed from a neighbouring API is a different mistake from a typo and
+ * takes a different correction, and a name that asks for the opposite of what
+ * the method already does is a third: neither a rename nor a near miss can say
+ * so, which is why the record gets to answer first.
  */
 function checkArgumentNames(method: Method, args: Args, fail: Fail): InvalidArguments | null {
   const known = argumentNames(method);
   for (const name of Object.keys(args)) {
     if (known.includes(name)) continue;
+    const answered = methodAnswerFor(method, args, name, fail);
+    if (answered !== null) return answered;
     const renamed = method.renames?.[name] ?? closest(name, known);
     if (renamed !== null && renamed !== undefined) {
       return fail(
@@ -118,12 +145,32 @@ function fromZodIssue(
       field,
     );
   }
-  const shown = quoted(field === '' ? args : undefined);
+  // A rule a schema states as a refinement, such as a name's shape, reaches
+  // here. The value is what the caller has to change, so the message quotes it
+  // rather than reporting the argument as absent.
+  const shown = quoted(field === '' ? args : valueAt(args, issue.path));
+  if (field === '') {
+    return fail(
+      `the arguments are invalid: ${issue.message}. The SDK signature is ${method.signature}.`,
+      `Pass arguments the signature accepts. Received ${shown}.`,
+      field,
+    );
+  }
   return fail(
-    `argument '${field}' is invalid: ${issue.message}. The SDK signature is ${method.signature}.`,
-    `Correct '${field}' and call again.${detail === '' ? ` Received ${shown}.` : detail}`,
+    `argument '${field}' is ${shown}, which is invalid: ${issue.message}. The SDK signature is ${method.signature}.`,
+    `Pass '${field}' as a value the rule allows.${detail}`,
     field,
   );
+}
+
+/** The value a Zod issue's path points at, as the caller sent it. */
+function valueAt(args: Args, path: readonly (string | number)[]): unknown {
+  let value: unknown = args;
+  for (const segment of path) {
+    if (value === null || typeof value !== 'object') return undefined;
+    value = (value as Record<string | number, unknown>)[segment];
+  }
+  return value;
 }
 
 /**
