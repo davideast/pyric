@@ -20,7 +20,7 @@ import {
   readSessionEvents,
   refuseAmbiguousSource,
   refuseUnknownBranch,
-  resolveProjectPath,
+  projectPathWithin,
   storageObjectSeed,
   userSeed,
 } from '../../../../src/bridge/surface/arguments/sandbox.js';
@@ -159,19 +159,24 @@ describe('refuseAmbiguousSource', () => {
   });
 });
 
-describe('resolveProjectPath', () => {
+describe('projectPathWithin', () => {
   it('resolves a relative path against the project directory', () => {
-    const resolved = resolveProjectPath(projectDir, DEFAULT_SESSION_PATH, 'sessionPath', fail);
+    const resolved = projectPathWithin(projectDir, DEFAULT_SESSION_PATH, 'sessionPath', fail);
     expect(resolved).toEqual({ path: join(projectDir, DEFAULT_SESSION_PATH) });
   });
 
-  it('refuses an absolute path', () => {
-    const refused = resolveProjectPath(projectDir, '/etc/hosts', 'sessionPath', fail);
+  it('accepts an absolute path inside the project directory', () => {
+    const inside = join(projectDir, DEFAULT_SESSION_PATH);
+    expect(projectPathWithin(projectDir, inside, 'sessionPath', fail)).toEqual({ path: inside });
+  });
+
+  it('refuses an absolute path outside the project directory', () => {
+    const refused = projectPathWithin(projectDir, '/etc/hosts', 'sessionPath', fail);
     expect('path' in refused).toBe(false);
   });
 
   it('refuses a path that climbs out of the project directory', () => {
-    const refused = resolveProjectPath(projectDir, '../outside.json', 'sessionPath', fail);
+    const refused = projectPathWithin(projectDir, '../outside.json', 'sessionPath', fail);
     expect('path' in refused).toBe(false);
   });
 });

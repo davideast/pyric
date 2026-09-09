@@ -7,7 +7,9 @@
  * where a person chooses it at a terminal.
  */
 import { z } from 'zod';
-import { buildFixture, fixturePathWithin, writeFixtureFile } from '../../fixture.js';
+import { buildFixture, writeFixtureFile } from '../../fixture.js';
+import { projectPathWithin } from '../../arguments/sandbox.js';
+import { failFor } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
@@ -24,10 +26,13 @@ export default {
   example: { path: 'fixtures/scenario.json' },
   async handler(args, ctx) {
     const given = String(args.path);
-    const resolved = fixturePathWithin(ctx.projectDir, given);
-    if ('error' in resolved) {
-      return { ok: false, summary: resolved.error };
-    }
+    const resolved = projectPathWithin(
+      ctx.projectDir,
+      given,
+      'path',
+      failFor('sandbox', 'exportFixture'),
+    );
+    if (!('path' in resolved)) return resolved;
     const fixture = await buildFixture(ctx.sandbox);
     writeFixtureFile(resolved.path, fixture);
     const docs = Object.keys(fixture.firestore ?? {}).length;

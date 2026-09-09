@@ -15,7 +15,7 @@
  * reads the shape `exportFixture` writes.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname } from 'node:path';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { getActiveRules as getDatabaseRules } from 'pyric/sandbox/database';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
@@ -31,16 +31,6 @@ import {
   type SeedStorageEntry,
   type SeedUserEntry,
 } from './seed-apply.js';
-
-/** Resolve a caller-given path against the project directory, refusing escape. */
-export function fixturePathWithin(projectDir: string, given: string): { path: string } | { error: string } {
-  const resolved = isAbsolute(given) ? given : resolve(projectDir, given);
-  const rel = relative(projectDir, resolved);
-  if (rel.startsWith('..') || isAbsolute(rel)) {
-    return { error: `path '${given}' escapes the project directory.` };
-  }
-  return { path: resolved };
-}
 
 /** Build a fixture from the live sandbox's current state. */
 export async function buildFixture(sandbox: LocalSandbox): Promise<SandboxSeed> {

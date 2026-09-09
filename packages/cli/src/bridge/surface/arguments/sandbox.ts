@@ -135,25 +135,27 @@ function storedBranchNames(projectDir: string): string[] {
     .sort();
 }
 
-/** A path inside the project directory, or a refusal naming why it is not one. */
-export function resolveProjectPath(
+/**
+ * A path inside the project directory, or a refusal naming why it is not one.
+ *
+ * One rule for every method that names a file. A relative path resolves
+ * against the project directory and an absolute one is taken as written, and
+ * either way the result has to land inside the project directory: a sandbox
+ * method reads and writes a project's own files and nothing above them. The
+ * three methods that take a path had two rules between them, so the same
+ * absolute path was a fixture one would write and a session another refused.
+ */
+export function projectPathWithin(
   projectDir: string,
   candidate: string,
   field: string,
   fail: Fail,
 ): { path: string } | InvalidArguments {
-  if (isAbsolute(candidate)) {
-    return fail(
-      `'${field}' is an absolute path. It names a file relative to the project directory.`,
-      `Pass '${field}' as a path relative to the project directory, such as '${DEFAULT_SESSION_PATH}'.`,
-      field,
-    );
-  }
-  const resolved = resolve(projectDir, candidate);
+  const resolved = isAbsolute(candidate) ? candidate : resolve(projectDir, candidate);
   const inside = relative(projectDir, resolved);
-  if (inside.startsWith('..')) {
+  if (inside.startsWith('..') || isAbsolute(inside)) {
     return fail(
-      `'${field}' leaves the project directory.`,
+      `'${field}' is '${candidate}', which is outside the project directory.`,
       `Pass '${field}' as a path inside the project directory, such as '${DEFAULT_SESSION_PATH}'.`,
       field,
     );

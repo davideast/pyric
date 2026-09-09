@@ -10,7 +10,6 @@ import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import {
   applyFixture,
   buildFixture,
-  fixturePathWithin,
   readFixtureFile,
   writeFixtureFile,
 } from '../../../src/bridge/surface/fixture.js';
@@ -18,18 +17,6 @@ import {
 function tmpProjectDir(): string {
   return mkdtempSync(join(tmpdir(), 'pyric-fixture-'));
 }
-
-describe('fixturePathWithin', () => {
-  it('resolves a relative path inside the project directory', () => {
-    const result = fixturePathWithin('/project', 'fixtures/a.json');
-    expect(result).toEqual({ path: '/project/fixtures/a.json' });
-  });
-
-  it('refuses a path that escapes the project directory', () => {
-    const result = fixturePathWithin('/project', '../outside.json');
-    expect('error' in result).toBe(true);
-  });
-});
 
 describe('buildFixture / writeFixtureFile / readFixtureFile / applyFixture', () => {
   it('carries documents and users into a fixture and back', async () => {

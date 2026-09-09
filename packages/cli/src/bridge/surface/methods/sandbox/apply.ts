@@ -20,7 +20,7 @@ import {
   readSessionEvents,
   refuseAmbiguousSource,
   refuseUnknownBranch,
-  resolveProjectPath,
+  projectPathWithin,
 } from '../../arguments/sandbox.js';
 import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';
@@ -34,7 +34,7 @@ type EventSource = { events: SandboxEvent[] } | { refusal: OperationResult };
 function eventsFor(args: Record<string, unknown>, projectDir: string): EventSource {
   if (Array.isArray(args.events)) return { events: args.events as SandboxEvent[] };
   const named = String(args.sessionPath);
-  const resolved = resolveProjectPath(projectDir, named, 'sessionPath', failFor('sandbox', 'apply'));
+  const resolved = projectPathWithin(projectDir, named, 'sessionPath', failFor('sandbox', 'apply'));
   if (!('path' in resolved)) return { refusal: resolved };
   const events = readSessionEvents(resolved.path);
   if (events === null) {

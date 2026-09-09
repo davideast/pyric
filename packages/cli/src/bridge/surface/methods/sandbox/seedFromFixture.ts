@@ -1,6 +1,8 @@
 /** Load a fixture written by `exportFixture` on top of the live sandbox. */
 import { z } from 'zod';
-import { applyFixture, fixturePathWithin, readFixtureFile } from '../../fixture.js';
+import { applyFixture, readFixtureFile } from '../../fixture.js';
+import { projectPathWithin } from '../../arguments/sandbox.js';
+import { failFor } from '../../method-validation.js';
 import { operationFailure } from '../../context.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -16,10 +18,13 @@ export default {
   example: { path: 'fixtures/scenario.json' },
   async handler(args, ctx) {
     const given = String(args.path);
-    const resolved = fixturePathWithin(ctx.projectDir, given);
-    if ('error' in resolved) {
-      return { ok: false, summary: resolved.error };
-    }
+    const resolved = projectPathWithin(
+      ctx.projectDir,
+      given,
+      'path',
+      failFor('sandbox', 'seedFromFixture'),
+    );
+    if (!('path' in resolved)) return resolved;
     const fixture = readFixtureFile(resolved.path);
     if (fixture === null) {
       return operationFailure(`No fixture file at '${given}'.`);
