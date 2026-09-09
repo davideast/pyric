@@ -23,6 +23,8 @@ export interface SurfaceContext {
   sandbox: LocalSandbox;
   dispatch: SandboxDispatch;
   identity: SurfaceIdentity;
+  /** Where checkpoint and fixture files read and write. Defaults to the process's own working directory. */
+  projectDir: string;
 }
 
 /** One tool as an MCP client sees it. */

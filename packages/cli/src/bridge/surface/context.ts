@@ -34,12 +34,20 @@ function buildSurfaceDispatch(sandbox: LocalSandbox): SandboxDispatch {
   };
 }
 
-/** Build the context for one sandbox. */
-export function createSurfaceContext(sandbox: LocalSandbox): SurfaceContext {
+/**
+ * Build the context for one sandbox. `projectDir` is where checkpoint and
+ * fixture files read and write, from `--project-dir` or the process's own
+ * working directory when a caller does not name one.
+ */
+export function createSurfaceContext(
+  sandbox: LocalSandbox,
+  projectDir: string = process.cwd(),
+): SurfaceContext {
   return {
     sandbox,
     dispatch: buildSurfaceDispatch(sandbox),
     identity: new SurfaceIdentity(),
+    projectDir,
   };
 }
 

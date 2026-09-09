@@ -72,6 +72,8 @@ export interface HeadlessMcpServerOptions extends LocalBridgeOptions {
    * started with `--allow-production`.
    */
   allowProduction?: boolean;
+  /** Where checkpoint and fixture files read and write. Defaults to the process's own working directory. */
+  projectDir?: string;
   /**
    * Called for a tool call the MCP SDK refused before any handler ran, so a
    * schema rejection is still recorded. Absent leaves the server as it was.
@@ -112,10 +114,16 @@ export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: HeadlessMcp
   // rather than measuring the wrong surface.
   const rendered = renderSurface(opts?.surface, { allowProduction: opts?.allowProduction });
   const server = new McpServer({ name: 'pyric', version: bridge.version });
-  return registerRenderedSurface(server, bridge, rendered, createSurfaceContext(sandbox), {
-    onCallRejected: onCallRejected ? rejectionEvent : undefined,
-    onAfterCall: opts?.onAfterDispatch,
-  });
+  return registerRenderedSurface(
+    server,
+    bridge,
+    rendered,
+    createSurfaceContext(sandbox, opts?.projectDir),
+    {
+      onCallRejected: onCallRejected ? rejectionEvent : undefined,
+      onAfterCall: opts?.onAfterDispatch,
+    },
+  );
 }
 
 /**
@@ -319,6 +327,7 @@ export async function runHeadlessMcp(
     onAfterDispatch: scheduleSave,
     surface: options.surface,
     allowProduction: options.allowProduction,
+    projectDir,
   };
   // A surface id no renderer claims is a start-up failure, not a per-call one:
   // serving the wrong surface would silently mislabel a whole run.
