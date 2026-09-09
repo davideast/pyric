@@ -222,6 +222,18 @@ bun packages/cli/eval/run.ts \
 bun packages/cli/eval/report.ts <results>/runs.ndjson
 ```
 
+The checkpoint, event, and fixture family sweeps the same way:
+
+```
+bun packages/cli/eval/run.ts \
+  --rows claude-fable-5-1-low-mcp-only \
+  --tasks checkpoint-before-cleanup-then-restore,clear-database-only-leave-firestore,export-fixture-then-reload-after-reset,list-checkpoints-restore-after-import,page-through-events-after-a-burst \
+  --variants sdk-service \
+  --transcripts packages/cli/eval/transcripts/sandbox-state.json \
+  --no-wait --min-gap 0
+bun packages/cli/eval/report.ts <results>/runs.ndjson
+```
+
 Pacing: one CLI process at a time per CLI, a configurable minimum gap between spawns per CLI, and a per-CLI budget per five-hour window; a rejected or rate-limited run is recorded with outcome `throttled`, not retried.
 
 Result line fields: `runId`, `row`, `variant`, `task`, `seed`, `outcome` (`pass`, `fail`, `timeout`, `throttled`, `crash`), `firstOperation`, `firstOperationAccepted`, `callCount`, `schemaRejections`, `errorCalls`, `durationMs`, `assertReason`.
