@@ -18,7 +18,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'exportFixture(path)',
-  description: 'Write the sandbox to a seed fixture file.',
+  description: 'Write the sandbox to a seed fixture file. No passwords.',
   args: z.object({
     path: z.string().describe('Where to write the fixture, inside the project directory.'),
   }),

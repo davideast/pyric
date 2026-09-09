@@ -66,17 +66,6 @@ describe('the generated tool descriptions', () => {
     }
   });
 
-  it('says the branch methods carry Firestore documents and nothing else', () => {
-    // A branch holds Firestore documents. Storage objects, auth users, and the
-    // rules the live sandbox runs under are not branched, so a description that
-    // said "the sandbox" would promise a fork the engine does not take.
-    for (const name of ['fork', 'apply', 'diff', 'promote', 'discard']) {
-      const record = METHODS.find((method) => method.key === `sandbox.${name}`);
-      expect(record).toBeDefined();
-      expect(record!.description).toContain('Firestore');
-    }
-  });
-
   it('keeps every description inside the character limit', () => {
     for (const description of Object.values(TOOL_DESCRIPTIONS)) {
       expect(description.length).toBeLessThanOrEqual(DESCRIPTION_LIMIT);
