@@ -15,7 +15,7 @@
  */
 import { join } from 'node:path';
 import type { EvalRun, Invocation } from '../types.js';
-import { serverEntry } from './server-env.js';
+import { runEnv, serverEntry } from './server-env.js';
 
 export const CODEX_HOME_DIR = 'codex-home';
 export const CODEX_CONFIG_FILE = join(CODEX_HOME_DIR, 'config.toml');
@@ -90,8 +90,9 @@ export function buildInvocation(run: EvalRun): Invocation {
   return {
     command,
     // `CODEX_HOME` takes a path, so the home lives in the run directory and the
-    // workspace the agent is started in stays empty.
-    env: { CODEX_HOME: join(run.dir, CODEX_HOME_DIR) },
+    // workspace the agent is started in stays empty. The run's own variables sit
+    // beside it, on the process rather than in `config.toml`.
+    env: { ...runEnv(run), CODEX_HOME: join(run.dir, CODEX_HOME_DIR) },
     files: { [CODEX_CONFIG_FILE]: renderConfig(run) },
     workspaceFiles: {},
   };

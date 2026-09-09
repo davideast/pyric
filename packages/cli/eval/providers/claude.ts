@@ -11,7 +11,7 @@
  */
 import { join } from 'node:path';
 import type { EvalRun, Invocation } from '../types.js';
-import { serverEntry } from './server-env.js';
+import { runEnv, serverEntry } from './server-env.js';
 
 /** The documented top-level key of the MCP config file, and its historical spelling. */
 export const MCP_CONFIG_KEYS = ['mcpServers', 'servers'] as const;
@@ -66,7 +66,9 @@ export function buildInvocation(run: EvalRun): Invocation {
 
   return {
     command,
-    env: {},
+    // The run's own variables ride on the CLI process, which the MCP server it
+    // spawns inherits, so no path to the state directory appears in any file.
+    env: runEnv(run),
     // `--mcp-config` takes a path, so the config lives in the run directory and
     // the workspace the agent is started in stays empty.
     files: { [MCP_CONFIG_FILE]: `${JSON.stringify(config, null, 2)}\n` },

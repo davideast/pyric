@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 import type { EvalRun, Invocation } from '../types.js';
-import { serverEntry } from './server-env.js';
+import { serverEntry, serverEnv } from './server-env.js';
 
 export const FAKE_PLAN_FILE = 'fake-plan.json';
 
@@ -30,7 +30,13 @@ export const FAKE_CLIENT = join(import.meta.dirname, 'fake-client.ts');
 
 export function buildInvocation(run: EvalRun): Invocation {
   const transcript = run.fakeTranscript ?? [];
-  const plan: FakePlan = { server: serverEntry(run), transcript };
+  // The replay client spawns the server itself rather than inheriting a CLI's
+  // environment, so the plan carries the run's variables in full. The plan lives
+  // in the run directory, which no agent is ever given, so nothing leaks.
+  const plan: FakePlan = {
+    server: { ...serverEntry(run), env: serverEnv(run) },
+    transcript,
+  };
   return {
     // The plan is passed by path, so it lives in the run directory and the
     // workspace the client is started in stays empty.

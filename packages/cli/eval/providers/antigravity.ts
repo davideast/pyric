@@ -5,13 +5,15 @@
  * it has been given, and takes no path to the file itself. That makes it the one
  * provider that has to write into the workspace: the config goes there and the
  * workspace is the only directory `--add-dir` names, so the run's state, which
- * lives elsewhere, is not among the files the agent can open. The reasoning
+ * lives elsewhere, is not among the files the agent can open. Because the agent
+ * can read that config, it carries no path: the surface id is the only variable
+ * in it, and the run's own variables travel in the process env. The reasoning
  * effort is part of the model slug for this CLI, so no separate effort flag is
  * passed.
  */
 import { join } from 'node:path';
 import type { EvalRun, Invocation } from '../types.js';
-import { serverEntry } from './server-env.js';
+import { runEnv, serverEntry } from './server-env.js';
 
 export const AGY_CONFIG_FILE = join('.agents', 'mcp_config.json');
 /** Ceiling for one non-interactive print run, matched to the runner's own timeout. */
@@ -46,7 +48,10 @@ export function buildInvocation(run: EvalRun): Invocation {
 
   return {
     command,
-    env: {},
+    // This config is the one file an agent is certain to be able to open, so it
+    // names no path. Everything about the run travels on the CLI process, which
+    // the server it spawns inherits.
+    env: runEnv(run),
     files: {},
     workspaceFiles: { [AGY_CONFIG_FILE]: `${JSON.stringify(config, null, 2)}\n` },
   };
