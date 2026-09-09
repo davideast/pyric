@@ -496,10 +496,11 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
                     do {
                         for try await event in idTokenSubStream {
                             guard !Task.isCancelled else { break }
-                            if !event.isNull, let userDict = event["user"] {
-                                if let user = User.fromWire(auth: self, wire: userDict) {
-                                    self.applyUserTransition(user)
-                                }
+                            let userWire = event["user"] ?? event
+                            if event.isNull {
+                                self.applyUserTransition(nil)
+                            } else if let user = User.fromWire(auth: self, wire: userWire) {
+                                self.applyUserTransition(user)
                             } else {
                                 self.notifyIdTokenChanged()
                             }
