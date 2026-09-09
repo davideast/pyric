@@ -240,6 +240,47 @@ describe('loadRunLines re-derives from a results directory', () => {
     expect(lines[0]?.outcome).toBe('pass');
   }, 30_000);
 
+  test('a genuine crash whose event log is empty is left as recorded', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-report-'));
+    const runDir = join(resultsDir, 'run-1', 'fake-row', 'verb-prefixed', 'read-the-seeded-post', '1');
+    mkdirSync(runDir, { recursive: true });
+    // The runner writes an empty events file while it prepares a run and copies
+    // it out afterwards, so a harness crash before the spawn leaves exactly
+    // this: a crash line and a log with nothing in it.
+    writeFileSync(join(runDir, 'events.ndjson'), '', 'utf8');
+    const crashLine: EvalResultLine = {
+      runId: 'run-1',
+      row: 'fake-row',
+      variant: 'verb-prefixed',
+      task: 'read-the-seeded-post',
+      seed: 1,
+      outcome: 'crash',
+      firstOperation: null,
+      firstOperationAccepted: false,
+      acceptedOpReached: false,
+      callCount: 0,
+      schemaRejections: 0,
+      errorCalls: 0,
+      durationMs: 0,
+      assertReason: 'seeding failed',
+    };
+    writeFileSync(
+      join(resultsDir, 'run-1', 'runs.ndjson'),
+      `${JSON.stringify(crashLine)}\n`,
+      'utf8',
+    );
+
+    const lines = await loadRunLines([join(resultsDir, 'run-1')], {
+      tasks: new Map([[TASK.id, TASK]]),
+      rows: new Map([[ROW.id, ROW]]),
+    });
+    expect(lines).toHaveLength(1);
+    // Re-scoring this against the task's assertion would report a harness
+    // failure as a design failure.
+    expect(lines[0]?.outcome).toBe('crash');
+    expect(lines[0]?.assertReason).toBe('seeding failed');
+  });
+
   test('a genuine crash with no event log is left as recorded', async () => {
     const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-report-'));
     const runDir = join(resultsDir, 'run-1', 'fake-row', 'verb-prefixed', 'read-the-seeded-post', '1');

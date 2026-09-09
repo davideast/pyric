@@ -15,12 +15,12 @@
  * This folds what used to be `rescore.ts` into the one reporting tool.
  */
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { loadRows, loadTasks } from './load.js';
 import { classifyRunOutcome } from './outcome.js';
 import { scoreRun } from './score.js';
 import { buildEvalState } from './state.js';
-import type { EvalResultLine, EvalRow, EvalRun, EvalTask } from './types.js';
+import type { EvalResultLine, EvalRow, EvalRun, EvalState, EvalTask } from './types.js';
 
 /** Resamples per interval. Fixed so two reports over the same data agree. */
 export const BOOTSTRAP_RESAMPLES = 1000;
@@ -281,10 +281,27 @@ export interface LoadRunLinesOptions {
 }
 
 /**
+ * Whether a run the runner recorded as a crash may be re-scored from its log.
+ *
+ * The runner writes an empty `events.ndjson` while it prepares a run, so the
+ * file existing proves nothing. Only a log with at least one recorded call
+ * proves the CLI itself ran and used the surface, which is what makes
+ * `completed` an honest base to re-score from: the crash was then the harness
+ * failing afterward, during collection or scoring. An empty log means the
+ * harness died before or during the spawn, and scoring the task's assertion
+ * against a sandbox the CLI never touched would report a harness failure as a
+ * design failure.
+ */
+function crashRecoveredByLog(state: EvalState): boolean {
+  return state.calls.length > 0;
+}
+
+/**
  * One run directory's line, re-derived from its event log rather than trusted
- * from `runs.ndjson`. The prior recorded outcome (if any) only supplies the
- * duration, since the process itself already finished; everything about
- * whether the task passed comes fresh from the log and the current corpus.
+ * from `runs.ndjson`, or null when the log does not support re-deriving it and
+ * the recorded line stands. The recorded outcome supplies the duration and
+ * decides whether a crash is recoverable; everything about whether the task
+ * passed comes fresh from the log and the current corpus.
  */
 async function rederiveRun(
   runDir: string,
@@ -293,14 +310,15 @@ async function rederiveRun(
   variant: string,
   task: EvalTask,
   seed: number,
-  priorDurationMs: number,
-): Promise<EvalResultLine> {
+  recorded: EvalResultLine | undefined,
+): Promise<EvalResultLine | null> {
   const eventsPath = join(runDir, 'events.ndjson');
   const state = await buildEvalState(runDir, eventsPath);
-  // A non-empty log, whatever the recorded outcome, is proof the CLI itself
-  // finished: a recorded `crash` here is the harness failing afterward, during
-  // collection or scoring, never the CLI process. `completed` is the honest
-  // base to classify and score from.
+
+  const recordedCrash = recorded === undefined || recorded.outcome === 'crash';
+  if (recordedCrash && !crashRecoveredByLog(state)) return null;
+
+  const priorDurationMs = recorded?.durationMs ?? 0;
   const refined = classifyRunOutcome(row.cli, 'completed', runDir, state.calls.length);
   const run: EvalRun = {
     runId,
@@ -334,7 +352,7 @@ async function rederiveDirectory(
   tasks: Map<string, EvalTask>,
   rows: Map<string, EvalRow>,
 ): Promise<EvalResultLine[]> {
-  const runId = resultsDir.split('/').filter((part) => part.length > 0).pop() ?? resultsDir;
+  const runId = basename(resultsDir);
   const recorded = new Map<string, EvalResultLine>();
   for (const line of readNdjsonLines(join(resultsDir, RUNS_FILE_NAME))) {
     recorded.set(runKey(line.row, line.variant, line.task, line.seed), line);
@@ -359,9 +377,12 @@ async function rederiveDirectory(
             continue;
           }
 
-          out.push(
-            await rederiveRun(runDir, runId, row, variant, task, seed, existing?.durationMs ?? 0),
-          );
+          const rederived = await rederiveRun(runDir, runId, row, variant, task, seed, existing);
+          if (rederived !== null) {
+            out.push(rederived);
+            continue;
+          }
+          if (existing !== undefined) out.push(existing);
         }
       }
     }
