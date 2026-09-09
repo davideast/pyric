@@ -99,15 +99,6 @@ export interface MethodRecord {
   operation: CanonicalOperation;
   /** Argument names from a neighbouring API, mapped to this SDK's name. */
   renames?: Readonly<Record<string, string>>;
-  /**
-   * Argument names this method refuses in its own words rather than by naming
-   * a replacement. A rename and a near-miss both read as "you meant this one",
-   * which is wrong for a name that asks for the opposite of what the method
-   * already does: pointing `includePasswords` at `excludePasswords` inverts the
-   * call. Each entry states the rule the caller broke and the edit that fixes
-   * it, and is checked before any rename or spelling guess.
-   */
-  refusals?: Readonly<Record<string, { rule: string; fix: string }>>;
   /** One example `args` object, shown by `describe`. */
   example: Args;
   /** Rules a schema cannot state. Returns a rejection or null. */

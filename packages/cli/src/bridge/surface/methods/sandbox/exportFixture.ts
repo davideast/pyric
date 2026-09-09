@@ -5,6 +5,11 @@
  * seeded test value rather than a credential, and a fixture that dropped it
  * reads back a user who cannot sign in. `excludePasswords` leaves them out for
  * a fixture that is going somewhere those values should not follow.
+ *
+ * `includePasswords` is refused in this record's own words rather than renamed.
+ * A rename reads as "you meant this one", and pointing `includePasswords` at
+ * `excludePasswords` inverts the call, so the rule and the edit are stated
+ * here and the shared validator asks this record before it guesses.
  */
 import { z } from 'zod';
 import { buildFixture, writeFixtureFile } from '../../fixture.js';
@@ -29,13 +34,15 @@ export default {
       ),
   }),
   operation: 'export_sandbox_fixture',
-  refusals: {
-    includePasswords: {
-      rule: "unknown argument 'includePasswords'. A fixture carries the seeded passwords by default, so there is nothing to turn on.",
-      fix: "Drop 'includePasswords', or pass 'excludePasswords' as true to leave the passwords out.",
-    },
-  },
   example: { path: 'fixtures/scenario.json' },
+  validate: (args, { fail }) => {
+    if (!('includePasswords' in args)) return null;
+    return fail(
+      "unknown argument 'includePasswords'. A fixture carries the seeded passwords by default, so there is nothing to turn on.",
+      "Drop 'includePasswords', or pass 'excludePasswords' as true to leave the passwords out.",
+      'includePasswords',
+    );
+  },
   async handler(args, ctx) {
     const given = String(args.path);
     const resolved = projectPathWithin(

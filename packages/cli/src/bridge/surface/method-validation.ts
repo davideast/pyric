@@ -50,8 +50,30 @@ function argumentSummary(method: Method, name: string): string {
 }
 
 /**
+ * The method's own answer for one argument name, when it has one.
+ *
+ * `validate` is where a record states the rules a schema cannot, and an
+ * argument name is one of them: a name that asks for the opposite of what the
+ * method already does is neither a rename nor a typo, and only the record can
+ * say so. The answer counts as the method's own when it points at the name
+ * being checked, so a rule about some other argument does not pre-empt the
+ * unknown-name message the caller needs.
+ */
+function methodAnswerFor(
+  method: Method,
+  args: Args,
+  name: string,
+  fail: Fail,
+): InvalidArguments | null {
+  const answered = method.validate?.(args, { fail }) ?? null;
+  if (answered === null) return null;
+  if (answered.data.field !== name) return null;
+  return answered;
+}
+
+/**
  * Reject an argument name the schema does not declare, preferring the method's
- * own refusal over a rename and a rename over a spelling guess. A name
+ * own answer over a rename and a rename over a spelling guess. A name
  * borrowed from a neighbouring API is a different mistake from a typo and
  * takes a different correction, and a name that asks for the opposite of what
  * the method already does is a third: neither a rename nor a near miss can say
@@ -61,8 +83,8 @@ function checkArgumentNames(method: Method, args: Args, fail: Fail): InvalidArgu
   const known = argumentNames(method);
   for (const name of Object.keys(args)) {
     if (known.includes(name)) continue;
-    const refused = method.refusals?.[name];
-    if (refused !== undefined) return fail(refused.rule, refused.fix, name);
+    const answered = methodAnswerFor(method, args, name, fail);
+    if (answered !== null) return answered;
     const renamed = method.renames?.[name] ?? closest(name, known);
     if (renamed !== null && renamed !== undefined) {
       return fail(
