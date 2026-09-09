@@ -38,6 +38,8 @@ export function buildInvocation(run: EvalRun): Invocation {
     run.task.prompt,
     '--output-format',
     'stream-json',
+    // Print mode refuses stream-json without it.
+    '--verbose',
     '--model',
     run.row.model,
   ];

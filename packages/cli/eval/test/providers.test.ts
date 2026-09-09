@@ -64,6 +64,7 @@ describe('provider invocations', () => {
       TASK.prompt,
       '--output-format',
       'stream-json',
+      '--verbose',
       '--model',
       'claude-opus-4',
       '--effort',
