@@ -37,10 +37,9 @@ import {
   loadStorageSidecar,
   STORAGE_SIDECAR_RELATIVE,
 } from './storage-sidecar.js';
-import { buildMcpServer, type RejectedToolCall } from './mcp.js';
+import { type RejectedToolCall } from './mcp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerRenderedSurface } from './surface-server.js';
-import { getDefaultMcpToolSurface } from './mcp-contract.js';
 import { renderSurface } from '../surface/index.js';
 import { createSurfaceContext } from '../surface/context.js';
 import { rememberUnloadedStorageRules } from '../surface/storage-rules.js';
@@ -67,6 +66,12 @@ export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
 export interface HeadlessMcpServerOptions extends LocalBridgeOptions {
   /** Tool-surface variant id. Absent serves the default surface. */
   surface?: string;
+  /**
+   * Mount `production` methods (ADR-0014 Decision 5). Defaults to false: a
+   * `production` method is neither listed nor callable unless the server was
+   * started with `--allow-production`.
+   */
+  allowProduction?: boolean;
   /**
    * Called for a tool call the MCP SDK refused before any handler ran, so a
    * schema rejection is still recorded. Absent leaves the server as it was.
@@ -97,27 +102,19 @@ export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: HeadlessMcp
     });
   };
 
-  // No variant is the path the server has always taken: the default surface
-  // registered by `buildMcpServer`, with the bridge's own consumer registry and
-  // caller identity behind the in-process identity tools. A variant id renders
-  // the operation set instead and registers it through the surface adapter, on
-  // a server built here rather than there.
-  if (opts?.surface === undefined) {
-    const surface = getDefaultMcpToolSurface({
-      consumers: bridge.consumers,
-      callerIdentity: bridge.callerIdentity,
-    });
-    if (!onCallRejected) return buildMcpServer(bridge, surface);
-    return buildMcpServer(bridge, { ...surface, onCallRejected: rejectionEvent });
-  }
-
+  // The product surface is the service tools rendered from the method records,
+  // and it is what a server with no `--surface` serves. A surface id renders
+  // another spelling of the same records for the surface evaluation. Either way
+  // the rendering is registered through the surface adapter, so one code path
+  // serves the product and the measurements.
+  //
   // Throws for an id no renderer claims, which fails the session at startup
   // rather than measuring the wrong surface.
-  const rendered = renderSurface(opts.surface);
+  const rendered = renderSurface(opts?.surface, { allowProduction: opts?.allowProduction });
   const server = new McpServer({ name: 'pyric', version: bridge.version });
   return registerRenderedSurface(server, bridge, rendered, createSurfaceContext(sandbox), {
     onCallRejected: onCallRejected ? rejectionEvent : undefined,
-    onAfterCall: opts.onAfterDispatch,
+    onAfterCall: opts?.onAfterDispatch,
   });
 }
 
@@ -195,6 +192,11 @@ export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number 
 export interface HeadlessRunOptions {
   /** Tool-surface variant id, from `--surface` or `PYRIC_TOOL_SURFACE`. */
   surface?: string;
+  /**
+   * Mount `production` methods, from `--allow-production` or
+   * `PYRIC_ALLOW_PRODUCTION`. Defaults to false.
+   */
+  allowProduction?: boolean;
   /**
    * Directory the session reads its rules files and `.pyric/state` from and
    * writes them back to, from `--project-dir` or `PYRIC_PROJECT_DIR`. A relative
@@ -316,6 +318,7 @@ export async function runHeadlessMcp(
   const baseServerOptions: HeadlessMcpServerOptions = {
     onAfterDispatch: scheduleSave,
     surface: options.surface,
+    allowProduction: options.allowProduction,
   };
   // A surface id no renderer claims is a start-up failure, not a per-call one:
   // serving the wrong surface would silently mislabel a whole run.

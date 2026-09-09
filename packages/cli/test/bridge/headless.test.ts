@@ -42,8 +42,8 @@ import {
 } from '../../src/bridge/server/storage-sidecar.js';
 import {
   DEFAULT_MCP_TOOL_NAMES,
-  getDefaultMcpToolSurface,
 } from '../../src/bridge/server/mcp-contract.js';
+import { METHODS } from '../../src/bridge/surface/methods/registry.js';
 import { applySeed } from '../../eval/seed.js';
 
 interface LoggedEvent {
@@ -108,8 +108,8 @@ describe('headless MCP session', () => {
       const session = await openSession(dir, evalEnv(logPath));
 
       const created = await session.client.callTool({
-        name: 'firestore_create_document',
-        arguments: { path: 'rooms/r1/msgs/m1', data: { body: 'hi' } },
+        name: 'firestore',
+        arguments: { method: 'setDoc', args: { path: 'rooms/r1/msgs/m1', data: { body: 'hi' } } },
       });
       expect(created.isError).toBeFalsy();
       await session.close();
@@ -117,13 +117,16 @@ describe('headless MCP session', () => {
       const events = readEvents(logPath);
       expect(events.length).toBe(1);
       const [event] = events as [LoggedEvent];
-      expect(event.tool).toBe('firestore_create_document');
-      expect(event.args).toEqual({ path: 'rooms/r1/msgs/m1', data: { body: 'hi' } });
+      expect(event.tool).toBe('firestore');
+      expect(event.args).toEqual({
+        method: 'setDoc',
+        args: { path: 'rooms/r1/msgs/m1', data: { body: 'hi' } },
+      });
       expect(event.result.ok).toBe(true);
       expect(event.isError).toBe(false);
       expect(event.schemaRejected).toBe(false);
-      expect(event.operation).toBe(null);
-      expect(event.action).toBe(null);
+      expect(event.operation).toBe('write_firestore_document');
+      expect(event.action).toBe('setDoc');
       expect(typeof event.durationMs).toBe('number');
       expect(event.run).toEqual({
         runId: 'run-1',
@@ -154,10 +157,10 @@ describe('headless MCP session', () => {
       const logPath = join(dir, 'events.ndjson');
       const session = await openSession(dir, evalEnv(logPath));
 
-      // `path` is a required string; a number never reaches the handler.
+      // `method` is a required string; a number never reaches the handler.
       const rejected = await session.client.callTool({
-        name: 'firestore_get_document',
-        arguments: { path: 42 },
+        name: 'firestore',
+        arguments: { method: 42 },
       });
       expect(rejected.isError).toBe(true);
       await session.close();
@@ -165,7 +168,7 @@ describe('headless MCP session', () => {
       const events = readEvents(logPath);
       expect(events.length).toBe(1);
       const [event] = events as [LoggedEvent];
-      expect(event.tool).toBe('firestore_get_document');
+      expect(event.tool).toBe('firestore');
       expect(event.result.summary).toContain('Input validation error');
       expect(event.schemaRejected).toBe(true);
       expect(event.isError).toBe(true);
@@ -181,8 +184,11 @@ describe('headless MCP session', () => {
     try {
       const session = await openSession(dir, {});
       const created = await session.client.callTool({
-        name: 'firestore_create_document',
-        arguments: { path: 'rooms/r1/msgs/m1', data: { body: 'persisted' } },
+        name: 'firestore',
+        arguments: {
+          method: 'setDoc',
+          args: { path: 'rooms/r1/msgs/m1', data: { body: 'persisted' } },
+        },
       });
       expect(created.isError).toBeFalsy();
 
@@ -198,7 +204,7 @@ describe('headless MCP session', () => {
     }
   });
 
-  it('loads project rules and serves the legacy tool list when no variant is named', async () => {
+  it('loads project rules and serves the service tools when no surface is named', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-surface-'));
     try {
       writeFileSync(join(dir, 'firestore.rules'), "rules_version = '2';\n", 'utf8');
@@ -294,18 +300,18 @@ describe('headless state that outlives the process', () => {
 
       const session = await openSession(dir, {});
       const user = await session.client.callTool({
-        name: 'auth_get_user',
-        arguments: { uid: 'alice' },
+        name: 'auth',
+        arguments: { method: 'getUser', args: { uid: 'alice' } },
       });
       expect(user.isError).toBeFalsy();
       expect(JSON.stringify(user.content)).toContain('alice@example.com');
 
-      const crawl = await session.client.callTool({
-        name: 'rtdb_crawl_structure',
-        arguments: { path: '/app' },
+      const read = await session.client.callTool({
+        name: 'database',
+        arguments: { method: 'get', args: { path: 'app' } },
       });
-      expect(crawl.isError).toBeFalsy();
-      expect(JSON.stringify(crawl.content)).toContain('config');
+      expect(read.isError).toBeFalsy();
+      expect(JSON.stringify(read.content)).toContain('config');
       await session.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -331,15 +337,18 @@ describe('a project directory apart from the cwd', () => {
 
       const session = await openSession(workspace, {}, undefined, projectDir);
       const read = await session.client.callTool({
-        name: 'firestore_get_document',
-        arguments: { path: 'posts/p1' },
+        name: 'firestore',
+        arguments: { method: 'getDoc', args: { path: 'posts/p1' } },
       });
       expect(read.isError).toBeFalsy();
       expect(JSON.stringify(read.content)).toContain('seeded elsewhere');
 
       const created = await session.client.callTool({
-        name: 'firestore_create_document',
-        arguments: { path: 'posts/p2', data: { title: 'written elsewhere' } },
+        name: 'firestore',
+        arguments: {
+          method: 'setDoc',
+          args: { path: 'posts/p2', data: { title: 'written elsewhere' } },
+        },
       });
       expect(created.isError).toBeFalsy();
       expect(await session.close()).toBe(0);
@@ -376,10 +385,13 @@ service cloud.firestore {
         firestore: { 'posts/p1': { title: 'locked' } },
       });
 
-      const session = await openSession(workspace, {}, 'verb-prefixed', projectDir);
+      const session = await openSession(workspace, {}, undefined, projectDir);
       const verdict = await session.client.callTool({
-        name: 'simulate_firestore_rules',
-        arguments: { operation: 'get', path: 'posts/p1', uid: 'anyone' },
+        name: 'rules',
+        arguments: {
+          method: 'simulate',
+          args: { service: 'firestore', operation: 'get', path: 'posts/p1', uid: 'anyone' },
+        },
       });
       expect(verdict.isError).toBeFalsy();
       expect(JSON.stringify(verdict.content)).toContain('DENY');
@@ -398,8 +410,8 @@ service cloud.firestore {
       });
       const session = await openSession(root, {}, undefined, 'state');
       const read = await session.client.callTool({
-        name: 'firestore_get_document',
-        arguments: { path: 'posts/p1' },
+        name: 'firestore',
+        arguments: { method: 'getDoc', args: { path: 'posts/p1' } },
       });
       expect(read.isError).toBeFalsy();
       expect(JSON.stringify(read.content)).toContain('under state');
@@ -415,8 +427,8 @@ service cloud.firestore {
     try {
       const session = await openSession(dir, {});
       const created = await session.client.callTool({
-        name: 'firestore_create_document',
-        arguments: { path: 'posts/p1', data: { title: 'in the cwd' } },
+        name: 'firestore',
+        arguments: { method: 'setDoc', args: { path: 'posts/p1', data: { title: 'in the cwd' } } },
       });
       expect(created.isError).toBeFalsy();
       await session.close();
@@ -445,17 +457,19 @@ describe('headless event writer selection', () => {
 });
 
 describe('the surface a headless session serves', () => {
-  it('serves the legacy tool surface unchanged when no variant is named', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-legacy-'));
+  it('serves the six service tools when no surface is named', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-default-'));
     try {
       const session = await openSession(dir, {});
       const listed = await session.client.listTools();
-      const legacy = getDefaultMcpToolSurface();
-      const expected = [
-        ...legacy.forwarded.map((tool) => tool.name),
-        ...legacy.inProcess.map((tool) => tool.name),
-      ].sort();
-      expect(listed.tools.map((tool) => tool.name).sort()).toEqual(expected);
+      expect(listed.tools.map((tool) => tool.name)).toEqual([
+        'firestore',
+        'database',
+        'storage',
+        'auth',
+        'rules',
+        'sandbox',
+      ]);
       await session.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -471,11 +485,11 @@ describe('the surface a headless session serves', () => {
         PYRIC_EVAL_VARIANT: 'verb-prefixed',
       }, 'verb-prefixed');
       const listed = await session.client.listTools();
-      expect(listed.tools.length).toBe(41);
+      expect(listed.tools.length).toBe(METHODS.length);
 
       const created = await session.client.callTool({
         name: 'create_auth_user',
-        arguments: { uid: 'alice', email: 'alice@example.com', tenant: 'tenant-a' },
+        arguments: { uid: 'alice', email: 'alice@example.com', tenantId: 'tenant-a' },
       });
       expect(created.isError).toBeFalsy();
       await session.close();

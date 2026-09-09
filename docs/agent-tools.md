@@ -1,16 +1,69 @@
 # Agent tool inventory
 
-Every agent-callable tool in this repo, **sourced**. Tools are plain
-`ToolHandler` objects produced by per-package factories — you compose them
-into whatever runtime you use. They reach an agent two ways:
+This repo carries two MCP tool contracts, both sourced from
+`packages/cli/src/bridge/server/mcp-contract.ts`.
 
-1. **`pyric sandbox --bridge`** (or `pyric bridge`) exposes the **default sandbox
-   registry** over MCP; the [Pyric agent plugin](../pyric-plugin/README.md)
-   auto-wires it. Forwarded + in-process names are authored per family in
-   `packages/cli/src/bridge/tool-family-records/` and pinned by
-   `packages/cli/src/bridge/server/mcp-contract.ts` (**41** tools today).
-2. **Programmatic** — import a factory and register the handlers with any agent
-   framework (the playground does this with `@inbrowser/agent`).
+1. **`pyric mcp`** (headless, the default): the **product surface**, six
+   service tools, one per Firebase capability, rendered from the method
+   records under `packages/cli/src/bridge/surface/methods/`. Every call is
+   `{ method, args }`, where `method` is the SDK's own method name where the
+   SDK has one, and pyric's own name where it does not. `DEFAULT_MCP_TOOL_NAMES`
+   is the exact list, and it is the six tools this section documents.
+2. **`pyric sandbox --bridge`** (or `pyric bridge`): the **transport
+   surface** a browser sandbox peer executes, plus the rules and conformance
+   tools that run in the bridge process. Its names are authored per family in
+   `packages/cli/src/bridge/tool-family-records/` and pinned as
+   `BRIDGE_TOOL_NAMES` (41 tools today, unchanged flat names such as
+   `firestore_get_document` and `sandbox_inspect`). The
+   [Pyric agent plugin](../pyric-plugin/README.md) auto-wires an agent to
+   this surface when it drives `pyric sandbox --bridge` against a served
+   application page.
+
+Programmatic use (importing a factory and registering its handlers with any
+agent framework, the way the playground does with `@inbrowser/agent`) reaches
+the same underlying tool-family factories the transport surface composes.
+
+## The product surface: `pyric mcp` (headless, default)
+
+Six tools: `firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`.
+Every one of them answers `describe` with `args: { method }`, which returns
+that method's full argument schema, an example call, and its effect class
+(`read`, `write`, `destructive`, or `production`). A `destructive` call is
+refused unless `args.confirm === true`. No `production` method exists yet;
+when one ships, it is not mounted unless the server is started with
+`--allow-production`.
+
+| Tool | Methods |
+|---|---|
+| `firestore` | `getDoc`, `getDocs`, `addDoc`, `setDoc`, `updateDoc`, `deleteDoc`, `writeBatch` |
+| `database` | `get`, `query`, `set`, `update`, `remove` |
+| `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
+| `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
+| `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
+| `sandbox` | `inspect`, `seed`, `reset` (destructive; requires `confirm: true`) |
+
+The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
+method records the MCP tool calls, so `pyric firestore setDoc --path
+posts/p1 --data '{"a":1}'` and an MCP call with `{ method: "setDoc", args:
+{ path: "posts/p1", data: { a: 1 } } }` run the identical handler against the
+identical sandbox state. See `docs/decisions/0014-service-tools-with-sdk-methods.md`
+for the design rationale.
+
+Any argument may be read from a file instead of the command line, as
+`--<arg>-file <path>`, and the file is read as that argument's own kind: text
+for a string argument, parsed JSON for an object or array one. A relative path
+resolves against the working directory.
+
+```
+pyric rules lint --service firestore --rules-file firestore.rules
+pyric firestore setDoc --path posts/p1 --data-file post.json
+```
+
+The file form is derived from the argument names a record declares rather than
+declared on the record, so every method has it and no method mentions it. An
+argument passed both inline and from a file is refused.
+
+## The transport surface: `pyric sandbox --bridge` / `pyric bridge`
 
 Counts and names below are generated from the factory sources (grep
 `name: '…'` under each file). If this table disagrees with the code, the code
@@ -105,8 +158,12 @@ identity and keep bypassing rules.
 named client and nothing else. Both the tool descriptions and the results say
 so.
 
-The same operations are on the CLI as `pyric auth impersonate`,
-`pyric auth reset`, `pyric auth whoami`, and `pyric auth sessions`.
+`auth_reset` and `auth_sessions` are also on the CLI, as `pyric auth reset`
+and `pyric auth sessions`, calling this same bridge tool because "connected
+clients" is a concept only a running bridge has. `pyric auth impersonate` and
+`pyric auth whoami` are a different command now: the derived service-tool
+commands `auth.impersonate` and `auth.whoami` (product surface, above), which
+act on this project's local `.pyric/state` and need no running bridge.
 
 ## Index extraction — `pyric/rules/indexes`
 
@@ -152,6 +209,8 @@ registered on the default `pyric bridge` / `pyric sandbox --bridge` surface:
 
 ---
 
-**Default MCP bridge: 41 unique tool names** (see `DEFAULT_MCP_TOOL_NAMES` in
-`mcp-contract.ts`). Production shipping (rules, indexes, hosting, functions) is
-owned by `firebase-tools` or the Firebase Console.
+**Transport surface: 41 unique tool names** (see `BRIDGE_TOOL_NAMES` in
+`mcp-contract.ts`). The product surface `pyric mcp` serves by default is the
+six service tools documented above (`DEFAULT_MCP_TOOL_NAMES` in the same
+file). Production shipping (rules, indexes, hosting, functions) is owned by
+`firebase-tools` or the Firebase Console.

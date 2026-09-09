@@ -222,6 +222,10 @@ export const controlSandboxEnvironmentSchema = z.object({
     .enum(['online', 'offline'])
     .optional()
     .describe("Simulated network state (when action is 'set_network')."),
+  confirm: z
+    .boolean()
+    .optional()
+    .describe("Must be true to reset (when action is 'reset_all'). Reset discards every service."),
   seedSnapshotJson: z
     .string()
     .optional()

@@ -11,23 +11,18 @@ describe('service command dispatcher', () => {
     expect(await dispatchServiceCommand(parseArgs(['dev']))).toBeNull();
   });
 
-  it('rejects an unknown command beneath a known service with the complete invocation', async () => {
-    let stderr = '';
-    const originalWrite = process.stderr.write;
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
-      return true;
-    }) as typeof process.stderr.write;
+  it('leaves an unmatched route to the top-level dispatcher', async () => {
+    expect(
+      await dispatchServiceCommand(parseArgs(['firestore', 'rules', 'unknown', 'operand'])),
+    ).toBeNull();
+  });
 
-    try {
-      expect(
-        await dispatchServiceCommand(parseArgs(['firestore', 'rules', 'unknown', 'operand'])),
-      ).toBe(1);
-    } finally {
-      process.stderr.write = originalWrite;
-    }
+  it('routes a derived method command to its record', async () => {
+    expect(await dispatchServiceCommand(parseArgs(['auth', 'whoami']))).toBe(0);
+  });
 
-    expect(stderr).toBe("pyric: unknown command 'firestore rules unknown operand'.\n");
+  it('leaves a service word that is also a command of its own alone', async () => {
+    expect(await dispatchServiceCommand(parseArgs(['sandbox', 'npm', 'run', 'dev']))).toBeNull();
   });
 
   it('rejects duplicate route paths when constructing a registry', () => {
@@ -35,9 +30,9 @@ describe('service command dispatcher', () => {
 
     expect(() =>
       createServiceCommandRegistry([
-        { path: ['firestore', 'rules', 'lint'], run },
-        { path: ['firestore', 'rules', 'lint'], run },
+        { path: ['firestore', 'rules', 'validate'], run },
+        { path: ['firestore', 'rules', 'validate'], run },
       ]),
-    ).toThrow("duplicate service command 'firestore rules lint'");
+    ).toThrow("duplicate service command 'firestore rules validate'");
   });
 });

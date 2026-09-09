@@ -48,7 +48,7 @@ The generated `firestore.rules` contains `rules_version = '2'` and the imported 
 
 ## Lint and simulate the resolved result
 ```bash
-pyric firestore rules lint firestore.rules
+pyric rules lint --service firestore
 ```
 You can then exercise the rule through the public API:
 ```ts

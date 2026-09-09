@@ -38,14 +38,15 @@ export function createServiceCommandRegistry(
 const SERVICE_COMMAND_REGISTRY = createServiceCommandRegistry(SERVICE_COMMANDS);
 const SERVICES: ReadonlySet<string> = new Set(SERVICE_COMMANDS.map(({ path }) => path[0]));
 
-function invocation(parsed: ParsedArgs): string {
-  return [parsed.subcommand, ...parsed.positional].filter(Boolean).join(' ');
-}
-
 /**
- * Dispatch the `pyric <service> <artifact> <operation>` command family.
- * Returns `null` when the first token is not a service command so the
- * top-level dispatcher can continue with commands such as `dev` and `verify`.
+ * Dispatch the `pyric <service> <artifact> <operation>` command family, and the
+ * `pyric <tool> <method>` commands derived from the method records.
+ *
+ * Returns `null` when no route matches, so the top-level dispatcher continues
+ * with commands such as `verify` and reports the whole invocation itself. That
+ * fall-through is what lets one word be both a service and a command of its
+ * own: `pyric sandbox inspect` is a method call, and `pyric sandbox npm run dev`
+ * is the dev server with an explicit command.
  */
 export async function dispatchServiceCommand(parsed: ParsedArgs): Promise<number | null> {
   const service = parsed.subcommand;
@@ -57,13 +58,9 @@ export async function dispatchServiceCommand(parsed: ParsedArgs): Promise<number
   const command =
     SERVICE_COMMAND_REGISTRY.get(routeKey([service, first, second])) ??
     SERVICE_COMMAND_REGISTRY.get(routeKey([service, first]));
-  if (command) {
-    return await command.run({
-      ...parsed,
-      positional: parsed.positional.slice(command.path.length - 1),
-    });
-  }
-
-  process.stderr.write(`pyric: unknown command '${invocation(parsed)}'.\n`);
-  return 1;
+  if (!command) return null;
+  return await command.run({
+    ...parsed,
+    positional: parsed.positional.slice(command.path.length - 1),
+  });
 }

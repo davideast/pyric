@@ -1,14 +1,12 @@
 /**
- * The variant-independent operation vocabulary and the shape every surface
- * variant renders into.
+ * The shape every surface renders into, and the context every handler is given.
  *
- * An operation is one thing an agent can do to the sandbox. The canonical id
- * is `verb_service_object` and is the join key the audit log, the corpus, and
- * the scorer share. Rendering is a pure function from these records to a tool
- * list plus a resolver; execution never depends on the variant, because every
- * rendered tool routes back to the one handler on the record.
+ * Rendering is a pure function from the method records to a tool list plus a
+ * resolver; execution never depends on which surface is served, because every
+ * rendered tool routes back to the one handler on the record. The resolver
+ * reports the canonical operation a call reached, which is the join key the
+ * audit log, the evaluation corpus, and the scorer share.
  */
-import type { z } from 'zod';
 import type { LocalSandbox } from 'pyric/sandbox';
 import type { SandboxDispatch } from '../client/dispatch.js';
 import type { SurfaceIdentity } from './identity.js';
@@ -25,30 +23,6 @@ export interface SurfaceContext {
   sandbox: LocalSandbox;
   dispatch: SandboxDispatch;
   identity: SurfaceIdentity;
-}
-
-/**
- * One authored operation record. The canonical id is the filename and is not
- * repeated inside the file; the loader stamps it, the same way the tool-family
- * records are keyed.
- */
-export interface OperationRecord {
-  /** The action word of the canonical id. */
-  verb: string;
-  /** The service the operation acts on. */
-  service: string;
-  /** The object the operation acts on. */
-  object: string;
-  /** One sentence an agent reads to choose this operation. */
-  description: string;
-  /** Real nested objects, at most two object levels below the root. */
-  parameters: z.ZodObject<z.ZodRawShape>;
-  handler(args: Record<string, unknown>, ctx: SurfaceContext): Promise<OperationResult>;
-}
-
-/** A loaded record: the authored fields plus the id read from the filename. */
-export interface Operation extends OperationRecord {
-  readonly id: string;
 }
 
 /** One tool as an MCP client sees it. */
@@ -71,6 +45,12 @@ export interface RenderedResource {
 export interface ResolvedCall {
   operation: string | null;
   action: string | null;
+}
+
+/** Rendering options every renderer accepts. */
+export interface RenderOptions {
+  /** Mount `production` methods. Defaults to false, the safe default. */
+  allowProduction?: boolean;
 }
 
 /** One variant's rendering: what the client sees, plus the audit resolver. */

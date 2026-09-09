@@ -65,6 +65,42 @@ export function serverEnv(run: EvalRun): Record<string, string> {
   return { ...runEnv(run), ...configEnv(run) };
 }
 
+/**
+ * Variables the harness withholds from every process it spawns, whatever the
+ * environment it was itself started with.
+ *
+ * `PYRIC_ALLOW_PRODUCTION` mounts the `production` methods on a headless
+ * server. A run that mounted them would let an agent reach real Google
+ * infrastructure with real credentials, and `CONTRACT.md` promises it never
+ * does. A maintainer who has the variable set for their own session must not
+ * change what a sweep measures by having it set, so it is deleted rather than
+ * merely left unset.
+ */
+export const WITHHELD_ENV_KEYS: readonly string[] = ['PYRIC_ALLOW_PRODUCTION'];
+
+/**
+ * The environment one spawned process is given: the parent's, then the run's
+ * own variables, with every withheld variable deleted from the result. Both
+ * the runner and the replay client build their child environment here, so
+ * there is one place the withholding can be checked.
+ */
+export function spawnEnv(
+  parent: NodeJS.ProcessEnv,
+  invocation: Record<string, string>,
+): Record<string, string> {
+  const merged: Record<string, string> = {};
+  for (const [name, value] of Object.entries(parent)) {
+    if (value !== undefined) merged[name] = value;
+  }
+  for (const [name, value] of Object.entries(invocation)) {
+    merged[name] = value;
+  }
+  for (const name of WITHHELD_ENV_KEYS) {
+    delete merged[name];
+  }
+  return merged;
+}
+
 /** The `{ command, args, env }` server entry the three config formats all embed. */
 export function serverEntry(run: EvalRun): {
   command: string;

@@ -24,7 +24,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createBridge, type BridgeToolEvent } from '../bridge/server/bridge.js';
 import { buildMcpServer } from '../bridge/server/mcp.js';
-import { getDefaultMcpToolSurface } from '../bridge/server/mcp-contract.js';
+import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { attachPeer } from '../bridge/server/peer.js';
 import { pyricVersion } from './standalone-assets.js';
@@ -170,7 +170,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (session.sessionId) sessions.delete(session.sessionId);
       pendingSessions.delete(session);
     };
-    const surface = getDefaultMcpToolSurface({
+    const surface = getBridgeToolSurface({
       consumers: bridge.consumers,
       callerIdentity: bridge.callerIdentity,
     });

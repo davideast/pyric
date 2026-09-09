@@ -1,10 +1,10 @@
 /**
- * The `verb-prefixed` variant: the canonical id is the tool name, so the name
- * an agent picks and the id the audit log records are the same string.
+ * The `verb-prefixed` surface: the verb leads, the service follows, and the
+ * object trails, which is the canonical operation vocabulary's own word order.
  */
-import { renderOneToolPerOperation } from './one-tool-per-operation.js';
-import type { Operation, RenderedSurface } from '../types.js';
+import { renderOneToolPerMethod } from './one-tool-per-method.js';
+import type { RenderedSurface, RenderOptions } from '../types.js';
 
-export function render(operations: readonly Operation[]): RenderedSurface {
-  return renderOneToolPerOperation(operations, (operation) => operation.id);
+export function render(options?: RenderOptions): RenderedSurface {
+  return renderOneToolPerMethod((words) => [words.verb, words.service, words.object], options);
 }

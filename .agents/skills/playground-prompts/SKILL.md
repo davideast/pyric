@@ -274,8 +274,8 @@ parts of the agent stack, vary the constraint type:
   force a transactional pattern.
 - **Compound queries / composite indexes** — a leaderboard with
   filtered + ordered listings, an "events near me" pattern, a
-  faceted product search. Exercises the query builder and triggers
-  `firestore_extract_indexes` to surface index requirements.
+  faceted product search. Exercises the query builder and triggers the
+  Playground's index extractor to surface index requirements.
 - **Listeners (`onSnapshot`)** — a live-updating dashboard, a real-
   time game state (chess, checkers), a presence indicator. Verifies
   the snapshot machinery in the sandbox.

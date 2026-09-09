@@ -1,11 +1,15 @@
 /**
- * `pyric auth impersonate`, `pyric auth reset`, `pyric auth whoami`, and
- * `pyric auth sessions` — the CLI view of who this bridge's clients, and its
- * own callers, act as.
+ * `pyric auth reset` and `pyric auth sessions`: the CLI view of who this
+ * bridge's connected clients, and its own callers, act as.
  *
- * The state lives in the bridge process, not this one, so every command
- * discovers the running sandbox bridge (`.pyric/serve.json`, then the port
- * scan, via `serve/discovery.ts`) and calls the identically named MCP tool.
+ * Impersonating an identity and reading whose calls run under it are
+ * `auth impersonate` and `auth whoami` on the service surface now
+ * (`packages/cli/src/bridge/surface/methods/auth/`), which act on this
+ * project's local `.pyric/state` and need no running bridge. Reset and
+ * sessions stay here because "connected clients" is a concept a bridge alone
+ * has: the state lives in the bridge process, not this one, so both commands
+ * discover the running sandbox bridge (`.pyric/serve.json`, then the port
+ * scan, via `serve/discovery.ts`) and call the identically named MCP tool.
  * Those are the same handlers an agent calls, so the CLI and MCP surfaces
  * cannot drift: the logic lives once, in `../auth/identity.ts`, and both
  * surfaces reach it through one tool.
@@ -57,10 +61,6 @@ function stringFlag(parsed: ParsedArgs, key: string): string | null | undefined 
   return null;
 }
 
-function hasFlag(parsed: ParsedArgs, key: string): boolean {
-  return parsed.flags.get(key) === true;
-}
-
 /** The `target` argument, or an error when `--target` was given without a value. */
 function targetFromFlags(parsed: ParsedArgs): { target?: string } | { error: string } {
   const target = stringFlag(parsed, 'target');
@@ -68,66 +68,6 @@ function targetFromFlags(parsed: ParsedArgs): { target?: string } | { error: str
     return { error: '--target requires the target id of a connected client.' };
   }
   return target === undefined ? {} : { target };
-}
-
-/**
- * The arguments `auth_impersonate` takes, from the flags and the positional
- * uid. Exactly one of a uid, `--admin`, and `--anonymous` is accepted.
- */
-export function impersonateArgs(
-  parsed: ParsedArgs,
-): { args: Record<string, unknown> } | { error: string } {
-  const uid = parsed.positional[0];
-  const admin = hasFlag(parsed, 'admin');
-  const anonymous = hasFlag(parsed, 'anonymous');
-  const selected = [uid !== undefined, admin, anonymous].filter(Boolean).length;
-
-  if (selected === 0) {
-    return { error: 'name a uid, or pass --admin or --anonymous.' };
-  }
-  if (selected > 1) {
-    return { error: 'pick exactly one of a uid, --admin, and --anonymous.' };
-  }
-
-  const scope = targetFromFlags(parsed);
-  if ('error' in scope) return { error: scope.error };
-
-  if (uid === undefined) {
-    if (parsed.flags.has('tenant') || parsed.flags.has('claims')) {
-      return { error: '--tenant and --claims apply only to a uid.' };
-    }
-    return { args: { ...(admin ? { admin: true } : { anonymous: true }), ...scope } };
-  }
-
-  const tenant = stringFlag(parsed, 'tenant');
-  if (tenant === null) return { error: '--tenant requires a tenant id.' };
-
-  const claimsRaw = stringFlag(parsed, 'claims');
-  if (claimsRaw === null) return { error: '--claims requires a JSON object.' };
-  let claims: Record<string, unknown> | undefined;
-  if (claimsRaw !== undefined) {
-    let parsedClaims: unknown;
-    try {
-      parsedClaims = JSON.parse(claimsRaw);
-    } catch (error) {
-      return {
-        error: `--claims is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-      };
-    }
-    if (typeof parsedClaims !== 'object' || parsedClaims === null || Array.isArray(parsedClaims)) {
-      return { error: '--claims must be a JSON object of custom claims.' };
-    }
-    claims = parsedClaims as Record<string, unknown>;
-  }
-
-  return {
-    args: {
-      uid,
-      ...(tenant !== undefined ? { tenant } : {}),
-      ...(claims !== undefined ? { claims } : {}),
-      ...scope,
-    },
-  };
 }
 
 /**
@@ -249,13 +189,6 @@ export async function runAuthSessions(
   });
 }
 
-export async function runAuthWhoami(
-  parsed: ParsedArgs,
-  deps: AuthIdentityDeps = {},
-): Promise<number> {
-  return run('auth whoami', 'auth_whoami', {}, parsed, deps, withScopeNote(SELF_SCOPE_NOTE));
-}
-
 /**
  * Print the summary, and the sentence that names whose calls actually change
  * when the bridge has not already said it. A current bridge puts the note in
@@ -267,32 +200,6 @@ function withScopeNote(note: string) {
     out.write(`${result.summary}\n`);
     if (!result.summary.includes(note)) out.write(`${note}\n`);
   };
-}
-
-export async function runAuthImpersonate(
-  parsed: ParsedArgs,
-  deps: AuthIdentityDeps = {},
-): Promise<number> {
-  const err = deps.stderr ?? process.stderr;
-  const built = impersonateArgs(parsed);
-  if ('error' in built) {
-    err.write(
-      `pyric auth impersonate: ${built.error}\n` +
-        'Usage: pyric auth impersonate <uid> [--tenant <id>] [--claims <json>] [--target <id>], ' +
-        'pyric auth impersonate --admin [--target <id>], or ' +
-        'pyric auth impersonate --anonymous [--target <id>]. ' +
-        'Run `pyric auth sessions` for connected target ids.\n',
-    );
-    return 1;
-  }
-  return run(
-    'auth impersonate',
-    'auth_impersonate',
-    built.args,
-    parsed,
-    deps,
-    withScopeNote(built.args.target === undefined ? SELF_SCOPE_NOTE : TARGET_SCOPE_NOTE),
-  );
 }
 
 export async function runAuthReset(

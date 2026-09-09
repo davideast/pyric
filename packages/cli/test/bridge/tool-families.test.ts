@@ -33,9 +33,9 @@ import {
 } from '../../src/bridge/server/tool-family-factories.js';
 import { getSandboxToolMetadata } from '../../src/bridge/server/tool-metadata.js';
 import {
-  DEFAULT_MCP_FORWARDED_TOOL_NAMES,
-  DEFAULT_MCP_IN_PROCESS_TOOL_NAMES,
-  getDefaultMcpToolSurface,
+  BRIDGE_FORWARDED_TOOL_NAMES,
+  BRIDGE_IN_PROCESS_TOOL_NAMES,
+  getBridgeToolSurface,
 } from '../../src/bridge/server/mcp-contract.js';
 import { assertExactToolNames, toolFamilies } from '../../src/bridge/tool-families.js';
 import { TOOL_FAMILIES } from '../../src/bridge/tool-families.generated.js';
@@ -129,12 +129,12 @@ describe('tool family records', () => {
 
 describe('tool family composition', () => {
   it('lists forwarded and in-process tools in the pinned contract order', () => {
-    const surface = getDefaultMcpToolSurface();
+    const surface = getBridgeToolSurface();
     expect(surface.forwarded.map((tool) => tool.name)).toEqual([
-      ...DEFAULT_MCP_FORWARDED_TOOL_NAMES,
+      ...BRIDGE_FORWARDED_TOOL_NAMES,
     ]);
     expect(surface.inProcess.map((tool) => tool.name)).toEqual([
-      ...DEFAULT_MCP_IN_PROCESS_TOOL_NAMES,
+      ...BRIDGE_IN_PROCESS_TOOL_NAMES,
     ]);
   });
 

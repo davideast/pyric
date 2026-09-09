@@ -20,10 +20,10 @@ revoke it. Lock the root, then open the smallest useful paths.
 
 ## Steps
 
-1. **Read current rules.** From `database.rules.json` in the project, or
-   `rtdb_get_rules` for deployed state. Complete when you can state the
-   effective access at every path a client touches (walk each cascade from
-   root).
+1. **Read current rules.** From `database.rules.json` in the project, or the
+   deployed ruleset read back through the Firebase Console or `firebase-tools`.
+   Complete when you can state the effective access at every path a client
+   touches (walk each cascade from root).
 
 2. **Identify paths and identities.** List each path clients read or write
    and the identity that should reach it (anonymous, any signed-in user,
@@ -36,8 +36,7 @@ revoke it. Lock the root, then open the smallest useful paths.
    `.validate` for every user-controlled write: type checks
    (`newData.isString()`, `.isNumber()`), bounds, required children
    (`newData.hasChildren([...])`), and transition checks comparing `data` to
-   `newData`. `rtdb_build_expression` composes correct expressions for common
-   patterns. Complete when every open path has both an access rule and a
+   `newData`. Complete when every open path has both an access rule and a
    shape rule.
 
 4. **Simulate before shipping.** Run `rtdb_simulate_access` for each path
@@ -45,11 +44,11 @@ revoke it. Lock the root, then open the smallest useful paths.
    cross-user denied, invalid shape denied. Complete when all four families
    pass per path.
 
-5. **Deploy.** Write the full `database.rules.json` — a deploy replaces the
-   entire ruleset — and apply with `rtdb_deploy_rules`. For writes that must
-   prove their shape at runtime, `rtdb_validated_write` applies a write only
-   if the current rules allow it. Complete when deployed rules re-read
-   (`rtdb_get_rules`) match the file.
+5. **Deploy.** Write the full `database.rules.json`, since a deploy replaces
+   the entire ruleset, and ship it with `firebase deploy --only database` or the
+   Console. Complete when the deployed rules, read back through the Console or
+   `firebase-tools`, match the file, and `rtdb_simulate_access` against a
+   local copy of the same file still passes every case from step 4.
 
 ## Reference — pitfalls
 

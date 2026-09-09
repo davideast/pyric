@@ -1,12 +1,12 @@
 /**
- * The vocabulary invariant: every `sdk-service` method name is the SDK's own
+ * The vocabulary invariant: every service-tool method name is the SDK's own
  * or pyric's own, never invented. `firebase-js.json` and `firebase-admin.json`
  * are generated from the installed SDKs' type declarations
  * (`scripts/generate-sdk-names.ts`); `pyric.json` is authored by hand.
  */
 import { describe, expect, it } from 'bun:test';
 
-import { SDK_TOOLS } from '../../../src/bridge/surface/sdk-validator.js';
+import { TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import firebaseAdmin from '../../../src/bridge/surface/sdk-names/firebase-admin.json' with { type: 'json' };
 import firebaseJs from '../../../src/bridge/surface/sdk-names/firebase-js.json' with { type: 'json' };
 import pyric from '../../../src/bridge/surface/sdk-names/pyric.json' with { type: 'json' };
@@ -31,21 +31,21 @@ function listFor(origin: string, toolName: string): readonly string[] {
   return [...PYRIC];
 }
 
-describe('the sdk-service vocabulary', () => {
-  for (const tool of SDK_TOOLS) {
+describe('the service-tool vocabulary', () => {
+  for (const tool of TOOLS) {
     for (const method of tool.methods) {
-      it(`${tool.name}.${method.name} is a real ${method.sdkOrigin} name`, () => {
+      it(`${tool.name}.${method.method} is a real ${method.sdkOrigin} name`, () => {
         const list = listFor(method.sdkOrigin, tool.name);
-        expect(list).toContain(method.name);
+        expect(list).toContain(method.method);
       });
     }
   }
 
   it('names every method exactly once in the list its own origin points at', () => {
-    for (const tool of SDK_TOOLS) {
+    for (const tool of TOOLS) {
       for (const method of tool.methods) {
         const own = listFor(method.sdkOrigin, tool.name);
-        expect(own.filter((name) => name === method.name)).toHaveLength(1);
+        expect(own.filter((name) => name === method.method)).toHaveLength(1);
       }
     }
   });
