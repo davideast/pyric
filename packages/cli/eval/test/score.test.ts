@@ -54,8 +54,8 @@ function runWith(accepted: string[]): EvalRun {
 describe('acceptedOpReached', () => {
   test('a later call reaching an accepted operation counts, even when the first call did not', () => {
     const state = stateWithCalls([
-      { operation: 'get_firestore_document', tool: 'get_firestore_document', ok: true, schemaRejected: false },
-      { operation: 'write_firestore_document', tool: 'write_firestore_document', ok: true, schemaRejected: false },
+      { operation: 'get_firestore_document', tool: 'get_firestore_document', ok: true, schemaRejected: false, args: {}, data: undefined },
+      { operation: 'write_firestore_document', tool: 'write_firestore_document', ok: true, schemaRejected: false, args: {}, data: undefined },
     ]);
     const line = scoreRun({
       run: runWith(['write_firestore_document']),
@@ -69,7 +69,7 @@ describe('acceptedOpReached', () => {
 
   test('no call reaching an accepted operation reports false', () => {
     const state = stateWithCalls([
-      { operation: 'get_firestore_document', tool: 'get_firestore_document', ok: true, schemaRejected: false },
+      { operation: 'get_firestore_document', tool: 'get_firestore_document', ok: true, schemaRejected: false, args: {}, data: undefined },
     ]);
     const line = scoreRun({
       run: runWith(['write_firestore_document']),

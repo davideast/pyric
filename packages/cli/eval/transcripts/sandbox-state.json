@@ -61,6 +61,9 @@
       "args": { "method": "setDoc", "args": { "path": "scratch/c", "data": { "n": 3 } } }
     },
     { "tool": "sandbox", "args": { "method": "events", "args": { "limit": 2 } } },
-    { "tool": "sandbox", "args": { "method": "events", "args": { "limit": 2, "kind": "writes" } } }
+    {
+      "tool": "sandbox",
+      "args": { "method": "events", "args": { "limit": 2, "since": "<nextCursor>" } }
+    }
   ]
 }

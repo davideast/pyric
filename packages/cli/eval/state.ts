@@ -42,6 +42,8 @@ export function readCalls(eventsPath: string): EvalCall[] {
     tool: event.tool,
     ok: event.result?.ok === true,
     schemaRejected: event.schemaRejected === true,
+    args: event.args ?? {},
+    data: event.result?.data,
   }));
 }
 
