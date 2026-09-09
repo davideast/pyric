@@ -25,6 +25,7 @@ import {
 } from '../../shell/studio-data.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import { useProposals, focusProposal } from '../proposals/proposals.js';
+import { usePersistedBranches } from '../proposals/persisted-branches.js';
 import '../proposals/proposals.css';
 import './session.css';
 
@@ -41,6 +42,7 @@ export function SessionSurface() {
   const slug = instanceSlug(useSandboxInstanceId());
   const nav = useDataNav();
   const { open: proposals } = useProposals();
+  const persistedBranches = usePersistedBranches();
 
   // Transfer (Phase 2): export this sandbox's full state to a file, or import
   // (clobber) another instance's file into this one. Both are no-ops in review
@@ -237,6 +239,31 @@ export function SessionSurface() {
                 >
                   Review →
                 </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Branches on disk: a change staged through the sandbox tool, which
+          outlives this tab because it is a directory under
+          `.pyric/state/branches/` rather than state this page holds. */}
+      {persistedBranches.length > 0 ? (
+        <section className="session__panel session__panel--attention">
+          <header className="session__head">
+            <h2 className="session__title">Branches on disk</h2>
+            <span className="session__count">{persistedBranches.length}</span>
+          </header>
+          <div className="session__actions">
+            {persistedBranches.map((branch) => (
+              <div key={branch.name} className="session__staged-item">
+                <div className="session__staged-what">
+                  <div className="session__staged-title">{branch.name}</div>
+                  <div className="session__staged-meta">
+                    forked {new Date(branch.created).toLocaleString()} from {branch.base} ·{' '}
+                    {branch.eventCount} events · {branch.divergences} documents differ from live
+                  </div>
+                </div>
               </div>
             ))}
           </div>
