@@ -84,6 +84,19 @@ export interface SandboxRuleSources {
   storage: string | null;
 }
 
+/**
+ * The services a full state carries, in the order every reader walks them.
+ *
+ * One declaration: {@link SandboxService} is derived from it, the branch diff
+ * tags each divergence with one of these names, and the branch store writes one
+ * file per entry. A service added to {@link FullSandboxState} is added here, and
+ * the type, the diff, and the store follow without a second list to edit.
+ */
+export const SANDBOX_SERVICES = ['firestore', 'database', 'storage', 'auth', 'rules'] as const;
+
+/** One service a full state carries. */
+export type SandboxService = (typeof SANDBOX_SERVICES)[number];
+
 /** Everything one sandbox holds, as one plain JSON value. */
 export interface FullSandboxState {
   /** Firestore documents by full path. */

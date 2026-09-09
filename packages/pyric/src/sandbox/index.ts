@@ -92,6 +92,7 @@ export type {
   DatabaseRuleset,
   FullSandboxState,
   SandboxRuleSources,
+  SandboxService,
   StorageObjectState,
 } from './full-state.js';
 
@@ -107,7 +108,6 @@ export type {
   Branch,
   BranchCandidateRules,
   BranchDivergence,
-  BranchService,
   DiffTarget,
   TreeChange,
 } from './branches/index.js';

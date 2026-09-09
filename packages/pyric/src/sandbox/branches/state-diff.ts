@@ -18,15 +18,13 @@ import type { JsonValue } from '../../database/sandbox/data-tree.js';
 import type {
   AuthAccountsState,
   FullSandboxState,
+  SandboxService,
   StorageObjectState,
 } from '../full-state.js';
 import type { Divergence } from '../replay/index.js';
 
-/** The services a branch carries, and the names its divergences report. */
-export type BranchService = 'firestore' | 'database' | 'storage' | 'auth' | 'rules';
-
 /** One divergence, tagged with the service whose state it concerns. */
-export type BranchDivergence = Divergence & { service: BranchService };
+export type BranchDivergence = Divergence & { service: SandboxService };
 
 /** One change to the Realtime Database tree, at the shallowest path that differs. */
 export interface TreeChange {
@@ -112,7 +110,7 @@ function walkTree(before: JsonValue, after: JsonValue, path: string, out: TreeCh
 
 /** One divergence record, built once so every service reports the same shape. */
 function divergenceAt(
-  service: BranchService,
+  service: SandboxService,
   path: string,
   field: string | undefined,
   before: unknown,
@@ -130,7 +128,7 @@ function divergenceAt(
  * own diff produces.
  */
 function walkDocument(
-  service: BranchService,
+  service: SandboxService,
   path: string,
   before: unknown,
   after: unknown,

@@ -9,5 +9,5 @@
 export { apply, diff, discard, fork, promote } from './engine.js';
 export type { Branch, BranchCandidateRules, DiffTarget } from './engine.js';
 export { diffFullStates } from './state-diff.js';
-export type { BranchDivergence, BranchService, TreeChange } from './state-diff.js';
+export type { BranchDivergence, TreeChange } from './state-diff.js';
 export { promoteFullState } from './promotion.js';

@@ -38,7 +38,12 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { captureFullState, type FullSandboxState } from '../full-state.js';
+import {
+  SANDBOX_SERVICES,
+  captureFullState,
+  type FullSandboxState,
+  type SandboxService,
+} from '../full-state.js';
 import type { SandboxEvent } from '../types/index.js';
 import { fork, type Branch, type BranchCandidateRules } from './engine.js';
 
@@ -53,11 +58,6 @@ const EVENTS_FILE = 'events.json';
 const CANDIDATE_RULES_FILE = 'candidate-rules.json';
 const BASE_DIRECTORY = 'base';
 const STATE_DIRECTORY = 'state';
-
-/** The services a stored state names, in the order the directory lists them. */
-const STATE_SERVICES = ['firestore', 'database', 'storage', 'auth', 'rules'] as const;
-
-type StateService = (typeof STATE_SERVICES)[number];
 
 /** The names a branch may take: one path segment, so a name can never escape the store. */
 export const BRANCH_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -115,14 +115,14 @@ export function branchDirectory(projectDir: string, name: string): string {
 }
 
 /** The file one service's slice of a stored state occupies. */
-function stateServicePath(dir: string, stateDir: string, service: StateService): string {
+function stateServicePath(dir: string, stateDir: string, service: SandboxService): string {
   return join(dir, stateDir, `${service}.json`);
 }
 
 /** Write one full state as one file per service. */
 function writeState(dir: string, stateDir: string, state: FullSandboxState): void {
   mkdirSync(join(dir, stateDir), { recursive: true });
-  for (const service of STATE_SERVICES) {
+  for (const service of SANDBOX_SERVICES) {
     writeFileSync(
       stateServicePath(dir, stateDir, service),
       `${JSON.stringify(state[service])}\n`,
@@ -132,7 +132,7 @@ function writeState(dir: string, stateDir: string, state: FullSandboxState): voi
 }
 
 /** Read one service's slice back, or null when the branch directory has no such file. */
-function readStateService(dir: string, stateDir: string, service: StateService): unknown {
+function readSandboxService(dir: string, stateDir: string, service: SandboxService): unknown {
   const path = stateServicePath(dir, stateDir, service);
   if (!existsSync(path)) return null;
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -141,14 +141,14 @@ function readStateService(dir: string, stateDir: string, service: StateService):
 /** One full state a branch directory carries, under `base/` or under `state/`. */
 function readState(dir: string, stateDir: string): FullSandboxState {
   return {
-    firestore: (readStateService(dir, stateDir, 'firestore') ?? {}) as FullSandboxState['firestore'],
-    database: readStateService(dir, stateDir, 'database') as FullSandboxState['database'],
-    storage: (readStateService(dir, stateDir, 'storage') ?? []) as FullSandboxState['storage'],
-    auth: (readStateService(dir, stateDir, 'auth') ?? {
+    firestore: (readSandboxService(dir, stateDir, 'firestore') ?? {}) as FullSandboxState['firestore'],
+    database: readSandboxService(dir, stateDir, 'database') as FullSandboxState['database'],
+    storage: (readSandboxService(dir, stateDir, 'storage') ?? []) as FullSandboxState['storage'],
+    auth: (readSandboxService(dir, stateDir, 'auth') ?? {
       users: [],
       providers: {},
     }) as FullSandboxState['auth'],
-    rules: (readStateService(dir, stateDir, 'rules') ?? {
+    rules: (readSandboxService(dir, stateDir, 'rules') ?? {
       firestore: '',
       database: null,
       storage: null,
