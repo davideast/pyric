@@ -5,6 +5,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, expect, it } from 'bun:test';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 
@@ -59,6 +60,9 @@ it('projects a seeded tenant and claims into the token rules evaluate', async ()
     tenant: 'tenant-a',
   });
   expect(created.ok).toBe(true);
+  const stored = authSandbox.exportUsers(getAuth(sandbox)).find((user) => user.uid === 'alice');
+  expect(stored?.tenantId).toBe('tenant-a');
+  expect(stored?.customClaims).toEqual({ role: 'owner' });
 
   const allowed = await run('simulate_firestore_rules', {
     operation: 'get',
