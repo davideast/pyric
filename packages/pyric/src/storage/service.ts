@@ -27,10 +27,9 @@ import {
   resolveOperationContext,
 } from 'pyric/sandbox/internal';
 import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
-import { parseStorageRules, type StorageRules } from './sandbox/rules.js';
-import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
+import type { StorageRules } from './sandbox/rules.js';
 import {
-  createStorageRulesResolution,
+  compileStorageRules,
   type StorageRulesResolution,
 } from './rules-resolution.js';
 
@@ -252,43 +251,6 @@ function rejectDifferingLateConfig(
 }
 
 /**
- * Parse a storage rules source into the ruleset the evaluator runs and the
- * resolution record hosts read back, lowering `2+modules` source first.
- * Throws on a source that does not parse or whose imports do not resolve, so
- * a caller never installs a ruleset it could not compile.
- */
-function compileRules(
-  declared: string,
-): { rules: StorageRules; resolution: StorageRulesResolution } {
-  let source = declared;
-  let modules: readonly string[] = [];
-  let bundledModules: readonly string[] = [];
-  let moduleEvidenceIds: readonly string[] = [];
-  let rules = parseStorageRules(source);
-  if (rules._version === '2+modules') {
-    const resolved = resolveModulesBrowser(source);
-    if (!resolved.success) {
-      throw new SyntaxError(
-        `Storage rules module resolution failed (${resolved.error.code}): ${resolved.error.message}`,
-      );
-    }
-    source = resolved.data.resolved;
-    modules = resolved.data.modules;
-    bundledModules = resolved.data.bundledModules;
-    moduleEvidenceIds = resolved.data.evidenceIds;
-    rules = parseStorageRules(source);
-  }
-  const resolution = createStorageRulesResolution(
-    source,
-    modules,
-    bundledModules,
-    moduleEvidenceIds,
-    rules,
-  );
-  return { rules, resolution };
-}
-
-/**
  * Install a new ruleset into a sandbox's storage service, replacing whatever
  * it is enforcing.
  *
@@ -305,7 +267,7 @@ function compileRules(
  * service, because each holds its own reference to the parsed rules.
  */
 export async function replaceStorageRules(sandbox: Sandbox, source: string): Promise<void> {
-  const compiled = compileRules(source);
+  const compiled = compileStorageRules(source);
   const open = OPEN_SERVICES.get(sandbox);
   if (open === undefined) {
     await ensureService(sandbox, { rules: source }, 'replaceStorageRules');
@@ -358,7 +320,7 @@ function ensureService(
   let rules: StorageRules | null = null;
   let resolution: StorageRulesResolution | null = null;
   if (options.rules) {
-    const compiled = compileRules(options.rules);
+    const compiled = compileStorageRules(options.rules);
     rules = compiled.rules;
     resolution = compiled.resolution;
   }

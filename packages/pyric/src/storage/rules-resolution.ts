@@ -1,4 +1,5 @@
-import type { Expr, MatchBlock, StorageRules } from './sandbox/rules.js';
+import { parseStorageRules, type Expr, type MatchBlock, type StorageRules } from './sandbox/rules.js';
+import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
 
 export interface StorageRulesResolution {
   readonly targetService: 'firebase.storage';
@@ -73,6 +74,47 @@ function matchUsesFirestoreLookup(
     if (expressionUsesFirestoreLookup(fn.body, functionScope)) return true;
   }
   return match.children.some((child) => matchUsesFirestoreLookup(child, matchScope));
+}
+
+/** A storage rules source, lowered and parsed, with the record hosts read back. */
+export interface CompiledStorageRules {
+  readonly rules: StorageRules;
+  readonly resolution: StorageRulesResolution;
+}
+
+/**
+ * Compile a storage rules source into the ruleset the evaluator runs and the
+ * resolution record hosts read back, lowering `2+modules` source first.
+ * Throws on a source that does not parse or whose imports do not resolve, so
+ * a caller never installs a ruleset it could not compile.
+ */
+export function compileStorageRules(declared: string): CompiledStorageRules {
+  let source = declared;
+  let modules: readonly string[] = [];
+  let bundledModules: readonly string[] = [];
+  let moduleEvidenceIds: readonly string[] = [];
+  let rules = parseStorageRules(source);
+  if (rules._version === '2+modules') {
+    const resolved = resolveModulesBrowser(source);
+    if (!resolved.success) {
+      throw new SyntaxError(
+        `Storage rules module resolution failed (${resolved.error.code}): ${resolved.error.message}`,
+      );
+    }
+    source = resolved.data.resolved;
+    modules = resolved.data.modules;
+    bundledModules = resolved.data.bundledModules;
+    moduleEvidenceIds = resolved.data.evidenceIds;
+    rules = parseStorageRules(source);
+  }
+  const resolution = createStorageRulesResolution(
+    source,
+    modules,
+    bundledModules,
+    moduleEvidenceIds,
+    rules,
+  );
+  return { rules, resolution };
 }
 
 export function createStorageRulesResolution(
