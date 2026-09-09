@@ -4,7 +4,7 @@ const task: EvalTask = {
   id: 'disable-user-account',
   prompt: 'Suspend casey_acme without deleting the account. We may re-enable it next week.',
   seed: {
-    users: [{ uid: 'casey_acme', email: 'casey@acme.test', tenant: 'tenant-acme' }],
+    users: [{ uid: 'casey_acme', email: 'casey@acme.test', tenantId: 'tenant-acme' }],
   },
   acceptedFirstOperations: ['update_auth_user'],
   assert: (state) => {

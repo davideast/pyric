@@ -15,6 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 
 import { createLocalBridge } from '../../../src/bridge/server/local-bridge.js';
 import { registerRenderedSurface } from '../../../src/bridge/server/surface-server.js';
@@ -243,6 +244,42 @@ describe('the sdk-service validator', () => {
     expect(result.summary).toBe(
       "rules.explainDenial: service 'storage' has no denial trace. explainDenial reads the Firestore rules engine only in this build. Pass service 'firestore', or call simulate for storage.",
     );
+  });
+
+  it('renames a seed users entry tenant to the Admin SDK tenantId', async () => {
+    const result = await call('sandbox', 'seed', {
+      users: [{ uid: 'alice', tenant: 'tenant-acme' }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe(
+      "sandbox.seed: users entry has unknown field 'tenant'. seed names this field 'tenantId'. Pass 'tenantId' instead of 'tenant' in the users entry.",
+    );
+  });
+
+  it('renames a seed users entry claims to the Admin SDK customClaims', async () => {
+    const result = await call('sandbox', 'seed', {
+      users: [{ uid: 'alice', claims: { role: 'admin' } }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe(
+      "sandbox.seed: users entry has unknown field 'claims'. seed names this field 'customClaims'. Pass 'customClaims' instead of 'claims' in the users entry.",
+    );
+  });
+});
+
+describe('the sandbox seed vocabulary', () => {
+  it('stores tenantId and customClaims from a seed users entry', async () => {
+    const sandbox = initializeSandbox();
+    const run = callWith(createSurfaceContext(sandbox));
+    const result = await run('sandbox', 'seed', {
+      users: [{ uid: 'alice', tenantId: 'tenant-acme', customClaims: { role: 'admin' } }],
+    });
+    expect(result.ok).toBe(true);
+
+    const auth = getAuth(sandbox);
+    const [stored] = authSandbox.exportUsers(auth);
+    expect(stored?.tenantId).toBe('tenant-acme');
+    expect(stored?.customClaims).toEqual({ role: 'admin' });
   });
 });
 

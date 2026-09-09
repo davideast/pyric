@@ -5,8 +5,8 @@ const task: EvalTask = {
   prompt: 'Wipe the sandbox back to empty. I am about to record a demo and I want a clean slate.',
   seed: {
     users: [
-      { uid: 'alice', email: 'alice@acme.test', tenant: 'tenant-acme' },
-      { uid: 'bob', email: 'bob@globex.test', tenant: 'tenant-globex' },
+      { uid: 'alice', email: 'alice@acme.test', tenantId: 'tenant-acme' },
+      { uid: 'bob', email: 'bob@globex.test', tenantId: 'tenant-globex' },
     ],
     firestore: { 'posts/p1': { title: 'leftover' } },
   },

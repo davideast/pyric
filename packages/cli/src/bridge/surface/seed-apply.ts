@@ -27,7 +27,12 @@ export interface SandboxSeed {
   firestoreRules?: string;
   databaseRules?: string;
   storageRules?: string;
-  users?: Array<{ uid: string; email?: string; claims?: Record<string, unknown>; tenant?: string }>;
+  users?: Array<{
+    uid: string;
+    email?: string;
+    customClaims?: Record<string, unknown>;
+    tenantId?: string;
+  }>;
   /** Document path to document data. */
   firestore?: Record<string, Record<string, unknown>>;
   /** Realtime Database tree written at the root. */
@@ -94,8 +99,8 @@ export async function applyData(sandbox: LocalSandbox, seed: SandboxSeed): Promi
           email: seedEmail(user.uid, user.email),
           password: seedPassword(user.uid),
         };
-        if (user.claims !== undefined) record.customClaims = user.claims;
-        if (user.tenant !== undefined) record.tenantId = user.tenant;
+        if (user.customClaims !== undefined) record.customClaims = user.customClaims;
+        if (user.tenantId !== undefined) record.tenantId = user.tenantId;
         return record;
       }),
     );

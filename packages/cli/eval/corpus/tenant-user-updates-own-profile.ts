@@ -20,7 +20,7 @@ service cloud.firestore {
   }
 }
 `,
-    users: [{ uid: 'riley_acme', email: 'riley@acme.test', tenant: 'tenant-acme' }],
+    users: [{ uid: 'riley_acme', email: 'riley@acme.test', tenantId: 'tenant-acme' }],
     firestore: {
       'profiles/riley_acme': { displayName: 'riley', tenant: 'tenant-acme' },
     },

@@ -5,7 +5,7 @@ const task: EvalTask = {
   prompt: 'Before I debug the invoice rules, confirm which tenant wren_acme belongs to and what claims are on the account.',
   seed: {
     users: [
-      { uid: 'wren_acme', email: 'wren@acme.test', tenant: 'tenant-acme', claims: { role: 'billingAdmin' } },
+      { uid: 'wren_acme', email: 'wren@acme.test', tenantId: 'tenant-acme', customClaims: { role: 'billingAdmin' } },
     ],
   },
   acceptedFirstOperations: ['get_auth_user'],

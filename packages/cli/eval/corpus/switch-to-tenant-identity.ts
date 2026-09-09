@@ -5,7 +5,7 @@ const task: EvalTask = {
   prompt: 'Let me browse as riley_acme on tenant-acme for a minute so I can see exactly what that account sees.',
   seed: {
     users: [
-      { uid: 'riley_acme', email: 'riley@acme.test', tenant: 'tenant-acme', claims: { role: 'viewer' } },
+      { uid: 'riley_acme', email: 'riley@acme.test', tenantId: 'tenant-acme', customClaims: { role: 'viewer' } },
     ],
   },
   acceptedFirstOperations: ['switch_auth_identity'],
