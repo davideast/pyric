@@ -42,14 +42,19 @@ function simulateAgainst(
   auth: { uid: string; claims: Record<string, unknown> } | null,
 ) {
   const tree = snapshotState(ctx.sandbox);
+  let data: Record<string, unknown> = {};
+  if (tree !== null && typeof tree === 'object') data = tree as Record<string, unknown>;
+  let identity: RtdbCase['auth'] = null;
+  if (auth !== null) identity = { uid: auth.uid, token: auth.claims };
+
   const oneCase: RtdbCase = {
     expectation: 'ALLOW',
     operation: request.operation as RtdbCase['operation'],
     path: rooted(request.path),
-    auth: auth === null ? null : { uid: auth.uid, token: auth.claims },
-    data: tree !== null && typeof tree === 'object' ? (tree as Record<string, unknown>) : {},
-    ...(request.data !== undefined ? { newData: request.data } : {}),
+    auth: identity,
+    data,
   };
+  if (request.data !== undefined) oneCase.newData = request.data;
   return rtdbRules(ruleset).simulate([oneCase]).cases[0];
 }
 
