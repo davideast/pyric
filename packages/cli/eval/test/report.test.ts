@@ -5,8 +5,15 @@
  * resampling unit is the task rather than the run.
  */
 import { describe, expect, test } from 'bun:test';
-import { bootstrap, buildReport, createRng, renderReport } from '../report.js';
-import type { EvalResultLine } from '../types.js';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { bootstrap, buildReport, createRng, loadRunLines, renderReport } from '../report.js';
+import { runAll } from '../run.js';
+import { buildInvocation as buildFake } from '../providers/fake.js';
+import type { EvalResultLine, EvalRow, EvalState, EvalTask } from '../types.js';
+
+const STANDIN = join(import.meta.dirname, 'standin-server.ts');
 
 function line(overrides: Partial<EvalResultLine>): EvalResultLine {
   return {
@@ -18,6 +25,7 @@ function line(overrides: Partial<EvalResultLine>): EvalResultLine {
     outcome: 'pass',
     firstOperation: 'get_firestore_document',
     firstOperationAccepted: true,
+    acceptedOpReached: true,
     callCount: 2,
     schemaRejections: 0,
     errorCalls: 0,
@@ -99,5 +107,171 @@ describe('the reporter is deterministic', () => {
       'noun-prefixed/row-b',
       'verb-prefixed/row-a',
     ]);
+  });
+});
+
+describe('accepted op reached', () => {
+  test('is its own statistic, independent of the first operation', () => {
+    const runs = [
+      line({ task: 't1', firstOperationAccepted: true, acceptedOpReached: true }),
+      line({ task: 't2', firstOperationAccepted: false, acceptedOpReached: true }),
+      line({ task: 't3', firstOperationAccepted: false, acceptedOpReached: false }),
+    ];
+    const report = buildReport(runs, 42)[0];
+    expect(report?.selectionAccuracy.value).toBeCloseTo(1 / 3, 10);
+    expect(report?.acceptedOpReached.value).toBeCloseTo(2 / 3, 10);
+  });
+});
+
+describe('infrastructure and bypass outcomes', () => {
+  test('throttled, interrupted and bypassed runs are excluded from the completion denominator', () => {
+    const runs = [
+      line({ task: 't1', outcome: 'pass' }),
+      line({ task: 't2', outcome: 'fail' }),
+      line({ task: 't3', outcome: 'throttled' }),
+      line({ task: 't4', outcome: 'interrupted' }),
+      line({ task: 't5', outcome: 'bypassed' }),
+    ];
+    const report = buildReport(runs, 42)[0];
+    // Only t1 and t2 are eligible: completion is 1 of 2, not 1 of 5.
+    expect(report?.completion.value).toBeCloseTo(1 / 2, 10);
+    expect(report?.infrastructure).toEqual({ throttled: 1, interrupted: 1, bypassed: 1 });
+  });
+
+  test('a cell with none of the three counts reports zero for each', () => {
+    const runs = [line({ task: 't1', outcome: 'pass' }), line({ task: 't2', outcome: 'fail' })];
+    const report = buildReport(runs, 42)[0];
+    expect(report?.infrastructure).toEqual({ throttled: 0, interrupted: 0, bypassed: 0 });
+  });
+
+  test('the rendered report names the infrastructure and bypass heading when any are present', () => {
+    const runs = [line({ task: 't1', outcome: 'pass' }), line({ task: 't2', outcome: 'throttled' })];
+    const rendered = renderReport(buildReport(runs, 42));
+    expect(rendered).toContain('infrastructure and bypass');
+    expect(rendered).toContain('throttled');
+  });
+
+  test('the heading is omitted when a cell has no infrastructure or bypass outcomes', () => {
+    const runs = [line({ task: 't1', outcome: 'pass' })];
+    const rendered = renderReport(buildReport(runs, 42));
+    expect(rendered).not.toContain('infrastructure and bypass');
+  });
+});
+
+describe('engaged-run completion', () => {
+  test('a run with zero calls is excluded from the engaged completion rate', () => {
+    const runs = [
+      line({ task: 't1', outcome: 'pass', callCount: 2 }),
+      line({ task: 't2', outcome: 'fail', callCount: 0 }),
+    ];
+    const report = buildReport(runs, 42)[0];
+    // Overall completion counts both tasks; engaged completion counts only t1.
+    expect(report?.completion.value).toBeCloseTo(1 / 2, 10);
+    expect(report?.completionEngaged.value).toBe(1);
+  });
+});
+
+describe('loadRunLines re-derives from a results directory', () => {
+  const ROW: EvalRow = {
+    id: 'fake-row',
+    cli: 'claude',
+    model: 'fake-model',
+    effort: 'low',
+    condition: 'agent-default',
+    seeds: [1],
+  };
+
+  const TASK: EvalTask = {
+    id: 'read-the-seeded-post',
+    prompt: 'Read posts/p1.',
+    seed: { firestore: { 'posts/p1': { title: 'seeded' } } },
+    acceptedFirstOperations: ['get_firestore_document'],
+    assert: (state: EvalState) => (state.calls.length === 0 ? 'no calls were logged' : true),
+    tags: ['firestore', 'read'],
+  };
+
+  async function producedResultsDir(): Promise<string> {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-report-'));
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    await runAll({
+      repoRoot: join(import.meta.dirname, '..', '..', '..', '..'),
+      resultsDir,
+      runId: 'run-1',
+      rows: [ROW],
+      tasks: [TASK],
+      variants: ['verb-prefixed'],
+      seeds: [],
+      dryRun: false,
+      timeoutMs: 60_000,
+      pacing: { minGapMs: 0, budgetPerWindow: 10, ledgerRoot },
+      serverCommand: () => ['bun', STANDIN],
+      providerFor: () => buildFake,
+      transcripts: {
+        'read-the-seeded-post': [{ tool: 'get_firestore_document', args: { path: 'posts/p1' } }],
+      },
+    });
+    return join(resultsDir, 'run-1');
+  }
+
+  test('a directory with a passing run re-derives the same result via the event log', async () => {
+    const runDir = await producedResultsDir();
+    const lines = await loadRunLines([runDir], {
+      tasks: new Map([[TASK.id, TASK]]),
+      rows: new Map([[ROW.id, ROW]]),
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.outcome).toBe('pass');
+    expect(lines[0]?.callCount).toBe(1);
+  }, 30_000);
+
+  test('a crash line whose run directory still has a non-empty event log is scored from the log', async () => {
+    const runDir = await producedResultsDir();
+    const runsPath = join(runDir, 'runs.ndjson');
+    const original = JSON.parse(readFileSync(runsPath, 'utf8').trim()) as EvalResultLine;
+    const asCrash: EvalResultLine = { ...original, outcome: 'crash', assertReason: 'harness died' };
+    writeFileSync(runsPath, `${JSON.stringify(asCrash)}\n`, 'utf8');
+
+    const lines = await loadRunLines([runDir], {
+      tasks: new Map([[TASK.id, TASK]]),
+      rows: new Map([[ROW.id, ROW]]),
+    });
+    expect(lines).toHaveLength(1);
+    // The event log is intact, so the harness crash is recovered as a pass.
+    expect(lines[0]?.outcome).toBe('pass');
+  }, 30_000);
+
+  test('a genuine crash with no event log is left as recorded', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'pyric-report-'));
+    const runDir = join(resultsDir, 'run-1', 'fake-row', 'verb-prefixed', 'read-the-seeded-post', '1');
+    mkdirSync(runDir, { recursive: true });
+    const crashLine: EvalResultLine = {
+      runId: 'run-1',
+      row: 'fake-row',
+      variant: 'verb-prefixed',
+      task: 'read-the-seeded-post',
+      seed: 1,
+      outcome: 'crash',
+      firstOperation: null,
+      firstOperationAccepted: false,
+      acceptedOpReached: false,
+      callCount: 0,
+      schemaRejections: 0,
+      errorCalls: 0,
+      durationMs: 0,
+      assertReason: 'spawn failed',
+    };
+    writeFileSync(
+      join(resultsDir, 'run-1', 'runs.ndjson'),
+      `${JSON.stringify(crashLine)}\n`,
+      'utf8',
+    );
+
+    const lines = await loadRunLines([join(resultsDir, 'run-1')], {
+      tasks: new Map([[TASK.id, TASK]]),
+      rows: new Map([[ROW.id, ROW]]),
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.outcome).toBe('crash');
+    expect(existsSync(join(runDir, 'events.ndjson'))).toBe(false);
   });
 });
