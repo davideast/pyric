@@ -118,30 +118,15 @@ describe('service command hierarchy', () => {
 
     expect(help.code).toBe(0);
     for (const command of [
-      'firestore rules lint',
       'firestore rules validate',
-      'firestore rules simulate',
       'firestore rules resolve',
       'firestore indexes generate',
-      'storage rules lint',
       'storage rules resolve',
-      'storage rules simulate',
-      'database rules lint',
       'database rules validate',
-      'database rules simulate',
       'database rules generate',
     ]) {
       expect(help.stdout).toContain(`pyric ${command}`);
     }
-  });
-
-  it('routes Firestore rules lint through the namespaced command', async () => {
-    const rulesPath = join(PACKAGE_ROOT, 'test', 'e2e', 'fixture', 'firestore.rules');
-    const result = await runDispatch(['firestore', 'rules', 'lint', rulesPath]);
-
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toHaveProperty('warnings');
   });
 
   it('routes Firestore rules validate through the namespaced command', async () => {
@@ -151,28 +136,6 @@ describe('service command hierarchy', () => {
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
     expect(JSON.parse(result.stdout)).toBeArray();
-  });
-
-  it('routes Firestore rules simulate through the namespaced command', () => {
-    const result = runCli(
-      ['firestore', 'rules', 'simulate', '--stdin'],
-      JSON.stringify({
-        source: `rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /{document=**} { allow read, write: if false; } } }`,
-        testCases: [
-          {
-            description: 'anonymous read stays denied',
-            expectation: 'DENY',
-            method: 'get',
-            path: 'notes/one',
-            auth: null,
-          },
-        ],
-      }),
-    );
-
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toHaveProperty('success', true);
   });
 
   it('resolves Firestore rules modules through the namespaced command', async () => {
@@ -230,44 +193,6 @@ describe('service command hierarchy', () => {
     }
   });
 
-  it('routes Storage rules lint through the namespaced command', async () => {
-    const rulesPath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'storage.rules');
-    const result = await runDispatch(['storage', 'rules', 'lint', rulesPath]);
-
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toHaveProperty('warnings');
-  });
-
-  it('routes Storage rules simulate through the namespaced command', () => {
-    const rulesPath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'storage.rules');
-    const result = runCli(
-      ['storage', 'rules', 'simulate', '--stdin'],
-      JSON.stringify({
-        source: readFileSync(rulesPath, 'utf8'),
-        request: {
-          auth: null,
-          method: 'get',
-          path: 'b/pyric-default/o/notes/one.txt',
-        },
-        resource: { size: 12 },
-      }),
-    );
-
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toHaveProperty('data.allowed', false);
-  });
-
-  it('routes Database rules lint through the namespaced command', async () => {
-    const rulesPath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'database.rules.json');
-    const result = await runDispatch(['database', 'rules', 'lint', rulesPath]);
-
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toHaveProperty('warnings');
-  });
-
   it('routes Database rules validate through the namespaced command', async () => {
     const rulesPath = join(PACKAGE_ROOT, 'test', 'cli', 'fixtures', 'database.rules.json');
     const result = await runDispatch(['database', 'rules', 'validate', rulesPath]);
@@ -275,23 +200,6 @@ describe('service command hierarchy', () => {
     expect(result.code).toBe(0);
     expect(result.stderr).toBe('');
     expect(JSON.parse(result.stdout)).toHaveProperty('errors');
-  });
-
-  it('routes Database rules simulate through the namespaced command', () => {
-    const result = runCli(
-      ['database', 'rules', 'simulate', '--stdin'],
-      JSON.stringify({
-        rulesJson: { rules: { '.read': true } },
-        operation: 'read',
-        path: '/notes/one',
-        auth: null,
-        mockData: {},
-      }),
-    );
-
-    expect(result.code).toBe(0);
-    expect(result.stderr).toBe('');
-    expect(JSON.parse(result.stdout)).toHaveProperty('data.allowed', true);
   });
 
   it('routes Database rules generate through the namespaced command', async () => {

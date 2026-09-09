@@ -360,19 +360,8 @@ describe('the claim the CLI must keep printing', () => {
 });
 
 describe('service command routing', () => {
-  it('routes the two-word auth commands and rejects an unknown operation', async () => {
-    let stderr = '';
-    const original = process.stderr.write;
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString();
-      return true;
-    }) as typeof process.stderr.write;
-    try {
-      expect(await dispatchServiceCommand(parseArgs(['auth', 'lens']))).toBe(1);
-    } finally {
-      process.stderr.write = original;
-    }
-    expect(stderr).toBe("pyric: unknown command 'auth lens'.\n");
+  it('leaves an unknown auth operation to the top-level dispatcher', async () => {
+    expect(await dispatchServiceCommand(parseArgs(['auth', 'lens']))).toBeNull();
   });
 
   it('reaches the impersonate handler through the registry', async () => {

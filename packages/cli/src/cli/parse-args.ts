@@ -86,7 +86,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       passthrough.push(...argv.slice(i + 1).filter((a): a is string => a !== undefined));
       break;
     }
-    if (isExecutionSubcommand(subcommand) && positional.length > 0) {
+    if (isExecutionSubcommand(subcommand, positional) && positional.length > 0) {
       positional.push(arg);
       i += 1;
       continue;
@@ -117,8 +117,24 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return { subcommand, flags, positional, passthrough };
 }
 
-function isExecutionSubcommand(subcommand: string | null): boolean {
-  return subcommand === 'sandbox';
+/**
+ * The methods of the `sandbox` service tool, which share the word `sandbox`
+ * with the command that runs an application inside the sandbox. `pyric sandbox
+ * seed --firestore '{}'` is a method call whose flags are its arguments;
+ * `pyric sandbox npm run dev` is a command line handed to a child process
+ * verbatim. The first word after `sandbox` is what separates them.
+ */
+export const SANDBOX_METHOD_WORDS: ReadonlySet<string> = new Set(['inspect', 'reset', 'seed']);
+
+/**
+ * Whether everything after the first positional belongs to a child command
+ * rather than to pyric. True for `pyric sandbox <command...>` and false for the
+ * `pyric sandbox <method>` calls derived from the method records.
+ */
+function isExecutionSubcommand(subcommand: string | null, positional: readonly string[]): boolean {
+  if (subcommand !== 'sandbox') return false;
+  const first = positional[0];
+  return first === undefined || !SANDBOX_METHOD_WORDS.has(first);
 }
 
 function setFlag(flags: Map<string, FlagValue>, key: string, value: string | boolean): void {
