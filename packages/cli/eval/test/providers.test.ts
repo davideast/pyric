@@ -3,6 +3,11 @@
  * changes silently would change what the eval measures without changing any
  * number in the report, so the exact command array and the exact files each
  * provider writes are pinned here for one row.
+ *
+ * The other thing pinned here is where each variable travels. Config files are
+ * readable by the agent under test, so they carry `PYRIC_TOOL_SURFACE` and
+ * nothing else; the state directory, the events log and the run block ride on
+ * the CLI process environment, which the MCP server inherits.
  */
 import { describe, expect, test } from 'bun:test';
 import { buildInvocation as buildClaude, MCP_CONFIG_KEYS } from '../providers/claude.js';
@@ -41,6 +46,8 @@ function runFor(row: EvalRow, variant = 'verb-prefixed'): EvalRun {
   };
 }
 
+const EVENTS_PATH = `${STATE_DIR}/events.ndjson`;
+
 const CLAUDE_ROW: EvalRow = {
   id: 'claude-default',
   cli: 'claude',
@@ -49,6 +56,42 @@ const CLAUDE_ROW: EvalRow = {
   condition: 'agent-default',
   seeds: [7],
 };
+
+/** The run-specific block that must be on the process and nowhere else. */
+function expectedRunEnv(row: EvalRow): Record<string, string> {
+  return {
+    PYRIC_PROJECT_DIR: STATE_DIR,
+    PYRIC_EVAL_LOG: EVENTS_PATH,
+    PYRIC_EVAL_RUN_ID: 'run-1',
+    PYRIC_EVAL_TASK_ID: 'read-a-post',
+    PYRIC_EVAL_VARIANT: 'verb-prefixed',
+    PYRIC_EVAL_CLI: row.cli,
+    PYRIC_EVAL_MODEL: row.model,
+    PYRIC_EVAL_EFFORT: row.effort ?? '',
+    PYRIC_EVAL_CONDITION: row.condition,
+    PYRIC_EVAL_SEED: '7',
+  };
+}
+
+/**
+ * A config's env block is exactly the surface id: no project directory, no log
+ * path, no run block. Anything else here is a path an agent can read and follow.
+ */
+function expectConfigEnvIsSurfaceOnly(env: Record<string, string>): void {
+  expect(env).toEqual({ PYRIC_TOOL_SURFACE: 'verb-prefixed' });
+  expect(Object.keys(env).filter((key) => key.startsWith('PYRIC_EVAL_'))).toEqual([]);
+  expect(env.PYRIC_PROJECT_DIR).toBeUndefined();
+  expect(env.PYRIC_EVAL_LOG).toBeUndefined();
+}
+
+/** The same claim about a config format that is text rather than JSON. */
+function expectConfigTextIsClean(text: string): void {
+  expect(text).not.toContain('PYRIC_PROJECT_DIR');
+  expect(text).not.toContain('PYRIC_EVAL_LOG');
+  expect(text).not.toContain('PYRIC_EVAL_');
+  expect(text).not.toContain(STATE_DIR);
+  expect(text).not.toContain(EVENTS_PATH);
+}
 
 describe('provider invocations', () => {
   test('the default server command is the local build of the CLI entry', () => {
@@ -103,19 +146,12 @@ describe('provider invocations', () => {
         'verb-prefixed',
       ]);
     }
-    expect(config.mcpServers?.pyric.env).toEqual({
-      PYRIC_PROJECT_DIR: STATE_DIR,
-      PYRIC_EVAL_LOG: `${STATE_DIR}/events.ndjson`,
-      PYRIC_EVAL_RUN_ID: 'run-1',
-      PYRIC_EVAL_TASK_ID: 'read-a-post',
-      PYRIC_EVAL_VARIANT: 'verb-prefixed',
-      PYRIC_EVAL_CLI: 'claude',
-      PYRIC_EVAL_MODEL: 'claude-opus-4',
-      PYRIC_EVAL_EFFORT: 'high',
-      PYRIC_EVAL_CONDITION: 'agent-default',
-      PYRIC_EVAL_SEED: '7',
-      PYRIC_TOOL_SURFACE: 'verb-prefixed',
-    });
+    for (const key of MCP_CONFIG_KEYS) {
+      expectConfigEnvIsSurfaceOnly(config[key]?.pyric.env as Record<string, string>);
+    }
+    expectConfigTextIsClean(invocation.files['mcp-config.json'] as string);
+    // Everything the config no longer names is on the process the CLI runs as.
+    expect(invocation.env).toEqual(expectedRunEnv(CLAUDE_ROW));
   });
 
   test('claude in the mcp-only condition withdraws the built-in tools', () => {
@@ -153,7 +189,11 @@ describe('provider invocations', () => {
       CODEX_PROFILE,
       TASK.prompt,
     ]);
-    expect(invocation.env).toEqual({ CODEX_HOME: `${RUN_DIR}/codex-home` });
+    // `CODEX_HOME` keeps its place on the process, beside the run block.
+    expect(invocation.env).toEqual({
+      ...expectedRunEnv(row),
+      CODEX_HOME: `${RUN_DIR}/codex-home`,
+    });
     // `CODEX_HOME` is a path, so nothing lands in the workspace.
     expect(invocation.workspaceFiles).toEqual({});
 
@@ -163,8 +203,8 @@ describe('provider invocations', () => {
     expect(config).toContain('model_reasoning_effort = "medium"');
     expect(config).toContain('[mcp_servers.pyric]');
     expect(config).toContain('command = "node"');
-    expect(config).toContain('PYRIC_TOOL_SURFACE = "verb-prefixed"');
-    expect(config).toContain(`PYRIC_PROJECT_DIR = "${STATE_DIR}"`);
+    expect(config).toContain('env = { PYRIC_TOOL_SURFACE = "verb-prefixed" }');
+    expectConfigTextIsClean(config);
   });
 
   test('antigravity', () => {
@@ -198,9 +238,10 @@ describe('provider invocations', () => {
       mcpServers: { pyric: { command: string; args: string[]; env: Record<string, string> } };
     };
     expect(config.mcpServers.pyric.command).toBe('node');
-    expect(config.mcpServers.pyric.env.PYRIC_EVAL_EFFORT).toBe('');
-    expect(config.mcpServers.pyric.env.PYRIC_TOOL_SURFACE).toBe('verb-prefixed');
-    expect(config.mcpServers.pyric.env.PYRIC_PROJECT_DIR).toBe(STATE_DIR);
+    // This is the config an agent with file tools reads, so it names no path.
+    expectConfigEnvIsSurfaceOnly(config.mcpServers.pyric.env);
+    expectConfigTextIsClean(invocation.workspaceFiles['.agents/mcp_config.json'] as string);
+    expect(invocation.env).toEqual(expectedRunEnv(row));
   });
 
   test('fake', () => {
@@ -223,13 +264,18 @@ describe('provider invocations', () => {
       transcript: Array<{ tool: string; args: Record<string, unknown> }>;
     };
     expect(plan.server.command).toBe('node');
-    expect(plan.server.env.PYRIC_PROJECT_DIR).toBe(STATE_DIR);
+    // The replay client spawns the server itself, so the plan carries the run's
+    // variables in full. The plan is in the run directory, which no agent sees.
+    expect(plan.server.env).toEqual({
+      ...expectedRunEnv(row),
+      PYRIC_TOOL_SURFACE: 'verb-prefixed',
+    });
     expect(plan.transcript).toEqual([
       { tool: 'get_firestore_document', args: { path: 'posts/p1' } },
     ]);
   });
 
-  test('the state directory reaches the server through the env, not the argument list', () => {
+  test('the state directory reaches the server through the process env, not the config', () => {
     const invocation = buildClaude(runFor(CLAUDE_ROW));
     const config = JSON.parse(invocation.files['mcp-config.json'] as string) as {
       mcpServers: { pyric: { args: string[]; env: Record<string, string> } };
@@ -237,6 +283,25 @@ describe('provider invocations', () => {
     const server = config.mcpServers.pyric;
     expect(server.args).not.toContain('--project-dir');
     expect(server.args.join(' ')).not.toContain(STATE_DIR);
-    expect(server.env.PYRIC_PROJECT_DIR).toBe(STATE_DIR);
+    expect(server.env.PYRIC_PROJECT_DIR).toBeUndefined();
+    expect(invocation.env.PYRIC_PROJECT_DIR).toBe(STATE_DIR);
+  });
+
+  test('no real provider writes a run path into any file at all', () => {
+    const rows: EvalRow[] = [
+      CLAUDE_ROW,
+      { id: 'codex-default', cli: 'codex', model: 'gpt-5-codex', condition: 'agent-default', seeds: [7] },
+      { id: 'agy-default', cli: 'antigravity', model: 'gemini-3-pro', condition: 'agent-default', seeds: [7] },
+    ];
+    const builders = [buildClaude, buildCodex, buildAntigravity];
+    for (const [index, row] of rows.entries()) {
+      const build = builders[index] as (run: EvalRun) => ReturnType<typeof buildClaude>;
+      const invocation = build(runFor(row));
+      const written = [
+        ...Object.values(invocation.files),
+        ...Object.values(invocation.workspaceFiles),
+      ];
+      for (const contents of written) expectConfigTextIsClean(contents);
+    }
   });
 });
