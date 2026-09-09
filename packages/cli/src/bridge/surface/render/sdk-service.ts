@@ -18,7 +18,7 @@ import { TOOL_DESCRIPTIONS } from '../descriptions.generated.js';
 import { toJsonSchema } from '../json-schema.js';
 import { callMethod } from '../method-call.js';
 import { mountedTool } from '../method-effects.js';
-import { METHODS, methodByName, TOOLS, toolByName } from '../methods/index.js';
+import { methodByName, TOOLS, toolByName } from '../methods/index.js';
 import {
   DESCRIBE_METHOD,
   methodNames,
@@ -152,9 +152,13 @@ function resolveCall(toolName: string, raw: Args): ResolvedCall {
 
 export function render(options?: RenderOptions): RenderedSurface {
   const allowProduction = options?.allowProduction ?? false;
-  const reached = new Set(METHODS.flatMap((method) => operationIds(method)));
   const tools: RenderedTool[] = TOOLS.map((tool) => {
     const mounted = mountedTool(tool, allowProduction);
+    // A tool whose every method is withheld would serve a `method` enum holding
+    // nothing but `describe`, which is a tool with no capability behind it.
+    if (mounted.methods.length === 0) {
+      throw new Error(`service tool '${mounted.name}' mounts no methods`);
+    }
     return {
       name: mounted.name,
       description: describeTool(mounted),
@@ -162,6 +166,5 @@ export function render(options?: RenderOptions): RenderedSurface {
       execute: (args, ctx) => execute(mounted, args, ctx, allowProduction),
     };
   });
-  if (reached.size === 0) throw new Error('sdk-service reaches no canonical operations');
   return { tools, resolve: resolveCall };
 }

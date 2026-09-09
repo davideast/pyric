@@ -273,6 +273,17 @@ describe('every rendered surface passes through the one validator', () => {
     });
   });
 
+  it('refuses to render a service tool whose every method is withheld', async () => {
+    await asProduction('sandbox.inspect', async () => {
+      await asProduction('sandbox.seed', async () => {
+        await asProduction('sandbox.reset', async () => {
+          expect(() => renderSurface('sdk-service')).toThrow(/sandbox/);
+          expect(() => renderSurface('sdk-service', { allowProduction: true })).not.toThrow();
+        });
+      });
+    });
+  });
+
   it('discriminator refuses a production method behind a resource read', async () => {
     await asProduction('sandbox.inspect', async () => {
       const resources = renderSurface('discriminator').resources ?? [];
