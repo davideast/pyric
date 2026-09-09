@@ -5,18 +5,15 @@
  * implementations.
  */
 
-/** State loaded into the sandbox before a run starts. Tasks never seed by tool call. */
-export interface EvalSeed {
-  firestoreRules?: string;
-  databaseRules?: string;
-  storageRules?: string;
-  users?: Array<{ uid: string; email?: string; claims?: Record<string, unknown>; tenant?: string }>;
-  /** Document path to document data. */
-  firestore?: Record<string, Record<string, unknown>>;
-  /** Realtime Database tree written at the root. */
-  database?: Record<string, unknown>;
-  storage?: Array<{ path: string; contentBase64: string; contentType?: string }>;
-}
+import type { SandboxSeed } from '../src/bridge/surface/seed-apply.js';
+
+/**
+ * State loaded into the sandbox before a run starts. Tasks never seed by tool
+ * call. This is the same declaration the `sandbox.seed` method validates
+ * against, not a second copy of its fields, so a task's seed and an agent's
+ * own seed call cannot drift apart.
+ */
+export type EvalSeed = SandboxSeed;
 
 /** One recorded tool call, read back from the events NDJSON. */
 export interface EvalCall {

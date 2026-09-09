@@ -51,6 +51,7 @@ function decodes(value: string): boolean {
 const METHODS: readonly MethodSpec[] = [
   {
     name: 'uploadBytes',
+    sdkOrigin: 'firebase-js',
     signature: 'uploadBytes(path, contentBase64, metadata?)',
     summary: 'Store an object from base64-encoded bytes.',
     args: z.object({
@@ -79,13 +80,14 @@ const METHODS: readonly MethodSpec[] = [
       const shown = content.length > 40 ? `${content.slice(0, 40)}...` : content;
       return fail(
         `contentBase64 ${quoted(shown)} is not base64. uploadBytes carries the object bytes base64 encoded, because a tool call is JSON.`,
-        `Base64 encode the payload and pass the result as contentBase64.`,
+        `Pass contentBase64 as the payload, base64 encoded.`,
         'contentBase64',
       );
     },
   },
   {
     name: 'getBytes',
+    sdkOrigin: 'firebase-js',
     signature: 'getBytes(path)',
     summary: 'Read one object back as base64-encoded bytes.',
     args: z.object({ path: pathArgument }),
@@ -97,6 +99,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'listAll',
+    sdkOrigin: 'firebase-js',
     signature: 'listAll(prefix?)',
     summary: 'List the objects under a folder, or under the bucket root.',
     args: z.object({
@@ -110,6 +113,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'getMetadata',
+    sdkOrigin: 'firebase-js',
     signature: 'getMetadata(path)',
     summary: 'Read one object size, content type, and custom metadata.',
     args: z.object({ path: pathArgument }),
@@ -121,6 +125,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'deleteObject',
+    sdkOrigin: 'firebase-js',
     signature: 'deleteObject(path)',
     summary: 'Delete one object.',
     args: z.object({ path: pathArgument }),

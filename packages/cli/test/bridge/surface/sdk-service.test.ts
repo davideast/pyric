@@ -49,12 +49,22 @@ describe('the sdk-service tool set', () => {
     expect(surface.tools.map((tool) => tool.name)).toEqual(TOOL_NAMES);
   });
 
-  it('reaches every canonical operation through exactly one method', () => {
+  it('reaches every canonical operation through at least one method', () => {
     const reached = SDK_TOOLS.flatMap((tool) =>
       tool.methods.flatMap((method) => [...method.operations]),
     );
-    expect(reached).toHaveLength(CANONICAL_OPERATION_IDS.length);
-    expect([...reached].sort()).toEqual([...CANONICAL_OPERATION_IDS].sort());
+    expect(new Set(reached).size).toBe(CANONICAL_OPERATION_IDS.length);
+    expect([...new Set(reached)].sort()).toEqual([...CANONICAL_OPERATION_IDS].sort());
+  });
+
+  it('reaches switch_auth_identity through the four identity methods, distinguished by the action', () => {
+    const authTool = SDK_TOOLS.find((tool) => tool.name === 'auth');
+    const identityMethods = (authTool?.methods ?? []).filter((method) =>
+      method.operations.includes('switch_auth_identity'),
+    );
+    expect(identityMethods.map((method) => method.name).sort()).toEqual(
+      ['actAsAdmin', 'actAsAnonymous', 'impersonate', 'useAppSession'].sort(),
+    );
   });
 
   it('gives every tool the same two top-level properties', () => {
@@ -176,7 +186,7 @@ describe('the sdk-service validator', () => {
       contentBase64: 'not base64!!',
     });
     expect(result.summary).toBe(
-      "storage.uploadBytes: contentBase64 'not base64!!' is not base64. uploadBytes carries the object bytes base64 encoded, because a tool call is JSON. Base64 encode the payload and pass the result as contentBase64.",
+      "storage.uploadBytes: contentBase64 'not base64!!' is not base64. uploadBytes carries the object bytes base64 encoded, because a tool call is JSON. Pass contentBase64 as the payload, base64 encoded.",
     );
   });
 
@@ -210,7 +220,7 @@ describe('the sdk-service validator', () => {
       ],
     });
     expect(result.summary).toBe(
-      "firestore.getDocs: an inequality filter on 'age' with the first orderBy on 'name'. Firestore requires the first orderBy field to match the inequality field. Order by 'age' first, then by 'name'.",
+      "firestore.getDocs: an inequality filter on 'age' with the first orderBy on 'name'. Firestore requires the first orderBy field to match the inequality field. Pass orderBy 'age' first, then 'name'.",
     );
   });
 

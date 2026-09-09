@@ -1,0 +1,42 @@
+{
+  "firestore": [
+    "getFirestore",
+    "initializeFirestore"
+  ],
+  "database": [
+    "getDatabase",
+    "getDatabaseWithUrl"
+  ],
+  "storage": [
+    "getDownloadURL",
+    "getStorage"
+  ],
+  "auth": [
+    "createCustomToken",
+    "createProviderConfig",
+    "createSessionCookie",
+    "createUser",
+    "deleteProviderConfig",
+    "deleteUser",
+    "deleteUsers",
+    "generateEmailVerificationLink",
+    "generatePasswordResetLink",
+    "generateSignInWithEmailLink",
+    "generateVerifyAndChangeEmailLink",
+    "getProviderConfig",
+    "getUser",
+    "getUserByEmail",
+    "getUserByPhoneNumber",
+    "getUserByProviderUid",
+    "getUsers",
+    "importUsers",
+    "listProviderConfigs",
+    "listUsers",
+    "revokeRefreshTokens",
+    "setCustomUserClaims",
+    "updateProviderConfig",
+    "updateUser",
+    "verifyIdToken",
+    "verifySessionCookie"
+  ]
+}

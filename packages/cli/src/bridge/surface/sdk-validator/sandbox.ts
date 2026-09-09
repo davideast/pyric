@@ -14,6 +14,7 @@ import { quoted } from './shared.js';
 const METHODS: readonly MethodSpec[] = [
   {
     name: 'inspect',
+    sdkOrigin: 'pyric',
     signature: 'inspect()',
     summary: 'Report the loaded rules, the document census, and the recent requests and denials.',
     args: z.object({}),
@@ -24,6 +25,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'reset',
+    sdkOrigin: 'pyric',
     signature: 'reset(confirm)',
     summary: 'Clear every service. Requires confirm true.',
     args: z.object({
@@ -48,18 +50,40 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'seed',
-    signature: 'seed(snapshot)',
-    summary: 'Load a sandbox snapshot over the current state.',
+    sdkOrigin: 'pyric',
+    signature: 'seed(users?, firestore?, database?, storage?, firestoreRules?, databaseRules?, storageRules?)',
+    summary: 'Load users, documents, database values, storage objects, and rules before other calls run.',
     args: z.object({
-      snapshot: z
-        .record(z.unknown())
-        .describe('A sandbox snapshot, as inspect and the persisted state file produce it.'),
+      users: z
+        .array(z.object({
+          uid: z.string(),
+          email: z.string().optional(),
+          claims: z.record(z.unknown()).optional(),
+          tenant: z.string().optional(),
+        }))
+        .optional()
+        .describe('Users to seed into the auth pool.'),
+      firestore: z
+        .record(z.record(z.unknown()))
+        .optional()
+        .describe('Document path to document data.'),
+      database: z.record(z.unknown()).optional().describe('Realtime Database tree written at the root.'),
+      storage: z
+        .array(z.object({
+          path: z.string(),
+          contentBase64: z.string(),
+          contentType: z.string().optional(),
+        }))
+        .optional()
+        .describe('Storage objects to seed.'),
+      firestoreRules: z.string().optional().describe('Firestore rules source to install before seeding data.'),
+      databaseRules: z.string().optional().describe('Realtime Database rules.json source to install before seeding data.'),
+      storageRules: z.string().optional().describe('Storage rules source to install before seeding data.'),
     }),
     operations: ['seed_sandbox'],
-    renames: { state: 'snapshot', data: 'snapshot' },
-    example: { snapshot: { firestore: { 'users/alice': { role: 'admin' } } } },
+    example: { firestore: { 'users/alice': { role: 'admin' } } },
     resolve: () => 'seed_sandbox',
-    translate: (args) => ({ snapshot: args.snapshot }),
+    translate: (args) => ({ ...args }),
   },
 ];
 

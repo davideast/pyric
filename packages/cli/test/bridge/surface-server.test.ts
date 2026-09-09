@@ -86,7 +86,7 @@ describe('a one-tool-per-operation variant over a real MCP session', () => {
     const session = await openSurface('verb-prefixed');
     try {
       const listed = await session.client.listTools();
-      expect(listed.tools.length).toBe(37);
+      expect(listed.tools.length).toBe(41);
       expect(listed.tools.map((tool) => tool.name)).toContain('create_auth_user');
       expect(listed.tools.map((tool) => tool.name)).toContain('simulate_firestore_rules');
     } finally {

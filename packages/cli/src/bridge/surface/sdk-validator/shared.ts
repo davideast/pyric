@@ -35,10 +35,21 @@ export interface InvalidArguments {
 /** Build one rejection for a known tool and method. */
 export type Fail = (body: string, fix: string, field?: string) => InvalidArguments;
 
+/**
+ * Where a method's name comes from: the modular client SDK, the Admin SDK, or
+ * pyric's own vocabulary for a capability neither SDK has a method for. The
+ * vocabulary invariant checks a `firebase-js` or `firebase-admin` name against
+ * a generated list of that SDK's real exports, and a `pyric` name against
+ * pyric's own export list, so an invented name fails instead of shipping.
+ */
+export type SdkOrigin = 'firebase-js' | 'firebase-admin' | 'pyric';
+
 /** One SDK method on one service tool. */
 export interface MethodSpec {
   /** The name the SDK gives this method. */
   name: string;
+  /** Where the name comes from. */
+  sdkOrigin: SdkOrigin;
   /** The SDK call signature, for the tool description and for `describe`. */
   signature: string;
   /** One sentence an agent reads to choose this method. */

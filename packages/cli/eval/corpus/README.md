@@ -13,7 +13,7 @@ contract. The `id` field equals the filename without its extension. A record car
 
 ## Distribution
 
-Sixty tasks:
+Sixty-three tasks:
 
 - 15 auth and tenant: seed a tenant user with claims, switch the active identity, list users, set
   or revoke claims, delete an account.
@@ -23,8 +23,9 @@ Sixty tasks:
   allow expectation against a deny expectation, reach for a rules helper module.
 - 8 storage: upload, read metadata, list, download, overwrite, delete.
 - 6 sandbox: inspect, reset, seed.
-- 6 multi-step: two or three operations in sequence, such as seeding a tenant user, writing a
-  document as that user, and reading it back.
+- 9 multi-step: two or three operations in sequence, such as seeding a tenant user, writing a
+  document as that user, and reading it back. Three of these install rules with `set` and then
+  read the effect back through `simulate`, one per service.
 
 ## Rules for new tasks
 

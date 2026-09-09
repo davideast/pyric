@@ -40,6 +40,7 @@ const pathArgument = z.string().describe('Root-relative path, for example rooms/
 const METHODS: readonly MethodSpec[] = [
   {
     name: 'get',
+    sdkOrigin: 'firebase-js',
     signature: 'get(path)',
     summary: 'Read the value at one path.',
     args: z.object({ path: pathArgument }),
@@ -52,6 +53,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'set',
+    sdkOrigin: 'firebase-js',
     signature: 'set(path, value)',
     summary: 'Replace the value at one path.',
     args: z.object({
@@ -67,6 +69,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'update',
+    sdkOrigin: 'firebase-js',
     signature: 'update(path, values)',
     summary: 'Merge child keys into the value at one path.',
     args: z.object({
@@ -84,6 +87,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'remove',
+    sdkOrigin: 'firebase-js',
     signature: 'remove(path)',
     summary: 'Delete the value at one path.',
     args: z.object({ path: pathArgument }),
@@ -96,6 +100,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'query',
+    sdkOrigin: 'firebase-js',
     signature: 'query(path, orderByChild?, equalTo?, limitToFirst?)',
     summary: 'Read the children of one path under an ordering, a filter, and a limit.',
     args: z.object({

@@ -178,7 +178,7 @@ const testCaseSchema = z.object({
 export const verifySecurityRulesSchema = z.object({
   service: z.enum(['firestore', 'database', 'storage']).describe('Target rules service.'),
   action: z
-    .enum(['lint', 'resolve_modules', 'simulate_suite', 'check_conformance'])
+    .enum(['lint', 'resolve_modules', 'simulate_suite', 'check_conformance', 'set'])
     .describe('Verification action.'),
   source: z
     .string()
@@ -225,7 +225,9 @@ export const controlSandboxEnvironmentSchema = z.object({
   seedSnapshotJson: z
     .string()
     .optional()
-    .describe("JSON-encoded SandboxSnapshot to clobber-restore (when action is 'seed')."),
+    .describe(
+      "JSON-encoded seed object (users, firestore, database, storage, firestoreRules, databaseRules, storageRules), all optional (when action is 'seed').",
+    ),
 });
 
 export const invokeCloudFunctionSchema = z.object({

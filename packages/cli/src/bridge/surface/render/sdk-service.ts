@@ -161,10 +161,14 @@ export function render(operations: readonly Operation[]): RenderedSurface {
   for (const id of covered) {
     if (!known.has(id)) throw new Error(`sdk-service names unknown operation '${id}'`);
   }
-  if (new Set(covered).size !== known.size || covered.length !== known.size) {
-    throw new Error(
-      `sdk-service reaches ${new Set(covered).size} of ${known.size} operations across ${covered.length} method mappings`,
-    );
+  // Coverage need not be one method per operation: several identity methods
+  // (impersonate, actAsAdmin, actAsAnonymous, useAppSession) each resolve to
+  // `switch_auth_identity`, distinguished by the method name the audit log
+  // records as the action. What must hold is that every canonical operation
+  // is reached by at least one method.
+  const reached = new Set(covered);
+  if (reached.size !== known.size) {
+    throw new Error(`sdk-service reaches ${reached.size} of ${known.size} operations`);
   }
 
   const tools: RenderedTool[] = SDK_TOOLS.map((tool) => ({

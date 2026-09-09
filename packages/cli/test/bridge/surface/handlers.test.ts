@@ -33,6 +33,15 @@ service firebase.storage {
   }
 }`;
 
+const SIGNED_IN_ONLY_STORAGE_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}`;
+
 const sandbox = initializeSandbox();
 setRules(sandbox, TENANT_RULES);
 
@@ -229,9 +238,53 @@ it('inspects, seeds, and resets the sandbox', async () => {
   const inspected = await run('inspect_sandbox');
   expect(inspected.ok).toBe(true);
 
-  const snapshot = sandbox.snapshot() as unknown as Record<string, unknown>;
-  expect((await run('seed_sandbox', { snapshot })).ok).toBe(true);
+  const seeded = await run('seed_sandbox', {
+    users: [{ uid: 'seeded-dana', email: 'dana@example.com', tenant: 'tenant-a' }],
+    firestore: { 'rooms/seeded': { open: true } },
+  });
+  expect(seeded.ok).toBe(true);
+  const readSeeded = await run('get_firestore_document', { path: 'rooms/seeded' });
+  expect((readSeeded.data as { data: { open: boolean } }).data.open).toBe(true);
+
+  const rejected = await run('seed_sandbox', { snapshot: {} });
+  expect(rejected.ok).toBe(false);
+  expect(rejected.summary).toContain('snapshot');
+
   expect((await run('reset_sandbox')).ok).toBe(true);
+});
+
+it('reports the identity every later call runs under', async () => {
+  await run('switch_auth_identity', { mode: 'uid', uid: 'alice', tenant: 'tenant-a' });
+  const identity = await run('get_auth_identity');
+  expect(identity.ok).toBe(true);
+  expect((identity.data as { identity: { uid: string } }).identity.uid).toBe('alice');
+  await run('switch_auth_identity', { mode: 'admin' });
+});
+
+it('installs Firestore and database rules into the running sandbox', async () => {
+  const installedFirestore = await run('set_firestore_rules', { rules: TENANT_RULES });
+  expect(installedFirestore.ok).toBe(true);
+  const allowed = await run('simulate_firestore_rules', {
+    operation: 'get',
+    path: 'tenants/t1',
+    uid: 'alice',
+  });
+  expect((allowed.data as { allowed: boolean }).allowed).toBe(true);
+
+  const installedDatabase = await run('set_database_rules', { rules: DATABASE_RULES });
+  expect(installedDatabase.ok).toBe(true);
+
+  const installedStorage = await run('set_storage_rules', { rules: SIGNED_IN_ONLY_STORAGE_RULES });
+  expect(installedStorage.ok).toBe(true);
+  const anonymousRead = await run('simulate_storage_rules', {
+    operation: 'get',
+    path: 'uploads/report.pdf',
+  });
+  expect((anonymousRead.data as { allowed: boolean }).allowed).toBe(false);
+
+  const rejectedStorage = await run('set_storage_rules', { rules: 'not rules at all {' });
+  expect(rejectedStorage.ok).toBe(false);
+  expect(rejectedStorage.summary).toContain('Storage rules did not parse');
 });
 
 it('reaches the same handler through the discriminator rendering', async () => {

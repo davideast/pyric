@@ -8,6 +8,8 @@
  * ruleset and report a confident answer about a file nobody asked about.
  */
 import { z } from 'zod';
+import { lintFirestoreRules } from 'pyric/rules/internal';
+import { parseStorageRules } from 'pyric/storage';
 import type { Args, Fail, InvalidArguments, MethodSpec, ToolSpec } from './shared.js';
 import { closest, quoted } from './shared.js';
 
@@ -59,9 +61,48 @@ function checkOperation(args: Args, fail: Fail): InvalidArguments | null {
   );
 }
 
+/** Reject a rules source that does not parse for the named service, in the validator's fix format. */
+function checkRulesParse(args: Args, fail: Fail): InvalidArguments | null {
+  const named = checkService(args, fail);
+  if (named !== null) return named;
+  const service = String(args.service);
+  const source = String(args.rules ?? '');
+  if (service === 'database') {
+    try {
+      JSON.parse(source);
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return fail(
+        `rules did not parse as JSON: ${message}.`,
+        `Pass rules JSON that parses, then call set again.`,
+        'rules',
+      );
+    }
+  }
+  if (service === 'storage') {
+    try {
+      parseStorageRules(source);
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return fail(`rules did not parse: ${message}.`, `Pass a rules source that parses, then call set again.`, 'rules');
+    }
+  }
+  const lint = lintFirestoreRules(source);
+  if (lint.parseError === undefined) return null;
+  const parseError = lint.parseError;
+  return fail(
+    `rules did not parse at line ${parseError.line}, column ${parseError.column}: expected ${parseError.expected}.`,
+    `Pass a rules source that parses, then call set again.`,
+    'rules',
+  );
+}
+
 const METHODS: readonly MethodSpec[] = [
   {
     name: 'lint',
+    sdkOrigin: 'pyric',
     signature: 'lint(service, rules?)',
     summary: 'Check a ruleset for errors without evaluating a request.',
     args: z.object({
@@ -80,6 +121,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'simulate',
+    sdkOrigin: 'pyric',
     signature: 'simulate(service, operation, path, uid?, data?, rules?)',
     summary: 'Evaluate one request against a ruleset and report allow or deny.',
     args: z.object({
@@ -113,6 +155,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'explainDenial',
+    sdkOrigin: 'pyric',
     signature: 'explainDenial(operation, path, service?, uid?, data?)',
     summary: 'Trace why a request was denied, rule by rule.',
     args: z.object({
@@ -148,7 +191,24 @@ const METHODS: readonly MethodSpec[] = [
     },
   },
   {
+    name: 'set',
+    sdkOrigin: 'pyric',
+    signature: 'set(service, rules)',
+    summary: 'Install a ruleset into the running sandbox. The rules must parse for the named service.',
+    args: z.object({
+      service,
+      rules: z.string().describe('Rules source to install.'),
+    }),
+    operations: ['set_firestore_rules', 'set_database_rules', 'set_storage_rules'],
+    renames: RENAMES,
+    example: { service: 'firestore', rules: "rules_version = '2';\nservice cloud.firestore { match /databases/{database}/documents { match /{document=**} { allow read, write: if false; } } }" },
+    resolve: (args) => `set_${String(args.service)}_rules`,
+    translate: (args) => ({ rules: args.rules }),
+    check: checkRulesParse,
+  },
+  {
     name: 'listStdlib',
+    sdkOrigin: 'pyric',
     signature: 'listStdlib()',
     summary: 'List every Security Rules standard library module.',
     args: z.object({}),
@@ -160,6 +220,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'getStdlib',
+    sdkOrigin: 'pyric',
     signature: 'getStdlib(module)',
     summary: 'Read one standard library module signature list.',
     args: z.object({

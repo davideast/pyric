@@ -19,6 +19,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `delete_auth_user` | delete | auth | user | `uid` | |
 | `set_auth_claims` | set | auth | claims | `uid`, `claims` (object) | Replaces custom claims. |
 | `switch_auth_identity` | switch | auth | identity | `mode` (`admin`, `uid`, `anonymous`, `app-session`), `uid?`, `tenant?`, `claims?` | Sets the caller identity for subsequent calls. |
+| `get_auth_identity` | get | auth | identity | none | Reports the held identity: mode, uid, tenant, claims as projected. |
 | `get_firestore_document` | get | firestore | document | `path` | |
 | `list_firestore_documents` | list | firestore | documents | `path` (collection), `limit?` | |
 | `write_firestore_document` | write | firestore | document | `path`, `data` (object), `merge?` | Set semantics. |
@@ -44,13 +45,16 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `simulate_database_rules` | simulate | database | rules | `operation`, `path`, `uid?`, `data?`, `rules?` | |
 | `lint_storage_rules` | lint | storage | rules | `rules?` | |
 | `simulate_storage_rules` | simulate | storage | rules | `operation`, `path`, `uid?`, `rules?` | |
+| `set_firestore_rules` | set | firestore | rules | `rules` | Installs a ruleset into the running sandbox. |
+| `set_database_rules` | set | database | rules | `rules` | Installs a ruleset into the running sandbox. |
+| `set_storage_rules` | set | storage | rules | `rules` | Installs a ruleset into the running sandbox. |
 | `list_rules_stdlib` | list | rules | stdlib | none | |
 | `get_rules_stdlib` | get | rules | stdlib | `module` | |
 | `inspect_sandbox` | inspect | sandbox | state | none | Counts and status per service. |
 | `reset_sandbox` | reset | sandbox | state | none | |
-| `seed_sandbox` | seed | sandbox | state | `snapshot` (object) | |
+| `seed_sandbox` | seed | sandbox | state | `users?`, `firestore?`, `database?`, `storage?`, `firestoreRules?`, `databaseRules?`, `storageRules?` | Matches `EvalSeed`. Any other top-level key is rejected. |
 
-Thirty-seven operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of any parameter schema is at most two object levels below the root.
+Forty-one operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of any parameter schema is at most two object levels below the root.
 
 ## 2. Surface variants
 

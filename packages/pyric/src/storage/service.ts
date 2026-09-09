@@ -27,10 +27,9 @@ import {
   resolveOperationContext,
 } from 'pyric/sandbox/internal';
 import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
-import { parseStorageRules, type StorageRules } from './sandbox/rules.js';
-import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
+import type { StorageRules } from './sandbox/rules.js';
 import {
-  createStorageRulesResolution,
+  compileStorageRules,
   type StorageRulesResolution,
 } from './rules-resolution.js';
 
@@ -113,7 +112,13 @@ export type CrossServiceIam = 'granted' | 'denied';
 export class StorageService {
   constructor(
     readonly backend: StorageBackend,
-    readonly rules: StorageRules | null = null,
+    /**
+     * The ruleset every operation on this service evaluates against.
+     * Assigned at construction and reassigned only by
+     * {@link replaceStorageRules}, which is the one deliberate way to
+     * install a new ruleset into a sandbox whose storage is already open.
+     */
+    public rules: StorageRules | null = null,
     readonly crossServiceIam: CrossServiceIam = 'granted',
   ) {}
 }
@@ -246,6 +251,43 @@ function rejectDifferingLateConfig(
 }
 
 /**
+ * Install a new ruleset into a sandbox's storage service, replacing whatever
+ * it is enforcing.
+ *
+ * This is the deliberate counterpart to the late-config guard in
+ * {@link ensureService}. That guard exists because a `rules` option passed to
+ * a FACTORY after the service is open would be silently discarded, and a
+ * caller asking for a handle has not asked to change the ruleset. Here the
+ * caller has asked for exactly that and nothing is discarded: the source is
+ * compiled first, so a source that does not parse throws and leaves the
+ * ruleset in force untouched, and the factory guard is unchanged, so the
+ * served-app path still refuses a late differing option.
+ *
+ * The new ruleset reaches the root service and every per-bucket scoped
+ * service, because each holds its own reference to the parsed rules.
+ */
+export async function replaceStorageRules(sandbox: Sandbox, source: string): Promise<void> {
+  const compiled = compileStorageRules(source);
+  const open = OPEN_SERVICES.get(sandbox);
+  if (open === undefined) {
+    await ensureService(sandbox, { rules: source }, 'replaceStorageRules');
+    return;
+  }
+  OPEN_SERVICES.set(sandbox, {
+    service: open.service,
+    rulesSource: source,
+    rulesResolution: compiled.resolution,
+    crossServiceIam: open.crossServiceIam,
+  });
+  const root = await open.service;
+  root.rules = compiled.rules;
+  for (const scopedPromise of SCOPED_SERVICES.get(sandbox)?.values() ?? []) {
+    const scoped = await scopedPromise;
+    scoped.rules = compiled.rules;
+  }
+}
+
+/**
  * Get (or open) the ONE per-sandbox `StorageService`. Loud on the
  * silent-rules-wipe hazard: when the service is already open and the
  * caller supplies a `rules` source differing from the one it was opened
@@ -278,31 +320,9 @@ function ensureService(
   let rules: StorageRules | null = null;
   let resolution: StorageRulesResolution | null = null;
   if (options.rules) {
-    let source = options.rules;
-    let modules: readonly string[] = [];
-    let bundledModules: readonly string[] = [];
-    let moduleEvidenceIds: readonly string[] = [];
-    rules = parseStorageRules(source);
-    if (rules._version === '2+modules') {
-      const resolved = resolveModulesBrowser(source);
-      if (!resolved.success) {
-        throw new SyntaxError(
-          `Storage rules module resolution failed (${resolved.error.code}): ${resolved.error.message}`,
-        );
-      }
-      source = resolved.data.resolved;
-      modules = resolved.data.modules;
-      bundledModules = resolved.data.bundledModules;
-      moduleEvidenceIds = resolved.data.evidenceIds;
-      rules = parseStorageRules(source);
-    }
-    resolution = createStorageRulesResolution(
-      source,
-      modules,
-      bundledModules,
-      moduleEvidenceIds,
-      rules,
-    );
+    const compiled = compileStorageRules(options.rules);
+    rules = compiled.rules;
+    resolution = compiled.resolution;
   }
   // Explicit dbName wins; otherwise scope the default by project identity so
   // two projects on one origin never share a storage database (issue #359).
