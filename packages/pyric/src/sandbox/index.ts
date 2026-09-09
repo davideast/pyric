@@ -102,8 +102,15 @@ export type {
 // `promote` lands the branch's mutations on a target, `discard` drops it.
 // Substrate for Studio's agent dry-run/accept, rules-edit branches, and
 // time-travel. See the design rationale.
-export { apply, discard, diff, fork, promote } from './branches/index.js';
-export type { Branch, DiffTarget } from './branches/index.js';
+export { apply, discard, diff, diffFullStates, fork, promote, promoteFullState } from './branches/index.js';
+export type {
+  Branch,
+  BranchCandidateRules,
+  BranchDivergence,
+  BranchService,
+  DiffTarget,
+  TreeChange,
+} from './branches/index.js';
 
 // Persistence — snapshot the sandbox to IndexedDB (or a custom backend)
 // and restore on next init. Turns the sandbox into the host page's

@@ -38,9 +38,18 @@ service firebase.storage {
 
 const DATABASE_RULES = { rules: { '.read': true, '.write': true } };
 
-/** A sandbox holding one value in every service this state covers. */
+let nextStorageDb = 1;
+
+/**
+ * A sandbox holding one value in every service this state covers.
+ *
+ * Storage durability is keyed by database name, so each sandbox pins one of
+ * its own. Without that, two sandboxes in one run would share a bucket and a
+ * case would read the objects a previous case uploaded.
+ */
 async function populated() {
   const sandbox = initializeSandbox();
+  getAdminStorageSandbox(sandbox, { dbName: `pyric-full-state-test:${nextStorageDb++}` });
   getInternalEnv(sandbox).seed({
     rules: FIRESTORE_RULES,
     documents: { 'things/a': { v: 1 }, 'things/b': { nested: { n: 2 }, tags: ['x'] } },
