@@ -75,6 +75,31 @@ describe('the named variants', () => {
     expect(names).toContain('become_auth_anonymous');
     expect(names).toContain('adopt_auth_session');
   });
+
+  it('spells every name in whole words, with no empty word left by a two-word operation', () => {
+    for (const variant of NAMED_VARIANTS) {
+      for (const tool of renderSurface(variant).tools) {
+        expect(tool.name.startsWith('_')).toBe(false);
+        expect(tool.name.endsWith('_')).toBe(false);
+        expect(tool.name).not.toContain('__');
+      }
+    }
+  });
+
+  it('names every sandbox method after its canonical operation', () => {
+    const names = renderSurface('verb-prefixed').tools.map((tool) => tool.name);
+    expect(names).toContain('inspect_sandbox');
+    expect(names).toContain('reset_sandbox');
+    expect(names).toContain('seed_sandbox');
+  });
+
+  it('gives a verb-prefixed name that reads as a canonical id that exact operation', () => {
+    const surface = renderSurface('verb-prefixed');
+    for (const tool of surface.tools) {
+      if (!CANONICAL_OPERATION_IDS.includes(tool.name)) continue;
+      expect(surface.resolve(tool.name, {}).operation).toBe(tool.name);
+    }
+  });
 });
 
 describe('the discriminator variant', () => {

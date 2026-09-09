@@ -6,5 +6,5 @@ import { renderOneToolPerMethod } from './one-tool-per-method.js';
 import type { RenderedSurface } from '../types.js';
 
 export function render(): RenderedSurface {
-  return renderOneToolPerMethod((words) => `${words.verb}_${words.object}_${words.service}`);
+  return renderOneToolPerMethod((words) => [words.verb, words.object, words.service]);
 }

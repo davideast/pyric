@@ -12,11 +12,20 @@
 import { METHODS } from '../methods/index.js';
 import { operationIds } from '../method-types.js';
 
-/** The verb, service, and object one method's names are spelled from. */
+/**
+ * The verb, service, and object one method's names are spelled from. A
+ * canonical operation of two words, such as `reset_sandbox`, leaves the object
+ * empty, and an empty word is dropped rather than spelled as a separator.
+ */
 export interface MethodWords {
   verb: string;
   service: string;
   object: string;
+}
+
+/** One tool name from the words a surface put in order, dropping empty words. */
+export function spellName(words: readonly string[]): string {
+  return words.filter((word) => word.length > 0).join('_');
 }
 
 /** The methods whose words are not the canonical operation's own. */
@@ -44,7 +53,7 @@ function loadWords(): ReadonlyMap<string, MethodWords> {
     const override = OVERRIDES[method.key];
     const ids = operationIds(method);
     const chosen = override ?? fromCanonicalId(ids[0]!);
-    const name = `${chosen.verb}_${chosen.service}_${chosen.object}`;
+    const name = spellName([chosen.verb, chosen.service, chosen.object]);
     if (claimed.has(name)) throw new Error(`method words '${name}' are claimed twice`);
     claimed.add(name);
     words.set(method.key, chosen);
