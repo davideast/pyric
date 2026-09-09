@@ -5,9 +5,9 @@ const task: EvalTask = {
   prompt: 'Who is signed up in the sandbox right now? I lost track after the last seed script ran.',
   seed: {
     users: [
-      { uid: 'alice', email: 'alice@acme.test', tenant: 'tenant-acme' },
-      { uid: 'bob', email: 'bob@globex.test', tenant: 'tenant-globex' },
-      { uid: 'admin', email: 'admin@acme.test', claims: { role: 'admin' } },
+      { uid: 'alice', email: 'alice@acme.test', tenantId: 'tenant-acme' },
+      { uid: 'bob', email: 'bob@globex.test', tenantId: 'tenant-globex' },
+      { uid: 'admin', email: 'admin@acme.test', customClaims: { role: 'admin' } },
     ],
   },
   acceptedFirstOperations: ['list_auth_users'],

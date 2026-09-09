@@ -11,11 +11,11 @@ import type { OperationRecord } from '../types.js';
 const userSeed = z.object({
   uid: z.string().describe('The user id.'),
   email: z.string().optional().describe('Email address. Defaults to a sandbox-local address.'),
-  claims: z
+  customClaims: z
     .record(z.unknown())
     .optional()
     .describe('Custom claims. Rules read them as request.auth.token.<name>.'),
-  tenant: z
+  tenantId: z
     .string()
     .optional()
     .describe('Identity Platform tenant. Rules read it as request.auth.token.firebase.tenant.'),

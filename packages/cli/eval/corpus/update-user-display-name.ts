@@ -4,7 +4,7 @@ const task: EvalTask = {
   id: 'update-user-display-name',
   prompt: 'Fix the display name on quinn_acme. It should read Quinn Alvarez, not quinn.',
   seed: {
-    users: [{ uid: 'quinn_acme', email: 'quinn@acme.test', tenant: 'tenant-acme' }],
+    users: [{ uid: 'quinn_acme', email: 'quinn@acme.test', tenantId: 'tenant-acme' }],
   },
   acceptedFirstOperations: ['update_auth_user'],
   assert: (state) => {

@@ -23,7 +23,7 @@ service cloud.firestore {
   }
 }
 `,
-    users: [{ uid: 'otto_acme', email: 'otto@acme.test', tenant: 'tenant-acme' }],
+    users: [{ uid: 'otto_acme', email: 'otto@acme.test', tenantId: 'tenant-acme' }],
     firestore: {
       'invoices/inv_601': { tenant: 'tenant-acme', amount: 990, status: 'open' },
     },

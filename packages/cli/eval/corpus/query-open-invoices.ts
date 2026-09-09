@@ -13,8 +13,13 @@ const task: EvalTask = {
   },
   acceptedFirstOperations: ['query_firestore_documents', 'list_firestore_documents'],
   assert: (state) => {
-    if (!state.calls.some((c) => c.operation === 'query_firestore_documents' && c.ok)) {
-      return 'the invoices collection was never queried';
+    // getDocs without constraints lists rather than queries, and an agent may
+    // filter the open invoices itself after listing the collection. Either
+    // reaching the collection is an accepted way to answer the prompt.
+    const queried = state.calls.some((c) => c.operation === 'query_firestore_documents' && c.ok);
+    const listed = state.calls.some((c) => c.operation === 'list_firestore_documents' && c.ok);
+    if (!queried && !listed) {
+      return 'the invoices collection was never queried or listed';
     }
     return true;
   },

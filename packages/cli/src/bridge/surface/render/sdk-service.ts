@@ -56,7 +56,14 @@ export function describeTool(tool: ToolSpec): string {
   return description;
 }
 
-/** The top-level schema, which is the same two properties for every tool. */
+/**
+ * The top-level schema, which is the same two properties for every tool.
+ *
+ * `args` is optional: a method that takes no arguments, or one whose
+ * arguments are all optional, must be callable as `{ method }` alone. The
+ * validator already treats a missing `args` as `{}` (`argsOf`), so requiring
+ * it at the schema level only rejected calls the handler would have accepted.
+ */
 export function toolSchema(tool: ToolSpec): Record<string, unknown> {
   return {
     type: 'object',
@@ -71,7 +78,7 @@ export function toolSchema(tool: ToolSpec): Record<string, unknown> {
         description: ARGS_DESCRIPTION,
       },
     },
-    required: ['method', 'args'],
+    required: ['method'],
   };
 }
 

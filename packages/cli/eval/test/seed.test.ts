@@ -56,7 +56,12 @@ describe('seed and state round trip', () => {
     const dir = runDir();
     await applySeed(dir, {
       users: [
-        { uid: 'alice', email: 'alice@example.com', claims: { role: 'editor' }, tenant: 'acme' },
+        {
+          uid: 'alice',
+          email: 'alice@example.com',
+          customClaims: { role: 'editor' },
+          tenantId: 'acme',
+        },
       ],
     });
 

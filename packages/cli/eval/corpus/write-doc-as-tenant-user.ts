@@ -24,8 +24,8 @@ service cloud.firestore {
       {
         uid: 'dana_acme',
         email: 'dana@acme.test',
-        tenant: 'tenant-acme',
-        claims: { role: 'billingAdmin' },
+        tenantId: 'tenant-acme',
+        customClaims: { role: 'billingAdmin' },
       },
     ],
   },

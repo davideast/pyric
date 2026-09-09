@@ -5,7 +5,7 @@ const task: EvalTask = {
   prompt: 'What claims does jules_globex actually carry right now? Our Stripe webhook is treating them like an admin and I want to rule the sandbox out.',
   seed: {
     users: [
-      { uid: 'jules_globex', email: 'jules@globex.test', tenant: 'tenant-globex', claims: { role: 'auditor' } },
+      { uid: 'jules_globex', email: 'jules@globex.test', tenantId: 'tenant-globex', customClaims: { role: 'auditor' } },
     ],
   },
   acceptedFirstOperations: ['get_auth_user'],

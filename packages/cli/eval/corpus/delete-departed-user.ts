@@ -5,8 +5,8 @@ const task: EvalTask = {
   prompt: 'morgan_acme left the company last week. Remove that account from the sandbox.',
   seed: {
     users: [
-      { uid: 'morgan_acme', email: 'morgan@acme.test', tenant: 'tenant-acme' },
-      { uid: 'wren_acme', email: 'wren@acme.test', tenant: 'tenant-acme' },
+      { uid: 'morgan_acme', email: 'morgan@acme.test', tenantId: 'tenant-acme' },
+      { uid: 'wren_acme', email: 'wren@acme.test', tenantId: 'tenant-acme' },
     ],
   },
   acceptedFirstOperations: ['delete_auth_user'],

@@ -5,7 +5,7 @@ const task: EvalTask = {
   prompt: 'Take the editor role away from lee_acme. They should keep the beta flag they have.',
   seed: {
     users: [
-      { uid: 'lee_acme', email: 'lee@acme.test', tenant: 'tenant-acme', claims: { role: 'editor', beta: true } },
+      { uid: 'lee_acme', email: 'lee@acme.test', tenantId: 'tenant-acme', customClaims: { role: 'editor', beta: true } },
     ],
   },
   acceptedFirstOperations: ['set_auth_claims', 'get_auth_user'],

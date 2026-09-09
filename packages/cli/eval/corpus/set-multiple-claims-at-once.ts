@@ -4,7 +4,7 @@ const task: EvalTask = {
   id: 'set-multiple-claims-at-once',
   prompt: 'toby_globex needs two custom claims for the new reviewer flow: role of reviewer and region of eu. Set both.',
   seed: {
-    users: [{ uid: 'toby_globex', email: 'toby@globex.test', tenant: 'tenant-globex' }],
+    users: [{ uid: 'toby_globex', email: 'toby@globex.test', tenantId: 'tenant-globex' }],
   },
   acceptedFirstOperations: ['set_auth_claims'],
   assert: (state) => {

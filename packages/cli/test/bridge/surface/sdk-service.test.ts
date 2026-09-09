@@ -15,6 +15,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 
 import { createLocalBridge } from '../../../src/bridge/server/local-bridge.js';
 import { registerRenderedSurface } from '../../../src/bridge/server/surface-server.js';
@@ -67,7 +68,7 @@ describe('the sdk-service tool set', () => {
     );
   });
 
-  it('gives every tool the same two top-level properties', () => {
+  it('gives every tool the same two top-level properties, args optional', () => {
     for (const tool of surface.tools) {
       const schema = tool.inputSchema as {
         type: string;
@@ -76,7 +77,7 @@ describe('the sdk-service tool set', () => {
       };
       expect(schema.type).toBe('object');
       expect(Object.keys(schema.properties)).toEqual(['method', 'args']);
-      expect(schema.required).toEqual(['method', 'args']);
+      expect(schema.required).toEqual(['method']);
       expect(schema.properties.args).toEqual({
         type: 'object',
         additionalProperties: true,
@@ -242,6 +243,64 @@ describe('the sdk-service validator', () => {
     });
     expect(result.summary).toBe(
       "rules.explainDenial: service 'storage' has no denial trace. explainDenial reads the Firestore rules engine only in this build. Pass service 'firestore', or call simulate for storage.",
+    );
+  });
+
+  it('renames a seed users entry tenant to the Admin SDK tenantId', async () => {
+    const result = await call('sandbox', 'seed', {
+      users: [{ uid: 'alice', tenant: 'tenant-acme' }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe(
+      "sandbox.seed: users entry has unknown field 'tenant'. seed names this field 'tenantId'. Pass 'tenantId' instead of 'tenant' in the users entry.",
+    );
+  });
+
+  it('renames a seed users entry claims to the Admin SDK customClaims', async () => {
+    const result = await call('sandbox', 'seed', {
+      users: [{ uid: 'alice', claims: { role: 'admin' } }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe(
+      "sandbox.seed: users entry has unknown field 'claims'. seed names this field 'customClaims'. Pass 'customClaims' instead of 'claims' in the users entry.",
+    );
+  });
+});
+
+describe('the sandbox seed vocabulary', () => {
+  it('stores tenantId and customClaims from a seed users entry', async () => {
+    const sandbox = initializeSandbox();
+    const run = callWith(createSurfaceContext(sandbox));
+    const result = await run('sandbox', 'seed', {
+      users: [{ uid: 'alice', tenantId: 'tenant-acme', customClaims: { role: 'admin' } }],
+    });
+    expect(result.ok).toBe(true);
+
+    const auth = getAuth(sandbox);
+    const [stored] = authSandbox.exportUsers(auth);
+    expect(stored?.tenantId).toBe('tenant-acme');
+    expect(stored?.customClaims).toEqual({ role: 'admin' });
+  });
+});
+
+describe('optional args', () => {
+  it('accepts a call with no args to a no-argument method', async () => {
+    const sandbox = initializeSandbox();
+    const rendered = surface.tools.find((candidate) => candidate.name === 'storage');
+    if (!rendered) throw new Error('no rendered tool named storage');
+    const result = await rendered.execute({ method: 'listAll' }, createSurfaceContext(sandbox));
+    expect(result.ok).toBe(true);
+  });
+
+  it('gives the missing-field message, not a schema dump, when args is omitted for a required argument', async () => {
+    const sandbox = initializeSandbox();
+    const rendered = surface.tools.find((candidate) => candidate.name === 'firestore');
+    if (!rendered) throw new Error('no rendered tool named firestore');
+    const result = await rendered.execute({ method: 'getDoc' }, createSurfaceContext(sandbox));
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe(
+      "firestore.getDoc: argument 'path' is missing. The SDK signature is getDoc(path). " +
+        "Pass 'path'. Document path, for example users/alice.",
     );
   });
 });

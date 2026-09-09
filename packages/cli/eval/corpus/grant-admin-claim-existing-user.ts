@@ -5,7 +5,7 @@ const task: EvalTask = {
   prompt: 'Priya got promoted. Give priya_acme the custom claim role of orgAdmin. She stays on the acme tenant.',
   seed: {
     users: [
-      { uid: 'priya_acme', email: 'priya@acme.test', tenant: 'tenant-acme', claims: { role: 'member' } },
+      { uid: 'priya_acme', email: 'priya@acme.test', tenantId: 'tenant-acme', customClaims: { role: 'member' } },
     ],
   },
   acceptedFirstOperations: ['set_auth_claims', 'get_auth_user'],
