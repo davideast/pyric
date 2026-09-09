@@ -8,7 +8,14 @@
  * snapshot on disk the moment the session closes rather than 750ms later.
  */
 import { describe, it, expect } from 'bun:test';
-import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  readdirSync,
+  existsSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -73,9 +80,14 @@ function readEvents(path: string): LoggedEvent[] {
 }
 
 /** Start a headless session on an in-memory pair and return a connected client. */
-async function openSession(cwd: string, env: NodeJS.ProcessEnv, surface?: string) {
+async function openSession(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  surface?: string,
+  projectDir?: string,
+) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const exit = runHeadlessMcp(cwd, { env, transport: serverTransport, surface });
+  const exit = runHeadlessMcp(cwd, { env, transport: serverTransport, surface, projectDir });
   const client = new Client({ name: 'test', version: '0' });
   await client.connect(clientTransport);
   const close = async (): Promise<number> => {
@@ -295,6 +307,89 @@ describe('headless state that outlives the process', () => {
       expect(crawl.isError).toBeFalsy();
       expect(JSON.stringify(crawl.content)).toContain('config');
       await session.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('a project directory apart from the cwd', () => {
+  it('reads rules and the snapshot from the project dir and writes back there', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'pyric-headless-workspace-'));
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-headless-project-'));
+    const written: string[] = [];
+    const priorWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string) => {
+      written.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      await applySeed(projectDir, {
+        firestoreRules: "rules_version = '2';\n",
+        firestore: { 'posts/p1': { title: 'seeded elsewhere' } },
+      });
+
+      const session = await openSession(workspace, {}, undefined, projectDir);
+      const read = await session.client.callTool({
+        name: 'firestore_get_document',
+        arguments: { path: 'posts/p1' },
+      });
+      expect(read.isError).toBeFalsy();
+      expect(JSON.stringify(read.content)).toContain('seeded elsewhere');
+
+      const created = await session.client.callTool({
+        name: 'firestore_create_document',
+        arguments: { path: 'posts/p2', data: { title: 'written elsewhere' } },
+      });
+      expect(created.isError).toBeFalsy();
+      expect(await session.close()).toBe(0);
+
+      // The rules the session loaded came from the project dir, not the cwd.
+      expect(written.join('')).toContain(`rules loaded from ${join(projectDir, 'firestore.rules')}`);
+      // The snapshot it flushed went back to the project dir.
+      expect(readFileSync(join(projectDir, HEADLESS_STATE_RELATIVE), 'utf8')).toContain(
+        'written elsewhere',
+      );
+      // The cwd it ran in is untouched: no state, no rules, nothing.
+      expect(readdirSync(workspace)).toEqual([]);
+    } finally {
+      process.stderr.write = priorWrite;
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves a relative project directory against the cwd it was given', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-headless-relative-'));
+    try {
+      await applySeed(join(root, 'state'), {
+        firestore: { 'posts/p1': { title: 'under state' } },
+      });
+      const session = await openSession(root, {}, undefined, 'state');
+      const read = await session.client.callTool({
+        name: 'firestore_get_document',
+        arguments: { path: 'posts/p1' },
+      });
+      expect(read.isError).toBeFalsy();
+      expect(JSON.stringify(read.content)).toContain('under state');
+      await session.close();
+      expect(existsSync(join(root, HEADLESS_STATE_RELATIVE))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the cwd when no project directory is named', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-default-project-'));
+    try {
+      const session = await openSession(dir, {});
+      const created = await session.client.callTool({
+        name: 'firestore_create_document',
+        arguments: { path: 'posts/p1', data: { title: 'in the cwd' } },
+      });
+      expect(created.isError).toBeFalsy();
+      await session.close();
+      expect(readFileSync(join(dir, HEADLESS_STATE_RELATIVE), 'utf8')).toContain('in the cwd');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -17,7 +17,7 @@
  * design item, not done here.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import {
   initializeSandbox,
   serializeToBuckets,
@@ -182,6 +182,13 @@ export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number 
 export interface HeadlessRunOptions {
   /** Tool-surface variant id, from `--surface` or `PYRIC_TOOL_SURFACE`. */
   surface?: string;
+  /**
+   * Directory the session reads its rules files and `.pyric/state` from and
+   * writes them back to, from `--project-dir` or `PYRIC_PROJECT_DIR`. A relative
+   * value resolves against `cwd`. Absent, the project directory is `cwd`, which
+   * is what every existing caller gets.
+   */
+  projectDir?: string;
   /** Environment to read the evaluation settings from. Defaults to the process. */
   env?: NodeJS.ProcessEnv;
   /**
@@ -224,6 +231,11 @@ export function withHeadlessEventWriter(
  * flushes both on shutdown. Resolves with an exit code when the stdio transport
  * closes (the editor disconnects).
  *
+ * Every file the session touches lives under the project directory, which is
+ * `cwd` unless `options.projectDir` names another one. Separating the two lets a
+ * caller start the server in a directory that holds none of the state the
+ * session reads or writes.
+ *
  * With `PYRIC_EVAL_LOG` set, every tool call is appended to that file as NDJSON
  * and the per-project audit log is not written. Without it, nothing is recorded,
  * which is the behaviour headless mode has always had.
@@ -236,21 +248,24 @@ export async function runHeadlessMcp(
     process.stderr.write(`[pyric mcp headless] ${m}\n`);
   };
 
+  const projectDir = resolve(cwd, options.projectDir ?? '.');
   const env = options.env ?? process.env;
   const evalLog = createHeadlessEventWriter(env);
   if (evalLog) log(`recording tool events to ${evalLog.path}`);
 
   const sandbox = initializeSandbox();
   // Before the snapshot, and before the transport serves a single call.
-  const storage = openPersistedServices(sandbox, cwd);
-  const rulesPath = loadProjectRules(sandbox, cwd);
-  log(rulesPath ? `rules loaded from ${rulesPath}` : `no firestore.rules found in ${cwd}`);
+  const storage = openPersistedServices(sandbox, projectDir);
+  const rulesPath = loadProjectRules(sandbox, projectDir);
+  log(rulesPath ? `rules loaded from ${rulesPath}` : `no firestore.rules found in ${projectDir}`);
 
-  const restored = loadSandboxSnapshot(sandbox, cwd);
-  if (restored !== null) log(`restored ${restored} docs from ${join(cwd, HEADLESS_STATE_RELATIVE)}`);
-  const restoredObjects = await loadStorageSidecar(storage, cwd);
+  const restored = loadSandboxSnapshot(sandbox, projectDir);
+  if (restored !== null) {
+    log(`restored ${restored} docs from ${join(projectDir, HEADLESS_STATE_RELATIVE)}`);
+  }
+  const restoredObjects = await loadStorageSidecar(storage, projectDir);
   if (restoredObjects > 0) {
-    log(`restored ${restoredObjects} objects from ${join(cwd, STORAGE_SIDECAR_RELATIVE)}`);
+    log(`restored ${restoredObjects} objects from ${join(projectDir, STORAGE_SIDECAR_RELATIVE)}`);
   }
 
   // Debounced persistence: a burst of writes collapses to one flush. The final
@@ -262,7 +277,7 @@ export async function runHeadlessMcp(
   const saveNow = (): void => {
     pendingSave = false;
     try {
-      saveSandboxSnapshot(sandbox, cwd);
+      saveSandboxSnapshot(sandbox, projectDir);
     } catch (e) {
       log(`persist failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -310,7 +325,7 @@ export async function runHeadlessMcp(
      */
     const flushStorage = async (): Promise<void> => {
       try {
-        await saveStorageSidecar(storage, cwd);
+        await saveStorageSidecar(storage, projectDir);
       } catch (e) {
         log(`storage persist failed: ${e instanceof Error ? e.message : String(e)}`);
       }
