@@ -46,7 +46,7 @@ export function writeRulesFiles(dir: string, seed: EvalSeed): void {
  */
 export async function applySeed(dir: string, seed: EvalSeed): Promise<LocalSandbox> {
   const sandbox = initializeSandbox();
-  applyRules(sandbox, seed);
+  await applyRules(sandbox, seed);
   await applyData(sandbox, seed);
   writeRulesFiles(dir, seed);
   saveSandboxSnapshot(sandbox, dir);

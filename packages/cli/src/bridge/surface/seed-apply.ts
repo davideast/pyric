@@ -6,31 +6,31 @@
  * harness seeds a fresh sandbox with it before a run starts, and the
  * `sandbox.seed` operation calls the same two functions against the live
  * sandbox, so a task's seed and an agent's own seed call are one shape and one
- * code path. The shape matches `EvalSeed` in `packages/cli/eval/types.ts`
- * structurally; nothing here imports that module, because `eval/` sits
- * outside this package's build root.
+ * code path. `SandboxSeed` is that one shape: the harness's `EvalSeed` is an
+ * alias of it rather than a second declaration of the same fields.
  *
- * Ordering matters. Storage rules are honored only on the first call that
- * opens the storage service, and the database default policy is stateful, so
- * rules are applied before any data write.
+ * Ordering matters. The database default policy is stateful and every write
+ * is evaluated against whatever ruleset is in force, so rules are applied
+ * before any data write.
  */
-import { stripJsonComments } from 'pyric/sandbox/database';
-import { setRules as setDatabaseRules } from 'pyric/sandbox/database';
+import { setRules as setDatabaseRules, stripJsonComments } from 'pyric/sandbox/database';
 import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { getAdminFirestore, doc, setDoc } from 'pyric/firestore';
 import { getAdminDatabase, ref as databaseRef, set as databaseSet } from 'pyric/database';
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import { getAdminStorageSandbox, replaceStorageRules } from 'pyric/storage/internal';
 import { ref as storageRef, uploadBytes } from 'pyric/storage';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 
-/** State to load into a sandbox, matching `EvalSeed` field for field. */
+/** State to load into a sandbox. The harness's `EvalSeed` is an alias of this. */
 export interface SandboxSeed {
   firestoreRules?: string;
   databaseRules?: string;
   storageRules?: string;
   users?: Array<{ uid: string; email?: string; claims?: Record<string, unknown>; tenant?: string }>;
+  /** Document path to document data. */
   firestore?: Record<string, Record<string, unknown>>;
+  /** Realtime Database tree written at the root. */
   database?: Record<string, unknown>;
   storage?: Array<{ path: string; contentBase64: string; contentType?: string }>;
 }
@@ -50,14 +50,14 @@ function seedPassword(uid: string): string {
   return `seed-${uid}`;
 }
 
-/** Install the rules a seed carries. Storage first: its source is only read by the call that opens the service. */
-export function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): void {
+/** Install the rules a seed carries, before any data write. */
+export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Promise<void> {
   const storageRules = seed.storageRules;
   if (storageRules !== undefined) {
     // A seed may carry rules that do not parse on purpose, for lint tasks. The
     // seeding sandbox opens storage without them rather than throwing.
     try {
-      getAdminStorageSandbox(sandbox, { rules: storageRules });
+      await replaceStorageRules(sandbox, storageRules);
     } catch {
       getAdminStorageSandbox(sandbox);
     }

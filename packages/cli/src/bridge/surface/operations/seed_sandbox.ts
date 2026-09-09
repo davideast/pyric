@@ -73,7 +73,7 @@ export default {
     }
     const seed = parsed.data;
     try {
-      applyRules(ctx.sandbox, seed);
+      await applyRules(ctx.sandbox, seed);
       await applyData(ctx.sandbox, seed);
     } catch (error) {
       return operationFailure(error instanceof Error ? error.message : String(error));
