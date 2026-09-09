@@ -1,0 +1,16 @@
+[
+  "actAsAdmin",
+  "actAsAnonymous",
+  "explainDenial",
+  "getStdlib",
+  "impersonate",
+  "inspect",
+  "lint",
+  "listStdlib",
+  "reset",
+  "seed",
+  "set",
+  "simulate",
+  "useAppSession",
+  "whoami"
+]
