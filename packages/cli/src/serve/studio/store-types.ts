@@ -22,8 +22,8 @@ export interface WorkspaceChange {
 /**
  * One branch the project holds on disk, as the branch store reports it.
  *
- * The branch store's on-disk format — the manifest, the record bundle, the
- * event log — is read by the store alone, on the server side of this port. What
+ * The branch store's on-disk format, the manifest and the record bundle and
+ * the event log, is read by the store alone, on the server side of this port. What
  * crosses the port is the branch already rebuilt: what the manifest recorded,
  * plus the Firestore documents the branch holds after its events were applied.
  */

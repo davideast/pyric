@@ -1,10 +1,11 @@
 /**
  * The branch store, read for the workspace port.
  *
- * The on-disk shape of a branch — the manifest and its format tag, the record
- * bundle of the forked base, the event log, the candidate rules file — is
- * stated once, in `pyric/sandbox/branches/store`, and read there. This module
- * is the one place the serve process asks that store what the project holds,
+ * The on-disk shape of a branch is stated once, in
+ * `pyric/sandbox/branches/store`, and read there: the manifest and its format
+ * tag, the record bundle of the forked base, the event log, the candidate
+ * rules file. This module is the one place the serve process asks that store
+ * what the project holds,
  * and it hands the port a branch that is already rebuilt: what the manifest
  * recorded, plus the Firestore documents the branch holds once its events have
  * been applied. Nothing downstream of here, Studio included, opens a branch
