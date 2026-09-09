@@ -37,6 +37,9 @@ const BOOLEAN_FLAGS = new Set([
   'fresh',
   'force',
   'permissive',
+  // `pyric mcp --headless` forces the in-process sandbox; it takes no value and
+  // must not swallow a following positional.
+  'headless',
   'help',
   'version',
 ]);
