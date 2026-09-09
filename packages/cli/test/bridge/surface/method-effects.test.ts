@@ -12,7 +12,12 @@ import { z } from 'zod';
 import { initializeSandbox } from 'pyric/sandbox';
 
 import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface/index.js';
-import { failFor, validateArguments } from '../../../src/bridge/surface/method-validation.js';
+import {
+  failFor,
+  validateArguments,
+  validateDescribe,
+} from '../../../src/bridge/surface/method-validation.js';
+import { describeTool } from '../../../src/bridge/surface/render/sdk-service.js';
 import {
   mountedMethods,
   mountedTool,
@@ -149,6 +154,38 @@ describe('production gating', () => {
     expect(withoutProduction.methods.map((m) => m.method)).toEqual(['readOnly']);
     const withProduction = mountedTool(tool, true);
     expect(withProduction.methods.map((m) => m.method)).toEqual(['wipeEverything', 'readOnly']);
+  });
+
+  /** The two-method tool the description and describe checks are read from. */
+  const describedTool: Tool = {
+    intro: 'A tool built only for this test.',
+    order: 999,
+    name: 'sandbox',
+    methods: [
+      production,
+      fakeMethod({
+        effect: 'read',
+        method: 'readOnly',
+        key: 'sandbox.readOnly',
+        signature: 'readOnly()',
+      }),
+    ],
+  };
+
+  it('keeps an unmounted production method out of the description a client reads', () => {
+    const tool = describedTool;
+    const withheld = describeTool(mountedTool(tool, false));
+    expect(withheld).not.toContain('wipeEverything');
+    expect(withheld).toContain('readOnly');
+    expect(describeTool(mountedTool(tool, true))).toContain('wipeEverything');
+  });
+
+  it('refuses describe for an unmounted production method', () => {
+    const tool = describedTool;
+    const rejection = validateDescribe(mountedTool(tool, false), { method: 'wipeEverything' });
+    expect(rejection).not.toBeNull();
+    expect(rejection?.data.field).toBe('method');
+    expect(validateDescribe(mountedTool(tool, true), { method: 'wipeEverything' })).toBeNull();
   });
 
   it('today no real tool carries a production method, so every mounted tool equals its source', () => {
