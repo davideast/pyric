@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import { DEFAULT_MCP_TOOL_NAMES } from '../src/bridge/server/mcp-contract.js';
+import { BRIDGE_TOOL_NAMES, DEFAULT_MCP_TOOL_NAMES } from '../src/bridge/server/mcp-contract.js';
 
 /**
  * Tool-shaped tokens that surface in skills or docs but do not name an MCP
@@ -14,35 +14,6 @@ const NON_TOOL_TOKENS = new Set<string>([
   'firestore_simulator_', // Prose stem ("firestore_simulator_*"), not a literal tool name.
   'pyric_firestore', // Dart/Flutter package name, not a tool.
 ]);
-
-/**
- * Names that skills or docs reference but the registry does not expose
- * today. Each entry records where its handler lives, or that no handler
- * exists at all. This list is self-cleaning: assertion 2 fails the moment a
- * lane registers one of these, forcing its removal instead of letting the
- * list go stale.
- */
-const KNOWN_UNREGISTERED: Record<string, string> = {
-  auth_configure_provider: 'no handler exists',
-  auth_get_config: 'no handler exists',
-  auth_manage_domains: 'no handler exists',
-  firestore_discover_paths: 'handler in packages/cli/src/discover/tools.ts',
-  firestore_extract_indexes:
-    'handler in packages/pyric/src/rules/indexes/extractTool.ts (also a Playground-only wrapper of the same name)',
-  firestore_find_collection_group: 'handler in packages/cli/src/discover/tools.ts',
-  firestore_get_rules: 'no handler exists',
-  firestore_test_rules: 'handler in packages/pyric/src/rules/tools.ts',
-  pyric_derive_rules_test_cases: 'handler in packages/cli/src/verify/tools.ts',
-  pyric_sandbox_inspect: 'no handler exists',
-  rtdb_build_expression: 'no handler exists',
-  rtdb_deploy_rules: 'no handler exists',
-  rtdb_get: 'no handler exists',
-  rtdb_get_rules: 'no handler exists',
-  rtdb_push: 'no handler exists',
-  rtdb_set: 'no handler exists',
-  rtdb_update: 'no handler exists',
-  rtdb_validated_write: 'no handler exists',
-};
 
 const SCAN_ROOTS = ['pyric-plugin', '.agents/skills', 'packages/site-docs/src/content'];
 
@@ -105,29 +76,17 @@ function collectReferences(): Reference[] {
 }
 
 describe('tool name drift', () => {
-  const registered = new Set<string>(DEFAULT_MCP_TOOL_NAMES);
+  // A reference is registered if it names a tool the headless product surface
+  // serves (`pyric mcp`, `DEFAULT_MCP_TOOL_NAMES`) or a tool the served bridge
+  // still advertises to its browser sandbox peer (`BRIDGE_TOOL_NAMES`, the
+  // transport surface `tool-family-records/` authors). Both are real,
+  // registered names in this tree; only a name in neither is drift.
+  const registered = new Set<string>([...DEFAULT_MCP_TOOL_NAMES, ...BRIDGE_TOOL_NAMES]);
   const references = collectReferences();
 
-  // Skipped: the plugin skills and agent documentation still name the flat tool
-  // set and are rewritten for the six service tools in part B of this step.
-  test.skip('every referenced name is registered or a documented gap', () => {
-    const offenders = references.filter(
-      (ref) => !registered.has(ref.name) && !(ref.name in KNOWN_UNREGISTERED),
-    );
-    const message = offenders
-      .map((ref) => `${ref.file}: ${ref.name}`)
-      .join('\n');
+  test('every referenced name is registered', () => {
+    const offenders = references.filter((ref) => !registered.has(ref.name));
+    const message = offenders.map((ref) => `${ref.file}: ${ref.name}`).join('\n');
     expect(offenders, message).toEqual([]);
-  });
-
-  test('KNOWN_UNREGISTERED stays self-cleaning: no entry is actually registered', () => {
-    const stillUnregistered = Object.keys(KNOWN_UNREGISTERED).filter((name) => !registered.has(name));
-    expect(stillUnregistered).toEqual(Object.keys(KNOWN_UNREGISTERED));
-  });
-
-  test('every KNOWN_UNREGISTERED entry appears in at least one scanned file', () => {
-    const referenced = new Set(references.map((ref) => ref.name));
-    const dead = Object.keys(KNOWN_UNREGISTERED).filter((name) => !referenced.has(name));
-    expect(dead).toEqual([]);
   });
 });

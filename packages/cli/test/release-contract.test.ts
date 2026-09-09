@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { DEFAULT_MCP_TOOL_NAMES } from '../src/bridge/server/mcp-contract.js';
+import { TOOLS } from '../src/bridge/surface/methods/index.js';
 
 interface ReleaseContract {
   schema: 'pyric.cli.release-contract.v1';
@@ -11,6 +12,7 @@ interface ReleaseContract {
   exports: string[];
   removedExports: string[];
   mcpTools: string[];
+  mcpToolMethods: Record<string, string[]>;
 }
 
 const workspaceRoot = join(import.meta.dir, '../../..');
@@ -34,10 +36,7 @@ function advertisedCommands(help: string): string[] {
 }
 
 describe('ratified @pyric/cli release contract', () => {
-  // Skipped: the release contract fixture still lists the namespaced rules and
-  // auth identity commands the derived method commands replace, and is
-  // regenerated in part B of this step.
-  it.skip('pins every advertised command exactly', () => {
+  it('pins every advertised command exactly', () => {
     const result = spawnSync('bun', [cliEntry, '--help'], {
       cwd: packageRoot,
       encoding: 'utf8',
@@ -54,10 +53,17 @@ describe('ratified @pyric/cli release contract', () => {
     for (const removed of contract.removedExports) expect(actual).not.toContain(removed);
   });
 
-  // Skipped: the release contract fixture still pins the flat 41-tool inventory
-  // and is regenerated for the six service tools in part B of this step.
-  it.skip('pins the ratified 41-tool MCP inventory independently of its implementation', () => {
-    expect(contract.mcpTools).toHaveLength(41);
+  it('pins the ratified six-tool MCP inventory and every method it carries', () => {
+    expect(contract.mcpTools).toHaveLength(6);
     expect([...DEFAULT_MCP_TOOL_NAMES].sort()).toEqual([...contract.mcpTools].sort());
+    const actualMethods: Record<string, string[]> = {};
+    for (const tool of TOOLS) {
+      actualMethods[tool.name] = tool.methods.map((method) => method.method).sort();
+    }
+    const pinnedMethods: Record<string, string[]> = {};
+    for (const [tool, methods] of Object.entries(contract.mcpToolMethods)) {
+      pinnedMethods[tool] = [...methods].sort();
+    }
+    expect(actualMethods).toEqual(pinnedMethods);
   });
 });

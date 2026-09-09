@@ -10,21 +10,14 @@
     "verify",
     "can-i-use",
     "verify cases",
-    "firestore rules lint",
     "firestore rules validate",
-    "firestore rules simulate",
     "firestore rules resolve",
     "firestore indexes generate",
-    "storage rules lint",
     "storage rules resolve",
-    "storage rules simulate",
-    "database rules lint",
     "database rules validate",
-    "database rules simulate",
     "database rules generate",
-    "auth impersonate",
     "auth reset",
-    "auth whoami",
+    "<tool>",
     "auth sessions"
   ],
   "exports": [
@@ -57,7 +50,28 @@
     "./registry",
     "./discover/production"
   ],
-  "mcpTools": [
+  "mcpTools": ["auth", "database", "firestore", "rules", "sandbox", "storage"],
+  "mcpToolMethods": {
+    "auth": [
+      "actAsAdmin",
+      "actAsAnonymous",
+      "createUser",
+      "deleteUser",
+      "getUser",
+      "impersonate",
+      "listUsers",
+      "setCustomUserClaims",
+      "updateUser",
+      "useAppSession",
+      "whoami"
+    ],
+    "database": ["get", "query", "remove", "set", "update"],
+    "firestore": ["addDoc", "deleteDoc", "getDoc", "getDocs", "setDoc", "updateDoc", "writeBatch"],
+    "rules": ["explainDenial", "getStdlib", "lint", "listStdlib", "set", "simulate"],
+    "sandbox": ["inspect", "reset", "seed"],
+    "storage": ["deleteObject", "getBytes", "getMetadata", "listAll", "uploadBytes"]
+  },
+  "bridgeTools": [
     "firestore_simulator_create",
     "firestore_simulator_execute",
     "firestore_simulator_read",
