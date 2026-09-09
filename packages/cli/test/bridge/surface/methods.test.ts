@@ -67,9 +67,13 @@ describe('the loaded record set', () => {
     }
   });
 
-  it('marks the method that discards state destructive', () => {
+  it('marks every method that replaces or discards state destructive', () => {
     const destructive = METHODS.filter((method) => method.effect === 'destructive');
-    expect(destructive.map((method) => method.key)).toEqual(['sandbox.reset']);
+    expect(destructive.map((method) => method.key).sort()).toEqual([
+      // Step 3B: promote replaces live documents with a branch's.
+      'sandbox.promote',
+      'sandbox.reset',
+    ]);
   });
 
   it('keeps every argument schema within two object levels of the root', () => {

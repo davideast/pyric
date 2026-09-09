@@ -34,12 +34,20 @@ function buildSurfaceDispatch(sandbox: LocalSandbox): SandboxDispatch {
   };
 }
 
-/** Build the context for one sandbox. */
-export function createSurfaceContext(sandbox: LocalSandbox): SurfaceContext {
+/**
+ * Build the context for one sandbox. `projectDir` names the directory the
+ * session's `.pyric/` files live under; it defaults to the process working
+ * directory, which is what a caller that never leaves its own project gets.
+ */
+export function createSurfaceContext(
+  sandbox: LocalSandbox,
+  projectDir: string = process.cwd(),
+): SurfaceContext {
   return {
     sandbox,
     dispatch: buildSurfaceDispatch(sandbox),
     identity: new SurfaceIdentity(),
+    projectDir,
   };
 }
 

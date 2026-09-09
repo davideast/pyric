@@ -8,6 +8,9 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, expect, it } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
@@ -49,7 +52,10 @@ const sandbox = initializeSandbox();
 setRules(sandbox, TENANT_RULES);
 
 const surface = renderSurface(undefined);
-const ctx: SurfaceContext = createSurfaceContext(sandbox);
+// A project directory of its own, because the methods that reach the file
+// system must not leave `.pyric/` behind in the package this suite runs from.
+const projectDir = mkdtempSync(join(tmpdir(), 'pyric-handlers-'));
+const ctx: SurfaceContext = createSurfaceContext(sandbox, projectDir);
 const exercised = new Set<string>();
 
 /** Call one method through its service tool and record that it ran. */
@@ -65,6 +71,7 @@ async function run(
 }
 
 afterAll(() => {
+  rmSync(projectDir, { recursive: true, force: true });
   expect([...exercised].sort()).toEqual(METHODS.map((method) => method.key).sort());
 });
 
@@ -335,4 +342,40 @@ it('reaches the same handler through the discriminator rendering', async () => {
   const read = await run('auth.getUser', { uid: 'carol' });
   const user = (read.data as { user: { claims?: Record<string, unknown> } }).user;
   expect(user.claims).toEqual({ role: 'auditor' });
+});
+
+// Step 3B: the persisted branches. What each one does to the world is pinned
+// in `methods/sandbox/branches.test.ts`; this block is the coverage arm, so it
+// runs every record once through its service tool.
+it('forks, applies, diffs, lists, promotes, and discards a branch', async () => {
+  await run('firestore.setDoc', { path: 'tenants/branch-base', data: { open: true } });
+
+  expect((await run('sandbox.fork', { branch: 'coverage' })).ok).toBe(true);
+  const applied = await run('sandbox.apply', {
+    branch: 'coverage',
+    events: [
+      {
+        kind: 'write',
+        method: 'set',
+        path: 'tenants/branch-staged',
+        data: { open: false },
+        auth: null,
+        requestTime: { seconds: 1_700_000_000, nanoseconds: 0 },
+      },
+    ],
+  });
+  expect(applied.ok).toBe(true);
+
+  const diffed = await run('sandbox.diff', { branch: 'coverage' });
+  expect(diffed.ok).toBe(true);
+
+  const listed = await run('sandbox.listBranches');
+  expect((listed.data as { branches: unknown[] }).branches).toHaveLength(1);
+
+  expect((await run('sandbox.promote', { branch: 'coverage', confirm: true })).ok).toBe(true);
+  const staged = await run('firestore.getDoc', { path: 'tenants/branch-staged' });
+  expect(staged.ok).toBe(true);
+
+  expect((await run('sandbox.fork', { branch: 'dropped' })).ok).toBe(true);
+  expect((await run('sandbox.discard', { branch: 'dropped' })).ok).toBe(true);
 });

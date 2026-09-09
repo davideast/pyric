@@ -126,7 +126,18 @@ export function parseArgs(argv: string[]): ParsedArgs {
  * `pyric sandbox npm run dev` is a command line handed to a child process
  * verbatim. The first word after `sandbox` is what separates them.
  */
-export const SANDBOX_METHOD_WORDS: ReadonlySet<string> = new Set(['inspect', 'reset', 'seed']);
+export const SANDBOX_METHOD_WORDS: ReadonlySet<string> = new Set([
+  'inspect',
+  'reset',
+  'seed',
+  // Step 3B: the persisted branches.
+  'apply',
+  'discard',
+  'diff',
+  'fork',
+  'listBranches',
+  'promote',
+]);
 
 /**
  * Whether everything after the first positional belongs to a child command

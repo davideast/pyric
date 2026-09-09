@@ -187,6 +187,14 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   // The confirmation the destructive gate reads is the caller's own, so it is
   // carried across rather than supplied here.
   reset_sandbox: { key: 'sandbox.reset', toMethodArgs: (args) => pick(args, ['confirm']) },
+
+  // Step 3B: the persisted branches.
+  fork_sandbox_branch: { key: 'sandbox.fork' },
+  apply_sandbox_events: { key: 'sandbox.apply' },
+  diff_sandbox_branch: { key: 'sandbox.diff' },
+  promote_sandbox_branch: { key: 'sandbox.promote' },
+  discard_sandbox_branch: { key: 'sandbox.discard' },
+  list_sandbox_branches: { key: 'sandbox.listBranches' },
 };
 
 /** The record a route names, or the one its arguments choose among. */

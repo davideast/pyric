@@ -193,9 +193,17 @@ export const verifySecurityRulesSchema = z.object({
 
 export const dryRunExperimentSchema = z.object({
   action: z
-    .enum(['fork', 'apply', 'diff', 'promote', 'discard'])
+    .enum(['fork', 'apply', 'diff', 'promote', 'discard', 'list'])
     .describe('Branch lifecycle operation.'),
   branchId: z.string().optional().describe('Identifier of the experiment branch.'),
+  against: z
+    .string()
+    .optional()
+    .describe("Reference a diff compares against: 'live', or a checkpoint name."),
+  confirm: z
+    .boolean()
+    .optional()
+    .describe("Must be true to promote, which overwrites live state (when action is 'promote')."),
   candidateRules: z
     .string()
     .optional()

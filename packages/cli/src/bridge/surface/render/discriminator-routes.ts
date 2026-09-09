@@ -69,6 +69,14 @@ function assign(target: Args, key: string, value: unknown): void {
   if (value !== undefined) target[key] = value;
 }
 
+/** Parse a JSON-encoded array parameter back into the array it stands for. */
+export function parseJsonArray(source: string | undefined): unknown[] | undefined {
+  if (source === undefined) return undefined;
+  const parsed = JSON.parse(source) as unknown;
+  if (!Array.isArray(parsed)) throw new Error('expected a JSON array');
+  return parsed;
+}
+
 /** A route selected by one field's value. */
 function on(field: string, value: string): (args: Args) => boolean {
   return (args) => args[field] === value;
@@ -517,11 +525,83 @@ const ENVIRONMENT_ROUTES: DiscriminatorRoute[] = [
   },
 ];
 
+// Step 3B: the persisted branches, behind the `dry_run_experiment` tool whose
+// discriminator already spelled this lifecycle.
+const BRANCH_ROUTES: DiscriminatorRoute[] = [
+  {
+    tool: 'dry_run_experiment',
+    action: 'fork',
+    selects: on('action', 'fork'),
+    operation: 'fork_sandbox_branch',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'branch', args.branchId);
+      assign(call, 'candidateRules', args.candidateRules);
+      return call;
+    },
+  },
+  {
+    tool: 'dry_run_experiment',
+    action: 'apply',
+    selects: on('action', 'apply'),
+    operation: 'apply_sandbox_events',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'branch', args.branchId);
+      assign(call, 'events', parseJsonArray(text(args, 'mutationsJson')));
+      return call;
+    },
+  },
+  {
+    tool: 'dry_run_experiment',
+    action: 'diff',
+    selects: on('action', 'diff'),
+    operation: 'diff_sandbox_branch',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'branch', args.branchId);
+      assign(call, 'against', args.against);
+      return call;
+    },
+  },
+  {
+    tool: 'dry_run_experiment',
+    action: 'promote',
+    selects: on('action', 'promote'),
+    operation: 'promote_sandbox_branch',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'branch', args.branchId);
+      assign(call, 'confirm', args.confirm);
+      return call;
+    },
+  },
+  {
+    tool: 'dry_run_experiment',
+    action: 'discard',
+    selects: on('action', 'discard'),
+    operation: 'discard_sandbox_branch',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'branch', args.branchId);
+      return call;
+    },
+  },
+  {
+    tool: 'dry_run_experiment',
+    action: 'list',
+    selects: on('action', 'list'),
+    operation: 'list_sandbox_branches',
+    translate: () => ({}),
+  },
+];
+
 /** Every route, in tool order. */
 export const DISCRIMINATOR_ROUTES: readonly DiscriminatorRoute[] = [
   ...AUTH_ROUTES,
   ...DATA_ROUTES,
   ...STORAGE_ROUTES,
   ...RULES_ROUTES,
+  ...BRANCH_ROUTES,
   ...ENVIRONMENT_ROUTES,
 ];

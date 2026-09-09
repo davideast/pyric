@@ -49,7 +49,13 @@
     "rules listStdlib",
     "rules set",
     "rules simulate",
+    "sandbox apply",
+    "sandbox diff",
+    "sandbox discard",
+    "sandbox fork",
     "sandbox inspect",
+    "sandbox listBranches",
+    "sandbox promote",
     "sandbox reset",
     "sandbox seed",
     "storage deleteObject",
@@ -106,7 +112,17 @@
     "database": ["get", "query", "remove", "set", "update"],
     "firestore": ["addDoc", "deleteDoc", "getDoc", "getDocs", "setDoc", "updateDoc", "writeBatch"],
     "rules": ["explainDenial", "getStdlib", "lint", "listStdlib", "set", "simulate"],
-    "sandbox": ["inspect", "reset", "seed"],
+    "sandbox": [
+      "apply",
+      "diff",
+      "discard",
+      "fork",
+      "inspect",
+      "listBranches",
+      "promote",
+      "reset",
+      "seed"
+    ],
     "storage": ["deleteObject", "getBytes", "getMetadata", "listAll", "uploadBytes"]
   },
   "bridgeTools": [

@@ -92,7 +92,11 @@ describe('destructive refusal', () => {
 
   it('names every destructive method today', () => {
     const destructiveRecords = METHODS.filter((method) => method.effect === 'destructive');
-    expect(destructiveRecords.map((method) => method.key)).toEqual(['sandbox.reset']);
+    expect(destructiveRecords.map((method) => method.key).sort()).toEqual([
+      // Step 3B: promote replaces live documents with a branch's.
+      'sandbox.promote',
+      'sandbox.reset',
+    ]);
   });
 
   it('carries confirm in the signature and the argument schema of every destructive method', () => {
@@ -310,15 +314,20 @@ describe('every rendered surface passes through the one validator', () => {
     });
   });
 
-  it('refuses to render a service tool whose every method is withheld', async () => {
-    await asProduction('sandbox.inspect', async () => {
-      await asProduction('sandbox.seed', async () => {
-        await asProduction('sandbox.reset', async () => {
-          expect(() => renderSurface('sdk-service')).toThrow(/sandbox/);
-          expect(() => renderSurface('sdk-service', { allowProduction: true })).not.toThrow();
-        });
+  it('refuses to render a service tool whose every method is withheld', () => {
+    // Every method of one tool, read from the records rather than named, so a
+    // tool that gains a method still reaches the empty case this pins.
+    const sandboxMethods = METHODS.filter((method) => method.tool === 'sandbox');
+    const held = sandboxMethods.map((method) => method.effect);
+    for (const method of sandboxMethods) method.effect = 'production';
+    try {
+      expect(() => renderSurface('sdk-service')).toThrow(/sandbox/);
+      expect(() => renderSurface('sdk-service', { allowProduction: true })).not.toThrow();
+    } finally {
+      sandboxMethods.forEach((method, index) => {
+        method.effect = held[index]!;
       });
-    });
+    }
   });
 
   it('discriminator refuses a production method behind a resource read', async () => {
