@@ -20,7 +20,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createBridge, type Bridge, type BridgeToolEvent } from './bridge.js';
 import { buildMcpServer } from './mcp.js';
-import { getDefaultMcpToolSurface } from './mcp-contract.js';
+import { getBridgeToolSurface } from './mcp-contract.js';
 import { createAuditWriter, type AuditWriter } from './audit.js';
 import {
   createConsoleLogger,
@@ -105,7 +105,7 @@ export async function startServer(
     },
   });
 
-  const { forwarded, inProcess } = getDefaultMcpToolSurface({
+  const { forwarded, inProcess } = getBridgeToolSurface({
     consumers: bridge.consumers,
     callerIdentity: bridge.callerIdentity,
   });

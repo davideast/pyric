@@ -37,10 +37,9 @@ import {
   loadStorageSidecar,
   STORAGE_SIDECAR_RELATIVE,
 } from './storage-sidecar.js';
-import { buildMcpServer, type RejectedToolCall } from './mcp.js';
+import { type RejectedToolCall } from './mcp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerRenderedSurface } from './surface-server.js';
-import { getDefaultMcpToolSurface } from './mcp-contract.js';
 import { renderSurface } from '../surface/index.js';
 import { createSurfaceContext } from '../surface/context.js';
 import { rememberUnloadedStorageRules } from '../surface/storage-rules.js';
@@ -97,27 +96,19 @@ export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: HeadlessMcp
     });
   };
 
-  // No variant is the path the server has always taken: the default surface
-  // registered by `buildMcpServer`, with the bridge's own consumer registry and
-  // caller identity behind the in-process identity tools. A variant id renders
-  // the operation set instead and registers it through the surface adapter, on
-  // a server built here rather than there.
-  if (opts?.surface === undefined) {
-    const surface = getDefaultMcpToolSurface({
-      consumers: bridge.consumers,
-      callerIdentity: bridge.callerIdentity,
-    });
-    if (!onCallRejected) return buildMcpServer(bridge, surface);
-    return buildMcpServer(bridge, { ...surface, onCallRejected: rejectionEvent });
-  }
-
+  // The product surface is the service tools rendered from the method records,
+  // and it is what a server with no `--surface` serves. A surface id renders
+  // another spelling of the same records for the surface evaluation. Either way
+  // the rendering is registered through the surface adapter, so one code path
+  // serves the product and the measurements.
+  //
   // Throws for an id no renderer claims, which fails the session at startup
   // rather than measuring the wrong surface.
-  const rendered = renderSurface(opts.surface);
+  const rendered = renderSurface(opts?.surface);
   const server = new McpServer({ name: 'pyric', version: bridge.version });
   return registerRenderedSurface(server, bridge, rendered, createSurfaceContext(sandbox), {
     onCallRejected: onCallRejected ? rejectionEvent : undefined,
-    onAfterCall: opts.onAfterDispatch,
+    onAfterCall: opts?.onAfterDispatch,
   });
 }
 

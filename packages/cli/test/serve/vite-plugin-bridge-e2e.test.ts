@@ -25,7 +25,7 @@ import path, { join } from 'node:path';
 import { homedir } from 'node:os';
 import { initializeSandbox } from 'pyric/sandbox';
 import { connectBridge, type ConnectedBridge } from '../../src/bridge/client/bridge.js';
-import { DEFAULT_MCP_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
+import { BRIDGE_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
 import { defaultSdkEntries, bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
 
@@ -193,7 +193,7 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
     expect(list.status).toBe(200);
     expect(
       (list.json?.result.tools as Array<{ name: string }>).map((tool) => tool.name).sort(),
-    ).toEqual([...DEFAULT_MCP_TOOL_NAMES].sort());
+    ).toEqual([...BRIDGE_TOOL_NAMES].sort());
   }, 30_000);
 
   it('round-trips a tool call MCP → bridge → real connectBridge sandbox peer → back', async () => {
