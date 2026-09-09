@@ -168,39 +168,35 @@ extension Firestore {
         private func postProcessEncodedDictionary(_ dict: [String: Any]) -> [String: Any] {
             var result: [String: Any] = [:]
             for (key, value) in dict {
-                if let subDict = value as? [String: Any] {
-                    if subDict["__pyricDocumentIDOmitted"] as? Bool == true {
-                        continue
-                    }
-                    if subDict["__pyricServerTimestamp"] as? Bool == true {
-                        result[key] = FieldValue.serverTimestamp()
-                        continue
-                    }
-                    if subDict.count == 2,
-                       let sec = subDict["seconds"] as? Int64 ?? (subDict["seconds"] as? Int).map(Int64.init),
-                       let nano = subDict["nanoseconds"] as? Int32 ?? (subDict["nanoseconds"] as? Int).map(Int32.init) {
-                        result[key] = Timestamp(seconds: sec, nanoseconds: nano)
-                        continue
-                    }
-                    if subDict.count == 2,
-                       let lat = subDict["latitude"] as? Double,
-                       let lng = subDict["longitude"] as? Double {
-                        result[key] = GeoPoint(latitude: lat, longitude: lng)
-                        continue
-                    }
-                    result[key] = postProcessEncodedDictionary(subDict)
-                } else if let arr = value as? [Any] {
-                    result[key] = arr.map { item -> Any in
-                        if let itemDict = item as? [String: Any] {
-                            return postProcessEncodedDictionary(itemDict)
-                        }
-                        return item
-                    }
-                } else {
-                    result[key] = value
+                if let subDict = value as? [String: Any],
+                   subDict["__pyricDocumentIDOmitted"] as? Bool == true {
+                    continue
                 }
+                result[key] = postProcessValue(value)
             }
             return result
+        }
+
+        private func postProcessValue(_ value: Any) -> Any {
+            if let subDict = value as? [String: Any] {
+                if subDict["__pyricServerTimestamp"] as? Bool == true {
+                    return FieldValue.serverTimestamp()
+                }
+                if subDict.count == 2,
+                   let sec = subDict["seconds"] as? Int64 ?? (subDict["seconds"] as? Int).map(Int64.init),
+                   let nano = subDict["nanoseconds"] as? Int32 ?? (subDict["nanoseconds"] as? Int).map(Int32.init) {
+                    return Timestamp(seconds: sec, nanoseconds: nano)
+                }
+                if subDict.count == 2,
+                   let lat = subDict["latitude"] as? Double,
+                   let lng = subDict["longitude"] as? Double {
+                    return GeoPoint(latitude: lat, longitude: lng)
+                }
+                return postProcessEncodedDictionary(subDict)
+            } else if let arr = value as? [Any] {
+                return arr.map { postProcessValue($0) }
+            }
+            return value
         }
     }
 
@@ -247,33 +243,25 @@ extension Firestore {
         private func preProcessDictionaryForDecoding(_ dict: [String: Any]) -> [String: Any] {
             var result: [String: Any] = [:]
             for (key, value) in dict {
-                if let ts = value as? Timestamp {
-                    result[key] = ["seconds": ts.seconds, "nanoseconds": ts.nanoseconds]
-                } else if let gp = value as? GeoPoint {
-                    result[key] = ["latitude": gp.latitude, "longitude": gp.longitude]
-                } else if let date = value as? Date {
-                    let ts = Timestamp(date: date)
-                    result[key] = ["seconds": ts.seconds, "nanoseconds": ts.nanoseconds]
-                } else if let subDict = value as? [String: Any] {
-                    result[key] = preProcessDictionaryForDecoding(subDict)
-                } else if let arr = value as? [Any] {
-                    result[key] = arr.map { item -> Any in
-                        if let ts = item as? Timestamp {
-                            return ["seconds": ts.seconds, "nanoseconds": ts.nanoseconds]
-                        }
-                        if let gp = item as? GeoPoint {
-                            return ["latitude": gp.latitude, "longitude": gp.longitude]
-                        }
-                        if let sub = item as? [String: Any] {
-                            return preProcessDictionaryForDecoding(sub)
-                        }
-                        return item
-                    }
-                } else {
-                    result[key] = value
-                }
+                result[key] = preProcessValue(value)
             }
             return result
+        }
+
+        private func preProcessValue(_ value: Any) -> Any {
+            if let ts = value as? Timestamp {
+                return ["seconds": ts.seconds, "nanoseconds": ts.nanoseconds]
+            } else if let gp = value as? GeoPoint {
+                return ["latitude": gp.latitude, "longitude": gp.longitude]
+            } else if let date = value as? Date {
+                let ts = Timestamp(date: date)
+                return ["seconds": ts.seconds, "nanoseconds": ts.nanoseconds]
+            } else if let subDict = value as? [String: Any] {
+                return preProcessDictionaryForDecoding(subDict)
+            } else if let arr = value as? [Any] {
+                return arr.map { preProcessValue($0) }
+            }
+            return value
         }
     }
 }

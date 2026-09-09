@@ -359,7 +359,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.updateEmail': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'updateEmail');
-        const email = msg.email ?? (msg as { newEmail?: string }).newEmail ?? '';
+        const email = msg.email ?? msg.newEmail ?? '';
         authSandboxOps.updateUser(auth, session.user.uid, { email });
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
@@ -372,7 +372,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.updatePassword': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'updatePassword');
-        const password = msg.password ?? (msg as { newPassword?: string }).newPassword ?? '';
+        const password = msg.password ?? msg.newPassword ?? '';
         authSandboxOps.updateUser(auth, session.user.uid, { password });
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);

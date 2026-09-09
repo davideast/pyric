@@ -143,5 +143,49 @@ void main() {
         ),
       );
     });
+
+    test('authState and idToken bridge broadcasts preserve existing tenantId and customClaims for same uid', () async {
+      await auth.setTenantId('tenant-gamma');
+      final signInFuture = auth.signInWithEmailAndPassword('gamma@example.com', 'secret');
+      await pumpEventQueue();
+
+      final signInOp = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.signInEmail',
+      );
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': signInOp['id'],
+        'ok': true,
+        'value': {
+          'user': {
+            'uid': 'uid-gamma-1',
+            'email': 'gamma@example.com',
+            'tenantId': 'tenant-gamma',
+            'customClaims': {'role': 'manager'},
+          },
+        },
+      });
+      final cred = await signInFuture;
+      expect(cred.user?.tenantId, equals('tenant-gamma'));
+
+      // Find the subscription ID for authState and broadcast a profile update event without tenantId/customClaims
+      final authStateSub = harness.sentMessages.firstWhere(
+        (m) => m['type'] == 'worker-sub' && m['sub']?['target'] == 'authState',
+      );
+      harness.sendToClient({
+        'type': 'worker-snap',
+        'subId': authStateSub['subId'],
+        'value': {
+          'uid': 'uid-gamma-1',
+          'email': 'gamma@example.com',
+          'displayName': 'Gamma Manager',
+        },
+      });
+      await pumpEventQueue();
+
+      final currentUser = auth.currentUser as PyricUserPlatform?;
+      expect(currentUser?.tenantId, equals('tenant-gamma'));
+      expect(currentUser?.customClaims?['role'], equals('manager'));
+    });
   });
 }

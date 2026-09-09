@@ -498,4 +498,38 @@ struct ConformanceQueryAndCodableTests {
         #expect(dateModel.title == "Post")
         #expect(dateModel.createdAt == ts.dateValue())
     }
+
+    struct CodableArrayModel: Codable, Equatable {
+        var name: String
+        var milestones: [Date]
+        var waypoints: [GeoPoint]
+    }
+
+    @Test func `firestore-swift#106: Firestore.Encoder & Decoder round-trip arrays of Date and GeoPoint.`() async throws {
+        let harness = try await ConformanceMockHarness.create()
+        let date1 = Date(timeIntervalSince1970: 1700000000)
+        let date2 = Date(timeIntervalSince1970: 1700086400)
+        let wp1 = GeoPoint(latitude: 37.7749, longitude: -122.4194)
+        let wp2 = GeoPoint(latitude: 47.6062, longitude: -122.3321)
+        let model = CodableArrayModel(name: "Roadtrip", milestones: [date1, date2], waypoints: [wp1, wp2])
+
+        let encoded = try Firestore.Encoder().encode(model)
+        let encodedMilestones = encoded["milestones"] as? [Timestamp]
+        let encodedWaypoints = encoded["waypoints"] as? [GeoPoint]
+        #expect(encodedMilestones?.count == 2)
+        #expect(encodedWaypoints?.count == 2)
+
+        let snap = DocumentSnapshot(
+            firestore: harness.firestore,
+            path: "trips/trip-1",
+            data: [
+                "name": "Roadtrip",
+                "milestones": [date1, date2],
+                "waypoints": [wp1, wp2]
+            ],
+            exists: true
+        )
+        let decoded = try snap.data(as: CodableArrayModel.self)
+        #expect(decoded == model)
+    }
 }

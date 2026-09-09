@@ -134,8 +134,8 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.setTenantId'; tenantId: string | null }
   | { t: 'op'; id: string; method: 'auth.reload' }
   | { t: 'op'; id: string; method: 'auth.deleteUser' }
-  | { t: 'op'; id: string; method: 'auth.updateEmail'; email: string }
-  | { t: 'op'; id: string; method: 'auth.updatePassword'; password: string }
+  | { t: 'op'; id: string; method: 'auth.updateEmail'; email?: string; newEmail?: string; uid?: string }
+  | { t: 'op'; id: string; method: 'auth.updatePassword'; password?: string; newPassword?: string; uid?: string }
   | { t: 'op'; id: string; method: 'auth.updateCurrentUser'; uid: string | null }
   | {
       t: 'op';

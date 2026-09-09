@@ -77,6 +77,20 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     return this;
   }
 
+  void _preservePreviousUserMetadata(
+    PyricUserPlatform user,
+    UserPlatform? prev,
+  ) {
+    if (prev is PyricUserPlatform && prev.uid == user.uid) {
+      if (user.customClaims == null && prev.customClaims != null) {
+        user.customClaims = prev.customClaims;
+      }
+      if (user.tenantId == null && prev.tenantId != null) {
+        user.tenantId = prev.tenantId;
+      }
+    }
+  }
+
   void _initBridgeAuthListeners() {
     _bridgeAuthSub = _bridgeClient.subscribeRaw({'target': 'authState'}).listen(
       (data) {
@@ -92,11 +106,13 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
           if (data['customClaims'] != null && map['customClaims'] == null) {
             map['customClaims'] = data['customClaims'];
           }
-          _currentUser = PyricUserPlatform.fromWire(
+          final user = PyricUserPlatform.fromWire(
             auth: this,
             data: map,
             client: _bridgeClient,
           );
+          _preservePreviousUserMetadata(user, _currentUser);
+          _currentUser = user;
         }
         _authStateController.add(_currentUser);
         _userChangesController.add(_currentUser);
@@ -126,13 +142,7 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
             data: map,
             client: _bridgeClient,
           );
-          final prev = _currentUser;
-          if (user.customClaims == null &&
-              prev is PyricUserPlatform &&
-              prev.uid == user.uid &&
-              prev.customClaims != null) {
-            user.customClaims = prev.customClaims;
-          }
+          _preservePreviousUserMetadata(user, _currentUser);
           _currentUser = user;
         }
         _idTokenController.add(_currentUser);
