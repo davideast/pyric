@@ -76,11 +76,11 @@ export async function saveStorageSidecar(storage: FirebaseStorage, dir: string):
   writeFileSync(path, `${JSON.stringify(records, null, 2)}\n`, 'utf8');
 }
 
-/** Load a sidecar back into a bucket. Returns the number of objects restored. */
-export async function loadStorageSidecar(storage: FirebaseStorage, dir: string): Promise<number> {
-  const path = join(dir, STORAGE_SIDECAR_RELATIVE);
-  if (!existsSync(path)) return 0;
-  const records = JSON.parse(readFileSync(path, 'utf8')) as StorageObjectRecord[];
+/** Write every record into a bucket. Returns the number of objects restored. */
+export async function restoreStorage(
+  storage: FirebaseStorage,
+  records: readonly StorageObjectRecord[],
+): Promise<number> {
   for (const record of records) {
     const bytes = Uint8Array.from(Buffer.from(record.contentBase64, 'base64'));
     const settable: { contentType?: string; customMetadata?: Record<string, string> } = {};
@@ -90,6 +90,14 @@ export async function loadStorageSidecar(storage: FirebaseStorage, dir: string):
     await uploadBytes(storageRef(storage, record.path), bytes, settable);
   }
   return records.length;
+}
+
+/** Load a sidecar back into a bucket. Returns the number of objects restored. */
+export async function loadStorageSidecar(storage: FirebaseStorage, dir: string): Promise<number> {
+  const path = join(dir, STORAGE_SIDECAR_RELATIVE);
+  if (!existsSync(path)) return 0;
+  const records = JSON.parse(readFileSync(path, 'utf8')) as StorageObjectRecord[];
+  return restoreStorage(storage, records);
 }
 
 /** Storage custom metadata is a string map; anything else is dropped rather than coerced. */

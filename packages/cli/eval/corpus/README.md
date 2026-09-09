@@ -25,6 +25,10 @@ Sixty-nine tasks:
 - 7 sandbox: inspect, reset, seed. One of the reset tasks phrases the request so the natural first
   attempt omits `confirm`, which the destructive-method validator refuses; the task is not done
   until a reset call actually succeeds.
+- 5 sandbox state management: checkpoint before a risky change and restore it, page the operation
+  log after a burst of writes, export a fixture and reload it after a full reset, a scoped reset of
+  one service that leaves another intact, and listing checkpoints to restore the right one among
+  several.
 - 9 multi-step: two or three operations in sequence, such as seeding a tenant user, writing a
   document as that user, and reading it back. Three of these install rules with `set` and then
   read the effect back through `simulate`, one per service.

@@ -24,7 +24,7 @@ import {
   refuseUnconfirmedDestructive,
   refuseUnmountedProduction,
 } from '../../../src/bridge/surface/method-effects.js';
-import { METHODS, methodByKey, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
+import { METHODS, methodByKey, toolByName, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import type { Method, Tool } from '../../../src/bridge/surface/method-types.js';
 
 /** A method record built only for this test; never filed under `methods/`. */
@@ -93,9 +93,9 @@ describe('destructive refusal', () => {
   it('names every destructive method today', () => {
     const destructiveRecords = METHODS.filter((method) => method.effect === 'destructive');
     expect(destructiveRecords.map((method) => method.key).sort()).toEqual([
-      // Step 3B: promote replaces live documents with a branch's.
       'sandbox.promote',
       'sandbox.reset',
+      'sandbox.restore',
     ]);
   });
 
@@ -314,20 +314,22 @@ describe('every rendered surface passes through the one validator', () => {
     });
   });
 
-  it('refuses to render a service tool whose every method is withheld', () => {
-    // Every method of one tool, read from the records rather than named, so a
-    // tool that gains a method still reaches the empty case this pins.
-    const sandboxMethods = METHODS.filter((method) => method.tool === 'sandbox');
-    const held = sandboxMethods.map((method) => method.effect);
-    for (const method of sandboxMethods) method.effect = 'production';
-    try {
+  /** Reclassify every key as `production`, nested, then run. */
+  async function asProductionAll(keys: readonly string[], run: () => Promise<void>): Promise<void> {
+    if (keys.length === 0) {
+      await run();
+      return;
+    }
+    const [first, ...rest] = keys;
+    await asProduction(first!, () => asProductionAll(rest, run));
+  }
+
+  it('refuses to render a service tool whose every method is withheld', async () => {
+    const sandboxKeys = toolByName('sandbox')!.methods.map((method) => method.key);
+    await asProductionAll(sandboxKeys, async () => {
       expect(() => renderSurface('sdk-service')).toThrow(/sandbox/);
       expect(() => renderSurface('sdk-service', { allowProduction: true })).not.toThrow();
-    } finally {
-      sandboxMethods.forEach((method, index) => {
-        method.effect = held[index]!;
-      });
-    }
+    });
   });
 
   it('discriminator refuses a production method behind a resource read', async () => {

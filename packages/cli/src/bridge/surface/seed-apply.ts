@@ -22,22 +22,39 @@ import { getAdminStorageSandbox, replaceStorageRules } from 'pyric/storage/inter
 import { ref as storageRef, uploadBytes } from 'pyric/storage';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 
+/** One seeded user, as a plain data record rather than a validated Zod shape. */
+export interface SeedUserEntry {
+  uid: string;
+  email?: string;
+  customClaims?: Record<string, unknown>;
+  tenantId?: string;
+  /**
+   * The real password to seed, rather than the synthetic `seed-<uid>` one.
+   * `exportFixture` carries this only when it was called with
+   * `includePasswords: true`, so a fixture round trip preserves sign-in only
+   * when the export chose to.
+   */
+  password?: string;
+}
+
+/** One seeded storage object. */
+export interface SeedStorageEntry {
+  path: string;
+  contentBase64: string;
+  contentType?: string;
+}
+
 /** State to load into a sandbox. The harness's `EvalSeed` is an alias of this. */
 export interface SandboxSeed {
   firestoreRules?: string;
   databaseRules?: string;
   storageRules?: string;
-  users?: Array<{
-    uid: string;
-    email?: string;
-    customClaims?: Record<string, unknown>;
-    tenantId?: string;
-  }>;
+  users?: SeedUserEntry[];
   /** Document path to document data. */
   firestore?: Record<string, Record<string, unknown>>;
   /** Realtime Database tree written at the root. */
   database?: Record<string, unknown>;
-  storage?: Array<{ path: string; contentBase64: string; contentType?: string }>;
+  storage?: SeedStorageEntry[];
 }
 
 /** Address a seeded user needs when the record states none. */
@@ -97,7 +114,7 @@ export async function applyData(sandbox: LocalSandbox, seed: SandboxSeed): Promi
         } = {
           uid: user.uid,
           email: seedEmail(user.uid, user.email),
-          password: seedPassword(user.uid),
+          password: user.password ?? seedPassword(user.uid),
         };
         if (user.customClaims !== undefined) record.customClaims = user.customClaims;
         if (user.tenantId !== undefined) record.tenantId = user.tenantId;

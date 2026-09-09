@@ -14,8 +14,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'fork(branch, candidateRules)',
-  description:
-    'Copy the live sandbox into a named branch on disk, optionally under a candidate Firestore ruleset.',
+  description: 'Copy live into a branch, optionally under candidate rules.',
   args: z.object({
     branch: branchName,
     candidateRules: z

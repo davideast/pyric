@@ -40,7 +40,13 @@ when one ships, it is not mounted unless the server is started with
 | `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
 | `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
-| `sandbox` | `inspect`, `seed`, `reset` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
+| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
+
+`checkpoint` writes a named on-disk snapshot of the live sandbox under
+`.pyric/state/checkpoints/`, `restore` puts one back, and `listCheckpoints`
+reports what is stored. `events` pages the operation log by cursor and filters
+it to denials or writes. `exportFixture` writes the live state as a fixture and
+`seedFromFixture` loads one back.
 
 The six branch methods work a change out on a copy before it reaches the live
 sandbox. `fork` copies live into a named branch under

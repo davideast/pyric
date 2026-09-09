@@ -186,9 +186,26 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   seed_sandbox: { key: 'sandbox.seed' },
   // The confirmation the destructive gate reads is the caller's own, so it is
   // carried across rather than supplied here.
-  reset_sandbox: { key: 'sandbox.reset', toMethodArgs: (args) => pick(args, ['confirm']) },
+  reset_sandbox: {
+    key: 'sandbox.reset',
+    toMethodArgs: (args) => pick(args, ['scope', 'confirm']),
+  },
 
-  // Step 3B: the persisted branches.
+  // Checkpoints, the operation log, and fixtures.
+  checkpoint_sandbox: { key: 'sandbox.checkpoint' },
+  restore_sandbox: { key: 'sandbox.restore', toMethodArgs: (args) => pick(args, ['name', 'confirm']) },
+  list_sandbox_checkpoints: { key: 'sandbox.listCheckpoints' },
+  list_sandbox_events: {
+    key: 'sandbox.events',
+    toMethodArgs: (args) => pick(args, ['since', 'limit', 'kind']),
+  },
+  export_sandbox_fixture: {
+    key: 'sandbox.exportFixture',
+    toMethodArgs: (args) => pick(args, ['path', 'includePasswords', 'confirm']),
+  },
+  seed_sandbox_fixture: { key: 'sandbox.seedFromFixture' },
+
+  // The persisted branches.
   fork_sandbox_branch: { key: 'sandbox.fork' },
   apply_sandbox_events: { key: 'sandbox.apply' },
   diff_sandbox_branch: { key: 'sandbox.diff' },

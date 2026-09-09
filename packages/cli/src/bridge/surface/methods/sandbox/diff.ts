@@ -30,8 +30,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'diff(branch, against)',
-  description:
-    'Report the documents a branch and its reference disagree on. The reference is the live sandbox, or a checkpoint by name.',
+  description: 'Report what a branch and its reference disagree on.',
   args: z.object({
     branch: branchName,
     against: z

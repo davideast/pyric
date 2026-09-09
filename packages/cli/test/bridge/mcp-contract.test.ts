@@ -41,16 +41,21 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
   ],
   rules: ['explainDenial', 'getStdlib', 'lint', 'listStdlib', 'set', 'simulate'],
   sandbox: [
-    // Step 3B: the persisted branches.
     'apply',
+    'checkpoint',
     'diff',
     'discard',
+    'events',
+    'exportFixture',
     'fork',
     'inspect',
     'listBranches',
+    'listCheckpoints',
     'promote',
     'reset',
+    'restore',
     'seed',
+    'seedFromFixture',
   ],
 };
 

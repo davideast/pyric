@@ -21,8 +21,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'promote(branch, confirm)',
-  description:
-    "Replaces the live sandbox's documents with the branch's, then deletes the branch.",
+  description: "Replace live documents with the branch's, then delete it.",
   args: z.object({
     branch: branchName,
     confirm: z

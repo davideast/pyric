@@ -127,16 +127,21 @@ export function parseArgs(argv: string[]): ParsedArgs {
  * verbatim. The first word after `sandbox` is what separates them.
  */
 export const SANDBOX_METHOD_WORDS: ReadonlySet<string> = new Set([
-  'inspect',
-  'reset',
-  'seed',
-  // Step 3B: the persisted branches.
   'apply',
-  'discard',
+  'checkpoint',
   'diff',
+  'discard',
+  'events',
+  'exportFixture',
   'fork',
+  'inspect',
   'listBranches',
+  'listCheckpoints',
   'promote',
+  'reset',
+  'restore',
+  'seed',
+  'seedFromFixture',
 ]);
 
 /**

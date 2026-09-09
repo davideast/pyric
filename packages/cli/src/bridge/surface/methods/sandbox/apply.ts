@@ -50,8 +50,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'apply(branch, events, sessionPath)',
-  description:
-    'Re-issue sandbox events onto a branch, from an event list or from a recorded session file.',
+  description: 'Re-issue events onto a branch, from a list or a session file.',
   args: z.object({
     branch: branchName,
     events: z

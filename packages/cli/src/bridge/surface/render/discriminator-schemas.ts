@@ -216,8 +216,41 @@ export const dryRunExperimentSchema = z.object({
 
 export const controlSandboxEnvironmentSchema = z.object({
   action: z
-    .enum(['reset_all', 'advance_clock', 'set_network', 'seed'])
+    .enum([
+      'reset_all',
+      'advance_clock',
+      'set_network',
+      'seed',
+      'checkpoint',
+      'restore',
+      'list_checkpoints',
+      'events',
+      'export_fixture',
+      'seed_fixture',
+    ])
     .describe('Environment control action.'),
+  scope: z
+    .enum(['all', 'firestore', 'database', 'storage', 'auth'])
+    .optional()
+    .describe("Service to reset alone (when action is 'reset_all'). Default is all."),
+  checkpointName: z
+    .string()
+    .optional()
+    .describe("Checkpoint name (when action is 'checkpoint' or 'restore')."),
+  fixturePath: z
+    .string()
+    .optional()
+    .describe("Fixture file path, relative to the project (when action is 'export_fixture' or 'seed_fixture')."),
+  includePasswords: z
+    .boolean()
+    .optional()
+    .describe("Carry real password hashes into the fixture (when action is 'export_fixture')."),
+  since: z.string().optional().describe("Cursor from a prior 'events' call."),
+  limit: z.number().optional().describe("Maximum events to return (when action is 'events')."),
+  kind: z
+    .enum(['all', 'denials', 'writes'])
+    .optional()
+    .describe("Event filter (when action is 'events')."),
   advanceMs: z
     .number()
     .optional()

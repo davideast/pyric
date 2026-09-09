@@ -19,8 +19,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'listBranches()',
-  description:
-    'Report every branch on disk with when it was forked, how many events it carries, and how far it has drifted from live.',
+  description: 'List branches with fork time, event count, and drift.',
   args: z.object({}),
   operation: 'list_sandbox_branches',
   example: {},
