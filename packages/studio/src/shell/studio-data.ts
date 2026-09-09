@@ -634,24 +634,32 @@ export function useStudioImport(): (bundle: string) => Promise<boolean> {
   }, [live]);
 }
 
-/** Phase 3 (named branches): saved branches + save/switch/delete. */
-export interface StudioBranches {
-  branches: string[];
+/** The sandbox's saved states, and what can be done with one. */
+export interface StudioSavedStates {
+  /** The names this instance holds, ordered. */
+  names: string[];
   save(name: string): Promise<void>;
-  switchTo(name: string): Promise<void>;
+  restore(name: string): Promise<void>;
   remove(name: string): Promise<void>;
 }
 
 /**
- * The live sandbox's named branches and their mutations. The list refreshes
- * after each save/delete; empty in dev-seed / review (no live worker).
+ * The live sandbox's saved states and their mutations. A saved state is the
+ * whole sandbox under a name: documents, the database tree, objects, accounts,
+ * and rules. The list refreshes after each save and delete; empty in dev-seed
+ * and review, which have no live worker to hold one.
  */
-export function useStudioBranches(): StudioBranches {
+export function useSavedStates(): StudioSavedStates {
   const env = useEnvironment();
   const live = env.status === 'ready' ? env.env.live : undefined;
-  const [branches, setBranches] = useState<string[]>([]);
+  const [names, setNames] = useState<string[]>([]);
   const refresh = useCallback(async () => {
-    setBranches(live ? await live.listBranches() : []);
+    if (!live) {
+      setNames([]);
+      return;
+    }
+    const listed = await live.listStates();
+    setNames(listed.map((entry) => entry.name));
   }, [live]);
   useEffect(() => {
     void refresh();
@@ -659,26 +667,26 @@ export function useStudioBranches(): StudioBranches {
   const save = useCallback(
     async (name: string) => {
       if (!live) return;
-      await live.saveBranch(name);
+      await live.saveState(name);
       await refresh();
     },
     [live, refresh],
   );
-  const switchTo = useCallback(
+  const restore = useCallback(
     async (name: string) => {
-      if (live) await live.switchBranch(name);
+      if (live) await live.restoreState(name);
     },
     [live],
   );
   const remove = useCallback(
     async (name: string) => {
       if (!live) return;
-      await live.deleteBranch(name);
+      await live.deleteState(name);
       await refresh();
     },
     [live, refresh],
   );
-  return { branches, save, switchTo, remove };
+  return { names, save, restore, remove };
 }
 
 /**

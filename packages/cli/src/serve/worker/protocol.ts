@@ -176,10 +176,10 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'getVersion' }
   | { t: 'op'; id: string; method: 'exportState' }
   | { t: 'op'; id: string; method: 'importState'; bundle: string }
-  | { t: 'op'; id: string; method: 'saveBranch'; name: string }
-  | { t: 'op'; id: string; method: 'listBranches' }
-  | { t: 'op'; id: string; method: 'switchBranch'; name: string }
-  | { t: 'op'; id: string; method: 'deleteBranch'; name: string }
+  | { t: 'op'; id: string; method: 'checkpoint'; name: string }
+  | { t: 'op'; id: string; method: 'listCheckpoints' }
+  | { t: 'op'; id: string; method: 'restore'; name: string }
+  | { t: 'op'; id: string; method: 'deleteCheckpoint'; name: string }
   | { t: 'op'; id: string; method: 'getSnapshot' }
   | { t: 'op'; id: string; method: 'resetAll' }
   // Messaging ops

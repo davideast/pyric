@@ -18,7 +18,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'exportFixture(path, excludePasswords?)',
-  description: 'Write the sandbox to a seed fixture, passwords included.',
+  description: 'Write a seed fixture, passwords included.',
   args: z.object({
     path: z.string().describe('Where to write the fixture, inside the project directory.'),
     excludePasswords: z
@@ -29,6 +29,12 @@ export default {
       ),
   }),
   operation: 'export_sandbox_fixture',
+  refusals: {
+    includePasswords: {
+      rule: "unknown argument 'includePasswords'. A fixture carries the seeded passwords by default, so there is nothing to turn on.",
+      fix: "Drop 'includePasswords', or pass 'excludePasswords' as true to leave the passwords out.",
+    },
+  },
   example: { path: 'fixtures/scenario.json' },
   async handler(args, ctx) {
     const given = String(args.path);

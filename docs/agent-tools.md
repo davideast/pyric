@@ -40,11 +40,13 @@ when one ships, it is not mounted unless the server is started with
 | `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
 | `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
-| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
+| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint`, `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
 
-`checkpoint` writes a named on-disk snapshot of the live sandbox under
-`.pyric/state/checkpoints/`, `restore` puts one back, and `listCheckpoints`
-reports what is stored. `events` pages the operation log by cursor and filters
+`checkpoint` writes the whole live sandbox under a name into
+`.pyric/state/checkpoints/`: Firestore documents, the Realtime Database tree,
+Storage objects with their bytes and metadata, auth accounts, and the three
+rule sources. `restore` puts one back, `listCheckpoints` reports what is
+stored, and `deleteCheckpoint` removes one and leaves the sandbox alone. `events` pages the operation log by cursor and filters
 it to denials or writes; a cursor from a log a restore or a reset replaced is
 refused rather than read as the start of the new log. `exportFixture` writes the live state as a fixture and
 `seedFromFixture` loads one back. The fixture carries the sandbox's seeded
@@ -53,17 +55,27 @@ them out. The file is the seed shape `sandbox.seed` accepts, not the state file
 `pyric snapshot` writes.
 
 The six branch methods work a change out on a copy before it reaches the live
-sandbox. `fork` copies live into a named branch under
-`.pyric/state/branches/<branch>/`, optionally under a candidate Firestore
-ruleset the live sandbox never sees. `apply` re-issues sandbox events onto the
-branch, either from an `events` list or from a recorded session file named by
-`sessionPath` relative to the project directory; a call that names neither is
-refused. `diff` reports what the branch and its reference disagree on, against
-`live` by default or against a checkpoint by name. `promote` lands the branch
-on live and deletes it. `discard` deletes the branch and leaves live alone.
-`listBranches` reports every branch with when it was forked, how many events it
-carries, and how far it has drifted from live. A branch is a directory in the
-project, so it outlives the server that forked it.
+sandbox. A branch carries every service the sandbox does, so an experiment can
+upload an object or create an account and not just write a document.
+
+`fork` copies the whole live sandbox into a named branch under
+`.pyric/state/branches/<branch>/`. `candidateRules` runs the branch under rules
+the live sandbox never sees: a string is the Firestore ruleset, and an object
+naming `firestore`, `database`, and `storage` sets each service's rules
+independently. `apply` re-issues sandbox events onto the branch, either from an
+`events` list or from a recorded session file named by `sessionPath` relative
+to the project directory; a call that names neither is refused. `diff` reports
+what the branch and its reference disagree on, against `live` by default or
+against a checkpoint by name; every divergence names the service it concerns
+and the result carries a count per service. `promote` lands the branch on live
+across every service and deletes it, and it is atomic: any write the live
+sandbox refuses puts live back to what it held and leaves the branch to promote
+again. What lands is the delta between the state the branch forked from and the
+state it holds now, so state live gained after the fork survives the promotion.
+`discard` deletes the branch and leaves live alone. `listBranches` reports every
+branch with when it was forked, how many events it carries, and how far it has
+drifted from live per service. A branch is a directory in the project, so it
+outlives the server that forked it.
 
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path

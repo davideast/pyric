@@ -195,6 +195,7 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   checkpoint_sandbox: { key: 'sandbox.checkpoint' },
   restore_sandbox: { key: 'sandbox.restore', toMethodArgs: (args) => pick(args, ['name', 'confirm']) },
   list_sandbox_checkpoints: { key: 'sandbox.listCheckpoints' },
+  delete_sandbox_checkpoint: { key: 'sandbox.deleteCheckpoint' },
   list_sandbox_events: {
     key: 'sandbox.events',
     toMethodArgs: (args) => pick(args, ['since', 'limit', 'kind']),

@@ -30,7 +30,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'diff(branch, against?: live|<checkpoint name>)',
-  description: "Report a branch's divergences from its reference, by service.",
+  description: "Report a branch's divergences by service.",
   args: z.object({
     branch: branchName,
     against: z

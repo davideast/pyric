@@ -2,7 +2,7 @@
  * The routes the `control_sandbox_environment` tool's actions take.
  *
  * This is sandbox state as the discriminator variant spells it: clearing it,
- * seeding it, saving and restoring a checkpoint, paging the operation log, and
+ * seeding it, saving, restoring, and deleting a checkpoint, paging the log, and
  * writing or loading a fixture. Each route is the same canonical operation the
  * service tool's `sandbox` methods reach, under the argument names this
  * variant was authored with.
@@ -55,6 +55,13 @@ export const SANDBOX_STATE_ROUTES: DiscriminatorRoute[] = [
     selects: on('action', 'list_checkpoints'),
     operation: 'list_sandbox_checkpoints',
     translate: () => ({}),
+  },
+  {
+    tool: 'control_sandbox_environment',
+    action: 'delete_checkpoint',
+    selects: on('action', 'delete_checkpoint'),
+    operation: 'delete_sandbox_checkpoint',
+    translate: (args) => ({ name: args.checkpointName }),
   },
   {
     tool: 'control_sandbox_environment',

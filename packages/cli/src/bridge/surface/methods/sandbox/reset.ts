@@ -47,7 +47,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: `reset(scope?: ${RESET_SCOPES.join('|')}, confirm)`,
-  description: 'Discard everything, or one service via scope.',
+  description: 'Discard everything, or one service.',
   args: z.object({
     scope: z.enum(RESET_SCOPES).optional(),
     confirm: z

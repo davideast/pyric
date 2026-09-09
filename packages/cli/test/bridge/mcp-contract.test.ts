@@ -51,6 +51,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'inspect',
     'listBranches',
     'listCheckpoints',
+    'deleteCheckpoint',
     'promote',
     'reset',
     'restore',

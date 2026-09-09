@@ -137,6 +137,7 @@ export const SANDBOX_METHOD_WORDS: ReadonlySet<string> = new Set([
   'inspect',
   'listBranches',
   'listCheckpoints',
+  'deleteCheckpoint',
   'promote',
   'reset',
   'restore',

@@ -56,12 +56,13 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `checkpoint_sandbox` | checkpoint | sandbox | state | `name` | Saves the whole sandbox under a name. Overwrites a checkpoint of the same name. |
 | `restore_sandbox` | restore | sandbox | state | `name`, `confirm` | Replaces the live sandbox with a named checkpoint. |
 | `list_sandbox_checkpoints` | list | sandbox | checkpoints | none | Names, save time, and per-service counts. |
+| `delete_sandbox_checkpoint` | delete | sandbox | checkpoints | `name` | Removes one checkpoint. The sandbox is untouched. |
 | `list_sandbox_events` | list | sandbox | events | `since?`, `limit?`, `kind?` (`all`, `denials`, `writes`) | Cursor-paged operation log; the result carries `nextCursor`. |
 | `export_sandbox_fixture` | export | sandbox | fixture | `path`, `excludePasswords?` | Writes a seed fixture file. The seeded passwords are carried unless `excludePasswords: true`. |
 | `seed_sandbox_fixture` | seed | sandbox | fixture | `path` | Loads a fixture written by `export_sandbox_fixture` on top of live state. |
-| `fork_sandbox_branch` | fork | sandbox | branch | `branch`, `candidateRules?` | Copies live into a persisted branch under `.pyric/state/branches/<branch>/`. |
+| `fork_sandbox_branch` | fork | sandbox | branch | `branch`, `candidateRules?` (a Firestore rules string, or an object naming `firestore`, `database`, and `storage`) | Copies the whole live sandbox into a persisted branch under `.pyric/state/branches/<branch>/`. |
 | `apply_sandbox_events` | apply | sandbox | events | `branch`, `events?` (array), `sessionPath?` | Exactly one of `events` and `sessionPath`; naming neither is refused. |
-| `diff_sandbox_branch` | diff | sandbox | branch | `branch`, `against?` (`live` or a checkpoint name) | Defaults to `live`. |
+| `diff_sandbox_branch` | diff | sandbox | branch | `branch`, `against?` (`live` or a checkpoint name) | Defaults to `live`. Every divergence names its service, and the result carries per-service counts. |
 | `promote_sandbox_branch` | promote | sandbox | branch | `branch`, `confirm` | Destructive: lands the branch on live and deletes it. |
 | `discard_sandbox_branch` | discard | sandbox | branch | `branch` | Deletes the branch; live is untouched. |
 | `list_sandbox_branches` | list | sandbox | branches | none | Name, created, base, event count, and divergences against live. |

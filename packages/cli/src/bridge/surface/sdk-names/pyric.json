@@ -15,6 +15,7 @@
   "lint",
   "listBranches",
   "listCheckpoints",
+  "deleteCheckpoint",
   "listStdlib",
   "promote",
   "reset",

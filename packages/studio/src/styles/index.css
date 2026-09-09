@@ -670,7 +670,7 @@ button.studio-card:hover {
   /* `.ai-set__field` is SettingsModal's own field row (see the note above:
      ai/ai.css is unreachable today), grouped here with the palette's own
      mobile override since both moved off the original combined selector
-     list `.ai-set__field, .studio-settings__row, .studio-settings__branch`
+     list `.ai-set__field, .studio-settings__row, .studio-settings__saved-state`
      — the `.studio-settings__*` half of that rule now lives in
      `features/settings/settings.css`, which IS reachable. */
   .ai-set__field {

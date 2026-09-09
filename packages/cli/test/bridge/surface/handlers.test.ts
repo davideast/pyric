@@ -8,7 +8,7 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, expect, it } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getAuth, sandbox as authSandbox, signInWithEmailAndPassword } from 'pyric/auth';
@@ -369,6 +369,23 @@ it('checkpoints, restores, pages events, and round-trips a fixture', async () =>
   });
   expect(refusedOldName.ok).toBe(false);
   expect(refusedOldName.summary).toContain("unknown argument 'includePasswords'");
+});
+
+it("refuses 'includePasswords' by saying passwords are already included", async () => {
+  const refused = await run('sandbox.exportFixture', {
+    path: 'fixtures/refused.json',
+    includePasswords: true,
+  });
+
+  expect(refused.ok).toBe(false);
+  expect(refused.summary).toContain('passwords');
+  expect(refused.summary).toContain('by default');
+  expect(refused.summary).toContain('excludePasswords');
+  // The near-miss suggestion would have read as a rename, which inverts what
+  // the call asked for: excluding is the opposite of including.
+  expect(refused.summary).not.toContain("names this argument 'excludePasswords'");
+  expect((refused.data as { field?: string }).field).toBe('includePasswords');
+  expect(existsSync(join(projectDir, 'fixtures', 'refused.json'))).toBe(false);
 });
 
 it('exports the seeded password by default and withholds it when asked', async () => {

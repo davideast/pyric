@@ -7,6 +7,15 @@
       "args": { "method": "restore", "args": { "name": "before-cleanup", "confirm": true } }
     }
   ],
+  "delete-the-checkpoint-that-is-no-longer-needed": [
+    { "tool": "sandbox", "args": { "method": "checkpoint", "args": { "name": "pre-cleanup" } } },
+    { "tool": "firestore", "args": { "method": "deleteDoc", "args": { "path": "demo/archived-note" } } },
+    {
+      "tool": "sandbox",
+      "args": { "method": "deleteCheckpoint", "args": { "name": "pre-cleanup" } }
+    },
+    { "tool": "sandbox", "args": { "method": "listCheckpoints", "args": {} } }
+  ],
   "clear-database-only-leave-firestore": [
     {
       "tool": "sandbox",

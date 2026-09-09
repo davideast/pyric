@@ -24,7 +24,7 @@ import {
   ProjectIdError,
 } from './disk-project-store.js';
 import { createStudioRoutes } from './routes.js';
-import { fork, initializeSandbox } from 'pyric/sandbox';
+import { captureFullState, fork, initializeSandbox } from 'pyric/sandbox';
 import { saveBranch } from 'pyric/sandbox/branches/store';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 
@@ -290,7 +290,7 @@ describe('createStudioRoutes', () => {
     const ws = diskWorkspace(dir);
     const sandbox = initializeSandbox();
     getInternalEnv(sandbox).seed({ rules: '', documents: { 'notes/n1': { body: 'live' } } });
-    saveBranch(dir, 'draft', fork(sandbox.snapshot()), { base: 'live' });
+    await saveBranch(dir, 'draft', await fork(await captureFullState(sandbox)), { base: 'live' });
 
     const routes = createStudioRoutes({
       workspace: ws,

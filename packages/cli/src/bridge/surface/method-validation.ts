@@ -50,14 +50,19 @@ function argumentSummary(method: Method, name: string): string {
 }
 
 /**
- * Reject an argument name the schema does not declare, preferring a known
- * rename over a spelling guess, because a name borrowed from a neighbouring API
- * is a different mistake from a typo and takes a different correction.
+ * Reject an argument name the schema does not declare, preferring the method's
+ * own refusal over a rename and a rename over a spelling guess. A name
+ * borrowed from a neighbouring API is a different mistake from a typo and
+ * takes a different correction, and a name that asks for the opposite of what
+ * the method already does is a third: neither a rename nor a near miss can say
+ * so, which is why the record gets to answer first.
  */
 function checkArgumentNames(method: Method, args: Args, fail: Fail): InvalidArguments | null {
   const known = argumentNames(method);
   for (const name of Object.keys(args)) {
     if (known.includes(name)) continue;
+    const refused = method.refusals?.[name];
+    if (refused !== undefined) return fail(refused.rule, refused.fix, name);
     const renamed = method.renames?.[name] ?? closest(name, known);
     if (renamed !== null && renamed !== undefined) {
       return fail(
