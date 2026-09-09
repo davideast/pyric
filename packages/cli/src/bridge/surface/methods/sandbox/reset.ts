@@ -18,8 +18,9 @@ import { listStoredPaths } from '../../../server/storage-sidecar.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { SurfaceContext } from '../../types.js';
 
-const SCOPES = ['all', 'firestore', 'database', 'storage', 'auth'] as const;
-type Scope = (typeof SCOPES)[number];
+/** The services a reset can be narrowed to, and `all` for every one of them. */
+export const RESET_SCOPES = ['all', 'firestore', 'database', 'storage', 'auth'] as const;
+type Scope = (typeof RESET_SCOPES)[number];
 
 async function resetScope(scope: Scope, ctx: SurfaceContext): Promise<void> {
   if (scope === 'firestore') {
@@ -45,10 +46,10 @@ export default {
   method: 'reset',
   sdkOrigin: 'pyric',
   effect: 'destructive',
-  signature: 'reset(scope?: all|firestore|database|storage|auth, confirm)',
+  signature: `reset(scope?: ${RESET_SCOPES.join('|')}, confirm)`,
   description: 'Discard everything, or one service via scope.',
   args: z.object({
-    scope: z.enum(SCOPES).optional(),
+    scope: z.enum(RESET_SCOPES).optional(),
     confirm: z
       .boolean()
       .optional()

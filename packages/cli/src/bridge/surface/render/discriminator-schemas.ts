@@ -10,6 +10,8 @@
  */
 import { z } from 'zod';
 
+import { RESET_SCOPES } from '../methods/sandbox/reset.js';
+
 export const switchAuthIdentitySchema = z.object({
   mode: z
     .enum(['uid', 'admin', 'anonymous', 'app-session'])
@@ -230,7 +232,7 @@ export const controlSandboxEnvironmentSchema = z.object({
     ])
     .describe('Environment control action.'),
   scope: z
-    .enum(['all', 'firestore', 'database', 'storage', 'auth'])
+    .enum(RESET_SCOPES)
     .optional()
     .describe("Service to reset alone (when action is 'reset_all'). Default is all."),
   checkpointName: z
@@ -268,7 +270,9 @@ export const controlSandboxEnvironmentSchema = z.object({
   confirm: z
     .boolean()
     .optional()
-    .describe("Must be true to reset (when action is 'reset_all'). Reset discards every service."),
+    .describe(
+      "Must be true for the two actions that replace or discard state: 'reset_all', which clears the services in scope, and 'restore', which discards every change made since the checkpoint.",
+    ),
   seedSnapshotJson: z
     .string()
     .optional()
