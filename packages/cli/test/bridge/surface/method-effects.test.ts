@@ -24,7 +24,7 @@ import {
   refuseUnconfirmedDestructive,
   refuseUnmountedProduction,
 } from '../../../src/bridge/surface/method-effects.js';
-import { METHODS, methodByKey, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
+import { METHODS, methodByKey, toolByName, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import type { Method, Tool } from '../../../src/bridge/surface/method-types.js';
 
 /** A method record built only for this test; never filed under `methods/`. */
@@ -92,7 +92,7 @@ describe('destructive refusal', () => {
 
   it('names every destructive method today', () => {
     const destructiveRecords = METHODS.filter((method) => method.effect === 'destructive');
-    expect(destructiveRecords.map((method) => method.key)).toEqual(['sandbox.reset']);
+    expect(destructiveRecords.map((method) => method.key)).toEqual(['sandbox.reset', 'sandbox.restore']);
   });
 
   it('carries confirm in the signature and the argument schema of every destructive method', () => {
@@ -310,14 +310,21 @@ describe('every rendered surface passes through the one validator', () => {
     });
   });
 
+  /** Reclassify every key as `production`, nested, then run. */
+  async function asProductionAll(keys: readonly string[], run: () => Promise<void>): Promise<void> {
+    if (keys.length === 0) {
+      await run();
+      return;
+    }
+    const [first, ...rest] = keys;
+    await asProduction(first!, () => asProductionAll(rest, run));
+  }
+
   it('refuses to render a service tool whose every method is withheld', async () => {
-    await asProduction('sandbox.inspect', async () => {
-      await asProduction('sandbox.seed', async () => {
-        await asProduction('sandbox.reset', async () => {
-          expect(() => renderSurface('sdk-service')).toThrow(/sandbox/);
-          expect(() => renderSurface('sdk-service', { allowProduction: true })).not.toThrow();
-        });
-      });
+    const sandboxKeys = toolByName('sandbox')!.methods.map((method) => method.key);
+    await asProductionAll(sandboxKeys, async () => {
+      expect(() => renderSurface('sdk-service')).toThrow(/sandbox/);
+      expect(() => renderSurface('sdk-service', { allowProduction: true })).not.toThrow();
     });
   });
 

@@ -40,7 +40,17 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'whoami',
   ],
   rules: ['explainDenial', 'getStdlib', 'lint', 'listStdlib', 'set', 'simulate'],
-  sandbox: ['inspect', 'reset', 'seed'],
+  sandbox: [
+    'checkpoint',
+    'events',
+    'exportFixture',
+    'inspect',
+    'listCheckpoints',
+    'reset',
+    'restore',
+    'seed',
+    'seedFromFixture',
+  ],
 };
 
 describe('the product MCP tool contract', () => {

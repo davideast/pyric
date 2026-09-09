@@ -171,7 +171,7 @@ describe('the sdk-service validator', () => {
   it('requires an explicit confirmation to reset', async () => {
     const result = await call('sandbox', 'reset', {});
     expect(result.summary).toBe(
-      'sandbox.reset: Discards every document, database value, stored object, and user in the sandbox. Pass confirm: true to proceed.',
+      'sandbox.reset: Discards documents, values, objects, and users. scope narrows this to one service; the default, all, clears every service. Pass confirm: true to proceed.',
     );
   });
 
@@ -334,7 +334,7 @@ describe('describe', () => {
   it('refuses a describe that names no method', async () => {
     const result = await call('sandbox', 'describe', {});
     expect(result.summary).toBe(
-      "sandbox.describe: args.method is missing. describe reads one method schema, so it names the method to read. Pass args: { method: 'inspect' }.",
+      "sandbox.describe: args.method is missing. describe reads one method schema, so it names the method to read. Pass args: { method: 'checkpoint' }.",
     );
   });
 });
