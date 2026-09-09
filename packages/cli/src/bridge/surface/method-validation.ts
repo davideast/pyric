@@ -118,12 +118,32 @@ function fromZodIssue(
       field,
     );
   }
-  const shown = quoted(field === '' ? args : undefined);
+  // A rule a schema states as a refinement, such as a name's shape, reaches
+  // here. The value is what the caller has to change, so the message quotes it
+  // rather than reporting the argument as absent.
+  const shown = quoted(field === '' ? args : valueAt(args, issue.path));
+  if (field === '') {
+    return fail(
+      `the arguments are invalid: ${issue.message}. The SDK signature is ${method.signature}.`,
+      `Pass arguments the signature accepts. Received ${shown}.`,
+      field,
+    );
+  }
   return fail(
-    `argument '${field}' is invalid: ${issue.message}. The SDK signature is ${method.signature}.`,
-    `Correct '${field}' and call again.${detail === '' ? ` Received ${shown}.` : detail}`,
+    `argument '${field}' is ${shown}, which is invalid: ${issue.message}. The SDK signature is ${method.signature}.`,
+    `Pass '${field}' as a value the rule allows.${detail}`,
     field,
   );
+}
+
+/** The value a Zod issue's path points at, as the caller sent it. */
+function valueAt(args: Args, path: readonly (string | number)[]): unknown {
+  let value: unknown = args;
+  for (const segment of path) {
+    if (value === null || typeof value !== 'object') return undefined;
+    value = (value as Record<string | number, unknown>)[segment];
+  }
+  return value;
 }
 
 /**
