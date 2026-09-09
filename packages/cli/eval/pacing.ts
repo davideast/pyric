@@ -17,7 +17,7 @@
  * either records a timestamp and returns immediately, or, absent `--no-wait`,
  * waits for the oldest timestamp to age out of the window and tries again.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -59,10 +59,35 @@ function lockDir(root: string, cli: string): string {
 }
 
 /**
+ * How long a held lock may go untouched before another process breaks it. The
+ * critical section is a read, a small JSON write and a directory removal, so
+ * anything older than this is a process that died holding the lock. Without
+ * this, one killed runner leaves a directory under the OS temp root that wedges
+ * every later runner forever, which is the failure the unattended harness must
+ * not have.
+ */
+export const LOCK_STALE_MS = 30_000;
+
+/**
+ * Age of an existing lock directory in real time, or null when it is already
+ * gone. Real time rather than the injected clock: staleness is about how long
+ * another operating-system process has actually been silent, which a test's
+ * simulated budget clock says nothing about.
+ */
+function lockAgeMs(dir: string): number | null {
+  try {
+    return Date.now() - statSync(dir).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Acquire an exclusive lock on one CLI's ledger by creating a directory, which
  * is atomic on the filesystems this runs against. A process that loses the race
  * retries after a short sleep rather than failing, since the winner always
- * releases the lock quickly.
+ * releases the lock quickly. A lock older than `LOCK_STALE_MS` belongs to a
+ * process that died holding it and is broken so the ledger stays usable.
  */
 async function acquireLock(
   root: string,
@@ -78,6 +103,11 @@ async function acquireLock(
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== 'EEXIST') throw error;
+      const age = lockAgeMs(dir);
+      if (age !== null && age > LOCK_STALE_MS) {
+        rmSync(dir, { recursive: true, force: true });
+        continue;
+      }
       await sleep(20);
     }
   }

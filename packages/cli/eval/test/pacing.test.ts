@@ -5,10 +5,11 @@
  * against the signals the runner documents.
  */
 import { describe, expect, test } from 'bun:test';
-import { mkdtempSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BUDGET_WINDOW_MS, isThrottled, Pacer } from '../pacing.js';
+import { BUDGET_WINDOW_MS, LOCK_STALE_MS, isThrottled, Pacer } from '../pacing.js';
 
 /** A clock the test advances by hand, so pacing is exercised without waiting. */
 function fakeClock() {
@@ -116,6 +117,34 @@ describe('pacing', () => {
   });
 });
 
+/** The child script the contention test runs as its own operating-system process. */
+const CONTENDER = join(import.meta.dirname, 'pacing-contender.ts');
+
+/**
+ * One contender process, resolving to the number of reservations it won. Two
+ * pacer instances inside one process share a JavaScript thread and cannot show
+ * that the lock works, so the contention test spawns real processes.
+ */
+function contend(ledgerRoot: string, attempts: number, budget: number): Promise<number> {
+  return new Promise((resolveCount, rejectRun) => {
+    const child = spawn('bun', [CONTENDER, ledgerRoot, 'claude', String(attempts), String(budget)], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    let stdout = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.on('error', rejectRun);
+    child.on('close', (code) => {
+      if (code !== 0) {
+        rejectRun(new Error(`contender exited ${code}`));
+        return;
+      }
+      resolveCount(Number(stdout.trim()));
+    });
+  });
+}
+
 describe('the quota ledger is shared across pacer instances', () => {
   test('two pacer instances over one ledger share the budget', async () => {
     const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
@@ -170,6 +199,69 @@ describe('the quota ledger is shared across pacer instances', () => {
 
     expect(await pacer.reserveBudget('claude')).toBe('ready');
     expect(await pacer.reserveBudget('claude')).toBe('throttled');
+  });
+
+  test('two contending processes spend one budget exactly once between them', async () => {
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const budget = 20;
+    // Each process asks for the whole budget, so without mutual exclusion the
+    // two would read the same ledger and win 40 reservations between them.
+    const [first, second] = await Promise.all([
+      contend(ledgerRoot, budget, budget),
+      contend(ledgerRoot, budget, budget),
+    ]);
+
+    expect(first + second).toBe(budget);
+    const ledger = JSON.parse(readFileSync(join(ledgerRoot, 'claude.json'), 'utf8')) as {
+      timestamps: number[];
+    };
+    expect(ledger.timestamps).toHaveLength(budget);
+  }, 60_000);
+
+  test('a lock a dead process left behind is broken rather than waited on forever', async () => {
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    // A directory older than the staleness limit is what a killed runner leaves.
+    const stale = join(ledgerRoot, 'claude.lock');
+    mkdirSync(stale, { recursive: true });
+    const longAgo = new Date(Date.now() - LOCK_STALE_MS - 60_000);
+    utimesSync(stale, longAgo, longAgo);
+
+    const pacer = new Pacer({ minGapMs: 0, budgetPerWindow: 1, ledgerRoot, noWait: true });
+    expect(await pacer.reserveBudget('claude')).toBe('ready');
+  }, 30_000);
+
+  test('an entry one millisecond short of the window still counts against the budget', async () => {
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const clock = fakeClock();
+    const pacer = new Pacer({
+      minGapMs: 0,
+      budgetPerWindow: 1,
+      now: clock.now,
+      sleep: clock.sleep,
+      ledgerRoot,
+      noWait: true,
+    });
+
+    expect(await pacer.reserveBudget('claude')).toBe('ready');
+    clock.advance(BUDGET_WINDOW_MS - 1);
+    expect(await pacer.reserveBudget('claude')).toBe('throttled');
+  });
+
+  test('an entry exactly one window old has aged out and frees its room', async () => {
+    const ledgerRoot = mkdtempSync(join(tmpdir(), 'pyric-pacing-'));
+    const clock = fakeClock();
+    const pacer = new Pacer({
+      minGapMs: 0,
+      budgetPerWindow: 1,
+      now: clock.now,
+      sleep: clock.sleep,
+      ledgerRoot,
+      noWait: true,
+    });
+
+    expect(await pacer.reserveBudget('claude')).toBe('ready');
+    clock.advance(BUDGET_WINDOW_MS);
+    expect(await pacer.reserveBudget('claude')).toBe('ready');
   });
 
   test('a full ledger for one CLI does not throttle another', async () => {
