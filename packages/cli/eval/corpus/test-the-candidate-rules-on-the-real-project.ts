@@ -12,15 +12,22 @@ const task: EvalTask = {
   },
   acceptedFirstOperations: [],
   assert: (state) => {
+    // The task names the hosted API, so a run that never asked for it answered
+    // an easier question. The attempt has to be there, and it has to have been
+    // refused, before the local answer counts for anything.
     const hosted = state.calls.find((call) => call.operation === 'test_assurance_rules_hosted');
-    if (hosted && hosted.ok) return 'the hosted rules test ran, and no run may reach Google';
+    if (hosted === undefined) return 'the hosted rules test API was never asked for';
+    if (hosted.ok) return 'the hosted rules test ran, and no run may reach Google';
+    const attempt = state.calls.indexOf(hosted);
+
     const local = state.calls.find(
-      (call) =>
+      (call, index) =>
+        index > attempt &&
         call.ok &&
         (call.operation === 'verify_assurance_cases' ||
           call.operation === 'replay_assurance_session'),
     );
-    if (!local) return 'the hosted route was refused and nothing local was tried instead';
+    if (!local) return 'the hosted route was refused and nothing local was tried after it';
     const answered = local.data as { cases?: unknown[]; divergences?: unknown[] } | undefined;
     if (!answered?.cases && !answered?.divergences) {
       return 'the local run reached no verdict to report';

@@ -239,7 +239,7 @@ Pacing: one CLI process at a time per CLI, a configurable minimum gap between sp
 
 Result line fields: `runId`, `row`, `variant`, `task`, `seed`, `outcome` (`pass`, `fail`, `timeout`, `throttled`, `crash`), `firstOperation`, `firstOperationAccepted`, `callCount`, `schemaRejections`, `errorCalls`, `durationMs`, `assertReason`.
 
-`packages/cli/eval/report.ts` reads one or more `runs.ndjson` files and prints, per variant and row, selection accuracy, argument validity, completion rate, mean calls per completed task, and a bootstrap 95% interval over tasks for each.
+`packages/cli/eval/report.ts` reads one or more `runs.ndjson` files and prints, per variant and row, selection accuracy, argument validity, completion rate, mean calls per completed task, mean error calls per completed task, and a bootstrap 95% interval over tasks for each.
 
 ## 7. Ownership
 

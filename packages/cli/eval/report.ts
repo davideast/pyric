@@ -53,6 +53,13 @@ export interface CellReport {
   /** Completion restricted to runs that logged at least one MCP call. */
   completionEngaged: Interval;
   meanCallsPerCompletedTask: Interval;
+  /**
+   * Mean calls a completed task spent on a result the server returned as
+   * unsuccessful. A schema rejection is not one of these: the arguments were
+   * accepted and the answer was a refusal or a failure, which is what a
+   * production refusal looks like from the log.
+   */
+  meanErrorCallsPerCompletedTask: Interval;
   /** Share of runs in which the server rejected at least one call on schema. */
   runsWithARejection: Interval;
   /** Mean wall-clock seconds one run took. */
@@ -132,6 +139,20 @@ const meanCallsPerCompletedTask: Statistic = (runs) => {
   let calls = 0;
   for (const run of passed) calls += run.callCount;
   return calls / passed.length;
+};
+
+/**
+ * Mean unsuccessful calls one completed task made. A task the surface answers
+ * with a refusal, such as a production method on a server that did not opt in,
+ * completes with error calls on its log, and the count is the only place that
+ * shows up.
+ */
+const meanErrorCallsPerCompletedTask: Statistic = (runs) => {
+  const passed = runs.filter((run) => run.outcome === 'pass');
+  if (passed.length === 0) return Number.NaN;
+  let errors = 0;
+  for (const run of passed) errors += run.errorCalls;
+  return errors / passed.length;
 };
 
 /**
@@ -246,6 +267,7 @@ export function buildReport(runs: EvalResultLine[], seed: number = BOOTSTRAP_SEE
       completion: bootstrap(tasks, completion, seed),
       completionEngaged: bootstrap(tasks, completionEngaged, seed),
       meanCallsPerCompletedTask: bootstrap(tasks, meanCallsPerCompletedTask, seed),
+      meanErrorCallsPerCompletedTask: bootstrap(tasks, meanErrorCallsPerCompletedTask, seed),
       runsWithARejection: bootstrap(tasks, runsWithARejection, seed),
       meanDurationSeconds: bootstrap(tasks, meanDurationSeconds, seed),
       infrastructure: infrastructureCounts(cellRuns),
@@ -311,6 +333,7 @@ export function renderReport(reports: CellReport[]): string {
     lines.push(`  completion           ${formatRate(report.completion)}`);
     lines.push(`  completion (engaged) ${formatRate(report.completionEngaged)}`);
     lines.push(`  calls per completion ${formatCount(report.meanCallsPerCompletedTask)}`);
+    lines.push(`  error calls/completion ${formatCount(report.meanErrorCallsPerCompletedTask)}`);
     lines.push(`  runs with a rejection${formatRate(report.runsWithARejection)}`);
     lines.push(`  mean duration        ${formatCount(report.meanDurationSeconds)} s`);
     const { throttled, interrupted, bypassed } = report.infrastructure;

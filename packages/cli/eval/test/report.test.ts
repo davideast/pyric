@@ -182,6 +182,32 @@ describe('the two threshold metrics the eval gate reads', () => {
   });
 });
 
+describe('error calls per completion', () => {
+  test('counts the unsuccessful calls a completed task made', () => {
+    const runs = [
+      line({ task: 't1', outcome: 'pass', errorCalls: 1 }),
+      line({ task: 't2', outcome: 'pass', errorCalls: 3 }),
+      // A failed run's error calls are not in the numerator or the denominator.
+      line({ task: 't3', outcome: 'fail', errorCalls: 9 }),
+    ];
+    const report = buildReport(runs, 42)[0];
+    expect(report?.meanErrorCallsPerCompletedTask.value).toBeCloseTo(4 / 2, 10);
+  });
+
+  test('a production refusal shows up in the printed report', () => {
+    // The task the surface refuses completes, because the refusal is the
+    // answer, and the refused call is the only trace it leaves.
+    const rendered = renderReport(buildReport([line({ task: 't1', errorCalls: 1 })], 42));
+    expect(rendered).toContain('error calls/completion');
+    expect(rendered).toContain('1.00');
+  });
+
+  test('a cell with nothing completed reports no interval rather than a zero', () => {
+    const report = buildReport([line({ task: 't1', outcome: 'fail', errorCalls: 2 })], 42)[0];
+    expect(Number.isNaN(report?.meanErrorCallsPerCompletedTask.value as number)).toBe(true);
+  });
+});
+
 describe('engaged-run completion', () => {
   test('a run with zero calls is excluded from the engaged completion rate', () => {
     const runs = [
