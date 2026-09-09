@@ -359,7 +359,8 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.updateEmail': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'updateEmail');
-        authSandboxOps.updateUser(auth, session.user.uid, { email: msg.email });
+        const email = msg.email ?? (msg as { newEmail?: string }).newEmail ?? '';
+        authSandboxOps.updateUser(auth, session.user.uid, { email });
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx);
@@ -371,7 +372,8 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.updatePassword': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'updatePassword');
-        authSandboxOps.updateUser(auth, session.user.uid, { password: msg.password });
+        const password = msg.password ?? (msg as { newPassword?: string }).newPassword ?? '';
+        authSandboxOps.updateUser(auth, session.user.uid, { password });
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx);
@@ -404,43 +406,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
         ok(port, msg.id, credReply(session, msg.credential.providerId));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.updateEmail': {
-      try {
-        const session = portSession(ctx, port);
-        if (!session) throw makeNoUserError('updateEmail');
-        const email = msg.email ?? (msg as { newEmail?: string }).newEmail ?? '';
-        authSandboxOps.updateUser(auth, session.user.uid, { email });
-        (session.user as { email: string | null }).email = email;
-        await bestEffortFlush(ctx);
-        ok(port, msg.id, serializeUser(session.user));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.updatePassword': {
-      try {
-        const session = portSession(ctx, port);
-        if (!session) throw makeNoUserError('updatePassword');
-        const password = msg.password ?? (msg as { newPassword?: string }).newPassword ?? '';
-        authSandboxOps.updateUser(auth, session.user.uid, { password });
-        await bestEffortFlush(ctx);
-        ok(port, msg.id, serializeUser(session.user));
-      } catch (e) { fail(port, msg.id, e); }
-      break;
-    }
-
-    case 'auth.deleteUser': {
-      try {
-        const session = portSession(ctx, port);
-        if (!session) throw makeNoUserError('deleteUser');
-        authSandboxOps.deleteUser(auth, session.user.uid);
-        setPortSession(ctx, port, null);
-        await bestEffortFlush(ctx);
-        ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

@@ -409,4 +409,42 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     unsubAuthState();
     unsubIdToken();
   });
+
+  it('8. handles Flutter client wire payloads sending newEmail and newPassword on auth.updateEmail and auth.updatePassword', async () => {
+    const { ctx, clientAuth } = await createTestHarness();
+    const cred = await createUserWithEmailAndPassword(clientAuth, 'flutter-old@example.com', 'oldPass123');
+    expect(cred.user.email).toBe('flutter-old@example.com');
+
+    const sentMessages: OutboundMessage[] = [];
+    const testPort: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        sentMessages.push(msg);
+      },
+    };
+
+    // First restore the user session on testPort
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'restore-op',
+      method: 'auth.restorePortSession',
+      uid: cred.user.uid,
+    });
+
+    // Send Flutter wire format { method: 'auth.updateEmail', newEmail: 'flutter-new@example.com' }
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'flutter-email-op',
+      method: 'auth.updateEmail',
+      newEmail: 'flutter-new@example.com',
+    } as unknown as InboundMessage);
+
+    const emailRes = sentMessages.find((m) => m.t === 'res' && m.id === 'flutter-email-op') as {
+      t: 'res';
+      id: string;
+      ok: boolean;
+      value?: { email: string };
+    };
+    expect(emailRes?.ok).toBe(true);
+    expect(emailRes?.value?.email).toBe('flutter-new@example.com');
+  });
 });
