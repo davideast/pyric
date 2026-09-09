@@ -66,7 +66,7 @@ code like `pyric sandbox --persist` participates in the line, not the
 rhythm.
 ```bash
 # pre + pre: two code blocks at the group beat
-pyric firestore rules lint firestore.rules
+pyric rules lint --service firestore
 ```
 ## Blockquote
 

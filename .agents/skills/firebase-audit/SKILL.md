@@ -17,16 +17,18 @@ user asks.
 ## Steps
 
 1. **Collect rules.** Read `firestore.rules` and `database.rules.json` from the
-   project, or pull deployed state with `firestore_get_rules` and
-   `rtdb_get_rules`. Complete when every service in scope has a ruleset in hand
-   (or a finding that none exists — that is itself critical).
+   project, or pull deployed state through the Firebase Console or
+   `firebase-tools`. Complete when every service in scope has a ruleset in
+   hand (or a finding that none exists — that is itself critical).
 
-2. **Collect data shape.** Map real paths with `firestore_discover_paths` and
-   `firestore_list_documents`; for RTDB use `rtdb_crawl_structure`. Complete
-   when each top-level collection/path has a known shape and sample.
+2. **Collect data shape.** Map real paths by listing collections with
+   `firestore_list_documents`, drilling into what you find; for RTDB use
+   `rtdb_crawl_structure`. Complete when each top-level collection/path has a
+   known shape and sample.
 
-3. **Collect auth posture.** Read provider configuration with
-   `auth_get_config`. Note which identities the rules assume (anonymous,
+3. **Collect auth posture.** Read provider configuration from the Firebase
+   Console or `firebase-tools` (pyric mirrors sandbox auth state, not project
+   provider configuration). Note which identities the rules assume (anonymous,
    signed-in, owner, custom claims) and whether the enabled providers can
    actually produce them. Complete when every `request.auth` assumption in the
    rules maps to a real provider or a finding.
@@ -43,9 +45,10 @@ user asks.
 
 5. **Verify the sharp findings.** Prove each critical/high finding with
    `firestore_lint_rules`, `firestore_simulate_rules` (vary the auth context:
-   signed-out, owner, other user, claim-holder), `firestore_test_rules`, or
-   `rtdb_simulate_access`. Complete when every critical/high finding cites a
-   simulation, test, or lint result — not just a reading of the rules.
+   signed-out, owner, other user, claim-holder), the hosted Rules Test API
+   (`pyric verify --engine rules-test-api|both`), or `rtdb_simulate_access`.
+   Complete when every critical/high finding cites a simulation, test, or
+   lint result — not just a reading of the rules.
 
 6. **Report by severity.**
 

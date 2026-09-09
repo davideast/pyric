@@ -21,16 +21,17 @@ documents, not scan too many.
 3. **Prove rules compatibility.** Rules are not filters: a list query must be
    constrained (`where` on owner/membership fields) so it can only return
    documents its identity may read. Verify with `firestore_simulate_rules`
-   per identity, or a `firestore_test_rules` case per query. Complete when
+   per identity, or a hosted Rules Test API case
+   (`pyric verify --engine rules-test-api|both`) per query. Complete when
    every list query has a matching rule + constraint pair.
 
 4. **Write the query code** in modular SDK shape inside a function body —
    `query(collection(db, ...), where(...), orderBy(...))` — so the extractor
    can see it. Complete when each inventory row has code.
 
-5. **Extract indexes.** Run `firestore_extract_indexes` over the query code
-   after every change. It returns `firestore.indexes.json`-shaped config plus
-   warnings. Zero extracted shapes means the source didn't expose a pattern
+5. **Extract indexes.** Run `pyric firestore indexes generate` over the query
+   code after every change. It writes `firestore.indexes.json`-shaped config
+   plus warnings. Zero extracted shapes means the source didn't expose a pattern
    (missing file, admin-chain syntax, no composite query) — report that and
    fix the source; never hand-write index JSON the extractor didn't produce.
    Review `overshootSuspected` warnings; a targeted `@firestore-mutex`
