@@ -3,7 +3,8 @@
  *
  * The on-disk shape of a branch is stated once, in
  * `pyric/sandbox/branches/store`, and read there: the manifest and its format
- * tag, the record bundle of the forked base, the event log, the candidate
+ * tag, the forked base and the branch's current state one file per service,
+ * the event log, the candidate
  * rules file. This module is the one place the serve process asks that store
  * what the project holds,
  * and it hands the port a branch that is already rebuilt: what the manifest
@@ -16,14 +17,18 @@ import { listBranches, loadBranch } from 'pyric/sandbox/branches/store';
 import type { WorkspaceBranch } from './store-types.js';
 
 /** Every branch the project holds, ordered by name, each one rebuilt. */
-export function readBranches(projectDir: string): WorkspaceBranch[] {
-  return listBranches(projectDir).map((entry) => ({
-    name: entry.name,
-    created: entry.created,
-    base: entry.base,
-    eventCount: entry.eventCount,
-    documents: documentsOf(projectDir, entry.name),
-  }));
+export async function readBranches(projectDir: string): Promise<WorkspaceBranch[]> {
+  const rebuilt: WorkspaceBranch[] = [];
+  for (const entry of listBranches(projectDir)) {
+    rebuilt.push({
+      name: entry.name,
+      created: entry.created,
+      base: entry.base,
+      eventCount: entry.eventCount,
+      documents: await documentsOf(projectDir, entry.name),
+    });
+  }
+  return rebuilt;
 }
 
 /**
@@ -31,11 +36,11 @@ export function readBranches(projectDir: string): WorkspaceBranch[] {
  * reports no documents rather than failing the listing, so one unreadable
  * branch does not take the whole panel down.
  */
-function documentsOf(
+async function documentsOf(
   projectDir: string,
   name: string,
-): Record<string, Record<string, unknown>> {
-  const loaded = loadBranch(projectDir, name);
+): Promise<Record<string, Record<string, unknown>>> {
+  const loaded = await loadBranch(projectDir, name);
   if (loaded === null) return {};
   const documents = loaded.branch.sandbox.snapshot().firestore;
   loaded.branch.sandbox.dispose();

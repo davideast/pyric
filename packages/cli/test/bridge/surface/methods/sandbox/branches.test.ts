@@ -54,9 +54,12 @@ function liveHash(): string {
   return JSON.stringify(sandbox.snapshot().firestore);
 }
 
-/** The bytes of one branch's stored base snapshot. */
+/** The bytes of one branch's stored base documents. */
 function baseBytes(name: string): string {
-  return readFileSync(join(projectDir, BRANCH_STORE_RELATIVE, name, 'base.bundle.json'), 'utf8');
+  return readFileSync(
+    join(projectDir, BRANCH_STORE_RELATIVE, name, 'base', 'firestore.json'),
+    'utf8',
+  );
 }
 
 beforeEach(() => {
@@ -450,9 +453,9 @@ describe('the branch methods across every service', () => {
     expect((await run('sandbox.promote', { branch: 'draft', confirm: true })).ok).toBe(true);
     const read = await run('storage.getMetadata', { path: 'docs/planted.txt' });
     expect(read.ok).toBe(true);
-    expect((read.data as { customMetadata: Record<string, string> }).customMetadata.owner).toBe(
-      'the branch',
-    );
+    const metadata = (read.data as { metadata: { customMetadata: Record<string, string> } })
+      .metadata;
+    expect(metadata.customMetadata.owner).toBe('the branch');
   });
 
   it('names auth in the diff and lands the account on live', async () => {
@@ -475,9 +478,15 @@ describe('the branch methods across every service', () => {
     expect(servicesOf(await run('sandbox.diff', { branch: 'locked' }))).toContain('rules');
 
     expect((await run('sandbox.promote', { branch: 'locked', confirm: true })).ok).toBe(true);
-    const linted = await run('rules.lint', { service: 'firestore' });
-    expect(linted.ok).toBe(true);
-    expect(JSON.stringify(linted.data)).toContain('never');
+    const simulated = await run('rules.simulate', {
+      service: 'firestore',
+      operation: 'create',
+      path: 'notes/anything',
+      uid: 'alice',
+      data: { body: 'x' },
+    });
+    expect(simulated.ok).toBe(true);
+    expect((simulated.data as { allowed: boolean }).allowed).toBe(false);
   });
 
   it('counts the divergences of each service in the summary', async () => {

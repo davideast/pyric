@@ -11,7 +11,9 @@
  * second opinion about it.
  */
 import { useEffect, useState } from 'react';
-import { diff, fork, type SandboxSnapshot } from 'pyric/sandbox';
+import { diffFullStates, type SandboxSnapshot } from 'pyric/sandbox';
+
+import { snapshotState } from '../../shell/snapshot-branches.js';
 
 import type { WorkspaceBranch, WorkspaceStore } from '../../ports.js';
 import { useEnvironment } from '../../shell/environment.js';
@@ -31,14 +33,13 @@ export interface PersistedBranch {
 
 /**
  * How far one branch's documents have drifted from the live snapshot. The
- * comparison runs through the engine: a branch standing on the documents the
- * store rebuilt, diffed against live.
+ * comparison runs through the engine's own walk over two states, each holding
+ * the documents of one side, so the drift reported is the engine's answer and
+ * not a second opinion about it.
  */
 function divergencesFrom(branch: WorkspaceBranch, live: SandboxSnapshot): number {
-  const standing = fork({ firestore: branch.documents, services: {} });
-  const count = diff(standing, live).length;
-  standing.sandbox.dispose();
-  return count;
+  const held = { ...snapshotState(live), firestore: branch.documents };
+  return diffFullStates(snapshotState(live), held).length;
 }
 
 /** Every branch the project holds, ordered by name. */

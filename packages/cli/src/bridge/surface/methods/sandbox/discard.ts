@@ -19,7 +19,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'discard(branch)',
-  description: 'Delete a branch and its staged events. Live is untouched.',
+  description: 'Delete a branch. Live is untouched.',
   args: z.object({ branch: branchName }),
   operation: 'discard_sandbox_branch',
   renames: { name: 'branch' },

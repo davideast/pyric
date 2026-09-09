@@ -18,14 +18,8 @@
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
-import {
-  fork,
-  diff,
-  discard,
-  type Branch,
-  type Divergence,
-  type SandboxSnapshot,
-} from 'pyric/sandbox';
+import { discard, type Branch, type Divergence, type SandboxSnapshot } from 'pyric/sandbox';
+import { documentDivergences, forkFromSnapshot } from '../../shell/snapshot-branches.js';
 import { getAdminFirestore, type Firestore } from 'pyric/firestore';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
 import {
@@ -169,7 +163,7 @@ async function stageProposal(
 ): Promise<Proposal> {
   const base = await getSnapshot();
   if (!base) throw new Error('No sandbox to stage a change against.');
-  const branch = fork(base, '');
+  const branch = await forkFromSnapshot(base);
   let planResult: StagePlanResult | void;
   try {
     planResult = await input.plan(getAdminFirestore(branch.sandbox), base, branch);
@@ -203,7 +197,7 @@ async function freshDiffOf(
   const p = registry.get(id);
   if (!p) return [];
   const live = await getSnapshot();
-  return diff(p.branch, live ?? p.base);
+  return documentDivergences(p.branch, live ?? p.base);
 }
 
 async function applyProposal(
@@ -218,7 +212,7 @@ async function applyProposal(
   const live = await getSnapshot();
   if (!live) throw new Error('No live sandbox to apply onto.');
 
-  const staged = diff(p.branch, p.base); // the docs the change produced
+  const staged = documentDivergences(p.branch, p.base); // the docs the change produced
   const touched = [
     ...new Set(staged.map(divergencePath).filter((path): path is string => path !== null)),
   ];

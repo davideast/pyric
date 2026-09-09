@@ -50,7 +50,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'apply(branch, events? | sessionPath?)',
-  description: 'Re-issue events onto a branch. Name events or sessionPath, exactly one.',
+  description: 'Re-issue events onto a branch: events or sessionPath, not both.',
   args: z.object({
     branch: branchName,
     events: z
@@ -70,7 +70,7 @@ export default {
   validate: (args, { fail }) => refuseAmbiguousSource(args, fail),
   async handler(args, ctx) {
     const name = String(args.branch);
-    const loaded = loadBranch(ctx.projectDir, name);
+    const loaded = await loadBranch(ctx.projectDir, name);
     if (loaded === null) {
       return refuseUnknownBranch(ctx.projectDir, name, failFor('sandbox', 'apply'));
     }
@@ -80,7 +80,7 @@ export default {
       return source.refusal;
     }
     apply(loaded.branch, source.events);
-    const manifest = saveBranch(ctx.projectDir, name, loaded.branch, {
+    const manifest = await saveBranch(ctx.projectDir, name, loaded.branch, {
       base: loaded.manifest.base,
       created: loaded.manifest.created,
     });

@@ -101,6 +101,29 @@ export const branchName = z
   );
 
 /**
+ * The rule sources a fork runs its branch under in place of live's.
+ *
+ * Two spellings, because two things are common. A string is the Firestore
+ * ruleset, which is what a caller trying one rule change has in hand. An
+ * object names the service each source belongs to, so a branch can try a
+ * Storage or a Realtime Database ruleset, or two at once, without saying
+ * anything about the third. A service the call leaves out keeps live's rules.
+ */
+export const candidateRules = z
+  .union([
+    z.string(),
+    z.object({
+      firestore: z.string().optional(),
+      database: z.record(z.unknown()).optional(),
+      storage: z.string().optional(),
+    }),
+  ])
+  .optional()
+  .describe(
+    'Rules the branch runs under in place of live: a Firestore rules string, or an object naming firestore, database, and storage.',
+  );
+
+/**
  * Whether the project already holds a branch under this name.
  *
  * The store decides what a branch is, so this reads its listing rather than

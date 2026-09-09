@@ -57,10 +57,18 @@ export async function captureCheckpoint(sandbox: LocalSandbox): Promise<Checkpoi
  *
  * A total replace, not a merge: state the sandbox holds that the checkpoint
  * does not is gone when this returns.
+ *
+ * The operation log is reset first, and this is the difference between
+ * restoring a checkpoint and promoting a branch. Both write a full state, but
+ * a promotion continues the sandbox's history and a restore declares that the
+ * history since the checkpoint did not happen. A cursor a reader holds from
+ * before the restore names an event in a log that is gone, and the reset is
+ * what lets the log say so rather than reading like a continuation.
  */
 export async function restoreCheckpoint(
   sandbox: LocalSandbox,
   checkpoint: Checkpoint,
 ): Promise<void> {
+  sandbox.reset();
   await applyFullState(sandbox, checkpoint.state);
 }
