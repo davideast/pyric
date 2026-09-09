@@ -247,8 +247,11 @@ class FirebaseAuth internal constructor(
         updateAuthLens()
         notifyAuthStateChanged()
         notifyIdTokenChanged()
-        val providerId = res["providerId"] as? String
-        val isNew = res["operationType"] == "signIn" && userMap["isAnonymous"] != true
+        @Suppress("UNCHECKED_CAST")
+        val addInfo = res["additionalUserInfo"] as? Map<String, Any?>
+        val providerId = (addInfo?.get("providerId") as? String) ?: (res["providerId"] as? String)
+        val isNew = (addInfo?.get("isNewUser") as? Boolean)
+            ?: (res["operationType"] == "signIn" && userMap["isAnonymous"] != true)
         return AuthResult(user, AdditionalUserInfo(providerId, isNew))
     }
 

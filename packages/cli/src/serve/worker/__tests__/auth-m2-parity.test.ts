@@ -600,5 +600,78 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     expect(session).not.toBeNull();
     expect(session?.user.tenantId).toBe('tenant-mobile');
   });
+
+  it('13. auth credential replies return additionalUserInfo with accurate isNewUser', async () => {
+    const { ctx } = await createTestHarness();
+    const sentMessages: OutboundMessage[] = [];
+    const testPort: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        sentMessages.push(msg);
+      },
+    };
+
+    // 1. auth.createUser should return additionalUserInfo.isNewUser = true
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'create-user-op',
+      method: 'auth.createUser',
+      email: 'newbie@example.com',
+      password: 'password123',
+    } as InboundMessage);
+
+    const createRes = sentMessages.find((m) => m.t === 'res' && m.id === 'create-user-op') as any;
+    expect(createRes).toBeDefined();
+    expect(createRes.ok).toBe(true);
+    expect(createRes.value.additionalUserInfo).toBeDefined();
+    expect(createRes.value.additionalUserInfo.isNewUser).toBe(true);
+
+    // 2. auth.signInEmail on existing user should return additionalUserInfo.isNewUser = false
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'signin-email-op',
+      method: 'auth.signInEmail',
+      email: 'newbie@example.com',
+      password: 'password123',
+    } as InboundMessage);
+
+    const signInRes = sentMessages.find((m) => m.t === 'res' && m.id === 'signin-email-op') as any;
+    expect(signInRes).toBeDefined();
+    expect(signInRes.ok).toBe(true);
+    expect(signInRes.value.additionalUserInfo).toBeDefined();
+    expect(signInRes.value.additionalUserInfo.isNewUser).toBe(false);
+
+    // 3. auth.signInWithCredential on new user should return isNewUser = true
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'oauth-new-op',
+      method: 'auth.signInWithCredential',
+      providerId: 'google.com',
+      idToken: 'oauth-token-fresh',
+      email: 'oauth-fresh@example.com',
+    } as any);
+
+    const oauthNewRes = sentMessages.find((m) => m.t === 'res' && m.id === 'oauth-new-op') as any;
+    expect(oauthNewRes).toBeDefined();
+    expect(oauthNewRes.ok).toBe(true);
+    expect(oauthNewRes.value.additionalUserInfo).toBeDefined();
+    expect(oauthNewRes.value.additionalUserInfo.isNewUser).toBe(true);
+
+    // 4. auth.signInWithCredential on existing user should return isNewUser = false
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'oauth-existing-op',
+      method: 'auth.signInWithCredential',
+      providerId: 'google.com',
+      idToken: 'oauth-token-returning',
+      email: 'oauth-fresh@example.com',
+    } as any);
+
+    const oauthExistRes = sentMessages.find((m) => m.t === 'res' && m.id === 'oauth-existing-op') as any;
+    expect(oauthExistRes).toBeDefined();
+    expect(oauthExistRes.ok).toBe(true);
+    expect(oauthExistRes.value.additionalUserInfo).toBeDefined();
+    expect(oauthExistRes.value.additionalUserInfo.isNewUser).toBe(false);
+  });
 });
+
 

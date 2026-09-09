@@ -196,7 +196,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx); // new user record must be durable at ack
-        ok(port, msg.id, credReply(session, null));
+        ok(port, msg.id, credReply(session, null, true));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -208,7 +208,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
-        ok(port, msg.id, credReply(session, null));
+        ok(port, msg.id, credReply(session, null, false));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -217,7 +217,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const existing = portSession(ctx, port);
         if (existing && existing.user.isAnonymous) {
-          ok(port, msg.id, credReply(existing, null));
+          ok(port, msg.id, credReply(existing, null, false));
           break;
         }
         const session = authSandboxOps.mintSession(auth, {
@@ -225,7 +225,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
-        ok(port, msg.id, credReply(session, null));
+        ok(port, msg.id, credReply(session, null, true));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -413,7 +413,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         if (!cred || !cred.providerId) {
           throw new Error('auth.signInWithCredential requires credential payload or providerId');
         }
-        const uid = resolveOAuthCredentialUser(auth, cred);
+        const { uid, isNewUser } = resolveOAuthCredentialUser(auth, cred);
         const session = authSandboxOps.mintSession(auth, {
           kind: 'uid',
           uid,
@@ -421,7 +421,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
-        ok(port, msg.id, credReply(session, cred.providerId));
+        ok(port, msg.id, credReply(session, cred.providerId, isNewUser));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -430,6 +430,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const { uid, email, displayName, photoURL, customClaims, providerId } = msg.identity;
         authSandboxOps.assertAuthProviderEnabled(auth, providerId);
+        const isNewUser = !authSandboxOps.listUsers(auth).some((u) => u.uid === uid);
         authSandboxOps.seedUsers(auth, [{
           uid,
           email: email ?? '',
@@ -444,7 +445,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
-        ok(port, msg.id, credReply(session, providerId));
+        ok(port, msg.id, credReply(session, providerId, isNewUser));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

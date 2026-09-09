@@ -69,7 +69,12 @@ struct AuthTests {
                     "providerId": "password"
                 ],
                 "providerId": "password",
-                "operationType": "signIn"
+                "operationType": "signIn",
+                "additionalUserInfo": [
+                    "isNewUser": false,
+                    "providerId": "password",
+                    "profile": [:]
+                ]
             ]
         ])
 
@@ -79,6 +84,8 @@ struct AuthTests {
         #expect(result.user.displayName == "Test User")
         #expect(result.user.isEmailVerified == true)
         #expect(result.user.isAnonymous == false)
+        #expect(result.additionalUserInfo?.isNewUser == false)
+        #expect(result.additionalUserInfo?.providerID == "password")
         #expect(auth.currentUser?.uid == "user-abc-123")
 
         // Credential provider reflection
@@ -112,12 +119,19 @@ struct AuthTests {
                     "email": "new@example.com",
                     "isAnonymous": false
                 ],
-                "operationType": "signIn"
+                "operationType": "signIn",
+                "additionalUserInfo": [
+                    "isNewUser": true,
+                    "providerId": "password",
+                    "profile": [:]
+                ]
             ]
         ])
 
         let result = try await createTask.value
         #expect(result.user.uid == "new-uid-456")
+        #expect(result.additionalUserInfo?.isNewUser == true)
+        #expect(result.additionalUserInfo?.providerID == "password")
         #expect(auth.currentUser?.uid == "new-uid-456")
     }
 

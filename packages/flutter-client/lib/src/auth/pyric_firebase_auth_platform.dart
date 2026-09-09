@@ -307,7 +307,14 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       _authStateController.add(user);
       _idTokenController.add(user);
       _userChangesController.add(user);
-      return PyricUserCredentialPlatform(auth: this, user: user);
+      final addInfo = res['additionalUserInfo'] as Map?;
+      final isNewUser = addInfo != null ? (addInfo['isNewUser'] as bool? ?? false) : false;
+      final providerId = addInfo != null ? addInfo['providerId'] as String? : res['providerId'] as String?;
+      return PyricUserCredentialPlatform(
+        auth: this,
+        user: user,
+        additionalUserInfo: AdditionalUserInfo(isNewUser: isNewUser, providerId: providerId),
+      );
     } catch (e) {
       throw _mapAuthError(e);
     }
@@ -343,10 +350,13 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       _authStateController.add(user);
       _idTokenController.add(user);
       _userChangesController.add(user);
+      final addInfo = res['additionalUserInfo'] as Map?;
+      final isNewUser = addInfo != null ? (addInfo['isNewUser'] as bool? ?? true) : true;
+      final providerId = addInfo != null ? addInfo['providerId'] as String? : res['providerId'] as String?;
       return PyricUserCredentialPlatform(
         auth: this,
         user: user,
-        additionalUserInfo: AdditionalUserInfo(isNewUser: true),
+        additionalUserInfo: AdditionalUserInfo(isNewUser: isNewUser, providerId: providerId),
       );
     } catch (e) {
       throw _mapAuthError(e);
@@ -376,7 +386,13 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       _authStateController.add(user);
       _idTokenController.add(user);
       _userChangesController.add(user);
-      return PyricUserCredentialPlatform(auth: this, user: user);
+      final addInfo = res['additionalUserInfo'] as Map?;
+      final isNewUser = addInfo != null ? (addInfo['isNewUser'] as bool? ?? true) : true;
+      return PyricUserCredentialPlatform(
+        auth: this,
+        user: user,
+        additionalUserInfo: AdditionalUserInfo(isNewUser: isNewUser),
+      );
     } catch (e) {
       throw _mapAuthError(e);
     }

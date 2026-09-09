@@ -299,8 +299,9 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         guard let user = User.fromWire(auth: self, wire: userWire) else {
             throw AuthError(code: .internalError, message: "Failed to deserialize authenticated user")
         }
-        let providerId = dict["providerId"]?.stringValue
-        let isNewUser = dict["operationType"]?.stringValue == "signIn"
+        let addInfoDict = dict["additionalUserInfo"]?.dictionaryValue
+        let providerId = addInfoDict?["providerId"]?.stringValue ?? dict["providerId"]?.stringValue
+        let isNewUser = addInfoDict?["isNewUser"]?.boolValue ?? (dict["operationType"]?.stringValue == "signIn")
         let additional = AdditionalUserInfo(providerID: providerId, isNewUser: isNewUser)
         let result = AuthDataResult(user: user, additionalUserInfo: additional)
         applyUserTransition(user)
