@@ -74,6 +74,10 @@ async function readDocuments(
   const documents = new Map<string, Record<string, unknown>>();
   const db = getAdminFirestore(sandbox);
   for (const path of Object.keys(sandbox.snapshot().firestore)) {
+    // A snapshot can hold keys that are not document paths (an agent seeding a
+    // raw snapshot can put anything there). Those are not documents a task can
+    // assert on, so they are skipped rather than allowed to abort the read.
+    if (path.split('/').length % 2 !== 0) continue;
     const snap = await getDoc(doc(db, path));
     if (!snapshotExists(snap)) continue;
     documents.set(path, snap.data() as Record<string, unknown>);
