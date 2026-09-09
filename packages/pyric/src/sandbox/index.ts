@@ -82,6 +82,19 @@ export type {
 export { replay } from './replay/index.js';
 export type { Divergence, ReplayOptions, ReplayResult } from './replay/index.js';
 
+// Full sandbox state: the whole sandbox as one JSON value, and the total
+// replace that installs one. Firestore documents, the Realtime Database tree,
+// Storage objects with their bytes and metadata, auth accounts, and the three
+// rule sources. This is what a branch forks from and promotes onto.
+export { captureFullState, applyFullState } from './full-state.js';
+export type {
+  AuthAccountsState,
+  DatabaseRuleset,
+  FullSandboxState,
+  SandboxRuleSources,
+  StorageObjectState,
+} from './full-state.js';
+
 // Branches — fork/apply/diff/promote/discard experiments built on top of
 // `snapshot()` + `replay()`. A branch is an isolated in-memory sandbox
 // seeded from a `SandboxSnapshot`; `apply` re-issues events via `replay`,
@@ -89,8 +102,15 @@ export type { Divergence, ReplayOptions, ReplayResult } from './replay/index.js'
 // `promote` lands the branch's mutations on a target, `discard` drops it.
 // Substrate for Studio's agent dry-run/accept, rules-edit branches, and
 // time-travel. See the design rationale.
-export { apply, discard, diff, fork, promote } from './branches/index.js';
-export type { Branch, DiffTarget } from './branches/index.js';
+export { apply, discard, diff, diffFullStates, fork, promote, promoteFullState } from './branches/index.js';
+export type {
+  Branch,
+  BranchCandidateRules,
+  BranchDivergence,
+  BranchService,
+  DiffTarget,
+  TreeChange,
+} from './branches/index.js';
 
 // Persistence — snapshot the sandbox to IndexedDB (or a custom backend)
 // and restore on next init. Turns the sandbox into the host page's

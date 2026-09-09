@@ -25,5 +25,5 @@ export {
   decodeString,
   defaultRawContentType,
 } from './upload.js';
-export { arrayBufferToBase64 } from './base64.js';
+export { arrayBufferToBase64, base64ToBytes } from './base64.js';
 export type { StorageRulesResolution } from './rules-resolution.js';
