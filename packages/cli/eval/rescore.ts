@@ -86,7 +86,11 @@ async function rescoreDir(resultsDir: string, tasks: Map<string, EvalTask>): Pro
           const seed = Number(seedEntry.name);
           const recorded = recordedLine(resultsDir, row.name, variant.name, taskEntry.name, seed);
           const state = await buildEvalState(runDir, eventsPath);
-          const verdict = recorded.spawn === 'completed' ? task.assert(state) : 'not completed';
+          // A run the harness crashed on after the CLI finished still has its
+          // event log; with the harness fixed, it scores like any completed run.
+          const harnessCrash = recorded.spawn === 'crash' && state.calls.length > 0;
+          const completed = recorded.spawn === 'completed' || harnessCrash;
+          const verdict = completed ? task.assert(state) : 'not completed';
           const operations = state.calls.map((call) => call.operation);
           const firstOperation = operations.find((operation) => operation !== null) ?? null;
           out.push({
