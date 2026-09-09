@@ -1,12 +1,18 @@
 /**
- * The `auth` tool: the Admin SDK's user management method names, plus
- * `signInAs`, which has no Admin SDK counterpart because the sandbox lets a
- * caller become a user rather than mint a token for one.
+ * The `auth` tool: the Admin SDK's user management method names, plus the
+ * identity methods, which have no Admin SDK counterpart because the sandbox
+ * lets a caller become a user rather than mint a token for one.
  *
  * The Admin SDK spells custom claims `customClaims` and the tenant `tenantId`,
  * while the client SDK and most rules examples say `claims` and `tenant`. That
  * gap is the most common wrong argument on this tool, so it has a rename rather
  * than a spelling guess.
+ *
+ * `impersonate`, `actAsAdmin`, `actAsAnonymous`, and `useAppSession` change
+ * what the agent's own later calls run as; `whoami` reports it. None of them
+ * takes a `mode` enum: the eval that measured this surface found every
+ * rejection on the tool traced back to `signInAs(mode)`'s invented enum, so
+ * the mode each method picks is its own name instead of an argument.
  */
 import { z } from 'zod';
 import type { Args, Fail, InvalidArguments, MethodSpec, ToolSpec } from './shared.js';
@@ -60,6 +66,7 @@ function checkCredentials(args: Args, fail: Fail): InvalidArguments | null {
 const METHODS: readonly MethodSpec[] = [
   {
     name: 'createUser',
+    sdkOrigin: 'firebase-admin',
     signature: 'createUser(uid?, email?, password?, displayName?, customClaims?, tenantId?)',
     summary: 'Seed a user in the sandbox user pool.',
     args: z.object({
@@ -92,6 +99,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'getUser',
+    sdkOrigin: 'firebase-admin',
     signature: 'getUser(uid)',
     summary: 'Read one user record.',
     args: z.object({ uid }),
@@ -103,6 +111,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'listUsers',
+    sdkOrigin: 'firebase-admin',
     signature: 'listUsers(maxResults?)',
     summary: 'List the users in the sandbox pool.',
     args: z.object({
@@ -116,6 +125,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'updateUser',
+    sdkOrigin: 'firebase-admin',
     signature: 'updateUser(uid, email?, password?, displayName?, disabled?, emailVerified?)',
     summary: 'Change one user record.',
     args: z.object({
@@ -135,6 +145,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'deleteUser',
+    sdkOrigin: 'firebase-admin',
     signature: 'deleteUser(uid)',
     summary: 'Remove one user from the pool.',
     args: z.object({ uid }),
@@ -146,6 +157,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'setCustomUserClaims',
+    sdkOrigin: 'firebase-admin',
     signature: 'setCustomUserClaims(uid, customClaims)',
     summary: 'Replace the complete custom claims map on one user.',
     args: z.object({
@@ -161,38 +173,69 @@ const METHODS: readonly MethodSpec[] = [
     translate: (args) => ({ uid: args.uid, claims: args.customClaims }),
   },
   {
-    name: 'signInAs',
-    signature: 'signInAs(mode, uid?, tenantId?, customClaims?)',
-    summary: 'Set the identity later calls run under. This has no Admin SDK counterpart.',
+    name: 'impersonate',
+    sdkOrigin: 'pyric',
+    signature: 'impersonate(uid, tenantId?, customClaims?)',
+    summary: 'Run every later call as this user.',
     args: z.object({
-      mode: z
-        .enum(['admin', 'uid', 'anonymous', 'app-session'])
-        .describe(
-          'admin bypasses rules, uid enforces them as that user, anonymous is unauthenticated.',
-        ),
-      uid: z.string().optional().describe("The user to act as when mode is 'uid'."),
+      uid: z.string().describe('The user to act as.'),
       tenantId,
       customClaims,
     }),
     operations: ['switch_auth_identity'],
     renames: RENAMES,
-    example: { mode: 'uid', uid: 'alice', tenantId: 'tenant-a' },
+    example: { uid: 'alice', tenantId: 'tenant-a' },
     resolve: () => 'switch_auth_identity',
     translate: (args) => {
-      const call: Args = { mode: args.mode };
-      if (args.uid !== undefined) call.uid = args.uid;
+      const call: Args = { mode: 'uid', uid: args.uid };
       if (args.tenantId !== undefined) call.tenant = args.tenantId;
       if (args.customClaims !== undefined) call.claims = args.customClaims;
       return call;
     },
-    check: (args, fail) => {
-      if (args.mode !== 'uid' || typeof args.uid === 'string') return null;
-      return fail(
-        `mode is 'uid' with uid ${quoted(args.uid)}. Acting as a user needs the user to act as.`,
-        `Pass uid, or pass mode 'anonymous' to run unauthenticated.`,
-        'uid',
-      );
-    },
+  },
+  {
+    name: 'actAsAdmin',
+    sdkOrigin: 'pyric',
+    signature: 'actAsAdmin()',
+    summary: 'Run every later call with rules bypassed.',
+    args: z.object({}),
+    operations: ['switch_auth_identity'],
+    example: {},
+    resolve: () => 'switch_auth_identity',
+    translate: () => ({ mode: 'admin' }),
+  },
+  {
+    name: 'actAsAnonymous',
+    sdkOrigin: 'pyric',
+    signature: 'actAsAnonymous()',
+    summary: 'Run every later call unauthenticated.',
+    args: z.object({}),
+    operations: ['switch_auth_identity'],
+    example: {},
+    resolve: () => 'switch_auth_identity',
+    translate: () => ({ mode: 'anonymous' }),
+  },
+  {
+    name: 'useAppSession',
+    sdkOrigin: 'pyric',
+    signature: 'useAppSession()',
+    summary: "Run every later call as the app's own signed-in user.",
+    args: z.object({}),
+    operations: ['switch_auth_identity'],
+    example: {},
+    resolve: () => 'switch_auth_identity',
+    translate: () => ({ mode: 'app-session' }),
+  },
+  {
+    name: 'whoami',
+    sdkOrigin: 'pyric',
+    signature: 'whoami()',
+    summary: 'Report the identity later calls run under.',
+    args: z.object({}),
+    operations: ['get_auth_identity'],
+    example: {},
+    resolve: () => 'get_auth_identity',
+    translate: () => ({}),
   },
 ];
 

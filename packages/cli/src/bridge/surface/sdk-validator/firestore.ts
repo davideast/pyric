@@ -169,7 +169,7 @@ function checkInequalityOrdering(entries: Args[], fail: Fail): InvalidArguments 
   if (field === ordered) return null;
   return fail(
     `an inequality filter on '${field}' with the first orderBy on '${ordered}'. Firestore requires the first orderBy field to match the inequality field.`,
-    `Order by '${field}' first, then by '${ordered}'.`,
+    `Pass orderBy '${field}' first, then '${ordered}'.`,
     'constraints',
   );
 }
@@ -228,6 +228,7 @@ function checkBatch(args: Args, fail: Fail): InvalidArguments | null {
 const METHODS: readonly MethodSpec[] = [
   {
     name: 'getDoc',
+    sdkOrigin: 'firebase-js',
     signature: 'getDoc(path)',
     summary: 'Read one document.',
     args: z.object({ path: z.string().describe('Document path, for example users/alice.') }),
@@ -240,7 +241,8 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'getDocs',
-    signature: 'getDocs(path, constraints?)',
+    sdkOrigin: 'firebase-js',
+    signature: 'getDocs(path, constraints?[{type, field?, op?, value?, direction?: asc|desc}])',
     summary:
       'Read a collection. With no constraints this lists the collection; with constraints it runs a query.',
     args: z.object({
@@ -267,6 +269,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'setDoc',
+    sdkOrigin: 'firebase-js',
     signature: 'setDoc(path, data, options?)',
     summary: 'Write one document, replacing it unless options.merge is true.',
     args: z.object({
@@ -296,6 +299,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'addDoc',
+    sdkOrigin: 'firebase-js',
     signature: 'addDoc(path, data)',
     summary: 'Add a document to a collection under a generated id.',
     args: z.object({
@@ -311,6 +315,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'updateDoc',
+    sdkOrigin: 'firebase-js',
     signature: 'updateDoc(path, data)',
     summary: 'Merge fields into an existing document.',
     args: z.object({
@@ -326,6 +331,7 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'deleteDoc',
+    sdkOrigin: 'firebase-js',
     signature: 'deleteDoc(path)',
     summary: 'Delete one document.',
     args: z.object({ path: z.string().describe('Document path, for example users/alice.') }),
@@ -338,7 +344,8 @@ const METHODS: readonly MethodSpec[] = [
   },
   {
     name: 'writeBatch',
-    signature: 'writeBatch(writes)',
+    sdkOrigin: 'firebase-js',
+    signature: 'writeBatch(writes[{type: set|update|delete, path, data?, options?}])',
     summary: 'Apply several writes in order, stopping at the first failure.',
     args: z.object({
       writes: z.array(writeEntry).describe('The writes, applied in order.'),

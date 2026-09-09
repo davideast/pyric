@@ -175,6 +175,17 @@ function overrideUid(args: Args): string | undefined {
 
 const AUTH_ROUTES: DiscriminatorRoute[] = [
   {
+    // The `inspect_auth_flow` tool's schema already names `whoami` among its
+    // actions; no other action of that tool has a route yet, so this is the
+    // one place the discriminator variant can express "report the held
+    // identity" without a new tool.
+    tool: 'inspect_auth_flow',
+    action: 'whoami',
+    selects: on('action', 'whoami'),
+    operation: 'get_auth_identity',
+    translate: () => ({}),
+  },
+  {
     tool: 'switch_auth_identity',
     action: null,
     selects: () => true,
@@ -457,6 +468,13 @@ const RULES_ROUTES: DiscriminatorRoute[] = [
     operation: `simulate_${service}_rules`,
     translate: (args: Args) => translateFirstTestCase(args),
   })),
+  ...(['firestore', 'database', 'storage'] as const).map((service) => ({
+    tool: 'verify_security_rules',
+    action: 'set',
+    selects: onBoth('service', service, 'action', 'set'),
+    operation: `set_${service}_rules`,
+    translate: (args: Args) => ({ rules: text(args, 'source') ?? '' }),
+  })),
 ];
 
 interface RulesTestCase {
@@ -491,7 +509,7 @@ const ENVIRONMENT_ROUTES: DiscriminatorRoute[] = [
     action: 'seed',
     selects: on('action', 'seed'),
     operation: 'seed_sandbox',
-    translate: (args) => ({ snapshot: parseJsonObject(text(args, 'seedSnapshotJson')) ?? {} }),
+    translate: (args) => parseJsonObject(text(args, 'seedSnapshotJson')) ?? {},
   },
 ];
 

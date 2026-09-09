@@ -1,4 +1,4 @@
-/** The thirty-seven canonical operation ids, as the shared contract fixes them. */
+/** The forty-one canonical operation ids, as the shared contract fixes them. */
 export const CANONICAL_OPERATION_IDS = [
   'create_auth_user',
   'get_auth_user',
@@ -7,6 +7,7 @@ export const CANONICAL_OPERATION_IDS = [
   'delete_auth_user',
   'set_auth_claims',
   'switch_auth_identity',
+  'get_auth_identity',
   'get_firestore_document',
   'list_firestore_documents',
   'write_firestore_document',
@@ -32,6 +33,9 @@ export const CANONICAL_OPERATION_IDS = [
   'simulate_database_rules',
   'lint_storage_rules',
   'simulate_storage_rules',
+  'set_firestore_rules',
+  'set_database_rules',
+  'set_storage_rules',
   'list_rules_stdlib',
   'get_rules_stdlib',
   'inspect_sandbox',

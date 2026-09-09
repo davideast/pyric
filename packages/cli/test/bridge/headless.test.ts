@@ -471,7 +471,7 @@ describe('the surface a headless session serves', () => {
         PYRIC_EVAL_VARIANT: 'verb-prefixed',
       }, 'verb-prefixed');
       const listed = await session.client.listTools();
-      expect(listed.tools.length).toBe(37);
+      expect(listed.tools.length).toBe(41);
 
       const created = await session.client.callTool({
         name: 'create_auth_user',
