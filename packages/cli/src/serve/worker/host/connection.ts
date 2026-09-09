@@ -9,14 +9,13 @@
  *
  * Owns the stable per-worker instance id (persisted to the raw idb).
  * `getOrCreateInstanceId` is imported by serve-init; the instance-id helpers
- * and the checkpoint listing are part of the host's public surface
- * (re-exported by the host barrel). Never imports the dispatcher.
+ * are part of the host's public surface (re-exported by the host barrel).
+ * Never imports the dispatcher.
  */
 
 import type { PersistenceBackend } from 'pyric/sandbox';
 import { serializeToBuckets, bundleRecords, parseBundle, deserializeFromBuckets } from 'pyric/sandbox';
 import {
-  checkpointNames,
   listCheckpoints,
   recordCheckpointBackend,
   removeCheckpoint,
@@ -77,12 +76,6 @@ export async function getOrCreateInstanceId(idb: PersistenceBackend): Promise<st
 function checkpointsOf(ctx: HostCtx): CheckpointBackend | null {
   if (!ctx.sessionBackend) return null;
   return recordCheckpointBackend(ctx.sessionBackend);
-}
-
-/** Every checkpoint this worker holds, empty when it has no store. */
-export async function listCheckpointNames(idb?: PersistenceBackend): Promise<string[]> {
-  if (!idb) return [];
-  return checkpointNames(recordCheckpointBackend(idb));
 }
 
 /** The connection, state-transfer, and checkpoint methods routed here. */

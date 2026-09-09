@@ -33,13 +33,8 @@
 // Auth surface used by serve-init (ensureAuth) + the per-port session accessor.
 export { ensureAuth, portSession } from './host-auth.js';
 export type { HostCtx, PortLike } from './host-context.js';
-// Instance-id + saved-state surface (part of the host's public shape:
-// serve-init imports getOrCreateInstanceId; tests import the rest).
-export {
-  INSTANCE_ID_KEY,
-  randomUuid,
-  getOrCreateInstanceId,
-  listCheckpointNames,
-} from './host/connection.js';
+// Instance-id surface (part of the host's public shape: serve-init imports
+// getOrCreateInstanceId; tests import the rest).
+export { INSTANCE_ID_KEY, randomUuid, getOrCreateInstanceId } from './host/connection.js';
 // The message dispatcher seam (entry.ts + tests) and per-port teardown.
 export { handleMessage, cleanupPort, cleanupPortWithDisconnect } from './host/dispatch.js';
