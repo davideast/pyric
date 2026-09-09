@@ -16,8 +16,7 @@ import { z } from 'zod';
 
 import type { TestCase } from 'pyric/rules/internal';
 import { CASE_SERVICES } from '../../arguments/assurance.js';
-import { operationFailure } from '../../context.js';
-import { hostedCredentials, hostedRulesTester } from '../../hosted-rules.js';
+import { hostedRulesTestResult } from '../../hosted-rules.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { OperationResult } from '../../types.js';
 
@@ -54,28 +53,6 @@ export default {
     confirm: true,
   },
   async handler(args): Promise<OperationResult> {
-    const credentials = await hostedCredentials();
-    if ('missing' in credentials) return operationFailure(credentials.missing);
-
-    const cases = args.cases as TestCase[];
-    const result = await hostedRulesTester()(credentials.scope, String(args.rules), cases);
-    if (!result.success) {
-      return operationFailure(
-        `The hosted Rules Test API refused the run: ${result.error.message}`,
-        { code: result.error.code, project: credentials.scope.projectId },
-      );
-    }
-    return {
-      ok: result.data.failed === 0,
-      summary: `The hosted Rules Test API passed ${result.data.passed} of ${cases.length} case(s) for project '${credentials.scope.projectId}'.`,
-      data: {
-        project: credentials.scope.projectId,
-        credentials: credentials.source,
-        passed: result.data.passed,
-        failed: result.data.failed,
-        unsupported: result.data.unsupported,
-        results: result.data.results,
-      },
-    };
+    return hostedRulesTestResult({}, String(args.rules), args.cases as TestCase[]);
   },
 } satisfies MethodRecord;

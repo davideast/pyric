@@ -15,9 +15,10 @@ import type { TestCase, TestFirestoreRulesResult } from 'pyric/rules/internal';
 import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface/index.js';
 import {
   HOSTED_CREDENTIAL_SOURCES,
-  hostedCredentials,
+  hostedRulesCredentials,
+  isMissingCredentials,
   useHostedRulesTester,
-} from '../../../src/bridge/surface/hosted-rules.js';
+} from '../../../src/verify/index.js';
 import { OPEN_ORDER_RULES } from '../../fixtures/order-rules.js';
 
 /** One case, in the shape the derivation produces and the hosted API takes. */
@@ -86,11 +87,16 @@ const HOSTED_ARGS = { service: 'firestore', rules: OPEN_ORDER_RULES, cases: CASE
 
 describe('credential discovery', () => {
   it('names the three sources it reads when none of them is set', async () => {
-    const found = await hostedCredentials(NO_CREDENTIALS);
-    if (!('missing' in found)) throw new Error('credentials were found in an empty environment');
+    const found = await hostedRulesCredentials({ env: NO_CREDENTIALS });
+    if (!isMissingCredentials(found)) {
+      throw new Error('credentials were found in an empty environment');
+    }
     expect(found.missing).toContain(HOSTED_CREDENTIAL_SOURCES);
-    expect(found.missing).toContain('FIREBASE_SA_BASE64');
-    expect(found.missing).toContain('GOOGLE_APPLICATION_CREDENTIALS');
+    expect(found.sources).toEqual([
+      'FIREBASE_SA_BASE64',
+      'GOOGLE_APPLICATION_CREDENTIALS',
+      'PYRIC_PROJECT',
+    ]);
     expect(found.missing).toContain('Application Default Credentials');
   });
 });

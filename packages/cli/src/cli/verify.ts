@@ -17,7 +17,7 @@ import {
 } from '../verify/index.js';
 import { readFirebaseJson, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue, ParsedArgs } from './parse-args.js';
-import { resolveScope } from './scope.js';
+import { resolveScope } from '../credentials/node/scope.js';
 import { parseRtdbRulesJson, stripJsonComments } from '../rtdb/rules-json.js';
 
 export type Fixture = PyricVerifyFixture;

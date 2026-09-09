@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 
-import { resolveScope } from '../../src/cli/scope.js';
-import type { ProjectScope } from '../../src/credentials/core/types.js';
+import { resolveScope } from '../../../src/credentials/node/scope.js';
+import type { ProjectScope } from '../../../src/credentials/core/types.js';
 
 function env(values: Record<string, string> = {}): NodeJS.ProcessEnv {
   return values as NodeJS.ProcessEnv;
