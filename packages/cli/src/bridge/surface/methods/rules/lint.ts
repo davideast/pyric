@@ -1,6 +1,6 @@
 /** Check one service's ruleset for errors without evaluating a request. */
 import { z } from 'zod';
-import { checkService, RENAMES, service } from '../../arguments/rules.js';
+import { RENAMES, service, SERVICES } from '../../arguments/rules.js';
 import { rulesEngineFor } from '../../rules-engines/registry.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -9,7 +9,7 @@ export default {
   method: 'lint',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'lint(service, rules?)',
+  signature: `lint(service: ${SERVICES.join('|')}, rules?)`,
   description: 'Check a ruleset for errors without evaluating a request.',
   args: z.object({
     service,
@@ -24,7 +24,6 @@ export default {
   },
   renames: RENAMES,
   example: { service: 'firestore' },
-  validate: (args, { fail }) => checkService(args, fail),
   async handler(args, ctx) {
     const rules = args.rules === undefined ? undefined : String(args.rules);
     return rulesEngineFor(String(args.service)).lint(ctx, rules);

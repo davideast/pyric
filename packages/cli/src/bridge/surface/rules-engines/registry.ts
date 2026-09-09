@@ -24,3 +24,11 @@ export function rulesEngineFor(service: string): RulesEngine {
   if (engine === undefined) throw new Error(`no rules engine for service '${service}'`);
   return engine;
 }
+
+/**
+ * The services that carry Security Rules, in record order. This is the one
+ * declaration: the `rules` tool's `service` enum, its per-service request
+ * methods, and its source check are all read from the engine the name resolves
+ * to rather than from a second list.
+ */
+export const RULES_SERVICES: readonly string[] = Object.keys(ENGINES);

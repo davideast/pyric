@@ -6,22 +6,18 @@
  * simulate reach three canonical operations, and it is required, because a
  * rules call that guesses its service would silently evaluate the wrong ruleset
  * and report a confident answer about a file nobody asked about.
+ *
+ * Every service-specific fact is read from that service's engine record: which
+ * services exist, which request methods each one evaluates, and whether a
+ * source parses for it. Nothing about a service is spelled twice.
  */
 import { z } from 'zod';
-import { lintFirestoreRules } from 'pyric/rules/internal';
-import { parseStorageRules } from 'pyric/storage';
+import { RULES_SERVICES, rulesEngineFor } from '../rules-engines/registry.js';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
-import { closest, quoted } from '../method-validation.js';
+import { quoted } from '../method-validation.js';
 
-/** The services that carry Security Rules. */
-export const SERVICES = ['firestore', 'database', 'storage'] as const;
-
-/** The request methods each service evaluates, which differ per service. */
-const REQUEST_METHODS: Readonly<Record<string, readonly string[]>> = {
-  firestore: ['get', 'list', 'create', 'update', 'delete'],
-  database: ['read', 'write', 'validate'],
-  storage: ['get', 'list', 'create', 'update', 'delete', 'read', 'write'],
-};
+/** The services that carry Security Rules, from the engine records. */
+export const SERVICES: readonly string[] = RULES_SERVICES;
 
 export const RENAMES: Readonly<Record<string, string>> = {
   product: 'service',
@@ -31,27 +27,43 @@ export const RENAMES: Readonly<Record<string, string>> = {
   op: 'operation',
 };
 
+/**
+ * The `service` argument, whose values are the engine record names. Zod takes
+ * a literal tuple, and the record set is read at load time, so the widening
+ * cast is how a derived list reaches an enum.
+ */
 export const service = z
-  .string()
+  .enum(SERVICES as [string, ...string[]])
   .describe(`The service whose rules are read: ${SERVICES.join(', ')}.`);
 
-/** Reject a service that is not one of the three, suggesting the closest. */
-export function checkService(args: Args, fail: Fail): InvalidArguments | null {
-  const value = args.service;
-  if (typeof value === 'string' && SERVICES.includes(value as never)) return null;
-  const suggestion = typeof value === 'string' ? closest(value, [...SERVICES]) : null;
-  return fail(
-    `service ${quoted(value)} is not a Firebase service with Security Rules. Rules exist for ${SERVICES.join(', ')}.`,
-    `Pass service '${suggestion ?? 'firestore'}'.`,
-    'service',
-  );
+/**
+ * Every request method any service evaluates. A call names one service, and
+ * `checkOperation` narrows this to the methods that service evaluates; the
+ * enum is the wider set so the values are all spelled before the first call.
+ */
+export const REQUEST_METHODS: readonly string[] = [
+  ...new Set(SERVICES.flatMap((name) => rulesEngineFor(name).requestMethods)),
+];
+
+/** The `operation` argument: the request method a simulation evaluates. */
+export const operation = z
+  .enum(REQUEST_METHODS as [string, ...string[]])
+  .describe(`The request method to evaluate: ${REQUEST_METHODS.join(', ')}.`);
+
+/** The request methods one service evaluates. */
+export function requestMethodsOf(name: string): readonly string[] {
+  return rulesEngineFor(name).requestMethods;
+}
+
+/** The `operation` argument narrowed to one service's own request methods. */
+export function requestMethodOf(name: string) {
+  const methods = requestMethodsOf(name);
+  return z.enum(methods as unknown as [string, ...string[]]);
 }
 
 /** Reject a request method the named service does not evaluate. */
 export function checkOperation(args: Args, fail: Fail): InvalidArguments | null {
-  const named = checkService(args, fail);
-  if (named !== null) return named;
-  const allowed = REQUEST_METHODS[String(args.service)];
+  const allowed = rulesEngineFor(String(args.service)).requestMethods;
   const value = args.operation;
   if (typeof value === 'string' && allowed.includes(value)) return null;
   return fail(
@@ -63,42 +75,7 @@ export function checkOperation(args: Args, fail: Fail): InvalidArguments | null 
 
 /** Reject a rules source that does not parse for the named service. */
 export function checkRulesParse(args: Args, fail: Fail): InvalidArguments | null {
-  const named = checkService(args, fail);
-  if (named !== null) return named;
-  const target = String(args.service);
-  const source = String(args.rules ?? '');
-  if (target === 'database') {
-    try {
-      JSON.parse(source);
-      return null;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return fail(
-        `rules did not parse as JSON: ${message}.`,
-        `Pass rules JSON that parses, then call set again.`,
-        'rules',
-      );
-    }
-  }
-  if (target === 'storage') {
-    try {
-      parseStorageRules(source);
-      return null;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return fail(
-        `rules did not parse: ${message}.`,
-        `Pass a rules source that parses, then call set again.`,
-        'rules',
-      );
-    }
-  }
-  const lint = lintFirestoreRules(source);
-  if (lint.parseError === undefined) return null;
-  const parseError = lint.parseError;
-  return fail(
-    `rules did not parse at line ${parseError.line}, column ${parseError.column}: expected ${parseError.expected}.`,
-    `Pass a rules source that parses, then call set again.`,
-    'rules',
-  );
+  const problem = rulesEngineFor(String(args.service)).parseFailure(String(args.rules ?? ''));
+  if (problem === null) return null;
+  return fail(problem.body, problem.fix, 'rules');
 }

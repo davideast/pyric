@@ -209,8 +209,13 @@ describe('the sdk-service validator', () => {
   it('refuses a service that has no Security Rules', async () => {
     const result = await call('rules', 'lint', { service: 'firestone' });
     expect(result.summary).toBe(
-      "rules.lint: service 'firestone' is not a Firebase service with Security Rules. Rules exist for firestore, database, storage. Pass service 'firestore'.",
+      "rules.lint: argument 'service' is 'firestone', which is not one of firestore, database, storage. The SDK signature is lint(service: firestore|database|storage, rules?). Pass 'service' as 'firestore'.",
     );
+  });
+
+  it('names the whole set when no allowed value is close to the one passed', async () => {
+    const result = await call('rules', 'lint', { service: 'zzzzzzzzzz' });
+    expect(result.summary).toContain('Pass \'service\' as one of firestore, database, storage.');
   });
 
   it('refuses a query whose first ordering does not match its inequality', async () => {

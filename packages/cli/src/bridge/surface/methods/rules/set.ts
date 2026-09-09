@@ -1,6 +1,6 @@
 /** Install a ruleset into the running sandbox. */
 import { z } from 'zod';
-import { checkRulesParse, RENAMES, service } from '../../arguments/rules.js';
+import { checkRulesParse, RENAMES, service, SERVICES } from '../../arguments/rules.js';
 import { rulesEngineFor } from '../../rules-engines/registry.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -18,7 +18,7 @@ export default {
   method: 'set',
   sdkOrigin: 'pyric',
   effect: 'write',
-  signature: 'set(service, rules)',
+  signature: `set(service: ${SERVICES.join('|')}, rules)`,
   description:
     'Install a ruleset into the running sandbox. The rules must parse for the named service.',
   args: z.object({

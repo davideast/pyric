@@ -139,6 +139,25 @@ function fromZodIssue(
       field,
     );
   }
+  // A closed set is spelled in the signature, so a value outside it is
+  // answered with the whole set and, when one is close, the value that was
+  // probably meant.
+  if (issue.code === 'invalid_enum_value') {
+    const values = issue.options.map((option) => String(option));
+    const suggestion = closest(String(issue.received), values);
+    if (suggestion === null) {
+      return fail(
+        `argument '${field}' is ${quoted(issue.received)}, which is not one of ${values.join(', ')}. The SDK signature is ${method.signature}.`,
+        `Pass '${field}' as one of ${values.join(', ')}.`,
+        field,
+      );
+    }
+    return fail(
+      `argument '${field}' is ${quoted(issue.received)}, which is not one of ${values.join(', ')}. The SDK signature is ${method.signature}.`,
+      `Pass '${field}' as '${suggestion}'.`,
+      field,
+    );
+  }
   const shown = quoted(field === '' ? args : undefined);
   return fail(
     `argument '${field}' is invalid: ${issue.message}. The SDK signature is ${method.signature}.`,

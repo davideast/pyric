@@ -8,7 +8,10 @@ import {
   simulationDetail,
   type SimulationRequest,
 } from '../rules-simulation.js';
-import type { RulesEngine, RulesRequest } from './types.js';
+import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
+
+/** The edit a source that does not parse takes, for lint and for install alike. */
+const REPARSE_FIX = 'Pass a rules source that parses, then call set again.';
 
 /** The simulation case one request describes, under the engine's own types. */
 function caseFor(request: RulesRequest): SimulationRequest {
@@ -23,6 +26,18 @@ function caseFor(request: RulesRequest): SimulationRequest {
 }
 
 export const FIRESTORE_RULES: RulesEngine = {
+  requestMethods: ['get', 'list', 'create', 'update', 'delete'],
+
+  parseFailure(source): RulesSourceProblem | null {
+    const lint = lintFirestoreRules(source);
+    if (lint.parseError === undefined) return null;
+    const parseError = lint.parseError;
+    return {
+      body: `rules did not parse at line ${parseError.line}, column ${parseError.column}: expected ${parseError.expected}.`,
+      fix: REPARSE_FIX,
+    };
+  },
+
   async lint(ctx, rules) {
     const source = rules ?? activeFirestoreRules(ctx);
     if (source.length === 0) {
@@ -48,12 +63,9 @@ export const FIRESTORE_RULES: RulesEngine = {
   },
 
   async install(ctx, rules) {
-    const lint = lintFirestoreRules(rules);
-    if (lint.parseError !== undefined) {
-      const error = lint.parseError;
-      return operationFailure(
-        `Firestore rules did not parse at line ${error.line}, column ${error.column}: expected ${error.expected}. Pass a rules source that parses, then call set again.`,
-      );
+    const problem = FIRESTORE_RULES.parseFailure(rules);
+    if (problem !== null) {
+      return operationFailure(`Firestore ${problem.body} ${problem.fix}`);
     }
     setRules(ctx.sandbox, rules);
     return { ok: true, summary: 'Firestore rules installed.' };

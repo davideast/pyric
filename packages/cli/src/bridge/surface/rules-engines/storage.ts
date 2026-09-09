@@ -6,7 +6,7 @@ import { operationFailure } from '../context.js';
 import { storageFor } from '../service-handles.js';
 import { activeStorageRules, rulesRequestPath } from '../storage-rules.js';
 import type { SurfaceContext } from '../types.js';
-import type { RulesEngine } from './types.js';
+import type { RulesEngine, RulesSourceProblem } from './types.js';
 
 /** The identity a simulation runs as, in the shape the rules evaluator takes. */
 function identityFor(
@@ -23,6 +23,21 @@ function identityFor(
 }
 
 export const STORAGE_RULES: RulesEngine = {
+  requestMethods: ['get', 'list', 'create', 'update', 'delete', 'read', 'write'],
+
+  parseFailure(source): RulesSourceProblem | null {
+    try {
+      parseStorageRules(source);
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        body: `rules did not parse: ${message}.`,
+        fix: 'Pass a rules source that parses, then call set again.',
+      };
+    }
+  },
+
   async lint(ctx, rules) {
     const source = rules ?? activeStorageRules(ctx);
     if (source === null) {

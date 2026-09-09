@@ -1,6 +1,6 @@
 /** Evaluate one request against one service's ruleset. */
 import { z } from 'zod';
-import { checkOperation, RENAMES, service } from '../../arguments/rules.js';
+import { checkOperation, operation, REQUEST_METHODS, RENAMES, service, SERVICES } from '../../arguments/rules.js';
 import { rulesEngineFor } from '../../rules-engines/registry.js';
 import type { RulesRequest } from '../../rules-engines/types.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -10,11 +10,11 @@ export default {
   method: 'simulate',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'simulate(service, operation, path, uid?, data?, rules?)',
+  signature: `simulate(service: ${SERVICES.join('|')}, operation: ${REQUEST_METHODS.join('|')}, path, uid?, data?, rules?)`,
   description: 'Evaluate one request against a ruleset and report allow or deny.',
   args: z.object({
     service,
-    operation: z.string().describe('The request method to evaluate.'),
+    operation,
     path: z.string().describe('The path the request targets.'),
     uid: z.string().optional().describe('Act as this user. Omit to use the held identity.'),
     data: z.record(z.unknown()).optional().describe('The value being written.'),

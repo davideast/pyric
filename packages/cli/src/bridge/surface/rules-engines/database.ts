@@ -4,7 +4,7 @@ import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
 import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
 import { callSandboxTool, operationFailure } from '../context.js';
 import type { SurfaceContext } from '../types.js';
-import type { RulesEngine, RulesRequest } from './types.js';
+import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
 
 /** The ruleset a source describes, or null when it is not JSON. */
 function parseRuleset(source: string): RtdbRulesJson | null {
@@ -59,6 +59,21 @@ function simulateAgainst(
 }
 
 export const DATABASE_RULES: RulesEngine = {
+  requestMethods: ['read', 'write', 'validate'],
+
+  parseFailure(source): RulesSourceProblem | null {
+    try {
+      JSON.parse(source);
+      return null;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        body: `rules did not parse as JSON: ${message}.`,
+        fix: 'Pass rules JSON that parses, then call set again.',
+      };
+    }
+  },
+
   async lint(ctx, rules) {
     let ruleset: RtdbRulesJson | null = null;
     if (rules === undefined) {

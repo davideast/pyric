@@ -6,21 +6,30 @@
  * a method whose name promises a trace.
  */
 import { z } from 'zod';
-import { checkOperation, RENAMES } from '../../arguments/rules.js';
+import { requestMethodOf, requestMethodsOf, RENAMES } from '../../arguments/rules.js';
 import { explainFirestoreDenial } from '../../rules-engines/firestore.js';
 import { quoted } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { RulesRequest } from '../../rules-engines/types.js';
+
+/**
+ * The request methods the trace covers, which are Firestore's, because the
+ * Firestore engine is the only one that produces an evaluation trace.
+ */
+const TRACED_METHODS = requestMethodsOf('firestore');
+const TRACED_OPERATION = requestMethodOf('firestore').describe(
+  `The request method that was denied: ${TRACED_METHODS.join(', ')}.`,
+);
 
 export default {
   tool: 'rules',
   method: 'explainDenial',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'explainDenial(operation, path, service?, uid?, data?)',
+  signature: `explainDenial(operation: ${TRACED_METHODS.join('|')}, path, service?, uid?, data?)`,
   description: 'Trace why a request was denied, rule by rule.',
   args: z.object({
-    operation: z.string().describe('The request method that was denied.'),
+    operation: TRACED_OPERATION,
     path: z.string().describe('Document path the request targets.'),
     service: z
       .string()
@@ -41,7 +50,7 @@ export default {
         'service',
       );
     }
-    return checkOperation({ ...args, service: 'firestore' }, fail);
+    return null;
   },
   async handler(args, ctx) {
     const request: RulesRequest = {
