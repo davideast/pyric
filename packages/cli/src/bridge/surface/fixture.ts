@@ -23,7 +23,7 @@ import { getAdminDatabase, get as databaseGet, ref as databaseRef } from 'pyric/
 import { getAdminStorageSandbox, getStorageRulesResolution } from 'pyric/storage/internal';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import type { LocalSandbox } from 'pyric/sandbox';
-import { exportStorage } from '../server/storage-sidecar.js';
+import { exportStorage } from './storage-state.js';
 import {
   applyData,
   applyRules,

@@ -14,7 +14,7 @@ import { getAdminDatabase, ref as databaseRef, remove as databaseRemove } from '
 import { deleteObject, ref as storageRef } from 'pyric/storage';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
-import { listStoredPaths } from '../../../server/storage-sidecar.js';
+import { listStoredPaths } from '../../storage-state.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { SurfaceContext } from '../../types.js';
 

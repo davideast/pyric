@@ -33,7 +33,7 @@ import {
   listStoredPaths,
   restoreStorage,
   type StorageObjectRecord,
-} from '../server/storage-sidecar.js';
+} from './storage-state.js';
 
 /** A checkpoint name: portable across filesystems, safe as a bare filename. */
 export const CHECKPOINT_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
