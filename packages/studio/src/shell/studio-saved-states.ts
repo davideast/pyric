@@ -37,7 +37,7 @@ export function useStudioSnapshot(): () => Promise<SandboxSnapshot | null> {
 /**
  * The live sandbox's stable instance id (Phase 1: instance identity). Empty in
  * dev-seed / review (no live worker). Studio renders it as a slug so a user can
- * tell WHICH sandbox instance they're looking at — the same `localhost:<port>`
+ * tell WHICH sandbox instance they're looking at: the same `localhost:<port>`
  * in another browser profile is a separate instance.
  */
 export function useSandboxInstanceId(): string {

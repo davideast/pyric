@@ -90,7 +90,7 @@ export function useStudioEvents(): readonly SandboxEvent[] {
     // Cap BOTH accumulation paths (the history seed and the live appends).
     // Live appends fold through the session rule: a reset boundary drops the
     // wiped session's events (see `events/fold.ts`) so Traffic/Session read
-    // (near-)empty after Settings → Reset — issue #359 extension.
+    // (near-)empty after Settings then Reset, which is issue #359's extension.
     setLiveEvents(capNewest(liveFeed.history()));
     const unsub = liveFeed.subscribe((event) =>
       setLiveEvents((prev) => capNewest(foldSessionEventLog(prev, event))),
@@ -98,8 +98,8 @@ export function useStudioEvents(): readonly SandboxEvent[] {
     return unsub;
   }, [seedReady, liveFeed]);
 
-  // The dev-seed path reads the sandbox's own reactive array — cap at the
-  // read (same-reference under the cap, so no memo churn).
+  // The dev-seed path reads the sandbox's own reactive array, capped at the
+  // read (same reference under the cap, so no memo churn).
   const cappedSeedEvents = useMemo(
     () => (seedReady ? capNewest(seed.events) : []),
     [seedReady, seed],
@@ -232,7 +232,7 @@ export function useStudioDenials(): Denial[] {
 }
 
 /** ALL rules-evaluated ops (allow AND deny/unsupported), derived from the live
- *  stream — the Traffic rules inspector's feed (`selectRuleEvaluations`). */
+ *  stream: the Traffic rules inspector's feed (`selectRuleEvaluations`). */
 export function useStudioRuleEvaluations(): Denial[] {
   const events = useStudioEvents();
   return useMemo<Denial[]>(() => selectRuleEvaluations(events), [events]);

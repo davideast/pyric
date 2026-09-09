@@ -122,8 +122,9 @@ export function useStudioSeedAuth(): (
 
 /**
  * Clear the sandbox through the ONE sandbox-owned path (issue #359):
- * `sandbox.resetAll()` — Firestore env + signed-in session + EVERY registered
- * persistable service (auth users, the RTDB tree, storage objects). Because
+ * `sandbox.resetAll()`, which clears the Firestore env, the signed-in session,
+ * and EVERY registered persistable service (auth users, the RTDB tree, storage
+ * objects). Because
  * the sandbox iterates its own service registry, Studio cannot forget a
  * service (the old doc-walk + clearUsers approach here never touched storage).
  *
@@ -163,8 +164,8 @@ export function useStudioReset(): () => Promise<{ errors: string[] }> {
     const result = await clear();
     if (dev.status === 'ready') {
       const { applySeed, deploySeedRules } = await import('../dev/seed.js');
-      // resetAll swapped the env, wiping the deployed dev ruleset — re-deploy
-      // it BEFORE reseeding so the fixture lands under the same governance.
+      // resetAll swapped the env, wiping the deployed dev ruleset, so re-deploy
+      // it BEFORE reseeding and the fixture lands under the same governance.
       deploySeedRules(dev.handles.sandbox);
       await applySeed(dev.handles);
     } else {
