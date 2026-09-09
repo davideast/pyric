@@ -285,6 +285,11 @@ export async function diff(branch: Branch, target: DiffTarget): Promise<BranchDi
  * before the first write, and any throw restores that capture, rethrows the
  * original error, and leaves the branch undiscarded so the caller can inspect
  * or retry it. On success the branch is spent and its sandbox is disposed.
+ *
+ * When the restore itself throws the target is not atomic any more, and the
+ * error says so: it carries the promotion's message first and the restore's
+ * after it, because a caller reading it needs to know both what failed and
+ * that the target still holds part of the change.
  */
 export async function promote(branch: Branch, target: LocalSandbox): Promise<void> {
   assertLive(branch);
@@ -293,11 +298,41 @@ export async function promote(branch: Branch, target: LocalSandbox): Promise<voi
   try {
     await promoteFullState(target, branch.base, current);
   } catch (error) {
-    await applyFullState(target, rollback);
-    throw error;
+    await rollBackTo(target, rollback, error);
   }
   branch.discarded = true;
   branch.sandbox.dispose();
+}
+
+/**
+ * Put the target back to the state the promotion started from, then rethrow.
+ *
+ * A restore that throws leaves the target part way through a partial
+ * promotion, which is the worst state to be told nothing about. The error
+ * raised carries both messages, the write that failed first, because that is
+ * the one that says what the caller was trying to do; the restore's message
+ * says how much of it is still there.
+ */
+async function rollBackTo(
+  target: LocalSandbox,
+  rollback: FullSandboxState,
+  cause: unknown,
+): Promise<never> {
+  try {
+    await applyFullState(target, rollback);
+  } catch (restoreError) {
+    throw new Error(
+      `Promotion failed and the target could not be restored. The promotion failed with: ${messageOf(cause)}. The restore then failed with: ${messageOf(restoreError)}. The target holds a partly promoted state.`,
+      { cause },
+    );
+  }
+  throw cause;
+}
+
+/** One thrown value as a sentence, whether or not it was an Error. */
+function messageOf(thrown: unknown): string {
+  if (thrown instanceof Error) return thrown.message;
+  return String(thrown);
 }
 
 /**

@@ -249,6 +249,39 @@ describe('the branch engine, across every service', () => {
     expect(branch.discarded).toBe(false);
   });
 
+  it('carries both messages when the rollback itself fails, the original first', async () => {
+    const live = await populatedSandbox();
+    const branch = await forkOf(live);
+    branch.sandbox.admin.setDocument('things/a', { v: 42 });
+    getOrCreateBackend(branch.sandbox).adminSet('rooms/one/title', 'renamed');
+
+    const backend = getOrCreateBackend(live);
+    const realAdminSet = backend.adminSet.bind(backend);
+    backend.adminSet = () => {
+      throw new Error('the target refuses this write');
+    };
+    const realRestoreTree = backend.restoreTree.bind(backend);
+    backend.restoreTree = () => {
+      throw new Error('the target refuses the restore');
+    };
+
+    let thrown: unknown = null;
+    try {
+      await promote(branch, live);
+    } catch (error) {
+      thrown = error;
+    }
+    backend.adminSet = realAdminSet;
+    backend.restoreTree = realRestoreTree;
+
+    expect(thrown).toBeInstanceOf(Error);
+    const message = (thrown as Error).message;
+    expect(message).toContain('the target refuses this write');
+    expect(message).toContain('the target refuses the restore');
+    expect(message.indexOf('this write')).toBeLessThan(message.indexOf('the restore'));
+    expect(branch.discarded).toBe(false);
+  });
+
   it('applies captured writes to the branch without touching the source', async () => {
     const live = await populatedSandbox();
     const branch = await forkOf(live);
