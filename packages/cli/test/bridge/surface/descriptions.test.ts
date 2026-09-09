@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { TOOL_DESCRIPTIONS } from '../../../src/bridge/surface/descriptions.generated.js';
-import { renderDescriptionModule } from '../../../src/bridge/surface/generate-descriptions.js';
+import { renderDescriptionModule } from '../../../scripts/generate-surface-descriptions.js';
 import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import { renderSurface } from '../../../src/bridge/surface/index.js';
 import {

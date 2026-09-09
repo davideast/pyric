@@ -2,7 +2,7 @@
  * The loaded surface: six service tools and the methods behind them, and the
  * lookups every derived surface joins on.
  *
- * The list is not authored here. `../generate-manifest.ts` reads the `tools`
+ * The list is not authored here. `scripts/generate-surface-manifest.ts` reads the `tools`
  * and `methods` directories and renders `../manifest.generated.ts`; this loader
  * stamps each record with the key its path carries and refuses a record whose
  * own `tool` and `method` disagree with where it lives, because a record that

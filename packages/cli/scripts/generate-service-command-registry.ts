@@ -16,7 +16,7 @@
 import { readdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { surfaceSources } from '../src/bridge/surface/generate-manifest.js';
+import { surfaceSources } from './generate-surface-manifest.js';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const recordsDirectory = resolve(packageRoot, 'src/cli/service-command-records');

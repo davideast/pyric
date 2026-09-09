@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import {
   renderSurfaceManifest,
   surfaceSources,
-} from '../../../src/bridge/surface/generate-manifest.js';
+} from '../../../scripts/generate-surface-manifest.js';
 import { schemaDepth, toJsonSchema } from '../../../src/bridge/surface/json-schema.js';
 import { operationIds } from '../../../src/bridge/surface/method-types.js';
 import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/registry.js';

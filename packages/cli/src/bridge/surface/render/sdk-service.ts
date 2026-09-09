@@ -55,7 +55,7 @@ export function describeTool(tool: Tool): string {
   if (source !== undefined && source.methods.length === tool.methods.length) {
     const description = TOOL_DESCRIPTIONS[tool.name];
     if (description === undefined) {
-      throw new Error(`no generated description for tool '${tool.name}'; run generate-descriptions`);
+      throw new Error(`no generated description for tool '${tool.name}'; run scripts/generate-surface-descriptions.ts`);
     }
     return description;
   }

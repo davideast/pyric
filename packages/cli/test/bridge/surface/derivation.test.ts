@@ -15,11 +15,8 @@ import {
   renderServiceCommandRegistry,
   surfaceCommandSources,
 } from '../../../scripts/generate-service-command-registry.js';
-import { renderDescriptionModule } from '../../../src/bridge/surface/generate-descriptions.js';
-import {
-  renderSurfaceManifest,
-  surfaceSources,
-} from '../../../src/bridge/surface/generate-manifest.js';
+import { renderDescriptionModule } from '../../../scripts/generate-surface-descriptions.js';
+import { renderSurfaceManifest, surfaceSources } from '../../../scripts/generate-surface-manifest.js';
 import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import { renderToolDescriptions } from '../../../src/bridge/surface/tool-description.js';
 import { SANDBOX_METHOD_WORDS } from '../../../src/cli/parse-args.js';
