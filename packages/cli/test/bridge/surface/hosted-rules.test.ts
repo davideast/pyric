@@ -18,7 +18,7 @@ import {
   hostedCredentials,
   useHostedRulesTester,
 } from '../../../src/bridge/surface/hosted-rules.js';
-import { OPEN_ORDER_RULES } from './assurance-fixture.js';
+import { OPEN_ORDER_RULES } from '../../fixtures/order-rules.js';
 
 /** One case, in the shape the derivation produces and the hosted API takes. */
 const CASES = [

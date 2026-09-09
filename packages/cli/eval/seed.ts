@@ -33,9 +33,10 @@ export const SESSION_FILE = join('.pyric', 'last-session.json');
  * behind, and a task that asks an agent to replay the last session needs one
  * on disk before the server starts.
  */
-export function writeSessionFile(dir: string, seed: EvalSeed): void {
-  const session = seed.session;
-  if (session === undefined) return;
+export async function writeSessionFile(dir: string, seed: EvalSeed): Promise<void> {
+  const record = seed.session;
+  if (record === undefined) return;
+  const session = await record();
   const path = join(dir, SESSION_FILE);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(session)}\n`, 'utf8');
@@ -68,7 +69,7 @@ export async function applySeed(dir: string, seed: EvalSeed): Promise<LocalSandb
   await applyRules(sandbox, seed);
   await applyData(sandbox, seed);
   writeRulesFiles(dir, seed);
-  writeSessionFile(dir, seed);
+  await writeSessionFile(dir, seed);
   saveSandboxSnapshot(sandbox, dir);
   await saveStorageSidecar(getAdminStorageSandbox(sandbox), dir);
   return sandbox;

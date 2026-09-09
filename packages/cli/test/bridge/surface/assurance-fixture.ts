@@ -15,6 +15,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/sandbox/admin-firestore';
 
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../../src/verify/index.js';
+import { OPEN_ORDER_RULES } from '../../fixtures/order-rules.js';
 
 /** Rules under which only alice touches a note. */
 export const ALICE_NOTE_RULES = `rules_version = '2';
@@ -29,25 +30,6 @@ export const NO_NOTE_RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
     match /notes/{id} { allow read, write: if false; }
-  }
-}`;
-
-/** Rules under which anyone touches an order, which is the flaw a campaign finds. */
-export const OPEN_ORDER_RULES = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{db}/documents {
-    match /orders/{id} { allow read, write: if true; }
-  }
-}`;
-
-/** Rules under which only the owner touches an order. */
-export const OWNER_ORDER_RULES = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{db}/documents {
-    match /orders/{id} {
-      allow read: if request.auth.uid == resource.data.owner;
-      allow write: if request.auth.uid == request.resource.data.owner;
-    }
   }
 }`;
 

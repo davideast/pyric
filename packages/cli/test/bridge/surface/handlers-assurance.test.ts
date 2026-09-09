@@ -16,16 +16,15 @@ import {
   ALICE_ACTOR,
   ALICE_NOTE_RULES,
   NO_NOTE_RULES,
-  OPEN_ORDER_RULES,
   OPEN_ORDER_TARGET,
   OWNER_ONLY_INVARIANT,
-  OWNER_ORDER_RULES,
   OWNER_WRITE_OBSERVATION,
   PAYLOAD_MUTATION,
   PAYLOAD_PROBE_ID,
   recordNoteSession,
   writeCapture,
 } from './assurance-fixture.js';
+import { OPEN_ORDER_RULES, OWNER_ORDER_RULES } from '../../fixtures/order-rules.js';
 import { finishHandlerSuite, projectDir, run } from './handler-harness.js';
 
 afterAll(() => finishHandlerSuite('assurance'));

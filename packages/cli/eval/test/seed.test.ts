@@ -15,8 +15,10 @@ import {
   SESSION_FILE,
   STORAGE_RULES_FILE,
 } from '../seed.js';
+import { recordOrderSession } from '../sessions.js';
 import { buildEvalState } from '../state.js';
 import { HEADLESS_STATE_RELATIVE } from '../../src/bridge/server/headless.js';
+import { parseVerifyFixture } from '../../src/verify/index.js';
 
 function runDir(): string {
   return mkdtempSync(join(tmpdir(), 'pyric-seed-'));
@@ -117,16 +119,12 @@ describe('seed and state round trip', () => {
 
   test('a declared session is planted where the assurance methods look for one', async () => {
     const dir = runDir();
-    const session = {
-      schema: 'pyric.verify.fixture.v1',
-      description: 'one recorded write',
-      events: [],
-      services: {},
-    };
-    await applySeed(dir, { session });
+    await applySeed(dir, { session: recordOrderSession });
 
     expect(existsSync(join(dir, SESSION_FILE))).toBe(true);
-    expect(JSON.parse(readFileSync(join(dir, SESSION_FILE), 'utf8'))).toEqual(session);
+    const planted = parseVerifyFixture(JSON.parse(readFileSync(join(dir, SESSION_FILE), 'utf8')));
+    expect(planted.description).toBe('alice writes two of her own orders');
+    expect(planted.events.length).toBeGreaterThan(0);
   });
 
   test('a seed that declares no session plants no capture', async () => {

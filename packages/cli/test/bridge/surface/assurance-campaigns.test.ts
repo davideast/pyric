@@ -14,7 +14,7 @@ import {
   sandboxRules,
 } from '../../../src/bridge/surface/assurance-campaigns.js';
 import { createSurfaceContext } from '../../../src/bridge/surface/context.js';
-import { OPEN_ORDER_RULES } from './assurance-fixture.js';
+import { OPEN_ORDER_RULES } from '../../fixtures/order-rules.js';
 
 function contextWithOrders() {
   const sandbox = initializeSandbox();

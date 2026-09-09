@@ -1,11 +1,12 @@
 import type { EvalTask } from '../types.js';
-import { CLOSED_ORDER_RULES, ORDER_SESSION, RECORDED_ORDER_RULES } from '../sessions.js';
+import { CLOSED_ORDER_RULES, RECORDED_ORDER_RULES } from '../../test/fixtures/order-rules.js';
+import { recordOrderSession } from '../sessions.js';
 
 const task: EvalTask = {
   id: 'test-the-candidate-rules-on-the-real-project',
   prompt: `Run these candidate rules through Firebase's hosted rules test API against our real project so I have an answer from Google and not from a simulator. If you cannot reach it, say why and get me the closest answer you can from what is here:\n\n${CLOSED_ORDER_RULES}`,
   seed: {
-    session: ORDER_SESSION,
+    session: recordOrderSession,
     firestoreRules: RECORDED_ORDER_RULES,
     firestore: { 'orders/o1': { owner: 'alice', total: 10 } },
   },

@@ -1,11 +1,12 @@
 import type { EvalTask } from '../types.js';
-import { ORDER_SESSION, OWNER_ORDER_RULES, RECORDED_ORDER_RULES } from '../sessions.js';
+import { OWNER_ORDER_RULES, RECORDED_ORDER_RULES } from '../../test/fixtures/order-rules.js';
+import { recordOrderSession } from '../sessions.js';
 
 const task: EvalTask = {
   id: 'run-the-recorded-cases-against-owner-rules',
   prompt: `I rewrote the order rules to key off the owner field instead of a hard-coded uid. Take every request the app actually made last time, turn it into a case, and decide each one against the new rules. I want a per-case verdict, not a summary:\n\n${OWNER_ORDER_RULES}`,
   seed: {
-    session: ORDER_SESSION,
+    session: recordOrderSession,
     firestoreRules: RECORDED_ORDER_RULES,
     firestore: { 'orders/o1': { owner: 'alice', total: 10 } },
   },

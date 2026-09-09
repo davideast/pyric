@@ -1,11 +1,12 @@
 import type { EvalTask } from '../types.js';
-import { CLOSED_ORDER_RULES, ORDER_SESSION, RECORDED_ORDER_RULES } from '../sessions.js';
+import { CLOSED_ORDER_RULES, RECORDED_ORDER_RULES } from '../../test/fixtures/order-rules.js';
+import { recordOrderSession } from '../sessions.js';
 
 const task: EvalTask = {
   id: 'replay-last-session-under-closed-rules',
   prompt: `I am about to ship this ruleset and I want to know what it breaks before I do. Replay whatever the app did last against it and tell me which calls stop working and what they used to do:\n\n${CLOSED_ORDER_RULES}`,
   seed: {
-    session: ORDER_SESSION,
+    session: recordOrderSession,
     firestoreRules: RECORDED_ORDER_RULES,
     firestore: { 'orders/o1': { owner: 'alice', total: 10 } },
   },

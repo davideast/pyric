@@ -6,6 +6,7 @@
  */
 
 import type { SandboxSeed } from '../src/bridge/surface/seed-apply.js';
+import type { PyricVerifyFixture } from '../src/verify/index.js';
 
 /**
  * State loaded into the sandbox before a run starts. Tasks never seed by tool
@@ -17,11 +18,12 @@ import type { SandboxSeed } from '../src/bridge/surface/seed-apply.js';
  * recorded session is not sandbox state: it is a file a previous run of the
  * app left in the project directory. The assurance methods read it from
  * there, so a task about replaying a capture needs the seeder to plant one,
- * and the field says which capture to plant.
+ * and the field says which capture to plant. It is a recorder rather than a
+ * recording, so importing the corpus drives no sandbox.
  */
 export type EvalSeed = SandboxSeed & {
-  /** A capture written to `.pyric/last-session.json` in the run's project directory. */
-  session?: Record<string, unknown>;
+  /** Records the capture written to `.pyric/last-session.json` in the run's project directory. */
+  session?: () => Promise<PyricVerifyFixture>;
 };
 
 /**

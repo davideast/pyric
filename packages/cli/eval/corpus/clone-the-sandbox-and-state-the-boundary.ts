@@ -1,5 +1,5 @@
 import type { EvalTask } from '../types.js';
-import { OPEN_ORDER_RULES } from '../sessions.js';
+import { OPEN_ORDER_RULES } from '../../test/fixtures/order-rules.js';
 
 const task: EvalTask = {
   id: 'clone-the-sandbox-and-state-the-boundary',
