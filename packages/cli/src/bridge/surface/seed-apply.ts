@@ -41,6 +41,7 @@ export interface SeedStorageEntry {
   path: string;
   contentBase64: string;
   contentType?: string;
+  customMetadata?: Record<string, string>;
 }
 
 /** State to load into a sandbox. The harness's `EvalSeed` is an alias of this. */
@@ -140,8 +141,9 @@ export async function applyData(sandbox: LocalSandbox, seed: SandboxSeed): Promi
   const storage = getAdminStorageSandbox(sandbox);
   for (const object of objects) {
     const bytes = Uint8Array.from(Buffer.from(object.contentBase64, 'base64'));
-    const metadata: { contentType?: string } = {};
+    const metadata: { contentType?: string; customMetadata?: Record<string, string> } = {};
     if (object.contentType !== undefined) metadata.contentType = object.contentType;
+    if (object.customMetadata !== undefined) metadata.customMetadata = object.customMetadata;
     await uploadBytes(storageRef(storage, object.path), bytes, metadata);
   }
 }

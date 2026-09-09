@@ -17,6 +17,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { getInternalEnv } from 'pyric/sandbox/internal';
+import { getActiveRules as getDatabaseRules } from 'pyric/sandbox/database';
 import { snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getAdminDatabase, get as databaseGet, ref as databaseRef } from 'pyric/database';
 import { getAdminStorageSandbox, getStorageRulesResolution } from 'pyric/storage/internal';
@@ -59,6 +60,8 @@ export async function buildFixture(sandbox: LocalSandbox): Promise<SandboxSeed> 
   const storageEntries: SeedStorageEntry[] = storage.map((object) => {
     const entry: SeedStorageEntry = { path: object.path, contentBase64: object.contentBase64 };
     if (object.contentType !== undefined) entry.contentType = object.contentType;
+    const custom = customMetadataOf(object.metadata);
+    if (custom !== null) entry.customMetadata = custom;
     return entry;
   });
 
@@ -69,9 +72,24 @@ export async function buildFixture(sandbox: LocalSandbox): Promise<SandboxSeed> 
     storage: storageEntries,
   };
   if (database !== null && database !== undefined) fixture.database = database;
+  const databaseRules = getDatabaseRules(sandbox);
+  if (databaseRules !== null) fixture.databaseRules = JSON.stringify(databaseRules);
   const storageRules = getStorageRulesResolution(getAdminStorageSandbox(sandbox))?.source;
   if (storageRules !== undefined) fixture.storageRules = storageRules;
   return fixture;
+}
+
+/** Storage custom metadata is a string map; a value of another type is not one. */
+function customMetadataOf(metadata: Record<string, unknown>): Record<string, string> | null {
+  const entries: Record<string, string> = {};
+  let found = false;
+  for (const [key, value] of Object.entries(metadata)) {
+    if (typeof value !== 'string') continue;
+    entries[key] = value;
+    found = true;
+  }
+  if (!found) return null;
+  return entries;
 }
 
 /** Write a fixture to `path`, creating its parent directory. */

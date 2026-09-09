@@ -33,6 +33,7 @@ export const storageObjectSeed = z.object({
   path: z.string(),
   contentBase64: z.string(),
   contentType: z.string().optional(),
+  customMetadata: z.record(z.string()).optional(),
 });
 
 /**
