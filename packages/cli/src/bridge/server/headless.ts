@@ -256,13 +256,14 @@ export async function runHeadlessMcp(
   const sandbox = initializeSandbox();
   // Before the snapshot, and before the transport serves a single call.
   const storage = openPersistedServices(sandbox, projectDir);
-  const rulesPath = loadProjectRules(sandbox, projectDir);
-  log(rulesPath ? `rules loaded from ${rulesPath}` : `no firestore.rules found in ${projectDir}`);
-
   const restored = loadSandboxSnapshot(sandbox, projectDir);
   if (restored !== null) {
     log(`restored ${restored} docs from ${join(projectDir, HEADLESS_STATE_RELATIVE)}`);
   }
+  // After the snapshot: restoring it resets the ruleset to the sandbox default,
+  // and the project's rules file is the authority for what the server enforces.
+  const rulesPath = loadProjectRules(sandbox, projectDir);
+  log(rulesPath ? `rules loaded from ${rulesPath}` : `no firestore.rules found in ${projectDir}`);
   const restoredObjects = await loadStorageSidecar(storage, projectDir);
   if (restoredObjects > 0) {
     log(`restored ${restoredObjects} objects from ${join(projectDir, STORAGE_SIDECAR_RELATIVE)}`);

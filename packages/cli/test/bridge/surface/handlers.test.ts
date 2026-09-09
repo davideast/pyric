@@ -73,6 +73,27 @@ it('projects a seeded tenant and claims into the token rules evaluate', async ()
   expect((allowed.data as { allowed: boolean }).allowed).toBe(true);
 });
 
+it('simulates a user seeded outside the session under its stored tenant and claims', async () => {
+  authSandbox.seedUsers(getAuth(sandbox), [
+    {
+      uid: 'carol',
+      email: 'carol@example.com',
+      password: 'seed-carol',
+      tenantId: 'tenant-a',
+      customClaims: { role: 'viewer' },
+    },
+  ]);
+  const allowed = await run('simulate_firestore_rules', {
+    operation: 'get',
+    path: 'tenants/t1',
+    uid: 'carol',
+  });
+  expect(allowed.ok).toBe(true);
+  const data = allowed.data as { allowed: boolean; auth: { token: Record<string, unknown> } };
+  expect(data.allowed).toBe(true);
+  expect(data.auth.token).toMatchObject({ role: 'viewer', firebase: { tenant: 'tenant-a' } });
+});
+
 it('explains a denial for an identity without the tenant', async () => {
   const created = await run('create_auth_user', { uid: 'bob', email: 'bob@example.com' });
   expect(created.ok).toBe(true);

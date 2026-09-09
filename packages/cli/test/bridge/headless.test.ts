@@ -359,6 +359,37 @@ describe('a project directory apart from the cwd', () => {
     }
   });
 
+  it('enforces the rules file over the default the snapshot restore installs', async () => {
+    const workspace = mkdtempSync(join(tmpdir(), 'pyric-headless-workspace-'));
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-headless-project-'));
+    try {
+      await applySeed(projectDir, {
+        firestoreRules: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+`,
+        firestore: { 'posts/p1': { title: 'locked' } },
+      });
+
+      const session = await openSession(workspace, {}, 'verb-prefixed', projectDir);
+      const verdict = await session.client.callTool({
+        name: 'simulate_firestore_rules',
+        arguments: { operation: 'get', path: 'posts/p1', uid: 'anyone' },
+      });
+      expect(verdict.isError).toBeFalsy();
+      expect(JSON.stringify(verdict.content)).toContain('DENY');
+      expect(await session.close()).toBe(0);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
   it('resolves a relative project directory against the cwd it was given', async () => {
     const root = mkdtempSync(join(tmpdir(), 'pyric-headless-relative-'));
     try {
