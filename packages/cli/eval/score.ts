@@ -16,6 +16,8 @@ export interface ScoreInput {
   spawn: SpawnOutcome;
   durationMs: number;
   state: EvalState;
+  /** Why the harness itself failed, for a `crash` that never reached the CLI. */
+  crashReason?: string;
 }
 
 /**
@@ -51,7 +53,7 @@ export function scoreRun(input: ScoreInput): EvalResultLine {
   const errorCalls = state.calls.filter((call) => !call.ok).length;
 
   let outcome: EvalOutcome = input.spawn as EvalOutcome;
-  let assertReason: string | null = null;
+  let assertReason: string | null = input.crashReason ?? null;
   if (isScorable(input.spawn)) {
     const verdict = run.task.assert(state);
     if (verdict === true) {

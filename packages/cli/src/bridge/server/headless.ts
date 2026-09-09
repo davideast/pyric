@@ -43,6 +43,7 @@ import { registerRenderedSurface } from './surface-server.js';
 import { getDefaultMcpToolSurface } from './mcp-contract.js';
 import { renderSurface } from '../surface/index.js';
 import { createSurfaceContext } from '../surface/context.js';
+import { rememberUnloadedStorageRules } from '../surface/storage-rules.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
 import {
   createEvalLogWriter,
@@ -149,7 +150,19 @@ export function openPersistedServices(sandbox: LocalSandbox, cwd: string): Fireb
   // project's rules have to be in hand here or not at all.
   const rulesPath = join(cwd, 'storage.rules');
   if (!existsSync(rulesPath)) return getAdminStorageSandbox(sandbox);
-  return getAdminStorageSandbox(sandbox, { rules: readFileSync(rulesPath, 'utf8') });
+  const source = readFileSync(rulesPath, 'utf8');
+  try {
+    return getAdminStorageSandbox(sandbox, { rules: source });
+  } catch (error) {
+    // A rules file that does not parse cannot govern the service, but a lint
+    // call must still be able to say what is wrong with it. The service opens
+    // without rules and the source is kept for the lint operation.
+    process.stderr.write(
+      `[pyric mcp headless] storage.rules not loaded: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    rememberUnloadedStorageRules(sandbox, source);
+    return getAdminStorageSandbox(sandbox);
+  }
 }
 
 /**

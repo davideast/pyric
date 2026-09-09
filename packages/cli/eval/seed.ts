@@ -47,7 +47,14 @@ function applyRules(sandbox: LocalSandbox, seed: EvalSeed): void {
   // Storage first: the source is only read by the call that opens the service.
   const storageRules = seed.storageRules;
   if (storageRules !== undefined) {
-    getAdminStorageSandbox(sandbox, { rules: storageRules });
+    // A seed may carry rules that do not parse on purpose, for lint tasks. The
+    // file is still written for the server to report on; the seeding sandbox
+    // opens storage without them.
+    try {
+      getAdminStorageSandbox(sandbox, { rules: storageRules });
+    } catch {
+      getAdminStorageSandbox(sandbox);
+    }
   }
   const databaseRules = seed.databaseRules;
   if (databaseRules !== undefined) {

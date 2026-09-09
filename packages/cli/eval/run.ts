@@ -52,7 +52,7 @@ import { dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { loadRows, loadTasks, selectRecords } from './load.js';
 import { applySeed } from './seed.js';
-import { buildEvalState } from './state.js';
+import { buildEvalState, emptyEvalState } from './state.js';
 import { scoreRun, type SpawnOutcome } from './score.js';
 import { isThrottled, Pacer, type PacingOptions } from './pacing.js';
 import { defaultServerCommand } from './providers/server-env.js';
@@ -249,6 +249,13 @@ function writeProviderFiles(base: string, files: Record<string, string>): void {
  * than the tool surface. This throws instead of dropping the file, because a run
  * that quietly changed what it measures is worse than a run that stops.
  */
+/**
+ * A harness invariant was broken. Unlike a task that failed to seed or a CLI
+ * that crashed, this means the sweep itself would measure the wrong thing, so
+ * it stops the sweep rather than becoming one crash line.
+ */
+export class HarnessInvariantError extends Error {}
+
 export function assertNoLeakedPaths(run: EvalRun, workspaceFiles: Record<string, string>): void {
   // The events path sits inside the state directory, so it is tested first and
   // the message names the most specific thing that was leaked.
@@ -259,7 +266,7 @@ export function assertNoLeakedPaths(run: EvalRun, workspaceFiles: Record<string,
   for (const [relativePath, contents] of Object.entries(workspaceFiles)) {
     for (const [label, secret] of secrets) {
       if (secret.length > 0 && contents.includes(secret)) {
-        throw new Error(
+        throw new HarnessInvariantError(
           `provider for ${run.row.cli} put ${label} in the workspace file ${relativePath}`,
         );
       }
@@ -313,13 +320,42 @@ export async function runAll(options: RunnerOptions): Promise<EvalResultLine[]> 
   const pacer = new Pacer(options.pacing);
   const lines: EvalResultLine[] = [];
   for (const run of runs) {
+    // One task's failure to seed, spawn, or score must never end the sweep:
+    // it is recorded as a crash line and the next run proceeds.
+    try {
+      const line = await runOne(options, run, pacer, resultsPath);
+      if (line) lines.push(line);
+    } catch (error) {
+      if (error instanceof HarnessInvariantError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      const line = scoreRun({
+        run,
+        spawn: 'crash',
+        durationMs: 0,
+        state: emptyEvalState(),
+        crashReason: message,
+      });
+      appendFileSync(resultsPath, `${JSON.stringify(line)}\n`, 'utf8');
+      lines.push(line);
+    }
+  }
+  return lines;
+}
+
+/** Prepare, spawn, collect, and score one run. Returns null for a dry run. */
+async function runOne(
+  options: RunnerOptions,
+  run: EvalRun,
+  pacer: Pacer,
+  resultsPath: string,
+): Promise<EvalResultLine | null> {
     const build = providerFor(options, run.row);
     const prepared = await prepareRun(run, build);
 
     if (options.dryRun) {
       const layout = { dir: run.dir, workspace: run.workspaceDir, state: run.stateDir };
       process.stdout.write(`${JSON.stringify({ ...layout, ...prepared })}\n`);
-      continue;
+      return null;
     }
 
     let report: SpawnReport = { outcome: 'throttled', durationMs: 0 };
@@ -333,9 +369,7 @@ export async function runAll(options: RunnerOptions): Promise<EvalResultLine[]> 
     const state = await buildEvalState(run.dir, join(run.dir, EVENTS_FILE));
     const line = scoreRun({ run, spawn: report.outcome, durationMs: report.durationMs, state });
     appendFileSync(resultsPath, `${JSON.stringify(line)}\n`, 'utf8');
-    lines.push(line);
-  }
-  return lines;
+    return line;
 }
 
 /** Parse `--flag value` pairs and boolean flags out of the argument list. */

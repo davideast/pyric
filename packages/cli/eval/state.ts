@@ -159,6 +159,17 @@ async function readObjects(
  * Build the `EvalState` for a finished run. Everything is read once, up front,
  * so the accessors a task's `assert` calls are synchronous.
  */
+/** A state with nothing in it, for a run the harness could not carry out. */
+export function emptyEvalState(): EvalState {
+  return {
+    firestore: { get: () => null, list: () => [] },
+    database: { get: () => undefined },
+    users: { get: () => null, list: () => [] },
+    storage: { get: () => null },
+    calls: [],
+  };
+}
+
 export async function buildEvalState(dir: string, eventsPath: string): Promise<EvalState> {
   const sandbox = await loadRunSandbox(dir);
   const documents = await readDocuments(sandbox);
