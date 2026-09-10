@@ -15,12 +15,11 @@
 import { describe, expect, it } from 'bun:test';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { dispatchServiceCommand } from '../../src/cli/service-commands.js';
-import {
-  parseToolResponse,
-  runAuthReset,
-  type AuthIdentityDeps,
-  type AuthToolResult,
-} from '../../src/cli/auth-identity.js';
+import { runAuthReset } from '../../src/cli/auth-identity.js';
+import type {
+  BridgeCommandDeps,
+  BridgeToolResult,
+} from '../../src/cli/bridge-tool-call.js';
 import {
   NO_BRIDGE_CLI_MESSAGE,
   SELF_SCOPE_NOTE,
@@ -41,11 +40,11 @@ function parsed(...argv: string[]) {
   return { ...raw, positional: raw.positional.slice(1) };
 }
 
-function harness(result: AuthToolResult) {
+function harness(result: BridgeToolResult) {
   const out: string[] = [];
   const err: string[] = [];
   const calls: Array<{ tool: string; args: Record<string, unknown> }> = [];
-  const deps: AuthIdentityDeps = {
+  const deps: BridgeCommandDeps = {
     cwd: '/tmp',
     stdout: { write: (s) => out.push(s) },
     stderr: { write: (s) => err.push(s) },
@@ -58,33 +57,7 @@ function harness(result: AuthToolResult) {
   return { deps, out, err, calls, stdout: () => out.join(''), stderr: () => err.join('') };
 }
 
-const OK: AuthToolResult = { ok: true, summary: 'You now act as admin.', data: {} };
-
-describe('parseToolResponse', () => {
-  it('reads a tool result from the text block', () => {
-    expect(
-      parseToolResponse('auth_whoami', {
-        content: [{ type: 'text', text: JSON.stringify({ ok: true, summary: 's', data: { a: 1 } }) }],
-      }),
-    ).toEqual({ ok: true, summary: 's', data: { a: 1 } });
-  });
-
-  it('reports a bridge that does not serve the tool instead of a parse failure', () => {
-    const result = parseToolResponse('auth_reset', {
-      isError: true,
-      content: [{ type: 'text', text: 'MCP error -32602: Tool auth_reset not found' }],
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.summary).toContain('Tool auth_reset not found');
-    expect(result.summary).toContain('may predate the auth_reset tool');
-    expect(result.data).toMatchObject({ code: 'auth/unsupported-bridge' });
-  });
-
-  it('reports an empty response', () => {
-    expect(parseToolResponse('auth_sessions', {}).summary).toContain('empty response');
-  });
-});
+const OK: BridgeToolResult = { ok: true, summary: 'You now act as admin.', data: {} };
 
 describe('pyric auth reset', () => {
   it('sends no arguments for yourself and prints the self note', async () => {

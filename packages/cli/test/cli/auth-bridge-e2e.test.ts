@@ -26,10 +26,8 @@ import { startServer, type ServerHandle } from '../../src/bridge/server.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
 import { isBridgeMessage } from '../../src/bridge/protocol.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
-import {
-  runAuthReset,
-  type AuthIdentityDeps,
-} from '../../src/cli/auth-identity.js';
+import { runAuthReset } from '../../src/cli/auth-identity.js';
+import type { BridgeCommandDeps } from '../../src/cli/bridge-tool-call.js';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
 
 const PORT = 5183;
@@ -59,7 +57,7 @@ function parsed(...argv: string[]) {
   return { ...raw, positional: raw.positional.slice(1) };
 }
 
-function deps(out: string[], err: string[]): AuthIdentityDeps {
+function deps(out: string[], err: string[]): BridgeCommandDeps {
   return {
     cwd: '/tmp',
     stdout: { write: (s) => out.push(s) },
