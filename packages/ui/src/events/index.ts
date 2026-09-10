@@ -23,6 +23,26 @@ export {
   type ActivityRow,
 } from './digest.js';
 
+export {
+  computeDivergenceSummary,
+  divergencesToFieldChanges,
+} from './divergenceAdapter.js';
+
+export type {
+  ReplayDivergenceKind,
+  ReplayDivergence,
+  SentinelDriftDivergence,
+  TimeDriftDivergence,
+  AutoIdAliasDivergence,
+  RealDivergence,
+  NowDeniedDivergence,
+  NowAllowedDivergence,
+  StateDriftDivergence,
+  DivergenceSummaryData,
+  SessionReplayOptions,
+  SessionReplayResult,
+} from './replayTypes.js';
+
 export type {
   ActivityEvent,
   AnyActivityEvent,
