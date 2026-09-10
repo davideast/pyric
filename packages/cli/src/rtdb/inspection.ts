@@ -14,6 +14,8 @@ interface SimulateAccessArgs {
   path: string;
   auth?: { uid: string; claims?: Record<string, unknown> } | null;
   newData?: unknown;
+  /** The instant `now` evaluates at, in epoch milliseconds. Defaults to the real current instant. */
+  now?: number;
 }
 
 interface CrawlStructureArgs {
@@ -52,6 +54,7 @@ export function createRtdbInspectionTools(
             ],
           },
           newData: {},
+          now: { type: 'number' },
         },
         required: ['operation', 'path'],
       },
@@ -80,6 +83,7 @@ export function createRtdbInspectionTools(
             : null,
           data,
           ...(args.newData !== undefined ? { newData: args.newData } : {}),
+          ...(args.now !== undefined ? { now: args.now } : {}),
         };
         const result = rtdbRules(rules).simulate([oneCase]).cases[0];
 

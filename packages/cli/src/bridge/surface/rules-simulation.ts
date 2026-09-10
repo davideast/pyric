@@ -8,6 +8,7 @@
  * resolves as `request.auth.token.firebase.tenant` here too.
  */
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { getClock } from 'pyric/sandbox';
 import { inspect } from 'pyric/sandbox/firestore';
 import { callSandboxTool } from './context.js';
 import type { OperationResult, SurfaceContext } from './types.js';
@@ -18,6 +19,8 @@ export interface SimulationRequest {
   uid?: string;
   data?: Record<string, unknown>;
   rules?: string;
+  /** ISO 8601 instant `request.time` evaluates at. Defaults to the sandbox clock. */
+  requestTime?: string;
 }
 
 export interface SimulationOutcome {
@@ -70,12 +73,17 @@ export async function simulateFirestoreCase(
 ): Promise<SimulationOutcome> {
   const source = request.rules ?? activeFirestoreRules(ctx);
   const auth = simulationAuth(ctx, request.uid);
+  // `request.time` always names an instant, explicit or the sandbox clock's
+  // own, so a simulation with no `requestTime` still moves with a pinned or
+  // advanced clock rather than falling back to the engine's own wall clock.
+  const requestTime = request.requestTime ?? getClock(ctx.sandbox).date().toISOString();
   const testCase: Record<string, unknown> = {
     description: `${request.operation} ${request.path}`,
     expectation: 'ALLOW',
     method: request.operation,
     path: request.path,
     auth,
+    requestTime,
   };
   if (request.data !== undefined) testCase.data = request.data;
 

@@ -4,10 +4,19 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 
 import { createSurfaceContext } from '../../../../src/bridge/surface/context.js';
 import { STORAGE_RULES } from '../../../../src/bridge/surface/rules-engines/storage.js';
+
+const TIME_GATED_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if request.time > timestamp.date(2026, 1, 1);
+    }
+  }
+}`;
 
 const OPEN_RULES = `rules_version = '2';
 service firebase.storage {
@@ -115,5 +124,41 @@ describe('simulate', () => {
       rules: SIGNED_IN_ONLY_RULES,
     });
     expect((denied.data as { allowed: boolean }).allowed).toBe(false);
+  });
+
+  it('flips a request.time-gated rule by an explicit requestTime', async () => {
+    const ctx = freshContext();
+    const gateInstant = Date.parse('2026-01-01T00:00:00.000Z');
+    await STORAGE_RULES.install(ctx, TIME_GATED_RULES);
+    const before = await STORAGE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'uploads/note.txt',
+      requestTime: new Date(gateInstant - 60_000).toISOString(),
+    });
+    expect((before.data as { allowed: boolean }).allowed).toBe(false);
+    const after = await STORAGE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'uploads/note.txt',
+      requestTime: new Date(gateInstant + 60_000).toISOString(),
+    });
+    expect((after.data as { allowed: boolean }).allowed).toBe(true);
+  });
+
+  it('defaults request.time to the sandbox clock when requestTime is omitted', async () => {
+    const ctx = freshContext();
+    const gateInstant = Date.parse('2026-01-01T00:00:00.000Z');
+    await STORAGE_RULES.install(ctx, TIME_GATED_RULES);
+    getClock(ctx.sandbox).set(gateInstant - 60_000);
+    const before = await STORAGE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'uploads/note.txt',
+    });
+    expect((before.data as { allowed: boolean }).allowed).toBe(false);
+    getClock(ctx.sandbox).set(gateInstant + 60_000);
+    const after = await STORAGE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'uploads/note.txt',
+    });
+    expect((after.data as { allowed: boolean }).allowed).toBe(true);
   });
 });

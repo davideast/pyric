@@ -2,11 +2,22 @@
 import { evaluateStorageRules, parseStorageRules, ref } from 'pyric/storage';
 import type { StorageRequestMethod } from 'pyric/storage';
 import { replaceStorageRules } from 'pyric/storage/internal';
+import { getClock } from 'pyric/sandbox';
 import { operationFailure } from '../context.js';
 import { storageFor } from '../service-handles.js';
 import { activeStorageRules, rulesRequestPath } from '../storage-rules.js';
 import type { SurfaceContext } from '../types.js';
 import type { RulesEngine, RulesSourceProblem } from './types.js';
+
+/**
+ * The instant `request.time` evaluates at: the caller's `requestTime`,
+ * parsed to a `Date`, or the sandbox clock's own current instant when the
+ * call named none.
+ */
+function nowFor(ctx: SurfaceContext, requestTime: string | undefined): Date {
+  if (requestTime !== undefined) return new Date(Date.parse(requestTime));
+  return getClock(ctx.sandbox).date();
+}
 
 /** The identity a simulation runs as, in the shape the rules evaluator takes. */
 function identityFor(
@@ -70,14 +81,18 @@ export const STORAGE_RULES: RulesEngine = {
     }
 
     const object = ref(storageFor(ctx), request.path);
-    const evaluated = evaluateStorageRules(parsed, {
-      request: {
-        auth: identityFor(ctx, request.uid),
-        method: request.operation as StorageRequestMethod,
-        path: rulesRequestPath(object),
+    const evaluated = evaluateStorageRules(
+      parsed,
+      {
+        request: {
+          auth: identityFor(ctx, request.uid),
+          method: request.operation as StorageRequestMethod,
+          path: rulesRequestPath(object),
+        },
+        resource: null,
       },
-      resource: null,
-    });
+      nowFor(ctx, request.requestTime),
+    );
     return {
       ok: true,
       summary: `${request.operation} ${request.path}: ${evaluated.allowed ? 'ALLOW' : 'DENY'}`,
