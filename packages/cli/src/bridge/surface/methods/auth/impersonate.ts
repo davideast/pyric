@@ -8,7 +8,7 @@
 import { z } from 'zod';
 import { customClaims, RENAMES, tenantId } from '../../arguments/auth.js';
 import { switchHeldIdentity } from '../../held-identity.js';
-import type { IdentityInput } from '../../identity.js';
+import { impersonatedIdentity, type NamedIdentity } from '../../stored-identity.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
@@ -27,11 +27,11 @@ export default {
   renames: RENAMES,
   example: { uid: 'alice', tenantId: 'tenant-a' },
   async handler(args, ctx) {
-    const input: IdentityInput = { mode: 'uid', uid: String(args.uid) };
-    if (args.tenantId !== undefined) input.tenant = String(args.tenantId);
+    const named: NamedIdentity = {};
+    if (args.tenantId !== undefined) named.tenant = String(args.tenantId);
     if (args.customClaims !== undefined) {
-      input.claims = args.customClaims as Record<string, unknown>;
+      named.claims = args.customClaims as Record<string, unknown>;
     }
-    return switchHeldIdentity(ctx, input);
+    return switchHeldIdentity(ctx, impersonatedIdentity(ctx, String(args.uid), named));
   },
 } satisfies MethodRecord;

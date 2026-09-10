@@ -7,9 +7,9 @@
  * The identity is the same projection the data plane uses, so a tenant
  * resolves as `request.auth.token.firebase.tenant` here too.
  */
-import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { inspect } from 'pyric/sandbox/firestore';
 import { callSandboxTool } from './context.js';
+import { storedIdentity } from './stored-identity.js';
 import type { OperationResult, SurfaceContext } from './types.js';
 
 export interface SimulationRequest {
@@ -29,23 +29,6 @@ export interface SimulationOutcome {
 /** The Firestore rules the sandbox is running, or the empty string when none are loaded. */
 export function activeFirestoreRules(ctx: SurfaceContext): string {
   return inspect(ctx.sandbox).rules.source;
-}
-
-/**
- * The tenant and claims stored on a user record, so a simulation named by uid
- * runs as the identity that user really signs in as. A user seeded outside this
- * session has no remembered projection, and without this lookup it would
- * simulate untenanted and the verdict would explain the wrong denial.
- */
-function storedIdentity(
-  ctx: SurfaceContext,
-  uid: string,
-): { tenant?: string; claims?: Record<string, unknown> } {
-  const stored = authSandbox.exportUsers(getAuth(ctx.sandbox)).find((user) => user.uid === uid);
-  const identity: { tenant?: string; claims?: Record<string, unknown> } = {};
-  if (stored?.tenantId !== undefined) identity.tenant = stored.tenantId;
-  if (stored?.customClaims !== undefined) identity.claims = stored.customClaims;
-  return identity;
 }
 
 /** The identity a simulation runs as: the named uid, or the held identity. */
