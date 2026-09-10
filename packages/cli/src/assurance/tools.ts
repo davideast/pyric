@@ -548,19 +548,19 @@ export function createAssuranceTools(
         };
         try {
           const campaign = store.get(input.campaignId);
-          for (const actor of input.actors ?? []) campaign.addActor(actor);
-          for (const observation of input.observations ?? [])
-            campaign.addObservation(observation);
-          for (const probe of input.probes ?? []) campaign.addProbe(probe);
+          const counts = campaign.map({
+            actors: input.actors,
+            observations: input.observations,
+            probes: input.probes,
+          });
           store.publish(campaign);
-          const spec = campaign.spec();
           return {
             ok: true,
-            summary: `Mapped ${spec.actors.length} actor(s), ${campaign.observations.length} observation(s), and ${spec.probes.length} probe(s)`,
+            summary: `Mapped ${counts.actors} actor(s), ${counts.observations} observation(s), and ${counts.probes} probe(s)`,
             data: {
-              actors: spec.actors.length,
-              observations: campaign.observations.length,
-              probes: spec.probes.length,
+              actors: counts.actors,
+              observations: counts.observations,
+              probes: counts.probes,
               nextActions: [
                 "Define the intended boundary for each negative probe.",
               ],
