@@ -557,10 +557,10 @@ if (bridgeUrlFromPayload) {
 //
 // Both are no-ops in non-browser environments (`BroadcastChannel` absent).
 //
-// WORKER PATH: retired. The SharedWorker IS the single backend for all tabs, so
-// cross-tab Firestore + auth are automatic — the in-page sandbox these channels
-// would sync isn't the data backend here. Kept ONLY for the in-page fallback
-// (the tier the plan designates for browsers without SharedWorker).
+// WORKER PATH: The SharedWorker host connects directly to 'pyric:serve:tabsync'
+// and 'pyric:serve:auth-sync' via fallback-worker-sync to bridge mixed-mode tabs
+// and prevent transport mismatch split-brain. In-page sandbox sync is only
+// needed when !useWorker (fallback mode).
 if (!useWorker && typeof BroadcastChannel !== 'undefined') {
   // 1. Firestore cross-tab — library primitive does the heavy lifting.
   sandbox.enableTabSync({
