@@ -36,9 +36,9 @@ A `production` method reaches Google infrastructure with real credentials. It is
 
 | Tool | Methods |
 |---|---|
-| `firestore` | `getDoc`, `getDocs`, `addDoc`, `setDoc`, `updateDoc`, `deleteDoc`, `writeBatch` |
-| `database` | `get`, `query`, `set`, `update`, `remove` |
-| `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
+| `firestore` | `getDoc`, `getDocs`, `addDoc`, `setDoc`, `updateDoc`, `deleteDoc`, `writeBatch`, `getCountFromServer`, `getAggregateFromServer`, `discoverPaths`, `findCollectionGroup`, `extractIndexes`, `writeIndexes` (destructive; requires `confirm: true`) |
+| `database` | `get`, `query`, `set`, `update`, `remove`, `push`, `crawl` (bounded structural view, no leaf values, depth 0 to 10, default 10) |
+| `storage` | `getBytes`, `getDownloadURL`, `getMetadata`, `listAll`, `uploadBytes`, `updateMetadata`, `deleteObject`, `setCrossServiceIam`, `status` and `provision` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 | `auth` | `getUser`, `getUserByEmail`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `importUsers`, `createCustomToken`, `signInWithEmailAndPassword`, `signInAnonymously`, `signInWithCustomToken`, `signInWithCredential`, `signOut`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami`, `sessions` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
 | `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
@@ -138,6 +138,41 @@ writing two documents gives them the same instant. The Realtime Database
 takes Firebase's own wire form instead, `{".sv": "timestamp"}`, which
 `database.set` and `database.update` accept verbatim and resolve against the
 same clock.
+
+`storage.uploadBytes` carries its payload one of two ways, and exactly one per
+call: `contentBase64` for bytes the call already holds, or `sourcePath` for a
+file inside the project directory, which is read from disk and never leaves it.
+A path that escapes the project directory is refused naming the value. The
+object path's extension supplies the content type when the metadata does not
+name one, so an upload of `exports/report.csv` reads back as `text/csv` rather
+than as an octet stream. `storage.getDownloadURL` returns the URL the sandbox
+mints, which is a `data:` URI carrying the object's own bytes and therefore
+resolves only against this sandbox; production returns a token-signed HTTPS URL
+instead. `storage.updateMetadata` replaces the client-settable metadata fields
+and leaves the object's bytes alone, and its `updated` stamp follows the
+sandbox clock like every other server-set time.
+
+`storage.setCrossServiceIam` decides whether storage rules may read Firestore
+through `firestore.get` and `firestore.exists`. `granted` serves those lookups
+from the sandbox's own Firestore store, which is the common configured-project
+state; `denied` is the project whose Storage service agent lacks
+`roles/firebaserules.firestoreServiceAgent`, where every executed lookup fails
+and its rule denies while a short-circuited lookup is never executed and is
+unaffected. `rules.simulate` for storage evaluates a cross-service rule under
+whichever posture the sandbox is in, so a simulation predicts the operation
+rather than a neighbouring one.
+
+`storage.status` and `storage.provision` are the control plane, and they reach
+the project's real Storage service with the caller's own credentials, so both
+are production methods. `status` reads the service state, the default resource
+location, and the linked buckets. `provision` enables
+`firebasestorage.googleapis.com`, finalizes the default resource location,
+which is set once and cannot be changed, and creates and links the bucket;
+enabling the service needs `roles/serviceusage.serviceUsageAdmin` or
+`roles/owner`, which the default Firebase Admin SDK service account does not
+carry. Both are refused without `--allow-production`, refused again without
+`confirm: true`, and refused a third time when no credentials are found, naming
+the same three sources the hosted rules test reads.
 
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path
@@ -269,8 +304,13 @@ the command that prints those rows, with the target ids `--target` takes.
 ## Index extraction — `pyric/rules/indexes`
 
 `firestore_extract_indexes` — derive composite-index definitions from query
-shapes. Available as a library and via `pyric firestore indexes generate`;
-**not** registered on the default MCP bridge.
+shapes found by static analysis of application source. Available as a library
+and via `pyric firestore indexes generate`; **not** registered on the default
+MCP bridge.
+
+The product surface's `firestore.extractIndexes` and `firestore.writeIndexes`
+(above) are a different capability: they take queries directly rather than
+parsing source, and run against the sandbox rather than a source tree.
 
 ## Realtime Database rule artifacts — `@pyric/cli`
 
@@ -284,8 +324,10 @@ does not fetch or deploy production rules.
 
 `storage_get_status` · `storage_provision`
 
-Library surface for provisioning / status. **Not** on the default MCP bridge.
-Ship Storage rules and buckets with `firebase-tools` / Console for production.
+Library surface for provisioning / status, and the client the service surface's
+`storage.status` and `storage.provision` reach through. **Not** on the default
+`pyric bridge` surface; on `pyric mcp` it is the two production methods above,
+which no server runs without `--allow-production`.
 
 ## Discovery — `createFirestoreDiscoverTools` (`@pyric/cli/discover`)
 
@@ -295,7 +337,10 @@ provide the data source:
 `firestore_discover_paths` · `firestore_find_collection_group`
 
 These exist in `@pyric/cli/discover` but are **not** registered on the default
-`pyric bridge` / `pyric sandbox --bridge` surface.
+`pyric bridge` / `pyric sandbox --bridge` surface. The product surface's
+`firestore.discoverPaths` and `firestore.findCollectionGroup` (above) are a
+separate, exhaustive implementation over the sandbox's own document index
+rather than a sampled crawl, and are registered on `pyric mcp`.
 
 ## Assurance — `createAssuranceTools` (`@pyric/cli/assurance`)
 

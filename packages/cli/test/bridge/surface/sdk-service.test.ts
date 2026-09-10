@@ -131,7 +131,7 @@ describe('the sdk-service validator', () => {
   it('names the closest method when the method does not exist', async () => {
     const result = await call('firestore', 'setDocument', { path: 'users/alice' });
     expect(result.summary).toBe(
-      "firestore.setDocument: no method 'setDocument'. Did you mean 'setDoc'? The firestore tool accepts addDoc, deleteDoc, getDoc, getDocs, setDoc, updateDoc, writeBatch, describe. Call firestore with method 'setDoc'.",
+      "firestore.setDocument: no method 'setDocument'. Did you mean 'setDoc'? The firestore tool accepts addDoc, deleteDoc, discoverPaths, extractIndexes, findCollectionGroup, getAggregateFromServer, getCountFromServer, getDoc, getDocs, setDoc, updateDoc, writeBatch, writeIndexes, describe. Call firestore with method 'setDoc'.",
     );
     expect(result.data).toEqual({
       code: 'invalid_arguments',

@@ -37,15 +37,28 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `delete_firestore_document` | delete | firestore | document | `path` | |
 | `batch_firestore_writes` | batch | firestore | writes | `writes` (array of `{ op, path, data? }`) | |
 | `query_firestore_documents` | query | firestore | documents | `path`, `filters?` (array of `{ field, op, value }`), `orderBy?`, `direction?`, `limit?` | |
+| `count_firestore_documents` | count | firestore | documents | `path`, `constraints?` | Server-side count, no documents read. |
+| `aggregate_firestore_documents` | aggregate | firestore | documents | `path`, `spec` (`{ count?, sum?: field, average?: field }`), `constraints?` | Server-side count, sum, and average in one call. |
+| `discover_firestore_paths` | discover | firestore | paths | `depth?`, `limit?` | Exhaustive over the sandbox's own document index, not a sampled crawl. |
+| `find_firestore_collection_group` | find | firestore | collection group | `collectionId` | Every collection path ending in the given id, with document counts. |
+| `extract_firestore_indexes` | extract | firestore | indexes | `queries?` (array of `{ path, constraints? }`) | The composite indexes the given queries require, in `firestore.indexes.json` shape. |
+| `write_firestore_indexes` | write | firestore | indexes | `indexes`, `path?`, `confirm` | Writes the definitions to `firestore.indexes.json`, overwriting it. Destructive: split from `extract_firestore_indexes` because the effect model is static per method. |
 | `get_database_value` | get | database | value | `path` | |
 | `write_database_value` | write | database | value | `path`, `value` | |
 | `update_database_value` | update | database | value | `path`, `value` (object) | |
 | `delete_database_value` | delete | database | value | `path` | |
 | `query_database_values` | query | database | values | `path`, `orderByChild?`, `equalTo?`, `limitToFirst?` | |
-| `upload_storage_file` | upload | storage | file | `path`, `contentBase64`, `contentType?`, `metadata?` (object) | |
+| `push_database_value` | push | database | value | `path`, `value?` | Mints an auto-id child key; returns the key and the full child path. With no `value`, only the key is minted and nothing is written. |
+| `crawl_database_structure` | crawl | database | structure | `path?`, `depth?` (0 to 10, default 10) | Bounded structural view, no leaf values. Reuses the `rtdb_crawl_structure` bridge tool's implementation. |
+| `upload_storage_file` | upload | storage | file | `path`, `contentBase64?`, `sourcePath?`, `contentType?`, `metadata?` (object) | Exactly one of `contentBase64` and `sourcePath`; `sourcePath` names a file inside the project directory. The path's extension supplies an unnamed content type. |
 | `download_storage_file` | download | storage | file | `path` | |
+| `get_storage_download_url` | get | storage | url | `path` | The sandbox mints a `data:` URI carrying the object's own bytes. |
 | `list_storage_files` | list | storage | files | `prefix?` | |
 | `get_storage_metadata` | get | storage | metadata | `path` | |
+| `update_storage_metadata` | update | storage | metadata | `path`, `metadata` (`contentType?`, `customMetadata?`, `cacheControl?`, `contentDisposition?`, `contentEncoding?`, `contentLanguage?`) | Custom metadata is replaced wholesale; `updated` follows the sandbox clock. |
+| `set_storage_cross_service_iam` | set | storage | iam | `mode` (`granted`, `denied`) | Whether storage rules may read Firestore through `firestore.get` and `exists`. |
+| `get_storage_service_status` | get | storage | status | `confirm` | Production: the real project's Storage service, location, and buckets. No run may reach it. |
+| `provision_storage_bucket` | provision | storage | bucket | `bucket?`, `confirm` | Production: enables Storage on the real project. No run may reach it. |
 | `delete_storage_file` | delete | storage | file | `path` | |
 | `lint_firestore_rules` | lint | firestore | rules | `rules?` (source; default current) | |
 | `simulate_firestore_rules` | simulate | firestore | rules | `operation`, `path`, `uid?`, `data?` (object), `cases?` (array of `{ operation, path, uid?, data? }`), `rules?` | Exactly one of the single form and `cases`. |
@@ -75,8 +88,25 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `promote_sandbox_branch` | promote | sandbox | branch | `branch`, `confirm` | Destructive: lands the branch on live and deletes it. |
 | `discard_sandbox_branch` | discard | sandbox | branch | `branch` | Deletes the branch; live is untouched. |
 | `list_sandbox_branches` | list | sandbox | branches | none | Name, created, base, event count, and divergences against live. |
+| `replay_assurance_session` | replay | assurance | session | `sessionPath?`, `candidateRules?`, `service?` (firestore, database) | Divergences between recorded verdicts and the candidate ruleset's. |
+| `verify_assurance_cases` | verify | assurance | cases | `fixture?`, `candidateRules?`, `service?` (firestore) | Runs a fixture's cases through the local engine and names the ones that diverge. |
+| `check_assurance_feature` | check | assurance | feature | `feature` | Conformance status, the same answer as `pyric can-i-use`. |
+| `attach_assurance_target` | attach | assurance | target | `campaignId?`, `maxRuns?` | Attaches the campaign to the sandbox the server owns. |
+| `start_assurance_campaign` | start | assurance | campaign | `target`, `campaignId?`, `maxRuns?` | |
+| `map_assurance_campaign` | map | assurance | campaign | `campaignId`, `actors?`, `observations?`, `probes?` | Adds records to the campaign; all or nothing. |
+| `define_assurance_invariants` | define | assurance | invariants | `campaignId`, `invariants` | |
+| `propose_assurance_probes` | propose | assurance | probes | `campaignId`, `observationId`, `invariantId`, `mutations` | |
+| `run_assurance_probes` | run | assurance | probes | `campaignId`, `probeIds?` | |
+| `inspect_assurance_probe` | inspect | assurance | probe | `campaignId`, `probeId` | |
+| `minimize_assurance_probe` | minimize | assurance | probe | `campaignId`, `probeId` | |
+| `verify_assurance_rules` | verify | assurance | rules | `campaignId`, `rules`, `includeCandidates?`, `verificationId?` | Records verdicts on the campaign. |
+| `export_assurance_campaign` | export | assurance | campaign | `campaignId`, `path?` | Writes a redacted bundle inside the project directory. |
+| `test_assurance_rules_hosted` | test | assurance | rules | `service` (firestore), `rules`, `cases`, `confirm` | Production: listed as disabled and refused unless the server was started with `--allow-production`; then requires `confirm` and credentials. |
+| `set_clock` | set | sandbox | clock | `isoTime` | Pins and freezes the sandbox clock. |
+| `advance_clock` | advance | sandbox | clock | `ms` | From wall clock shifts and keeps flowing; under a pinned clock stays frozen at the new instant. |
+| `reset_clock` | reset | sandbox | clock | none | Back to wall clock. |
 
-Fifty-three operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of a method's own arguments is at most two object levels below the root. The assurance methods carry the campaign document's own authored records rather than arguments of their own, and a probe holds a mutation, which holds an operation, which holds a payload, so those nest at most four.
+Ninety-three operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of a method's own arguments is at most two object levels below the root. The assurance methods carry the campaign document's own authored records rather than arguments of their own, and a probe holds a mutation, which holds an operation, which holds a payload, so those nest at most four.
 
 ## 2. Surface variants
 

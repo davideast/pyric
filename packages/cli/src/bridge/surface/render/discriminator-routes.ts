@@ -28,6 +28,7 @@ import {
   diagnoseRuleDenialSchema,
   dryRunExperimentSchema,
   inspectAuthFlowSchema,
+  inspectFirestoreStructureSchema,
   invokeCloudFunctionSchema,
   judgeAuthorizationRiskSchema,
   manageAppSessionSchema,
@@ -81,6 +82,12 @@ export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
     description:
       'Upload (base64), download (data: URI), delete, or list files in sandbox Cloud Storage.',
     parameters: manageStorageFilesSchema,
+  },
+  {
+    name: 'inspect_firestore_structure',
+    description:
+      'Count or aggregate a Firestore query on the server, list the paths a sandbox holds, find a collection group, or find the composite indexes a set of queries need.',
+    parameters: inspectFirestoreStructureSchema,
   },
   {
     name: 'diagnose_rule_denial',
@@ -313,6 +320,20 @@ const DATA_ROUTES: DiscriminatorRoute[] = [
       return { writes };
     },
   },
+  // Firestore lane: write the index definitions extractIndexes found.
+  {
+    tool: 'mutate_sandbox_data',
+    action: 'writeIndexes',
+    selects: onBoth('service', 'firestore', 'action', 'writeIndexes'),
+    operation: 'write_firestore_indexes',
+    translate: (args) => {
+      const payload = parseJsonObject(text(args, 'dataJson')) ?? {};
+      const translated: Args = { indexes: payload.indexes ?? [] };
+      assign(translated, 'path', payload.path);
+      assign(translated, 'confirm', payload.confirm);
+      return translated;
+    },
+  },
   {
     tool: 'mutate_sandbox_data',
     action: 'set',
@@ -337,6 +358,18 @@ const DATA_ROUTES: DiscriminatorRoute[] = [
     operation: 'delete_database_value',
     translate: (args) => ({ path: args.path }),
   },
+  // The database lane's own addition: an auto-id write.
+  {
+    tool: 'mutate_sandbox_data',
+    action: 'push',
+    selects: onBoth('service', 'database', 'action', 'push'),
+    operation: 'push_database_value',
+    translate: (args) => {
+      const translated: Args = { path: args.path };
+      assign(translated, 'value', parseJsonValue(text(args, 'dataJson')));
+      return translated;
+    },
+  },
   {
     tool: 'query_sandbox_data',
     action: null,
@@ -358,6 +391,20 @@ const DATA_ROUTES: DiscriminatorRoute[] = [
     translate: (args) => {
       const translated: Args = { path: args.path };
       assign(translated, 'limit', args.limit);
+      return translated;
+    },
+  },
+  // The database lane's own addition: a structural read, checked before the
+  // generic database query route since it also matches on service alone.
+  {
+    tool: 'query_sandbox_data',
+    action: null,
+    selects: (args) => args.service === 'database' && args.action === 'crawl',
+    operation: 'crawl_database_structure',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'path', args.path);
+      assign(translated, 'depth', args.depth);
       return translated;
     },
   },
@@ -396,6 +443,75 @@ function translateFilters(args: Args): Array<{ field: string; op: string; value:
   }));
 }
 
+// ─── Firestore lane: depth reads ────────────────────────────────────────
+
+/** `filtersJson`'s entries, translated into the `where` constraints the depth methods take. */
+function constraintsFromFiltersJson(args: Args): Args[] | undefined {
+  const parsed = parseJsonArray(text(args, 'filtersJson'));
+  if (parsed === undefined) return undefined;
+  return (parsed as QueryFilter[]).map((filter) => ({
+    type: 'where',
+    field: filter.field,
+    op: filter.op,
+    value: parseJsonValue(filter.valueJson),
+  }));
+}
+
+const FIRESTORE_STRUCTURE_ROUTES: DiscriminatorRoute[] = [
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'count',
+    selects: on('action', 'count'),
+    operation: 'count_firestore_documents',
+    translate: (args) => {
+      const translated: Args = { path: args.path };
+      assign(translated, 'constraints', constraintsFromFiltersJson(args));
+      return translated;
+    },
+  },
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'aggregate',
+    selects: on('action', 'aggregate'),
+    operation: 'aggregate_firestore_documents',
+    translate: (args) => {
+      const translated: Args = { path: args.path, spec: parseJsonObject(text(args, 'specJson')) ?? {} };
+      assign(translated, 'constraints', constraintsFromFiltersJson(args));
+      return translated;
+    },
+  },
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'discoverPaths',
+    selects: on('action', 'discoverPaths'),
+    operation: 'discover_firestore_paths',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'depth', args.depth);
+      assign(translated, 'limit', args.limit);
+      return translated;
+    },
+  },
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'findCollectionGroup',
+    selects: on('action', 'findCollectionGroup'),
+    operation: 'find_firestore_collection_group',
+    translate: (args) => ({ collectionId: args.collectionId }),
+  },
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'extractIndexes',
+    selects: on('action', 'extractIndexes'),
+    operation: 'extract_firestore_indexes',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'queries', parseJsonArray(text(args, 'queriesJson')));
+      return translated;
+    },
+  },
+];
+
 const STORAGE_ROUTES: DiscriminatorRoute[] = [
   {
     tool: 'manage_storage_files',
@@ -403,7 +519,11 @@ const STORAGE_ROUTES: DiscriminatorRoute[] = [
     selects: on('action', 'upload'),
     operation: 'upload_storage_file',
     translate: (args) => {
-      const translated: Args = { path: args.path, contentBase64: args.base64Content ?? '' };
+      const translated: Args = { path: args.path };
+      assign(translated, 'sourcePath', text(args, 'sourcePath'));
+      if (translated.sourcePath === undefined) {
+        translated.contentBase64 = args.base64Content ?? '';
+      }
       assign(translated, 'contentType', text(args, 'contentType'));
       assign(translated, 'metadata', parseJsonObject(text(args, 'customMetadataJson')));
       return translated;
@@ -432,6 +552,57 @@ const STORAGE_ROUTES: DiscriminatorRoute[] = [
     selects: on('action', 'list'),
     operation: 'get_storage_metadata',
     translate: (args) => ({ path: args.path }),
+  },
+  // Step 7, the storage lane.
+  {
+    tool: 'manage_storage_files',
+    action: 'download_url',
+    selects: on('action', 'download_url'),
+    operation: 'get_storage_download_url',
+    translate: (args) => ({ path: args.path }),
+  },
+  {
+    tool: 'manage_storage_files',
+    action: 'update_metadata',
+    selects: on('action', 'update_metadata'),
+    operation: 'update_storage_metadata',
+    translate: (args) => {
+      const metadata: Args = {};
+      assign(metadata, 'contentType', text(args, 'contentType'));
+      assign(metadata, 'cacheControl', text(args, 'cacheControl'));
+      assign(metadata, 'customMetadata', parseJsonObject(text(args, 'customMetadataJson')));
+      return { path: args.path, metadata };
+    },
+  },
+  {
+    tool: 'manage_storage_files',
+    action: 'set_cross_service_iam',
+    selects: on('action', 'set_cross_service_iam'),
+    operation: 'set_storage_cross_service_iam',
+    translate: (args) => ({ mode: args.crossServiceIam }),
+  },
+  {
+    tool: 'manage_storage_files',
+    action: 'service_status',
+    selects: on('action', 'service_status'),
+    operation: 'get_storage_service_status',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'confirm', args.confirm);
+      return call;
+    },
+  },
+  {
+    tool: 'manage_storage_files',
+    action: 'provision',
+    selects: on('action', 'provision'),
+    operation: 'provision_storage_bucket',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'bucket', text(args, 'bucket'));
+      assign(call, 'confirm', args.confirm);
+      return call;
+    },
   },
 ];
 
@@ -499,6 +670,7 @@ export const DISCRIMINATOR_ROUTES: readonly DiscriminatorRoute[] = [
   ...AUTH_ROUTES,
   ...APP_SESSION_ROUTES,
   ...DATA_ROUTES,
+  ...FIRESTORE_STRUCTURE_ROUTES,
   ...STORAGE_ROUTES,
   ...RULES_ROUTES,
   ...ASSURANCE_ROUTES,

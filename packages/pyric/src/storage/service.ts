@@ -26,7 +26,8 @@ import {
   provenanceForOperationContext,
   resolveOperationContext,
 } from 'pyric/sandbox/internal';
-import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
+import { openStorageBackend, storageDbName } from './persistence.js';
+import { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
 import type { StorageRules } from './sandbox/rules.js';
 import {
   compileStorageRules,
@@ -91,37 +92,7 @@ export interface FirebaseStorage {
 /** Storage handle returned by Firebase-shaped app overloads. */
 export type AppFirebaseStorage = FirebaseStorage & { readonly app: FirebaseApp };
 
-/**
- * Cross-service IAM posture for `firestore.get()/exists()` in Storage rules.
- *
- * Production Storage rules can read Firestore ONLY when the project's
- * Storage service agent holds `roles/firebaserules.firestoreServiceAgent`.
- * `'granted'` (the default, the common configured-project state) serves
- * lookups from the same-sandbox Firestore store; `'denied'` makes every
- * EXECUTED lookup fail exactly like production without the role (error →
- * rule denies), while short-circuited lookups are never executed and stay
- * unaffected. Captured boundary: conformance observation
- * `stdlib-realstorage-p3-lookup-budget` (registry row storage-rules#134).
- */
-export type CrossServiceIam = 'granted' | 'denied';
-
-/**
- * Internal sandbox service — owns the IDB connection + parsed rules.
- * Only constructed inside the sandbox `getStorageSandbox` path.
- */
-export class StorageService {
-  constructor(
-    readonly backend: StorageBackend,
-    /**
-     * The ruleset every operation on this service evaluates against.
-     * Assigned at construction and reassigned only by
-     * {@link replaceStorageRules}, which is the one deliberate way to
-     * install a new ruleset into a sandbox whose storage is already open.
-     */
-    public rules: StorageRules | null = null,
-    readonly crossServiceIam: CrossServiceIam = 'granted',
-  ) {}
-}
+export { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
 
 /** Options for {@link getStorageSandbox}. */
 export interface StorageOptions {
@@ -284,6 +255,54 @@ export async function replaceStorageRules(sandbox: Sandbox, source: string): Pro
   for (const scopedPromise of SCOPED_SERVICES.get(sandbox)?.values() ?? []) {
     const scoped = await scopedPromise;
     scoped.rules = compiled.rules;
+  }
+}
+
+/**
+ * The cross-service IAM posture a sandbox's storage service is running under.
+ *
+ * A sandbox whose storage service has never been opened reports the default a
+ * first open would take, so a reader gets the mode that is in force rather
+ * than an absence it has to interpret.
+ */
+export function getStorageCrossServiceIam(sandbox: Sandbox): CrossServiceIam {
+  return OPEN_SERVICES.get(sandbox)?.crossServiceIam ?? 'granted';
+}
+
+/**
+ * Move a sandbox's storage service between the granted and denied
+ * cross-service IAM states, replacing whatever it is enforcing.
+ *
+ * This is the deliberate counterpart to the late-config guard in
+ * {@link ensureService}, on the same argument that gives
+ * {@link replaceStorageRules} its exception: a `crossServiceIam` option passed
+ * to a FACTORY after the service is open would be silently discarded, and a
+ * caller asking for a handle has not asked to change the project's IAM
+ * posture. Here the caller has asked for exactly that.
+ *
+ * The new mode reaches the root service and every per-bucket scoped service,
+ * because each holds its own reference to it.
+ */
+export async function replaceCrossServiceIam(
+  sandbox: Sandbox,
+  mode: CrossServiceIam,
+): Promise<void> {
+  const open = OPEN_SERVICES.get(sandbox);
+  if (open === undefined) {
+    await ensureService(sandbox, { crossServiceIam: mode }, 'replaceCrossServiceIam');
+    return;
+  }
+  OPEN_SERVICES.set(sandbox, {
+    service: open.service,
+    rulesSource: open.rulesSource,
+    rulesResolution: open.rulesResolution,
+    crossServiceIam: mode,
+  });
+  const root = await open.service;
+  root.crossServiceIam = mode;
+  for (const scopedPromise of SCOPED_SERVICES.get(sandbox)?.values() ?? []) {
+    const scoped = await scopedPromise;
+    scoped.crossServiceIam = mode;
   }
 }
 

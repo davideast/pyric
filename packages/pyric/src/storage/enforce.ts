@@ -39,7 +39,7 @@
  * app code is unchanged.
  */
 import { emitSandboxEvent, getClock, makeSandboxOperationEvent } from 'pyric/sandbox/internal';
-import type { EventProvenance } from 'pyric/sandbox';
+import type { EventProvenance, Sandbox } from 'pyric/sandbox';
 import {
   storageOperationProvenance,
   type CrossServiceIam,
@@ -179,8 +179,25 @@ function firestoreLookupFor(
   crossServiceIam: CrossServiceIam,
 ): FirestoreLookup | undefined {
   if (!target) return undefined;
+  return storageFirestoreLookup(target.sandbox, crossServiceIam);
+}
+
+/**
+ * The lookup one sandbox's Storage rules read `firestore.get()/exists()` from,
+ * under one IAM posture.
+ *
+ * Enforcement is not the only reader of it. A rules simulation asks the same
+ * question of the same ruleset without issuing the operation, and a simulation
+ * that built its own lookup, or none, would answer a cross-service rule
+ * differently from the operation it is meant to predict. So the construction
+ * lives here, once, and both paths call it.
+ */
+export function storageFirestoreLookup(
+  sandbox: Sandbox,
+  crossServiceIam: CrossServiceIam,
+): FirestoreLookup {
   if (crossServiceIam === 'denied') return crossServiceIamDeniedLookup();
-  const admin = target.sandbox.admin;
+  const admin = sandbox.admin;
   return {
     get: (path) => admin.getDocument(path) as Record<string, unknown> | null,
     exists: (path) => admin.getDocument(path) !== null,

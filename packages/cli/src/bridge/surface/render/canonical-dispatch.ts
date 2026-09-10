@@ -112,6 +112,14 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     }),
   },
 
+  // Firestore depth: aggregates, discovery, and index extraction.
+  count_firestore_documents: { key: 'firestore.getCountFromServer' },
+  aggregate_firestore_documents: { key: 'firestore.getAggregateFromServer' },
+  discover_firestore_paths: { key: 'firestore.discoverPaths' },
+  find_firestore_collection_group: { key: 'firestore.findCollectionGroup' },
+  extract_firestore_indexes: { key: 'firestore.extractIndexes' },
+  write_firestore_indexes: { key: 'firestore.writeIndexes' },
+
   get_database_value: { key: 'database.get' },
   write_database_value: { key: 'database.set' },
   delete_database_value: { key: 'database.remove' },
@@ -120,6 +128,9 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     key: 'database.update',
     toMethodArgs: (args) => ({ path: args.path, values: args.value }),
   },
+  // The database lane's own additions: an auto-id write and a structural read.
+  push_database_value: { key: 'database.push' },
+  crawl_database_structure: { key: 'database.crawl' },
 
   download_storage_file: { key: 'storage.getBytes' },
   list_storage_files: { key: 'storage.listAll' },
@@ -131,10 +142,26 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
       const grouped: Args = {};
       if (args.contentType !== undefined) grouped.contentType = args.contentType;
       if (args.metadata !== undefined) grouped.customMetadata = args.metadata;
-      const call: Args = { path: args.path, contentBase64: args.contentBase64 };
+      const call: Args = { path: args.path };
+      if (args.contentBase64 !== undefined) call.contentBase64 = args.contentBase64;
+      if (args.sourcePath !== undefined) call.sourcePath = args.sourcePath;
       if (Object.keys(grouped).length > 0) call.metadata = grouped;
       return call;
     },
+  },
+
+  // Storage depth: download URLs, metadata updates, the cross-service posture,
+  // and the control plane behind the production gate.
+  get_storage_download_url: { key: 'storage.getDownloadURL' },
+  update_storage_metadata: { key: 'storage.updateMetadata' },
+  set_storage_cross_service_iam: { key: 'storage.setCrossServiceIam' },
+  get_storage_service_status: {
+    key: 'storage.status',
+    toMethodArgs: (args) => pick(args, ['confirm']),
+  },
+  provision_storage_bucket: {
+    key: 'storage.provision',
+    toMethodArgs: (args) => pick(args, ['bucket', 'confirm']),
   },
 
   switch_auth_identity: { key: identityKey, toMethodArgs: identityArgs },

@@ -18,9 +18,12 @@
 export {
   bindStorageOperationContext,
   getAdminStorageSandbox,
+  getStorageCrossServiceIam,
   getStorageRulesResolution,
+  replaceCrossServiceIam,
   replaceStorageRules,
 } from './service.js';
+export { storageFirestoreLookup } from './enforce.js';
 export {
   decodeString,
   defaultRawContentType,

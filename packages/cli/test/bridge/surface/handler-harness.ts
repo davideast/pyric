@@ -72,7 +72,9 @@ export const exercised = new Set<string>();
  * its `finishHandlerSuite` call leaves the check unrun, which is why the list
  * is short and lives beside the set it guards.
  */
-const SUITES: readonly string[] = ['services', 'assurance'];
+// Each entry names a handler suite file; a service's depth methods get their
+// own suite rather than growing `handlers.test.ts` past the file-size limit.
+const SUITES: readonly string[] = ['services', 'assurance', 'storage', 'firestore-depth'];
 const finished = new Set<string>();
 
 /** Call one method through its service tool and record that it ran. */

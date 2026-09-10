@@ -112,6 +112,7 @@ describe('destructive refusal', () => {
   it('names every destructive method today', () => {
     const destructiveRecords = METHODS.filter((method) => method.effect === 'destructive');
     expect(destructiveRecords.map((method) => method.key).sort()).toEqual([
+      'firestore.writeIndexes',
       'sandbox.deleteCheckpoint',
       'sandbox.promote',
       'sandbox.reset',
@@ -198,7 +199,13 @@ describe('production gating', () => {
 
   it('names every production method today', () => {
     const productionRecords = METHODS.filter((method) => method.effect === 'production');
-    expect(productionRecords.map((method) => method.key)).toEqual(['assurance.testRulesHosted']);
+    expect(productionRecords.map((method) => method.key).sort()).toEqual([
+      'assurance.testRulesHosted',
+      // The storage lane's control plane, which reaches the project's real
+      // Storage service with the caller's own credentials.
+      'storage.provision',
+      'storage.status',
+    ]);
   });
 
   it("shows the assurance tool's disabled heading on a server that did not opt in", () => {

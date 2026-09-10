@@ -1,7 +1,11 @@
 /** The Cloud Storage rules engine behind the `rules` tool. */
 import { evaluateStorageRules, parseStorageRules, ref } from 'pyric/storage';
 import type { StorageRequestMethod } from 'pyric/storage';
-import { replaceStorageRules } from 'pyric/storage/internal';
+import {
+  getStorageCrossServiceIam,
+  replaceStorageRules,
+  storageFirestoreLookup,
+} from 'pyric/storage/internal';
 import { operationFailure } from '../context.js';
 import { requestInstant } from '../request-instant.js';
 import { storageFor } from '../service-handles.js';
@@ -87,6 +91,10 @@ export const STORAGE_RULES: RulesEngine = {
         resource: null,
       },
       new Date(requestInstant(ctx, request.requestTime)),
+      // A rule reaching into Firestore is answered here the way the
+      // enforcement path answers it, under the posture the sandbox is in, so a
+      // simulation predicts the operation rather than a neighbouring one.
+      storageFirestoreLookup(ctx.sandbox, getStorageCrossServiceIam(ctx.sandbox)),
     );
     return {
       ok: true,

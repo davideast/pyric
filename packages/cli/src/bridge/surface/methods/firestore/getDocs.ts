@@ -31,7 +31,7 @@ export default {
   method: 'getDocs',
   sdkOrigin: 'firebase-js',
   effect: 'read',
-  signature: 'getDocs(path, constraints?[{type, field?, op?, value?, direction?: asc|desc}])',
+  signature: 'getDocs(path, constraints?[asc|desc])',
   description:
     'Read a collection. With no constraints this lists the collection; with constraints it runs a query.',
   args: z.object({

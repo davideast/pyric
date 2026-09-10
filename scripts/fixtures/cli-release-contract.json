@@ -54,18 +54,26 @@
     "auth updateUser",
     "auth useAppSession",
     "auth whoami",
+    "database crawl",
     "database get",
+    "database push",
     "database query",
     "database remove",
     "database set",
     "database update",
     "firestore addDoc",
     "firestore deleteDoc",
+    "firestore discoverPaths",
+    "firestore extractIndexes",
+    "firestore findCollectionGroup",
+    "firestore getAggregateFromServer",
+    "firestore getCountFromServer",
     "firestore getDoc",
     "firestore getDocs",
     "firestore setDoc",
     "firestore updateDoc",
     "firestore writeBatch",
+    "firestore writeIndexes",
     "rules explainDenial",
     "rules getStdlib",
     "rules lint",
@@ -93,8 +101,13 @@
     "sandbox setClock",
     "storage deleteObject",
     "storage getBytes",
+    "storage getDownloadURL",
     "storage getMetadata",
     "storage listAll",
+    "storage provision",
+    "storage setCrossServiceIam",
+    "storage status",
+    "storage updateMetadata",
     "storage uploadBytes"
   ],
   "exports": [
@@ -160,7 +173,9 @@
       "whoami"
     ],
     "database": [
+      "crawl",
       "get",
+      "push",
       "query",
       "remove",
       "set",
@@ -169,11 +184,17 @@
     "firestore": [
       "addDoc",
       "deleteDoc",
+      "discoverPaths",
+      "extractIndexes",
+      "findCollectionGroup",
+      "getAggregateFromServer",
+      "getCountFromServer",
       "getDoc",
       "getDocs",
       "setDoc",
       "updateDoc",
-      "writeBatch"
+      "writeBatch",
+      "writeIndexes"
     ],
     "rules": [
       "explainDenial",
@@ -207,8 +228,13 @@
     "storage": [
       "deleteObject",
       "getBytes",
+      "getDownloadURL",
       "getMetadata",
       "listAll",
+      "provision",
+      "setCrossServiceIam",
+      "status",
+      "updateMetadata",
       "uploadBytes"
     ],
     "assurance": [

@@ -1,0 +1,20 @@
+{
+  "add-chat-message-without-overwriting": [
+    {
+      "tool": "database",
+      "args": {
+        "method": "push",
+        "args": { "path": "chatrooms/lobby/messages", "value": { "text": "welcome" } }
+      }
+    }
+  ],
+  "mint-order-id-for-later": [
+    { "tool": "database", "args": { "method": "push", "args": { "path": "orders" } } }
+  ],
+  "see-team-shape-without-member-details": [
+    { "tool": "database", "args": { "method": "crawl", "args": { "path": "teams" } } }
+  ],
+  "top-level-shape-of-inventory": [
+    { "tool": "database", "args": { "method": "crawl", "args": { "path": "inventory", "depth": 1 } } }
+  ]
+}

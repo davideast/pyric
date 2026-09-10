@@ -111,7 +111,7 @@ const batchOpSchema = z.object({
 export const mutateSandboxDataSchema = z.object({
   service: z.enum(['firestore', 'database']).describe('Target data service.'),
   action: z
-    .enum(['set', 'add', 'update', 'delete', 'batch', 'transaction'])
+    .enum(['set', 'add', 'update', 'delete', 'batch', 'transaction', 'push', 'writeIndexes'])
     .describe('Mutation operation.'),
   path: z.string().optional().describe('Document, collection, or database tree path.'),
   dataJson: z
@@ -155,21 +155,59 @@ export const querySandboxDataSchema = z.object({
   orderDirection: z.enum(['asc', 'desc']).optional().describe('Sort direction.'),
   limit: z.number().optional().describe('Maximum number of records or child keys to return.'),
   auth: authOverrideSchema.optional().describe('Optional per-call auth override.'),
+  // The database lane's own addition: a structural read with no leaf values.
+  // Firestore reads carry 'read'; only 'crawl' changes what the call does.
+  action: z
+    .enum(['read', 'crawl'])
+    .describe(
+      "Realtime Database only. 'crawl' returns structure (child names, counts), no leaf values.",
+    ),
+  depth: z
+    .number()
+    .optional()
+    .describe("Realtime Database only, with action 'crawl'. Maximum object depth, 0 to 10, default 10."),
 });
 
 export const manageStorageFilesSchema = z.object({
-  action: z.enum(['upload', 'download', 'delete', 'list']).describe('Storage file operation.'),
+  action: z
+    .enum([
+      'upload',
+      'download',
+      'delete',
+      'list',
+      // Step 7, the storage lane: download URLs, metadata updates, the
+      // cross-service posture, and the control plane.
+      'download_url',
+      'update_metadata',
+      'set_cross_service_iam',
+      'service_status',
+      'provision',
+    ])
+    .describe('Storage file operation.'),
   bucket: z
     .string()
     .optional()
     .describe('Storage bucket name (defaults to default sandbox bucket).'),
   path: z.string().describe('Object full path within the bucket.'),
   base64Content: z.string().optional().describe("Base64-encoded file payload for 'upload'."),
+  sourcePath: z
+    .string()
+    .optional()
+    .describe("Path of a file inside the project directory to upload for 'upload'."),
   contentType: z.string().optional().describe('MIME type of the uploaded file.'),
   customMetadataJson: z
     .string()
     .optional()
     .describe('JSON-encoded flat key-value custom metadata.'),
+  cacheControl: z.string().optional().describe("Cache-Control for 'update_metadata'."),
+  crossServiceIam: z
+    .enum(['granted', 'denied'])
+    .optional()
+    .describe("Whether storage rules may read Firestore, for 'set_cross_service_iam'."),
+  confirm: z
+    .boolean()
+    .optional()
+    .describe("Must be true for 'service_status' and 'provision', which reach Google."),
 });
 
 export const diagnoseRuleDenialSchema = z.object({
@@ -398,4 +436,28 @@ export const configureAiMockSchema = z.object({
     .array(aiScriptEntrySchema)
     .optional()
     .describe('Scripted response entries pushed to the FIFO match queue.'),
+});
+
+// ─── Firestore lane: depth reads (count, aggregate, discovery, indexes) ────
+
+export const inspectFirestoreStructureSchema = z.object({
+  action: z
+    .enum(['count', 'aggregate', 'discoverPaths', 'findCollectionGroup', 'extractIndexes'])
+    .describe('Which Firestore depth read to run.'),
+  path: z.string().optional().describe("Collection path for 'count' and 'aggregate'."),
+  filtersJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded where clauses narrowing 'count' or 'aggregate'."),
+  specJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded aggregate spec for 'aggregate': {count?, sum?, average?}."),
+  collectionId: z.string().optional().describe("Collection id for 'findCollectionGroup'."),
+  depth: z.number().optional().describe("Deepest collection nesting level for 'discoverPaths'."),
+  limit: z.number().optional().describe("Maximum document paths for 'discoverPaths'."),
+  queriesJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded queries[] for 'extractIndexes'."),
 });
