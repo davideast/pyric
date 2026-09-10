@@ -345,6 +345,11 @@ const SIDE_EFFECT_ONLY = new Set(['@pyric/cli/register']);
 let failed = false;
 for (const subpath of subpaths) {
   try {
+    if (subpath.endsWith('.css')) {
+      import.meta.resolve(subpath);
+      console.log('  ✓ ' + subpath + ' (stylesheet asset; resolved via import.meta.resolve)');
+      continue;
+    }
     const mod = await import(subpath);
     const keys = Object.keys(mod).sort();
     if (keys.length === 0) {
