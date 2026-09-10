@@ -17,7 +17,7 @@ export default {
   effect: 'read',
   signature: 'inspect(campaignId, probeId)',
   description:
-    'Read one completed probe and its verdict.',
+    "One probe's verdict.",
   args: z.object({ campaignId, probeId }),
   operation: 'inspect_assurance_probe',
   renames: { runId: 'probeId', probe: 'probeId' },

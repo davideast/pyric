@@ -29,7 +29,7 @@ export default {
   effect: 'read',
   signature: 'verifyCases(fixture?, candidateRules?, service?: firestore)',
   description:
-    "Decide a capture's cases under candidate rules, locally.",
+    "Decide a capture's cases locally.",
   args: z.object({
     fixture: z
       .string()

@@ -20,7 +20,7 @@ export default {
   effect: 'write',
   signature: 'attach(campaignId?, maxRuns?)',
   description:
-    'Clone this sandbox into a new campaign, read-only.',
+    'Clone this sandbox into a campaign.',
   args: z.object({
     campaignId: campaignId
       .optional()

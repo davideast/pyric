@@ -17,7 +17,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'minimize(campaignId, probeId)',
-  description: 'Shrink a counterexample to its smallest payload.',
+  description: 'Shrink a counterexample.',
   args: z.object({ campaignId, probeId }),
   operation: 'minimize_assurance_probe',
   renames: { runId: 'probeId', probe: 'probeId' },

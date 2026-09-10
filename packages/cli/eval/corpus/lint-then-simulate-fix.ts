@@ -29,14 +29,19 @@ service cloud.firestore {
     const verifiedByVerdict = state.calls.some(
       (c) => c.operation === 'simulate_firestore_rules' && c.ok,
     );
+    // The read has to come after the switch, and the first read in the log is
+    // often an admin survey that proves nothing about alice. Looking for any
+    // read among the calls that follow the switch is what asks the right
+    // question; comparing the first index of each asks whether the survey
+    // happened to come later.
     const switchedIdentityIndex = state.calls.findIndex(
       (c) => c.operation === 'switch_auth_identity' && c.ok,
     );
-    const readIndex = state.calls.findIndex(
-      (c) => c.operation === 'get_firestore_document' && c.ok,
-    );
     const verifiedByImpersonatedRead =
-      switchedIdentityIndex !== -1 && readIndex !== -1 && readIndex > switchedIdentityIndex;
+      switchedIdentityIndex !== -1 &&
+      state.calls
+        .slice(switchedIdentityIndex + 1)
+        .some((c) => c.operation === 'get_firestore_document' && c.ok);
     if (!verifiedByVerdict && !verifiedByImpersonatedRead) {
       return 'no verdict was requested for the alice read';
     }

@@ -19,7 +19,7 @@ export default {
   effect: 'write',
   signature: 'start(target, campaignId?, maxRuns?)',
   description:
-    'Start a campaign against an explicit target.',
+    'Start a campaign on a target.',
   args: z.object({
     target: authoredRecord.describe(
       'The campaign target: schema pyric.assurance.target.v1, network forbid, rules, and state.',

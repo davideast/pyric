@@ -7,7 +7,7 @@
  */
 import { z } from 'zod';
 
-import { authoredRecord, campaignId } from '../../arguments/assurance.js';
+import { campaignId, securityInvariant } from '../../arguments/assurance.js';
 import { callAssuranceOperation } from '../../assurance-campaigns.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -16,12 +16,13 @@ export default {
   method: 'define',
   sdkOrigin: 'pyric',
   effect: 'write',
-  signature: 'define(campaignId, invariants)',
-  description: 'Add the invariants a probe is judged against.',
+  signature:
+    'define(campaignId, invariants; service: firestore|rtdb|storage|cross-service; expected: ALLOW|DENY; source: declared|authored-test|captured|derived|agent; confidence: authoritative|strong|tentative)',
+  description: 'Add invariants.',
   args: z.object({
     campaignId,
     invariants: z
-      .array(authoredRecord)
+      .array(securityInvariant)
       .min(1)
       .describe(
         'Each names an id, a statement, a service, an expected ALLOW or DENY, a source, and a confidence.',

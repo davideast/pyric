@@ -27,6 +27,7 @@ import { Path } from './wrappers/path.js';
 import { LookupBudget } from './lookup-budget.js';
 import { ResourceLimitError } from './eval-error.js';
 import { projectAfterState } from './project-after-state.js';
+import { DOCUMENT_PATH_FORM, documentRelativePath } from './request-path.js';
 import {
   requestQuery,
   resolveServerTimestamps,
@@ -493,7 +494,12 @@ export class SimulateFirestoreRulesHandler {
       // Resolve the match block for this path.
       // The root match is /databases/{database}/documents — skip it,
       // start matching from its children directly.
-      const pathSegments = tc.path.split('/').filter(Boolean);
+      // Both the document-relative form and the full resource name the
+      // console shows mean the same request, so the full form is reduced
+      // before a block is resolved against it and every message about this
+      // case names the reduced form.
+      const requestPath = documentRelativePath(tc.path);
+      const pathSegments = requestPath.split('/').filter(Boolean);
       // Functions declared at GLOBAL scope (above `service`) and SERVICE
       // scope (inside `service`, outside the documents match) seed the walk
       // alongside the documents-match's own (#346). Declaration order
@@ -539,7 +545,7 @@ export class SimulateFirestoreRulesHandler {
         }
       }
       const pathResolution: PathResolutionTrace = {
-        requestPath: tc.path,
+        requestPath,
         attempts: pathRecorder.attempts,
       };
 
@@ -555,7 +561,10 @@ export class SimulateFirestoreRulesHandler {
           state,
           decision: 'DENY',
           trace: [],
-          notes: [`No match block found for path '${tc.path}'`],
+          notes: [
+            `No match block found for path '${requestPath}', so the request is denied by default.`,
+            DOCUMENT_PATH_FORM,
+          ],
           pathResolution,
         });
         continue;

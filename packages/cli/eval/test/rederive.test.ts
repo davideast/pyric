@@ -107,6 +107,7 @@ describe('loadRunLines re-derives from a results directory', () => {
       callCount: 0,
       schemaRejections: 0,
       errorCalls: 0,
+      verdictCalls: 0,
       durationMs: 0,
       assertReason: 'seeding failed',
     };
@@ -144,6 +145,7 @@ describe('loadRunLines re-derives from a results directory', () => {
       callCount: 0,
       schemaRejections: 0,
       errorCalls: 0,
+      verdictCalls: 0,
       durationMs: 0,
       assertReason: 'spawn failed',
     };

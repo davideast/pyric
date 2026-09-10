@@ -33,7 +33,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'canIUse(feature)',
-  description: 'Report the conformance claim for one feature.',
+  description: 'The conformance claim for a feature.',
   args: z.object({
     feature: z
       .string()

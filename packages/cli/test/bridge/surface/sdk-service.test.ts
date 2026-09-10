@@ -21,6 +21,7 @@ import { createLocalBridge } from '../../../src/bridge/server/local-bridge.js';
 import { registerRenderedSurface } from '../../../src/bridge/server/surface-server.js';
 import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface/index.js';
 import { PRODUCTION_ENABLING_SENTENCE } from '../../../src/bridge/surface/method-effects.js';
+import { DESCRIPTION_LIMIT } from '../../../src/bridge/surface/tool-description.js';
 import { TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import { operationIds } from '../../../src/bridge/surface/method-types.js';
 import type { BridgeToolEvent } from '../../../src/bridge/server/bridge.js';
@@ -93,9 +94,9 @@ describe('the sdk-service tool set', () => {
     }
   });
 
-  it('keeps every description under the sixteen hundred character limit', () => {
+  it('keeps every description within the rendered length limit', () => {
     for (const tool of surface.tools) {
-      expect(tool.description.length).toBeLessThan(1600);
+      expect(tool.description.length).toBeLessThanOrEqual(DESCRIPTION_LIMIT);
     }
   });
 

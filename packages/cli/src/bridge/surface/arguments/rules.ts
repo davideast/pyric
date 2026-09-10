@@ -50,6 +50,65 @@ export const operation = z
   .enum(REQUEST_METHODS as [string, ...string[]])
   .describe(`The request method to evaluate: ${REQUEST_METHODS.join(', ')}.`);
 
+/** The path a request targets, in one case and in the single-case form alike. */
+export const path = z.string().describe('The path the request targets.');
+
+/** The identity a request runs as, in one case and in the single-case form alike. */
+export const uid = z
+  .string()
+  .describe('Act as this user. Omit to use the held identity.');
+
+/** The value a write carries, in one case and in the single-case form alike. */
+export const data = z.record(z.unknown()).describe('The value being written.');
+
+/**
+ * One request to evaluate.
+ *
+ * The single-case form spells these fields at the top level and `cases` holds
+ * an array of them, and both read the same declarations, so a field added to
+ * one form is a field of both by construction.
+ */
+export const simulationCase = z
+  .object({
+    operation,
+    path,
+    uid: uid.optional(),
+    data: data.optional(),
+  })
+  .describe('One request: the method, the path, the identity, and the value.');
+
+/** The batch form: one array entry per request to evaluate, answered in order. */
+export const cases = z
+  .array(simulationCase)
+  .optional()
+  .describe('Many requests, each answered in order with its own verdict.');
+
+/**
+ * Refuse a call that names neither form or both.
+ *
+ * A call that names `cases` beside a top-level `path` is two questions in one
+ * argument set, and answering either of them would be a guess at which the
+ * caller meant.
+ */
+export function checkOneForm(args: Args, fail: Fail): InvalidArguments | null {
+  const namesBatch = Array.isArray(args.cases);
+  const namesSingle = args.path !== undefined || args.operation !== undefined;
+  if (namesBatch && !namesSingle) return null;
+  if (namesSingle && !namesBatch) return null;
+  if (namesBatch) {
+    return fail(
+      "a call names either one request, through 'operation' and 'path', or many, through 'cases'. This call names both.",
+      "Drop 'cases', or drop 'operation' and 'path'.",
+      'cases',
+    );
+  }
+  return fail(
+    "a call names either one request, through 'operation' and 'path', or many, through 'cases'. This call names neither.",
+    "Pass 'operation' and 'path', or pass 'cases'.",
+    'cases',
+  );
+}
+
 /** The request methods one service evaluates. */
 export function requestMethodsOf(name: string): readonly string[] {
   return rulesEngineFor(name).requestMethods;
@@ -63,13 +122,35 @@ export function requestMethodOf(name: string) {
 
 /** Reject a request method the named service does not evaluate. */
 export function checkOperation(args: Args, fail: Fail): InvalidArguments | null {
-  const allowed = rulesEngineFor(String(args.service)).requestMethods;
+  const service = String(args.service);
+  const allowed = rulesEngineFor(service).requestMethods;
+
+  if (Array.isArray(args.cases)) {
+    for (const [index, one] of args.cases.entries()) {
+      const value = (one as { operation?: unknown } | null)?.operation;
+      if (typeof value === 'string' && allowed.includes(value)) continue;
+      return unevaluatedMethod(fail, service, allowed, value, `cases[${index}].operation`);
+    }
+    return null;
+  }
+
   const value = args.operation;
   if (typeof value === 'string' && allowed.includes(value)) return null;
+  return unevaluatedMethod(fail, service, allowed, value, 'operation');
+}
+
+/** The refusal a request method outside a service's own set draws. */
+function unevaluatedMethod(
+  fail: Fail,
+  service: string,
+  allowed: readonly string[],
+  value: unknown,
+  field: string,
+): InvalidArguments {
   return fail(
-    `operation ${quoted(value)} is not a request method ${String(args.service)} rules evaluate. That service evaluates ${allowed.join(', ')}.`,
+    `operation ${quoted(value)} is not a request method ${service} rules evaluate. That service evaluates ${allowed.join(', ')}.`,
     `Pass operation as one of ${allowed.join(', ')}.`,
-    'operation',
+    field,
   );
 }
 

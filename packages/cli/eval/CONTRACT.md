@@ -39,7 +39,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `get_storage_metadata` | get | storage | metadata | `path` | |
 | `delete_storage_file` | delete | storage | file | `path` | |
 | `lint_firestore_rules` | lint | firestore | rules | `rules?` (source; default current) | |
-| `simulate_firestore_rules` | simulate | firestore | rules | `operation`, `path`, `uid?`, `data?` (object), `rules?` | |
+| `simulate_firestore_rules` | simulate | firestore | rules | `operation`, `path`, `uid?`, `data?` (object), `cases?` (array of `{ operation, path, uid?, data? }`), `rules?` | Exactly one of the single form and `cases`. |
 | `diagnose_firestore_denial` | diagnose | firestore | denial | `operation`, `path`, `uid?`, `data?` | Trace of why a request was denied. |
 | `lint_database_rules` | lint | database | rules | `rules?` | |
 | `simulate_database_rules` | simulate | database | rules | `operation`, `path`, `uid?`, `data?`, `rules?` | |
@@ -67,7 +67,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `discard_sandbox_branch` | discard | sandbox | branch | `branch` | Deletes the branch; live is untouched. |
 | `list_sandbox_branches` | list | sandbox | branches | none | Name, created, base, event count, and divergences against live. |
 
-Fifty-three operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of any parameter schema is at most two object levels below the root.
+Fifty-three operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of a method's own arguments is at most two object levels below the root. The assurance methods carry the campaign document's own authored records rather than arguments of their own, and a probe holds a mutation, which holds an operation, which holds a payload, so those nest at most four.
 
 ## 2. Surface variants
 
@@ -109,6 +109,7 @@ Event shape (a superset of today's `BridgeToolEvent`):
   "durationMs": 0,
   "schemaRejected": false,
   "isError": false,
+  "verdict": false,
   "run": {
     "runId": "", "taskId": "", "variant": "", "cli": "", "model": "",
     "effort": "", "condition": "", "seed": 0, "callIndex": 0
@@ -116,7 +117,7 @@ Event shape (a superset of today's `BridgeToolEvent`):
 }
 ```
 
-`schemaRejected` is true when the arguments failed schema validation before dispatch (the call is still logged, with `result.ok` false). `isError` mirrors the MCP `isError` flag of the returned result. `callIndex` counts calls within the run from zero. The `run` block is read from the environment at server start:
+`schemaRejected` is true when the arguments failed schema validation before dispatch (the call is still logged, with `result.ok` false). `isError` mirrors the MCP `isError` flag of the returned result. `verdict` is true when a failing result carries `data.code` of `denied_by_rules` (a data-plane call Security Rules refused) or `lint_findings` (a rules lint that found problems in the source): both are the surface answering the question it was asked, so the scorer counts them apart from error calls. `callIndex` counts calls within the run from zero. The `run` block is read from the environment at server start:
 
 `PYRIC_EVAL_RUN_ID`, `PYRIC_EVAL_TASK_ID`, `PYRIC_EVAL_VARIANT`, `PYRIC_EVAL_CLI`, `PYRIC_EVAL_MODEL`, `PYRIC_EVAL_EFFORT`, `PYRIC_EVAL_CONDITION`, `PYRIC_EVAL_SEED`.
 
@@ -156,6 +157,13 @@ export interface EvalState {
 ```
 
 `seed` is applied by the runner through the sandbox before the CLI starts; tasks never call tools to set up. `assert` sees the final snapshot plus the call log and returns `true` or a short reason string.
+
+A task tagged `multi-step` asks for a sequence of operations rather than one, so it spends more calls to reach the same answer. The call budget is therefore set per class, and the reporter prints completion, mean calls per completion, and mean error calls per completion separately for each. A task id the corpus no longer holds counts as single-step.
+
+| Task class | Completion | Calls per completion |
+|---|---|---|
+| single-step (no `multi-step` tag) | at least 98 percent | at most 3.2 |
+| multi-step (tagged `multi-step`) | at least 98 percent | at most 8 |
 
 ## 5. Matrix records
 
@@ -237,9 +245,11 @@ bun packages/cli/eval/report.ts <results>/runs.ndjson
 
 Pacing: one CLI process at a time per CLI, a configurable minimum gap between spawns per CLI, and a per-CLI budget per five-hour window; a rejected or rate-limited run is recorded with outcome `throttled`, not retried.
 
-Result line fields: `runId`, `row`, `variant`, `task`, `seed`, `outcome` (`pass`, `fail`, `timeout`, `throttled`, `crash`), `firstOperation`, `firstOperationAccepted`, `callCount`, `schemaRejections`, `errorCalls`, `durationMs`, `assertReason`.
+Result line fields: `runId`, `row`, `variant`, `task`, `seed`, `outcome` (`pass`, `fail`, `timeout`, `throttled`, `crash`), `firstOperation`, `firstOperationAccepted`, `callCount`, `schemaRejections`, `errorCalls`, `verdictCalls`, `durationMs`, `assertReason`.
 
-`packages/cli/eval/report.ts` reads one or more `runs.ndjson` files and prints, per variant and row, selection accuracy, argument validity, completion rate, mean calls per completed task, mean error calls per completed task, and a bootstrap 95% interval over tasks for each.
+`errorCalls` counts calls the server returned as unsuccessful with no verdict on them. `verdictCalls` counts the calls whose `verdict` flag is set, so a rules denial and a lint run with findings are reported as the task working rather than as errors.
+
+`packages/cli/eval/report.ts` reads one or more `runs.ndjson` files and prints, per variant and row, selection accuracy, argument validity, completion rate, mean calls per completed task, mean error calls per completed task, mean verdict calls per completed task, and a bootstrap 95% interval over tasks for each. Completion, mean calls, and mean error calls are also printed split by task class, single-step against multi-step, against the thresholds in section 4.
 
 ## 7. Ownership
 

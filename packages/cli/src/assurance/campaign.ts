@@ -26,6 +26,20 @@ import {
   type SecurityInvariant,
 } from "./types.js";
 
+/** One `map` call's items, before any of them has been validated. */
+export interface CampaignMapBatch {
+  actors?: unknown[];
+  observations?: unknown[];
+  probes?: unknown[];
+}
+
+/** What the campaign holds once a batch has been committed. */
+export interface CampaignMapCounts {
+  actors: number;
+  observations: number;
+  probes: number;
+}
+
 export interface CreateAuthorizationCampaignOptions {
   id: string;
   target: LocalFirebaseTarget;
@@ -112,6 +126,103 @@ export class AuthorizationCampaign {
     }
     this.#addUnique(this.#probes, probe, "probe");
     return probe;
+  }
+
+  /**
+   * Add actors, observations, and probes as one batch.
+   *
+   * The batch is validated whole before any of it is kept, so a rejected
+   * batch leaves the campaign exactly as it was and the caller can send the
+   * corrected batch unchanged. Adding item by item would keep the items
+   * before the bad one, and the corrected batch would then be refused for
+   * duplicating what the first attempt already added.
+   *
+   * References resolve against the batch as well as the campaign, so an
+   * observation may name an actor that arrives beside it.
+   */
+  map(batch: CampaignMapBatch): CampaignMapCounts {
+    const actors = batch.actors ?? [];
+    const observations = batch.observations ?? [];
+    const probes = batch.probes ?? [];
+
+    const actorIds = new Set(this.#actors.keys());
+    const validActors: AssuranceActor[] = [];
+    for (const [index, actor] of actors.entries()) {
+      const where = `actors[${index}]`;
+      assertActor(actor, where);
+      this.#assertUnmapped(actorIds, actor.id, where);
+      actorIds.add(actor.id);
+      validActors.push(actor);
+    }
+
+    const observationIds = new Set(this.#observations.keys());
+    const validObservations: AssuranceObservation[] = [];
+    for (const [index, observation] of observations.entries()) {
+      const where = `observations[${index}]`;
+      assertObservation(observation, where);
+      this.#assertUnmapped(observationIds, observation.id, where);
+      this.#assertActorMapped(actorIds, observation.actorId, where);
+      observationIds.add(observation.id);
+      validObservations.push(observation);
+    }
+
+    const probeIds = new Set(this.#probes.keys());
+    const validProbes: AssuranceProbe[] = [];
+    for (const [index, probe] of probes.entries()) {
+      const where = `probes[${index}]`;
+      assertProbe(probe, where);
+      this.#assertUnmapped(probeIds, probe.id, where);
+      this.#assertActorMapped(actorIds, probe.actorId, where);
+      this.#assertInvariantCovers(probe, where);
+      probeIds.add(probe.id);
+      validProbes.push(probe);
+    }
+
+    for (const actor of validActors) this.#actors.set(actor.id, actor);
+    for (const observation of validObservations) {
+      this.#observations.set(observation.id, observation);
+    }
+    for (const probe of validProbes) this.#probes.set(probe.id, probe);
+
+    return {
+      actors: this.#actors.size,
+      observations: this.#observations.size,
+      probes: this.#probes.size,
+    };
+  }
+
+  /** Reject an id the campaign or an earlier item in the same batch already holds. */
+  #assertUnmapped(taken: ReadonlySet<string>, id: string, where: string): void {
+    if (taken.has(id)) {
+      throw new AssuranceInputError(`${where}.id is already mapped: '${id}'.`);
+    }
+  }
+
+  /** Reject an actor reference that neither the campaign nor the batch supplies. */
+  #assertActorMapped(mapped: ReadonlySet<string>, actorId: string, where: string): void {
+    if (!mapped.has(actorId)) {
+      throw new AssuranceInputError(
+        `${where}.actorId names an actor that is not mapped: '${actorId}'. Map the actor in this call or an earlier one.`,
+      );
+    }
+  }
+
+  /** Reject a probe whose invariant is missing or is stated about another service. */
+  #assertInvariantCovers(probe: AssuranceProbe, where: string): void {
+    const invariant = this.#invariants.get(probe.invariantId);
+    if (invariant === undefined) {
+      throw new AssuranceInputError(
+        `${where}.invariantId names an invariant that is not defined: '${probe.invariantId}'. Call define first.`,
+      );
+    }
+    if (
+      invariant.service !== "cross-service" &&
+      invariant.service !== probe.control.service
+    ) {
+      throw new AssuranceInputError(
+        `${where}.control.service is '${probe.control.service}' and invariant '${invariant.id}' is stated about '${invariant.service}'.`,
+      );
+    }
   }
 
   propose(input: ProposalInput): AssuranceProbe[] {

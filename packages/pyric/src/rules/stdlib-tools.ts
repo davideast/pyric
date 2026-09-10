@@ -124,7 +124,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
     {
       name: 'firestore_lint_rules',
       description:
-        "Lint a Firestore Security Rules source BEFORE writing it. Catches parse errors with line/col, JS-style hallucinations (.filter / .toLowerCase / optional chaining / arrow functions), expression-budget violations, binary-chain depth (cap 98), let-binding count (cap 11), get() count, source size (256KB), and shared-gate / public-write smells. Pure-local — no auth, no network. Call this on any candidate source the moment you're about to `writeRules` — fixing a flagged issue here is cheaper than letting `runOnce` surface it as a denial after a deploy round-trip.",
+        "Lint a Firestore Security Rules source BEFORE writing it. Catches parse errors with line/col, JS-style hallucinations (.filter / .toLowerCase / optional chaining / arrow functions), expression-budget violations, binary-chain depth (cap 98), let-binding count (cap 11), get() count, source size (256KB), and shared-gate / public-write smells. Pure-local, with no auth and no network. Call it on any candidate source before installing that source: fixing a flagged issue here is cheaper than letting a denial surface it after a deploy round-trip.",
       parameters: {
         type: 'object',
         properties: {
@@ -147,7 +147,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
           const { line, column, message } = result.parseError;
           return {
             ok: false,
-            summary: `Parse failed at line ${line}, col ${column} — fix syntax before writeRules`,
+            summary: `Parse failed at line ${line}, column ${column}. Fix the syntax before installing this source.`,
             data: result,
             message,
           };
@@ -160,7 +160,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
           ok: counts.errors === 0,
           summary:
             counts.errors === 0 && counts.warnings === 0
-              ? 'Lint clean — safe to writeRules'
+              ? 'Lint clean. This source is safe to install.'
               : `Lint found ${counts.errors} error${counts.errors === 1 ? '' : 's'}, ${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`,
           data: result,
         };
@@ -169,7 +169,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
     {
       name: 'firestore_resolve_modules',
       description:
-        "Resolve `2+modules` imports in a Firestore Rules source. Inlines the imported functions from the stdlib modules (`auth`, `validation`, `lobby`, etc. — see `firestore_rules_stdlib_list`) and rewrites the version line from `2+modules` to plain `2`. Call this BEFORE `writeRules` when the source you authored uses `2+modules` syntax — the playground's `runOnce` only understands plain v2 source. Pure-local; the stdlib modules are bundled into the package, no filesystem access required.",
+        "Resolve `2+modules` imports in a Firestore Rules source. Inlines the imported functions from the stdlib modules (`auth`, `validation`, `lobby`, and the rest of the catalogue) and rewrites the version line from `2+modules` to plain `2`. Call this before installing a source that uses `2+modules` syntax, because the playground's `runOnce` only understands plain v2 source. Pure-local; the stdlib modules are bundled into the package, no filesystem access required.",
       parameters: {
         type: 'object',
         properties: {

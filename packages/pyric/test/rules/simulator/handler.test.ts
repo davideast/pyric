@@ -1493,4 +1493,41 @@ service cloud.firestore {
     if (!r.success) return;
     expect(r.data.results[0].decision).toBe('ALLOW');
   });
+
+  describe('the path form the console shows', () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /public/{docId} { allow read: if true; }
+  }
+}`;
+
+    test('reaches the same block as the document-relative form', () => {
+      const full = handler.simulate(rules, [{
+        description: 'console path form',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: '/databases/(default)/documents/public/doc1',
+      }]);
+      expect(full.success).toBe(true);
+      if (!full.success) return;
+      expect(full.data.results[0].decision).toBe('ALLOW');
+      expect(full.data.results[0].notes.join(' ')).not.toContain('No match block found');
+    });
+
+    test('names the document-relative form when nothing matches', () => {
+      const missed = handler.simulate(rules, [{
+        description: 'no block',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: '/databases/(default)/documents/orders/o2',
+      }]);
+      expect(missed.success).toBe(true);
+      if (!missed.success) return;
+      expect(missed.data.results[0].decision).toBe('DENY');
+      const notes = missed.data.results[0].notes.join(' ');
+      expect(notes).toContain("No match block found for path 'orders/o2'");
+      expect(notes).toContain('document-relative');
+    });
+  });
 });

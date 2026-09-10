@@ -23,6 +23,11 @@ import { registerRenderedSurface } from '../../src/bridge/server/surface-server.
 import { createSurfaceContext, renderSurface } from '../../src/bridge/surface/index.js';
 import { METHODS } from '../../src/bridge/surface/methods/registry.js';
 import type { BridgeToolEvent } from '../../src/bridge/server/bridge.js';
+import type {
+  OperationResult,
+  RenderedSurface,
+  RenderedTool,
+} from '../../src/bridge/surface/types.js';
 
 const TENANT_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -191,6 +196,78 @@ describe('the discriminator variant over a real MCP session', () => {
       expect(session.events[0]!.tool).toBe('sandbox_status');
       expect(session.events[0]!.operation).toBe('inspect_sandbox');
       expect(session.events[0]!.action).toBe(null);
+    } finally {
+      await session.close();
+    }
+  });
+});
+
+/**
+ * Verdict stamping is checked against a surface authored here rather than a
+ * rendered variant, because the question is what the adapter does with a
+ * result code and not which method produces one. A stub surface names the code
+ * directly, so the test states the contract the two halves share.
+ */
+async function openStubSurface(results: Record<string, OperationResult>): Promise<Session> {
+  const sandbox = initializeSandbox();
+  const events: BridgeToolEvent[] = [];
+  const bridge = createLocalBridge(sandbox, { onToolEvent: (event) => events.push(event) });
+  const server = new McpServer({ name: 'pyric', version: bridge.version });
+  const tools: RenderedTool[] = Object.keys(results).map((name) => ({
+    name,
+    description: `stub ${name}`,
+    inputSchema: { type: 'object', properties: {} },
+    execute: async () => results[name] as OperationResult,
+  }));
+  const surface: RenderedSurface = {
+    tools,
+    resolve: (toolName) => ({ operation: toolName, action: null }),
+  };
+  registerRenderedSurface(server, bridge, surface, createSurfaceContext(sandbox), {});
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const client = new Client({ name: 'surface-server-verdict-test', version: '0' });
+  await client.connect(clientTransport);
+  return {
+    client,
+    events,
+    close: async () => {
+      await client.close();
+      await server.close();
+    },
+  };
+}
+
+describe('verdict stamping on a recorded call', () => {
+  it('marks a rules denial and a lint run with findings as verdicts', async () => {
+    const session = await openStubSurface({
+      denied: { ok: false, summary: 'write denied', data: { code: 'denied_by_rules' } },
+      linted: { ok: false, summary: '2 findings', data: { code: 'lint_findings' } },
+    });
+    try {
+      await session.client.callTool({ name: 'denied', arguments: {} });
+      await session.client.callTool({ name: 'linted', arguments: {} });
+      expect(session.events.map((event) => event.verdict)).toEqual([true, true]);
+      expect(session.events.map((event) => event.isError)).toEqual([true, true]);
+      expect(session.events.map((event) => event.schemaRejected)).toEqual([false, false]);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it('leaves a failure that is not a verdict, and every success, unmarked', async () => {
+    const session = await openStubSurface({
+      broken: { ok: false, summary: 'no such path', data: { code: 'not_found' } },
+      rejected: { ok: false, summary: 'bad arguments', data: { code: 'invalid_arguments' } },
+      fine: { ok: true, summary: 'done' },
+    });
+    try {
+      await session.client.callTool({ name: 'broken', arguments: {} });
+      await session.client.callTool({ name: 'rejected', arguments: {} });
+      await session.client.callTool({ name: 'fine', arguments: {} });
+      expect(session.events.map((event) => event.verdict)).toEqual([false, false, false]);
+      expect(session.events.map((event) => event.schemaRejected)).toEqual([false, true, false]);
     } finally {
       await session.close();
     }

@@ -22,6 +22,7 @@ import { loadStorageSidecar, saveStorageSidecar } from '../bridge/server/storage
 import { createSurfaceContext } from '../bridge/surface/context.js';
 import { validateArguments } from '../bridge/surface/method-validation.js';
 import { methodByKey } from '../bridge/surface/methods/registry.js';
+import { markDenial, thrownFailure } from '../bridge/surface/rules-verdict.js';
 import type { OperationResult } from '../bridge/surface/types.js';
 import { argumentsFromFlags } from './surface-method-args.js';
 import { selectAllowProduction } from './mcp-proxy.js';
@@ -92,9 +93,10 @@ export async function runSurfaceMethod(
 
   let result: OperationResult;
   try {
-    result = await method.handler(read.args, ctx);
+    result = markDenial(method.tool, await method.handler(read.args, ctx));
   } catch (error) {
-    stderr.write(`pyric: ${error instanceof Error ? error.message : String(error)}\n`);
+    const failed = markDenial(method.tool, thrownFailure(error));
+    stderr.write(`pyric: ${failed.summary}\n`);
     return CALL_FAILED;
   }
 

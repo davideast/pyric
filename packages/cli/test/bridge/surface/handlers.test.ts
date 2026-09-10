@@ -455,6 +455,17 @@ it('installs Firestore and database rules into the running sandbox', async () =>
   });
   expect((allowed.data as { allowed: boolean }).allowed).toBe(true);
 
+  const batch = await run('rules.simulate', {
+    service: 'firestore',
+    cases: [
+      { operation: 'get', path: 'tenants/t1', uid: 'alice' },
+      { operation: 'get', path: 'tenants/t1' },
+    ],
+  });
+  expect(batch.ok).toBe(true);
+  expect(batch.summary).toBe('2 cases: 1 allow, 1 deny.');
+  expect((batch.data as { cases: Array<{ allowed: boolean }> }).cases).toHaveLength(2);
+
   const installedDatabase = await run('rules.set', {
     service: 'database',
     rules: DATABASE_RULES,

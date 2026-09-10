@@ -14,7 +14,7 @@ import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface
 import type { OperationResult, SurfaceContext } from '../../../src/bridge/surface/index.js';
 
 /** Imperative verbs this codebase's fix sentences open with. */
-const FIX_VERBS = ['Pass', 'Use', 'Call', 'Add', 'Remove', 'Rename'];
+const FIX_VERBS = ['Pass', 'Use', 'Call', 'Add', 'Remove', 'Rename', 'Fix', 'Drop'];
 
 const surface = renderSurface('sdk-service');
 

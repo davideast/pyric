@@ -7,7 +7,7 @@
  */
 import { z } from 'zod';
 
-import { authoredRecord, campaignId } from '../../arguments/assurance.js';
+import { campaignId, probeMutation } from '../../arguments/assurance.js';
 import { callAssuranceOperation } from '../../assurance-campaigns.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -16,14 +16,15 @@ export default {
   method: 'propose',
   sdkOrigin: 'pyric',
   effect: 'write',
-  signature: 'propose(campaignId, observationId, invariantId, mutations)',
-  description: 'Turn an observation into probes, one change each.',
+  signature:
+    'propose(campaignId, observationId, invariantId, mutations; dimension: path|query|payload|operation; operation.service: firestore|rtdb|storage; operation.method: get|list|create|set|merge|update|delete|remove|upload|updateMetadata)',
+  description: 'Turn an observation into probes.',
   args: z.object({
     campaignId,
     observationId: z.string().min(1).describe('The known-good observation the probes start from.'),
     invariantId: z.string().min(1).describe('The invariant each probe is judged against.'),
     mutations: z
-      .array(authoredRecord)
+      .array(probeMutation)
       .min(1)
       .describe(
         'Each names a dimension of path, query, payload, or operation, a description, and the operation.',

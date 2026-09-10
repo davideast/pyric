@@ -19,8 +19,17 @@ import {
 import { DESCRIBE_METHOD } from './method-validation.js';
 import type { Method, MethodEffect, Tool } from './method-types.js';
 
-/** The longest a rendered description may be. */
-export const DESCRIPTION_LIMIT = 1600;
+/**
+ * The longest a rendered description may be.
+ *
+ * The budget has to hold every signature line, and a signature line has to
+ * name every value of every closed set the method takes, because an enum a
+ * model cannot read before its first call is guessed. The assurance tool's
+ * authored records carry eleven closed sets between them, roughly four hundred
+ * characters of vocabulary that no rewording removes, so the budget is set
+ * where that tool fits with its summaries written short.
+ */
+export const DESCRIPTION_LIMIT = 2000;
 
 /**
  * The effect groups, in the order a description lists them.

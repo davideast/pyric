@@ -150,6 +150,7 @@ function completeEvalEvent(
     action: event.action ?? null,
     schemaRejected: event.schemaRejected ?? false,
     isError,
+    verdict: event.verdict ?? false,
     run: { ...run, callIndex },
   };
 }

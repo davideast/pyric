@@ -18,7 +18,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'run(campaignId, probeIds?)',
-  description: 'Run the probes in fresh sandboxes and classify.',
+  description: 'Run probes and classify.',
   args: z.object({
     campaignId,
     probeIds: z
