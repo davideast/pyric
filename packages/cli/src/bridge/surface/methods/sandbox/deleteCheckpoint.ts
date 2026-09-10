@@ -20,7 +20,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'deleteCheckpoint(name, confirm)',
-  description: 'Discard one checkpoint.',
+  description: 'Delete a checkpoint.',
   args: z.object({
     name: z
       .string()

@@ -30,7 +30,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'events(since?, limit?, kind?: all|denials|writes)',
-  description: 'Page the operation log.',
+  description: 'Page the operation log; since is a prior nextCursor.',
   args: z.object({
     since: z.string().optional().describe('The nextCursor a prior call returned.'),
     limit: z.number().int().positive().max(500).optional().describe('Default 50, maximum 500.'),

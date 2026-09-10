@@ -263,6 +263,32 @@ describe('a checkpoint taken under a pinned clock restores that clock', () => {
   });
 });
 
+describe('the clock is an experiment control, not data a branch lands', () => {
+  it('promote leaves live on the clock it already had', async () => {
+    const { ctx } = freshContext();
+    await call(ctx, 'sandbox.fork', { branch: 'experiment' });
+    await call(ctx, 'sandbox.setClock', { isoTime: '2026-07-01T00:00:00.000Z' });
+    const before = await call(ctx, 'sandbox.inspect');
+
+    await call(ctx, 'sandbox.promote', { branch: 'experiment', confirm: true });
+
+    const after = await call(ctx, 'sandbox.inspect');
+    expect((after.data as { clock: unknown }).clock).toEqual(
+      (before.data as { clock: unknown }).clock,
+    );
+  });
+
+  it('diff reports nothing for a branch that only moved its clock', async () => {
+    const { ctx } = freshContext();
+    await call(ctx, 'sandbox.fork', { branch: 'later' });
+    await call(ctx, 'sandbox.setClock', { isoTime: '2026-08-01T00:00:00.000Z' });
+
+    const reported = await call(ctx, 'sandbox.diff', { branch: 'later' });
+
+    expect((reported.data as { divergences: unknown[] }).divergences).toEqual([]);
+  });
+});
+
 describe('a read leaves the clock, and the snapshot, exactly as it found them', () => {
   it('inspect does not change getClock’s own report', async () => {
     const { ctx, sandbox } = freshContext();

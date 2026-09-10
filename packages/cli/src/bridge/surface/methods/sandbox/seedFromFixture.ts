@@ -12,7 +12,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'seedFromFixture(path)',
-  description: 'Load an exported fixture.',
+  description: 'Load a fixture.',
   args: z.object({ path: z.string() }),
   operation: 'seed_sandbox_fixture',
   example: { path: 'fixtures/scenario.json' },

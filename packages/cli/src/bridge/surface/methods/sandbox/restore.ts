@@ -10,7 +10,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'restore(name, confirm)',
-  description: 'Replace live with a named checkpoint.',
+  description: 'Replace live with a checkpoint.',
   args: z.object({
     name: z.string(),
     confirm: z

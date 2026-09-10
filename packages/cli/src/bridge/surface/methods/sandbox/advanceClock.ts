@@ -9,7 +9,8 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'advanceClock(ms)',
-  description: 'Move the clock forward ms milliseconds.',
+  description:
+    'Move the clock forward ms; from the wall clock it keeps flowing, from a pin it stays frozen at the new instant.',
   args: z.object({
     ms: z.number().int().positive().describe('Milliseconds to advance the clock by.'),
   }),

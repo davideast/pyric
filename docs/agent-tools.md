@@ -87,8 +87,12 @@ the ISO 8601 form it expects. `advanceClock(ms)` moves the clock forward by
 that many milliseconds: a pinned clock stays frozen at the new instant, and a
 flowing clock keeps flowing from the new offset. `resetClock()` returns to the
 wall clock. `inspect` reports the clock's mode and current instant alongside
-its other counts. A checkpoint or a branch fork carries the clock's state, so
-restoring or applying one moves the clock along with the data.
+its other counts, and how far an offset clock is shifted. A checkpoint or a
+branch fork carries the clock's state, so restoring or applying one moves the
+clock along with the data. `promote` does not: the clock is an experiment
+control rather than data, so landing a branch that ran under a pinned instant
+leaves live on the clock it already had. `diff` ignores the clock for the same
+reason, so a branch that only moved its clock has no divergences.
 `rules.simulate` takes an optional `requestTime` (ISO 8601); when a call omits
 it, `request.time` (Firestore, Storage) and `now` (database) evaluate at the
 sandbox clock's current instant, so a rule with no explicit time still moves
