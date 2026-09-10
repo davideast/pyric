@@ -9,7 +9,7 @@
   "coverage": true,
   "scopeNote": "integration contract: Pure-Swift client conforming to FirebaseDatabase via Pyric WebSocket bridge transport. Covers instance & connection, DatabaseReference navigation & properties, write operations, ServerValue sentinels, one-shot reads & DataSnapshot inspection, realtime listeners & AsyncStream, query ordering/filtering/limits, transactions, and OnDisconnect.",
   "captureRigs": [],
-  "conformanceSuite": "packages/ios-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift",
+  "conformanceSuite": "packages/swift-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift",
   "climb": true,
   "registry": "rtdb-swift"
 }
