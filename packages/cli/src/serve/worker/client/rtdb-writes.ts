@@ -4,8 +4,8 @@
  * `push()` hands its caller a reference before the write lands, so the key is
  * minted here rather than by the host. The first eight characters of a key
  * encode the instant it was minted at, and that instant is the sandbox's, read
- * from the clock mirror — a key minted under a pinned clock sorts where the
- * pin says, not where the wall clock does.
+ * from the clock mirror, so a key minted under a pinned clock sorts where the
+ * pin says rather than where the wall clock does.
  */
 import { sandboxNow } from './clock.js';
 import { dataRpc, nextId } from './core.js';

@@ -782,7 +782,7 @@ export function emitSandboxEvent(
 
 /**
  * Build a {@link ServiceMutationEvent} with a fresh `id` minted from the same
- * monotonic counter Firestore events use — so a non-Firestore service
+ * monotonic counter Firestore events use, so a non-Firestore service
  * (auth/storage/rtdb) doesn't have to re-implement id minting or worry about
  * colliding with the Firestore stream's ids.
  *
