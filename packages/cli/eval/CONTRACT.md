@@ -28,6 +28,12 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `delete_firestore_document` | delete | firestore | document | `path` | |
 | `batch_firestore_writes` | batch | firestore | writes | `writes` (array of `{ op, path, data? }`) | |
 | `query_firestore_documents` | query | firestore | documents | `path`, `filters?` (array of `{ field, op, value }`), `orderBy?`, `direction?`, `limit?` | |
+| `count_firestore_documents` | count | firestore | documents | `path`, `constraints?` | Server-side count, no documents read. |
+| `aggregate_firestore_documents` | aggregate | firestore | documents | `path`, `spec` (`{ count?, sum?: field, average?: field }`), `constraints?` | Server-side count, sum, and average in one call. |
+| `discover_firestore_paths` | discover | firestore | paths | `depth?`, `limit?` | Exhaustive over the sandbox's own document index, not a sampled crawl. |
+| `find_firestore_collection_group` | find | firestore | collection group | `collectionId` | Every collection path ending in the given id, with document counts. |
+| `extract_firestore_indexes` | extract | firestore | indexes | `queries?` (array of `{ path, constraints? }`) | The composite indexes the given queries require, in `firestore.indexes.json` shape. |
+| `write_firestore_indexes` | write | firestore | indexes | `indexes`, `path?`, `confirm` | Writes the definitions to `firestore.indexes.json`, overwriting it. Destructive: split from `extract_firestore_indexes` because the effect model is static per method. |
 | `get_database_value` | get | database | value | `path` | |
 | `write_database_value` | write | database | value | `path`, `value` | |
 | `update_database_value` | update | database | value | `path`, `value` (object) | |
