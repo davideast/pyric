@@ -13,10 +13,13 @@ import { createSurfaceContext } from '../../../src/bridge/surface/context.js';
 import { switchHeldIdentity } from '../../../src/bridge/surface/held-identity.js';
 import {
   customTokenSubject,
+  DISABLED_ACCOUNT_FIX,
   MISSING_ACCOUNT_FIX,
+  POOL_FIX,
   reportAppSession,
   scopeToStoredTenant,
   signInFailure,
+  WRONG_PASSWORD_FIX,
 } from '../../../src/bridge/surface/sign-in.js';
 import { mintSandboxCustomToken } from '../../../src/auth/users.js';
 
@@ -82,21 +85,81 @@ describe('reportAppSession', () => {
   });
 });
 
+/** A refusal shaped the way the sandbox raises one, code and all. */
+function raised(code: string, message: string): Error {
+  return Object.assign(new Error(`Firebase: ${message} (${code}).`), { code });
+}
+
 describe('signInFailure', () => {
-  it('carries the code, the message, and the way to have the account exist', () => {
-    const error = Object.assign(new Error('No user found for nobody@example.test.'), {
-      code: 'auth/user-not-found',
-    });
-    const result = signInFailure('signInWithEmailAndPassword', error);
+  it('advises creating or seeding the account when the pool holds no such user', () => {
+    const result = signInFailure(
+      'signInWithEmailAndPassword',
+      raised('auth/user-not-found', 'No user found for nobody@example.test.'),
+    );
     expect(result.ok).toBe(false);
-    expect(result.summary).toContain('auth/user-not-found');
-    expect(result.summary).toContain(MISSING_ACCOUNT_FIX);
-    expect(result.data).toMatchObject({ code: 'auth/user-not-found', tool: 'auth' });
+    expect(result.summary).toBe(
+      'auth.signInWithEmailAndPassword: no account in the pool matched the credential ' +
+        `(auth/user-not-found). ${MISSING_ACCOUNT_FIX}`,
+    );
+    expect(result.data).toMatchObject({
+      code: 'auth/user-not-found',
+      tool: 'auth',
+      fix: MISSING_ACCOUNT_FIX,
+    });
+  });
+
+  it('advises a new or a seeded password when the password did not match', () => {
+    const result = signInFailure(
+      'signInWithEmailAndPassword',
+      raised('auth/wrong-password', 'The password is invalid.'),
+    );
+    expect(result.summary).toBe(
+      'auth.signInWithEmailAndPassword: the password did not match the account ' +
+        `(auth/wrong-password). ${WRONG_PASSWORD_FIX}`,
+    );
+    expect(result.data).toMatchObject({ code: 'auth/wrong-password', fix: WRONG_PASSWORD_FIX });
+  });
+
+  it('says the account is disabled when it is', () => {
+    const result = signInFailure(
+      'signInWithEmailAndPassword',
+      raised('auth/user-disabled', 'The user account has been disabled.'),
+    );
+    expect(result.summary).toBe(
+      'auth.signInWithEmailAndPassword: the account is disabled ' +
+        `(auth/user-disabled). ${DISABLED_ACCOUNT_FIX}`,
+    );
+    expect(result.data).toMatchObject({ code: 'auth/user-disabled', fix: DISABLED_ACCOUNT_FIX });
+  });
+
+  it("carries the sandbox's own message for any other code, and points at the pool", () => {
+    const result = signInFailure(
+      'signInWithCredential',
+      raised('auth/operation-not-allowed', 'The provider google.com is disabled.'),
+    );
+    expect(result.summary).toBe(
+      'auth.signInWithCredential: Firebase: The provider google.com is disabled. ' +
+        `(auth/operation-not-allowed). ${POOL_FIX}`,
+    );
+    expect(result.data).toMatchObject({ code: 'auth/operation-not-allowed', fix: POOL_FIX });
   });
 
   it('reports an error with no code as an internal one', () => {
     const result = signInFailure('signOut', new Error('boom'));
     expect(result.summary).toContain('auth/internal-error');
+  });
+
+  it('names the code once in every summary it writes', () => {
+    const codes = [
+      'auth/user-not-found',
+      'auth/wrong-password',
+      'auth/user-disabled',
+      'auth/operation-not-allowed',
+    ];
+    for (const code of codes) {
+      const summary = signInFailure('signInWithEmailAndPassword', raised(code, 'boom')).summary;
+      expect(summary.split(code)).toHaveLength(2);
+    }
   });
 });
 

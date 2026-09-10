@@ -23,9 +23,20 @@ import { operationFailure } from './context.js';
 import { describeAgentIdentity } from './held-identity.js';
 import type { OperationResult, SurfaceContext } from './types.js';
 
-/** The sentence every sign-in refusal ends with, naming the two ways to fix it. */
+/** The fix for a credential no account in the pool matches. */
 export const MISSING_ACCOUNT_FIX =
   'Create the account with auth.createUser, or seed it with sandbox.seed, then sign in again.';
+
+/** The fix for a password that does not match the account it was presented for. */
+export const WRONG_PASSWORD_FIX =
+  'Set a password with auth.updateUser, or present the password the account was seeded with.';
+
+/** The fix for an account the project has disabled. */
+export const DISABLED_ACCOUNT_FIX =
+  'Enable the account with auth.updateUser and disabled: false, then sign in again.';
+
+/** The fix a refusal ends with when the code names no fix of its own. */
+export const POOL_FIX = 'Call auth.listUsers to see the pool.';
 
 /** Which stored record a sign-in is about, by whichever name the call carries. */
 export interface SignInSubject {
@@ -74,19 +85,68 @@ function codeOf(error: unknown): string {
   return typeof code === 'string' ? code : 'auth/internal-error';
 }
 
+/** One refusal's own account of itself: what went wrong, and what to do. */
+interface Refusal {
+  /** What the code means, in the surface's own words. Absent for a code with no entry. */
+  cause?: string;
+  /** The call that makes the next sign-in work. */
+  fix: string;
+}
+
 /**
- * Refuse one sign-in in the SDK's own words: the code the sandbox raised, the
- * message it raised with it, and the sentence that says how to have the
- * account exist.
+ * What each sign-in refusal means and how to clear it.
+ *
+ * A code the sandbox raises for a reason an agent can act on gets its own
+ * cause and its own fix. Every other code keeps the sandbox's own message,
+ * which already names the code, and is pointed at the pool.
+ */
+const REFUSALS: Readonly<Record<string, Refusal>> = {
+  'auth/user-not-found': {
+    cause: 'no account in the pool matched the credential',
+    fix: MISSING_ACCOUNT_FIX,
+  },
+  'auth/wrong-password': {
+    cause: 'the password did not match the account',
+    fix: WRONG_PASSWORD_FIX,
+  },
+  'auth/user-disabled': { cause: 'the account is disabled', fix: DISABLED_ACCOUNT_FIX },
+};
+
+/**
+ * What went wrong, as one clause naming the code exactly once and ending
+ * without punctuation, so the caller supplies the one full stop.
+ *
+ * A code this surface has an answer for is stated in the surface's own words.
+ * Any other keeps the raised message, which the sandbox already ends with
+ * `(code).`; a message that names no code has it appended.
+ */
+function statedCause(error: unknown, code: string, known: Refusal | undefined): string {
+  if (known?.cause !== undefined) return `${known.cause} (${code})`;
+  const raised = error instanceof Error ? error.message : String(error);
+  const clause = raised.replace(/\.$/, '');
+  if (clause.includes(code)) return clause;
+  return `${clause} (${code})`;
+}
+
+/**
+ * Refuse one sign-in, in one sentence built from the code the sandbox raised.
+ *
+ * The code is named once. A code this surface has an answer for is stated in
+ * the surface's own words and carries the call that clears it; any other code
+ * keeps the sandbox's message, which already ends with the code, and is
+ * pointed at the pool. Nothing advises creating an account for a refusal that
+ * was not about the account being missing.
  */
 export function signInFailure(method: string, error: unknown): OperationResult {
   const code = codeOf(error);
-  const message = error instanceof Error ? error.message : String(error);
-  return operationFailure(`auth.${method}: ${message} (${code}). ${MISSING_ACCOUNT_FIX}`, {
+  const known = REFUSALS[code];
+  const fix = known?.fix ?? POOL_FIX;
+
+  return operationFailure(`auth.${method}: ${statedCause(error, code, known)}. ${fix}`, {
     code,
     tool: 'auth',
     method,
-    fix: MISSING_ACCOUNT_FIX,
+    fix,
   });
 }
 
