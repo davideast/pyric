@@ -62,6 +62,11 @@ export interface SerializedUserCredential {
   readonly user: SerializedUser;
   readonly providerId: string | null;
   readonly operationType: 'signIn' | 'reauthenticate' | 'link';
+  readonly additionalUserInfo?: {
+    readonly isNewUser: boolean;
+    readonly profile: Record<string, unknown>;
+    readonly providerId: string | null;
+  };
 }
 
 /** Wire form of `getIdTokenResult()`. */

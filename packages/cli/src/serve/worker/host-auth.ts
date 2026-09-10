@@ -39,6 +39,7 @@ import {
   remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
+  type OAuthCredentialPayload,
 } from './host/auth-session-seeder.js';
 
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
@@ -108,8 +109,11 @@ export function portSession(ctx: HostCtx, port: PortLike): MintedSession | null 
  * idToken stream fires alongside authState, matching the real observers.
  */
 function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | null): void {
-  const tenant = portTenant(ctx, port);
   if (session) {
+    const tenant = session.user.tenantId ?? portTenant(ctx, port);
+    if (tenant) {
+      portTenantsFor(ctx).set(port, tenant);
+    }
     session.state.tenant = tenant ?? undefined;
     (session.user as { tenantId?: string | null }).tenantId = tenant ?? null;
   }
@@ -192,7 +196,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx); // new user record must be durable at ack
-        ok(port, msg.id, credReply(session, null));
+        ok(port, msg.id, credReply(session, null, true));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -204,7 +208,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
-        ok(port, msg.id, credReply(session, null));
+        ok(port, msg.id, credReply(session, null, false));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -213,7 +217,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const existing = portSession(ctx, port);
         if (existing && existing.user.isAnonymous) {
-          ok(port, msg.id, credReply(existing, null));
+          ok(port, msg.id, credReply(existing, null, false));
           break;
         }
         const session = authSandboxOps.mintSession(auth, {
@@ -221,7 +225,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
-        ok(port, msg.id, credReply(session, null));
+        ok(port, msg.id, credReply(session, null, true));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -359,7 +363,8 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.updateEmail': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'updateEmail');
-        authSandboxOps.updateUser(auth, session.user.uid, { email: msg.email });
+        const email = msg.email ?? msg.newEmail ?? '';
+        authSandboxOps.updateUser(auth, session.user.uid, { email });
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx);
@@ -371,7 +376,8 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.updatePassword': {
       try {
         const session = requirePortSession(portSession(ctx, port), 'updatePassword');
-        authSandboxOps.updateUser(auth, session.user.uid, { password: msg.password });
+        const password = msg.password ?? msg.newPassword ?? '';
+        authSandboxOps.updateUser(auth, session.user.uid, { password });
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
         await bestEffortFlush(ctx);
@@ -389,6 +395,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           const freshSession = authSandboxOps.mintSession(auth, {
             kind: 'uid',
             uid: msg.uid,
+            tenantId: msg.tenantId ?? portTenant(ctx, port) ?? null,
           });
           setPortSession(ctx, port, freshSession);
           ok(port, msg.id, serializeUser(freshSession.user));
@@ -399,11 +406,22 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInWithCredential': {
       try {
-        const uid = resolveOAuthCredentialUser(auth, msg.credential);
-        const session = authSandboxOps.mintSession(auth, { kind: 'uid', uid });
+        const rawMsg = msg as unknown as Record<string, unknown>;
+        const cred = (msg.credential ?? (typeof rawMsg.providerId === 'string' ? rawMsg : undefined)) as
+          | OAuthCredentialPayload
+          | undefined;
+        if (!cred || !cred.providerId) {
+          throw new Error('auth.signInWithCredential requires credential payload or providerId');
+        }
+        const { uid, isNewUser } = resolveOAuthCredentialUser(auth, cred);
+        const session = authSandboxOps.mintSession(auth, {
+          kind: 'uid',
+          uid,
+          tenantId: msg.tenantId ?? null,
+        });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
-        ok(port, msg.id, credReply(session, msg.credential.providerId));
+        ok(port, msg.id, credReply(session, cred.providerId, isNewUser));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -412,6 +430,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const { uid, email, displayName, photoURL, customClaims, providerId } = msg.identity;
         authSandboxOps.assertAuthProviderEnabled(auth, providerId);
+        const isNewUser = !authSandboxOps.listUsers(auth).some((u) => u.uid === uid);
         authSandboxOps.seedUsers(auth, [{
           uid,
           email: email ?? '',
@@ -426,7 +445,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);
-        ok(port, msg.id, credReply(session, providerId));
+        ok(port, msg.id, credReply(session, providerId, isNewUser));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

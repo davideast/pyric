@@ -10,6 +10,7 @@ const success = {
   'conformance-suite': 'success',
   'browser-conformance': 'success',
   'conformance-gates': 'success',
+  'native-conformance': 'success',
   'release-contract': 'skipped',
   packaging: 'skipped',
   'install-matrix': 'skipped',
@@ -31,7 +32,7 @@ describe('required CI result', () => {
     expect(requiredFailures({
       checkSet: 'release-only',
       requirePackaging: false,
-      results: { ...success, 'build-packages': 'skipped', 'build-and-test': 'skipped', 'library-tests': 'skipped', 'conformance-suite': 'skipped', 'browser-conformance': 'skipped', 'conformance-gates': 'skipped', 'release-contract': 'success' },
+      results: { ...success, 'build-packages': 'skipped', 'build-and-test': 'skipped', 'library-tests': 'skipped', 'conformance-suite': 'skipped', 'browser-conformance': 'skipped', 'conformance-gates': 'skipped', 'native-conformance': 'skipped', 'release-contract': 'success' },
     })).toEqual([]);
   });
 

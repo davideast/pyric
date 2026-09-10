@@ -1,7 +1,7 @@
 import { defineRows } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
 
-const CONFORMANCE_SUITE = 'packages/ios-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift';
+const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift';
 
 const buildRow = defineRows({
   surface: 'rtdb-swift',
@@ -352,7 +352,7 @@ export const rtdbSwiftRows: CompatibilityRow[] = [
 
 const INTRO = `# Realtime Database · Swift Compatibility
 
-Integration compatibility ledger for the Pure-Swift Realtime Database client (\`packages/ios-client\`), conforming to \`FirebaseDatabase\` via Pyric WebSocket bridge transport.
+Integration compatibility ledger for the Pure-Swift Realtime Database client (\`packages/swift-client\`), conforming to \`FirebaseDatabase\` via Pyric WebSocket bridge transport.
 `;
 
 export const rtdbSwiftRegistry: CompatibilitySurfaceRegistry = {
