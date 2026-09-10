@@ -26,6 +26,7 @@ describe('TOOLS', () => {
       'storage',
       'auth',
       'messaging',
+      'functions',
       'rules',
       'sandbox',
       'assurance',

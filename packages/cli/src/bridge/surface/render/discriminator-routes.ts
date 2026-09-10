@@ -29,10 +29,10 @@ import {
   dryRunExperimentSchema,
   inspectAuthFlowSchema,
   inspectFirestoreStructureSchema,
-  invokeCloudFunctionSchema,
   judgeAuthorizationRiskSchema,
   manageAppSessionSchema,
   manageAuthUsersSchema,
+  manageFunctionsSchema,
   manageMessagingSchema,
   manageStorageFilesSchema,
   mutateSandboxDataSchema,
@@ -127,10 +127,10 @@ export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
     parameters: controlSandboxEnvironmentSchema,
   },
   {
-    name: 'invoke_cloud_function',
+    name: 'manage_functions',
     description:
-      'Invoke a callable Cloud Function or simulate an event trigger with specified payload and auth context.',
-    parameters: invokeCloudFunctionSchema,
+      'Discover the RTDB trigger handlers a project defines, run one on a synthetic event without writing to the database, or read back the runs that fired.',
+    parameters: manageFunctionsSchema,
   },
   {
     name: 'configure_ai_mock',
@@ -669,6 +669,38 @@ const MESSAGING_ROUTES: DiscriminatorRoute[] = [
   },
 ];
 
+const FUNCTIONS_ROUTES: DiscriminatorRoute[] = [
+  {
+    tool: 'manage_functions',
+    action: 'list_triggers',
+    selects: on('action', 'list_triggers'),
+    operation: 'list_functions_triggers',
+    translate: () => ({}),
+  },
+  {
+    tool: 'manage_functions',
+    action: 'fire',
+    selects: on('action', 'fire'),
+    operation: 'fire_functions_trigger',
+    translate: (args) => {
+      const translated: Args = { trigger: args.trigger, path: args.path };
+      assign(translated, 'value', parseJsonValue(text(args, 'valueJson')));
+      return translated;
+    },
+  },
+  {
+    tool: 'manage_functions',
+    action: 'executions',
+    selects: on('action', 'executions'),
+    operation: 'list_functions_executions',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'since', args.since);
+      return translated;
+    },
+  },
+];
+
 const RULES_ROUTES: DiscriminatorRoute[] = [
   {
     tool: 'diagnose_rule_denial',
@@ -740,4 +772,5 @@ export const DISCRIMINATOR_ROUTES: readonly DiscriminatorRoute[] = [
   ...ASSURANCE_ROUTES,
   ...BRANCH_ROUTES,
   ...SANDBOX_STATE_ROUTES,
+  ...FUNCTIONS_ROUTES,
 ];

@@ -405,20 +405,26 @@ export const controlSandboxEnvironmentSchema = z.object({
     ),
 });
 
-export const invokeCloudFunctionSchema = z.object({
-  functionName: z.string().describe('Name of the Cloud Function to invoke.'),
-  triggerType: z
-    .enum(['callable', 'firestore_write', 'auth_create', 'storage_object'])
-    .describe('Invocation trigger type.'),
-  dataJson: z.string().optional().describe('JSON-encoded request payload or event data.'),
-  auth: z
-    .object({
-      uid: z.string().optional(),
-      tenant: z.string().optional(),
-      claimsJson: z.string().optional(),
-    })
+export const manageFunctionsSchema = z.object({
+  action: z
+    .enum(['list_triggers', 'fire', 'executions'])
+    .describe('Which functions operation to run.'),
+  trigger: z
+    .string()
     .optional()
-    .describe('Optional auth context for the function invocation.'),
+    .describe("The trigger's export name, as list_triggers names it (when action is 'fire')."),
+  path: z
+    .string()
+    .optional()
+    .describe("Realtime Database path the synthetic event is built at (when action is 'fire')."),
+  valueJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded value the synthetic event carries at path (when action is 'fire')."),
+  since: z
+    .number()
+    .optional()
+    .describe("Clock timestamp cursor; only executions at or after it are returned (when action is 'executions')."),
 });
 
 const aiScriptEntrySchema = z.object({

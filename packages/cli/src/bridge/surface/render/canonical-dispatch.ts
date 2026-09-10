@@ -175,6 +175,15 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     toMethodArgs: (args) => pick(args, ['since']),
   },
 
+  // Functions: discover RTDB triggers, run one on a synthetic event, and read
+  // back the runs that fired.
+  list_functions_triggers: { key: 'functions.listTriggers' },
+  fire_functions_trigger: { key: 'functions.fire' },
+  list_functions_executions: {
+    key: 'functions.executions',
+    toMethodArgs: (args) => pick(args, ['since']),
+  },
+
   switch_auth_identity: { key: identityKey, toMethodArgs: identityArgs },
   get_auth_user: { key: 'auth.getUser' },
   get_auth_user_by_email: { key: 'auth.getUserByEmail' },

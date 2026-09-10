@@ -34,6 +34,7 @@ const TOOL_NAMES = [
   'storage',
   'auth',
   'messaging',
+  'functions',
   'rules',
   'sandbox',
   'assurance',
