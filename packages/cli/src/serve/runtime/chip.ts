@@ -241,6 +241,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     : options.runtime.getSnapshot().manifest.studioUrl;
   let open = options.initiallyOpen ?? false;
   let snapshot = options.runtime.getSnapshot();
+  let isFirstRender = true;
+  let prevErrorCount = snapshot.errors.length;
 
   const getLensFn = options.getLens ?? defaultGetLens;
   const setLensFn = options.setLens ?? defaultSetLens;
@@ -334,7 +336,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const identitySignalHtml = identitySignals.join('');
 
     view.innerHTML = `${open ? `
-      <section class="panel" role="dialog" aria-label="pyric">
+      <section class="panel" role="dialog" aria-modal="true" aria-label="pyric">
         <header class="panel-header">
           <div class="panel-title"><span class="brand-mark">&gt;_</span><strong>pyric</strong>${errorCount > 0 ? `<span class="count">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span><button class="clear-button" type="button" data-clear-errors aria-label="Clear all errors">Clear</button>` : ''}</div>
           <div class="panel-controls">
@@ -368,8 +370,20 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       </button>
     `}`;
 
-    const announcement = `${workerLabel}. ${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.`;
-    if (announcer.textContent !== announcement) announcer.textContent = announcement;
+    if (isFirstRender) {
+      isFirstRender = false;
+    } else {
+      const statusMessage = errorCount > 0
+        ? `${workerLabel}. ${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}.`
+        : prevErrorCount > 0
+          ? `${workerLabel}. Runtime errors cleared.`
+          : '';
+      if (statusMessage && announcer.textContent !== statusMessage) {
+        announcer.textContent = statusMessage;
+      }
+    }
+    prevErrorCount = errorCount;
+
     const newViewport = view.querySelector<HTMLElement>('[data-error-viewport]');
     if (oldScroll && newViewport) {
       newViewport.scrollTop = oldScroll.atBottom ? newViewport.scrollHeight : oldScroll.top;
@@ -382,6 +396,39 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const meta = row?.querySelector('.error-meta');
       if (code) code.textContent = error.message;
       if (meta) meta.textContent = [error.source, error.service && error.method ? `${error.service}.${error.method}` : error.service ?? error.method, error.path, error.code].filter(Boolean).join(' · ');
+    }
+
+    if (open) {
+      const panel = root.querySelector<HTMLElement>('.panel');
+      panel?.addEventListener('keydown', (event: KeyboardEvent) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          open = false;
+          render();
+          root.querySelector<HTMLButtonElement>('[data-expand]')?.focus();
+          return;
+        }
+        if (event.key === 'Tab') {
+          const focusable = panel.querySelectorAll<HTMLElement>(
+            'button:not([disabled]):not([aria-disabled="true"]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+          );
+          if (focusable.length === 0) return;
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          const active = root.activeElement as HTMLElement | null;
+          if (event.shiftKey) {
+            if (active === first || !panel.contains(active)) {
+              event.preventDefault();
+              last.focus();
+            }
+          } else {
+            if (active === last || !panel.contains(active)) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        }
+      });
     }
 
     root.querySelector('[data-expand]')?.addEventListener('click', () => {
@@ -411,10 +458,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       button.addEventListener('click', () => {
         const error = snapshot.errors.find((item) => item.id === button.dataset.copyError);
         if (!error || !clipboard) return;
-        void clipboard.writeText(formatPyricRuntimeError(error)).catch(() => {
+        void clipboard.writeText(formatPyricRuntimeError(error)).then(() => {
+          announcer.textContent = 'Error copied to clipboard';
+        }).catch(() => {
           button.setAttribute('data-copy-failed', '');
-          button.setAttribute('aria-label', 'Copy failed');
+          button.ariaLabel = 'Copy failed';
           button.title = 'Copy failed';
+          announcer.textContent = 'Copy failed';
         });
       });
     }
