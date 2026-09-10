@@ -184,6 +184,17 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     toMethodArgs: (args) => pick(args, ['since']),
   },
 
+  // AI Logic: script the local answer engine, clear or list what is
+  // queued, and read the resolved engine's status. Never sends a prompt
+  // anywhere.
+  script_ai_logic: {
+    key: 'ai_logic.script',
+    toMethodArgs: (args) => pick(args, ['match', 'response']),
+  },
+  clear_ai_logic_scripts: { key: 'ai_logic.clearScripts' },
+  list_ai_logic_scripts: { key: 'ai_logic.scripts' },
+  get_ai_logic_status: { key: 'ai_logic.status' },
+
   switch_auth_identity: { key: identityKey, toMethodArgs: identityArgs },
   get_auth_user: { key: 'auth.getUser' },
   get_auth_user_by_email: { key: 'auth.getUserByEmail' },

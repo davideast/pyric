@@ -81,6 +81,7 @@ const SUITES: readonly string[] = [
   'firestore-depth',
   'messaging',
   'functions',
+  'ai-logic',
 ];
 const finished = new Set<string>();
 

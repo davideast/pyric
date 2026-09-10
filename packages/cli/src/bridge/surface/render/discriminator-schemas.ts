@@ -427,21 +427,28 @@ export const manageFunctionsSchema = z.object({
     .describe("Clock timestamp cursor; only executions at or after it are returned (when action is 'executions')."),
 });
 
-const aiScriptEntrySchema = z.object({
-  matchSubstring: z.string().optional().describe('Optional prompt substring to match.'),
-  responseType: z.enum(['text', 'json', 'error']),
-  responsePayload: z.string().describe('Text response, JSON string, or error message.'),
-  errorCode: z.number().optional().describe("HTTP status code when responseType is 'error'."),
-});
-
-export const configureAiMockSchema = z.object({
+export const manageAiLogicSchema = z.object({
   action: z
-    .enum(['append_script', 'clear_scripts'])
-    .describe('Queue operation on the scripted AI engine.'),
-  entries: z
-    .array(aiScriptEntrySchema)
+    .enum(['script', 'clear_scripts', 'list_scripts', 'status'])
+    .describe('Which AI Logic operation to run.'),
+  matchSubstring: z
+    .string()
     .optional()
-    .describe('Scripted response entries pushed to the FIFO match queue.'),
+    .describe("Prompt substring the entry answers (when action is 'script')."),
+  matchModel: z
+    .string()
+    .optional()
+    .describe("Model the entry answers, with or without the models/ prefix (when action is 'script')."),
+  responseType: z
+    .enum(['text', 'json', 'error'])
+    .optional()
+    .describe("The shape responsePayloadJson is read as (when action is 'script')."),
+  responsePayloadJson: z
+    .string()
+    .optional()
+    .describe(
+      "JSON-encoded payload: a quoted string for type 'text', an object for type 'json', or {code, message} for type 'error' (when action is 'script').",
+    ),
 });
 
 // ─── Firestore lane: depth reads (count, aggregate, discovery, indexes) ────
