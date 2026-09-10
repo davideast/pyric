@@ -25,7 +25,7 @@ The CI guard for the fix is the unit test `test/serve/worker/random-uuid.test.ts
   serve and drives real tabs (app + Studio), a real Node remote client
   (`@pyric/cli/remote`), and the MCP streamable-HTTP endpoint — the
   connection-lifecycle layer (peer slot, standby, sub re-issue dedup) that
-  headless tests can't see. On its first run it found the admin-lens
+  in-process tests can't see. On its first run it found the admin-lens
   listener denial (pinned as an expected-fail test) and the stale
   serve-bundle-cache masking of `@pyric/cli` client fixes (the suite runs
   `--no-cache`). Run from the repo root with `bun run test:soak` (same

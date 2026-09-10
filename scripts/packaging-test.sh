@@ -523,7 +523,7 @@ try {
   await client.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`)));
   const listed = await client.listTools();
   // The served bridge advertises the transport surface a browser sandbox peer
-  // executes (`bridgeTools`), not the headless product surface's six service
+  // executes (`bridgeTools`), not the in-process product surface's six service
   // tools (`mcpTools`). The two are pinned separately in the release
   // contract because they now diverge.
   const expected = JSON.parse(readFileSync(process.env.PYRIC_RELEASE_CONTRACT, 'utf8')).bridgeTools;

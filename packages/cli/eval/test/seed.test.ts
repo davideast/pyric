@@ -1,6 +1,6 @@
 /**
  * Seeding and state reading are one round trip: whatever `applySeed` writes into
- * `.pyric/state/headless.json` is what `buildEvalState` must hand a task's
+ * `.pyric/state/in-process.json` is what `buildEvalState` must hand a task's
  * assertion. These tests pin the three shapes a task is most likely to assert
  * on: a document, a user carrying a tenant and custom claims, and a stored object.
  */
@@ -17,7 +17,7 @@ import {
 import { CAPTURE_RELATIVE_PATH } from '../../src/serve/capture-store.js';
 import { recordOrderSession } from '../sessions.js';
 import { buildEvalState } from '../state.js';
-import { HEADLESS_STATE_RELATIVE } from '../../src/bridge/server/headless.js';
+import { IN_PROCESS_STATE_RELATIVE } from '../../src/bridge/server/in-process.js';
 import { parseVerifyFixture } from '../../src/verify/index.js';
 
 function runDir(): string {
@@ -45,7 +45,7 @@ describe('seed and state round trip', () => {
     const dir = runDir();
     await applySeed(dir, { firestore: { 'posts/p1': { title: 'first', likes: 2 } } });
 
-    expect(existsSync(join(dir, HEADLESS_STATE_RELATIVE))).toBe(true);
+    expect(existsSync(join(dir, IN_PROCESS_STATE_RELATIVE))).toBe(true);
 
     const state = await buildEvalState(dir, join(dir, 'events.ndjson'));
     expect(state.firestore.get('posts/p1')).toMatchObject({ title: 'first', likes: 2 });

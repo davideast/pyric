@@ -1,5 +1,5 @@
 /**
- * Reading a finished run back. Loads the snapshot the headless server flushed
+ * Reading a finished run back. Loads the snapshot the in-process server flushed
  * on stdio close into a fresh sandbox, reads the events NDJSON, and exposes the
  * `EvalState` a task's `assert` receives.
  *
@@ -13,7 +13,7 @@ import { getAdminDatabase, ref as databaseRef, get as databaseGet } from 'pyric/
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { ref as storageRef, getMetadata } from 'pyric/storage';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
-import { loadSandboxSnapshot } from '../src/bridge/server/headless.js';
+import { loadSandboxSnapshot } from '../src/bridge/server/in-process.js';
 import { listStoredPaths, loadStorageSidecar } from './storage-sidecar.js';
 import type { EvalCall, EvalEvent, EvalState } from './types.js';
 

@@ -90,7 +90,7 @@ COMMANDS
                              deps into package.json). Scaffolds nothing. Then run
                              bun install. Standalone binary only.
   mcp                        Stdio MCP server for editors (Cursor / Claude /
-                             Antigravity). Hosts a headless in-process sandbox,
+                             Antigravity). Hosts an in-process in-process sandbox,
                              or attaches to a running \`pyric sandbox --bridge\`
                              (found via .pyric/serve.json) for shared-live Studio.
   snapshot [--out=FILE]      Promote lived sandbox state (live sandbox --persist, else

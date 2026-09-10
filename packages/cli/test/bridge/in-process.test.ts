@@ -1,7 +1,7 @@
 /**
- * Headless MCP server session (`src/bridge/server/headless.ts`).
+ * InProcess MCP server session (`src/bridge/server/in-process.ts`).
  *
- * These drive a real MCP client against a real headless session over a linked
+ * These drive a real MCP client against a real in-process session over a linked
  * in-memory transport, which is the only way to see the three behaviours that
  * matter to the tool-surface evaluation: an event per call in the log the
  * environment names, a call the SDK rejects before dispatch still logged, and a
@@ -30,12 +30,12 @@ import {
 } from 'pyric/storage';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import {
-  runHeadlessMcp,
-  buildHeadlessMcpServer,
-  createHeadlessEventWriter,
+  runInProcessMcp,
+  buildInProcessMcpServer,
+  createInProcessEventWriter,
   openPersistedServices,
-  HEADLESS_STATE_RELATIVE,
-} from '../../src/bridge/server/headless.js';
+  IN_PROCESS_STATE_RELATIVE,
+} from '../../src/bridge/server/in-process.js';
 import {
   saveStorageSidecar,
   loadStorageSidecar,
@@ -79,7 +79,7 @@ function readEvents(path: string): LoggedEvent[] {
     .map((line) => JSON.parse(line) as LoggedEvent);
 }
 
-/** Start a headless session on an in-memory pair and return a connected client. */
+/** Start an in-process session on an in-memory pair and return a connected client. */
 async function openSession(
   cwd: string,
   env: NodeJS.ProcessEnv,
@@ -87,7 +87,7 @@ async function openSession(
   projectDir?: string,
 ) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  const exit = runHeadlessMcp(cwd, { env, transport: serverTransport, surface, projectDir });
+  const exit = runInProcessMcp(cwd, { env, transport: serverTransport, surface, projectDir });
   const client = new Client({ name: 'test', version: '0' });
   await client.connect(clientTransport);
   const close = async (): Promise<number> => {
@@ -97,10 +97,10 @@ async function openSession(
   return { client, close };
 }
 
-describe('headless MCP session', () => {
+describe('in-process MCP session', () => {
   it('records one event per call in PYRIC_EVAL_LOG and writes no project audit log', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-eval-'));
-    const home = mkdtempSync(join(tmpdir(), 'pyric-headless-home-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-eval-'));
+    const home = mkdtempSync(join(tmpdir(), 'pyric-in-process-home-'));
     const priorHome = process.env.HOME;
     process.env.HOME = home;
     try {
@@ -140,7 +140,7 @@ describe('headless MCP session', () => {
         callIndex: 0,
       });
 
-      // The per-project audit log lives under the home directory; headless mode
+      // The per-project audit log lives under the home directory; in-process mode
       // with an evaluation log writes nothing there.
       expect(existsSync(join(home, '.pyric', 'projects'))).toBe(false);
     } finally {
@@ -152,7 +152,7 @@ describe('headless MCP session', () => {
   });
 
   it('logs a call the SDK rejects on schema validation, with ok false', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-reject-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-reject-'));
     try {
       const logPath = join(dir, 'events.ndjson');
       const session = await openSession(dir, evalEnv(logPath));
@@ -180,7 +180,7 @@ describe('headless MCP session', () => {
   });
 
   it('flushes the snapshot on close, before the debounce would have fired', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-flush-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-flush-'));
     try {
       const session = await openSession(dir, {});
       const created = await session.client.callTool({
@@ -192,7 +192,7 @@ describe('headless MCP session', () => {
       });
       expect(created.isError).toBeFalsy();
 
-      const snapshotPath = join(dir, HEADLESS_STATE_RELATIVE);
+      const snapshotPath = join(dir, IN_PROCESS_STATE_RELATIVE);
       expect(existsSync(snapshotPath)).toBe(false); // still inside the debounce window
 
       const code = await session.close();
@@ -205,7 +205,7 @@ describe('headless MCP session', () => {
   });
 
   it('loads project rules and serves the service tools when no surface is named', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-surface-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-surface-'));
     try {
       writeFileSync(join(dir, 'firestore.rules'), "rules_version = '2';\n", 'utf8');
       const session = await openSession(dir, {});
@@ -233,9 +233,9 @@ async function forgetStoredObject(path: string): Promise<void> {
   await deleteObject(storageRef(storage, path));
 }
 
-describe('headless state that outlives the process', () => {
+describe('in-process state that outlives the process', () => {
   it('carries an uploaded object across a close and a reopen', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-storage-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-storage-'));
     try {
       // Upload into a session's own sandbox, opened the way the server opens it.
       const first = initializeSandbox();
@@ -260,7 +260,7 @@ describe('headless state that outlives the process', () => {
   });
 
   it('loads the sidecar on start and writes it again on close', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-seeded-storage-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-seeded-storage-'));
     try {
       await applySeed(dir, {
         storage: [
@@ -291,7 +291,7 @@ describe('headless state that outlives the process', () => {
   });
 
   it('restores auth and database buckets a snapshot carries', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-buckets-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-buckets-'));
     try {
       await applySeed(dir, {
         users: [{ uid: 'alice', email: 'alice@example.com', claims: { role: 'editor' } }],
@@ -321,8 +321,8 @@ describe('headless state that outlives the process', () => {
 
 describe('a project directory apart from the cwd', () => {
   it('reads rules and the snapshot from the project dir and writes back there', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'pyric-headless-workspace-'));
-    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-headless-project-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'pyric-in-process-workspace-'));
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-in-process-project-'));
     const written: string[] = [];
     const priorWrite = process.stderr.write.bind(process.stderr);
     process.stderr.write = ((chunk: string) => {
@@ -356,7 +356,7 @@ describe('a project directory apart from the cwd', () => {
       // The rules the session loaded came from the project dir, not the cwd.
       expect(written.join('')).toContain(`rules loaded from ${join(projectDir, 'firestore.rules')}`);
       // The snapshot it flushed went back to the project dir.
-      expect(readFileSync(join(projectDir, HEADLESS_STATE_RELATIVE), 'utf8')).toContain(
+      expect(readFileSync(join(projectDir, IN_PROCESS_STATE_RELATIVE), 'utf8')).toContain(
         'written elsewhere',
       );
       // The cwd it ran in is untouched: no state, no rules, nothing.
@@ -369,8 +369,8 @@ describe('a project directory apart from the cwd', () => {
   });
 
   it('enforces the rules file over the default the snapshot restore installs', async () => {
-    const workspace = mkdtempSync(join(tmpdir(), 'pyric-headless-workspace-'));
-    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-headless-project-'));
+    const workspace = mkdtempSync(join(tmpdir(), 'pyric-in-process-workspace-'));
+    const projectDir = mkdtempSync(join(tmpdir(), 'pyric-in-process-project-'));
     try {
       await applySeed(projectDir, {
         firestoreRules: `rules_version = '2';
@@ -403,7 +403,7 @@ service cloud.firestore {
   });
 
   it('resolves a relative project directory against the cwd it was given', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'pyric-headless-relative-'));
+    const root = mkdtempSync(join(tmpdir(), 'pyric-in-process-relative-'));
     try {
       await applySeed(join(root, 'state'), {
         firestore: { 'posts/p1': { title: 'under state' } },
@@ -416,14 +416,14 @@ service cloud.firestore {
       expect(read.isError).toBeFalsy();
       expect(JSON.stringify(read.content)).toContain('under state');
       await session.close();
-      expect(existsSync(join(root, HEADLESS_STATE_RELATIVE))).toBe(false);
+      expect(existsSync(join(root, IN_PROCESS_STATE_RELATIVE))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 
   it('uses the cwd when no project directory is named', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-default-project-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-default-project-'));
     try {
       const session = await openSession(dir, {});
       const created = await session.client.callTool({
@@ -432,33 +432,33 @@ service cloud.firestore {
       });
       expect(created.isError).toBeFalsy();
       await session.close();
-      expect(readFileSync(join(dir, HEADLESS_STATE_RELATIVE), 'utf8')).toContain('in the cwd');
+      expect(readFileSync(join(dir, IN_PROCESS_STATE_RELATIVE), 'utf8')).toContain('in the cwd');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 });
 
-describe('headless event writer selection', () => {
+describe('in-process event writer selection', () => {
   it('records nothing when PYRIC_EVAL_LOG is absent or empty', () => {
-    expect(createHeadlessEventWriter({})).toBe(null);
-    expect(createHeadlessEventWriter({ PYRIC_EVAL_LOG: '  ' })).toBe(null);
+    expect(createInProcessEventWriter({})).toBe(null);
+    expect(createInProcessEventWriter({ PYRIC_EVAL_LOG: '  ' })).toBe(null);
   });
 
   it('builds a server for a surface id a renderer claims', () => {
-    expect(buildHeadlessMcpServer(initializeSandbox(), { surface: 'noun-prefixed' })).toBeTruthy();
+    expect(buildInProcessMcpServer(initializeSandbox(), { surface: 'noun-prefixed' })).toBeTruthy();
   });
 
   it('rejects a surface id no renderer claims, naming the ids that exist', () => {
-    expect(() => buildHeadlessMcpServer(initializeSandbox(), { surface: 'verb-infixed' })).toThrow(
+    expect(() => buildInProcessMcpServer(initializeSandbox(), { surface: 'verb-infixed' })).toThrow(
       /verb-prefixed/,
     );
   });
 });
 
-describe('the surface a headless session serves', () => {
+describe('the surface an in-process session serves', () => {
   it('serves the ten service tools when no surface is named', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-default-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-default-'));
     try {
       const session = await openSession(dir, {});
       const listed = await session.client.listTools();
@@ -481,7 +481,7 @@ describe('the surface a headless session serves', () => {
   });
 
   it('serves the named variant and stamps its operation on every event', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-variant-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-variant-'));
     try {
       const logPath = join(dir, 'events.ndjson');
       const session = await openSession(dir, {
@@ -510,7 +510,7 @@ describe('the surface a headless session serves', () => {
   });
 
   it('exits non-zero and says so on stderr for a surface id no renderer claims', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-unknown-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-unknown-'));
     const written: string[] = [];
     const priorWrite = process.stderr.write.bind(process.stderr);
     process.stderr.write = ((chunk: string) => {
@@ -519,7 +519,7 @@ describe('the surface a headless session serves', () => {
     }) as typeof process.stderr.write;
     try {
       const [, serverTransport] = InMemoryTransport.createLinkedPair();
-      const code = await runHeadlessMcp(dir, {
+      const code = await runInProcessMcp(dir, {
         env: {},
         transport: serverTransport,
         surface: 'verb-infixed',
@@ -535,7 +535,7 @@ describe('the surface a headless session serves', () => {
   // Step 3B: a branch outlives the session that forked it, because it is a
   // directory in the project rather than state in the server.
   it('lists a branch forked in an earlier session against the same project directory', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-branch-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-branch-'));
     try {
       const first = await openSession(dir, {});
       const forked = await first.client.callTool({

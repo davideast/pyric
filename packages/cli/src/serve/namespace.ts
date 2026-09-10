@@ -288,7 +288,7 @@ async function handleCapture(
 // The worker client (`serve/worker/client/core.ts`) fire-and-forget POSTs
 // here whenever it reconstructs an error carrying `denialContext` (a rules
 // denial) — from a one-shot rejection or an unobserved listener error alike.
-// An agent driving `pyric dev` headlessly has no browser console to watch;
+// An agent driving `pyric dev` in process has no browser console to watch;
 // this is that visibility, printed to the terminal instead.
 //
 // The route carries the AI broker's diagnostics on the same channel, relayed

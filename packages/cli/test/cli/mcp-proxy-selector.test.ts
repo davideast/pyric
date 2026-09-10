@@ -1,11 +1,11 @@
 /**
  * Hybrid MCP selector (Phase 2 of design rationale).
  *
- * When no `pyric dev --bridge` is discovered, `runMcpProxy` now hosts a
- * headless in-process sandbox instead of erroring (exit 2). The attach (relay)
+ * When no `pyric dev --bridge` is discovered, `runMcpProxy` now hosts an
+ * in-process sandbox instead of erroring (exit 2). The attach (relay)
  * path is unchanged and blocks on real stdin (so it is deliberately not exercised
- * here — doing so risks a hung test); we test the new fallback branch via the
- * injected `discover` + `headless` seams.
+ * here, since doing so risks a hung test); we test the new fallback branch via the
+ * injected `discover` + `inProcess` seams.
  */
 import { describe, it, expect } from 'bun:test';
 import { runMcpProxy, selectAllowProduction } from '../../src/cli/mcp-proxy.js';
@@ -16,58 +16,91 @@ function mcpArgs(...argv: string[]) {
   return parseArgs(['mcp', ...argv]);
 }
 
-describe('mcp-proxy hybrid selector (Phase 2)', () => {
-  it('runs the headless sandbox (not exit 2) when no serve is found', async () => {
-    let headlessCwd: string | null = null;
-    const code = await runMcpProxy({} as never, '/proj', {
+describe('mcp --attach', () => {
+  it('fails rather than owning a sandbox when no serve is running', async () => {
+    let wentInProcess = false;
+    const code = await runMcpProxy(mcpArgs('--attach'), '/proj', {
       discover: async () => null,
-      headless: async (cwd) => {
-        headlessCwd = cwd;
+      inProcess: async () => {
+        wentInProcess = true;
         return 0;
       },
     });
-    expect(headlessCwd).toBe('/proj');
+    expect(code).toBe(1);
+    expect(wentInProcess).toBe(false);
+  });
+
+  it('refuses --attach together with --in-process', async () => {
+    let consultedDiscover = false;
+    let wentInProcess = false;
+    const code = await runMcpProxy(mcpArgs('--attach', '--in-process'), '/proj', {
+      discover: async () => {
+        consultedDiscover = true;
+        return null;
+      },
+      inProcess: async () => {
+        wentInProcess = true;
+        return 0;
+      },
+    });
+    expect(code).toBe(1);
+    expect(consultedDiscover).toBe(false);
+    expect(wentInProcess).toBe(false);
+  });
+});
+
+describe('mcp-proxy hybrid selector (Phase 2)', () => {
+  it('runs the in-process sandbox (not exit 2) when no serve is found', async () => {
+    let inProcessCwd: string | null = null;
+    const code = await runMcpProxy({} as never, '/proj', {
+      discover: async () => null,
+      inProcess: async (cwd) => {
+        inProcessCwd = cwd;
+        return 0;
+      },
+    });
+    expect(inProcessCwd).toBe('/proj');
     expect(code).toBe(0);
   });
 
-  it('prefers the discovered serve over headless (discover is consulted first)', async () => {
-    // With a serve discovered, the headless seam must not be chosen. We stub
+  it('prefers the discovered serve over in-process (discover is consulted first)', async () => {
+    // With a serve discovered, the in-process seam must not be chosen. We stub
     // discover to throw AFTER recording the call so we never enter the real
-    // (stdio-blocking) relay, and assert headless was never reached.
+    // (stdio-blocking) relay, and assert in-process was never reached.
     let consultedDiscover = false;
-    let wentHeadless = false;
+    let wentInProcess = false;
     await runMcpProxy({} as never, '/proj', {
       discover: async () => {
         consultedDiscover = true;
         throw new Error('stop before the relay');
       },
-      headless: async () => {
-        wentHeadless = true;
+      inProcess: async () => {
+        wentInProcess = true;
         return 0;
       },
     }).catch(() => undefined);
     expect(consultedDiscover).toBe(true);
-    expect(wentHeadless).toBe(false);
+    expect(wentInProcess).toBe(false);
   });
 });
 
-describe('mcp --headless', () => {
+describe('mcp --in-process', () => {
   it('goes straight to the in-process sandbox without consulting discovery', async () => {
     let consultedDiscover = false;
-    let headlessCwd: string | null = null;
-    const code = await runMcpProxy(mcpArgs('--headless'), '/proj', {
+    let inProcessCwd: string | null = null;
+    const code = await runMcpProxy(mcpArgs('--in-process'), '/proj', {
       discover: async () => {
         consultedDiscover = true;
         return null;
       },
-      headless: async (cwd) => {
-        headlessCwd = cwd;
+      inProcess: async (cwd) => {
+        inProcessCwd = cwd;
         return 0;
       },
       env: {},
     });
     expect(consultedDiscover).toBe(false);
-    expect(headlessCwd).toBe('/proj');
+    expect(inProcessCwd).toBe('/proj');
     expect(code).toBe(0);
   });
 
@@ -78,7 +111,7 @@ describe('mcp --headless', () => {
         consultedDiscover = true;
         return null;
       },
-      headless: async () => 0,
+      inProcess: async () => 0,
       env: {},
     });
     expect(consultedDiscover).toBe(true);
@@ -93,7 +126,7 @@ describe('mcp tool-surface selection', () => {
     let surface: string | undefined;
     await runMcpProxy(mcpArgs(...argv), '/proj', {
       discover: async () => null,
-      headless: async (_cwd, options) => {
+      inProcess: async (_cwd, options) => {
         surface = options.surface;
         return 0;
       },
@@ -103,27 +136,27 @@ describe('mcp tool-surface selection', () => {
   }
 
   it('takes the surface from --surface', async () => {
-    expect(await selectedSurface(['--headless', '--surface', 'noun-prefixed'], {})).toBe(
+    expect(await selectedSurface(['--in-process', '--surface', 'noun-prefixed'], {})).toBe(
       'noun-prefixed',
     );
   });
 
   it('falls back to PYRIC_TOOL_SURFACE', async () => {
     expect(
-      await selectedSurface(['--headless'], { PYRIC_TOOL_SURFACE: 'verb-suffixed' }),
+      await selectedSurface(['--in-process'], { PYRIC_TOOL_SURFACE: 'verb-suffixed' }),
     ).toBe('verb-suffixed');
   });
 
   it('prefers the flag over the environment', async () => {
     expect(
-      await selectedSurface(['--headless', '--surface=discriminator'], {
+      await selectedSurface(['--in-process', '--surface=discriminator'], {
         PYRIC_TOOL_SURFACE: 'verb-suffixed',
       }),
     ).toBe('discriminator');
   });
 
   it('selects no surface when neither is set, on the attach fallback too', async () => {
-    expect(await selectedSurface(['--headless'], {})).toBe(undefined);
+    expect(await selectedSurface(['--in-process'], {})).toBe(undefined);
     expect(await selectedSurface([], {})).toBe(undefined);
   });
 });
@@ -136,7 +169,7 @@ describe('mcp project-directory selection', () => {
     let projectDir: string | undefined;
     await runMcpProxy(mcpArgs(...argv), '/proj', {
       discover: async () => null,
-      headless: async (_cwd, options) => {
+      inProcess: async (_cwd, options) => {
         projectDir = options.projectDir;
         return 0;
       },
@@ -146,27 +179,27 @@ describe('mcp project-directory selection', () => {
   }
 
   it('takes the project directory from --project-dir', async () => {
-    expect(await selectedProjectDir(['--headless', '--project-dir', '/state/run-1'], {})).toBe(
+    expect(await selectedProjectDir(['--in-process', '--project-dir', '/state/run-1'], {})).toBe(
       '/state/run-1',
     );
   });
 
   it('falls back to PYRIC_PROJECT_DIR', async () => {
     expect(
-      await selectedProjectDir(['--headless'], { PYRIC_PROJECT_DIR: '/state/from-env' }),
+      await selectedProjectDir(['--in-process'], { PYRIC_PROJECT_DIR: '/state/from-env' }),
     ).toBe('/state/from-env');
   });
 
   it('prefers the flag over the environment', async () => {
     expect(
-      await selectedProjectDir(['--headless', '--project-dir=/state/from-flag'], {
+      await selectedProjectDir(['--in-process', '--project-dir=/state/from-flag'], {
         PYRIC_PROJECT_DIR: '/state/from-env',
       }),
     ).toBe('/state/from-flag');
   });
 
   it('selects no project directory when neither is set, so the server uses its cwd', async () => {
-    expect(await selectedProjectDir(['--headless'], {})).toBe(undefined);
+    expect(await selectedProjectDir(['--in-process'], {})).toBe(undefined);
     expect(await selectedProjectDir([], {})).toBe(undefined);
   });
 });
@@ -182,7 +215,7 @@ describe('mcp production-method selection', () => {
   }
 
   it('mounts production methods for the flag', () => {
-    expect(allowsProduction(['--headless', '--allow-production'], {})).toBe(true);
+    expect(allowsProduction(['--in-process', '--allow-production'], {})).toBe(true);
   });
 
   it('mounts production methods for the two words the variable accepts', () => {

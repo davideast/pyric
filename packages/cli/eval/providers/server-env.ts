@@ -21,7 +21,7 @@ export function defaultServerCommand(repoRoot: string, variant: string): string[
     'node',
     join(repoRoot, 'packages', 'cli', 'dist', 'cli', 'index.js'),
     'mcp',
-    '--headless',
+    '--in-process',
     '--surface',
     variant,
   ];
@@ -71,7 +71,7 @@ export function serverEnv(run: EvalRun): Record<string, string> {
  * Variables the harness withholds from every process it spawns, whatever the
  * environment it was itself started with.
  *
- * `PYRIC_ALLOW_PRODUCTION` mounts the `production` methods on a headless
+ * `PYRIC_ALLOW_PRODUCTION` mounts the `production` methods on an in-process
  * server. A run that mounted them would let an agent reach real Google
  * infrastructure with real credentials, and `CONTRACT.md` promises it never
  * does. A maintainer who has the variable set for their own session must not

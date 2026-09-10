@@ -30,15 +30,15 @@
  * live-restart test harness; the timeout makes a stale connection fail fast,
  * and the user restarts the MCP connection.)
  *
- * `--headless` opts out of all of this: it forces the in-process sandbox and
+ * `--in-process` opts out of all of this: it forces the in-process sandbox and
  * never looks for a running bridge, so a run is reproducible whatever else is
  * on the machine. `--surface <id>` (or `PYRIC_TOOL_SURFACE`, with the flag
- * winning) selects the tool surface the headless server renders, and
+ * winning) selects the tool surface the in-process server renders, and
  * `--project-dir <dir>` (or `PYRIC_PROJECT_DIR`, same precedence) names the
- * directory that headless server reads its rules files and `.pyric/state` from.
+ * directory that in-process server reads its rules files and `.pyric/state` from.
  * Absent both, the project directory is the process cwd. `--allow-production`
  * (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`) enables `production`
- * methods on the headless server; absent, a `production` method is still
+ * methods on the in-process server; absent, a `production` method is still
  * listed, under a heading that says it is disabled, and every call to one is
  * refused (ADR-0014 Decision 5).
  *
@@ -77,16 +77,16 @@ function isResponse(m: JSONRPCMessage): boolean {
   return !('method' in m) && msgId(m) != null;
 }
 
-/** Injectable seams for testing the attach-vs-headless selection. */
+/** Injectable seams for testing the attach-vs-in-process selection. */
 export interface McpProxyDeps {
   discover?: typeof discoverServe;
-  headless?: (cwd: string, options: HeadlessSelection) => Promise<number>;
+  inProcess?: (cwd: string, options: InProcessSelection) => Promise<number>;
   /** Environment the surface fallback is read from. Defaults to the process. */
   env?: NodeJS.ProcessEnv;
 }
 
-/** How the headless server is started once this command has selected it. */
-export interface HeadlessSelection {
+/** How the in-process server is started once this command has selected it. */
+export interface InProcessSelection {
   /** Tool-surface variant id, or undefined for the default surface. */
   surface?: string;
   /** Project directory, or undefined to use the cwd the server is started in. */
@@ -101,10 +101,18 @@ export const TOOL_SURFACE_ENV_KEY = 'PYRIC_TOOL_SURFACE';
 /** Environment variable naming the project directory when `--project-dir` is absent. */
 export const PROJECT_DIR_ENV_KEY = 'PYRIC_PROJECT_DIR';
 
-/** `--headless` forces the in-process sandbox and skips discovery entirely. */
-function forcesHeadlessSandbox(parsed: ParsedArgs): boolean {
-  return parsed.flags?.get('headless') === true;
+/** `--in-process` forces the in-process sandbox and skips discovery entirely. */
+function forcesInProcessSandbox(parsed: ParsedArgs): boolean {
+  return parsed.flags?.get('in-process') === true;
 }
+
+/** `--attach` insists on a running serve and fails rather than owning a sandbox. */
+function requiresRunningServe(parsed: ParsedArgs): boolean {
+  return parsed.flags?.get('attach') === true;
+}
+
+/** Exit code for a command line that asks for two hosts at once, or for one that is not there. */
+const USAGE_ERROR = 1;
 
 /**
  * The tool surface to serve. The flag wins over the environment; absent both,
@@ -115,7 +123,7 @@ function selectToolSurface(parsed: ParsedArgs, env: NodeJS.ProcessEnv): string |
 }
 
 /**
- * The project directory the headless server reads and writes. The flag wins
+ * The project directory the in-process server reads and writes. The flag wins
  * over the environment; absent both, the server uses the cwd it was started in.
  */
 function selectProjectDir(parsed: ParsedArgs, env: NodeJS.ProcessEnv): string | undefined {
@@ -157,37 +165,50 @@ export async function runMcpProxy(
   };
 
   const env = deps.env ?? process.env;
-  const selection: HeadlessSelection = {
+  const selection: InProcessSelection = {
     surface: selectToolSurface(parsed, env),
     projectDir: selectProjectDir(parsed, env),
     allowProduction: selectAllowProduction(parsed, env),
   };
-  const runHeadless =
-    deps.headless ??
-    ((c: string, o: HeadlessSelection) =>
-      import('../bridge/server/headless.js').then((m) => m.runHeadlessMcp(c, o)));
+  const runInProcess =
+    deps.inProcess ??
+    ((c: string, o: InProcessSelection) =>
+      import('../bridge/server/in-process.js').then((m) => m.runInProcessMcp(c, o)));
 
-  if (forcesHeadlessSandbox(parsed)) {
-    // `--headless` is the evaluation and scripting path: one sandbox per
+  if (forcesInProcessSandbox(parsed) && requiresRunningServe(parsed)) {
+    log('--attach and --in-process name different hosts for the sandbox; pass one of them.');
+    return USAGE_ERROR;
+  }
+
+  if (forcesInProcessSandbox(parsed)) {
+    // `--in-process` is the evaluation and scripting path: one sandbox per
     // process, with no dependence on whatever else is running on this machine.
     // Discovery is not consulted at all, so a running bridge cannot be attached.
-    log('starting a headless in-process sandbox (--headless); not looking for a running sandbox');
-    return await runHeadless(cwd, selection);
+    log('starting an in-process sandbox (--in-process); not looking for a running sandbox');
+    return await runInProcess(cwd, selection);
   }
 
   const found = await (deps.discover ?? discoverServe)(cwd, log);
+  if (!found && requiresRunningServe(parsed)) {
+    log(
+      'no running `pyric serve` or `pyric sandbox --bridge` found for this project (looked for ' +
+        `.pyric/serve.json and ports ${SCAN_PORTS.join(', ')}), and --attach asks for one. ` +
+        'Start it first, or drop --attach to own an in-process sandbox instead.',
+    );
+    return USAGE_ERROR;
+  }
   if (!found) {
     // Hybrid mode (design rationale): no dev server to attach to, so host the
     // sandbox IN this process. Zero setup, no browser tab required. A running
     // `pyric sandbox --bridge` upgrades to the shared session on reconnect.
     log(
       'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json and ports ' +
-        `${SCAN_PORTS.join(', ')}); starting a headless in-process sandbox (zero-setup).\n` +
-        '  Data persists to .pyric/state/headless.json. For a shared-live Studio\n' +
+        `${SCAN_PORTS.join(', ')}); starting an in-process sandbox (zero-setup).\n` +
+        '  Data persists to .pyric/state/in-process.json. For a shared-live Studio\n' +
         '  session, start `pyric sandbox --bridge` before connecting the agent (a sandbox host\n' +
-        '  started mid-session does not yet adopt this headless data).',
+        '  started mid-session does not yet adopt this in-process data).',
     );
-    return await runHeadless(cwd, selection);
+    return await runInProcess(cwd, selection);
   }
   log(`relaying stdio ↔ ${found.mcpUrl} (via ${found.source}; attached to a running serve)`);
 

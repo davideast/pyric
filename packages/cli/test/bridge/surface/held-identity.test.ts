@@ -124,7 +124,7 @@ describe('listHeldSessions', () => {
   it("names the sandbox it describes, so it is not read as the running bridge's clients", () => {
     const summary = listHeldSessions(freshContext()).summary;
     expect(summary.split('.')[0]).toBe(
-      "The project's headless sandbox holds 1 session",
+      "The project's in-process sandbox holds 1 session",
     );
   });
 });

@@ -1,7 +1,7 @@
 /**
  * `runSurfaceMethod` against a scratch project directory: the flags become
  * the record's arguments, the call runs the record's handler, and the state it
- * writes is the state the headless MCP server reads back.
+ * writes is the state the in-process MCP server reads back.
  *
  * `surface-method-command.test.ts` covers the thin registry wrapper this
  * runner sits behind; every case here calls `runSurfaceMethod` directly with
@@ -14,7 +14,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { HEADLESS_STATE_RELATIVE } from '../../src/bridge/server/headless.js';
+import { IN_PROCESS_STATE_RELATIVE } from '../../src/bridge/server/in-process.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runSurfaceMethod } from '../../src/cli/surface-method-runner.js';
 
@@ -28,16 +28,64 @@ interface Run {
   stderr: string;
 }
 
-async function run(key: string, argv: string[]): Promise<Run> {
+/**
+ * A serve discovery answer: nothing running, or one at this display URL, found
+ * through the project's own pointer file or through the port scan.
+ */
+type Discovery = null | { url: string; source?: 'pointer' | 'scan' };
+
+async function run(key: string, argv: string[], serve: Discovery = null): Promise<Run> {
   let stdout = '';
   let stderr = '';
+  const source = serve?.source === 'scan' ? 'scan port 5174' : 'pointer .pyric/serve.json';
+  const found =
+    serve === null
+      ? null
+      : { url: serve.url, mcpUrl: `${serve.url}/__pyric/mcp`, base: serve.url, instanceId: null, source };
   const code = await runSurfaceMethod(key, parseArgs(argv), {
     cwd: workDir,
     stdout: { write: (text) => void (stdout += text) },
     stderr: { write: (text) => void (stderr += text) },
+    discover: async () => found,
   });
   return { code, stdout, stderr };
 }
+
+describe('which sandbox a command acts on', () => {
+  it('says it acts on the in-process sandbox before the result', async () => {
+    const shown = await run('sandbox.inspect', ['sandbox', 'inspect']);
+    expect(shown.code).toBe(0);
+    expect(shown.stderr.split('\n')[0]).toBe('pyric: in-process sandbox, .pyric/state/in-process.json');
+  });
+
+  it('refuses when a running serve owns the sandbox, naming both ways forward', async () => {
+    const refused = await run('sandbox.inspect', ['sandbox', 'inspect'], {
+      url: 'http://localhost:3473',
+    });
+    expect(refused.code).toBe(1);
+    expect(refused.stdout).toBe('');
+    expect(refused.stderr).toContain('http://localhost:3473');
+    expect(refused.stderr).toContain('--in-process');
+    expect(refused.stderr).toContain('pyric mcp');
+  });
+
+  it('ignores a serve the port scan found, which may belong to another project', async () => {
+    const scanned = await run('sandbox.inspect', ['sandbox', 'inspect'], {
+      url: 'http://localhost:5174',
+      source: 'scan',
+    });
+    expect(scanned.code).toBe(0);
+    expect(scanned.stderr).not.toContain('owns this project');
+  });
+
+  it('acts on the in-process sandbox with --in-process even while a serve runs', async () => {
+    const forced = await run('sandbox.inspect', ['sandbox', 'inspect', '--in-process'], {
+      url: 'http://localhost:3473',
+    });
+    expect(forced.code).toBe(0);
+    expect(forced.stderr).not.toContain('owns this project');
+  });
+});
 
 describe('pyric <tool> <method>', () => {
   it('writes a document from flags, with the object argument as a JSON string', async () => {
@@ -49,9 +97,9 @@ describe('pyric <tool> <method>', () => {
       '--data',
       '{"a":1}',
     ]);
-    expect(written.stderr).toBe('');
+    expect(written.stderr).toBe('pyric: in-process sandbox, .pyric/state/in-process.json\n');
     expect(written.code).toBe(0);
-    expect(existsSync(join(workDir, HEADLESS_STATE_RELATIVE))).toBe(true);
+    expect(existsSync(join(workDir, IN_PROCESS_STATE_RELATIVE))).toBe(true);
 
     const read = await run('firestore.getDoc', ['firestore', 'getDoc', '--path', 'posts/p1']);
     expect(read.code).toBe(0);

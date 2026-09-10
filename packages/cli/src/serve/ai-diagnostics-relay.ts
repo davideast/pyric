@@ -8,7 +8,7 @@ import { capTerminalText } from './ai-terminal-text.js';
  * The broker lands `service_mutation` events (`service: 'ai'`) on the
  * sandbox's unified stream. That stream is browser-side: the worker host fans
  * it out over the port for Studio, and it never reaches the dev server. An
- * agent driving `pyric dev` headlessly therefore saw NOTHING.
+ * agent driving `pyric dev` in process therefore saw NOTHING.
  *
  *   - `request_rejected`: a bad role, empty `contents`, a missing thought
  *     signature, or an engine that answered an error envelope.

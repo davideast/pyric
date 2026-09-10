@@ -9,7 +9,7 @@
  *
  * The tenant needs saying. The sandbox pins a signing-in identity to the
  * handle's own `tenantId`, which is how Identity Platform resolves a
- * credential against one tenant's pool. A headless caller has no page to set
+ * credential against one tenant's pool. An in-process caller has no page to set
  * that handle, so a sign-in would resolve every identity into the project pool
  * and take the tenant off the record it just read. The handle is therefore
  * pinned to the tenant the stored record already belongs to, before the

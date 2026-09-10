@@ -57,9 +57,10 @@ export function argumentKind(schema: z.ZodTypeAny): ArgumentKind {
 
 /**
  * Flags the command line owns rather than the record: `--json` selects the
- * output format and reaches no handler.
+ * output format, `--in-process` names the sandbox host, and
+ * `--allow-production` mounts the production methods. None reaches a handler.
  */
-const RESERVED_FLAGS = new Set(['json']);
+const RESERVED_FLAGS = new Set(['json', 'in-process', 'allow-production']);
 
 /** The flag names one record accepts, in schema order. */
 export function flagNames(method: Method): string[] {

@@ -160,7 +160,7 @@ export function createSandboxAttachmentProvider(
  * Clone the sandbox this process owns, with no origin to assert and nothing
  * to contact.
  *
- * The headless server holds the sandbox in its own memory, so the rules the
+ * The in-process server holds the sandbox in its own memory, so the rules the
  * served page would have published in its initialization metadata are read
  * from the sandbox by the caller and handed in. Everything else about the
  * campaign is the same: the state is copied, the campaign forbids the

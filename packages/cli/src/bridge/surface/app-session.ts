@@ -6,7 +6,7 @@
  * identity methods set it. The app session is what an application built on the
  * SDK sees from `onAuthStateChanged`, and the sign-in methods set it.
  *
- * A headless server has no browser, so there is no second representation to
+ * An in-process server has no browser, so there is no second representation to
  * look for: the app session is `getAuth(sandbox).currentUser` on the sandbox's
  * default Auth handle, which is the same handle a served page's SDK writes
  * through. `signInWithEmailAndPassword` moves it and leaves the agent identity

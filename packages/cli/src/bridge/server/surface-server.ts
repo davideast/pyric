@@ -40,7 +40,7 @@ export interface RegisterRenderedSurfaceOptions {
    */
   onCallRejected?: (rejection: RejectedToolCall) => void;
   /**
-   * Called after every finished call, tool or resource. The headless runner
+   * Called after every finished call, tool or resource. The in-process runner
    * schedules its debounced snapshot flush here, the way the local bridge's
    * `onAfterDispatch` does for the default surface.
    */

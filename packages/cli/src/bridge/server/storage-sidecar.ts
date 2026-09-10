@@ -1,13 +1,13 @@
 /**
- * Storage state as a file beside the headless snapshot.
+ * Storage state as a file beside the in-process snapshot.
  *
  * The sandbox's storage service deliberately stays out of the v3 bundle: it
  * owns its own durability through IndexedDB, and blobs are not JSON. In a Node
  * process that IndexedDB is in memory, so nothing a run stores survives the
- * process. Storage state has to cross that boundary for a headless session to
- * be worth reopening, so it gets its own sidecar next to `headless.json`.
+ * process. Storage state has to cross that boundary for an in-process session to
+ * be worth reopening, so it gets its own sidecar next to `in-process.json`.
  *
- * The headless server loads the sidecar before it serves and writes it in the
+ * The in-process server loads the sidecar before it serves and writes it in the
  * same final flush that writes the snapshot. Without that, storage reads back
  * empty on the next start and an object uploaded in one session is gone in the
  * next.

@@ -493,7 +493,7 @@ const PERMISSIVE_RULES = `
 `;
 
 /** Environment for {@link buildWorkerCtx}. Everything ambient is injected so
- *  the REAL boot path is testable headlessly (fake-indexeddb + stub fetch). */
+ *  the REAL boot path is testable in process (fake-indexeddb + stub fetch). */
 export interface WorkerBootEnv extends ServeInitEnv {
   /** The raw local backend (IndexedDB in the real worker). Also used for the
    *  instance id + branches + (via the durable wrapper) the controller blob. */

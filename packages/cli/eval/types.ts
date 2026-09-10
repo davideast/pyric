@@ -134,7 +134,7 @@ export interface EvalRun {
    */
   workspaceDir: string;
   /**
-   * Absolute directory the seeder writes and the headless server is pointed at,
+   * Absolute directory the seeder writes and the in-process server is pointed at,
    * outside the results tree entirely. Copied into `dir` after the run and then
    * deleted.
    */
@@ -208,7 +208,7 @@ export interface EvalResultLine {
   assertReason: string | null;
 }
 
-/** One line of the events NDJSON the headless server writes. */
+/** One line of the events NDJSON the in-process server writes. */
 export interface EvalEvent {
   timestamp: string;
   mode: string;
