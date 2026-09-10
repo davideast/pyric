@@ -6,6 +6,7 @@
   "attach",
   "canIUse",
   "checkpoint",
+  "crawl",
   "define",
   "deleteCheckpoint",
   "diff",

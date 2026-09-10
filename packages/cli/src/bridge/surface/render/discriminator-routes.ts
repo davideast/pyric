@@ -337,6 +337,18 @@ const DATA_ROUTES: DiscriminatorRoute[] = [
     operation: 'delete_database_value',
     translate: (args) => ({ path: args.path }),
   },
+  // The database lane's own addition: an auto-id write.
+  {
+    tool: 'mutate_sandbox_data',
+    action: 'push',
+    selects: onBoth('service', 'database', 'action', 'push'),
+    operation: 'push_database_value',
+    translate: (args) => {
+      const translated: Args = { path: args.path };
+      assign(translated, 'value', parseJsonValue(text(args, 'dataJson')));
+      return translated;
+    },
+  },
   {
     tool: 'query_sandbox_data',
     action: null,
@@ -358,6 +370,20 @@ const DATA_ROUTES: DiscriminatorRoute[] = [
     translate: (args) => {
       const translated: Args = { path: args.path };
       assign(translated, 'limit', args.limit);
+      return translated;
+    },
+  },
+  // The database lane's own addition: a structural read, checked before the
+  // generic database query route since it also matches on service alone.
+  {
+    tool: 'query_sandbox_data',
+    action: null,
+    selects: (args) => args.service === 'database' && args.action === 'crawl',
+    operation: 'crawl_database_structure',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'path', args.path);
+      assign(translated, 'depth', args.depth);
       return translated;
     },
   },
