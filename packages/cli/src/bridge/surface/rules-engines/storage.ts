@@ -6,7 +6,12 @@ import { operationFailure } from '../context.js';
 import { storageFor } from '../service-handles.js';
 import { activeStorageRules, rulesRequestPath } from '../storage-rules.js';
 import type { SurfaceContext } from '../types.js';
+import { markLintFindings } from '../rules-verdict.js';
 import type { RulesEngine, RulesSourceProblem } from './types.js';
+
+/** What a call has to do when it named no source and the sandbox holds none. */
+const NO_RULES_LOADED =
+  "No storage rules were supplied and none are loaded in the sandbox. Pass rules, or call rules.set with service 'storage' first.";
 
 /** The identity a simulation runs as, in the shape the rules evaluator takes. */
 function identityFor(
@@ -33,7 +38,7 @@ export const STORAGE_RULES: RulesEngine = {
       const message = error instanceof Error ? error.message : String(error);
       return {
         body: `rules did not parse: ${message}.`,
-        fix: 'Pass a rules source that parses, then call set again.',
+        fix: "Fix the syntax, then call rules.set with service 'storage'.",
       };
     }
   },
@@ -41,15 +46,17 @@ export const STORAGE_RULES: RulesEngine = {
   async lint(ctx, rules) {
     const source = rules ?? activeStorageRules(ctx);
     if (source === null) {
-      return operationFailure(
-        'No storage rules were supplied and none are loaded in the sandbox.',
-      );
+      return operationFailure(NO_RULES_LOADED);
     }
     try {
       parseStorageRules(source);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, summary: message, data: { errors: [message] } };
+      return markLintFindings({
+        ok: false,
+        summary: `${message} Fix the syntax, then call rules.set with service 'storage'.`,
+        data: { errors: [message] },
+      });
     }
     return { ok: true, summary: 'Storage rules parsed with no errors.', data: { errors: [] } };
   },
@@ -57,9 +64,7 @@ export const STORAGE_RULES: RulesEngine = {
   async simulate(ctx, request) {
     const source = request.rules ?? activeStorageRules(ctx);
     if (source === null) {
-      return operationFailure(
-        'No storage rules were supplied and none are loaded in the sandbox.',
-      );
+      return operationFailure(NO_RULES_LOADED);
     }
 
     let parsed;
@@ -91,7 +96,7 @@ export const STORAGE_RULES: RulesEngine = {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return operationFailure(
-        `Storage rules did not parse: ${message}. Pass a rules source that parses, then call set again.`,
+        `Storage rules did not parse: ${message} Fix the syntax, then call rules.set with service 'storage'.`,
       );
     }
     return { ok: true, summary: 'Storage rules installed.' };

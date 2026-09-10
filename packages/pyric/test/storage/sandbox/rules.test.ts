@@ -46,6 +46,20 @@ describe('parseStorageRules', () => {
     ).toThrow(/expected "delete", "update", "create", "list", "get", "write", or "read"/);
   });
 
+  it('names the statement an unterminated allow belongs to', () => {
+    expect(() =>
+      parseStorageRules(`service firebase.storage {
+  match /b/{bucket}/o {
+    match /x/{id} {
+      allow read: if true
+    }
+  }
+}`),
+    ).toThrow(
+      "Storage rules parse error at line 5, column 5: expected ';' after the allow statement.",
+    );
+  });
+
   it('rejects unterminated strings', () => {
     expect(() =>
       parseStorageRules(`service firebase.storage {

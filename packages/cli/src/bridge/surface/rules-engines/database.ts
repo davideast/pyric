@@ -6,6 +6,14 @@ import { callSandboxTool, operationFailure } from '../context.js';
 import type { SurfaceContext } from '../types.js';
 import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
 
+/** What a call has to do when it named no source and the sandbox holds none. */
+const NO_RULES_LOADED =
+  "No database rules were supplied and none are loaded in the sandbox. Pass rules, or call rules.set with service 'database' first.";
+
+/** What a call has to do when the source it named is not the JSON these rules take. */
+const NOT_JSON =
+  "The supplied database rules are not valid JSON. Pass rules as a JSON object with a 'rules' key.";
+
 /** The ruleset a source describes, or null when it is not JSON. */
 function parseRuleset(source: string): RtdbRulesJson | null {
   try {
@@ -81,13 +89,11 @@ export const DATABASE_RULES: RulesEngine = {
     } else {
       ruleset = parseRuleset(rules);
       if (ruleset === null) {
-        return operationFailure('The supplied database rules are not valid JSON.');
+        return operationFailure(NOT_JSON);
       }
     }
     if (ruleset === null) {
-      return operationFailure(
-        'No database rules were supplied and none are loaded in the sandbox.',
-      );
+      return operationFailure(NO_RULES_LOADED);
     }
     const issues = rtdbRules(ruleset).lint();
     const errors = issues.filter((issue) => issue.severity === 'error').length;
@@ -110,7 +116,7 @@ export const DATABASE_RULES: RulesEngine = {
 
     const ruleset = parseRuleset(request.rules);
     if (ruleset === null) {
-      return operationFailure('The supplied database rules are not valid JSON.');
+      return operationFailure(NOT_JSON);
     }
     const evaluated = simulateAgainst(ctx, ruleset, request, auth);
     return {

@@ -20,6 +20,10 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import type { Bridge, BridgeToolEvent } from './bridge.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
 import { observeRejectedCalls, toMcpResult, type RejectedToolCall } from './mcp.js';
+import {
+  DENIED_BY_RULES_CODE,
+  LINT_FINDINGS_CODE,
+} from '../surface/rules-verdict.js';
 import type {
   OperationResult,
   RenderedResource,
@@ -79,7 +83,10 @@ function isArgumentRejection(result: OperationResult): boolean {
  * problems is the linter working. Both come back as a failing result because
  * the answer is negative, not because the call went wrong.
  */
-const VERDICT_CODES: ReadonlySet<string> = new Set(['denied_by_rules', 'lint_findings']);
+const VERDICT_CODES: ReadonlySet<string> = new Set([
+  DENIED_BY_RULES_CODE,
+  LINT_FINDINGS_CODE,
+]);
 
 /**
  * Whether a result is the surface reporting a verdict. The call reached its

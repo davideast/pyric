@@ -78,4 +78,20 @@ describe('callMethod', () => {
     const refused = await callMethod(production, { value: 'hi' }, ctx);
     expect(refused.ok).toBe(false);
   });
+
+  it('names the trace call on a result Security Rules refused', async () => {
+    const denied = fakeMethod({
+      tool: 'firestore',
+      method: 'getDoc',
+      key: 'firestore.getDoc',
+      async handler() {
+        return { ok: false, summary: 'get orders/o2 denied by rules' };
+      },
+    });
+    const result = await callMethod(denied, { value: 'hi' }, ctx);
+    expect(result.summary).toContain(
+      "Call rules.explainDenial with service 'firestore' for the trace.",
+    );
+    expect((result.data as { code: string }).code).toBe('denied_by_rules');
+  });
 });
