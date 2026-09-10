@@ -1,6 +1,6 @@
 # 0014: Service tools carrying SDK method names
 
-Status: Proposed; supersedes ADR-0012 Decisions 1 to 3 and Resolutions 2 and 4,
+Status: Accepted; supersedes ADR-0012 Decisions 1 to 3 and Resolutions 2 and 4,
 and all of ADR-0013
 
 Date: 2026-09-09

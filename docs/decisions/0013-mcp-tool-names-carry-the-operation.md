@@ -1,6 +1,6 @@
 # 0013: MCP tool names carry the operation word
 
-Status: Accepted; amends ADR-0012
+Status: Superseded by ADR-0014
 
 Date: 2026-09-07
 
