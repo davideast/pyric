@@ -1,6 +1,6 @@
 /**
  * One CLI command that answers about a running bridge, rather than about this
- * project's own headless sandbox.
+ * project's own in-process sandbox.
  *
  * A bridge holds state no other process has: which clients are connected, and
  * the identity it records for each of them. A command about that state cannot

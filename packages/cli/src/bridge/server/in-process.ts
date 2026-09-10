@@ -1,5 +1,5 @@
 /**
- * Headless MCP server: runs the pyric sandbox IN this process (no browser, no
+ * InProcess MCP server: runs the pyric sandbox IN this process (no browser, no
  * serve) and exposes the SAME tool surface the bridge advertises, over stdio.
  *
  * This is the zero-setup half of the hybrid MCP server
@@ -10,10 +10,10 @@
  *
  * Persistence (Phase 1b) uses the v3 bundle codec the worker already uses for
  * transfer/branches (`serializeToBuckets` + `bundleRecords`). It writes its OWN
- * `.pyric/state/headless.json`, NOT serve's `state.json` (which currently uses a
+ * `.pyric/state/in-process.json`, NOT serve's `state.json` (which currently uses a
  * different on-disk envelope, and carries a controller-blob version that has
  * drifted from pyric's snapshot SCHEMA_VERSION). Unifying the two formats so a
- * headless session and a `pyric dev` session can share one file is a tracked
+ * in-process session and a `pyric dev` session can share one file is a tracked
  * design item, not done here.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
@@ -59,11 +59,11 @@ async function openStdioTransport(): Promise<Transport> {
   return new StdioServerTransport();
 }
 
-/** Where the headless sandbox snapshot is persisted (relative to the project
+/** Where the in-process sandbox snapshot is persisted (relative to the project
  *  dir). Deliberately separate from serve's `state.json` (different format). */
-export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
+export const IN_PROCESS_STATE_RELATIVE = join('.pyric', 'state', 'in-process.json');
 
-export interface HeadlessMcpServerOptions extends LocalBridgeOptions {
+export interface InProcessMcpServerOptions extends LocalBridgeOptions {
   /** Tool-surface variant id. Absent serves the default surface. */
   surface?: string;
   /**
@@ -85,12 +85,12 @@ export interface HeadlessMcpServerOptions extends LocalBridgeOptions {
 }
 
 /**
- * Build the headless MCP server around an in-process sandbox. Pure: no I/O and
+ * Build the in-process MCP server around an in-process sandbox. Pure: no I/O and
  * no transport, so callers (and tests) can drive it however they like. Mirrors
  * the served bridge's construction (forwarded data-plane + in-process rules
  * tools), with `dispatch` bound to the local sandbox instead of a ws peer.
  */
-export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: HeadlessMcpServerOptions) {
+export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessMcpServerOptions) {
   const bridge = createLocalBridge(sandbox, opts);
   const onCallRejected = opts?.onCallRejected;
   const rejectionEvent = (rejection: RejectedToolCall): void => {
@@ -161,7 +161,7 @@ export function openPersistedServices(sandbox: LocalSandbox, cwd: string): Fireb
     // call must still be able to say what is wrong with it. The service opens
     // without rules and the source is kept for the lint operation.
     process.stderr.write(
-      `[pyric mcp headless] storage.rules not loaded: ${error instanceof Error ? error.message : String(error)}\n`,
+      `[pyric mcp in-process] storage.rules not loaded: ${error instanceof Error ? error.message : String(error)}\n`,
     );
     rememberUnloadedStorageRules(sandbox, source);
     return getAdminStorageSandbox(sandbox);
@@ -169,14 +169,14 @@ export function openPersistedServices(sandbox: LocalSandbox, cwd: string): Fireb
 }
 
 /**
- * Persist the sandbox to `<cwd>/.pyric/state/headless.json` using the v3 bundle
+ * Persist the sandbox to `<cwd>/.pyric/state/in-process.json` using the v3 bundle
  * codec (the same `serializeToBuckets` + `bundleRecords` the worker uses). Atomic
  * tmp+rename so a crash mid-write never truncates the live file.
  */
 export function saveSandboxSnapshot(sandbox: LocalSandbox, cwd: string): void {
   const snap = sandbox.snapshot();
   const bundle = bundleRecords(serializeToBuckets(snap.firestore, snap.services, 0));
-  const path = join(cwd, HEADLESS_STATE_RELATIVE);
+  const path = join(cwd, IN_PROCESS_STATE_RELATIVE);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
   writeFileSync(tmp, bundle, 'utf8');
@@ -184,18 +184,18 @@ export function saveSandboxSnapshot(sandbox: LocalSandbox, cwd: string): void {
 }
 
 /**
- * Restore the sandbox from the headless snapshot file if present (a clobber via
+ * Restore the sandbox from the in-process snapshot file if present (a clobber via
  * `loadSnapshot`). Returns the restored doc count, or null when there is no file.
  */
 export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number | null {
-  const path = join(cwd, HEADLESS_STATE_RELATIVE);
+  const path = join(cwd, IN_PROCESS_STATE_RELATIVE);
   if (!existsSync(path)) return null;
   const snap = deserializeFromBuckets(parseBundle(readFileSync(path, 'utf8')));
   sandbox.loadSnapshot(snap);
   return Object.keys(snap.firestore).length;
 }
 
-export interface HeadlessRunOptions {
+export interface InProcessRunOptions {
   /** Tool-surface variant id, from `--surface` or `PYRIC_TOOL_SURFACE`. */
   surface?: string;
   /**
@@ -221,10 +221,10 @@ export interface HeadlessRunOptions {
 }
 
 /**
- * Build the tool-event writer for a headless session. Returns null when no
+ * Build the tool-event writer for an in-process session. Returns null when no
  * evaluation log is named, which is the default and records nothing.
  */
-export function createHeadlessEventWriter(env: NodeJS.ProcessEnv): AuditWriter | null {
+export function createInProcessEventWriter(env: NodeJS.ProcessEnv): AuditWriter | null {
   const evalLogPath = env[EVAL_LOG_ENV_KEY];
   if (evalLogPath === undefined || evalLogPath.trim() === '') return null;
   return createEvalLogWriter(evalLogPath, readEvalRunIdentity(env));
@@ -234,10 +234,10 @@ export function createHeadlessEventWriter(env: NodeJS.ProcessEnv): AuditWriter |
  * Wire a session's event writer into the server options. Without a writer the
  * options are left as they were, and the server records nothing.
  */
-export function withHeadlessEventWriter(
-  options: HeadlessMcpServerOptions,
+export function withInProcessEventWriter(
+  options: InProcessMcpServerOptions,
   writer: AuditWriter | null,
-): HeadlessMcpServerOptions {
+): InProcessMcpServerOptions {
   if (!writer) return options;
   return {
     ...options,
@@ -247,7 +247,7 @@ export function withHeadlessEventWriter(
 }
 
 /**
- * Run the headless MCP server over stdio. Loads `.pyric/state/headless.json` and
+ * Run the in-process MCP server over stdio. Loads `.pyric/state/in-process.json` and
  * the storage sidecar on start, debounces a save after each dispatch, and
  * flushes both on shutdown. Resolves with an exit code when the stdio transport
  * closes (the editor disconnects).
@@ -259,19 +259,19 @@ export function withHeadlessEventWriter(
  *
  * With `PYRIC_EVAL_LOG` set, every tool call is appended to that file as NDJSON
  * and the per-project audit log is not written. Without it, nothing is recorded,
- * which is the behaviour headless mode has always had.
+ * which is the behaviour in-process mode has always had.
  */
-export async function runHeadlessMcp(
+export async function runInProcessMcp(
   cwd: string = process.cwd(),
-  options: HeadlessRunOptions = {},
+  options: InProcessRunOptions = {},
 ): Promise<number> {
   const log = (m: string): void => {
-    process.stderr.write(`[pyric mcp headless] ${m}\n`);
+    process.stderr.write(`[pyric mcp in-process] ${m}\n`);
   };
 
   const projectDir = resolve(cwd, options.projectDir ?? '.');
   const env = options.env ?? process.env;
-  const evalLog = createHeadlessEventWriter(env);
+  const evalLog = createInProcessEventWriter(env);
   if (evalLog) log(`recording tool events to ${evalLog.path}`);
 
   const sandbox = initializeSandbox();
@@ -279,7 +279,7 @@ export async function runHeadlessMcp(
   const storage = openPersistedServices(sandbox, projectDir);
   const restored = loadSandboxSnapshot(sandbox, projectDir);
   if (restored !== null) {
-    log(`restored ${restored} docs from ${join(projectDir, HEADLESS_STATE_RELATIVE)}`);
+    log(`restored ${restored} docs from ${join(projectDir, IN_PROCESS_STATE_RELATIVE)}`);
   }
   // After the snapshot: restoring it resets the ruleset to the sandbox default,
   // and the project's rules file is the authority for what the server enforces.
@@ -321,7 +321,7 @@ export async function runHeadlessMcp(
   };
   process.once('exit', saveIfPendingAtExit);
 
-  const baseServerOptions: HeadlessMcpServerOptions = {
+  const baseServerOptions: InProcessMcpServerOptions = {
     onAfterDispatch: scheduleSave,
     surface: options.surface,
     allowProduction: options.allowProduction,
@@ -331,7 +331,7 @@ export async function runHeadlessMcp(
   // serving the wrong surface would silently mislabel a whole run.
   let server;
   try {
-    server = buildHeadlessMcpServer(sandbox, withHeadlessEventWriter(baseServerOptions, evalLog));
+    server = buildInProcessMcpServer(sandbox, withInProcessEventWriter(baseServerOptions, evalLog));
   } catch (e) {
     process.off('exit', saveIfPendingAtExit);
     log(e instanceof Error ? e.message : String(e));
@@ -383,7 +383,7 @@ export async function runHeadlessMcp(
     process.once('SIGINT', () => stop(0));
     process.once('SIGTERM', () => stop(0));
     void server.connect(transport).then(
-      () => log(`headless sandbox MCP server ready (persisting to ${HEADLESS_STATE_RELATIVE})`),
+      () => log(`in-process sandbox MCP server ready (persisting to ${IN_PROCESS_STATE_RELATIVE})`),
       (e) => {
         log(`failed to start: ${e instanceof Error ? e.message : String(e)}`);
         resolve(1);

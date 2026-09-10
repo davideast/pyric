@@ -65,7 +65,7 @@ export function getSandboxToolMetadata(): ToolMetadata[] {
  * without changing the bridge's sandbox-only execution model, and
  * `consumers` plus `callerIdentity` so the auth identity family can read and
  * retarget the running bridge's connected clients. A caller with none of them
- * (a headless `pyric mcp`) still gets the full name set; those tools report
+ * (an in-process `pyric mcp`) still gets the full name set; those tools report
  * what is missing when called.
  */
 export function getInProcessToolHandlers(context?: InProcessToolContext): ToolHandler[] {

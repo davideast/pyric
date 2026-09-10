@@ -145,7 +145,7 @@ export function disconnectPort(port: ClientPort): void {
 
 // ─── Denial relay (headless dev visibility) ────────────────────────────────
 //
-// An agent driving `pyric dev` headlessly never sees the browser console, so
+// An agent driving `pyric dev` in process never sees the browser console, so
 // a rules denial is otherwise invisible to it. Relay every denial (an error
 // carrying `denialContext`) to the dev server, which prints it to the
 // terminal — regardless of whether the app itself catches/handles the

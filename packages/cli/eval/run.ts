@@ -22,7 +22,7 @@
  *     directory flag. Holds nothing but the files a provider has no other way to
  *     deliver, which today is Antigravity's `.agents/mcp_config.json`.
  *   state directory      `<tmpdir>/pyric-eval/<runId>/<row>/<variant>/<task>/<seed>/`
- *     The seeded rules files, `.pyric/state/headless.json`, the storage sidecar
+ *     The seeded rules files, `.pyric/state/in-process.json`, the storage sidecar
  *     and `events.ndjson`. Outside the results tree entirely, so no relative
  *     walk from the workspace reaches it. Copied into the run directory after
  *     the process exits, so results stay self-contained, then deleted.
@@ -65,7 +65,7 @@ import { scoreRun, type SpawnOutcome } from './score.js';
 import { classifyRunOutcome } from './outcome.js';
 import { DEFAULT_BUDGET_PER_WINDOW, isThrottled, Pacer, type PacingOptions } from './pacing.js';
 import { defaultServerCommand, spawnEnv } from './providers/server-env.js';
-import { HEADLESS_STATE_RELATIVE } from '../src/bridge/server/headless.js';
+import { IN_PROCESS_STATE_RELATIVE } from '../src/bridge/server/in-process.js';
 import { STORAGE_SIDECAR_RELATIVE } from './storage-sidecar.js';
 import { buildInvocation as buildClaude } from './providers/claude.js';
 import { buildInvocation as buildCodex } from './providers/codex.js';
@@ -116,7 +116,7 @@ export function resolveResultsDir(flags: Record<string, string | boolean>): stri
  */
 export const COLLECTED_FILES = [
   EVENTS_FILE,
-  HEADLESS_STATE_RELATIVE,
+  IN_PROCESS_STATE_RELATIVE,
   STORAGE_SIDECAR_RELATIVE,
 ] as const;
 

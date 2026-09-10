@@ -54,7 +54,7 @@ function sanitiseProjectId(value: string): string {
 
 // Evaluation log writer.
 //
-// A second writer, used only by the headless server during a tool-surface
+// A second writer, used only by the in-process server during a tool-surface
 // evaluation. It writes to a caller-named file rather than the per-project
 // audit location, and it completes each event with the fields the scorer reads:
 // the run envelope, the call index, and the operation and action the surface

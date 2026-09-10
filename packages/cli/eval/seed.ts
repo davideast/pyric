@@ -2,7 +2,7 @@
  * Seeding. Applies an `EvalSeed` to a fresh sandbox through
  * `applyRules`/`applyData` (the sandbox tool's `seed` method uses the same
  * two functions against a live sandbox), then persists the result with the v3
- * bundle codec the headless server reads on start. The agent under test
+ * bundle codec the in-process server reads on start. The agent under test
  * therefore begins every task with state it did not create, and no task spends
  * tool calls on setup.
  */
@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { applyData, applyRules } from '../src/bridge/surface/seed-apply.js';
-import { saveSandboxSnapshot } from '../src/bridge/server/headless.js';
+import { saveSandboxSnapshot } from '../src/bridge/server/in-process.js';
 import { saveStorageSidecar } from './storage-sidecar.js';
 import { CAPTURE_RELATIVE_PATH } from '../src/serve/capture-store.js';
 import type { EvalSeed } from './types.js';
@@ -72,7 +72,7 @@ export function writeRulesFiles(dir: string, seed: EvalSeed): void {
 }
 
 /**
- * Apply a seed to a fresh sandbox and persist it as `<dir>/.pyric/state/headless.json`,
+ * Apply a seed to a fresh sandbox and persist it as `<dir>/.pyric/state/in-process.json`,
  * alongside the rules files. Returns the sandbox so a caller that wants to
  * inspect the pre-run state does not have to read the file back.
  */

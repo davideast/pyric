@@ -41,7 +41,7 @@ function runFor(row: EvalRow, variant = 'verb-prefixed'): EvalRun {
     workspaceDir: WORKSPACE_DIR,
     stateDir: STATE_DIR,
     eventsPath: `${STATE_DIR}/events.ndjson`,
-    serverCommand: ['node', '/repo/packages/cli/dist/cli/index.js', 'mcp', '--headless', '--surface', variant],
+    serverCommand: ['node', '/repo/packages/cli/dist/cli/index.js', 'mcp', '--in-process', '--surface', variant],
     repoRoot: '/repo',
   };
 }
@@ -99,7 +99,7 @@ describe('provider invocations', () => {
       'node',
       '/repo/packages/cli/dist/cli/index.js',
       'mcp',
-      '--headless',
+      '--in-process',
       '--surface',
       'noun-prefixed',
     ]);
@@ -141,7 +141,7 @@ describe('provider invocations', () => {
       expect(config[key]?.pyric.args).toEqual([
         '/repo/packages/cli/dist/cli/index.js',
         'mcp',
-        '--headless',
+        '--in-process',
         '--surface',
         'verb-prefixed',
       ]);

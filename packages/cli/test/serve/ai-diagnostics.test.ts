@@ -6,7 +6,7 @@
  * `op: 'request_rejected'`) on the sandbox's unified stream whenever it
  * refuses a request. That stream is browser-side (worker host / in-page
  * runtime); it never reaches the dev server, so an agent driving `pyric dev`
- * headlessly saw NOTHING when the broker rejected. The relay rides the
+ * in process saw NOTHING when the broker rejected. The relay rides the
  * denial relay's existing channel (`POST /__pyric/denials`) so the dev
  * server prints a compact block through the same `ServeLogger`.
  *

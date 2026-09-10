@@ -25,7 +25,7 @@ import type { ForwardedFamilyKey, InProcessFamilyKey } from '../tool-families.js
  * the rules factory's hosted verification tool; `consumers` is the running
  * bridge's registry of connected clients and `callerIdentity` is the identity
  * that bridge attributes to its own MCP callers, both of which the auth
- * identity family reads and writes. All are absent on a headless surface, and
+ * identity family reads and writes. All are absent on an in-process surface, and
  * each family degrades on its own.
  */
 export interface InProcessToolContext {

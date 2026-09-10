@@ -1,5 +1,5 @@
 /**
- * Fake provider. Replays a canned transcript against the real headless server
+ * Fake provider. Replays a canned transcript against the real in-process server
  * over stdio, so the seeding, spawning, logging, scoring and reporting path can
  * be exercised end to end without a model.
  *

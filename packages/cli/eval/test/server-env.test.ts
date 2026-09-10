@@ -48,7 +48,7 @@ const RUN: EvalRun = {
   workspaceDir: '/runs/run-1/row/verb-prefixed/read-a-post/7/workspace',
   stateDir: '/state/run-1/row/verb-prefixed/read-a-post/7',
   eventsPath: '/state/run-1/row/verb-prefixed/read-a-post/7/events.ndjson',
-  serverCommand: ['node', '/repo/packages/cli/dist/cli/index.js', 'mcp', '--headless'],
+  serverCommand: ['node', '/repo/packages/cli/dist/cli/index.js', 'mcp', '--in-process'],
   repoRoot: '/repo',
 };
 

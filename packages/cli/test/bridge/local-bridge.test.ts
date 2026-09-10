@@ -1,9 +1,9 @@
 /**
- * Headless local bridge (hybrid MCP, Phase 1 of design rationale).
+ * InProcess local bridge (hybrid MCP, Phase 1 of design rationale).
  *
- * `createLocalBridge(sandbox)` is the in-process Bridge the headless MCP server
+ * `createLocalBridge(sandbox)` is the in-process Bridge the in-process MCP server
  * uses: `dispatch` runs the SAME tools the served bridge advertises, against a
- * Node sandbox, with no browser and no ws peer. This proves the headless tool
+ * Node sandbox, with no browser and no ws peer. This proves the in-process tool
  * path (identical to Slice D's dispatcher, now behind the Bridge contract) and
  * that the MCP server wires up.
  */
@@ -17,10 +17,10 @@ import { setRules } from 'pyric/sandbox/firestore';
 import { createLocalBridge } from '../../src/bridge/server/local-bridge.js';
 import type { BridgeToolEvent } from '../../src/bridge/server/bridge.js';
 import {
-  buildHeadlessMcpServer,
+  buildInProcessMcpServer,
   saveSandboxSnapshot,
   loadSandboxSnapshot,
-} from '../../src/bridge/server/headless.js';
+} from '../../src/bridge/server/in-process.js';
 import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
 
 const RULES = `rules_version = '2';
@@ -34,7 +34,7 @@ service cloud.firestore {
   }
 }`;
 
-describe('headless local bridge (hybrid MCP, Phase 1)', () => {
+describe('in-process local bridge (hybrid MCP, Phase 1)', () => {
   it('exposes a peerless sandbox bridge with the shared tool set', () => {
     const bridge = createLocalBridge(initializeSandbox());
     expect(bridge.health().mode).toBe('sandbox');
@@ -113,12 +113,12 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
   });
 
   it('builds an MCP server around the in-process sandbox without throwing', () => {
-    const server = buildHeadlessMcpServer(initializeSandbox());
+    const server = buildInProcessMcpServer(initializeSandbox());
     expect(server).toBeTruthy();
   });
 
   it('persists and restores the sandbox snapshot across instances (Phase 1b)', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-'));
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-in-process-'));
     try {
       // Seed a doc (admin write) and persist.
       const s1 = initializeSandbox();
@@ -139,7 +139,7 @@ describe('headless local bridge (hybrid MCP, Phase 1)', () => {
       expect((r.data as { data: unknown }).data).toEqual({ author: 'alice', body: 'persisted' });
 
       // No file present -> null (nothing to restore).
-      const empty = mkdtempSync(join(tmpdir(), 'pyric-headless-empty-'));
+      const empty = mkdtempSync(join(tmpdir(), 'pyric-in-process-empty-'));
       expect(loadSandboxSnapshot(initializeSandbox(), empty)).toBe(null);
       rmSync(empty, { recursive: true, force: true });
     } finally {

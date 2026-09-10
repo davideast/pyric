@@ -16,7 +16,7 @@
  *
  * FAIL-FAST, NEVER FALL BACK: when no browser tab is connected the connect
  * (and every later op that races a closing tab) fails with a clear
- * "open <serve url>" error. There is deliberately NO silent headless
+ * "open <serve url>" error. There is deliberately NO silent in-process
  * fallback — a silently split backend is exactly the failure this client
  * exists to avoid.
  *
@@ -746,7 +746,7 @@ export function createRemoteSandboxHandle(opts: {
  * tab out of last-connection-wins), and return the typed remote handle.
  *
  * Fails fast when no serve is discoverable or no browser tab is connected —
- * there is deliberately no headless fallback (see module doc).
+ * there is deliberately no in-process fallback (see module doc).
  */
 export async function connectRemoteSandbox(
   options: ConnectRemoteSandboxOptions = {},

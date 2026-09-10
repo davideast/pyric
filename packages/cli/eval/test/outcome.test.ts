@@ -50,7 +50,7 @@ describe('interrupted is detected', () => {
 
 describe('bypassed is detected from built-in tool use with zero MCP calls', () => {
   test('antigravity: view_file and run_command tool_name entries with zero calls', () => {
-    const stdout = '{"tool_name":"view_file","path":"headless.json"}\n{"tool_name":"run_command"}';
+    const stdout = '{"tool_name":"view_file","path":"in-process.json"}\n{"tool_name":"run_command"}';
     expect(classifyOutcome('antigravity', 'completed', stdout, '', 0)).toBe('bypassed');
   });
 

@@ -3,13 +3,21 @@
 This repo carries two MCP tool contracts, both sourced from
 `packages/cli/src/bridge/server/mcp-contract.ts`.
 
-1. **`pyric mcp`** (headless, the default): the **product surface**, ten
-   service tools, one per Firebase capability, rendered from the method
-   records under `packages/cli/src/bridge/surface/methods/`. Every call is
+1. **`pyric mcp`**: the **product surface**, ten service tools, one per
+   Firebase capability, rendered from the method records under
+   `packages/cli/src/bridge/surface/methods/`. Every call is
    `{ method, args }`, where `method` is the SDK's own method name where the
    SDK has one, and pyric's own name where it does not. `DEFAULT_MCP_TOOL_NAMES`
    is the exact list, and it is the ten tools this section documents. Ten is
-   the ceiling `0014-service-tools-with-sdk-methods.md` sets.
+   the ceiling `0014-service-tools-with-sdk-methods.md` sets. Which sandbox
+   the server acts on depends on what is running: with a `pyric serve` or
+   `pyric sandbox --bridge` up for the project it attaches to that process and
+   relays to the sandbox it holds in the browser tab, which today advertises
+   the transport surface below; otherwise it owns an in-process sandbox, a
+   plain object inside the `pyric mcp` process with no browser involved,
+   persisted to `.pyric/state/in-process.json`. `--attach` insists on the
+   running one and fails when there is none; `--in-process` insists on owning
+   one and never looks. The first line the server logs says which happened.
 2. **`pyric sandbox --bridge`** (or `pyric bridge`): the **transport
    surface** a browser sandbox peer executes, plus the rules and conformance
    tools that run in the bridge process. Its names are authored per family in
@@ -24,7 +32,7 @@ Programmatic use (importing a factory and registering its handlers with any
 agent framework, the way the playground does with `@inbrowser/agent`) reaches
 the same underlying tool-family factories the transport surface composes.
 
-## The product surface: `pyric mcp` (headless, default)
+## The product surface: `pyric mcp`
 
 Ten tools: `firestore`, `database`, `storage`, `auth`, `messaging`, `functions`,
 `rules`, `sandbox`, `assurance`, `ai_logic`. Every one of them answers `describe` with `args: { method }`,
@@ -230,6 +238,13 @@ posts/p1 --data '{"a":1}'` and an MCP call with `{ method: "setDoc", args:
 identical sandbox state. See `docs/decisions/0014-service-tools-with-sdk-methods.md`
 for the design rationale.
 
+A derived command acts on the in-process sandbox in
+`.pyric/state/in-process.json`, and its first line says so. It cannot reach a
+sandbox that a running `pyric serve` holds in the browser, so when one is
+running for the project the command refuses rather than answer about a
+different sandbox, naming `--in-process`, which overrides the refusal, and
+`pyric mcp`, which reaches the running one.
+
 Any argument may be read from a file instead of the command line, as
 `--<arg>-file <path>`, and the file is read as that argument's own kind: text
 for a string argument, parsed JSON for an object or array one. A relative path
@@ -345,7 +360,7 @@ bridge has. `pyric auth impersonate`, `pyric auth whoami`, and
 `pyric auth sessions` are different commands now: the derived service-tool
 commands `auth.impersonate`, `auth.whoami`, and `auth.sessions` (product
 surface, above), which act on this project's local `.pyric/state` and need no
-running bridge. `auth.sessions` reports the sessions the project's headless
+running bridge. `auth.sessions` reports the sessions the project's in-process
 sandbox itself holds, the agent identity and the app session; `auth_sessions`
 on a bridge reports the clients connected to it, and `pyric serve sessions` is
 the command that prints those rows, with the target ids `--target` takes.
@@ -403,7 +418,7 @@ registered on the default `pyric bridge` / `pyric sandbox --bridge` surface:
 `firebase_assurance_verify` · `firebase_assurance_export`
 
 The `assurance` service tool on the product surface reaches these same ten
-operations, one method each, against the sandbox the headless server owns.
+operations, one method each, against the sandbox the in-process server owns.
 The two are the same library under two transports and neither is derived from
 the other, so a change to an operation's schema or its classification has to
 land in `createAssuranceTools` and is picked up by both.

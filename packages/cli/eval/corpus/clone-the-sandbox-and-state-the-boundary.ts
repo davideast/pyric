@@ -15,7 +15,20 @@ const task: EvalTask = {
   },
   acceptedFirstOperations: ['attach_assurance_target'],
   assert: (state) => {
+    // A copy to poke at is either an assurance campaign attached to the
+    // sandbox or a forked branch; both leave the live data alone. A fork has no
+    // record for the noted account or the rule, so its pass condition is the
+    // copy plus an untouched live sandbox.
+    const forked = state.calls.find((call) => call.operation === 'fork_sandbox_branch' && call.ok);
     const attached = state.calls.find((call) => call.operation === 'attach_assurance_target' && call.ok);
+    if (!attached && forked) {
+      if (state.calls.some((call) => call.operation === 'promote_sandbox_branch')) {
+        return 'the branch was promoted, and the request said not to touch the live data';
+      }
+      const order = state.firestore.get('orders/o2');
+      if (!order || order.owner !== 'bob') return 'orders/o2 changed, and a copy touches nothing';
+      return true;
+    }
     if (!attached) return 'nothing was cloned, so there is nothing to poke at';
     const inventory = (attached.data as { inventory?: { firestoreDocuments?: number } } | undefined)
       ?.inventory;

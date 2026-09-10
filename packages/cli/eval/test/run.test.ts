@@ -206,7 +206,7 @@ describe('a dry run prepares everything and spawns nothing', () => {
 
     const [run] = planRuns(options);
     expect(existsSync(join(run!.dir, 'fake-plan.json'))).toBe(true);
-    expect(existsSync(join(run!.stateDir, '.pyric', 'state', 'headless.json'))).toBe(true);
+    expect(existsSync(join(run!.stateDir, '.pyric', 'state', 'in-process.json'))).toBe(true);
     expect(existsSync(join(run!.dir, 'stdout.log'))).toBe(false);
   }, 60_000);
 });
@@ -273,7 +273,7 @@ describe('the run, the workspace and the state are three directories', () => {
     const events = readFileSync(join(planned!.dir, 'events.ndjson'), 'utf8');
     expect(events).toContain('write_firestore_document');
     const snapshot = readFileSync(
-      join(planned!.dir, '.pyric', 'state', 'headless.json'),
+      join(planned!.dir, '.pyric', 'state', 'in-process.json'),
       'utf8',
     );
     expect(snapshot).toContain('written');

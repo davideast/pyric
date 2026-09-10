@@ -1,19 +1,19 @@
 /**
- * In-process ("local") Bridge for the headless MCP server.
+ * In-process ("local") Bridge for the in-process MCP server.
  *
  * The serve / standalone bridges forward data-plane tool calls over a WebSocket
- * to the in-page sandbox. The headless server has no page: the sandbox runs IN
+ * to the in-page sandbox. The in-process server has no page: the sandbox runs IN
  * this process, so the bridge's `dispatch` executes tools directly through
  * `buildSandboxDispatcher`. Everything else the `Bridge` contract needs is
  * trivial for a peerless bridge (always "connected", with the tool set from
  * the dispatcher's `SANDBOX_TOOL_NAMES`).
  *
  * Because `buildSandboxDispatcher` is the SAME source the served bridge
- * advertises (pinned by `tool-parity.test.ts`), the headless tool surface is
+ * advertises (pinned by `tool-parity.test.ts`), the in-process tool surface is
  * identical to the served one, including the per-identity `as` arg and the
  * caller identity `auth_impersonate` records.
  *
- * See design rationale (headless mode).
+ * See design rationale (in-process mode).
  */
 import type { LocalSandbox } from 'pyric/sandbox';
 import { buildSandboxDispatcher, SANDBOX_TOOL_NAMES } from '../client/dispatch.js';
@@ -30,7 +30,7 @@ export interface LocalBridgeOptions {
   version?: string;
   /** Project label surfaced in tool-result metadata. */
   project?: string;
-  /** Called after each dispatch (success or failure). The headless runner uses
+  /** Called after each dispatch (success or failure). The in-process runner uses
    *  this to schedule a debounced persistence flush so writes survive a restart. */
   onAfterDispatch?: () => void;
   /**

@@ -4,7 +4,7 @@
  *
  * This is the only surface that prints the target ids. `pyric auth reset
  * --target <id>` acts on the live bridge, and the derived `pyric auth sessions`
- * answers about this project's headless sandbox instead, so without this
+ * answers about this project's in-process sandbox instead, so without this
  * command nothing at a terminal names the id `--target` takes.
  *
  * It lives under the `serve` word rather than `auth` because what it lists is

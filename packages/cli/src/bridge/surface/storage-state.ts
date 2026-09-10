@@ -5,7 +5,7 @@
  * through IndexedDB, and blobs are not JSON. So every part of the surface that
  * saves or replaces sandbox state has to walk the bucket itself, and this is
  * the one walk they share. A checkpoint captures it, a fixture exports it, a
- * scoped reset clears it, and the headless server's sidecar file is the same
+ * scoped reset clears it, and the in-process server's sidecar file is the same
  * records written to disk.
  *
  * It is a leaf: it knows the SDK and nothing about the server, the surface's

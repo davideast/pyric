@@ -3,7 +3,7 @@ import type { EvalTask } from '../types.js';
 const task: EvalTask = {
   id: 'checkpoint-before-cleanup-then-restore',
   prompt:
-    "I'm about to run a bulk cleanup script against the sandbox. Save a checkpoint called before-cleanup first, then delete the demo/archived-note document, and if it turns out I needed it, restore before-cleanup.",
+    "I'm about to run a bulk cleanup script against the sandbox. Save a checkpoint called before-cleanup first, then delete the demo/archived-note document. That was the wrong document to delete, so restore before-cleanup and confirm the note is back.",
   seed: {
     // The prompt asks for this document to be deleted, so its own fields must
     // not argue the other way. A neutral field carries the same weight without

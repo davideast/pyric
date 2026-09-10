@@ -59,7 +59,7 @@ export interface HeldSession {
 }
 
 /**
- * The sessions this project's headless sandbox holds: the agent identity and
+ * The sessions this project's in-process sandbox holds: the agent identity and
  * the app session.
  *
  * The first line names that sandbox, because there is a second thing a caller
@@ -87,7 +87,7 @@ export function listHeldSessions(ctx: SurfaceContext): OperationResult {
   return {
     ok: true,
     summary:
-      `The project's headless sandbox holds ${sessions.length} ` +
+      `The project's in-process sandbox holds ${sessions.length} ` +
       `session${sessions.length === 1 ? '' : 's'}. ` +
       `The agent runs as ${agentSession.identity}. ` +
       `The app session is ${describeAppSession(appSession)}. ` +

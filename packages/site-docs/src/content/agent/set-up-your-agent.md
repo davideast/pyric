@@ -59,7 +59,7 @@ Register the stdio server:
 ```bash
 claude mcp add pyric -- npx --package @pyric/cli pyric mcp
 ```
-`pyric mcp` attaches to a running `pyric sandbox --bridge` by reading the `.pyric/serve.json` pointer the sandbox server writes. If nothing is running, it hosts a headless sandbox of its own and persists it to `.pyric/state/headless.json`. If you pin the port, you can point Claude Code at the HTTP endpoint directly:
+`pyric mcp` attaches to a running `pyric sandbox --bridge` by reading the `.pyric/serve.json` pointer the sandbox server writes. If nothing is running, it hosts an in-process sandbox of its own and persists it to `.pyric/state/in-process.json`. If you pin the port, you can point Claude Code at the HTTP endpoint directly:
 ```bash
 pyric sandbox --bridge --port 5173
 claude mcp add pyric --transport http --url http://localhost:5173/__pyric/mcp
@@ -128,7 +128,7 @@ Start `pyric sandbox --bridge`, open the app, then run `opencode mcp list` to co
 
 The generic recipe is two options, and every client above is one of them applied:
 
-- **stdio**: run `npx --package @pyric/cli pyric mcp` as the server command (or bare `pyric mcp` from a project-local install). It finds the running dev server, or hosts a headless sandbox when there is none.
+- **stdio**: run `npx --package @pyric/cli pyric mcp` as the server command (or bare `pyric mcp` from a project-local install). It finds the running dev server, or hosts an in-process sandbox when there is none.
 - **HTTP**: point the client at `http://localhost:<port>/__pyric/mcp` on a running `pyric sandbox --bridge`.
 
 Whatever your client's config file looks like, one of those two lines is the whole setup. Then ask it to inspect the sandbox and read what comes back.

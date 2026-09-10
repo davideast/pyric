@@ -5,7 +5,7 @@
  * In-process: the client registry and the caller identity are bridge-process
  * state, never the browser peer's. The factory receives both through the
  * in-process tool context (`bridge/server/tool-family-factories.ts`); a
- * headless `pyric mcp` supplies neither, and the tools then report that no
+ * in-process `pyric mcp` supplies neither, and the tools then report that no
  * bridge is running instead of throwing.
  *
  * One tool per operation, per `docs/decisions/0013-mcp-tool-names-carry-the-operation.md`:

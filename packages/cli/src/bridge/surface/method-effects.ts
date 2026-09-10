@@ -38,7 +38,7 @@ const ALLOW_PRODUCTION_ENV_VALUES: readonly string[] = ['1', 'true'];
 /**
  * Whether `production` methods run. The flag wins over the environment; absent
  * both, they do not. Every process that owns a sandbox reads it here: the
- * headless MCP server and `pyric <tool> <method>` alike.
+ * in-process MCP server and `pyric <tool> <method>` alike.
  */
 export function allowProductionFrom(flagPresent: boolean, env: NodeJS.ProcessEnv): boolean {
   if (flagPresent) return true;

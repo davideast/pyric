@@ -6,7 +6,7 @@
  * pages (app fixture + Pyric Studio) whose SharedWorker hosts the one
  * sandbox, and a real Node-side remote client (`@pyric/cli/remote`) over
  * the bridge WS — the exact topology where five live-only bugs hid from
- * ~7k green headless tests (Studio-tab peer, origin split, first-run child
+ * ~7k green in-process tests (Studio-tab peer, origin split, first-run child
  * race, duplicate snapshots on re-registration, perpetual peer-slot
  * fighting).
  *

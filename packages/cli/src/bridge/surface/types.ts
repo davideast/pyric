@@ -25,9 +25,9 @@ export interface SurfaceContext {
   identity: SurfaceIdentity;
   /**
    * The directory the session's own files live under: the rules files, the
-   * headless state, and everything else below `.pyric/`. A method that reaches
+   * in-process state, and everything else below `.pyric/`. A method that reaches
    * the filesystem reads and writes it here rather than at the process working
-   * directory, because the headless server and the CLI runner both accept a
+   * directory, because the in-process server and the CLI runner both accept a
    * project directory that is not where the process was started.
    */
   projectDir: string;

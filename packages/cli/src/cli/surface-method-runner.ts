@@ -1,29 +1,30 @@
 /**
  * `pyric <tool> <method> --<arg> <value>`: one method record, run from the
- * command line against the project's own headless sandbox.
+ * command line against the project's own in-process sandbox.
  *
  * The record is the declaration the MCP tool and this command both derive from,
  * so the CLI cannot drift from the surface: it reads the same schema, runs the
  * same validator, calls the same handler, and persists to the same state file
- * `pyric mcp --headless` reads. The only difference is the transport, and the
+ * `pyric mcp --in-process` reads. The only difference is the transport, and the
  * two things the transport changes are that an object argument arrives as a
  * JSON string, and that any argument may instead be read from a file with
  * `--<arg>-file <path>`.
  */
 import { initializeSandbox } from 'pyric/sandbox';
 import {
-  HEADLESS_STATE_RELATIVE,
+  IN_PROCESS_STATE_RELATIVE,
   loadProjectRules,
   loadSandboxSnapshot,
   openPersistedServices,
   saveSandboxSnapshot,
-} from '../bridge/server/headless.js';
+} from '../bridge/server/in-process.js';
 import { loadStorageSidecar, saveStorageSidecar } from '../bridge/server/storage-sidecar.js';
 import { createSurfaceContext } from '../bridge/surface/context.js';
 import { validateArguments } from '../bridge/surface/method-validation.js';
 import { methodByKey } from '../bridge/surface/methods/registry.js';
 import { markDenial, thrownFailure } from '../bridge/surface/rules-verdict.js';
 import type { OperationResult } from '../bridge/surface/types.js';
+import { discoverServe } from '../serve/discovery.js';
 import { argumentsFromFlags } from './surface-method-args.js';
 import { selectAllowProduction } from './mcp-proxy.js';
 import type { ParsedArgs } from './parse-args.js';
@@ -35,11 +36,29 @@ export interface SurfaceMethodDeps {
   stderr?: { write(text: string): void };
   /** Environment `--allow-production`'s fallback is read from. Defaults to the process. */
   env?: NodeJS.ProcessEnv;
+  /** How a running serve is looked for. A test supplies one that finds nothing. */
+  discover?: typeof discoverServe;
 }
 
 /** Exit code for a call the surface refused, distinct from a usage error. */
 const CALL_FAILED = 2;
 const USAGE_ERROR = 1;
+
+/**
+ * The sentence printed when a running serve owns this project's sandbox.
+ *
+ * A running serve holds the sandbox in the browser tab, and this command can
+ * only act on the in-process sandbox in `.pyric/state`. Acting there silently
+ * would answer about a different sandbox than the one the app is using, so the
+ * command refuses unless the caller says which one they mean.
+ */
+export function runningServeRefusal(url: string): string {
+  return (
+    `a running \`pyric serve\` at ${url} owns this project's sandbox in the browser, ` +
+    `and this command acts only on the in-process sandbox in ${IN_PROCESS_STATE_RELATIVE}. ` +
+    'Pass --in-process to act on that one anyway, or reach the running sandbox through `pyric mcp`.'
+  );
+}
 
 /** Print one result the way every service command prints one. */
 function report(
@@ -78,6 +97,20 @@ export async function runSurfaceMethod(
     return USAGE_ERROR;
   }
 
+  // Which sandbox this command acts on is the first thing it says. Without
+  // `--in-process`, a running serve for this project means the caller most
+  // likely meant the sandbox the app is using, which this command cannot reach.
+  // Only the project's own pointer counts: a port scan can find a serve that
+  // belongs to another project on the same machine.
+  if (parsed.flags.get('in-process') !== true) {
+    const found = await (deps.discover ?? discoverServe)(cwd);
+    if (found !== null && found.source.startsWith('pointer')) {
+      stderr.write(`pyric: ${runningServeRefusal(found.url)}\n`);
+      return USAGE_ERROR;
+    }
+  }
+  stderr.write(`pyric: in-process sandbox, ${IN_PROCESS_STATE_RELATIVE}\n`);
+
   const sandbox = initializeSandbox();
   const storage = openPersistedServices(sandbox, cwd);
   loadSandboxSnapshot(sandbox, cwd);
@@ -108,7 +141,7 @@ export async function runSurfaceMethod(
   }
   report(result, stdout, parsed.flags.get('json') === true);
   if (!result.ok) {
-    stderr.write(`pyric: state in ${HEADLESS_STATE_RELATIVE} is unchanged.\n`);
+    stderr.write(`pyric: state in ${IN_PROCESS_STATE_RELATIVE} is unchanged.\n`);
     return CALL_FAILED;
   }
   return 0;

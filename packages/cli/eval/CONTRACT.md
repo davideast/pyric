@@ -2,7 +2,7 @@
 
 This file fixes the seams between four independently built parts so they can be developed in parallel and merged without negotiation. Anything not written here is the implementer's call. Anything written here is fixed until this file changes.
 
-Base branch: `eval/tool-surface`. Sub-branches: `eval/tool-surface-headless`, `eval/tool-surface-variants`, `eval/tool-surface-runner`, `eval/tool-surface-corpus`.
+Base branch: `eval/tool-surface`. Sub-branches: `eval/tool-surface-in-process`, `eval/tool-surface-variants`, `eval/tool-surface-runner`, `eval/tool-surface-corpus`.
 
 House rules for every file: no em dashes; direct technical prose; no issue numbers, work-item ids, or tool or agent references; one record per file where records exist; tests mirror source paths; nothing under `packages/cli/eval/` is published.
 
@@ -135,13 +135,13 @@ Rendering is a pure function from the operation records to an MCP tool list plus
 
 The variant is selected at server start by `pyric mcp --surface <variant-id>` or the environment variable `PYRIC_TOOL_SURFACE`. The flag wins. Absent both, the server serves whatever main serves today.
 
-## 3. Headless server
+## 3. InProcess server
 
-`pyric mcp --headless` forces the in-process sandbox and never attaches to a running bridge. Without the flag, behavior is unchanged.
+`pyric mcp --in-process` forces the in-process sandbox and never attaches to a running bridge. Without the flag, behavior is unchanged.
 
-`--project-dir <dir>`, with `PYRIC_PROJECT_DIR` as the environment fallback and the flag winning, names the directory the headless server reads `firestore.rules`, `storage.rules`, `.pyric/state/headless.json` and `.pyric/state/storage.json` from and writes them back to. A relative value resolves against the process cwd. Absent both, the project directory is the process cwd, which is the behavior every existing caller gets.
+`--project-dir <dir>`, with `PYRIC_PROJECT_DIR` as the environment fallback and the flag winning, names the directory the in-process server reads `firestore.rules`, `storage.rules`, `.pyric/state/in-process.json` and `.pyric/state/storage.json` from and writes them back to. A relative value resolves against the process cwd. Absent both, the project directory is the process cwd, which is the behavior every existing caller gets.
 
-The headless server records one event per tool call through the bridge's existing `recordToolEvent` seam. When the environment variable `PYRIC_EVAL_LOG` names a file, events append there as NDJSON, one object per line, and nothing is written to the per-project audit log. When it is absent, behavior is unchanged.
+The in-process server records one event per tool call through the bridge's existing `recordToolEvent` seam. When the environment variable `PYRIC_EVAL_LOG` names a file, events append there as NDJSON, one object per line, and nothing is written to the per-project audit log. When it is absent, behavior is unchanged.
 
 Effect enforcement (ADR-0014 Decision 5) runs once, in `method-validation.ts`'s `validateArguments`, which both the MCP dispatch path and `pyric <tool> <method>` call. A `destructive` method (today `sandbox.reset`, `sandbox.restore`, `sandbox.deleteCheckpoint`, and `sandbox.promote`) is refused unless `args.confirm === true`; the refusal is an ordinary `InvalidArguments` rejection naming the field `confirm`. The `production` model is stated in `docs/agent-tools.md`. What is the harness's own is this: it passes `--allow-production` nowhere, and it deletes `PYRIC_ALLOW_PRODUCTION` from the environment of every process it spawns, so the variable a maintainer has set for their own session cannot reach a run and a `production` method is refused in one.
 
@@ -172,7 +172,7 @@ Event shape (a superset of today's `BridgeToolEvent`):
 
 `PYRIC_EVAL_RUN_ID`, `PYRIC_EVAL_TASK_ID`, `PYRIC_EVAL_VARIANT`, `PYRIC_EVAL_CLI`, `PYRIC_EVAL_MODEL`, `PYRIC_EVAL_EFFORT`, `PYRIC_EVAL_CONDITION`, `PYRIC_EVAL_SEED`.
 
-On stdio close the server performs a final synchronous snapshot flush to `.pyric/state/headless.json` before exiting, so the file the scorer reads is complete.
+On stdio close the server performs a final synchronous snapshot flush to `.pyric/state/in-process.json` before exiting, so the file the scorer reads is complete.
 
 ## 4. Corpus records
 
@@ -243,12 +243,12 @@ Every run has three directories, because a CLI with built-in file tools that can
 |---|---|---|
 | run | `packages/cli/eval/results/<runId>/<row>/<variant>/<task>/<seed>/` | raw output, the provider config files a CLI takes by path, and the copies of the state after the run |
 | workspace | `<run>/workspace/` | nothing but the files a provider has no other way to deliver, today only Antigravity's `.agents/mcp_config.json` |
-| state | `<tmpdir>/pyric-eval/<runId>/<row>/<variant>/<task>/<seed>/` | the seeded rules files, `.pyric/state/headless.json`, the storage sidecar, `events.ndjson` |
+| state | `<tmpdir>/pyric-eval/<runId>/<row>/<variant>/<task>/<seed>/` | the seeded rules files, `.pyric/state/in-process.json`, the storage sidecar, `events.ndjson` |
 
 For each run the runner:
 
-1. Creates all three, and applies the seed through the sandbox into the state directory, which is where the rules files and `.pyric/state/headless.json` are written.
-2. Writes the CLI config through a provider module, `providers/claude.ts`, `providers/codex.ts`, `providers/antigravity.ts`, each exporting `buildInvocation(run): { command: string[]; env: Record<string, string>; files: Record<string, string>; workspaceFiles: Record<string, string> }`. `files` are written relative to the run directory and `workspaceFiles` relative to the workspace. The MCP server command is the local build: `node <repo>/packages/cli/dist/cli/index.js mcp --headless --surface <variant>`.
+1. Creates all three, and applies the seed through the sandbox into the state directory, which is where the rules files and `.pyric/state/in-process.json` are written.
+2. Writes the CLI config through a provider module, `providers/claude.ts`, `providers/codex.ts`, `providers/antigravity.ts`, each exporting `buildInvocation(run): { command: string[]; env: Record<string, string>; files: Record<string, string>; workspaceFiles: Record<string, string> }`. `files` are written relative to the run directory and `workspaceFiles` relative to the workspace. The MCP server command is the local build: `node <repo>/packages/cli/dist/cli/index.js mcp --in-process --surface <variant>`.
 
    Where each variable travels is fixed, because an agent with file tools can read the MCP config it was given and Antigravity's config has to sit in the agent's own workspace:
 
@@ -260,17 +260,17 @@ For each run the runner:
    | `PYRIC_TOOL_SURFACE` | the MCP config's server `env` block, and nothing else goes there |
    | `CODEX_HOME` | `Invocation.env`, for the codex provider only |
 
-   The runner spawns the CLI with `{ ...process.env, ...invocation.env }`, so the MCP server the CLI spawns inherits all of it. A server entry in a config file holds `command`, `args`, which still carry `--headless --surface <variant>`, and that one-variable `env` block. No `Invocation.env` value is ever written into a file placed in the workspace, and `run.ts` throws if a provider's `workspaceFiles` contain the state directory path or the events path.
+   The runner spawns the CLI with `{ ...process.env, ...invocation.env }`, so the MCP server the CLI spawns inherits all of it. A server entry in a config file holds `command`, `args`, which still carry `--in-process --surface <variant>`, and that one-variable `env` block. No `Invocation.env` value is ever written into a file placed in the workspace, and `run.ts` throws if a provider's `workspaceFiles` contain the state directory path or the events path.
 
    The fake provider is the exception, because its replay client spawns the server itself rather than inheriting a CLI's environment: its plan file carries the full server environment, and the plan lives in the run directory, which no agent is given.
 
    Reading the process environment is still open to an agent that thinks to look, so this is a mitigation and not a wall: `mcp-only` on Claude Code is the only fully closed condition.
 3. Spawns the CLI in the workspace with a hard timeout, captures stdout and stderr raw to files in the run directory, never parses them for scoring. A provider that names a directory to the CLI names the workspace and nothing else.
-4. Copies `events.ndjson`, `.pyric/state/headless.json` and `.pyric/state/storage.json` from the state directory into the run directory, deletes the state directory, then reads the copies, builds `EvalState`, runs the task's `assert`, and appends one line to `results/<runId>/runs.ndjson`.
+4. Copies `events.ndjson`, `.pyric/state/in-process.json` and `.pyric/state/storage.json` from the state directory into the run directory, deletes the state directory, then reads the copies, builds `EvalState`, runs the task's `assert`, and appends one line to `results/<runId>/runs.ndjson`.
 
 `--dry-run` prepares everything, prints the run, workspace and state directories with the invocation, and spawns nothing.
 
-A fourth provider, `providers/fake.ts`, replays a canned transcript against the real headless server so the whole pipeline is testable without a model. `--transcripts <file>` selects it and reads one canned call list per task id; the call lists live under `eval/transcripts/`, named by the family of tasks they drive. The branch family sweeps with:
+A fourth provider, `providers/fake.ts`, replays a canned transcript against the real in-process server so the whole pipeline is testable without a model. `--transcripts <file>` selects it and reads one canned call list per task id; the call lists live under `eval/transcripts/`, named by the family of tasks they drive. The branch family sweeps with:
 
 ```
 bun packages/cli/eval/run.ts \
@@ -318,9 +318,9 @@ Result line fields: `runId`, `row`, `variant`, `task`, `seed`, `outcome` (`pass`
 
 | Part | Owns | Must not touch |
 |---|---|---|
-| headless | `packages/cli/src/bridge/server/headless.ts`, `local-bridge.ts`, `audit.ts`, `bridge.ts` (event type only), `packages/cli/src/cli/mcp-proxy.ts`, their tests | anything under `bridge/surface/` or `eval/` |
-| variants | new `packages/cli/src/bridge/surface/` and its tests; one small seam in `headless.ts`: `buildHeadlessMcpServer(sandbox, { surface })` accepting a variant id | everything else in `bridge/server/` |
+| in-process | `packages/cli/src/bridge/server/in-process.ts`, `local-bridge.ts`, `audit.ts`, `bridge.ts` (event type only), `packages/cli/src/cli/mcp-proxy.ts`, their tests | anything under `bridge/surface/` or `eval/` |
+| variants | new `packages/cli/src/bridge/surface/` and its tests; one small seam in `in-process.ts`: `buildInProcessMcpServer(sandbox, { surface })` accepting a variant id | everything else in `bridge/server/` |
 | runner | `packages/cli/eval/run.ts`, `report.ts`, `score.ts`, `providers/`, `test/` under `eval/` | `bridge/`, `corpus/`, `matrix/` |
 | corpus | `packages/cli/eval/corpus/`, `packages/cli/eval/matrix/` | everything else |
 
-The `surface` seam in `headless.ts` is declared by the headless part as `surface?: string` passed through to a function `renderSurface(surfaceId)` imported from `../surface/index.js`; the variants part implements that function. Until both land, the headless part ships a stub that returns today's default surface for any id.
+The `surface` seam in `in-process.ts` is declared by the in-process part as `surface?: string` passed through to a function `renderSurface(surfaceId)` imported from `../surface/index.js`; the variants part implements that function. Until both land, the in-process part ships a stub that returns today's default surface for any id.

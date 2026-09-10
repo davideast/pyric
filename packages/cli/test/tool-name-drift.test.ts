@@ -76,7 +76,7 @@ function collectReferences(): Reference[] {
 }
 
 describe('tool name drift', () => {
-  // A reference is registered if it names a tool the headless product surface
+  // A reference is registered if it names a tool the in-process product surface
   // serves (`pyric mcp`, `DEFAULT_MCP_TOOL_NAMES`) or a tool the served bridge
   // still advertises to its browser sandbox peer (`BRIDGE_TOOL_NAMES`, the
   // transport surface `tool-family-records/` authors). Both are real,

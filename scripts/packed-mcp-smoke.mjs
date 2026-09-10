@@ -47,7 +47,7 @@ export async function runPackedMcpSmoke({
   mkdirSync(join(cwd, '.pyric'), { recursive: true });
 
   // An identity-bearing stale pointer makes discovery deterministically choose
-  // headless mode without blindly scanning into an unrelated developer server.
+  // in-process mode without blindly scanning into an unrelated developer server.
   writeFileSync(
     join(cwd, '.pyric', 'serve.json'),
     `${JSON.stringify({
