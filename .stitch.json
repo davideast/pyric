@@ -1,3 +1,14 @@
 {
-  "workspace": "32a3c415-c89f-4585-8e02-efb36e0341e5"
+  "workspace": "32a3c415-c89f-4585-8e02-efb36e0341e5",
+  "routines": {
+    "fix-confirmed-findings": {
+      "params": {
+        "proofsDir": "/Users/deast/repos/davideast/pyric-insight-proofs",
+        "verifyCmd": "bun /Users/deast/repos/davideast/pyric-insight-proofs/proofs/runner/cli.ts run --id {shortId}",
+        "priority": "P1",
+        "severity": "S0,S1",
+        "limit": 10
+      }
+    }
+  }
 }

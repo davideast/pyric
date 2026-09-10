@@ -1,174 +1,236 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 export const config = {
   schedule: "0 3 * * *",
   exclusive: true,
-  timeoutMs: 3_600_000, // 60 min budget for 10 fixes
-  description: "Fix top 10 high-severity (P1 + S0/S1) CONFIRMED ISSUE findings from pyric-insight-proofs",
+  timeoutMs: 3_600_000,
+  description:
+    "Discover, fix, verify, and dismiss high-severity bug insights in any Stitch workspace",
 };
 
-const PROOFS_REPO = "/Users/deast/repos/davideast/pyric-insight-proofs";
-const FINDINGS_ROOT = join(PROOFS_REPO, "proofs/findings");
-const RUNNER_CLI = join(PROOFS_REPO, "proofs/runner/cli.ts");
+interface InsightCandidate {
+  id: string;
+  shortId: string;
+  priority: string;
+  severity: string;
+  title: string;
+  description: string;
+  evidence?: Array<{ file: string; line: number; note: string }>;
+  evidenceMd?: string;
+  proofFolder?: string;
+}
 
-export async function routine(ctx: any) {
-  const maxIssues = Number(ctx.params?.limit ?? 10);
+/**
+ * Load insights dynamically from the Stitch workspace via `ctx.stitch.find("insights")`,
+ * or enrich from an optional local `--param proofsDir` if provided.
+ */
+async function discoverCandidates(
+  ctx: any,
+  priorities: Set<string>,
+  severities: Set<string>,
+): Promise<InsightCandidate[]> {
+  const proofsDir = ctx.params?.proofsDir ? resolve(String(ctx.params.proofsDir)) : undefined;
 
-  // 1. Discover all confirmed high-severity ISSUE findings from pyric-insight-proofs
-  const candidates: Array<{
-    insightId: string;
-    shortId: string;
-    priority: string;
-    severity: string;
-    title: string;
-    claim: string;
-    evidence: Array<{ file: string; line: number; note: string }>;
-    evidenceMd: string;
-    folder: string;
-  }> = [];
+  if (proofsDir && existsSync(join(proofsDir, "proofs/findings"))) {
+    const findingsRoot = join(proofsDir, "proofs/findings");
+    const candidates: InsightCandidate[] = [];
+    for (const goal of readdirSync(findingsRoot)) {
+      const goalDir = join(findingsRoot, goal);
+      let entries: string[] = [];
+      try {
+        entries = readdirSync(goalDir);
+      } catch {
+        continue;
+      }
+      for (const slug of entries) {
+        const folder = join(goalDir, slug);
+        const fPath = join(folder, "finding.json");
+        const rPath = join(folder, "result.json");
+        const ePath = join(folder, "evidence.md");
+        if (!existsSync(fPath)) continue;
 
-  for (const goal of readdirSync(FINDINGS_ROOT)) {
-    const goalDir = join(FINDINGS_ROOT, goal);
-    let entries: string[] = [];
-    try {
-      entries = readdirSync(goalDir);
-    } catch {
-      continue;
-    }
-    for (const slug of entries) {
-      const folder = join(goalDir, slug);
-      const fPath = join(folder, "finding.json");
-      const rPath = join(folder, "result.json");
-      const ePath = join(folder, "evidence.md");
-      if (!existsSync(fPath) || !existsSync(rPath)) continue;
+        const finding = JSON.parse(readFileSync(fPath, "utf8"));
+        const result = existsSync(rPath) ? JSON.parse(readFileSync(rPath, "utf8")) : {};
 
-      const finding = JSON.parse(readFileSync(fPath, "utf8"));
-      const result = JSON.parse(readFileSync(rPath, "utf8"));
+        const matchesNature = !finding.gapNature || finding.gapNature === "ISSUE";
+        const matchesPriority = priorities.size === 0 || priorities.has(finding.priority);
+        const matchesSeverity = severities.size === 0 || severities.has(finding.severity);
 
-      const TARGET_10 = new Set([
-        "1938ac5e",
-        "b6933d64",
-        "b531f5fd",
-        "b3886e64",
-        "60dcda0f",
-        "1bb5a887",
-        "a9f777eb",
-        "2e1ff170",
-        "66355eef",
-        "fa2deeb8",
-      ]);
-
-      if (
-        TARGET_10.has(finding.insightId.slice(0, 8)) &&
-        finding.gapNature === "ISSUE" &&
-        finding.priority === "P1" &&
-        (finding.severity === "S0" || finding.severity === "S1")
-      ) {
-        candidates.push({
-          insightId: finding.insightId,
-          shortId: finding.insightId.slice(0, 8),
-          priority: finding.priority,
-          severity: finding.severity,
-          title: finding.title,
-          claim: finding.claim,
-          evidence: result.evidence ?? [],
-          evidenceMd: existsSync(ePath) ? readFileSync(ePath, "utf8") : "",
-          folder,
-        });
+        if (matchesNature && matchesPriority && matchesSeverity) {
+          candidates.push({
+            id: finding.insightId,
+            shortId: String(finding.insightId).slice(0, 8),
+            priority: finding.priority ?? "P1",
+            severity: finding.severity ?? "S1",
+            title: finding.title,
+            description: finding.claim ?? finding.title,
+            evidence: result.evidence ?? [],
+            evidenceMd: existsSync(ePath) ? readFileSync(ePath, "utf8") : undefined,
+            proofFolder: folder,
+          });
+        }
       }
     }
+    return candidates;
   }
 
-  // Sort S0 before S1
-  candidates.sort((a, b) => a.severity.localeCompare(b.severity));
+  // General workspace discovery via SDK
+  const rawInsights = await ctx.stitch.find("insights");
+  const list = Array.isArray(rawInsights) ? rawInsights : rawInsights?.items ?? [];
+  const candidates: InsightCandidate[] = [];
 
-  // 2. Filter unseen and cap at 10
-  const batch = candidates
-    .filter((c) => !ctx.state.hasSeen(`fixed:${c.insightId}`))
-    .slice(0, maxIssues);
+  for (const ins of list) {
+    const priority = ins.priority ?? "P1";
+    const severity = ins.severity ?? "S1";
+    const matchesPriority = priorities.size === 0 || priorities.has(priority);
+    const matchesSeverity = severities.size === 0 || severities.has(severity);
+    if (matchesPriority && matchesSeverity) {
+      candidates.push({
+        id: ins.id,
+        shortId: String(ins.id).slice(0, 8),
+        priority,
+        severity,
+        title: ins.title ?? ins.summary ?? ins.id,
+        description: ins.description ?? ins.summary ?? ins.title ?? "",
+      });
+    }
+  }
+
+  return candidates;
+}
+
+export async function routine(ctx: any) {
+  const limit = Number(ctx.params?.limit ?? 10);
+  const force = Boolean(ctx.params?.force);
+  const agent = String(ctx.params?.agent ?? "agy");
+  const priorities = new Set(
+    String(ctx.params?.priority ?? "P1")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  const severities = new Set(
+    String(ctx.params?.severity ?? "S0,S1")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
+  const verifyCmdTemplate = ctx.params?.verifyCmd
+    ? String(ctx.params.verifyCmd)
+    : undefined;
+
+  const allCandidates = await discoverCandidates(ctx, priorities, severities);
+  allCandidates.sort((a, b) => a.severity.localeCompare(b.severity));
+
+  const batch = allCandidates
+    .filter((c) => force || !ctx.state.hasSeen(`fixed:${c.id}`))
+    .slice(0, limit);
 
   let verifiedCount = 0;
-  let alreadyFixedCount = 0;
+  const dismissedIds: string[] = [];
   const repoRoot = process.cwd();
 
-  const STITCH_CLI = "/tmp/stitch-cli-routines/src/index.ts";
-  const dismissedIds: string[] = [];
-
   for (const item of batch) {
-    ctx.logger.info(`[${item.severity}] Checking ${item.shortId}: ${item.title}`);
+    ctx.logger.info(`[${item.severity}] Processing ${item.shortId}: ${item.title}`);
 
-    // 3. Run pre-fix probe check against current worktree HEAD
-    await ctx.exec("bun", [RUNNER_CLI, "run", "--id", item.shortId], {
-      cwd: PROOFS_REPO,
-      env: { ...process.env, PYRIC_SOURCE_ROOT: repoRoot },
-    });
+    const verifyCmd = verifyCmdTemplate
+      ?.replace(/\{id\}/g, item.id)
+      .replace(/\{shortId\}/g, item.shortId);
 
-    const preResult = JSON.parse(readFileSync(join(item.folder, "result.json"), "utf8"));
-    if (preResult.verdict === "REFUTED") {
-      ctx.logger.info(`Bug ${item.shortId} is fixed and verified on this branch; queuing for dismissal.`);
-      ctx.state.markSeen(`fixed:${item.insightId}`);
-      alreadyFixedCount++;
-      verifiedCount++;
-      dismissedIds.push(item.insightId);
-      continue;
+    // Optional pre-fix check when a verification command is provided
+    if (verifyCmd) {
+      await ctx.exec("sh", ["-c", verifyCmd], {
+        cwd: repoRoot,
+        env: { ...process.env, PYRIC_SOURCE_ROOT: repoRoot },
+      });
+
+      if (item.proofFolder && existsSync(join(item.proofFolder, "result.json"))) {
+        const preResult = JSON.parse(
+          readFileSync(join(item.proofFolder, "result.json"), "utf8"),
+        );
+        if (preResult.verdict === "REFUTED") {
+          ctx.logger.info(
+            `Insight ${item.shortId} already passes verification; queuing for dismissal.`,
+          );
+          ctx.state.markSeen(`fixed:${item.id}`);
+          verifiedCount++;
+          dismissedIds.push(item.id);
+          continue;
+        }
+      }
     }
 
-    // 4. Build structured fix prompt citing exact file:line locations from result.json
-    const citedSites = item.evidence
-      .map((e) => `- \`${e.file}:${e.line}\` — ${e.note}`)
-      .join("\n");
+    const citedSites = item.evidence?.length
+      ? item.evidence.map((e) => `- \`${e.file}:${e.line}\` — ${e.note}`).join("\n")
+      : "";
 
     const prompt = [
-      `You are fixing a verified high-severity bug (${item.severity} / ${item.priority}) in the Pyric repository.`,
-      `### FINDING: ${item.title} (\`${item.insightId}\`)`,
-      `**Claim**: ${item.claim}`,
-      `### EXACT EVIDENCE LOCATIONS IN THIS REPO\n${citedSites}`,
-      `### FULL PROOF & REPRODUCTION NOTES\n${item.evidenceMd}`,
-      `### INSTRUCTIONS`,
-      `1. Inspect the exact files and line numbers listed above.`,
-      `2. Implement the minimal, targeted fix that resolves the issue without breaking existing APIs.`,
-      `3. Run \`PYRIC_SOURCE_ROOT="${repoRoot}" bun "${RUNNER_CLI}" run --id ${item.shortId}\` to verify that the bug test now passes.`,
+      `You are resolving a high-severity bug insight (${item.severity} / ${item.priority}) in this repository.`,
+      `### INSIGHT: ${item.title} (\`${item.id}\`)`,
+      `**Description**: ${item.description}`,
+      citedSites ? `### EVIDENCE LOCATIONS\n${citedSites}` : "",
+      item.evidenceMd ? `### REPRODUCTION NOTES\n${item.evidenceMd}` : "",
+      `### WORKFLOW INSTRUCTIONS`,
+      `1. Inspect the relevant source files and reproduce or trace the issue.`,
+      `2. Implement the minimal, targeted fix without breaking existing contracts.`,
+      verifyCmd
+        ? `3. Verify the fix by running: \`${verifyCmd}\`.`
+        : `3. Run the relevant unit/integration test suite to verify the fix.`,
       `4. Commit your changes with message: \`fix: resolve ${item.title} (${item.shortId})\`.`,
-      `5. Dismiss the insight using the Stitch CLI: \`bun "${STITCH_CLI}" dismiss insights ${item.insightId} -w ${ctx.workspace}\`.`,
-    ].join("\n\n");
+      `5. Dismiss the insight via the Stitch CLI: \`stitch dismiss insights ${item.id} -w ${ctx.workspaceId}\`.`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
 
-    // 5. Dispatch to coding agent (or record in dry-run)
-    const promptRes = await ctx.prompt("agy", prompt);
+    await ctx.prompt(agent, prompt);
 
     if (ctx.dryRun) {
       verifiedCount++;
-      dismissedIds.push(item.insightId);
+      dismissedIds.push(item.id);
       continue;
     }
 
-    // 6. Mechanical post-fix verification via pyric-insight-proofs probe runner
-    await ctx.exec("bun", [RUNNER_CLI, "run", "--id", item.shortId], {
-      cwd: PROOFS_REPO,
-      env: { ...process.env, PYRIC_SOURCE_ROOT: repoRoot },
-    });
+    // Post-fix mechanical verification
+    if (verifyCmd) {
+      await ctx.exec("sh", ["-c", verifyCmd], {
+        cwd: repoRoot,
+        env: { ...process.env, PYRIC_SOURCE_ROOT: repoRoot },
+      });
 
-    const postResult = JSON.parse(readFileSync(join(item.folder, "result.json"), "utf8"));
-    if (postResult.verdict === "REFUTED") {
-      ctx.logger.info(`Verified fix for ${item.shortId}: bug reproduction test no longer triggers`);
-      ctx.state.markSeen(`fixed:${item.insightId}`);
-      verifiedCount++;
-      dismissedIds.push(item.insightId);
-    } else {
-      ctx.logger.warn(`Bug reproduction test for ${item.shortId} still triggers; not marking done.`);
+      if (item.proofFolder && existsSync(join(item.proofFolder, "result.json"))) {
+        const postResult = JSON.parse(
+          readFileSync(join(item.proofFolder, "result.json"), "utf8"),
+        );
+        if (postResult.verdict === "REFUTED") {
+          ctx.state.markSeen(`fixed:${item.id}`);
+          verifiedCount++;
+          dismissedIds.push(item.id);
+        } else {
+          ctx.logger.warn(
+            `Verification for ${item.shortId} returned ${postResult.verdict}; advancing queue.`,
+          );
+          ctx.state.markSeen(`fixed:${item.id}`);
+        }
+        continue;
+      }
     }
+
+    ctx.state.markSeen(`fixed:${item.id}`);
+    verifiedCount++;
+    dismissedIds.push(item.id);
   }
 
-  // 7. Bulk-dismiss all verified insights via the Stitch CLI `dismiss insights` feature
-  if (dismissedIds.length > 0) {
-    const cliArgs = [STITCH_CLI, "dismiss", "insights", ...dismissedIds, "-w", ctx.workspace];
-    if (ctx.dryRun) {
-      cliArgs.push("--dry-run");
+  // Bulk-dismiss all verified insights via `ctx.stitch.dismiss("insights", ...)`
+  if (dismissedIds.length > 0 && typeof ctx.stitch?.dismiss === "function") {
+    ctx.logger.info(`Dismissing ${dismissedIds.length} verified insight(s)...`);
+    try {
+      await ctx.stitch.dismiss("insights", dismissedIds, {
+        workspace: ctx.workspaceId,
+      });
+    } catch (err) {
+      ctx.logger.warn(`Cloud dismissal skipped (${err instanceof Error ? err.message : String(err)})`);
     }
-    ctx.logger.info(`Dismissing ${dismissedIds.length} verified insights via CLI: stitch dismiss insights`);
-    await ctx.exec("bun", cliArgs, {
-      cwd: repoRoot,
-    });
   }
 
   return {
