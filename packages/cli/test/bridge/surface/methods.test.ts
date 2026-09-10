@@ -41,7 +41,7 @@ const SURFACE_DIRECTORY = join(
 const EFFECTS = ['read', 'write', 'destructive', 'production'];
 
 describe('the loaded record set', () => {
-  it('renders the nine service tools in a stable order', () => {
+  it('renders the ten service tools in a stable order', () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual([
       'firestore',
       'database',
@@ -52,6 +52,7 @@ describe('the loaded record set', () => {
       'rules',
       'sandbox',
       'assurance',
+      'ai_logic',
     ]);
   });
 

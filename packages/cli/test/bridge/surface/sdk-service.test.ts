@@ -38,6 +38,7 @@ const TOOL_NAMES = [
   'rules',
   'sandbox',
   'assurance',
+  'ai_logic',
 ];
 
 const surface = renderSurface('sdk-service');

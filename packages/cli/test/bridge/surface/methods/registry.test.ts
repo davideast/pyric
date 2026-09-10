@@ -30,6 +30,7 @@ describe('TOOLS', () => {
       'rules',
       'sandbox',
       'assurance',
+      'ai_logic',
     ]);
   });
 

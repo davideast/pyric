@@ -1,5 +1,5 @@
 /**
- * The two contracts: the nine service tools `pyric mcp` advertises, and the
+ * The two contracts: the ten service tools `pyric mcp` advertises, and the
  * transport surface a browser sandbox peer executes underneath them.
  */
 import { describe, expect, it } from 'bun:test';
@@ -105,6 +105,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
   ],
   messaging: ['deliveries', 'send', 'subscribeToTopic', 'tokens', 'unsubscribeFromTopic'],
   functions: ['executions', 'fire', 'listTriggers'],
+  ai_logic: ['clearScripts', 'script', 'scripts', 'status'],
 };
 
 describe('the product MCP tool contract', () => {
@@ -119,6 +120,7 @@ describe('the product MCP tool contract', () => {
       'rules',
       'sandbox',
       'assurance',
+      'ai_logic',
     ]);
   });
 
