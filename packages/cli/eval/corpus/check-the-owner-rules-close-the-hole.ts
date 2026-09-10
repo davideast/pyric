@@ -88,6 +88,45 @@ function checkedByImpersonation(calls: EvalCall[]): true | string {
   return true;
 }
 
+/** Whether a rules installation carried the candidate ruleset. */
+function installedCandidateRules(call: EvalCall): boolean {
+  return call.operation === 'set_firestore_rules' && call.ok && carriedCandidateRules(call);
+}
+
+/**
+ * The simulation path: a cross-owner write simulated as ALLOW under the live
+ * rules is the hole, shown by verdict rather than by a real write. The
+ * candidate then answers, either carried on the simulation or installed
+ * first, with a DENY for a cross-owner write and an ALLOW for an owner's own.
+ */
+function checkedBySimulation(calls: EvalCall[]): true | string {
+  const installedAt = calls.findIndex(installedCandidateRules);
+  const underLiveRules = (index: number, call: EvalCall): boolean =>
+    !carriedCandidateRules(call) && (installedAt === -1 || index < installedAt);
+  const demonstrated = calls.some(
+    (call, index) =>
+      call.operation === 'simulate_firestore_rules' &&
+      call.ok &&
+      uidNamed(call) !== null &&
+      underLiveRules(index, call) &&
+      simulationAllowed(call),
+  );
+  if (!demonstrated) return 'no simulation showed a cross-owner write allowed under the live rules';
+  const underCandidate = calls.filter(
+    (call, index) =>
+      call.operation === 'simulate_firestore_rules' &&
+      call.ok &&
+      (carriedCandidateRules(call) || (installedAt !== -1 && index > installedAt)),
+  );
+  if (!underCandidate.some((call) => !simulationAllowed(call))) {
+    return 'the candidate was never shown to refuse a cross-owner write';
+  }
+  if (!underCandidate.some(simulationAllowed)) {
+    return "the candidate was never shown to keep an owner's own write";
+  }
+  return true;
+}
+
 const task: EvalTask = {
   id: 'check-the-owner-rules-close-the-hole',
   prompt: `Anyone can rewrite anyone else's order right now. Alice is a real account and she writes her own order fine today, which has to keep working. Prove the hole is there, then tell me whether this rewrite closes it without breaking her:\n\n${OWNER_ORDER_RULES}`,
@@ -109,7 +148,9 @@ const task: EvalTask = {
     if (campaign === true) return true;
     const impersonation = checkedByImpersonation(state.calls);
     if (impersonation === true) return true;
-    return `the hole was never demonstrated and closed: ${campaign}, and ${impersonation}`;
+    const simulation = checkedBySimulation(state.calls);
+    if (simulation === true) return true;
+    return `the hole was never demonstrated and closed: ${campaign}, ${impersonation}, and ${simulation}`;
   },
   tags: ['assurance', 'campaign', 'multi-step'],
 };
