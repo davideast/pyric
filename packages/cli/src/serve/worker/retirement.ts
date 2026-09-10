@@ -94,6 +94,8 @@ export function createWorkerRetirement(options: WorkerRetirementOptions): Worker
       requests.push({ requester, requestId });
       if (!retirement) {
         retiring = true;
+        const acceptedPortWork = new Map(workByPort);
+        const acceptedDetachedWork = new Set(detachedWork);
         const acceptedWork = [...workByPort.values(), ...detachedWork];
         const attempt = { cancelled: false };
         retirement = timeout((async () => {
@@ -114,6 +116,14 @@ export function createWorkerRetirement(options: WorkerRetirementOptions): Worker
           schedule(options.closeWorker);
         })()).catch((error: unknown) => {
           attempt.cancelled = true;
+          for (const [port, work] of acceptedPortWork) {
+            if (workByPort.get(port) === work) {
+              workByPort.delete(port);
+            }
+          }
+          for (const work of acceptedDetachedWork) {
+            detachedWork.delete(work);
+          }
           retiring = false;
           retirement = null;
           failRequests(error instanceof Error ? error : new Error(String(error)));

@@ -152,4 +152,28 @@ describe('SharedWorker retirement', () => {
     expect(messages).toEqual([]);
     expect(closes).toBe(0);
   });
+
+  it('evicts stalled work on timeout so subsequent retirement can succeed', async () => {
+    const messages: unknown[] = [];
+    const requester = { postMessage: (message: unknown) => messages.push(message) };
+    const stalledWork = new Promise<void>(() => {});
+    let closed = false;
+    const retirement = createWorkerRetirement({
+      closeWorker() { closed = true; },
+      drainTimeoutMs: 5,
+      schedule: (run) => { run(); },
+    });
+    retirement.connect(requester);
+    retirement.track(requester, stalledWork);
+
+    await retirement.retire(requester, 'attempt-1', '0123456789abcdef');
+    expect(retirement.accepting()).toBe(true);
+    expect(closed).toBe(false);
+
+    await retirement.retire(requester, 'attempt-2', '0123456789abcdef');
+    expect(closed).toBe(true);
+    expect(messages).toContainEqual({
+      t: 'res', id: 'attempt-2', ok: true, value: { retiring: true },
+    });
+  });
 });
