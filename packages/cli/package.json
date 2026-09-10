@@ -119,10 +119,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "prebuild": "bun run scripts/generate-service-command-registry.ts && bun run scripts/generate-tool-family-registry.ts && (test \"${PYRIC_CONFORMANCE_READY:-0}\" = \"1\" || bun run ../../packages/conformance/src/generate-projections.ts --write)",
+    "prebuild": "bun run scripts/generate-service-command-registry.ts && bun run src/bridge/surface/operations/generate-manifest.ts && bun run scripts/generate-tool-family-registry.ts && (test \"${PYRIC_CONFORMANCE_READY:-0}\" = \"1\" || bun run ../../packages/conformance/src/generate-projections.ts --write)",
     "build": "tsc && bun run scripts/postbuild.ts",
     "pretest": "bash ../../scripts/build.sh --packages-only",
     "test": "bun test",
+    "eval": "bun eval/run.ts",
+    "eval:report": "bun eval/report.ts",
     "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts --config test/e2e/playwright.config.ts",
     "test:identity-conformance": "playwright test identity-switch.pw.ts auth-popup.pw.ts auth-avatars.pw.ts auth-avatars-disabled.pw.ts --config test/e2e/playwright.config.ts",
     "test:site-cli": "playwright test --config test/e2e/site-cli/playwright.config.ts",

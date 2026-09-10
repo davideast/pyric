@@ -30,6 +30,14 @@
  * live-restart test harness; the timeout makes a stale connection fail fast,
  * and the user restarts the MCP connection.)
  *
+ * `--headless` opts out of all of this: it forces the in-process sandbox and
+ * never looks for a running bridge, so a run is reproducible whatever else is
+ * on the machine. `--surface <id>` (or `PYRIC_TOOL_SURFACE`, with the flag
+ * winning) selects the tool surface the headless server renders, and
+ * `--project-dir <dir>` (or `PYRIC_PROJECT_DIR`, same precedence) names the
+ * directory that headless server reads its rules files and `.pyric/state` from.
+ * Absent both, the project directory is the process cwd.
+ *
  * Discovery preference: the `.pyric/serve.json` pointer serve writes in the
  * project cwd (exact + project-correct), then a health probe across the scan
  * window as a fallback. Degrades LEGIBLY: if no serve is found, or the pointed
@@ -67,11 +75,62 @@ function isResponse(m: JSONRPCMessage): boolean {
 /** Injectable seams for testing the attach-vs-headless selection. */
 export interface McpProxyDeps {
   discover?: typeof discoverServe;
-  headless?: (cwd: string) => Promise<number>;
+  headless?: (cwd: string, options: HeadlessSelection) => Promise<number>;
+  /** Environment the surface fallback is read from. Defaults to the process. */
+  env?: NodeJS.ProcessEnv;
+}
+
+/** How the headless server is started once this command has selected it. */
+export interface HeadlessSelection {
+  /** Tool-surface variant id, or undefined for the default surface. */
+  surface?: string;
+  /** Project directory, or undefined to use the cwd the server is started in. */
+  projectDir?: string;
+}
+
+/** Environment variable naming the tool surface when `--surface` is absent. */
+export const TOOL_SURFACE_ENV_KEY = 'PYRIC_TOOL_SURFACE';
+
+/** Environment variable naming the project directory when `--project-dir` is absent. */
+export const PROJECT_DIR_ENV_KEY = 'PYRIC_PROJECT_DIR';
+
+/** `--headless` forces the in-process sandbox and skips discovery entirely. */
+function forcesHeadlessSandbox(parsed: ParsedArgs): boolean {
+  return parsed.flags?.get('headless') === true;
+}
+
+/**
+ * The tool surface to serve. The flag wins over the environment; absent both,
+ * the server serves its default surface.
+ */
+function selectToolSurface(parsed: ParsedArgs, env: NodeJS.ProcessEnv): string | undefined {
+  return selectFlagOrEnv(parsed, 'surface', env, TOOL_SURFACE_ENV_KEY);
+}
+
+/**
+ * The project directory the headless server reads and writes. The flag wins
+ * over the environment; absent both, the server uses the cwd it was started in.
+ */
+function selectProjectDir(parsed: ParsedArgs, env: NodeJS.ProcessEnv): string | undefined {
+  return selectFlagOrEnv(parsed, 'project-dir', env, PROJECT_DIR_ENV_KEY);
+}
+
+/** A setting that comes from a flag, else the environment, else nowhere. */
+function selectFlagOrEnv(
+  parsed: ParsedArgs,
+  flag: string,
+  env: NodeJS.ProcessEnv,
+  envKey: string,
+): string | undefined {
+  const flagValue = parsed.flags?.get(flag);
+  if (typeof flagValue === 'string' && flagValue !== '') return flagValue;
+  const envValue = env[envKey];
+  if (envValue !== undefined && envValue !== '') return envValue;
+  return undefined;
 }
 
 export async function runMcpProxy(
-  _parsed: ParsedArgs,
+  parsed: ParsedArgs,
   cwd: string = process.cwd(),
   deps: McpProxyDeps = {},
 ): Promise<number> {
@@ -79,6 +138,24 @@ export async function runMcpProxy(
   const log = (m: string): void => {
     process.stderr.write(`[pyric mcp-proxy] ${m}\n`);
   };
+
+  const env = deps.env ?? process.env;
+  const selection: HeadlessSelection = {
+    surface: selectToolSurface(parsed, env),
+    projectDir: selectProjectDir(parsed, env),
+  };
+  const runHeadless =
+    deps.headless ??
+    ((c: string, o: HeadlessSelection) =>
+      import('../bridge/server/headless.js').then((m) => m.runHeadlessMcp(c, o)));
+
+  if (forcesHeadlessSandbox(parsed)) {
+    // `--headless` is the evaluation and scripting path: one sandbox per
+    // process, with no dependence on whatever else is running on this machine.
+    // Discovery is not consulted at all, so a running bridge cannot be attached.
+    log('starting a headless in-process sandbox (--headless); not looking for a running sandbox');
+    return await runHeadless(cwd, selection);
+  }
 
   const found = await (deps.discover ?? discoverServe)(cwd, log);
   if (!found) {
@@ -92,10 +169,7 @@ export async function runMcpProxy(
         '  session, start `pyric sandbox --bridge` before connecting the agent (a sandbox host\n' +
         '  started mid-session does not yet adopt this headless data).',
     );
-    const headless =
-      deps.headless ??
-      ((c: string) => import('../bridge/server/headless.js').then((m) => m.runHeadlessMcp(c)));
-    return await headless(cwd);
+    return await runHeadless(cwd, selection);
   }
   log(`relaying stdio ↔ ${found.mcpUrl} (via ${found.source}; attached to a running serve)`);
 

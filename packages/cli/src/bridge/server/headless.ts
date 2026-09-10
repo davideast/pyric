@@ -17,7 +17,7 @@
  * design item, not done here.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import {
   initializeSandbox,
   serializeToBuckets,
@@ -28,13 +28,51 @@ import {
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
-import { buildMcpServer } from './mcp.js';
+import { getAuth } from 'pyric/auth';
+import { getAdminDatabase } from 'pyric/database';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import type { FirebaseStorage } from 'pyric/storage';
+import {
+  saveStorageSidecar,
+  loadStorageSidecar,
+  STORAGE_SIDECAR_RELATIVE,
+} from './storage-sidecar.js';
+import { buildMcpServer, type RejectedToolCall } from './mcp.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { registerRenderedSurface } from './surface-server.js';
 import { getDefaultMcpToolSurface } from './mcp-contract.js';
+import { renderSurface } from '../surface/index.js';
+import { createSurfaceContext } from '../surface/context.js';
+import { rememberUnloadedStorageRules } from '../surface/storage-rules.js';
 import { createLocalBridge, type LocalBridgeOptions } from './local-bridge.js';
+import {
+  createEvalLogWriter,
+  readEvalRunIdentity,
+  EVAL_LOG_ENV_KEY,
+  type AuditWriter,
+} from './audit.js';
+import type { BridgeToolEvent } from './bridge.js';
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
+
+/** The stdio transport is a late import: the SDK is heavy and only needed here. */
+async function openStdioTransport(): Promise<Transport> {
+  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
+  return new StdioServerTransport();
+}
 
 /** Where the headless sandbox snapshot is persisted (relative to the project
  *  dir). Deliberately separate from serve's `state.json` (different format). */
 export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
+
+export interface HeadlessMcpServerOptions extends LocalBridgeOptions {
+  /** Tool-surface variant id. Absent serves the default surface. */
+  surface?: string;
+  /**
+   * Called for a tool call the MCP SDK refused before any handler ran, so a
+   * schema rejection is still recorded. Absent leaves the server as it was.
+   */
+  onCallRejected?: (event: BridgeToolEvent) => void;
+}
 
 /**
  * Build the headless MCP server around an in-process sandbox. Pure: no I/O and
@@ -42,12 +80,45 @@ export const HEADLESS_STATE_RELATIVE = join('.pyric', 'state', 'headless.json');
  * the served bridge's construction (forwarded data-plane + in-process rules
  * tools), with `dispatch` bound to the local sandbox instead of a ws peer.
  */
-export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: LocalBridgeOptions) {
+export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: HeadlessMcpServerOptions) {
   const bridge = createLocalBridge(sandbox, opts);
-  return buildMcpServer(bridge, getDefaultMcpToolSurface({
-    consumers: bridge.consumers,
-    callerIdentity: bridge.callerIdentity,
-  }));
+  const onCallRejected = opts?.onCallRejected;
+  const rejectionEvent = (rejection: RejectedToolCall): void => {
+    onCallRejected?.({
+      timestamp: new Date().toISOString(),
+      mode: 'sandbox',
+      project: bridge.project,
+      tool: rejection.tool,
+      args: rejection.args,
+      result: { ok: false, summary: rejection.message },
+      durationMs: rejection.durationMs,
+      schemaRejected: rejection.schemaRejected,
+      isError: true,
+    });
+  };
+
+  // No variant is the path the server has always taken: the default surface
+  // registered by `buildMcpServer`, with the bridge's own consumer registry and
+  // caller identity behind the in-process identity tools. A variant id renders
+  // the operation set instead and registers it through the surface adapter, on
+  // a server built here rather than there.
+  if (opts?.surface === undefined) {
+    const surface = getDefaultMcpToolSurface({
+      consumers: bridge.consumers,
+      callerIdentity: bridge.callerIdentity,
+    });
+    if (!onCallRejected) return buildMcpServer(bridge, surface);
+    return buildMcpServer(bridge, { ...surface, onCallRejected: rejectionEvent });
+  }
+
+  // Throws for an id no renderer claims, which fails the session at startup
+  // rather than measuring the wrong surface.
+  const rendered = renderSurface(opts.surface);
+  const server = new McpServer({ name: 'pyric', version: bridge.version });
+  return registerRenderedSurface(server, bridge, rendered, createSurfaceContext(sandbox), {
+    onCallRejected: onCallRejected ? rejectionEvent : undefined,
+    onAfterCall: opts.onAfterDispatch,
+  });
 }
 
 /**
@@ -60,6 +131,38 @@ export function loadProjectRules(sandbox: LocalSandbox, cwd: string): string | n
   if (!existsSync(rulesPath)) return null;
   setRules(sandbox, readFileSync(rulesPath, 'utf8'));
   return rulesPath;
+}
+
+/**
+ * Open the services whose state a snapshot carries.
+ *
+ * `loadSnapshot` restores only services that are already registered, so a start
+ * that applies a snapshot before anything has touched auth, database, or
+ * storage drops those buckets without a word. Opening them first is what makes
+ * a restored session complete. Returns the storage handle, which the sidecar
+ * codec reads and writes; storage keeps its own durability and is not in the
+ * bundle at all.
+ */
+export function openPersistedServices(sandbox: LocalSandbox, cwd: string): FirebaseStorage {
+  getAuth(sandbox);
+  getAdminDatabase(sandbox);
+  // Storage rules are read only by the call that opens the service, so the
+  // project's rules have to be in hand here or not at all.
+  const rulesPath = join(cwd, 'storage.rules');
+  if (!existsSync(rulesPath)) return getAdminStorageSandbox(sandbox);
+  const source = readFileSync(rulesPath, 'utf8');
+  try {
+    return getAdminStorageSandbox(sandbox, { rules: source });
+  } catch (error) {
+    // A rules file that does not parse cannot govern the service, but a lint
+    // call must still be able to say what is wrong with it. The service opens
+    // without rules and the source is kept for the lint operation.
+    process.stderr.write(
+      `[pyric mcp headless] storage.rules not loaded: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+    rememberUnloadedStorageRules(sandbox, source);
+    return getAdminStorageSandbox(sandbox);
+  }
 }
 
 /**
@@ -89,61 +192,178 @@ export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number 
   return Object.keys(snap.firestore).length;
 }
 
+export interface HeadlessRunOptions {
+  /** Tool-surface variant id, from `--surface` or `PYRIC_TOOL_SURFACE`. */
+  surface?: string;
+  /**
+   * Directory the session reads its rules files and `.pyric/state` from and
+   * writes them back to, from `--project-dir` or `PYRIC_PROJECT_DIR`. A relative
+   * value resolves against `cwd`. Absent, the project directory is `cwd`, which
+   * is what every existing caller gets.
+   */
+  projectDir?: string;
+  /** Environment to read the evaluation settings from. Defaults to the process. */
+  env?: NodeJS.ProcessEnv;
+  /**
+   * Transport to serve on. Defaults to stdio, which is what an editor and the
+   * evaluation runner both use; a test supplies an in-memory pair so it can
+   * close the session and observe the final flush.
+   */
+  transport?: Transport;
+}
+
 /**
- * Run the headless MCP server over stdio. Loads `.pyric/state/headless.json` on
- * start, debounces a save after each dispatch, and flushes on shutdown. Resolves
- * with an exit code when the stdio transport closes (the editor disconnects).
+ * Build the tool-event writer for a headless session. Returns null when no
+ * evaluation log is named, which is the default and records nothing.
  */
-export async function runHeadlessMcp(cwd: string = process.cwd()): Promise<number> {
+export function createHeadlessEventWriter(env: NodeJS.ProcessEnv): AuditWriter | null {
+  const evalLogPath = env[EVAL_LOG_ENV_KEY];
+  if (evalLogPath === undefined || evalLogPath.trim() === '') return null;
+  return createEvalLogWriter(evalLogPath, readEvalRunIdentity(env));
+}
+
+/**
+ * Wire a session's event writer into the server options. Without a writer the
+ * options are left as they were, and the server records nothing.
+ */
+export function withHeadlessEventWriter(
+  options: HeadlessMcpServerOptions,
+  writer: AuditWriter | null,
+): HeadlessMcpServerOptions {
+  if (!writer) return options;
+  return {
+    ...options,
+    onToolEvent: (event) => writer.write(event),
+    onCallRejected: (event) => writer.write(event),
+  };
+}
+
+/**
+ * Run the headless MCP server over stdio. Loads `.pyric/state/headless.json` and
+ * the storage sidecar on start, debounces a save after each dispatch, and
+ * flushes both on shutdown. Resolves with an exit code when the stdio transport
+ * closes (the editor disconnects).
+ *
+ * Every file the session touches lives under the project directory, which is
+ * `cwd` unless `options.projectDir` names another one. Separating the two lets a
+ * caller start the server in a directory that holds none of the state the
+ * session reads or writes.
+ *
+ * With `PYRIC_EVAL_LOG` set, every tool call is appended to that file as NDJSON
+ * and the per-project audit log is not written. Without it, nothing is recorded,
+ * which is the behaviour headless mode has always had.
+ */
+export async function runHeadlessMcp(
+  cwd: string = process.cwd(),
+  options: HeadlessRunOptions = {},
+): Promise<number> {
   const log = (m: string): void => {
     process.stderr.write(`[pyric mcp headless] ${m}\n`);
   };
 
+  const projectDir = resolve(cwd, options.projectDir ?? '.');
+  const env = options.env ?? process.env;
+  const evalLog = createHeadlessEventWriter(env);
+  if (evalLog) log(`recording tool events to ${evalLog.path}`);
+
   const sandbox = initializeSandbox();
-  const rulesPath = loadProjectRules(sandbox, cwd);
-  log(rulesPath ? `rules loaded from ${rulesPath}` : `no firestore.rules found in ${cwd}`);
+  // Before the snapshot, and before the transport serves a single call.
+  const storage = openPersistedServices(sandbox, projectDir);
+  const restored = loadSandboxSnapshot(sandbox, projectDir);
+  if (restored !== null) {
+    log(`restored ${restored} docs from ${join(projectDir, HEADLESS_STATE_RELATIVE)}`);
+  }
+  // After the snapshot: restoring it resets the ruleset to the sandbox default,
+  // and the project's rules file is the authority for what the server enforces.
+  const rulesPath = loadProjectRules(sandbox, projectDir);
+  log(rulesPath ? `rules loaded from ${rulesPath}` : `no firestore.rules found in ${projectDir}`);
+  const restoredObjects = await loadStorageSidecar(storage, projectDir);
+  if (restoredObjects > 0) {
+    log(`restored ${restoredObjects} objects from ${join(projectDir, STORAGE_SIDECAR_RELATIVE)}`);
+  }
 
-  const restored = loadSandboxSnapshot(sandbox, cwd);
-  if (restored !== null) log(`restored ${restored} docs from ${join(cwd, HEADLESS_STATE_RELATIVE)}`);
-
-  // Debounced persistence: a burst of writes collapses to one flush; the final
-  // flush runs on shutdown so a clean disconnect never loses the tail.
+  // Debounced persistence: a burst of writes collapses to one flush. The final
+  // flush is synchronous and runs before the server closes, so the file a reader
+  // opens after the session always contains the last writes. `pendingSave`
+  // covers the path where the process ends without reaching that flush.
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingSave = false;
+  const saveNow = (): void => {
+    pendingSave = false;
+    try {
+      saveSandboxSnapshot(sandbox, projectDir);
+    } catch (e) {
+      log(`persist failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
   const flush = (): void => {
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = null;
     }
-    try {
-      saveSandboxSnapshot(sandbox, cwd);
-    } catch (e) {
-      log(`persist failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    saveNow();
   };
   const scheduleSave = (): void => {
+    pendingSave = true;
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(flush, 750);
+    saveTimer = setTimeout(saveNow, 750);
   };
+  const saveIfPendingAtExit = (): void => {
+    if (pendingSave) saveNow();
+  };
+  process.once('exit', saveIfPendingAtExit);
 
-  const server = buildHeadlessMcpServer(sandbox, { onAfterDispatch: scheduleSave });
-  const { StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js');
-  const transport = new StdioServerTransport();
+  const baseServerOptions: HeadlessMcpServerOptions = {
+    onAfterDispatch: scheduleSave,
+    surface: options.surface,
+  };
+  // A surface id no renderer claims is a start-up failure, not a per-call one:
+  // serving the wrong surface would silently mislabel a whole run.
+  let server;
+  try {
+    server = buildHeadlessMcpServer(sandbox, withHeadlessEventWriter(baseServerOptions, evalLog));
+  } catch (e) {
+    process.off('exit', saveIfPendingAtExit);
+    log(e instanceof Error ? e.message : String(e));
+    return 1;
+  }
+  const transport = options.transport ?? (await openStdioTransport());
 
   return await new Promise<number>((resolve) => {
     let stopping = false;
     const onStdinEnd = (): void => stop(0);
+    /**
+     * Write the storage sidecar. Storage reads are asynchronous, so this is the
+     * one part of the final flush that cannot be synchronous; it runs before
+     * the exit code resolves, which is before the process ends.
+     */
+    const flushStorage = async (): Promise<void> => {
+      try {
+        await saveStorageSidecar(storage, projectDir);
+      } catch (e) {
+        log(`storage persist failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    };
+    const finishStop = async (code: number): Promise<number> => {
+      await flushStorage();
+      try {
+        await server.close();
+        return code;
+      } catch (e) {
+        log(`shutdown failed: ${e instanceof Error ? e.message : String(e)}`);
+        return code === 0 ? 1 : code;
+      }
+    };
     const stop = (code: number): void => {
       if (stopping) return;
       stopping = true;
       process.stdin.off('end', onStdinEnd);
+      // Synchronous, and before `server.close()`: the debounced timer can hold
+      // writes that have not reached disk, and nothing after this point is
+      // guaranteed to run.
       flush();
-      void server.close().then(
-        () => resolve(code),
-        (e) => {
-          log(`shutdown failed: ${e instanceof Error ? e.message : String(e)}`);
-          resolve(code === 0 ? 1 : code);
-        },
-      );
+      process.off('exit', saveIfPendingAtExit);
+      void finishStop(code).then(resolve);
     };
     transport.onclose = () => stop(0);
     // StdioServerTransport 1.29 no longer reports stdin EOF through onclose.

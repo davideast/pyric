@@ -61,14 +61,47 @@ export interface BridgeOptions {
   onToolEvent?: (event: BridgeToolEvent) => void;
 }
 
+/**
+ * Identifies the evaluation run a tool event belongs to. Read once per server
+ * process from the environment, so every event in one run carries the same
+ * identifiers and its own position in the call sequence.
+ */
+export interface BridgeToolEventRun {
+  runId: string;
+  taskId: string;
+  variant: string;
+  cli: string;
+  model: string;
+  effort: string;
+  condition: string;
+  seed: number;
+  /** Position of this call within the run, counted from zero. */
+  callIndex: number;
+}
+
 export interface BridgeToolEvent {
   timestamp: string;
   mode: 'sandbox';
   project: string;
+  /** The tool name as the MCP client sent it, before any surface mapping. */
   tool: string;
   args: Record<string, unknown>;
   result: BridgeToolResult | { ok: false; summary: string; error?: { code: string; message: string } };
   durationMs: number;
+  /**
+   * Canonical operation id the call resolved to, or null when the rendered
+   * tool name maps to no operation. The surface layer supplies this; the
+   * default surface renders no mapping and leaves it null.
+   */
+  operation?: string | null;
+  /** Discriminator value when the rendered surface has one, else null. */
+  action?: string | null;
+  /** True when the arguments failed schema validation before dispatch. */
+  schemaRejected?: boolean;
+  /** Mirrors the MCP `isError` flag of the returned result. */
+  isError?: boolean;
+  /** Evaluation-run envelope. Absent outside an evaluation run. */
+  run?: BridgeToolEventRun;
 }
 
 export interface Bridge {
