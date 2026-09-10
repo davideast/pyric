@@ -1,0 +1,144 @@
+{
+  "link-the-logo-into-the-welcome-email": [
+    {
+      "tool": "storage",
+      "args": {
+        "method": "getDownloadURL",
+        "args": { "path": "branding/logo.png" }
+      }
+    }
+  ],
+  "hand-support-a-link-to-the-onboarding-pdf": [
+    {
+      "tool": "storage",
+      "args": {
+        "method": "getDownloadURL",
+        "args": { "path": "docs/onboarding.pdf" }
+      }
+    }
+  ],
+  "fix-the-content-type-on-the-export": [
+    {
+      "tool": "storage",
+      "args": {
+        "method": "updateMetadata",
+        "args": {
+          "path": "exports/2026-09/summary.csv",
+          "metadata": { "contentType": "text/csv" }
+        }
+      }
+    }
+  ],
+  "tag-the-archive-with-its-owner": [
+    {
+      "tool": "storage",
+      "args": {
+        "method": "updateMetadata",
+        "args": {
+          "path": "archives/q3.zip",
+          "metadata": { "customMetadata": { "owner": "dana_acme" } }
+        }
+      }
+    }
+  ],
+  "model-the-project-without-the-firestore-role": [
+    {
+      "tool": "storage",
+      "args": {
+        "method": "setCrossServiceIam",
+        "args": { "mode": "denied" }
+      }
+    },
+    {
+      "tool": "rules",
+      "args": {
+        "method": "simulate",
+        "args": {
+          "service": "storage",
+          "operation": "get",
+          "path": "uploads/report.csv"
+        }
+      }
+    }
+  ],
+  "prove-the-upload-rule-needs-the-firestore-role": [
+    {
+      "tool": "rules",
+      "args": {
+        "method": "simulate",
+        "args": {
+          "service": "storage",
+          "operation": "get",
+          "path": "uploads/report.csv"
+        }
+      }
+    },
+    {
+      "tool": "storage",
+      "args": {
+        "method": "setCrossServiceIam",
+        "args": { "mode": "denied" }
+      }
+    },
+    {
+      "tool": "rules",
+      "args": {
+        "method": "simulate",
+        "args": {
+          "service": "storage",
+          "operation": "get",
+          "path": "uploads/report.csv"
+        }
+      }
+    }
+  ],
+  "check-whether-storage-is-on-in-the-real-project": [
+    {
+      "tool": "storage",
+      "args": { "method": "status", "args": { "confirm": true } }
+    },
+    {
+      "tool": "storage",
+      "args": { "method": "listAll", "args": { "prefix": "uploads" } }
+    }
+  ],
+  "find-the-default-location-of-the-real-project": [
+    {
+      "tool": "storage",
+      "args": { "method": "status", "args": { "confirm": true } }
+    },
+    {
+      "tool": "storage",
+      "args": { "method": "listAll", "args": { "prefix": "reports" } }
+    }
+  ],
+  "turn-on-storage-for-the-real-project": [
+    {
+      "tool": "storage",
+      "args": { "method": "provision", "args": { "confirm": true } }
+    },
+    {
+      "tool": "storage",
+      "args": {
+        "method": "uploadBytes",
+        "args": {
+          "path": "assets/placeholder.txt",
+          "contentBase64": "cGxhY2Vob2xkZXI="
+        }
+      }
+    }
+  ],
+  "create-the-uploads-bucket-on-the-live-project": [
+    {
+      "tool": "storage",
+      "args": {
+        "method": "provision",
+        "args": { "bucket": "acme-live.firebasestorage.app", "confirm": true }
+      }
+    },
+    {
+      "tool": "rules",
+      "args": { "method": "lint", "args": { "service": "storage" } }
+    }
+  ]
+}

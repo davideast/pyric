@@ -148,6 +148,7 @@ async function runTheExampleCampaign(call: Call): Promise<Teardown> {
  */
 const PRECONDITIONS: Record<string, (call: Call) => Promise<Teardown>> = {
   'storage.getBytes': uploadTheExampleObject,
+  'storage.getDownloadURL': uploadTheExampleObject,
   'storage.getMetadata': uploadTheExampleObject,
   'auth.getUser': createTheExampleUser,
   'auth.getUserByEmail': createTheExampleAddress,

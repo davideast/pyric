@@ -11,13 +11,16 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../src/app/internal.js';
-import { getStorage } from '../../src/storage/index.js';
+import { getStorage, ref as storageRef, uploadBytes } from '../../src/storage/index.js';
 import {
+  getStorageCrossServiceIam,
   getStorageSandbox,
   getStorageService,
+  replaceCrossServiceIam,
   replaceStorageRules,
   targetOf,
 } from '../../src/storage/service.js';
+import { storageFirestoreLookup } from '../../src/storage/enforce.js';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
 import { getStorageRulesResolution } from '../../src/storage/internal.js';
 
@@ -323,6 +326,78 @@ service firebase.storage {
 
     expect(() => getStorageSandbox(sandbox, { rules: SIGNED_IN_ONLY_RULES })).toThrow(
       /honored only on the FIRST storage/,
+    );
+  });
+});
+
+describe('replaceCrossServiceIam', () => {
+  const FLAGGED_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileName} {
+      allow read, write: if firestore.exists(/databases/(default)/documents/flags/enabled);
+    }
+  }
+}
+`;
+
+  /** A sandbox holding the document the rule looks up, and its storage handle. */
+  function openFlaggedStorage(label: string) {
+    const sandbox = initializeSandbox({});
+    sandbox.admin.setDocument('flags/enabled', { on: true });
+    const storage = getStorageSandbox(sandbox, {
+      dbName: uniqueDbName(label),
+      rules: FLAGGED_RULES,
+    });
+    return { sandbox, storage };
+  }
+
+  it('reports the mode an open service was opened with', async () => {
+    const { sandbox, storage } = openFlaggedStorage('iam-read');
+    await getStorageService(storage);
+    expect(getStorageCrossServiceIam(sandbox)).toBe('granted');
+  });
+
+  it('reports granted for a sandbox whose storage service is not open yet', () => {
+    const sandbox = initializeSandbox({});
+    expect(getStorageCrossServiceIam(sandbox)).toBe('granted');
+  });
+
+  it('flips the mode an already open service enforces', async () => {
+    const { sandbox, storage } = openFlaggedStorage('iam-flip');
+    const bytes = Uint8Array.from([1, 2, 3]);
+    await uploadBytes(storageRef(storage, 'uploads/report.json'), bytes);
+
+    await replaceCrossServiceIam(sandbox, 'denied');
+
+    expect(getStorageCrossServiceIam(sandbox)).toBe('denied');
+    await expect(
+      uploadBytes(storageRef(storage, 'uploads/second.json'), bytes),
+    ).rejects.toThrow(/firebaserules\.firestoreServiceAgent/);
+
+    await replaceCrossServiceIam(sandbox, 'granted');
+    await uploadBytes(storageRef(storage, 'uploads/third.json'), bytes);
+  });
+
+  it('opens the service on the named mode when nothing has opened it yet', async () => {
+    const sandbox = initializeSandbox({});
+    await replaceCrossServiceIam(sandbox, 'denied');
+    expect(getStorageCrossServiceIam(sandbox)).toBe('denied');
+  });
+
+  it('builds a lookup that reads the sandbox under granted and fails under denied', () => {
+    const sandbox = initializeSandbox({});
+    sandbox.admin.setDocument('flags/enabled', { on: true });
+
+    // The evaluator hands the lookup a store path, having already stripped the
+    // `/databases/(default)/documents/` prefix off the rule's path literal.
+    const granted = storageFirestoreLookup(sandbox, 'granted');
+    expect(granted.exists('flags/enabled')).toBe(true);
+    expect(granted.get('flags/enabled')).toEqual({ on: true });
+
+    const denied = storageFirestoreLookup(sandbox, 'denied');
+    expect(() => denied.exists('flags/enabled')).toThrow(
+      /firebaserules\.firestoreServiceAgent/,
     );
   });
 });

@@ -95,8 +95,13 @@
     "sandbox setClock",
     "storage deleteObject",
     "storage getBytes",
+    "storage getDownloadURL",
     "storage getMetadata",
     "storage listAll",
+    "storage provision",
+    "storage setCrossServiceIam",
+    "storage status",
+    "storage updateMetadata",
     "storage uploadBytes"
   ],
   "exports": [
@@ -211,8 +216,13 @@
     "storage": [
       "deleteObject",
       "getBytes",
+      "getDownloadURL",
       "getMetadata",
       "listAll",
+      "provision",
+      "setCrossServiceIam",
+      "status",
+      "updateMetadata",
       "uploadBytes"
     ],
     "assurance": [

@@ -429,7 +429,11 @@ const STORAGE_ROUTES: DiscriminatorRoute[] = [
     selects: on('action', 'upload'),
     operation: 'upload_storage_file',
     translate: (args) => {
-      const translated: Args = { path: args.path, contentBase64: args.base64Content ?? '' };
+      const translated: Args = { path: args.path };
+      assign(translated, 'sourcePath', text(args, 'sourcePath'));
+      if (translated.sourcePath === undefined) {
+        translated.contentBase64 = args.base64Content ?? '';
+      }
       assign(translated, 'contentType', text(args, 'contentType'));
       assign(translated, 'metadata', parseJsonObject(text(args, 'customMetadataJson')));
       return translated;
@@ -458,6 +462,57 @@ const STORAGE_ROUTES: DiscriminatorRoute[] = [
     selects: on('action', 'list'),
     operation: 'get_storage_metadata',
     translate: (args) => ({ path: args.path }),
+  },
+  // Step 7, the storage lane.
+  {
+    tool: 'manage_storage_files',
+    action: 'download_url',
+    selects: on('action', 'download_url'),
+    operation: 'get_storage_download_url',
+    translate: (args) => ({ path: args.path }),
+  },
+  {
+    tool: 'manage_storage_files',
+    action: 'update_metadata',
+    selects: on('action', 'update_metadata'),
+    operation: 'update_storage_metadata',
+    translate: (args) => {
+      const metadata: Args = {};
+      assign(metadata, 'contentType', text(args, 'contentType'));
+      assign(metadata, 'cacheControl', text(args, 'cacheControl'));
+      assign(metadata, 'customMetadata', parseJsonObject(text(args, 'customMetadataJson')));
+      return { path: args.path, metadata };
+    },
+  },
+  {
+    tool: 'manage_storage_files',
+    action: 'set_cross_service_iam',
+    selects: on('action', 'set_cross_service_iam'),
+    operation: 'set_storage_cross_service_iam',
+    translate: (args) => ({ mode: args.crossServiceIam }),
+  },
+  {
+    tool: 'manage_storage_files',
+    action: 'service_status',
+    selects: on('action', 'service_status'),
+    operation: 'get_storage_service_status',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'confirm', args.confirm);
+      return call;
+    },
+  },
+  {
+    tool: 'manage_storage_files',
+    action: 'provision',
+    selects: on('action', 'provision'),
+    operation: 'provision_storage_bucket',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'bucket', text(args, 'bucket'));
+      assign(call, 'confirm', args.confirm);
+      return call;
+    },
   },
 ];
 
