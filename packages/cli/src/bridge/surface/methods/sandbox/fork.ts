@@ -25,7 +25,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'fork(branch, candidateRules?: string | {firestore?, database?, storage?})',
-  description: 'Copy live into a branch under optional candidate rules.',
+  description: 'Copy live into a branch.',
   args: z.object({ branch: branchName, candidateRules }),
   operation: 'fork_sandbox_branch',
   renames: { name: 'branch', rules: 'candidateRules', firestoreRules: 'candidateRules' },

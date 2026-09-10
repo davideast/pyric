@@ -33,7 +33,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'promote(branch, confirm)',
-  description: 'Land the branch on live, then delete it.',
+  description: 'Land the branch on live.',
   args: z.object({
     branch: branchName,
     confirm: z
