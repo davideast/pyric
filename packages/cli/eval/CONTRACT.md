@@ -88,8 +88,25 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `promote_sandbox_branch` | promote | sandbox | branch | `branch`, `confirm` | Destructive: lands the branch on live and deletes it. |
 | `discard_sandbox_branch` | discard | sandbox | branch | `branch` | Deletes the branch; live is untouched. |
 | `list_sandbox_branches` | list | sandbox | branches | none | Name, created, base, event count, and divergences against live. |
+| `replay_assurance_session` | replay | assurance | session | `sessionPath?`, `candidateRules?`, `service?` (firestore, database) | Divergences between recorded verdicts and the candidate ruleset's. |
+| `verify_assurance_cases` | verify | assurance | cases | `fixture?`, `candidateRules?`, `service?` (firestore) | Runs a fixture's cases through the local engine and names the ones that diverge. |
+| `check_assurance_feature` | check | assurance | feature | `feature` | Conformance status, the same answer as `pyric can-i-use`. |
+| `attach_assurance_target` | attach | assurance | target | `campaignId?`, `maxRuns?` | Attaches the campaign to the sandbox the server owns. |
+| `start_assurance_campaign` | start | assurance | campaign | `target`, `campaignId?`, `maxRuns?` | |
+| `map_assurance_campaign` | map | assurance | campaign | `campaignId`, `actors?`, `observations?`, `probes?` | Adds records to the campaign; all or nothing. |
+| `define_assurance_invariants` | define | assurance | invariants | `campaignId`, `invariants` | |
+| `propose_assurance_probes` | propose | assurance | probes | `campaignId`, `observationId`, `invariantId`, `mutations` | |
+| `run_assurance_probes` | run | assurance | probes | `campaignId`, `probeIds?` | |
+| `inspect_assurance_probe` | inspect | assurance | probe | `campaignId`, `probeId` | |
+| `minimize_assurance_probe` | minimize | assurance | probe | `campaignId`, `probeId` | |
+| `verify_assurance_rules` | verify | assurance | rules | `campaignId`, `rules`, `includeCandidates?`, `verificationId?` | Records verdicts on the campaign. |
+| `export_assurance_campaign` | export | assurance | campaign | `campaignId`, `path?` | Writes a redacted bundle inside the project directory. |
+| `test_assurance_rules_hosted` | test | assurance | rules | `service` (firestore), `rules`, `cases`, `confirm` | Production: listed as disabled and refused unless the server was started with `--allow-production`; then requires `confirm` and credentials. |
+| `set_clock` | set | sandbox | clock | `isoTime` | Pins and freezes the sandbox clock. |
+| `advance_clock` | advance | sandbox | clock | `ms` | From wall clock shifts and keeps flowing; under a pinned clock stays frozen at the new instant. |
+| `reset_clock` | reset | sandbox | clock | none | Back to wall clock. |
 
-Sixty operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of a method's own arguments is at most two object levels below the root. The assurance methods carry the campaign document's own authored records rather than arguments of their own, and a probe holds a mutation, which holds an operation, which holds a payload, so those nest at most four.
+Ninety-three operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of a method's own arguments is at most two object levels below the root. The assurance methods carry the campaign document's own authored records rather than arguments of their own, and a probe holds a mutation, which holds an operation, which holds a payload, so those nest at most four.
 
 ## 2. Surface variants
 
