@@ -108,7 +108,42 @@ describe('<ConfirmDialog>', () => {
     });
     expect(open).toBe(false);
   });
+
+  it('traps focus cycling with Tab and Shift+Tab', () => {
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        title="Focus Trap"
+        onConfirm={() => undefined}
+      />,
+    );
+    const cancelBtn = getByTestSel('[data-pyric-confirm-cancel]') as HTMLButtonElement;
+    const confirmBtn = getByTestSel('[data-pyric-confirm-confirm]') as HTMLButtonElement;
+
+    // Confirm is initially focused
+    expect(document.activeElement).toBe(confirmBtn);
+
+    // Tab wraps to cancel
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Tab' });
+    });
+    expect(document.activeElement).toBe(cancelBtn);
+
+    // Tab moves to confirm
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Tab' });
+    });
+    expect(document.activeElement).toBe(confirmBtn);
+
+    // Shift+Tab wraps back to cancel
+    act(() => {
+      fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    });
+    expect(document.activeElement).toBe(cancelBtn);
+  });
 });
+
 
 describe('<ConfirmProvider> + useConfirm', () => {
   function Probe({

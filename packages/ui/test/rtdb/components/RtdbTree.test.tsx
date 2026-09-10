@@ -128,6 +128,28 @@ describe('RtdbTree: rendering + lazy expansion', () => {
     expect(keys(container)).toEqual(['test-sandbox', 'rooms', 'version']);
   });
 
+  it('exposes tree/treeitem/group semantics and expands/collapses with ArrowRight/ArrowLeft', () => {
+    const { api } = makeFakeApi(seed);
+    const { container } = render(<Viewer api={api} />);
+    expect(container.querySelector('[data-pyric-ui="rtdb-tree"]')?.getAttribute('role')).toBe('tree');
+
+    const roomsNode = Array.from(container.querySelectorAll<HTMLElement>('[data-rtdb-node]')).find(
+      (el) => el.querySelector('[data-rtdb-key]')?.textContent === 'rooms',
+    )!;
+    expect(roomsNode.getAttribute('role')).toBe('treeitem');
+    expect(roomsNode.getAttribute('aria-expanded')).toBe('false');
+
+    // ArrowRight expands
+    fireEvent.keyDown(roomsNode, { key: 'ArrowRight' });
+    expect(roomsNode.getAttribute('aria-expanded')).toBe('true');
+    expect(roomsNode.querySelector('[data-rtdb-children]')?.getAttribute('role')).toBe('group');
+
+    // ArrowLeft collapses
+    fireEvent.keyDown(roomsNode, { key: 'ArrowLeft' });
+    expect(roomsNode.getAttribute('aria-expanded')).toBe('false');
+  });
+
+
   it('key click re-roots the view (navigation)', () => {
     const { api } = makeFakeApi(seed);
     const { container } = render(<Viewer api={api} />);

@@ -58,7 +58,12 @@ export function RtdbTree({ tree, api, onNavigate, rootLabel = '/', className }: 
     rootSegments.length === 0 ? rootLabel : rootSegments[rootSegments.length - 1];
 
   return (
-    <div className={className} data-pyric-ui="rtdb-tree">
+    <div
+      className={className}
+      data-pyric-ui="rtdb-tree"
+      role="tree"
+      aria-label="Realtime Database tree"
+    >
       {state.status === 'loading' ? (
         <p data-rtdb-loading>Loading…</p>
       ) : state.status === 'error' ? (
@@ -122,9 +127,21 @@ function Node({ tree, api, onNavigate, path, label, isViewRoot }: NodeProps) {
   return (
     <div
       data-rtdb-node
+      role="treeitem"
+      aria-expanded={isParent ? expanded : undefined}
       data-rtdb-kind={isParent ? 'parent' : 'leaf'}
       data-rtdb-view-root={isViewRoot ? '' : undefined}
       data-rtdb-expanded={isParent && expanded ? '' : undefined}
+      onKeyDown={(e) => {
+        if (!isParent) return;
+        if (e.key === 'ArrowRight' && !expanded) {
+          e.stopPropagation();
+          tree.toggle(path);
+        } else if (e.key === 'ArrowLeft' && expanded) {
+          e.stopPropagation();
+          tree.toggle(path);
+        }
+      }}
     >
       <div
         data-rtdb-row
@@ -259,7 +276,7 @@ function Node({ tree, api, onNavigate, path, label, isViewRoot }: NodeProps) {
       ) : null}
 
       {children ? (
-        <ul data-rtdb-children>
+        <ul data-rtdb-children role="group">
           {children.entries.map(([key]) => (
             <li key={key}>
               <Node

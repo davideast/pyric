@@ -47,4 +47,17 @@ describe('<Badge>', () => {
     expect(badge.getAttribute('aria-label')).toBe('denied');
     expect(badge.querySelector('[aria-hidden="true"]')!.textContent).toBe('✕');
   });
+
+  it('renders child element via asChild Slot', () => {
+    const { container } = render(
+      <Badge asChild kind="allow">
+        <a href="/docs">Docs</a>
+      </Badge>,
+    );
+    const link = container.querySelector('a[data-pyric-badge]');
+    expect(link).not.toBeNull();
+    expect(link!.getAttribute('data-pyric-badge-kind')).toBe('allow');
+    expect(link!.getAttribute('href')).toBe('/docs');
+  });
 });
+

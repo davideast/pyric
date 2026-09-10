@@ -25,9 +25,7 @@ export interface ConfirmDialogProps {
 }
 
 /**
- * Headless confirmation dialog. Hand-rolled (we evaluated Radix
- * Dialog at M4 but Radix's Presence + Portal stack doesn't render
- * under our bun:test + JSDOM env — see plan section 7 risk #1).
+ * Headless confirmation dialog.
  *
  * Provides:
  *   - Portal to `document.body` (so the dialog can escape parent
@@ -35,6 +33,7 @@ export interface ConfirmDialogProps {
  *   - Escape-to-close
  *   - Overlay click to close
  *   - ARIA `role="dialog" aria-modal="true"` wiring
+ *   - Tab / Shift+Tab focus cycling within the dialog
  *   - Focus restoration to the previously-focused element on close
  *   - Initial focus on the confirm button when opening
  *
@@ -52,16 +51,50 @@ export function ConfirmDialog({
   onConfirm,
   className,
 }: ConfirmDialogProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const previouslyFocused = useRef<Element | null>(null);
 
-  // Escape-to-close.
+  // Escape-to-close and Tab/Shift+Tab focus trap.
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
         onOpenChange(false);
+        return;
+      }
+
+      if (e.key === 'Tab') {
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const focusables = Array.from(
+          dialog.querySelectorAll<HTMLElement>(
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex^="-"])',
+          ),
+        );
+        if (focusables.length === 0) return;
+
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        const currentIndex = active ? focusables.indexOf(active) : -1;
+
+        if (e.shiftKey) {
+          e.preventDefault();
+          if (currentIndex <= 0) {
+            last.focus();
+          } else {
+            focusables[currentIndex - 1].focus();
+          }
+        } else {
+          e.preventDefault();
+          if (currentIndex === -1 || currentIndex >= focusables.length - 1) {
+            first.focus();
+          } else {
+            focusables[currentIndex + 1].focus();
+          }
+        }
       }
     };
     window.addEventListener('keydown', handler);
@@ -96,6 +129,7 @@ export function ConfirmDialog({
     >
       <div data-pyric-ui="confirm-overlay" aria-hidden="true" />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="pyric-confirm-title"
