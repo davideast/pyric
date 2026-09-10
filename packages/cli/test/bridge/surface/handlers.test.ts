@@ -353,6 +353,29 @@ it('checkpoints, restores, pages events, and round-trips a fixture', async () =>
   expect(refusedOldName.summary).toContain("unknown argument 'includePasswords'");
 });
 
+it('pins, advances, and resets the sandbox clock', async () => {
+  const pinned = await run('sandbox.setClock', { isoTime: '2026-09-09T12:00:00.000Z' });
+  expect(pinned.ok).toBe(true);
+  expect((pinned.data as { mode: string }).mode).toBe('fixed');
+  expect((pinned.data as { now: number }).now).toBe(Date.parse('2026-09-09T12:00:00.000Z'));
+
+  const refused = await run('sandbox.setClock', { isoTime: 'not a date' });
+  expect(refused.ok).toBe(false);
+  expect(refused.summary).toContain('ISO 8601');
+
+  const advanced = await run('sandbox.advanceClock', { ms: 3600000 });
+  expect(advanced.ok).toBe(true);
+  expect((advanced.data as { mode: string }).mode).toBe('fixed');
+  expect((advanced.data as { now: number }).now).toBe(
+    Date.parse('2026-09-09T12:00:00.000Z') + 3600000,
+  );
+
+  const reset = await run('sandbox.resetClock');
+  expect(reset.ok).toBe(true);
+  expect((reset.data as { mode: string }).mode).toBe('wall');
+  expect(Math.abs((reset.data as { now: number }).now - Date.now())).toBeLessThan(5000);
+});
+
 it("refuses 'includePasswords' by saying passwords are already included", async () => {
   const refused = await run('sandbox.exportFixture', {
     path: 'fixtures/refused.json',

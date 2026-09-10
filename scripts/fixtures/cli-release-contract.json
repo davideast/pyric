@@ -63,6 +63,7 @@
     "rules listStdlib",
     "rules set",
     "rules simulate",
+    "sandbox advanceClock",
     "sandbox apply",
     "sandbox checkpoint",
     "sandbox deleteCheckpoint",
@@ -76,9 +77,11 @@
     "sandbox listCheckpoints",
     "sandbox promote",
     "sandbox reset",
+    "sandbox resetClock",
     "sandbox restore",
     "sandbox seed",
     "sandbox seedFromFixture",
+    "sandbox setClock",
     "storage deleteObject",
     "storage getBytes",
     "storage getMetadata",
@@ -163,6 +166,7 @@
       "simulate"
     ],
     "sandbox": [
+      "advanceClock",
       "apply",
       "checkpoint",
       "deleteCheckpoint",
@@ -176,9 +180,11 @@
       "listCheckpoints",
       "promote",
       "reset",
+      "resetClock",
       "restore",
       "seed",
-      "seedFromFixture"
+      "seedFromFixture",
+      "setClock"
     ],
     "storage": [
       "deleteObject",
