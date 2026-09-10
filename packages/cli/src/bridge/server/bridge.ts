@@ -100,6 +100,13 @@ export interface BridgeToolEvent {
   schemaRejected?: boolean;
   /** Mirrors the MCP `isError` flag of the returned result. */
   isError?: boolean;
+  /**
+   * True when the failing result reports a verdict rather than a fault: a
+   * data-plane call Security Rules refused, or a rules lint that found
+   * problems in the source. Both are the surface answering the question it was
+   * asked, so a scorer counts them apart from error calls.
+   */
+  verdict?: boolean;
   /** Evaluation-run envelope. Absent outside an evaluation run. */
   run?: BridgeToolEventRun;
 }

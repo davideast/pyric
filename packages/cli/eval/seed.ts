@@ -7,12 +7,13 @@
  * tool calls on setup.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import { applyData, applyRules } from '../src/bridge/surface/seed-apply.js';
 import { saveSandboxSnapshot } from '../src/bridge/server/headless.js';
 import { saveStorageSidecar } from './storage-sidecar.js';
+import { CAPTURE_RELATIVE_PATH } from '../src/serve/capture-store.js';
 import type { EvalSeed } from './types.js';
 
 export { applyData, applyRules };
@@ -21,6 +22,23 @@ export { applyData, applyRules };
 export const FIRESTORE_RULES_FILE = 'firestore.rules';
 export const DATABASE_RULES_FILE = 'database.rules.json';
 export const STORAGE_RULES_FILE = 'storage.rules';
+
+/**
+ * Write the capture a seed declares into the run's project directory.
+ *
+ * A recorded session is not sandbox state, so it does not travel through the
+ * snapshot the way documents and accounts do. It is a file the app left
+ * behind, and a task that asks an agent to replay the last session needs one
+ * on disk before the server starts.
+ */
+export async function writeSessionFile(dir: string, seed: EvalSeed): Promise<void> {
+  const record = seed.session;
+  if (record === undefined) return;
+  const session = await record();
+  const path = join(dir, CAPTURE_RELATIVE_PATH);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(session)}\n`, 'utf8');
+}
 
 /** Write each declared rules source into the run directory as its own file. */
 export function writeRulesFiles(dir: string, seed: EvalSeed): void {
@@ -49,6 +67,7 @@ export async function applySeed(dir: string, seed: EvalSeed): Promise<LocalSandb
   await applyRules(sandbox, seed);
   await applyData(sandbox, seed);
   writeRulesFiles(dir, seed);
+  await writeSessionFile(dir, seed);
   saveSandboxSnapshot(sandbox, dir);
   await saveStorageSidecar(getAdminStorageSandbox(sandbox), dir);
   return sandbox;

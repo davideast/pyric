@@ -9,11 +9,11 @@ import {
 } from 'pyric/rules/internal/rtdb';
 import {
   SimulateFirestoreRulesHandler,
-  TestFirestoreRulesHandler,
   type ExpressionReportLevel,
   type TestCase,
   type TestResult,
 } from 'pyric/rules/internal';
+import { executeHostedRulesTest } from './hosted-rules-test.js';
 import type { RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
 import type { ProjectScope } from '../credentials/core/types.js';
 import {
@@ -55,6 +55,20 @@ export {
   type VerifyUnsupportedEvent,
 } from './cases.js';
 export { createVerifyTools, type VerifyToolDeps } from './tools.js';
+export {
+  executeHostedRulesTest,
+  HOSTED_CREDENTIAL_ENV_KEYS,
+  HOSTED_CREDENTIAL_SOURCES,
+  hostedRulesCredentials,
+  isMissingCredentials,
+  runHostedRulesTest,
+  useHostedRulesTester,
+  type HostedRulesCredentials,
+  type HostedRulesScope,
+  type HostedRulesTester,
+  type HostedRulesTestOutcome,
+  type MissingCredentials,
+} from './hosted-rules-test.js';
 
 export type VerifiableService = 'firestore' | 'rtdb';
 export type VerifyEngine = 'sandbox' | 'rulesTestApi';
@@ -277,8 +291,7 @@ async function verifyFirestoreRulesTestApi(
     };
   }
 
-  const handler = new TestFirestoreRulesHandler();
-  const result = await handler.execute(scope, rules, derivation.testCases, {
+  const result = await executeHostedRulesTest(scope, rules, derivation.testCases, {
     expressionReportLevel: opts.rulesTestApi?.expressionReportLevel,
   });
   if (!result.success) {

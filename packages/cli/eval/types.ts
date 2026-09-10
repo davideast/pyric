@@ -6,14 +6,25 @@
  */
 
 import type { SandboxSeed } from '../src/bridge/surface/seed-apply.js';
+import type { PyricVerifyFixture } from '../src/verify/index.js';
 
 /**
  * State loaded into the sandbox before a run starts. Tasks never seed by tool
- * call. This is the same declaration the `sandbox.seed` method validates
- * against, not a second copy of its fields, so a task's seed and an agent's
- * own seed call cannot drift apart.
+ * call. The sandbox half is the same declaration the `sandbox.seed` method
+ * validates against, not a second copy of its fields, so a task's seed and an
+ * agent's own seed call cannot drift apart.
+ *
+ * `session` is the one field the sandbox seed has no place for, because a
+ * recorded session is not sandbox state: it is a file a previous run of the
+ * app left in the project directory. The assurance methods read it from
+ * there, so a task about replaying a capture needs the seeder to plant one,
+ * and the field says which capture to plant. It is a recorder rather than a
+ * recording, so importing the corpus drives no sandbox.
  */
-export type EvalSeed = SandboxSeed;
+export type EvalSeed = SandboxSeed & {
+  /** Records the capture written to `.pyric/last-session.json` in the run's project directory. */
+  session?: () => Promise<PyricVerifyFixture>;
+};
 
 /**
  * One recorded tool call, read back from the events NDJSON.
@@ -31,6 +42,12 @@ export interface EvalCall {
   operation: string | null;
   tool: string;
   ok: boolean;
+  /**
+   * True when the call failed because the surface reported a verdict: a
+   * data-plane call Security Rules refused, or a rules lint that found
+   * problems. The task worked, so the scorer counts these apart from errors.
+   */
+  verdict: boolean;
   schemaRejected: boolean;
   args: Record<string, unknown>;
   data: unknown;
@@ -174,7 +191,10 @@ export interface EvalResultLine {
   acceptedOpReached: boolean;
   callCount: number;
   schemaRejections: number;
+  /** Failing calls that reported no verdict, so the call itself went wrong. */
   errorCalls: number;
+  /** Failing calls that reported a rules denial or a set of lint findings. */
+  verdictCalls: number;
   durationMs: number;
   assertReason: string | null;
 }
@@ -192,6 +212,8 @@ export interface EvalEvent {
   durationMs: number;
   schemaRejected: boolean;
   isError: boolean;
+  /** True when the failing result reported a verdict rather than a fault. */
+  verdict?: boolean;
   run: {
     runId: string;
     taskId: string;

@@ -4,7 +4,7 @@
  *
  * `pyric dev` captures the in-page sandbox session (history + snapshot +
  * rules) and pushes it here whenever the sandbox changes. `pyric verify`
- * (no positional arg) reads `SERVE_CAPTURE_PATH` and replays it against
+ * (no positional arg) reads `CAPTURE_RELATIVE_PATH` and replays it against
  * your current rules to surface real divergences. The loop is:
  *
  *   pyric dev  →  use your app  →  pyric verify
@@ -18,9 +18,16 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-/** Relative path (from project root) where the serve capture lives.
- *  Mirrors `SERVE_CAPTURE_PATH` in `verify.ts` — keep in lockstep. */
-export const CAPTURE_RELATIVE_PATH = join('.pyric', 'last-session.json');
+/**
+ * Relative path (from project root) where the serve capture lives.
+ *
+ * This is where the file is written, so this is where its name is declared.
+ * `pyric verify`, the surface's session arguments, and the eval seeder all
+ * read the same file and import this rather than spelling it again. Written
+ * with forward slashes because it is quoted verbatim in method descriptions
+ * and in what a caller types; every reader joins it onto a directory.
+ */
+export const CAPTURE_RELATIVE_PATH = '.pyric/last-session.json';
 
 export interface CaptureStore {
   /** Absolute path of the capture file (`<projectDir>/.pyric/last-session.json`). */

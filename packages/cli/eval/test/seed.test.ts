@@ -14,8 +14,11 @@ import {
   FIRESTORE_RULES_FILE,
   STORAGE_RULES_FILE,
 } from '../seed.js';
+import { CAPTURE_RELATIVE_PATH } from '../../src/serve/capture-store.js';
+import { recordOrderSession } from '../sessions.js';
 import { buildEvalState } from '../state.js';
 import { HEADLESS_STATE_RELATIVE } from '../../src/bridge/server/headless.js';
+import { parseVerifyFixture } from '../../src/verify/index.js';
 
 function runDir(): string {
   return mkdtempSync(join(tmpdir(), 'pyric-seed-'));
@@ -112,5 +115,21 @@ describe('seed and state round trip', () => {
     expect(readFileSync(join(dir, FIRESTORE_RULES_FILE), 'utf8')).toBe(ALLOW_ALL_FIRESTORE);
     expect(readFileSync(join(dir, STORAGE_RULES_FILE), 'utf8')).toBe(ALLOW_ALL_STORAGE);
     expect(readFileSync(join(dir, DATABASE_RULES_FILE), 'utf8')).toContain('".read"');
+  });
+
+  test('a declared session is planted where the assurance methods look for one', async () => {
+    const dir = runDir();
+    await applySeed(dir, { session: recordOrderSession });
+
+    expect(existsSync(join(dir, CAPTURE_RELATIVE_PATH))).toBe(true);
+    const planted = parseVerifyFixture(JSON.parse(readFileSync(join(dir, CAPTURE_RELATIVE_PATH), 'utf8')));
+    expect(planted.description).toBe('alice writes two of her own orders');
+    expect(planted.events.length).toBeGreaterThan(0);
+  });
+
+  test('a seed that declares no session plants no capture', async () => {
+    const dir = runDir();
+    await applySeed(dir, { firestore: { 'posts/p1': { title: 'hi' } } });
+    expect(existsSync(join(dir, CAPTURE_RELATIVE_PATH))).toBe(false);
   });
 });

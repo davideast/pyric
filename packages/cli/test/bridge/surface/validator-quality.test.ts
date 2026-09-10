@@ -14,7 +14,7 @@ import { createSurfaceContext, renderSurface } from '../../../src/bridge/surface
 import type { OperationResult, SurfaceContext } from '../../../src/bridge/surface/index.js';
 
 /** Imperative verbs this codebase's fix sentences open with. */
-const FIX_VERBS = ['Pass', 'Use', 'Call', 'Add', 'Remove', 'Rename'];
+const FIX_VERBS = ['Pass', 'Use', 'Call', 'Add', 'Remove', 'Rename', 'Fix', 'Drop'];
 
 const surface = renderSurface('sdk-service');
 
@@ -59,11 +59,25 @@ const REJECTIONS: Array<[string, string, Record<string, unknown>]> = [
   ['rules', 'explainDenial', { service: 'storage', operation: 'get', path: 'uploads/hello.txt' }],
   ['rules', 'set', { service: 'firestore', rules: 'not rules at all {' }],
   ['sandbox', 'checkpoint', { name: '../evil' }],
+  ['assurance', 'replaySession', { service: 'firestone' }],
+  ['assurance', 'replaySession', { sessionPath: '../elsewhere.json' }],
+  ['assurance', 'verifyCases', { service: 'database' }],
+  ['assurance', 'verifyCases', { fixture: '../elsewhere.json' }],
+  ['assurance', 'canIUse', { feature: '' }],
+  ['assurance', 'inspect', { campaignId: 'first-pass', probe: 'probe-1' }],
+  ['assurance', 'export', { campaignId: 'first-pass', path: '../elsewhere.json' }],
+  ['assurance', 'testRulesHosted', { service: 'firestone', rules: 'x', cases: [{}] }],
 ];
 
 /** The rejections whose message must quote the value the caller sent. */
 const QUOTED_VALUES: Array<[string, string, Record<string, unknown>, string]> = [
   ['sandbox', 'checkpoint', { name: '../evil' }, "'../evil'"],
+  [
+    'assurance',
+    'replaySession',
+    { sessionPath: '../elsewhere.json' },
+    "'../elsewhere.json'",
+  ],
 ];
 
 describe('a rejection quotes the value it refused', () => {

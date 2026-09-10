@@ -12,9 +12,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BRANCH_FORMAT, BRANCH_STORE_RELATIVE } from 'pyric/sandbox/branches/store';
 
+import { CAPTURE_RELATIVE_PATH } from '../../../../src/serve/capture-store.js';
+
 import {
   AGAINST_LIVE,
-  DEFAULT_SESSION_PATH,
   branchExists,
   branchName,
   checkUserFields,
@@ -174,7 +175,7 @@ describe('refuseUnknownBranch', () => {
 describe('refuseAmbiguousSource', () => {
   it('accepts exactly one of events and sessionPath', () => {
     expect(refuseAmbiguousSource({ events: [] }, fail)).toBeNull();
-    expect(refuseAmbiguousSource({ sessionPath: DEFAULT_SESSION_PATH }, fail)).toBeNull();
+    expect(refuseAmbiguousSource({ sessionPath: CAPTURE_RELATIVE_PATH }, fail)).toBeNull();
   });
 
   it('refuses neither, naming both options', () => {
@@ -191,12 +192,12 @@ describe('refuseAmbiguousSource', () => {
 
 describe('projectPathWithin', () => {
   it('resolves a relative path against the project directory', () => {
-    const resolved = projectPathWithin(projectDir, DEFAULT_SESSION_PATH, 'sessionPath', fail);
-    expect(resolved).toEqual({ path: join(projectDir, DEFAULT_SESSION_PATH) });
+    const resolved = projectPathWithin(projectDir, CAPTURE_RELATIVE_PATH, 'sessionPath', fail);
+    expect(resolved).toEqual({ path: join(projectDir, CAPTURE_RELATIVE_PATH) });
   });
 
   it('accepts an absolute path inside the project directory', () => {
-    const inside = join(projectDir, DEFAULT_SESSION_PATH);
+    const inside = join(projectDir, CAPTURE_RELATIVE_PATH);
     expect(projectPathWithin(projectDir, inside, 'sessionPath', fail)).toEqual({ path: inside });
   });
 

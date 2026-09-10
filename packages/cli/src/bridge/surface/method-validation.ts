@@ -16,7 +16,7 @@
  */
 import type { z } from 'zod';
 import { closest, quoted } from './closest-name.js';
-import { refuseUnconfirmedDestructive, refuseUnmountedProduction } from './method-effects.js';
+import { refuseUnconfirmed, refuseUnmountedProduction } from './method-effects.js';
 import type { Args, Fail, InvalidArguments, Method, Tool } from './method-types.js';
 
 /** The method every tool carries for reading one method's schema. */
@@ -24,8 +24,8 @@ export const DESCRIBE_METHOD = 'describe';
 
 /** A rejection builder bound to one tool and method. */
 export function failFor(tool: string, method: string): Fail {
-  return (body, fix, field) => {
-    const data: InvalidArguments['data'] = { code: 'invalid_arguments', tool, method, fix };
+  return (body, fix, field, code = 'invalid_arguments') => {
+    const data: InvalidArguments['data'] = { code, tool, method, fix };
     if (field !== undefined) data.field = field;
     return { ok: false, summary: `${tool}.${method}: ${body} ${fix}`, data };
   };
@@ -195,8 +195,10 @@ export function validateArguments(
   if (named !== null) return named;
   const parsed = method.args.safeParse(args);
   if (!parsed.success) return fromZodIssue(method, parsed.error.issues[0], fail, args);
-  const unconfirmed = refuseUnconfirmedDestructive(method, args, fail);
-  if (unconfirmed !== null) return unconfirmed;
+  const unconfirmedDestruction = refuseUnconfirmed('destructive', method, args, fail);
+  if (unconfirmedDestruction !== null) return unconfirmedDestruction;
+  const unconfirmedProduction = refuseUnconfirmed('production', method, args, fail);
+  if (unconfirmedProduction !== null) return unconfirmedProduction;
   return method.validate?.(args, { fail }) ?? null;
 }
 

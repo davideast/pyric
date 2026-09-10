@@ -9,7 +9,6 @@
  */
 import { toJsonSchema } from '../json-schema.js';
 import { callMethod } from '../method-call.js';
-import { mountedMethods } from '../method-effects.js';
 import { METHODS } from '../methods/registry.js';
 import { selectOperation } from '../method-types.js';
 import type { Method } from '../method-types.js';
@@ -23,7 +22,7 @@ import { spellName, wordsFor, type MethodWords } from './method-words.js';
  */
 export type NamePattern = (words: MethodWords) => readonly string[];
 
-/** Render one tool per mounted method record under the supplied word order. */
+/** Render one tool per method record under the supplied word order. */
 export function renderOneToolPerMethod(
   nameFor: NamePattern,
   options?: RenderOptions,
@@ -32,7 +31,7 @@ export function renderOneToolPerMethod(
   const tools: RenderedTool[] = [];
   const byToolName = new Map<string, Method>();
 
-  for (const method of mountedMethods(METHODS, allowProduction)) {
+  for (const method of METHODS) {
     const name = spellName(nameFor(wordsFor(method.key)));
     if (byToolName.has(name)) {
       throw new Error(`rendered tool name '${name}' is claimed by two methods`);

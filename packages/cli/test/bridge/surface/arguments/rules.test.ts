@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  checkOneForm,
   checkOperation,
   checkRulesParse,
   operation,
@@ -84,6 +85,64 @@ describe('checkRulesParse', () => {
 
   it('passes when the engine reports no parse problem', () => {
     expect(checkRulesParse({ service: 'database', rules: '{"rules": {}}' }, fail)).toBeNull();
+  });
+});
+
+describe('checkOneForm', () => {
+  it('accepts a call that names one request', () => {
+    expect(checkOneForm({ service: 'firestore', operation: 'get', path: 'orders/o1' }, fail)).toBeNull();
+  });
+
+  it('accepts a call that names many', () => {
+    expect(
+      checkOneForm({ service: 'firestore', cases: [{ operation: 'get', path: 'orders/o1' }] }, fail),
+    ).toBeNull();
+  });
+
+  it('refuses a call that names both forms', () => {
+    const rejection = checkOneForm(
+      { service: 'firestore', path: 'orders/o1', cases: [{ operation: 'get', path: 'orders/o2' }] },
+      fail,
+    );
+    expect(rejection?.data.field).toBe('cases');
+    expect(rejection?.summary).toContain('This call names both.');
+  });
+
+  it('refuses a call that names neither', () => {
+    const rejection = checkOneForm({ service: 'firestore' }, fail);
+    expect(rejection?.data.field).toBe('cases');
+    expect(rejection?.summary).toContain('This call names neither.');
+  });
+});
+
+describe('checkOperation over a batch', () => {
+  it('names the case whose method the service does not evaluate', () => {
+    const rejection = checkOperation(
+      {
+        service: 'firestore',
+        cases: [
+          { operation: 'get', path: 'orders/o1' },
+          { operation: 'write', path: 'orders/o2' },
+        ],
+      },
+      fail,
+    );
+    expect(rejection?.data.field).toBe('cases[1].operation');
+  });
+
+  it('passes a batch whose every case names a method the service evaluates', () => {
+    expect(
+      checkOperation(
+        {
+          service: 'firestore',
+          cases: [
+            { operation: 'get', path: 'orders/o1' },
+            { operation: 'create', path: 'orders/o2' },
+          ],
+        },
+        fail,
+      ),
+    ).toBeNull();
   });
 });
 

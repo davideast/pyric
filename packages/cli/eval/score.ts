@@ -68,17 +68,20 @@ export function scoreRun(input: ScoreInput): EvalResultLine {
   const firstOperation = firstOperationOf(state);
   const callCount = state.calls.length;
   const schemaRejections = state.calls.filter((call) => call.schemaRejected).length;
-  const errorCalls = state.calls.filter((call) => !call.ok).length;
+  // A rules denial and a lint run with findings are the surface working, so
+  // they are counted on their own rather than against the run.
+  const errorCalls = state.calls.filter((call) => !call.ok && !call.verdict).length;
+  const verdictCalls = state.calls.filter((call) => call.verdict).length;
 
   let outcome: EvalOutcome = input.spawn as EvalOutcome;
   let assertReason: string | null = input.crashReason ?? null;
   if (isScorable(input.spawn)) {
-    const verdict = run.task.assert(state);
-    if (verdict === true) {
+    const assertion = run.task.assert(state);
+    if (assertion === true) {
       outcome = 'pass';
     } else {
       outcome = 'fail';
-      assertReason = verdict;
+      assertReason = assertion;
     }
   }
 
@@ -98,6 +101,7 @@ export function scoreRun(input: ScoreInput): EvalResultLine {
     callCount,
     schemaRejections,
     errorCalls,
+    verdictCalls,
     durationMs: input.durationMs,
     assertReason,
   };

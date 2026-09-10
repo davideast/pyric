@@ -1,7 +1,7 @@
 /**
  * The tool surface a server serves.
  *
- * `renderSurface(undefined)` is the product surface: the six service tools of
+ * `renderSurface(undefined)` is the product surface: the seven service tools of
  * `sdk-service`, rendered from the method records. A surface id returns another
  * rendering of the same records, which is what the surface evaluation compares:
  * the names and parameter shapes differ, the handlers do not. An unknown id

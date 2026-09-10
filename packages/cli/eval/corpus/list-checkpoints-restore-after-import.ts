@@ -2,8 +2,13 @@ import type { EvalTask } from '../types.js';
 
 const task: EvalTask = {
   id: 'list-checkpoints-restore-after-import',
+  // The assertion turns on which of the two checkpoints came back, and the
+  // only thing that tells them apart is the phase field, so the prompt asks
+  // for the phase writes that make each checkpoint distinct. Dropping the
+  // check instead would leave the task asserting nothing more than that a
+  // restore succeeded, which is a different and much smaller question.
   prompt:
-    "Before the risky migration, checkpoint the sandbox as morning-state. After the first phase finishes, checkpoint again as after-import. Something went wrong in the phase after that, so list the checkpoints and restore after-import.",
+    "Before the risky migration, checkpoint the sandbox as morning-state. Then run the first phase: set the phase field on status/doc to importing, and checkpoint again as after-import. The phase after that went wrong and left status/doc on broken, so put it there, then list the checkpoints and restore after-import.",
   seed: {
     firestore: { 'status/doc': { phase: 'start' } },
   },

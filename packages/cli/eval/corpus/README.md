@@ -13,7 +13,7 @@ contract. The `id` field equals the filename without its extension. A record car
 
 ## Distribution
 
-Sixty-nine tasks:
+Eighty-three tasks, counted by the first tag each one carries:
 
 - 15 auth and tenant: seed a tenant user with claims, switch the active identity, list users, set
   or revoke claims, delete an account.
@@ -22,19 +22,19 @@ Sixty-nine tasks:
 - 10 rules: lint a broken ruleset for each service, simulate a request, trace a denial, compare an
   allow expectation against a deny expectation, reach for a rules helper module.
 - 8 storage: upload, read metadata, list, download, overwrite, delete.
-- 7 sandbox: inspect, reset, seed. One of the reset tasks phrases the request so the natural first
-  attempt omits `confirm`, which the destructive-method validator refuses; the task is not done
-  until a reset call actually succeeds.
-- 5 sandbox state management: checkpoint before a risky change and restore it, page the operation
-  log after a burst of writes, export a fixture and reload it after a full reset, a scoped reset of
-  one service that leaves another intact, and listing checkpoints to restore the right one among
-  several.
+- 18 sandbox: inspect, reset, seed, checkpoint and restore, page the operation log, export a fixture
+  and reload it, and the branch lifecycle from fork through promote or discard. One reset task
+  phrases the request so the natural first attempt omits `confirm`, which the destructive-method
+  validator refuses; one branch task says plainly that nothing should land, and its assert fails if
+  a promote call was made at all.
+- 8 assurance: replay the last recorded session against a candidate ruleset and report the verdicts
+  it changes, decide the cases a capture derives, ask the conformance registry about a feature, and
+  drive an authorization campaign from cloning the sandbox through minimizing a counterexample and
+  exporting it. One of them asks for Firebase's hosted rules test API by name, which no run may
+  reach, and is not done until a local engine answered instead.
 - 9 multi-step: two or three operations in sequence, such as seeding a tenant user, writing a
-  document as that user, and reading it back. Three of these install rules with `set` and then
-  read the effect back through `simulate`, one per service.
-- 5 branches: fork a copy, apply a plan to it, diff it, and then either promote it, discard it,
-  list what is open, or recover from a checkpoint name nothing answers to. One of them says
-  plainly that nothing should land, and its assert fails if a promote call was made at all.
+  document as that user, and reading it back. Three of these install rules with `set` and then read
+  the effect back through `simulate`, one per service.
 
 ## Rules for new tasks
 
@@ -45,3 +45,7 @@ Sixty-nine tasks:
 - `assert` checks the outcome in state, not the path taken. Check the call log only when the task
   has no state effect, such as a read or a rules verdict.
 - Every entry in `acceptedFirstOperations` must be a canonical operation id from the contract.
+- A task that needs a file the app would have left behind, rather than sandbox state, declares it on
+  the seed. `session` is the one such field today: the seeder writes it to
+  `.pyric/last-session.json` in the run's project directory, which is where the assurance methods
+  look for a capture.

@@ -17,6 +17,23 @@ import { CANONICAL_OPERATION_IDS } from '../../../src/bridge/surface/render/cano
 
 const NAMED_VARIANTS = ['verb-prefixed', 'noun-prefixed', 'verb-suffixed'];
 
+/** How deep a method's own arguments nest: two object levels below the root. */
+const ARGUMENT_DEPTH = 2;
+
+/**
+ * How deep an authored campaign record nests. The assurance methods carry the
+ * campaign document's own records rather than arguments of their own, and a
+ * probe holds a mutation, which holds an operation, which holds a payload. The
+ * alternative to spelling that shape is an untyped object, which is what left
+ * the closed sets invisible until the first rejection.
+ */
+const AUTHORED_RECORD_DEPTH = 4;
+
+/** The depth budget one rendered tool is held to. */
+function depthBudgetFor(toolName: string): number {
+  return toolName.includes('assurance') ? AUTHORED_RECORD_DEPTH : ARGUMENT_DEPTH;
+}
+
 /** The enum values a discriminator tool's field can take, from its own schema. */
 function enumValues(toolName: string, field: string): string[] {
   const tool = DISCRIMINATOR_TOOLS.find((candidate) => candidate.name === toolName);
@@ -49,9 +66,9 @@ describe('the named variants', () => {
       for (const operation of reached) expect(declared.has(operation)).toBe(true);
     });
 
-    it(`${variant} keeps every rendered schema within two object levels`, () => {
+    it(`${variant} keeps every rendered schema within its depth budget`, () => {
       for (const tool of renderSurface(variant).tools) {
-        expect(schemaDepth(tool.inputSchema)).toBeLessThanOrEqual(2);
+        expect(schemaDepth(tool.inputSchema)).toBeLessThanOrEqual(depthBudgetFor(tool.name));
       }
     });
   }
@@ -105,8 +122,8 @@ describe('the named variants', () => {
 describe('the discriminator variant', () => {
   const surface = renderSurface('discriminator');
 
-  it('renders the twelve intent tools and the seven resource templates', () => {
-    expect(surface.tools).toHaveLength(12);
+  it('renders the thirteen intent tools and the seven resource templates', () => {
+    expect(surface.tools).toHaveLength(13);
     expect(surface.resources).toHaveLength(7);
   });
 
@@ -172,7 +189,7 @@ describe('the discriminator variant', () => {
 describe('surface selection', () => {
   it('serves the service tools when no surface is asked for', () => {
     const names = renderSurface(undefined).tools.map((tool) => tool.name);
-    expect(names).toEqual(['firestore', 'database', 'storage', 'auth', 'rules', 'sandbox']);
+    expect(names).toEqual(['firestore', 'database', 'storage', 'auth', 'rules', 'sandbox', 'assurance']);
   });
 
   it('throws for an unknown surface, naming the ones that exist', () => {

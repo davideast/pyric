@@ -10,14 +10,14 @@
  * `customClaims`; not only that a path is a string, but that a document path
  * has an even number of segments.
  *
- * Every tool also answers `describe`, which returns one method's full schema and
- * an example call. That is the escape hatch the thin top-level schema costs: an
- * agent that cannot read the arguments off the tool list can ask for them.
+ * Every tool also answers `describe`, which returns one method's full schema, an
+ * example call, and whether a call to it would run on this server. That is the
+ * escape hatch the thin top-level schema costs: an agent that cannot read the
+ * arguments off the tool list can ask for them.
  */
 import { TOOL_DESCRIPTIONS } from '../descriptions.generated.js';
 import { toJsonSchema } from '../json-schema.js';
 import { callMethod } from '../method-call.js';
-import { mountedTool } from '../method-effects.js';
 import { methodByName, TOOLS, toolByName } from '../methods/registry.js';
 import {
   DESCRIBE_METHOD,
@@ -25,6 +25,7 @@ import {
   validateDescribe,
   validateMethodName,
 } from '../method-validation.js';
+import { methodStatus, PRODUCTION_ENABLING_SENTENCE } from '../method-effects.js';
 import { renderToolDescription } from '../tool-description.js';
 import { operationIds, selectOperation } from '../method-types.js';
 import type { Args, Method, Tool } from '../method-types.js';
@@ -44,22 +45,20 @@ const ARGS_DESCRIPTION =
 /**
  * The description one tool serves, which the build renders from its records.
  *
- * A tool whose mounted methods equal the source record's methods (the case
- * every tool is in today: no `production` method exists yet) gets the
- * generated description as-is. A tool that lost a method to production
- * gating is described from its mounted methods only, so an unmounted method
- * never appears in a description a client reads.
+ * Every method is listed either way, so the generated text is exactly what a
+ * server that did not opt in to production serves. A server that did opt in
+ * differs by one heading, which is cheap enough to render live and keeps the
+ * committed file the one a reader of the default surface can trust.
  */
-export function describeTool(tool: Tool): string {
-  const source = toolByName(tool.name);
-  if (source !== undefined && source.methods.length === tool.methods.length) {
-    const description = TOOL_DESCRIPTIONS[tool.name];
-    if (description === undefined) {
-      throw new Error(`no generated description for tool '${tool.name}'; run scripts/generate-surface-descriptions.ts`);
-    }
-    return description;
+export function describeTool(tool: Tool, allowProduction = false): string {
+  if (allowProduction) return renderToolDescription(tool, true);
+  const description = TOOL_DESCRIPTIONS[tool.name];
+  if (description === undefined) {
+    throw new Error(
+      `no generated description for tool '${tool.name}'; run scripts/generate-surface-descriptions.ts`,
+    );
   }
-  return renderToolDescription(tool);
+  return description;
 }
 
 /**
@@ -93,22 +92,30 @@ function argsOf(raw: Args): Args {
   return supplied as Args;
 }
 
-/** One method's schema and example, as `describe` returns them. */
-function describeMethod(method: Method): OperationResult {
-  return {
-    ok: true,
-    summary: `${method.key}: ${method.signature}`,
-    data: {
-      tool: method.tool,
-      method: method.method,
-      signature: method.signature,
-      summary: method.description,
-      effect: method.effect,
-      operations: [...operationIds(method)],
-      inputSchema: toJsonSchema(method.args),
-      example: { method: method.method, args: method.example },
-    },
+/**
+ * One method's schema and example, as `describe` returns them, plus whether a
+ * call to it would run on this server.
+ *
+ * A `production` method is listed on a server that did not opt in, so
+ * `describe` has to say that calling it would be refused and how to enable it.
+ * Every other method, and a production method on a server that did opt in, is
+ * reported as enabled.
+ */
+function describeMethod(method: Method, allowProduction: boolean): OperationResult {
+  const status = methodStatus(method, allowProduction);
+  const data: Record<string, unknown> = {
+    tool: method.tool,
+    method: method.method,
+    signature: method.signature,
+    summary: method.description,
+    effect: method.effect,
+    status,
+    operations: [...operationIds(method)],
+    inputSchema: toJsonSchema(method.args),
+    example: { method: method.method, args: method.example },
   };
+  if (status === 'disabled') data.enabling = PRODUCTION_ENABLING_SENTENCE;
+  return { ok: true, summary: `${method.key}: ${method.signature}`, data };
 }
 
 /** One method, past the point where the validator has already accepted its name. */
@@ -131,7 +138,7 @@ async function execute(
   if (methodName === DESCRIBE_METHOD) {
     const rejection = validateDescribe(tool, args);
     if (rejection !== null) return rejection;
-    return describeMethod(methodOrThrow(tool, String(args.method)));
+    return describeMethod(methodOrThrow(tool, String(args.method)), allowProduction);
   }
   return callMethod(methodOrThrow(tool, methodName), args, ctx, allowProduction);
 }
@@ -152,19 +159,11 @@ function resolveCall(toolName: string, raw: Args): ResolvedCall {
 
 export function render(options?: RenderOptions): RenderedSurface {
   const allowProduction = options?.allowProduction ?? false;
-  const tools: RenderedTool[] = TOOLS.map((tool) => {
-    const mounted = mountedTool(tool, allowProduction);
-    // A tool whose every method is withheld would serve a `method` enum holding
-    // nothing but `describe`, which is a tool with no capability behind it.
-    if (mounted.methods.length === 0) {
-      throw new Error(`service tool '${mounted.name}' mounts no methods`);
-    }
-    return {
-      name: mounted.name,
-      description: describeTool(mounted),
-      inputSchema: toolSchema(mounted),
-      execute: (args, ctx) => execute(mounted, args, ctx, allowProduction),
-    };
-  });
+  const tools: RenderedTool[] = TOOLS.map((tool) => ({
+    name: tool.name,
+    description: describeTool(tool, allowProduction),
+    inputSchema: toolSchema(tool),
+    execute: (args, ctx) => execute(tool, args, ctx, allowProduction),
+  }));
   return { tools, resolve: resolveCall };
 }

@@ -55,11 +55,21 @@ describe('callMethod', () => {
   });
 
   it('refuses a production method unless allowProduction is passed true', async () => {
-    const production = fakeMethod({ effect: 'production' });
+    const production = fakeMethod({
+      effect: 'production',
+      args: z.object({ value: z.string(), confirm: z.boolean().optional() }),
+    });
     const refused = await callMethod(production, { value: 'hi' }, ctx);
     expect(refused.ok).toBe(false);
+    expect(refused.summary).toContain('--allow-production');
 
-    const allowed = await callMethod(production, { value: 'hi' }, ctx, true);
+    // Allowed, the call still confirms: the flag opts the session in and the
+    // confirmation opts this one call in.
+    const unconfirmed = await callMethod(production, { value: 'hi' }, ctx, true);
+    expect(unconfirmed.ok).toBe(false);
+    expect(unconfirmed.summary).toContain('confirm: true');
+
+    const allowed = await callMethod(production, { value: 'hi', confirm: true }, ctx, true);
     expect(allowed.ok).toBe(true);
   });
 
@@ -67,5 +77,48 @@ describe('callMethod', () => {
     const production = fakeMethod({ effect: 'production', method: 'echo2', key: 'sandbox.echo2' });
     const refused = await callMethod(production, { value: 'hi' }, ctx);
     expect(refused.ok).toBe(false);
+  });
+
+  it('names the trace call on a result Security Rules refused', async () => {
+    const denied = fakeMethod({
+      tool: 'firestore',
+      method: 'getDoc',
+      key: 'firestore.getDoc',
+      async handler() {
+        return { ok: false, summary: 'get orders/o2 denied by rules' };
+      },
+    });
+    const result = await callMethod(denied, { value: 'hi' }, ctx);
+    expect(result.summary).toContain(
+      "Call rules.explainDenial with service 'firestore' for the trace.",
+    );
+    expect((result.data as { code: string }).code).toBe('denied_by_rules');
+  });
+
+  it('names the trace call on a refusal the service reported by throwing', async () => {
+    const denied = fakeMethod({
+      tool: 'firestore',
+      method: 'getDoc2',
+      key: 'firestore.getDoc2',
+      async handler(): Promise<never> {
+        throw new Error('get orders/o2 denied by rules');
+      },
+    });
+    const result = await callMethod(denied, { value: 'hi' }, ctx);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain(
+      "Call rules.explainDenial with service 'firestore' for the trace.",
+    );
+    expect((result.data as { code: string }).code).toBe('denied_by_rules');
+  });
+
+  it('reports a thrown failure that rules never refused as the failure it is', async () => {
+    const broken = fakeMethod({
+      async handler(): Promise<never> {
+        throw new Error('the sandbox is not open');
+      },
+    });
+    const result = await callMethod(broken, { value: 'hi' }, ctx);
+    expect(result).toEqual({ ok: false, summary: 'the sandbox is not open' });
   });
 });

@@ -50,7 +50,7 @@ describe("AuthorizationCampaign", () => {
         confidence: "tentativee",
       } as never),
     ).toThrow(
-      "invariant 'typo-confidence' has invalid confidence 'tentativee'.",
+      "invariant.confidence must be one of authoritative, strong, tentative. 'tentativee' was sent.",
     );
   });
 
@@ -99,7 +99,7 @@ describe("AuthorizationCampaign", () => {
         },
       }),
     ).toThrow(
-      "probe 'path-and-payload' declares a 'path' mutation but changes path, payload.",
+      "probe.mutation declares a 'path' mutation but changes path, payload.",
     );
   });
 
@@ -337,5 +337,102 @@ service cloud.firestore {
 
     expect(data).toEqual({ admin: true });
     expect(minimized.removedPayloadFields).toEqual(["displayName"]);
+  });
+});
+
+describe("AuthorizationCampaign.map", () => {
+  it("adds nothing when any item in the batch is invalid", () => {
+    const campaign = createAuthorizationCampaign({ id: "all-or-nothing", target });
+
+    expect(() =>
+      campaign.map({
+        actors: [
+          { id: "alice", acquisition: { kind: "anonymous-request" } },
+          { id: "bob", acquisition: { kind: "anonymous-request" } },
+        ],
+        observations: [
+          {
+            id: "alice-reads-own",
+            actorId: "alice",
+            result: "ALLOW",
+            source: "captured",
+            operation: {
+              service: "firestore",
+              method: "get",
+              path: "profiles/alice",
+            },
+          },
+          {
+            id: "bob-reads-own",
+            actorId: "bob",
+            result: "ALLOW",
+            source: "declared",
+            operation: {
+              service: "firestore",
+              method: "get",
+              path: "profiles/bob",
+            },
+          },
+        ],
+      }),
+    ).toThrow("observations[1].source must be one of captured, authored, discovered.");
+
+    expect(campaign.spec().actors).toEqual([]);
+    expect(campaign.observations).toEqual([]);
+  });
+
+  it("commits every item once the whole batch validates", () => {
+    const campaign = createAuthorizationCampaign({ id: "whole-batch", target });
+
+    campaign.map({
+      actors: [{ id: "alice", acquisition: { kind: "anonymous-request" } }],
+      observations: [
+        {
+          id: "alice-reads-own",
+          actorId: "alice",
+          result: "ALLOW",
+          source: "captured",
+          operation: { service: "firestore", method: "get", path: "profiles/alice" },
+        },
+      ],
+    });
+
+    expect(campaign.spec().actors).toHaveLength(1);
+    expect(campaign.observations).toHaveLength(1);
+  });
+
+  it("accepts an observation whose actor arrives in the same batch", () => {
+    const campaign = createAuthorizationCampaign({ id: "same-batch-actor", target });
+
+    campaign.map({
+      actors: [{ id: "carol", acquisition: { kind: "anonymous-request" } }],
+      observations: [
+        {
+          id: "carol-reads-own",
+          actorId: "carol",
+          result: "ALLOW",
+          source: "captured",
+          operation: { service: "firestore", method: "get", path: "profiles/carol" },
+        },
+      ],
+    });
+
+    expect(campaign.observations).toHaveLength(1);
+  });
+
+  it("names the position of a duplicate id rather than the state it left behind", () => {
+    const campaign = createAuthorizationCampaign({ id: "duplicate-actor", target });
+    campaign.map({ actors: [{ id: "alice", acquisition: { kind: "anonymous-request" } }] });
+
+    expect(() =>
+      campaign.map({
+        actors: [
+          { id: "bob", acquisition: { kind: "anonymous-request" } },
+          { id: "alice", acquisition: { kind: "anonymous-request" } },
+        ],
+      }),
+    ).toThrow("actors[1].id is already mapped: 'alice'.");
+
+    expect(campaign.spec().actors).toHaveLength(1);
   });
 });

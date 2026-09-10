@@ -39,12 +39,23 @@ export type SdkOrigin = 'firebase-js' | 'firebase-admin' | 'pyric';
  */
 export type MethodEffect = 'read' | 'write' | 'destructive' | 'production';
 
+/**
+ * Why a call was refused.
+ *
+ * `invalid_arguments` says the caller got the arguments wrong, which is the
+ * metric the evaluation reads as a schema rejection. `production_disabled`
+ * says the arguments were fine and the server was not started for the call, so
+ * it is an error rather than a mistake the caller made, and it is counted as
+ * one.
+ */
+export type RejectionCode = 'invalid_arguments' | 'production_disabled';
+
 /** The failure a rejected call returns, in the operation result shape. */
 export interface InvalidArguments {
   ok: false;
   summary: string;
   data: {
-    code: 'invalid_arguments';
+    code: RejectionCode;
     tool: string;
     method: string;
     field?: string;
@@ -53,7 +64,12 @@ export interface InvalidArguments {
 }
 
 /** Build one rejection for a known tool and method. */
-export type Fail = (body: string, fix: string, field?: string) => InvalidArguments;
+export type Fail = (
+  body: string,
+  fix: string,
+  field?: string,
+  code?: RejectionCode,
+) => InvalidArguments;
 
 /** What a record's `validate` is given besides the arguments. */
 export interface MethodValidationContext {

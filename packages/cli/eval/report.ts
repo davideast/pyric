@@ -18,7 +18,7 @@
 import { existsSync, statSync, writeFileSync } from 'node:fs';
 import { loadRows, loadTasks } from './load.js';
 import { readNdjsonLines, rederiveResultsDirectory, type LoadRunLinesOptions } from './rederive.js';
-import type { EvalResultLine } from './types.js';
+import type { EvalResultLine, EvalTask } from './types.js';
 
 /** Resamples per interval. Fixed so two reports over the same data agree. */
 export const BOOTSTRAP_RESAMPLES = 1000;
@@ -29,6 +29,47 @@ export interface Interval {
   value: number;
   low: number;
   high: number;
+}
+
+/**
+ * The tag a corpus record carries when its prompt asks for a sequence of
+ * operations rather than one. A multi-step task legitimately spends five to
+ * ten calls, so pooling it with the single-step tasks would report the corpus
+ * getting worse every time a longer task is added.
+ */
+export const MULTI_STEP_TAG = 'multi-step';
+
+/** The two classes the call-budget thresholds are set on. */
+export type TaskClass = 'single-step' | 'multi-step';
+
+/** Every task id the corpus tags as multi-step. Any other id is single-step. */
+export function multiStepTaskIds(tasks: Map<string, EvalTask>): Set<string> {
+  const ids = new Set<string>();
+  for (const [id, task] of tasks) {
+    if (task.tags.includes(MULTI_STEP_TAG)) ids.add(id);
+  }
+  return ids;
+}
+
+/** The call budget and completion bar each class is held to. */
+export interface ClassThreshold {
+  maxCallsPerCompletion: number;
+  minCompletion: number;
+}
+
+export const CLASS_THRESHOLDS: Record<TaskClass, ClassThreshold> = {
+  'single-step': { maxCallsPerCompletion: 3.2, minCompletion: 0.98 },
+  'multi-step': { maxCallsPerCompletion: 8, minCompletion: 0.98 },
+};
+
+/** One class's share of a cell: the three numbers the thresholds are read on. */
+export interface ClassReport {
+  taskClass: TaskClass;
+  runs: number;
+  tasks: number;
+  completion: Interval;
+  meanCallsPerCompletedTask: Interval;
+  meanErrorCallsPerCompletedTask: Interval;
 }
 
 /** Outcomes that are infrastructure or bypass signals, not a verdict on the task. */
@@ -53,11 +94,31 @@ export interface CellReport {
   /** Completion restricted to runs that logged at least one MCP call. */
   completionEngaged: Interval;
   meanCallsPerCompletedTask: Interval;
+  /**
+   * Mean calls a completed task spent on a result the server returned as
+   * unsuccessful. A schema rejection is not one of these: the arguments were
+   * accepted and the answer was a refusal or a failure, which is what a
+   * production refusal looks like from the log.
+   */
+  meanErrorCallsPerCompletedTask: Interval;
+  /**
+   * Mean calls a completed task spent on a result that reported a verdict: a
+   * rules denial or a set of lint findings. These are the surface answering
+   * the question, so they are reported beside the error calls and never
+   * inside them.
+   */
+  meanVerdictCallsPerCompletedTask: Interval;
   /** Share of runs in which the server rejected at least one call on schema. */
   runsWithARejection: Interval;
   /** Mean wall-clock seconds one run took. */
   meanDurationSeconds: Interval;
   infrastructure: InfrastructureCounts;
+  /**
+   * The same cell split by task class, single-step first. The call budget is
+   * set per class, so pooling the two would hold a task that needs eight calls
+   * to a threshold measured on tasks that need one.
+   */
+  classes: ClassReport[];
 }
 
 /**
@@ -132,6 +193,33 @@ const meanCallsPerCompletedTask: Statistic = (runs) => {
   let calls = 0;
   for (const run of passed) calls += run.callCount;
   return calls / passed.length;
+};
+
+/**
+ * Mean unsuccessful calls one completed task made. A task the surface answers
+ * with a refusal, such as a production method on a server that did not opt in,
+ * completes with error calls on its log, and the count is the only place that
+ * shows up.
+ */
+const meanErrorCallsPerCompletedTask: Statistic = (runs) => {
+  const passed = runs.filter((run) => run.outcome === 'pass');
+  if (passed.length === 0) return Number.NaN;
+  let errors = 0;
+  for (const run of passed) errors += run.errorCalls;
+  return errors / passed.length;
+};
+
+/**
+ * Mean verdict calls one completed task made. A task whose whole point is a
+ * denial or a lint finding reaches its answer through a failing call, and this
+ * is where that shows up rather than in the error count.
+ */
+const meanVerdictCallsPerCompletedTask: Statistic = (runs) => {
+  const passed = runs.filter((run) => run.outcome === 'pass');
+  if (passed.length === 0) return Number.NaN;
+  let verdicts = 0;
+  for (const run of passed) verdicts += run.verdictCalls ?? 0;
+  return verdicts / passed.length;
 };
 
 /**
@@ -217,8 +305,46 @@ function percentile(sorted: number[], fraction: number): number {
   return sorted[index] as number;
 }
 
-/** One report per variant and row present in the data, in stable id order. */
-export function buildReport(runs: EvalResultLine[], seed: number = BOOTSTRAP_SEED): CellReport[] {
+/** The class a result line belongs to, by the task id the corpus tagged. */
+function classOf(run: EvalResultLine, multiStepTasks: ReadonlySet<string>): TaskClass {
+  if (multiStepTasks.has(run.task)) return 'multi-step';
+  return 'single-step';
+}
+
+/**
+ * One class's share of a cell. The statistics are the same functions the whole
+ * cell uses, run over the narrower set, so a number read per class and the same
+ * number read over the cell are computed one way.
+ */
+function buildClassReport(
+  taskClass: TaskClass,
+  classRuns: EvalResultLine[],
+  seed: number,
+): ClassReport {
+  const tasks = byTask(classRuns);
+  return {
+    taskClass,
+    runs: classRuns.length,
+    tasks: tasks.length,
+    completion: bootstrap(tasks, completion, seed),
+    meanCallsPerCompletedTask: bootstrap(tasks, meanCallsPerCompletedTask, seed),
+    meanErrorCallsPerCompletedTask: bootstrap(tasks, meanErrorCallsPerCompletedTask, seed),
+  };
+}
+
+/**
+ * One report per variant and row present in the data, in stable id order.
+ *
+ * `multiStepTasks` names the task ids the corpus tags as multi-step. A caller
+ * that has no corpus to hand passes nothing, and every task is then read as
+ * single-step, which is also what happens to a task id the corpus no longer
+ * holds.
+ */
+export function buildReport(
+  runs: EvalResultLine[],
+  seed: number = BOOTSTRAP_SEED,
+  multiStepTasks: ReadonlySet<string> = new Set(),
+): CellReport[] {
   const cells = new Map<string, EvalResultLine[]>();
   for (const run of runs) {
     const key = `${run.variant} ${run.row}`;
@@ -246,9 +372,23 @@ export function buildReport(runs: EvalResultLine[], seed: number = BOOTSTRAP_SEE
       completion: bootstrap(tasks, completion, seed),
       completionEngaged: bootstrap(tasks, completionEngaged, seed),
       meanCallsPerCompletedTask: bootstrap(tasks, meanCallsPerCompletedTask, seed),
+      meanErrorCallsPerCompletedTask: bootstrap(tasks, meanErrorCallsPerCompletedTask, seed),
+      meanVerdictCallsPerCompletedTask: bootstrap(tasks, meanVerdictCallsPerCompletedTask, seed),
       runsWithARejection: bootstrap(tasks, runsWithARejection, seed),
       meanDurationSeconds: bootstrap(tasks, meanDurationSeconds, seed),
       infrastructure: infrastructureCounts(cellRuns),
+      classes: [
+        buildClassReport(
+          'single-step',
+          cellRuns.filter((run) => classOf(run, multiStepTasks) === 'single-step'),
+          seed,
+        ),
+        buildClassReport(
+          'multi-step',
+          cellRuns.filter((run) => classOf(run, multiStepTasks) === 'multi-step'),
+          seed,
+        ),
+      ],
     });
   }
   return reports;
@@ -311,8 +451,23 @@ export function renderReport(reports: CellReport[]): string {
     lines.push(`  completion           ${formatRate(report.completion)}`);
     lines.push(`  completion (engaged) ${formatRate(report.completionEngaged)}`);
     lines.push(`  calls per completion ${formatCount(report.meanCallsPerCompletedTask)}`);
+    lines.push(`  error calls/completion ${formatCount(report.meanErrorCallsPerCompletedTask)}`);
+    lines.push(
+      `  verdict calls/completion ${formatCount(report.meanVerdictCallsPerCompletedTask)}`,
+    );
     lines.push(`  runs with a rejection${formatRate(report.runsWithARejection)}`);
     lines.push(`  mean duration        ${formatCount(report.meanDurationSeconds)} s`);
+    for (const cell of report.classes) {
+      const threshold = CLASS_THRESHOLDS[cell.taskClass];
+      lines.push(
+        `  ${cell.taskClass} (${cell.tasks} tasks, at most ${threshold.maxCallsPerCompletion} calls per completion)`,
+      );
+      lines.push(`    completion         ${formatRate(cell.completion)}`);
+      lines.push(`    calls/completion   ${formatCount(cell.meanCallsPerCompletedTask)}`);
+      lines.push(
+        `    error calls/completion ${formatCount(cell.meanErrorCallsPerCompletedTask)}`,
+      );
+    }
     const { throttled, interrupted, bypassed } = report.infrastructure;
     if (throttled + interrupted + bypassed > 0) {
       lines.push('  infrastructure and bypass');
@@ -349,8 +504,9 @@ async function main(argv: string[]): Promise<number> {
     );
     return 2;
   }
-  const lines = await loadRunLines(paths);
-  process.stdout.write(renderReport(buildReport(lines)));
+  const corpus = await loadTasks();
+  const lines = await loadRunLines(paths, { tasks: corpus });
+  process.stdout.write(renderReport(buildReport(lines, BOOTSTRAP_SEED, multiStepTaskIds(corpus))));
   if (jsonOut !== null) {
     writeFileSync(jsonOut, lines.map((line) => JSON.stringify(line)).join('\n') + '\n', 'utf8');
   }

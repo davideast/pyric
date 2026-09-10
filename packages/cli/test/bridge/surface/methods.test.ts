@@ -13,6 +13,18 @@ import {
 } from '../../../scripts/generate-surface-manifest.js';
 import { schemaDepth, toJsonSchema } from '../../../src/bridge/surface/json-schema.js';
 import { operationIds } from '../../../src/bridge/surface/method-types.js';
+
+/** How deep a method's own arguments nest: two object levels below the root. */
+const ARGUMENT_DEPTH = 2;
+
+/**
+ * How deep an authored campaign record nests. The assurance methods carry the
+ * campaign document's own records rather than arguments of their own, and a
+ * probe holds a mutation, which holds an operation, which holds a payload. The
+ * alternative to spelling that shape is an untyped object, which is what left
+ * the closed sets invisible until the first rejection.
+ */
+const AUTHORED_RECORD_DEPTH = 4;
 import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
 import { CANONICAL_OPERATION_IDS } from '../../../src/bridge/surface/render/canonical-dispatch.js';
 
@@ -29,7 +41,7 @@ const SURFACE_DIRECTORY = join(
 const EFFECTS = ['read', 'write', 'destructive', 'production'];
 
 describe('the loaded record set', () => {
-  it('renders the six service tools in a stable order', () => {
+  it('renders the seven service tools in a stable order', () => {
     expect(TOOLS.map((tool) => tool.name)).toEqual([
       'firestore',
       'database',
@@ -37,6 +49,7 @@ describe('the loaded record set', () => {
       'auth',
       'rules',
       'sandbox',
+      'assurance',
     ]);
   });
 
@@ -77,9 +90,10 @@ describe('the loaded record set', () => {
     ]);
   });
 
-  it('keeps every argument schema within two object levels of the root', () => {
+  it('keeps every argument schema within its depth budget', () => {
     for (const method of METHODS) {
-      expect(schemaDepth(toJsonSchema(method.args))).toBeLessThanOrEqual(2);
+      const budget = method.tool === 'assurance' ? AUTHORED_RECORD_DEPTH : ARGUMENT_DEPTH;
+      expect(schemaDepth(toJsonSchema(method.args))).toBeLessThanOrEqual(budget);
     }
   });
 

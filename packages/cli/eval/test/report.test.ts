@@ -22,6 +22,7 @@ function line(overrides: Partial<EvalResultLine>): EvalResultLine {
     callCount: 2,
     schemaRejections: 0,
     errorCalls: 0,
+    verdictCalls: 0,
     durationMs: 100,
     assertReason: null,
     ...overrides,
@@ -182,6 +183,32 @@ describe('the two threshold metrics the eval gate reads', () => {
   });
 });
 
+describe('error calls per completion', () => {
+  test('counts the unsuccessful calls a completed task made', () => {
+    const runs = [
+      line({ task: 't1', outcome: 'pass', errorCalls: 1 }),
+      line({ task: 't2', outcome: 'pass', errorCalls: 3 }),
+      // A failed run's error calls are not in the numerator or the denominator.
+      line({ task: 't3', outcome: 'fail', errorCalls: 9 }),
+    ];
+    const report = buildReport(runs, 42)[0];
+    expect(report?.meanErrorCallsPerCompletedTask.value).toBeCloseTo(4 / 2, 10);
+  });
+
+  test('a production refusal shows up in the printed report', () => {
+    // The task the surface refuses completes, because the refusal is the
+    // answer, and the refused call is the only trace it leaves.
+    const rendered = renderReport(buildReport([line({ task: 't1', errorCalls: 1 })], 42));
+    expect(rendered).toContain('error calls/completion');
+    expect(rendered).toContain('1.00');
+  });
+
+  test('a cell with nothing completed reports no interval rather than a zero', () => {
+    const report = buildReport([line({ task: 't1', outcome: 'fail', errorCalls: 2 })], 42)[0];
+    expect(Number.isNaN(report?.meanErrorCallsPerCompletedTask.value as number)).toBe(true);
+  });
+});
+
 describe('engaged-run completion', () => {
   test('a run with zero calls is excluded from the engaged completion rate', () => {
     const runs = [
@@ -192,5 +219,66 @@ describe('engaged-run completion', () => {
     // Overall completion counts both tasks; engaged completion counts only t1.
     expect(report?.completion.value).toBeCloseTo(1 / 2, 10);
     expect(report?.completionEngaged.value).toBe(1);
+  });
+});
+
+describe('the single-step and multi-step split', () => {
+  /** A corpus in which one of the three tasks is a sequence of operations. */
+  const MULTI_STEP = new Set(['t2']);
+
+  test('completion, calls and error calls are reported per class', () => {
+    const runs = [
+      line({ task: 't1', outcome: 'pass', callCount: 2, errorCalls: 0 }),
+      line({ task: 't2', outcome: 'pass', callCount: 8, errorCalls: 2 }),
+      line({ task: 't3', outcome: 'fail', callCount: 4, errorCalls: 1 }),
+    ];
+    const report = buildReport(runs, 42, MULTI_STEP)[0];
+    const single = report?.classes.find((cell) => cell.taskClass === 'single-step');
+    const multi = report?.classes.find((cell) => cell.taskClass === 'multi-step');
+
+    expect(single?.tasks).toBe(2);
+    expect(single?.completion.value).toBeCloseTo(1 / 2, 10);
+    expect(single?.meanCallsPerCompletedTask.value).toBeCloseTo(2, 10);
+    expect(single?.meanErrorCallsPerCompletedTask.value).toBeCloseTo(0, 10);
+
+    expect(multi?.tasks).toBe(1);
+    expect(multi?.completion.value).toBe(1);
+    expect(multi?.meanCallsPerCompletedTask.value).toBeCloseTo(8, 10);
+    expect(multi?.meanErrorCallsPerCompletedTask.value).toBeCloseTo(2, 10);
+  });
+
+  test('a task id the corpus no longer holds counts as single-step', () => {
+    const runs = [line({ task: 'retired-task', outcome: 'pass', callCount: 3 })];
+    const report = buildReport(runs, 42, MULTI_STEP)[0];
+    const single = report?.classes.find((cell) => cell.taskClass === 'single-step');
+    expect(single?.tasks).toBe(1);
+    expect(report?.classes.find((cell) => cell.taskClass === 'multi-step')?.tasks).toBe(0);
+  });
+
+  test('both classes appear in the printed report', () => {
+    const runs = [
+      line({ task: 't1', outcome: 'pass', callCount: 2 }),
+      line({ task: 't2', outcome: 'pass', callCount: 8 }),
+    ];
+    const rendered = renderReport(buildReport(runs, 42, MULTI_STEP));
+    expect(rendered).toContain('single-step');
+    expect(rendered).toContain('multi-step');
+  });
+});
+
+describe('verdict calls per completion', () => {
+  test('a rules denial on a completed task is a verdict call, not an error call', () => {
+    const runs = [
+      line({ task: 't1', outcome: 'pass', errorCalls: 0, verdictCalls: 2 }),
+      line({ task: 't2', outcome: 'pass', errorCalls: 1, verdictCalls: 0 }),
+    ];
+    const report = buildReport(runs, 42)[0];
+    expect(report?.meanVerdictCallsPerCompletedTask.value).toBeCloseTo(1, 10);
+    expect(report?.meanErrorCallsPerCompletedTask.value).toBeCloseTo(0.5, 10);
+  });
+
+  test('the count appears in the printed report', () => {
+    const rendered = renderReport(buildReport([line({ task: 't1', verdictCalls: 3 })], 42));
+    expect(rendered).toContain('verdict calls/completion');
   });
 });
