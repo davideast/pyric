@@ -44,6 +44,8 @@ describe('CI dist cache', () => {
       'packages/cli/src/conformance/.generated',
       'packages/cli/src/cli/service-commands.generated.ts',
       'packages/cli/src/bridge/tool-families.generated.ts',
+      'packages/cli/src/bridge/surface/manifest.generated.ts',
+      'packages/cli/src/bridge/surface/descriptions.generated.ts',
     ];
     for (const path of generated) {
       expect(gitignore).toContain(path);

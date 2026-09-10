@@ -69,7 +69,12 @@ struct AuthTests {
                     "providerId": "password"
                 ],
                 "providerId": "password",
-                "operationType": "signIn"
+                "operationType": "signIn",
+                "additionalUserInfo": [
+                    "isNewUser": false,
+                    "providerId": "password",
+                    "profile": [:]
+                ]
             ]
         ])
 
@@ -79,6 +84,8 @@ struct AuthTests {
         #expect(result.user.displayName == "Test User")
         #expect(result.user.isEmailVerified == true)
         #expect(result.user.isAnonymous == false)
+        #expect(result.additionalUserInfo?.isNewUser == false)
+        #expect(result.additionalUserInfo?.providerID == "password")
         #expect(auth.currentUser?.uid == "user-abc-123")
 
         // Credential provider reflection
@@ -112,12 +119,19 @@ struct AuthTests {
                     "email": "new@example.com",
                     "isAnonymous": false
                 ],
-                "operationType": "signIn"
+                "operationType": "signIn",
+                "additionalUserInfo": [
+                    "isNewUser": true,
+                    "providerId": "password",
+                    "profile": [:]
+                ]
             ]
         ])
 
         let result = try await createTask.value
         #expect(result.user.uid == "new-uid-456")
+        #expect(result.additionalUserInfo?.isNewUser == true)
+        #expect(result.additionalUserInfo?.providerID == "password")
         #expect(auth.currentUser?.uid == "new-uid-456")
     }
 
@@ -273,6 +287,24 @@ struct AuthTests {
         try await updateTask.value
         #expect(user.displayName == "Renamed User")
         #expect(user.photoURL?.absoluteString == "https://example.com/photo.png")
+
+        let clearPhotoTask = Task {
+            try await user.updateProfile(displayName: "Renamed User", photoURL: nil)
+        }
+        let clearFrame = try await channel.awaitNextSentMessage()
+        let clearOpId = clearFrame["id"]?.stringValue ?? "rop-2"
+        try channel.simulateServerMessage([
+            "type": "worker-res",
+            "id": clearOpId,
+            "ok": true,
+            "res": [
+                "uid": "profile-user",
+                "displayName": "Renamed User",
+                "photoURL": NSNull()
+            ]
+        ])
+        try await clearPhotoTask.value
+        #expect(user.photoURL == nil)
     }
 
     // ── 3. Multi-Tenancy & Impersonation ─────────────────────────────────────
@@ -380,6 +412,51 @@ struct AuthTests {
         #expect(mapped.message == "User missing")
     }
 
+    @Test("auth.tenantId propagates through signIn, populates user.tenantId, and updates currentAuthLens")
+    func testTenantIdPropagation() async throws {
+        let (auth, channel) = try await createMockAuth()
+        auth.tenantId = "tenant-acme"
+        #expect(auth.tenantId == "tenant-acme")
+
+        let signInTask = Task {
+            try await auth.signIn(withEmail: "tenant-user@example.com", password: "secret")
+        }
+
+        let frame = try await channel.awaitNextSentMessage()
+        #expect(frame["type"]?.stringValue == "worker-op")
+        let op = frame["op"]?.dictionaryValue
+        #expect(op?["method"]?.stringValue == "auth.signInEmail")
+        #expect(op?["tenantId"]?.stringValue == "tenant-acme")
+
+        let opId = frame["id"]?.stringValue ?? "rop-tenant"
+        try channel.simulateServerMessage([
+            "type": "worker-res",
+            "id": opId,
+            "ok": true,
+            "res": [
+                "user": [
+                    "uid": "uid-tenant-1",
+                    "email": "tenant-user@example.com",
+                    "tenantId": "tenant-acme"
+                ],
+                "operationType": "signIn"
+            ]
+        ])
+
+        let result = try await signInTask.value
+        #expect(result.user.uid == "uid-tenant-1")
+        #expect(result.user.tenantId == "tenant-acme")
+        #expect(auth.currentUser?.tenantId == "tenant-acme")
+
+        let lens = auth.currentAuthLens()
+        if case let .asUser(uid, tenant, _) = lens {
+            #expect(uid == "uid-tenant-1")
+            #expect(tenant == "tenant-acme")
+        } else {
+            Issue.record("Expected .asUser lens with tenant-acme, got \(lens)")
+        }
+    }
+
     // ── Helper ───────────────────────────────────────────────────────────────
 
     private func simulateSignIn(auth: Auth, channel: MockAuthChannel, uid: String) async throws -> User {
@@ -402,6 +479,43 @@ struct AuthTests {
         ])
         let res = try await signInTask.value
         return res.user
+    }
+
+    @Test("signIn(with: credential) propagates auth.tenantId to wire payload")
+    func testSignInWithCredentialPropagatesTenantId() async throws {
+        let (auth, channel) = try await createMockAuth()
+        auth.tenantId = "tenant-swift-oauth"
+
+        let cred = GoogleAuthProvider.credential(withIDToken: "id-tok-123", accessToken: "acc-tok-456")
+        let signInTask = Task {
+            try await auth.signIn(with: cred)
+        }
+
+        let frame = try await channel.awaitNextSentMessage()
+        guard let op = frame["op"]?.dictionaryValue else {
+            Issue.record("Missing op payload")
+            return
+        }
+        #expect(op["method"]?.stringValue == "auth.signInWithCredential")
+        #expect(op["tenantId"]?.stringValue == "tenant-swift-oauth")
+
+        let opId = frame["id"]?.stringValue ?? "rop-1"
+        try channel.simulateServerMessage([
+            "type": "worker-res",
+            "id": opId,
+            "ok": true,
+            "res": [
+                "user": [
+                    "uid": "swift-oauth-uid",
+                    "email": "oauth@swift.com",
+                    "tenantId": "tenant-swift-oauth"
+                ],
+                "operationType": "signIn"
+            ]
+        ])
+
+        let res = try await signInTask.value
+        #expect(res.user.tenantId == "tenant-swift-oauth")
     }
 }
 

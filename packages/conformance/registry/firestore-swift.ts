@@ -1,7 +1,9 @@
 import { defineRows } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
 
-const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricFirestoreTests/ConformanceTests.swift';
+const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricFirestoreTests/ConformanceCoreTests.swift';
+const CONFORMANCE_QUERY_SUITE =
+  'packages/swift-client/Tests/PyricFirestoreTests/ConformanceQueryAndCodableTests.swift';
 const UNOBSERVED_REASON =
   'Behavior stated from FirebaseFirestore Swift specification; test has not passed yet.';
 
@@ -19,8 +21,16 @@ interface SwiftRowSeed {
   flipped?: 'unit-backed';
 }
 
+function suiteForRef(ref: number): string {
+  if ((ref >= 1 && ref <= 40) || (ref >= 79 && ref <= 91)) {
+    return CONFORMANCE_SUITE;
+  }
+  return CONFORMANCE_QUERY_SUITE;
+}
+
 function row(seed: SwiftRowSeed): CompatibilityRow {
   const { ref, flipped, evidence, ...rest } = seed;
+  const suite = suiteForRef(ref);
   const defaultEvidence = flipped
     ? 'FirebaseFirestore Swift specification.'
     : 'FirebaseFirestore Swift specification; unverified locally.';
@@ -29,8 +39,8 @@ function row(seed: SwiftRowSeed): CompatibilityRow {
     ? {
         status: 'conforms' as const,
         automation: 'unit-backed' as const,
-        evidence: `${resolvedEvidence} Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-swift#${ref}\`.`,
-        conformanceTests: [CONFORMANCE_SUITE],
+        evidence: `${resolvedEvidence} Swift test: \`${suite}\` assertion set \`firestore-swift#${ref}\`.`,
+        conformanceTests: [suite],
       }
     : {
         status: 'unverified' as const,
@@ -881,6 +891,7 @@ export const firestoreSwiftRows: CompatibilityRow[] = [
   // ── 11. Codable Integration ──────────────────────────────────────────────
   row({
     ref: 103,
+    flipped: 'unit-backed',
     section: 'Codable integration',
     api: '@DocumentID',
     behavior: 'Property wrapper populating document ID on decoding; omitted from write payloads.',
@@ -888,6 +899,7 @@ export const firestoreSwiftRows: CompatibilityRow[] = [
   }),
   row({
     ref: 104,
+    flipped: 'unit-backed',
     section: 'Codable integration',
     api: '@ServerTimestamp',
     behavior: 'Property wrapper encoding nil as serverTimestamp sentinel on write.',
@@ -895,6 +907,7 @@ export const firestoreSwiftRows: CompatibilityRow[] = [
   }),
   row({
     ref: 105,
+    flipped: 'unit-backed',
     section: 'Codable integration',
     api: 'DocumentSnapshot.data(as:decoder:)',
     behavior: 'Decodes document snapshot fields directly into Decodable model.',

@@ -100,6 +100,7 @@ void main() {
       expect(cred.user!.isAnonymous, isFalse);
       expect(cred.user!.isEmailVerified, isTrue);
       expect(cred.user!.providerData.length, equals(1));
+      expect(cred.additionalUserInfo?.isNewUser, isFalse);
       expect(auth.currentUser, equals(cred.user));
     });
 

@@ -8,12 +8,12 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   echo "Usage: $0 [suite_path] [xml_output_path]"
   echo "Runs the Swift conformance test suite natively on macOS using Swift Testing & SPM."
   echo "Defaults:"
-  echo "  suite_path: packages/swift-client/Tests/PyricFirestoreTests/ConformanceTests.swift"
+  echo "  suite_path: packages/swift-client/Tests/PyricFirestoreTests/ConformanceCoreTests.swift"
   echo "  xml_output_path: .conformance/results/firestore-swift.xml"
   exit 0
 fi
 
-SUITE="${1:-packages/swift-client/Tests/PyricFirestoreTests/ConformanceTests.swift}"
+SUITE="${1:-packages/swift-client/Tests/PyricFirestoreTests/ConformanceCoreTests.swift}"
 XML_OUT="${2:-$ROOT/.conformance/results/firestore-swift.xml}"
 
 # Ensure XML_OUT is an absolute path
@@ -32,17 +32,18 @@ export PYRIC_CLIMB="${PYRIC_CLIMB:-1}"
 
 FILTER_ARG=()
 if [[ -n "${SUITE:-}" ]]; then
-  SUITE_BASE="$(basename "$SUITE")"
-  SUITE_NAME="${SUITE_BASE%.swift}"
-  if [[ -n "$SUITE_NAME" ]]; then
-    FILTER_ARG=(--filter "$SUITE_NAME")
+  if [[ "$SUITE" == *PyricFirestoreTests* ]]; then
+    FILTER_ARG=(--filter "PyricFirestoreTests")
+  else
+    SUITE_BASE="$(basename "$SUITE")"
+    SUITE_NAME="${SUITE_BASE%.swift}"
+    if [[ -n "$SUITE_NAME" ]]; then
+      FILTER_ARG=(--filter "$SUITE_NAME")
+    fi
   fi
 fi
 
 PACKAGE_DIR="$ROOT/packages/swift-client"
-if [[ "${SUITE:-}" == *ios-client* ]]; then
-  PACKAGE_DIR="$ROOT/packages/ios-client"
-fi
 
 # Execute swift test; allow test failure exit codes (red at birth)
 SWIFT_EXIT=0
