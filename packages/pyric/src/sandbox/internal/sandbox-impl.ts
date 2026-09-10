@@ -19,6 +19,7 @@
  */
 
 import { LocalEnvironment } from '../../firestore/sandbox/local-environment.js';
+import { SandboxClock, SANDBOX_CLOCK } from '../clock.js';
 import type { AuthState } from '../types/auth-state.js';
 import type { SandboxContext } from '../types/context.js';
 import { SandboxError } from '../types/errors.js';
@@ -144,14 +145,27 @@ export class SandboxImpl implements LocalSandbox {
   private _onServiceRegistered: ((name: string, hooks: PersistableService) => void) | null = null;
   private _onServiceUnregistered: ((name: string) => void) | null = null;
 
-  private constructor(env: LocalEnvironment) {
+  /**
+   * The sandbox's one source of time. Handed to every service on this sandbox
+   * so a `serverTimestamp()`, a `request.time`, and a token's `iat` minted in
+   * the same operation agree. Survives `reset()`: a pinned instant belongs to
+   * the session, not to the data. Reached from outside through `getClock`.
+   */
+  readonly clock: SandboxClock;
+  /** The cross-module-instance key `getClock` reads. See `sandbox/clock.ts`. */
+  declare readonly [SANDBOX_CLOCK]: SandboxClock;
+
+  private constructor(env: LocalEnvironment, clock: SandboxClock) {
     this._env = env;
+    this.clock = clock;
+    Object.defineProperty(this, SANDBOX_CLOCK, { value: clock, enumerable: false });
     this.attachToEnv();
   }
 
   /** Factory used by `initializeSandbox`. */
   static createRoot(): SandboxImpl {
-    return new SandboxImpl(new LocalEnvironment());
+    const clock = new SandboxClock();
+    return new SandboxImpl(new LocalEnvironment(clock), clock);
   }
 
   /**
@@ -207,7 +221,7 @@ export class SandboxImpl implements LocalSandbox {
         const ev: ListenerLifecycleEvent = {
           kind: 'listener_errored',
           id: makeSandboxEventId(),
-          at: Date.now(),
+          at: this.clock.now(),
           listenerId,
           target:
             target.kind === 'doc'
@@ -371,7 +385,7 @@ export class SandboxImpl implements LocalSandbox {
     const boundary: SessionBoundaryEvent = {
       kind: 'session_boundary',
       id: makeSandboxEventId(),
-      at: Date.now(),
+      at: this.clock.now(),
       phase: 'reset',
       priorOpCount: this.dispatchedCount,
     };
@@ -395,7 +409,7 @@ export class SandboxImpl implements LocalSandbox {
     for (const unsub of this.envUnsubs) unsub();
     this.envUnsubs = [];
     this._env.dispose();
-    this._env = new LocalEnvironment();
+    this._env = new LocalEnvironment(this.clock);
     this.attachToEnv();
   }
 
@@ -433,7 +447,7 @@ export class SandboxImpl implements LocalSandbox {
     const boundary: SessionBoundaryEvent = {
       kind: 'session_boundary',
       id: makeSandboxEventId(),
-      at: Date.now(),
+      at: this.clock.now(),
       phase: 'dispose',
       priorOpCount: this.dispatchedCount,
     };
@@ -778,13 +792,14 @@ export function emitSandboxEvent(
  * site is `emitSandboxEvent(sandbox, makeServiceMutationEvent({ ... }), { service })`.
  */
 export function makeServiceMutationEvent(
-  fields: Omit<ServiceMutationEvent, 'kind' | 'id' | 'at'>,
+  fields: Omit<ServiceMutationEvent, 'kind' | 'id' | 'at'> & { at?: number },
 ): ServiceMutationEvent {
+  const { at, ...rest } = fields;
   return {
     kind: 'service_mutation',
     id: makeSandboxEventId(),
-    at: Date.now(),
-    ...fields,
+    at: at ?? Date.now(),
+    ...rest,
   };
 }
 
