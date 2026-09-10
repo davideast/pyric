@@ -72,7 +72,11 @@ export const exercised = new Set<string>();
  * its `finishHandlerSuite` call leaves the check unrun, which is why the list
  * is short and lives beside the set it guards.
  */
-const SUITES: readonly string[] = ['services', 'assurance'];
+// The firestore lane's depth methods (count, aggregate, discovery, indexes)
+// are exercised from their own file rather than appended to `handlers.test.ts`,
+// which is already close to the file-size limit; adding a suite here is the
+// sanctioned way to grow this list.
+const SUITES: readonly string[] = ['services', 'assurance', 'firestore-depth'];
 const finished = new Set<string>();
 
 /** Call one method through its service tool and record that it ran. */
