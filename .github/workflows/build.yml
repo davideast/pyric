@@ -625,12 +625,69 @@ jobs:
       - name: Vendor smoke (vendor + init consumer install story)
         run: bun run --cwd packages/cli smoke:vendor
 
+  native-conformance:
+    name: Native SDK conformance (${{ matrix.sdk }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    needs: plan
+    if: needs.plan.outputs.check-set == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sdk: kotlin
+            os: ubuntu-latest
+          - sdk: flutter
+            os: ubuntu-latest
+          - sdk: swift
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        if: matrix.sdk == 'kotlin'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Run Kotlin client tests
+        if: matrix.sdk == 'kotlin'
+        working-directory: packages/kt-client
+        run: ./gradlew test
+
+      - name: Set up Flutter
+        if: matrix.sdk == 'flutter'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Run Flutter client tests
+        if: matrix.sdk == 'flutter'
+        working-directory: packages/flutter-client
+        run: flutter test
+
+      - name: Cache Swift build artifacts
+        if: matrix.sdk == 'swift'
+        uses: actions/cache@v4
+        with:
+          path: packages/swift-client/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('packages/swift-client/Package.swift', 'packages/swift-client/Sources/**/*.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Run Swift client tests
+        if: matrix.sdk == 'swift'
+        run: swift test --package-path packages/swift-client
+
   required:
     name: CI / required
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
-    needs: [plan, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, release-contract, packaging, install-matrix, standalone]
+    needs: [plan, build-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

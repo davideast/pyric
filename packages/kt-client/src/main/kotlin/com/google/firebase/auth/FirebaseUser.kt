@@ -28,6 +28,7 @@ class FirebaseUser internal constructor(
     val isAnonymous: Boolean get() = rawData["isAnonymous"] as? Boolean ?: false
     override val isEmailVerified: Boolean get() = rawData["emailVerified"] as? Boolean ?: false
     override val providerId: String get() = rawData["providerId"] as? String ?: "firebase"
+    val tenantId: String? get() = (rawData["tenantId"] as? String) ?: auth.tenantId
 
     val providerData: List<UserInfo>
         get() {

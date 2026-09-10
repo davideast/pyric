@@ -57,48 +57,54 @@ class FirebaseAuth internal constructor(
     init {
         var initialBridgeSnapshotReceived = false
         scope.launch {
-            BridgeAuthOperations.subscribeAuthState(bridgeClient).collect { rawUser ->
-                if (!initialBridgeSnapshotReceived) {
-                    initialBridgeSnapshotReceived = true
-                    if (rawUser == null && _currentUser.value != null) {
-                        return@collect
+            try {
+                BridgeAuthOperations.subscribeAuthState(bridgeClient).collect { rawUser ->
+                    if (!initialBridgeSnapshotReceived) {
+                        initialBridgeSnapshotReceived = true
+                        if (rawUser == null && _currentUser.value != null) {
+                            return@collect
+                        }
                     }
+                    updateUserFromBridge(rawUser)
                 }
-                updateUserFromBridge(rawUser)
-            }
+            } catch (_: Throwable) {}
         }
         scope.launch {
-            BridgeAuthOperations.subscribeIdToken(bridgeClient).collect { rawSnap ->
-                currentUser?.let { user ->
-                    @Suppress("UNCHECKED_CAST")
-                    val snapClaims = (rawSnap?.get("customClaims") as? Map<String, Any?>)
-                        ?: (rawSnap?.get("claims") as? Map<String, Any?>)
-                    if (snapClaims != null) {
-                        user.customClaims = snapClaims
-                        updateAuthLens()
+            try {
+                BridgeAuthOperations.subscribeIdToken(bridgeClient).collect { rawSnap ->
+                    currentUser?.let { user ->
+                        @Suppress("UNCHECKED_CAST")
+                        val snapClaims = (rawSnap?.get("customClaims") as? Map<String, Any?>)
+                            ?: (rawSnap?.get("claims") as? Map<String, Any?>)
+                        if (snapClaims != null) {
+                            user.customClaims = snapClaims
+                            updateAuthLens()
+                        } else {
+                            try {
+                                val res = BridgeAuthOperations.getIdTokenResult(bridgeClient, forceRefresh = false)
+                                @Suppress("UNCHECKED_CAST")
+                                val claims = res["claims"] as? Map<String, Any?>
+                                if (claims != null) {
+                                    user.customClaims = claims
+                                    updateAuthLens()
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    notifyIdTokenChanged()
+                }
+            } catch (_: Throwable) {}
+        }
+        scope.launch {
+            try {
+                bridgeClient.remoteLensEvents.collect { remoteLens ->
+                    if (remoteLens is AuthLens.AppSession) {
+                        clearAuthLensOverride()
                     } else {
-                        try {
-                            val res = BridgeAuthOperations.getIdTokenResult(bridgeClient, forceRefresh = false)
-                            @Suppress("UNCHECKED_CAST")
-                            val claims = res["claims"] as? Map<String, Any?>
-                            if (claims != null) {
-                                user.customClaims = claims
-                                updateAuthLens()
-                            }
-                        } catch (_: Exception) {}
+                        setAuthLens(remoteLens)
                     }
                 }
-                notifyIdTokenChanged()
-            }
-        }
-        scope.launch {
-            bridgeClient.remoteLensEvents.collect { remoteLens ->
-                if (remoteLens is AuthLens.AppSession) {
-                    clearAuthLensOverride()
-                } else {
-                    setAuthLens(remoteLens)
-                }
-            }
+            } catch (_: Throwable) {}
         }
     }
 
@@ -108,7 +114,7 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch {
             try {
-                val res = BridgeAuthOperations.signInEmail(bridgeClient, email, password)
+                val res = BridgeAuthOperations.signInEmail(bridgeClient, email, password, tenantId)
                 val authResult = handleAuthSuccess(res)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
@@ -122,7 +128,7 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch {
             try {
-                val res = BridgeAuthOperations.createUser(bridgeClient, email, password)
+                val res = BridgeAuthOperations.createUser(bridgeClient, email, password, tenantId)
                 val authResult = handleAuthSuccess(res)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
@@ -136,7 +142,21 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch {
             try {
-                val res = BridgeAuthOperations.signInAnonymously(bridgeClient)
+                val res = BridgeAuthOperations.signInAnonymously(bridgeClient, tenantId)
+                val authResult = handleAuthSuccess(res)
+                tcs.setResult(authResult)
+            } catch (e: Exception) {
+                tcs.setException(wrapException(e))
+            }
+        }
+        return tcs.task
+    }
+
+    fun signInWithCredential(credential: Map<String, Any?>): Task<AuthResult> {
+        val tcs = TaskCompletionSource<AuthResult>()
+        scope.launch {
+            try {
+                val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential, tenantId)
                 val authResult = handleAuthSuccess(res)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
@@ -150,7 +170,7 @@ class FirebaseAuth internal constructor(
         val tcs = TaskCompletionSource<AuthResult>()
         scope.launch {
             try {
-                val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap())
+                val res = BridgeAuthOperations.signInWithCredential(bridgeClient, credential.toWireMap(), tenantId)
                 val authResult = handleAuthSuccess(res)
                 tcs.setResult(authResult)
             } catch (e: Exception) {
@@ -227,8 +247,11 @@ class FirebaseAuth internal constructor(
         updateAuthLens()
         notifyAuthStateChanged()
         notifyIdTokenChanged()
-        val providerId = res["providerId"] as? String
-        val isNew = res["operationType"] == "signIn" && userMap["isAnonymous"] != true
+        @Suppress("UNCHECKED_CAST")
+        val addInfo = res["additionalUserInfo"] as? Map<String, Any?>
+        val providerId = (addInfo?.get("providerId") as? String) ?: (res["providerId"] as? String)
+        val isNew = (addInfo?.get("isNewUser") as? Boolean)
+            ?: (res["operationType"] == "signIn" && userMap["isAnonymous"] != true)
         return AuthResult(user, AdditionalUserInfo(providerId, isNew))
     }
 
@@ -265,7 +288,7 @@ class FirebaseAuth internal constructor(
             AuthLens.AsUser(
                 uid = user.uid,
                 token = if (claims.isNotEmpty()) claims else null,
-                tenant = tenantId
+                tenant = user.tenantId ?: tenantId
             )
         } else {
             AuthLens.Anon

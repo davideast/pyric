@@ -31,6 +31,8 @@ runs:
           packages/cli/src/conformance/.generated
           packages/cli/src/cli/service-commands.generated.ts
           packages/cli/src/bridge/tool-families.generated.ts
+          packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/descriptions.generated.ts
         key: dist-packages-${{ runner.os }}-${{ steps.key.outputs.packages-key }}
 
     - name: Restore built packages and site
@@ -44,6 +46,8 @@ runs:
           packages/cli/src/conformance/.generated
           packages/cli/src/cli/service-commands.generated.ts
           packages/cli/src/bridge/tool-families.generated.ts
+          packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/descriptions.generated.ts
           dist/site
         key: dist-site-${{ runner.os }}-${{ steps.key.outputs.site-key }}
 
@@ -67,6 +71,8 @@ runs:
           packages/cli/src/conformance/.generated
           packages/cli/src/cli/service-commands.generated.ts
           packages/cli/src/bridge/tool-families.generated.ts
+          packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/descriptions.generated.ts
         key: dist-packages-${{ runner.os }}-${{ steps.key.outputs.packages-key }}
 
     - name: Save built packages and site
@@ -79,5 +85,7 @@ runs:
           packages/cli/src/conformance/.generated
           packages/cli/src/cli/service-commands.generated.ts
           packages/cli/src/bridge/tool-families.generated.ts
+          packages/cli/src/bridge/surface/manifest.generated.ts
+          packages/cli/src/bridge/surface/descriptions.generated.ts
           dist/site
         key: dist-site-${{ runner.os }}-${{ steps.key.outputs.site-key }}
