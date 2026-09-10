@@ -1,7 +1,7 @@
 /** Pin the sandbox clock to an instant, frozen there. */
 import { z } from 'zod';
 import { getClock } from 'pyric/sandbox';
-import { quoted } from '../../closest-name.js';
+import { checkInstant } from '../../arguments/instants.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
@@ -16,18 +16,7 @@ export default {
   }),
   operation: 'set_clock',
   example: { isoTime: '2026-09-09T12:00:00.000Z' },
-  validate(args, { fail }) {
-    const isoTime = args.isoTime;
-    if (typeof isoTime !== 'string') return null;
-    if (Number.isNaN(Date.parse(isoTime))) {
-      return fail(
-        `isoTime is ${quoted(isoTime)}, which does not parse as a date.`,
-        `Pass isoTime as an ISO 8601 string, such as '2026-09-09T12:00:00.000Z'.`,
-        'isoTime',
-      );
-    }
-    return null;
-  },
+  validate: (args, { fail }) => checkInstant('isoTime', args, fail),
   async handler(args, ctx) {
     const epochMs = Date.parse(String(args.isoTime));
     const clock = getClock(ctx.sandbox);

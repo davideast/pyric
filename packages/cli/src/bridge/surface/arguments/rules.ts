@@ -15,17 +15,11 @@ import { z } from 'zod';
 import { RULES_SERVICES, rulesEngineFor } from '../rules-engines/registry.js';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
 import { quoted } from '../closest-name.js';
+import { checkInstant } from './instants.js';
 
 /** Reject a `requestTime` that does not parse as a date. */
 export function checkRequestTime(args: Args, fail: Fail): InvalidArguments | null {
-  const requestTime = args.requestTime;
-  if (requestTime === undefined) return null;
-  if (typeof requestTime === 'string' && !Number.isNaN(Date.parse(requestTime))) return null;
-  return fail(
-    `requestTime is ${quoted(requestTime)}, which does not parse as a date.`,
-    `Pass requestTime as an ISO 8601 string, such as '2026-09-09T12:00:00.000Z'.`,
-    'requestTime',
-  );
+  return checkInstant('requestTime', args, fail);
 }
 
 /** The services that carry Security Rules, from the engine records. */
