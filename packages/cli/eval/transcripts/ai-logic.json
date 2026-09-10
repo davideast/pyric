@@ -1,0 +1,32 @@
+{
+  "script-a-canned-answer-for-archive-status": [
+    {
+      "tool": "ai_logic",
+      "args": {
+        "method": "script",
+        "args": {
+          "match": { "substring": "archive status" },
+          "response": { "type": "text", "payload": "The archive is offline for maintenance." }
+        }
+      }
+    }
+  ],
+  "list-the-queued-ai-logic-scripts": [
+    {
+      "tool": "ai_logic",
+      "args": { "method": "scripts", "args": {} }
+    }
+  ],
+  "clear-the-queued-ai-logic-scripts": [
+    {
+      "tool": "ai_logic",
+      "args": { "method": "clearScripts", "args": {} }
+    }
+  ],
+  "check-the-ai-logic-engine-status": [
+    {
+      "tool": "ai_logic",
+      "args": { "method": "status", "args": {} }
+    }
+  ]
+}
