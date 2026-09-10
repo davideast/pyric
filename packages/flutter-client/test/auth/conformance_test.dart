@@ -389,12 +389,38 @@ void main() {
       expect(auth.currentUser, isNull);
     });
 
-    test('auth-flutter#37: UserPlatform.updateEmail updates email address', () {
-      fail('Red at birth: auth-flutter#37 UserPlatform.updateEmail not implemented yet');
+    test('auth-flutter#37: UserPlatform.updateEmail updates email address', () async {
+      final future = user.updateEmail('newemail@example.com');
+      await Future<void>.delayed(Duration.zero);
+      final op = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.updateEmail',
+      );
+      expect(op['op']['newEmail'], equals('newemail@example.com'));
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': op['id'],
+        'ok': true,
+        'value': {...sampleUserMap, 'email': 'newemail@example.com'},
+      });
+      await future;
+      expect(auth.currentUser?.email, equals('newemail@example.com'));
     });
 
-    test('auth-flutter#38: UserPlatform.updatePassword updates password', () {
-      fail('Red at birth: auth-flutter#38 UserPlatform.updatePassword not implemented yet');
+    test('auth-flutter#38: UserPlatform.updatePassword updates password', () async {
+      final future = user.updatePassword('newSecretPassword123!');
+      await Future<void>.delayed(Duration.zero);
+      final op = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.updatePassword',
+      );
+      expect(op['op']['newPassword'], equals('newSecretPassword123!'));
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': op['id'],
+        'ok': true,
+        'value': sampleUserMap,
+      });
+      await future;
+      expect(auth.currentUser?.uid, equals('user-123'));
     });
   });
 
@@ -424,16 +450,31 @@ void main() {
       expect(user.multiFactor, isA<MultiFactorPlatform>());
     });
 
-    test('auth-flutter#43: FirebaseAuthPlatform.setLanguageCode configures locale', () {
-      fail('Red at birth: auth-flutter#43 FirebaseAuthPlatform.setLanguageCode not implemented yet');
+    test('auth-flutter#43: FirebaseAuthPlatform.setLanguageCode configures locale', () async {
+      await auth.setLanguageCode('es-MX');
+      expect(auth.languageCode, equals('es-MX'));
     });
 
-    test('auth-flutter#44: FirebaseAuthPlatform.useAuthEmulator configures emulator', () {
-      fail('Red at birth: auth-flutter#44 FirebaseAuthPlatform.useAuthEmulator not implemented yet');
+    test('auth-flutter#44: FirebaseAuthPlatform.useAuthEmulator configures emulator', () async {
+      await auth.useAuthEmulator('localhost', 9099);
+      expect(auth.emulatorHost, equals('localhost'));
+      expect(auth.emulatorPort, equals(9099));
     });
 
-    test('auth-flutter#45: FirebaseAuthPlatform.setPersistence configures persistence', () {
-      fail('Red at birth: auth-flutter#45 FirebaseAuthPlatform.setPersistence not implemented yet');
+    test('auth-flutter#45: FirebaseAuthPlatform.setPersistence configures persistence', () async {
+      final future = auth.setPersistence(Persistence.SESSION);
+      await Future<void>.delayed(Duration.zero);
+      final op = harness.sentMessages.lastWhere(
+        (m) => m['type'] == 'worker-op' && m['op']?['method'] == 'auth.setPersistence',
+      );
+      expect(op['op']['mode'], equals('SESSION'));
+      harness.sendToClient({
+        'type': 'worker-res',
+        'id': op['id'],
+        'ok': true,
+        'value': null,
+      });
+      await future;
     });
   });
 

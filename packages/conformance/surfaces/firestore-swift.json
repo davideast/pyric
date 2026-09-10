@@ -9,7 +9,7 @@
   "coverage": true,
   "scopeNote": "integration contract: Pure-Swift client conforming to FirebaseFirestore public API via Pyric WebSocket bridge transport. Covers document reference CRUD, query constraint compilation, real-time snapshot listeners, collection references, FieldValue sentinels, transactions, and write batches.",
   "captureRigs": [],
-  "conformanceSuite": "packages/swift-client/Tests/PyricFirestoreTests/ConformanceTests.swift",
+  "conformanceSuite": "packages/swift-client/Tests/PyricFirestoreTests/ConformanceCoreTests.swift",
   "climb": true,
   "registry": "firestore-swift"
 }

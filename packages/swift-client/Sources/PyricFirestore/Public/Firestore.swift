@@ -212,7 +212,6 @@ public class Firestore: @unchecked Sendable {
         precondition(!hasUsed, "Cannot call useEmulator after Firestore has been used.")
         settings.host = "\(host):\(port)"
         settings.sslEnabled = false
-        reconfigureBridge()
     }
 
     // ── Document and Collection Accessors ────────────────────────────

@@ -3,37 +3,53 @@ import PyricFirestore
 
 extension PyricBridgeClient {
 
-    public func authSignInEmail(email: String, password: String) async throws -> AnySendable {
-        try await op(
+    public func authSignInEmail(email: String, password: String, tenantId: String? = nil) async throws -> AnySendable {
+        var params: [String: AnySendable] = [
+            "email": .string(email),
+            "password": .string(password)
+        ]
+        if let tenantId {
+            params["tenantId"] = .string(tenantId)
+        }
+        return try await op(
             method: "auth.signInEmail",
-            params: [
-                "email": .string(email),
-                "password": .string(password)
-            ]
-        )
-    }
-
-    public func authCreateUser(email: String, password: String) async throws -> AnySendable {
-        try await op(
-            method: "auth.createUser",
-            params: [
-                "email": .string(email),
-                "password": .string(password)
-            ]
-        )
-    }
-
-    public func authSignInAnonymously() async throws -> AnySendable {
-        try await op(
-            method: "auth.signInAnonymously",
-            params: [:]
-        )
-    }
-
-    public func authSignInWithCredential(params: [String: AnySendable]) async throws -> AnySendable {
-        try await op(
-            method: "auth.signInWithCredential",
             params: params
+        )
+    }
+
+    public func authCreateUser(email: String, password: String, tenantId: String? = nil) async throws -> AnySendable {
+        var params: [String: AnySendable] = [
+            "email": .string(email),
+            "password": .string(password)
+        ]
+        if let tenantId {
+            params["tenantId"] = .string(tenantId)
+        }
+        return try await op(
+            method: "auth.createUser",
+            params: params
+        )
+    }
+
+    public func authSignInAnonymously(tenantId: String? = nil) async throws -> AnySendable {
+        var params: [String: AnySendable] = [:]
+        if let tenantId {
+            params["tenantId"] = .string(tenantId)
+        }
+        return try await op(
+            method: "auth.signInAnonymously",
+            params: params
+        )
+    }
+
+    public func authSignInWithCredential(params: [String: AnySendable], tenantId: String? = nil) async throws -> AnySendable {
+        var merged = params
+        if let tenantId {
+            merged["tenantId"] = .string(tenantId)
+        }
+        return try await op(
+            method: "auth.signInWithCredential",
+            params: merged
         )
     }
 
@@ -83,10 +99,14 @@ extension PyricBridgeClient {
         )
     }
 
-    public func authRestorePortSession(uid: String) async throws -> AnySendable {
-        try await op(
+    public func authRestorePortSession(uid: String, tenantId: String? = nil) async throws -> AnySendable {
+        var params: [String: AnySendable] = ["uid": .string(uid)]
+        if let tenantId {
+            params["tenantId"] = .string(tenantId)
+        }
+        return try await op(
             method: "auth.restorePortSession",
-            params: ["uid": .string(uid)]
+            params: params
         )
     }
 }
