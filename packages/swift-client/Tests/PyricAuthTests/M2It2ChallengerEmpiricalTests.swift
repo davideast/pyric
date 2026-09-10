@@ -324,6 +324,54 @@ struct M2It2ChallengerEmpiricalTests {
         #expect(subscribedTargets.contains("authState"))
         #expect(subscribedTargets.contains("idToken"))
     }
+
+    @Test("Verify idToken remote sync updates currentUser and handles sign out")
+    func testStartRemoteSyncIdTokenSnapshotUpdatesUser() async throws {
+        let (channel, _, _, auth) = try await createHarness()
+
+        auth.startRemoteSync()
+
+        var idTokenSubId: String?
+        for _ in 0..<2 {
+            let frame = try await channel.awaitNextSentMessage(timeoutSeconds: 2.0)
+            #expect(frame["type"]?.stringValue == "worker-sub")
+            let sub = frame["sub"]?.dictionaryValue
+            if sub?["target"]?.stringValue == "idToken" {
+                idTokenSubId = frame["subId"]?.stringValue
+            }
+        }
+        guard let tokenSubId = idTokenSubId else {
+            Issue.record("Missing idToken subscription")
+            return
+        }
+
+        // 1. Initial sign in
+        let initialUser = User(auth: auth, uid: "user-alice", email: "alice@example.com", displayName: "Alice Initial")
+        auth.applyUserTransition(initialUser)
+        #expect(auth.currentUser?.displayName == "Alice Initial")
+
+        // 2. Server emits updated user on idToken channel (direct serialized user shape)
+        try channel.simulateServerMessage([
+            "type": "worker-snap",
+            "subId": tokenSubId,
+            "value": [
+                "uid": "user-alice",
+                "displayName": "Alice Updated",
+                "email": "alice@example.com"
+            ]
+        ])
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(auth.currentUser?.displayName == "Alice Updated")
+
+        // 3. Server emits null on idToken channel (sign out)
+        try channel.simulateServerMessage([
+            "type": "worker-snap",
+            "subId": tokenSubId,
+            "value": NSNull()
+        ])
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(auth.currentUser == nil)
+    }
 }
 
 private final class EventRecorder<T: Sendable>: @unchecked Sendable {

@@ -40,11 +40,32 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     private let stateLock = NSLock()
 
     private var _currentUser: User?
+    private var _tenantId: String?
     private var _impersonatedLens: AuthLens?
     private var _lastEmittedLens: AuthLens = .anon
 
     public var currentUser: User? {
         stateLock.lock(); defer { stateLock.unlock() }; return _currentUser
+    }
+
+    public var tenantId: String? {
+        get {
+            stateLock.lock()
+            defer { stateLock.unlock() }
+            return _tenantId
+        }
+        set {
+            stateLock.lock()
+            _tenantId = newValue
+            let currentLens = computeCurrentLensLocked()
+            _lastEmittedLens = currentLens
+            let lensConts = Array(authLensContinuations.values)
+            stateLock.unlock()
+
+            for cont in lensConts {
+                cont.yield(currentLens)
+            }
+        }
     }
 
     public var impersonatedLens: AuthLens? {
@@ -118,7 +139,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
             return lens
         }
         if let user = _currentUser {
-            return .asUser(uid: user.uid, tenant: user.tenant, token: user.claims.isEmpty ? nil : user.claims)
+            return .asUser(uid: user.uid, tenant: user.tenantId, token: user.claims.isEmpty ? nil : user.claims)
         }
         return .anon
     }
@@ -145,21 +166,16 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
     // ── Emulation ────────────────────────────────────────────────────────────
 
     public func useEmulator(withHost host: String, port: Int) {
-        let endpoint = URL(string: "ws://\(host):\(port)/__pyric/sandbox")!
-        stateLock.lock()
-        subTask?.cancel()
-        remoteLensTask?.cancel()
-        self.bridgeClient = PyricBridgeClient(endpoint: endpoint, headers: ["Host": "\(host):\(port)"])
-        stateLock.unlock()
-        startRemoteLensSync()
-        startRemoteSync()
+        // Safe no-op: Pyric is already the active sandbox runtime.
+        _ = host
+        _ = port
     }
 
     // ── Operations ───────────────────────────────────────────────────────────
 
     public func signIn(withEmail email: String, password: String) async throws -> AuthDataResult {
         do {
-            let res = try await bridgeClient.authSignInEmail(email: email, password: password)
+            let res = try await bridgeClient.authSignInEmail(email: email, password: password, tenantId: self.tenantId)
             return try handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
@@ -183,7 +199,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public func createUser(withEmail email: String, password: String) async throws -> AuthDataResult {
         do {
-            let res = try await bridgeClient.authCreateUser(email: email, password: password)
+            let res = try await bridgeClient.authCreateUser(email: email, password: password, tenantId: self.tenantId)
             return try handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
@@ -207,7 +223,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public func signInAnonymously() async throws -> AuthDataResult {
         do {
-            let res = try await bridgeClient.authSignInAnonymously()
+            let res = try await bridgeClient.authSignInAnonymously(tenantId: self.tenantId)
             return try handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
@@ -227,7 +243,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public func signIn(with credential: AuthCredential) async throws -> AuthDataResult {
         do {
-            let res = try await bridgeClient.authSignInWithCredential(params: credential.toWireParams())
+            let res = try await bridgeClient.authSignInWithCredential(params: credential.toWireParams(), tenantId: self.tenantId)
             return try handleAuthDataResult(res)
         } catch {
             throw AuthError.from(error: error)
@@ -260,7 +276,7 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
 
     public func restoreSession(uid: String) async throws -> User? {
         do {
-            let res = try await bridgeClient.authRestorePortSession(uid: uid)
+            let res = try await bridgeClient.authRestorePortSession(uid: uid, tenantId: self.tenantId)
             if res.isNull {
                 applyUserTransition(nil)
                 return nil
@@ -283,8 +299,9 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
         guard let user = User.fromWire(auth: self, wire: userWire) else {
             throw AuthError(code: .internalError, message: "Failed to deserialize authenticated user")
         }
-        let providerId = dict["providerId"]?.stringValue
-        let isNewUser = dict["operationType"]?.stringValue == "signIn"
+        let addInfoDict = dict["additionalUserInfo"]?.dictionaryValue
+        let providerId = addInfoDict?["providerId"]?.stringValue ?? dict["providerId"]?.stringValue
+        let isNewUser = addInfoDict?["isNewUser"]?.boolValue ?? (dict["operationType"]?.stringValue == "signIn")
         let additional = AdditionalUserInfo(providerID: providerId, isNewUser: isNewUser)
         let result = AuthDataResult(user: user, additionalUserInfo: additional)
         applyUserTransition(user)
@@ -464,9 +481,10 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
                     do {
                         for try await event in authSubStream {
                             guard !Task.isCancelled else { break }
+                            let userWire = event["user"] ?? event
                             if event.isNull {
                                 self.applyUserTransition(nil)
-                            } else if let user = User.fromWire(auth: self, wire: event) {
+                            } else if let user = User.fromWire(auth: self, wire: userWire) {
                                 self.applyUserTransition(user)
                             }
                         }
@@ -480,10 +498,11 @@ public final class Auth: @unchecked Sendable, AuthCredentialProvider {
                     do {
                         for try await event in idTokenSubStream {
                             guard !Task.isCancelled else { break }
-                            if !event.isNull, let userDict = event["user"] {
-                                if let user = User.fromWire(auth: self, wire: userDict) {
-                                    self.applyUserTransition(user)
-                                }
+                            let userWire = event["user"] ?? event
+                            if event.isNull {
+                                self.applyUserTransition(nil)
+                            } else if let user = User.fromWire(auth: self, wire: userWire) {
+                                self.applyUserTransition(user)
                             } else {
                                 self.notifyIdTokenChanged()
                             }

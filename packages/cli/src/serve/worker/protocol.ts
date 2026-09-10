@@ -140,14 +140,14 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.setTenantId'; tenantId: string | null }
   | { t: 'op'; id: string; method: 'auth.reload' }
   | { t: 'op'; id: string; method: 'auth.deleteUser' }
-  | { t: 'op'; id: string; method: 'auth.updateEmail'; email: string }
-  | { t: 'op'; id: string; method: 'auth.updatePassword'; password: string }
-  | { t: 'op'; id: string; method: 'auth.updateCurrentUser'; uid: string | null }
+  | { t: 'op'; id: string; method: 'auth.updateEmail'; email?: string; newEmail?: string; uid?: string }
+  | { t: 'op'; id: string; method: 'auth.updatePassword'; password?: string; newPassword?: string; uid?: string }
+  | { t: 'op'; id: string; method: 'auth.updateCurrentUser'; uid: string | null; tenantId?: string | null }
   | {
       t: 'op';
       id: string;
       method: 'auth.signInWithCredential';
-      credential: {
+      credential?: {
         providerId: string;
         idToken?: string | null;
         accessToken?: string | null;
@@ -157,6 +157,15 @@ export type OpMessage = (
         photoURL?: string | null;
         uid?: string | null;
       };
+      providerId?: string;
+      idToken?: string | null;
+      accessToken?: string | null;
+      rawNonce?: string | null;
+      email?: string | null;
+      displayName?: string | null;
+      photoURL?: string | null;
+      uid?: string | null;
+      tenantId?: string | null;
     }
   | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity; tenantId?: string | null }

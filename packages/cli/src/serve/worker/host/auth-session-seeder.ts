@@ -51,11 +51,20 @@ export function seedPhotoUrl(
 }
 
 /** Serialized UserCredential reply shape for a minted session. */
-export function credReply(session: MintedSession, providerId: string | null) {
+export function credReply(
+  session: MintedSession,
+  providerId: string | null,
+  isNewUser: boolean = false,
+) {
   return {
     user: serializeUser(session.user),
     providerId,
     operationType: 'signIn' as const,
+    additionalUserInfo: {
+      isNewUser,
+      profile: {},
+      providerId,
+    },
   };
 }
 
@@ -90,7 +99,7 @@ export function remintSessionWithClaims(auth: Auth, session: MintedSession): Min
   return authSandboxOps.mintSession(auth, {
     kind: 'uid',
     uid: session.user.uid,
-    ...(session.user.tenantId ? { tenant: session.user.tenantId } : {}),
+    ...(session.user.tenantId ? { tenantId: session.user.tenantId } : {}),
   });
 }
 
@@ -124,7 +133,7 @@ export function applyProfileToUser(
 export function resolveOAuthCredentialUser(
   auth: Auth,
   credential: OAuthCredentialPayload,
-): string {
+): { uid: string; isNewUser: boolean } {
   authSandboxOps.assertAuthProviderEnabled(auth, credential.providerId);
   const existingUsers = authSandboxOps.listUsers(auth);
   let targetUid = credential.uid ?? null;
@@ -171,5 +180,5 @@ export function resolveOAuthCredentialUser(
       providerUserInfo: [{ providerId: credential.providerId }],
     });
   }
-  return targetUid;
+  return { uid: targetUid, isNewUser: !existing };
 }

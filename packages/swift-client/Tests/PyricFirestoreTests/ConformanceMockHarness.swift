@@ -1,5 +1,12 @@
 import Foundation
+import Testing
 @testable import PyricFirestore
+
+func expectUnverified(_ message: String) {
+    if ProcessInfo.processInfo.environment["PYRIC_CLIMB"] == "1" {
+        #expect(Bool(false), Comment(rawValue: message))
+    }
+}
 
 /// In-memory mock WebSocket transport simulating the Pyric bridge for fast, hermetic conformance testing.
 public final class ConformanceMockHarness: WebSocketTransport, @unchecked Sendable {

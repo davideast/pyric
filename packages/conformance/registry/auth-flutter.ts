@@ -140,9 +140,9 @@ export const authFlutterRows: CompatibilityRow[] = [
     api: 'UserPlatform.reload()', behavior: 'Fetches latest user profile from bridge and updates active currentUser.', featureKeys: ['reload'] }),
   row({ ref: 36, flipped: 'unit-backed', section: '`UserPlatform` — profile & account mutations',
     api: 'UserPlatform.delete()', behavior: 'Deletes authenticated user account via bridge RPC and clears currentUser.', featureKeys: ['deleteUser'] }),
-  row({ ref: 37, section: '`UserPlatform` — profile & account mutations',
+  row({ ref: 37, flipped: 'unit-backed', section: '`UserPlatform` — profile & account mutations',
     api: 'UserPlatform.updateEmail(newEmail)', behavior: 'Updates user account email address via bridge RPC.', featureKeys: ['updateEmail'] }),
-  row({ ref: 38, section: '`UserPlatform` — profile & account mutations',
+  row({ ref: 38, flipped: 'unit-backed', section: '`UserPlatform` — profile & account mutations',
     api: 'UserPlatform.updatePassword(newPassword)', behavior: 'Updates user account password via bridge RPC.', featureKeys: ['updatePassword'] }),
 
   // ── 8. UserCredentialPlatform & Supporting Models ─────────────────────────
@@ -156,11 +156,11 @@ export const authFlutterRows: CompatibilityRow[] = [
   // ── 9. Advanced Auth & Platform Extensions ────────────────────────────────
   row({ ref: 42, flipped: 'unit-backed', section: 'Advanced auth & platform extensions',
     api: 'MultiFactorPlatform interface contract', behavior: 'Exposes stub MultiFactorPlatform for enrolled multi-factor inspection.', featureKeys: ['multiFactor'] }),
-  row({ ref: 43, section: 'Advanced auth & platform extensions',
+  row({ ref: 43, flipped: 'unit-backed', section: 'Advanced auth & platform extensions',
     api: 'FirebaseAuthPlatform.setLanguageCode(languageCode)', behavior: 'Configures locale language code for out-of-band auth communications.', featureKeys: ['setLanguageCode'] }),
-  row({ ref: 44, section: 'Advanced auth & platform extensions',
+  row({ ref: 44, flipped: 'unit-backed', section: 'Advanced auth & platform extensions',
     api: 'FirebaseAuthPlatform.useAuthEmulator(host, port)', behavior: 'Directs client auth operations to designated host and port emulator endpoint.', featureKeys: ['useAuthEmulator'] }),
-  row({ ref: 45, section: 'Advanced auth & platform extensions',
+  row({ ref: 45, flipped: 'unit-backed', section: 'Advanced auth & platform extensions',
     api: 'FirebaseAuthPlatform.setPersistence(persistence)', behavior: 'Configures session persistence mode across local storage or in-memory sessions.', featureKeys: ['setPersistence'] }),
 
   // ── 10. Error Handling & Wire Codecs ──────────────────────────────────────
