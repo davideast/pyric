@@ -138,13 +138,20 @@ function evalFirestoreBuiltin(
   }
   const docPath = buildFirestoreDocPath(arg, ctx);
   if (!ctx.firestoreAccesses.has(docPath)) {
-    if (ctx.firestoreAccesses.size >= 2) {
+    const maxLookups = ctx.maxFirestoreLookups ?? 3;
+    if (ctx.firestoreAccesses.size >= maxLookups) {
       // Resource-limit class, the same posture as the Firestore lookup
       // budget: production fails the whole evaluation closed, so a
       // determining &&/|| operand must NOT absorb this into an allow.
-      throw new RuleResourceLimitError('firestore access limit exceeded: at most two distinct documents');
+      const word = maxLookups === 2 ? 'two' : maxLookups === 3 ? 'three' : String(maxLookups);
+      throw new RuleResourceLimitError(`firestore access limit exceeded: at most ${word} distinct documents`);
     }
     ctx.firestoreAccesses.add(docPath);
+    if (ctx.firestoreAccesses.size === 3 && maxLookups >= 3) {
+      console.warn(
+        `[storage-rules] Warning: Rule evaluation for "${ctx.input.request.path}" accessed 3 distinct Firestore documents. Cloud Storage production enforces a maximum of 2 distinct document lookups and will reject this request at runtime.`,
+      );
+    }
   }
   if (expr.method === 'exists') {
     return ctx.firestoreLookup.exists(docPath);

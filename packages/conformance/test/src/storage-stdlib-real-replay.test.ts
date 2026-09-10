@@ -85,6 +85,7 @@ function verdicts(
       },
       new Date('2026-07-21T00:00:00Z'),
       lookup,
+      { maxFirestoreLookups: 2 },
     );
     return [family, result.allowed ? 'ALLOW' : 'DENY'];
   }));

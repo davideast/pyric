@@ -13,4 +13,5 @@ export type {
   EvaluationInput,
   EvaluationResult,
   FirestoreLookup,
+  StorageEvaluationOptions,
 } from './sandbox/rules.js';

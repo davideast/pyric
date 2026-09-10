@@ -67,15 +67,7 @@ interface RulesObservation {
 const KNOWN_DIVERGENCES: Record<
   string,
   { prodVerdict: 'ALLOW' | 'DENY'; evalVerdict: 'ALLOW' | 'DENY'; reason: string; issue: string }
-> = {
-  'rules-storage-firestore-lookup-budget :: budget: three distinct documents deny': {
-    prodVerdict: 'ALLOW',
-    evalVerdict: 'DENY',
-    reason:
-      'projects.test function mocks do not enforce the real-resource two-document Storage lookup budget; the evaluator follows the separately captured real-resource contract.',
-    issue: 'storage-rules#131',
-  },
-};
+> = {};
 
 function loadObservation(file: string): RulesObservation {
   const raw = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as {

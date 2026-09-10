@@ -204,6 +204,15 @@ export interface EvaluationResult {
   reasons: string[];
 }
 
+export interface StorageEvaluationOptions {
+  /**
+   * Maximum distinct Firestore document lookups allowed per evaluation.
+   * Defaults to 3 (matching Firebase Mock Rules Test API / local emulator).
+   * Set to 2 for strict production Cloud Storage behavior.
+   */
+  maxFirestoreLookups?: number;
+}
+
 /**
  * Injected capability that lets a Storage rule read Firestore documents
  * (`firestore.get(path)` / `firestore.exists(path)`), WITHOUT the pure

@@ -9,6 +9,7 @@ import {
   type MatchBlock,
   type StorageResource,
   type StorageRules,
+  type StorageEvaluationOptions,
 } from './rules.js';
 import { evalMethodCall } from './rules-methods.js';
 import { formatPath, matchSegments, splitPath } from './rules-path-match.js';
@@ -33,7 +34,9 @@ export function evaluateStorageRules(
   input: EvaluationInput,
   now: Date = new Date(),
   firestoreLookup?: FirestoreLookup,
+  options?: StorageEvaluationOptions,
 ): EvaluationResult {
+  const maxFirestoreLookups = options?.maxFirestoreLookups ?? 3;
   // `request.time` is the request's evaluation moment, modeled internally
   // as epoch milliseconds so it compares numerically against the
   // `timestamp.date(...)` / `timestamp.value(...)` constructors. The caller
@@ -88,6 +91,7 @@ export function evaluateStorageRules(
               depth: 0,
               firestoreLookup,
               firestoreAccesses,
+              maxFirestoreLookups,
             });
           }
           if (typeof value === 'boolean') {
@@ -195,6 +199,8 @@ export interface EvalCtx {
   firestoreLookup?: FirestoreLookup;
   /** Distinct Firestore document paths charged during this evaluation. */
   firestoreAccesses: Set<string>;
+  /** Maximum distinct Firestore document lookups allowed (defaults to 3). */
+  maxFirestoreLookups?: number;
 }
 
 /**
@@ -502,6 +508,7 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
     depth,
     firestoreLookup: ctx.firestoreLookup,
     firestoreAccesses: ctx.firestoreAccesses,
+    maxFirestoreLookups: ctx.maxFirestoreLookups,
   };
   // `let` bindings evaluated in order; each is visible to the next and
   // to the return expression (they share the `locals` object).

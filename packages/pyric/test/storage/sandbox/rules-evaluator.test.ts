@@ -513,6 +513,7 @@ describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
     opts: {
       docs?: Record<string, Record<string, unknown>>;
       auth?: { uid: string; token?: Record<string, unknown> } | null;
+      options?: { maxFirestoreLookups?: number };
     } = {},
   ): { allowed: boolean; reasons: string[] } {
     const rules = parseStorageRules(`service firebase.storage {
@@ -539,6 +540,7 @@ describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
       },
       undefined,
       lookup,
+      opts.options,
     );
   }
 
@@ -600,13 +602,26 @@ describe('evaluateStorageRules: CEL error absorption in && and ||', () => {
 
   // (g) Unabsorbable classes still fail closed even when the other operand
   // would determine the result.
-  it('(g) resource-limit (3rd distinct Firestore path) is NOT absorbed by && false', () => {
+  it('(g) resource-limit (4th distinct Firestore path) is NOT absorbed by && false', () => {
+    const docs = { 'g/p0': { ok: true }, 'g/p1': { ok: true }, 'g/p2': { ok: true }, 'g/p3': { ok: true } };
+    const r = evalCond(
+      'firestore.exists(/databases/(default)/documents/g/p0)'
+      + ' && firestore.exists(/databases/(default)/documents/g/p1)'
+      + ' && firestore.exists(/databases/(default)/documents/g/p2)'
+      + ' && !(firestore.exists(/databases/(default)/documents/g/p3) && false)',
+      { docs },
+    );
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toMatch(/limit/i);
+  });
+
+  it('(g1) resource-limit with maxFirestoreLookups: 2 is NOT absorbed by && false on 3rd path', () => {
     const docs = { 'g/p0': { ok: true }, 'g/p1': { ok: true }, 'g/p2': { ok: true } };
     const r = evalCond(
       'firestore.exists(/databases/(default)/documents/g/p0)'
       + ' && firestore.exists(/databases/(default)/documents/g/p1)'
       + ' && !(firestore.exists(/databases/(default)/documents/g/p2) && false)',
-      { docs },
+      { docs, options: { maxFirestoreLookups: 2 } },
     );
     expect(r.allowed).toBe(false);
     expect(r.reasons.join(' ')).toMatch(/limit/i);
