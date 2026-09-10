@@ -45,6 +45,9 @@ public final class User: @unchecked Sendable, UserInfo {
     public var tenant: String? {
         lock.lock(); defer { lock.unlock() }; return _tenant
     }
+    public var tenantId: String? {
+        lock.lock(); defer { lock.unlock() }; return _tenant
+    }
     public var claims: [String: AnySendable] {
         lock.lock(); defer { lock.unlock() }; return _claims
     }
@@ -189,8 +192,8 @@ public final class User: @unchecked Sendable, UserInfo {
         if let displayName = wire["displayName"] {
             self._displayName = displayName.stringValue
         }
-        if let photoURL = wire["photoURL"]?.stringValue {
-            self._photoURL = URL(string: photoURL)
+        if let photoURLVal = wire["photoURL"] {
+            self._photoURL = photoURLVal.stringValue.flatMap { URL(string: $0) }
         }
         if let phoneNumber = wire["phoneNumber"] {
             self._phoneNumber = phoneNumber.stringValue
@@ -209,7 +212,7 @@ public final class User: @unchecked Sendable, UserInfo {
                 item.dictionaryValue.map { UserInfoImpl.fromWire($0) }
             }
         }
-        if let tenant = wire["tenant"]?.stringValue {
+        if let tenant = wire["tenantId"]?.stringValue ?? wire["tenant"]?.stringValue {
             self._tenant = tenant
         }
         if let claims = wire["customClaims"]?.dictionaryValue ?? wire["claims"]?.dictionaryValue {
@@ -235,7 +238,7 @@ public final class User: @unchecked Sendable, UserInfo {
         let isAnonymous = dict["isAnonymous"]?.boolValue ?? false
         let emailVerified = dict["emailVerified"]?.boolValue ?? false
         let providerID = dict["providerId"]?.stringValue ?? "firebase"
-        let tenant = dict["tenant"]?.stringValue
+        let tenant = dict["tenantId"]?.stringValue ?? dict["tenant"]?.stringValue
         let claims = dict["customClaims"]?.dictionaryValue ?? dict["claims"]?.dictionaryValue ?? [:]
         let providerData = (dict["providerData"]?.arrayValue ?? []).compactMap { item in
             item.dictionaryValue.map { UserInfoImpl.fromWire($0) }

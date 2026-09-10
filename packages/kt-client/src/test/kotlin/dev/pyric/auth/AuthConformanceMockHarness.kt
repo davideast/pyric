@@ -110,13 +110,16 @@ class AuthConformanceMockHarness {
                     val sub = msg["sub"] as Map<String, Any?>
                     sentSubs.add(sub)
                     val target = sub["target"]
-                    if (target is Map<*, *>) {
-                        val innerTarget = target["target"] as? String
-                        if (innerTarget != "authState" && innerTarget != "idToken") {
-                            transport.sendToClient(
-                                """{"type":"worker-snap","subId":"$subId","value":{"id":"doc1","path":"users/alice","exists":true,"data":{"json":"{\"status\":\"active\"}"}}}"""
-                            )
-                        }
+                    val targetName = (target as? String)
+                        ?: (target as? Map<*, *>)?.get("target") as? String
+                    if (targetName == "authState" || targetName == "idToken") {
+                        transport.sendToClient(
+                            """{"type":"worker-snap","subId":"$subId","value":null}"""
+                        )
+                    } else if (target is Map<*, *>) {
+                        transport.sendToClient(
+                            """{"type":"worker-snap","subId":"$subId","value":{"id":"doc1","path":"users/alice","exists":true,"data":{"json":"{\"status\":\"active\"}"}}}"""
+                        )
                     }
                 }
                 "worker-unsub" -> {

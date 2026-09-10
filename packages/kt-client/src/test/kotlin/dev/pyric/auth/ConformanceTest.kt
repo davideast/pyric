@@ -104,6 +104,7 @@ class ConformanceTest {
         val op = harness.sentOps.find { it["method"] == "auth.signInEmail" }
         assertNotNull(op)
         assertEquals("alice@example.com", op?.get("email"))
+        assertFalse(result.additionalUserInfo?.isNewUser == true)
     }
 
     @Test

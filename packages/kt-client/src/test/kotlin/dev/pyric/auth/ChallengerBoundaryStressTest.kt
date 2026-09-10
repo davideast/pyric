@@ -164,7 +164,7 @@ class ChallengerBoundaryStressTest {
         val keepRunning = AtomicBoolean(true)
 
         // Launch background auth churn
-        val authJob = launch(Dispatchers.IO) {
+        val authJob = launch(Dispatchers.Default) {
             var cycle = 0
             while (keepRunning.get()) {
                 cycle++
@@ -177,21 +177,25 @@ class ChallengerBoundaryStressTest {
             }
         }
 
-        // Launch 60 concurrent document operations
-        val opsJobs = (0 until 60).map { i ->
-            launch(Dispatchers.IO) {
-                val doc = firestore.document("concurrent_test/doc_$i")
-                when (i % 3) {
-                    0 -> Tasks.await(doc.get(), 5, TimeUnit.SECONDS)
-                    1 -> Tasks.await(doc.set(mapOf("test" to i)), 5, TimeUnit.SECONDS)
-                    2 -> Tasks.await(doc.delete(), 5, TimeUnit.SECONDS)
+        try {
+            // Launch 60 concurrent document operations across waves to avoid starving the coroutine thread pool with blocking Tasks.await calls
+            for (batch in (0 until 60).chunked(12)) {
+                val opsJobs = batch.map { i ->
+                    launch(Dispatchers.Default) {
+                        val doc = firestore.document("concurrent_test/doc_$i")
+                        when (i % 3) {
+                            0 -> Tasks.await(doc.get(), 5, TimeUnit.SECONDS)
+                            1 -> Tasks.await(doc.set(mapOf("test" to i)), 5, TimeUnit.SECONDS)
+                            2 -> Tasks.await(doc.delete(), 5, TimeUnit.SECONDS)
+                        }
+                    }
                 }
+                opsJobs.forEach { it.join() }
             }
+        } finally {
+            keepRunning.set(false)
+            authJob.join()
         }
-
-        opsJobs.forEach { it.join() }
-        keepRunning.set(false)
-        authJob.join()
 
         // Verify captured document operations
         val docOps = sentOps.filter { op ->
