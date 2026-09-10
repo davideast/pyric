@@ -57,6 +57,20 @@ describe('required CI result', () => {
     })).toEqual([]);
   });
 
+  test('does not couple mergeability to advisory or label-gated optional jobs', () => {
+    expect(requiredFailures({
+      checkSet: 'full',
+      requirePackaging: false,
+      results: {
+        ...success,
+        'knip-audit': 'failure',
+        packaging: 'skipped',
+        'install-matrix': 'skipped',
+        standalone: 'skipped',
+      },
+    })).toEqual([]);
+  });
+
   test('does not require a build for authored-documentation-only changes', () => {
     expect(requiredFailures({
       checkSet: 'docs-only',
