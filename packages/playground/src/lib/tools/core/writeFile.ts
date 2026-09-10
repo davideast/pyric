@@ -15,7 +15,7 @@ import { resolveModulesBrowser } from 'pyric/rules/internal';
 import { notifyVfsWrite } from '~/lib/files/bootstrap';
 import { RULES_PATH, WORKSPACE_ROOT, useFilesStore } from '~/lib/store/files';
 import { diffLines, type DiffStats } from '~/lib/utils/diff';
-import { getVFS } from '~/lib/vfs';
+import { getVFS, withWriteMutex } from '~/lib/vfs';
 import { runWorkspaceTests, type CaseFailure } from '~/lib/workspace-tests/runner';
 import { TESTS_DIR } from './runWorkspaceTests';
 import {
@@ -223,7 +223,9 @@ export async function commitWorkspaceFile(
     await adapter.promises.mkdir(parent, { recursive: true });
   }
   const prior = await readPriorContent(path);
-  await adapter.promises.writeFile(path, content);
+  await withWriteMutex(async () => {
+    await adapter.promises.writeFile(path, content);
+  });
 
   // `2+modules` rulesets carry stdlib imports the in-browser evaluator (and
   // the deploy/oracle) can't run until they're inlined. Resolve them here so

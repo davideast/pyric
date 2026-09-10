@@ -102,6 +102,18 @@ export function isVFSReadOnly(): boolean {
   return vfsReadOnly;
 }
 
+/**
+ * Single-tab write mutex ensuring sequential VFS writes and coordinating concurrent writes.
+ */
+let writeMutex = Promise.resolve();
+
+export function withWriteMutex<T>(fn: () => Promise<T> | T): Promise<T> {
+  const run = async () => fn();
+  const next = writeMutex.then(run, run);
+  writeMutex = next.then(() => {}, () => {});
+  return next;
+}
+
 function getRawOPFSAdapter(): OPFSAdapter {
   if (!rawAdapter) rawAdapter = createOPFSAdapter();
   return rawAdapter;
@@ -174,6 +186,7 @@ export function resetVFS(): void {
   rawAdapter = null;
   activeSessionId = null;
   vfsReadOnly = false;
+  writeMutex = Promise.resolve();
 }
 
 export type { OPFSAdapter, OPFSPromisesAPI };

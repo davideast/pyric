@@ -51,6 +51,7 @@ export interface CmEditorProps {
   /** Marker source for the gutter — only the Rules editor uses it today. */
   lintMessages?: CmLintMessage[];
   placeholder?: string;
+  readOnly?: boolean;
 }
 
 function languageExtension(lang: CmLanguage) {
@@ -183,16 +184,27 @@ function buildLinter(getMessages: () => CmLintMessage[]) {
   });
 }
 
-export function CmEditor({ autoFocus, value, onChange, language, lintMessages, placeholder }: CmEditorProps) {
+export function CmEditor({
+  autoFocus,
+  value,
+  onChange,
+  language,
+  lintMessages,
+  placeholder,
+  readOnly = false,
+}: CmEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   // Compartment holding the latest lint source so updates can swap it
   // without tearing down the editor state.
   const lintComp = useRef(new Compartment());
+  // Compartment holding the read-only / editable state.
+  const readOnlyComp = useRef(new Compartment());
   // Capture latest props in refs so the linter source (closed-over at
   // mount time) always reads the current value.
   const messagesRef = useRef<CmLintMessage[] | undefined>(lintMessages);
   const onChangeRef = useRef(onChange);
+  const readOnlyRef = useRef(readOnly);
 
   useEffect(() => {
     messagesRef.current = lintMessages;
@@ -206,6 +218,19 @@ export function CmEditor({ autoFocus, value, onChange, language, lintMessages, p
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  useEffect(() => {
+    readOnlyRef.current = readOnly;
+    const v = viewRef.current;
+    if (v) {
+      v.dispatch({
+        effects: readOnlyComp.current.reconfigure([
+          EditorView.editable.of(!readOnly),
+          EditorState.readOnly.of(Boolean(readOnly)),
+        ]),
+      });
+    }
+  }, [readOnly]);
 
   // Mount the editor once. Subsequent value changes are pushed via a
   // separate effect; rebuilding the state on every render would
@@ -234,10 +259,14 @@ export function CmEditor({ autoFocus, value, onChange, language, lintMessages, p
         ]),
         languageExtension(language),
         lintComp.current.of(buildLinter(() => messagesRef.current ?? [])),
+        readOnlyComp.current.of([
+          EditorView.editable.of(!readOnly),
+          EditorState.readOnly.of(Boolean(readOnly)),
+        ]),
         playgroundTheme,
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
+          if (update.docChanged && !readOnlyRef.current) {
             onChangeRef.current(update.state.doc.toString());
           }
         }),

@@ -9,6 +9,9 @@
  *   - {@link commitCheckpoint}    stage-all + `checkpoint: <label>` commit
  *   - {@link listCheckpoints}     recent checkpoint commits, newest first
  *   - {@link revertToCheckpoint}  hard-restore tracked files to a commit
+ *   - {@link turnStartCheckpoint} capture pre-turn workspace state
+ *   - {@link rollback}            restore pre-turn checkpoint and clean up untracked files
+ *   - {@link beginTransaction}     turn transaction boundary with rollback
  *
  * Checkpoints are the agent's safety rail: the host auto-commits after
  * every green `run_workspace_tests` run, so workspace history becomes a
@@ -145,3 +148,70 @@ export async function revertToCheckpoint(sha: string): Promise<RevertResult> {
   const commit = await commitCheckpoint(`revert to ${oid.slice(0, 7)}`);
   return { restored: oid, commit };
 }
+
+/**
+ * Record a turn-start checkpoint before agent tool mutations begin.
+ * If the working tree has changes, commits them under `turn start: <label>`.
+ * If the working tree is clean, returns the current HEAD commit sha (or null if empty repo).
+ */
+export async function turnStartCheckpoint(label = 'turn start'): Promise<string | null> {
+  await ensureRepo();
+  try {
+    const committed = await commitCheckpoint(label);
+    if (committed) return committed;
+    const { fs } = services();
+    return await git.resolveRef({ fs, dir: DIR, ref: 'HEAD' });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hard-restore the workspace to a turn-start checkpoint and clean up
+ * any untracked files created during the aborted turn.
+ */
+export async function rollback(sha: string): Promise<RevertResult> {
+  await ensureRepo();
+  const { fs } = services();
+  try {
+    const matrix = await git.statusMatrix({ fs, dir: DIR });
+    for (const [filepath, head, workdir, stage] of matrix) {
+      if (head === 0 && workdir === 2 && stage === 0) {
+        try {
+          await fs.promises.unlink(`${DIR}/${filepath}`);
+        } catch {}
+      }
+    }
+  } catch {
+    // best-effort cleanup of untracked files
+  }
+  return revertToCheckpoint(sha);
+}
+
+export interface TurnTransaction {
+  turnStartSha: string | null;
+  rollback: () => Promise<RevertResult | null>;
+}
+
+/**
+ * Begin a turn-scoped transaction. Captures pre-turn workspace state via a
+ * turn-start checkpoint and returns a handle to rollback to that state on abort/failure.
+ */
+export async function beginTransaction(label = 'turn start'): Promise<TurnTransaction> {
+  const turnStartSha = await turnStartCheckpoint(label);
+  let rolledBack = false;
+  return {
+    turnStartSha,
+    async rollback() {
+      if (rolledBack || !turnStartSha) return null;
+      rolledBack = true;
+      try {
+        return await rollback(turnStartSha);
+      } catch (e) {
+        console.warn('[checkpoints] transaction rollback failed:', e);
+        return null;
+      }
+    },
+  };
+}
+

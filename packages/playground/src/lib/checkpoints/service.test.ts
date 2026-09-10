@@ -16,10 +16,13 @@ import { runWorkspaceTestsHandler, TESTS_DIR } from '~/lib/tools/core/runWorkspa
 import type { RunWorkspaceTestsData } from '~/lib/tools/core/runWorkspaceTests';
 import { getVFS, resetVFS } from '~/lib/vfs';
 import {
+  beginTransaction,
   commitCheckpoint,
   ensureRepo,
   listCheckpoints,
   revertToCheckpoint,
+  rollback,
+  turnStartCheckpoint,
 } from './service';
 import { workspaceCheckpointsHandler } from './tool';
 
@@ -331,3 +334,64 @@ describe('workspace_checkpoints tool', () => {
     expect(r.summary).toContain('No commit found');
   });
 });
+
+describe('turn transaction and rollback', () => {
+  test('turnStartCheckpoint commits dirty workspace state', async () => {
+    await writeText(`${DIR}/a.txt`, 'original');
+    const sha = await turnStartCheckpoint('turn 1');
+    expect(sha).toMatch(/^[0-9a-f]{40}$/);
+    const list = await listCheckpoints();
+    expect(list[0]?.label).toBe('turn 1');
+  });
+
+  test('turnStartCheckpoint returns HEAD sha when clean', async () => {
+    await writeText(`${DIR}/a.txt`, 'original');
+    const c1 = await commitCheckpoint('initial');
+    const sha = await turnStartCheckpoint('turn 1');
+    expect(sha).toBe(c1);
+  });
+
+  test('turnStartCheckpoint returns null on empty repo without throwing', async () => {
+    const sha = await turnStartCheckpoint('empty');
+    expect(sha).toBeNull();
+  });
+
+  test('rollback restores modified/deleted files and cleans up untracked files', async () => {
+    await writeText(`${DIR}/a.txt`, 'v1');
+    await writeText(`${DIR}/b.txt`, 'keep-me');
+    const startSha = await turnStartCheckpoint('turn start');
+    expect(startSha).toBeTruthy();
+
+    // Mutate existing, delete existing, add untracked new file
+    await writeText(`${DIR}/a.txt`, 'v2-dirty');
+    await getVFS().promises.unlink(`${DIR}/b.txt`);
+    await writeText(`${DIR}/new-partial.txt`, 'partial work');
+
+    const result = await rollback(startSha!);
+    expect(result.restored).toBe(startSha!);
+
+    expect(new TextDecoder().decode(await readBytes(`${DIR}/a.txt`))).toBe('v1');
+    expect(new TextDecoder().decode(await readBytes(`${DIR}/b.txt`))).toBe('keep-me');
+    expect(await exists(`${DIR}/new-partial.txt`)).toBe(false);
+  });
+
+  test('beginTransaction provides scoped rollback handle that is idempotent', async () => {
+    await writeText(`${DIR}/a.txt`, 'base');
+    const txn = await beginTransaction('agent turn');
+    expect(txn.turnStartSha).toBeTruthy();
+
+    await writeText(`${DIR}/a.txt`, 'partial edit');
+    await writeText(`${DIR}/created.txt`, 'should be removed');
+
+    const rollResult = await txn.rollback();
+    expect(rollResult?.restored).toBe(txn.turnStartSha!);
+
+    expect(new TextDecoder().decode(await readBytes(`${DIR}/a.txt`))).toBe('base');
+    expect(await exists(`${DIR}/created.txt`)).toBe(false);
+
+    // Second call is idempotent no-op
+    const rollResult2 = await txn.rollback();
+    expect(rollResult2).toBeNull();
+  });
+});
+
