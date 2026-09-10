@@ -18,6 +18,7 @@ import type { SentinelHit } from './sentinel-capture.js';
 import { buildRulesTestCase } from './rules-test-case.js';
 import { simulateRules } from './rules-simulator.js';
 import { registerDefaultConverters } from './value-resolver.js';
+import { SandboxClock } from '../../sandbox/clock.js';
 
 registerDefaultConverters();
 
@@ -35,6 +36,9 @@ export class WriteRuntime {
     readonly eventLog: EventLog,
     private readonly events: FirestoreEventBus,
     private readonly triggerScope: TriggerScope,
+    /** The sandbox's clock, read for every server-set time this produces.
+     *  Defaults to a private wall clock for a standalone construction. */
+    readonly clock: SandboxClock = new SandboxClock(),
   ) {}
 
   get state(): DocStore {
@@ -69,7 +73,7 @@ export class WriteRuntime {
     this.events.write.emit({
       kind: 'write',
       id: nextRequestEventId().replace(/^req-/, 'wr-'),
-      at: Date.now(),
+      at: this.clock.now(),
       method: input.method,
       path: input.path,
       auth: input.auth

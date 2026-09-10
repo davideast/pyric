@@ -74,7 +74,7 @@ export class AtomicWritePipeline {
     inputs: AtomicWriteInput[],
     context: AtomicWriteContext,
   ): AtomicPreparation | AtomicResolutionFailure {
-    const serverTime = Timestamp.fromMillis(Date.now());
+    const serverTime = Timestamp.fromMillis(this.runtime.clock.now());
     const resolvedOps: BatchOperation[] = [];
     for (let index = 0; index < inputs.length; index++) {
       const input = inputs[index]!;
@@ -93,7 +93,7 @@ export class AtomicWritePipeline {
         const wrapped = makeError('invalid-argument', message);
         const prior = context.snapshot[input.path] ?? null;
         const request: EmitRequestInput = {
-          at: Date.now(),
+          at: this.runtime.clock.now(),
           evalMs: 0,
           method: input.ruleMethod,
           path: input.path,
@@ -134,7 +134,7 @@ export class AtomicWritePipeline {
       const operation = resolvedOps[index]!;
       const input = inputs[index]!;
       const prior = context.snapshot[input.path] ?? null;
-      const evalAt = Date.now();
+      const evalAt = this.runtime.clock.now();
       const evalStart = performance.now();
       const simulation = this.runtime.runSimulate(
         [testCases[index]!],

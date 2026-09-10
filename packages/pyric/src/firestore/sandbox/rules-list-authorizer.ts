@@ -26,6 +26,7 @@ import type { RulesState } from './rules-state.js';
 import { buildRulesTestCase } from './rules-test-case.js';
 import type { TriggerInfo } from './trigger-scope.js';
 import type { Operation } from './writes.js';
+import { SandboxClock } from '../../sandbox/clock.js';
 
 export interface RulesListAuthorizerHost {
   readonly state: DocStore;
@@ -60,6 +61,9 @@ export class RulesListAuthorizer {
     private readonly rules: RulesState,
     private readonly simulator: SimulateFirestoreRulesHandler,
     private readonly host: RulesListAuthorizerHost,
+    /** The sandbox's clock, read for every server-set time this produces.
+     *  Defaults to a private wall clock for a standalone construction. */
+    private readonly clock: SandboxClock = new SandboxClock(),
   ) {}
 
   authorize(request: ListAuthorizationRequest): ListAuthorizationResult {
@@ -72,9 +76,9 @@ export class RulesListAuthorizer {
     };
     const detail = Object.keys(requestDetail).length > 0 ? requestDetail : undefined;
     const requestTime = request.timing?.requestTime ?? (
-      request.bypassRules ? undefined : Timestamp.fromMillis(Date.now())
+      request.bypassRules ? undefined : Timestamp.fromMillis(this.clock.now())
     );
-    const evalAt = request.timing?.at ?? Date.now();
+    const evalAt = request.timing?.at ?? this.clock.now();
 
     if (request.bypassRules) {
       this.emitRequest({
