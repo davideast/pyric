@@ -1,11 +1,12 @@
 /** The Firestore rules engine behind the `rules` tool. */
-import { lintFirestoreRules } from 'pyric/rules/internal';
+import { DOCUMENT_PATH_FORM, lintFirestoreRules } from 'pyric/rules/internal';
 import { setRules } from 'pyric/sandbox/firestore';
 import { callSandboxTool, operationFailure } from '../context.js';
 import {
   activeFirestoreRules,
   simulateFirestoreCase,
   simulationDetail,
+  unmatchedPathReason,
   type SimulationRequest,
 } from '../rules-simulation.js';
 import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
@@ -51,15 +52,20 @@ export const FIRESTORE_RULES: RulesEngine = {
   async simulate(ctx, request) {
     const outcome = await simulateFirestoreCase(ctx, caseFor(request));
     if (!outcome.result.ok) return operationFailure(outcome.result.summary, outcome.result.data);
-    return {
-      ok: true,
-      summary: `${request.operation} ${request.path}: ${outcome.allowed ? 'ALLOW' : 'DENY'}`,
-      data: {
-        allowed: outcome.allowed,
-        auth: outcome.auth,
-        case: simulationDetail(outcome.result),
-      },
+    const detail = simulationDetail(outcome.result);
+    const decision = outcome.allowed ? 'ALLOW' : 'DENY';
+    const verdict = `${request.operation} ${request.path}: ${decision}`;
+    const unmatched = unmatchedPathReason(detail);
+    const data: Record<string, unknown> = {
+      allowed: outcome.allowed,
+      auth: outcome.auth,
+      case: detail,
     };
+    if (unmatched === null) {
+      return { ok: true, summary: verdict, data };
+    }
+    data.pathForm = DOCUMENT_PATH_FORM;
+    return { ok: true, summary: `${unmatched} ${verdict}`, data };
   },
 
   async install(ctx, rules) {

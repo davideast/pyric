@@ -111,3 +111,39 @@ describe('explainFirestoreDenial', () => {
     expect(result.summary).toContain('is denied for this identity');
   });
 });
+
+describe('the path form the console shows', () => {
+  const OWNED_ORDERS_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orders/{orderId} {
+      allow read: if true;
+    }
+  }
+}`;
+
+  it('answers the full resource name with the document-relative verdict', async () => {
+    const ctx = freshContext();
+    await FIRESTORE_RULES.install(ctx, OWNED_ORDERS_RULES);
+    const result = await FIRESTORE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: '/databases/(default)/documents/orders/o2',
+    });
+    expect(result.ok).toBe(true);
+    expect((result.data as { allowed: boolean }).allowed).toBe(true);
+    expect(result.summary).not.toContain('No match block');
+  });
+
+  it('leads with the reason and names the path form when nothing matches', async () => {
+    const ctx = freshContext();
+    await FIRESTORE_RULES.install(ctx, OWNED_ORDERS_RULES);
+    const result = await FIRESTORE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'invoices/i1',
+    });
+    expect(result.ok).toBe(true);
+    expect(result.summary.startsWith("No match block found for path 'invoices/i1'")).toBe(true);
+    expect(result.summary).toContain('get invoices/i1: DENY');
+    expect((result.data as { pathForm?: string }).pathForm).toContain('document-relative');
+  });
+});

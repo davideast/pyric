@@ -67,6 +67,7 @@ export type { ResolveResult, ResolveOptions } from '../modules/resolver.js';
 
 // ─── Rules simulator ─────────────────────────────────────────────────
 export { SimulateFirestoreRulesHandler, SERVER_TIMESTAMP } from '../simulator/handler.js';
+export { DOCUMENT_PATH_FORM, documentRelativePath } from '../simulator/request-path.js';
 export {
   collectMatches,
   renderMatchBlockPath,

@@ -95,3 +95,26 @@ export function simulationDetail(result: OperationResult): Record<string, unknow
     | undefined;
   return payload?.data?.results?.[0] ?? null;
 }
+
+/** How the simulator opens the note it leaves when a path reaches no match block. */
+const NO_MATCH_NOTE = 'No match block found for path';
+
+/**
+ * Why a case reached no rule at all, or null when it did reach one.
+ *
+ * A path that matches no block is denied by default, and reported as a DENY
+ * like any other. The two are not the same fact: one is the ruleset's answer
+ * and the other is that the request never reached the ruleset. So the reason
+ * is lifted out of the notes and put in front of the verdict, where a caller
+ * reads it before deciding the rules are working.
+ */
+export function unmatchedPathReason(detail: Record<string, unknown> | null): string | null {
+  if (detail === null) return null;
+  const notes = detail.notes;
+  if (!Array.isArray(notes)) return null;
+  const found = notes.find(
+    (note) => typeof note === 'string' && note.startsWith(NO_MATCH_NOTE),
+  );
+  if (found === undefined) return null;
+  return String(found);
+}
