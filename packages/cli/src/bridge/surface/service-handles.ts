@@ -4,7 +4,7 @@
  * The Firestore data plane reaches the sandbox through the shared dispatcher,
  * which already resolves identity for it. Database and Storage have no
  * forwarded tool family, so their operations open a handle here, and the
- * identity decides whether that handle bypasses rules (admin and app-session)
+ * identity decides whether that handle bypasses rules (admin and default)
  * or enforces them (a uid, or unauthenticated).
  */
 import { getAdminDatabase, getDatabase, type Database } from 'pyric/database';

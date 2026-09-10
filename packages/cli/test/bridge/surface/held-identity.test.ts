@@ -45,11 +45,11 @@ describe('switchHeldIdentity', () => {
     expect(result.data).toEqual({ identity: { mode: 'uid', uid: 'alice', claims: {} } });
   });
 
-  it('reports admin, anonymous, and app-session as "Acting as <mode>"', () => {
+  it('reports admin, anonymous, and default as "Acting as <mode>"', () => {
     const ctx = freshContext();
     expect(switchHeldIdentity(ctx, { mode: 'admin' }).summary).toBe('Acting as admin');
     expect(switchHeldIdentity(ctx, { mode: 'anonymous' }).summary).toBe('Acting as anonymous');
-    expect(switchHeldIdentity(ctx, { mode: 'app-session' }).summary).toBe('Acting as app-session');
+    expect(switchHeldIdentity(ctx, { mode: 'default' }).summary).toBe('Acting as default');
   });
 
   it('changes what the context holds for the next call', () => {
@@ -64,6 +64,12 @@ describe('describeAgentIdentity', () => {
     expect(describeAgentIdentity({ mode: 'admin' })).toBe('admin, which bypasses rules');
   });
 
+  it('names the starting mode default, and says it bypasses rules too', () => {
+    expect(describeAgentIdentity({ mode: 'default' })).toBe(
+      'the sandbox default, which bypasses rules',
+    );
+  });
+
   it('names the uid and the tenant of an impersonation', () => {
     expect(describeAgentIdentity({ mode: 'uid', uid: 'riley', tenant: 'tenant-acme' })).toBe(
       'riley, tenant tenant-acme',
@@ -75,9 +81,23 @@ describe('describeBothIdentities', () => {
   it('names the agent and the app session apart on a fresh context', () => {
     const result = describeBothIdentities(freshContext());
     const data = result.data as { agent: { mode: string }; appSession: AppSession | null };
-    expect(data.agent.mode).toBe('app-session');
+    expect(data.agent.mode).toBe('default');
     expect(data.appSession).toBe(null);
     expect(result.summary).toContain('signed out');
+  });
+
+  it('leaves the starting agent mode at default when the app signs in', async () => {
+    const sandbox = seededSandbox();
+    const ctx = freshContext(sandbox);
+    getAuth(sandbox).tenantId = 'tenant-acme';
+    await signInWithEmailAndPassword(getAuth(sandbox), 'riley@acme.test', 'hunter22');
+
+    const data = describeBothIdentities(ctx).data as {
+      agent: { mode: string };
+      appSession: AppSession | null;
+    };
+    expect(data.agent.mode).toBe('default');
+    expect(data.appSession?.uid).toBe('riley');
   });
 
   it('reports the app session without changing the agent identity', async () => {

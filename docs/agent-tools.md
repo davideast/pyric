@@ -80,8 +80,9 @@ drifted from live per service. A branch is a directory in the project, so it
 outlives the server that forked it.
 
 Two identities live in one sandbox and the `auth` tool keeps them apart. The
-agent identity is what your own calls run under: admin by default, or whatever
-`impersonate`, `actAsAdmin`, `actAsAnonymous`, and `useAppSession` set. The app
+agent identity is what your own calls run under. It starts in the `default`
+mode, the sandbox default, which bypasses rules the way admin does, and
+`impersonate`, `actAsAdmin`, `actAsAnonymous`, and `useAppSession` move it. The app
 session is the user the sandbox's own SDK is signed in as, which is what an
 application built on it sees from `onAuthStateChanged`. The five sign-in
 methods move the app session and nothing else, so a `signInWithEmailAndPassword`
@@ -90,7 +91,8 @@ followed by a `firestore.getDoc` still reads as whatever the agent identity was.
 next call runs as; `sessions` lists them; `useAppSession` is the one method that
 adopts the app session's uid, tenant, and claims as the agent identity, after
 which Security Rules evaluate your calls exactly as they evaluate the
-application's. A sign-in resolves the credential in the tenant the stored record
+application's. That adoption is a snapshot: a later sign-in moves the app
+session and leaves the agent identity where `useAppSession` put it. A sign-in resolves the credential in the tenant the stored record
 already belongs to, so a tenant identity keeps its tenant across a sign-in and
 `request.auth.token.firebase.tenant` is set for it.
 

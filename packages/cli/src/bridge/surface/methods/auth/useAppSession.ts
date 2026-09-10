@@ -6,8 +6,12 @@
  * so adopting it projects both into `request.auth.token` and rules evaluate
  * the agent's calls exactly as they evaluate the application's.
  *
+ * The adoption is a snapshot, not a subscription: the uid, tenant, and claims
+ * the app session holds now become the agent identity, and a later sign-in
+ * moves the app session without moving the agent again.
+ *
  * An app that is signed out has no user to adopt, so the identity falls back
- * to the app session mode the surface starts in, and the summary says so.
+ * to the default mode the surface starts in, and the summary says so.
  */
 import { z } from 'zod';
 import { readAppSession } from '../../app-session.js';
@@ -27,7 +31,7 @@ export default {
   example: {},
   async handler(_args, ctx) {
     const session = readAppSession(ctx.sandbox);
-    if (session === null) return switchHeldIdentity(ctx, { mode: 'app-session' });
+    if (session === null) return switchHeldIdentity(ctx, { mode: 'default' });
     const named: NamedIdentity = { claims: session.customClaims };
     if (session.tenantId !== null) named.tenant = session.tenantId;
     return switchHeldIdentity(ctx, impersonatedIdentity(ctx, session.uid, named));

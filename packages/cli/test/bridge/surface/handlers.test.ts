@@ -108,9 +108,11 @@ it('switches the identity every later call runs under', async () => {
   expect(anonymous.ok).toBe(true);
   expect(ctx.identity.describe().mode).toBe('anonymous');
 
+  // Nothing is signed in, so there is no app session to adopt and the
+  // identity falls back to the mode the surface starts in.
   const app = await run('auth.useAppSession');
   expect(app.ok).toBe(true);
-  expect(ctx.identity.describe().mode).toBe('app-session');
+  expect(ctx.identity.describe().mode).toBe('default');
 
   const back = await run('auth.actAsAdmin');
   expect(back.ok).toBe(true);
