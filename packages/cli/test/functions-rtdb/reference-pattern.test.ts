@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  matchRtdbReference,
   normalizeRtdbReference,
   rtdbReferenceParamName,
   rtdbReferenceParts,
@@ -34,5 +35,18 @@ describe('RTDB Eventarc reference patterns', () => {
     ]) {
       expect(supportsRtdbReference(reference)).toBe(false);
     }
+  });
+
+  test('matches a concrete path against a pattern, capturing the wildcard segments', () => {
+    expect(matchRtdbReference('messages/{pushId}/original', 'messages/abc123/original')).toEqual({
+      pushId: 'abc123',
+    });
+    expect(matchRtdbReference('logs/{logId}', '/logs/xyz/')).toEqual({ logId: 'xyz' });
+  });
+
+  test('refuses a path whose literal segments or shape disagree with the pattern', () => {
+    expect(matchRtdbReference('messages/{pushId}/original', 'messages/abc123/edited')).toBeNull();
+    expect(matchRtdbReference('messages/{pushId}/original', 'messages/abc123')).toBeNull();
+    expect(matchRtdbReference('messages/{pushId}', 'messages/abc/original')).toBeNull();
   });
 });

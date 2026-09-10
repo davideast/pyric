@@ -10,7 +10,7 @@ export interface CreatedEventOptions {
 }
 
 export type CreatedExecutionResult =
-  | { status: 'fulfilled'; event: Record<string, unknown> }
+  | { status: 'fulfilled'; event: Record<string, unknown>; result: unknown }
   | { status: 'rejected'; event: Record<string, unknown>; error: unknown };
 
 function canonicalizeRtdbValue(value: unknown): unknown {
@@ -26,7 +26,7 @@ function canonicalizeRtdbValue(value: unknown): unknown {
   );
 }
 
-/** Invoke the real Firebase Functions wrapper and await the user's result. */
+/** Invoke the real Firebase Functions wrapper and await the user's result, carrying it through on success. */
 export async function executeOnValueCreated(
   trigger: DiscoveredOnValueCreated,
   projection: CreatedValueProjection,
@@ -56,8 +56,8 @@ export async function executeOnValueCreated(
   };
 
   try {
-    await trigger.callable(event);
-    return { status: 'fulfilled', event };
+    const result = await trigger.callable(event);
+    return { status: 'fulfilled', event, result };
   } catch (error) {
     return { status: 'rejected', event, error };
   }
