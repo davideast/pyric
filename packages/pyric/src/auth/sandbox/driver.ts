@@ -90,8 +90,8 @@ export const sandbox = {
   },
 
   /**
-   * The provider the app session signed in through — `password`,
-   * `anonymous`, `custom`, or a federated provider id such as `google.com`.
+   * The provider the app session signed in through: `password`, `anonymous`,
+   * `custom`, or a federated provider id such as `google.com`.
    * The same value `IdTokenResult.signInProvider` carries, so a reporter that
    * labels a session keeps no second copy of it. `null` when signed out.
    */

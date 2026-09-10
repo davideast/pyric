@@ -349,8 +349,8 @@ export class SandboxBackend {
   }
 
   /**
-   * The provider the current session signed in through — the same value
-   * {@link mintToken} puts on `IdTokenResult.signInProvider` and on the
+   * The provider the current session signed in through. This is the same
+   * value {@link mintToken} puts on `IdTokenResult.signInProvider` and on the
    * `firebase.sign_in_provider` claim, read without minting a token.
    *
    * `null` while the app is signed out, and `null` for an identity driven
