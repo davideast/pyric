@@ -1579,6 +1579,7 @@ export class SandboxBackend {
       isAnonymous: u.isAnonymous,
       disabled: u.disabled,
       emailVerified: u.emailVerified,
+      tenantId: u.tenantId,
       createdAt: u.createdAt,
       lastLoginAt: u.lastLoginAt,
     };
