@@ -301,3 +301,21 @@ describe('auth_custom_token', () => {
     });
   });
 });
+
+describe('the tenant on a read', () => {
+  it('reports tenantId on a get and on a list', async () => {
+    sandboxAuth.seedUsers(getAuth(sandbox), [
+      { uid: 'riley', email: 'riley@acme.test', password: 'hunter22', tenantId: 'tenant-acme' },
+    ]);
+    expect(user(await call('auth_get_user', { uid: 'riley' })).tenantId).toBe('tenant-acme');
+    const listed = (await call('auth_list_users')).data as {
+      users: Array<{ uid: string; tenantId: string | null }>;
+    };
+    expect(listed.users.find((entry) => entry.uid === 'riley')?.tenantId).toBe('tenant-acme');
+  });
+
+  it('reports a null tenant for an untenanted user', async () => {
+    await call('auth_create_user', { uid: 'dana', email: 'dana@example.test' });
+    expect(user(await call('auth_get_user', { uid: 'dana' })).tenantId).toBe(null);
+  });
+});

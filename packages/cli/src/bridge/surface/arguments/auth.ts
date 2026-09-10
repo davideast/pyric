@@ -7,6 +7,7 @@
  * than a spelling guess.
  */
 import { z } from 'zod';
+import { FEDERATED_PROVIDER_IDS } from 'pyric/auth';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
 import { quoted } from '../closest-name.js';
 
@@ -37,6 +38,33 @@ export const tenantId = z
   .string()
   .optional()
   .describe('Identity Platform tenant. Rules read it as request.auth.token.firebase.tenant.');
+
+/**
+ * The federated providers a credential may name, which is the set the sandbox
+ * resolves a sign-in credential for. Email and password sign-in has its own
+ * method, so `password` is not one of these.
+ */
+export const CREDENTIAL_PROVIDER_IDS = FEDERATED_PROVIDER_IDS;
+
+/** The federated credential an app signs in with, under the SDK's own names. */
+export const signInCredential = z
+  .object({
+    providerId: z
+      .enum(CREDENTIAL_PROVIDER_IDS)
+      .describe('The federated provider the credential comes from.'),
+    idToken: z.string().optional().describe("The provider's id token. Not verified."),
+    accessToken: z.string().optional().describe("The provider's access token. Not verified."),
+    email: z
+      .string()
+      .describe('The address the credential asserts. The identity is created if it is unknown.'),
+  })
+  .describe('The credential the provider returned.');
+
+/** The claims a minted custom token carries, as the Admin SDK names them. */
+export const developerClaims = z
+  .record(z.unknown())
+  .optional()
+  .describe('Claims to sign into the token. Rules read them as request.auth.token.<name>.');
 
 /** Reject an email that is not an address and a password below the minimum. */
 export function checkCredentials(args: Args, fail: Fail): InvalidArguments | null {

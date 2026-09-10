@@ -1,6 +1,6 @@
 /**
- * The thirteen intent tools, and the routes for the auth, data, storage, and
- * rules families.
+ * The fourteen intent tools, and the routes for the auth, app session, data,
+ * storage, and rules families.
  *
  * A discriminator value with no canonical counterpart has no route and
  * resolves to no operation. The sandbox-state and branch families have their
@@ -8,6 +8,7 @@
  * arguments, is `discriminator-route-shapes.ts`. This module assembles the
  * whole set in tool order.
  */
+import { APP_SESSION_ROUTES } from './discriminator-app-session-routes.js';
 import { ASSURANCE_ROUTES } from './discriminator-assurance-routes.js';
 import { BRANCH_ROUTES } from './discriminator-branch-routes.js';
 import { SANDBOX_STATE_ROUTES } from './discriminator-sandbox-state-routes.js';
@@ -16,6 +17,7 @@ import {
   assign,
   on,
   onBoth,
+  parseJsonArray,
   parseJsonObject,
   parseJsonValue,
   text,
@@ -28,6 +30,7 @@ import {
   inspectAuthFlowSchema,
   invokeCloudFunctionSchema,
   judgeAuthorizationRiskSchema,
+  manageAppSessionSchema,
   manageAuthUsersSchema,
   manageStorageFilesSchema,
   mutateSandboxDataSchema,
@@ -48,6 +51,12 @@ export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
     description:
       'Create, read, update, delete, import users, set custom claims, or mint custom tokens in the sandbox Auth pool.',
     parameters: manageAuthUsersSchema,
+  },
+  {
+    name: 'manage_app_session',
+    description:
+      "Sign the application's own session in with an email and password, anonymously, with a custom token, or with a federated credential, or sign it out. The caller's own identity is unchanged.",
+    parameters: manageAppSessionSchema,
   },
   {
     name: 'inspect_auth_flow',
@@ -134,13 +143,19 @@ function overrideUid(args: Args): string | undefined {
 const AUTH_ROUTES: DiscriminatorRoute[] = [
   {
     // The `inspect_auth_flow` tool's schema already names `whoami` among its
-    // actions; no other action of that tool has a route yet, so this is the
-    // one place the discriminator variant can express "report the held
-    // identity" without a new tool.
+    // actions, so this is where the discriminator variant expresses "report
+    // the held identity" without a new tool.
     tool: 'inspect_auth_flow',
     action: 'whoami',
     selects: on('action', 'whoami'),
     operation: 'get_auth_identity',
+    translate: () => ({}),
+  },
+  {
+    tool: 'inspect_auth_flow',
+    action: 'list_sessions',
+    selects: on('action', 'list_sessions'),
+    operation: 'list_auth_sessions',
     translate: () => ({}),
   },
   {
@@ -211,6 +226,31 @@ const AUTH_ROUTES: DiscriminatorRoute[] = [
       uid: args.uid,
       claims: parseJsonObject(text(args, 'claimsJson')) ?? {},
     }),
+  },
+  {
+    tool: 'manage_auth_users',
+    action: 'get_by_email',
+    selects: on('action', 'get_by_email'),
+    operation: 'get_auth_user_by_email',
+    translate: (args) => ({ email: args.email }),
+  },
+  {
+    tool: 'manage_auth_users',
+    action: 'import',
+    selects: on('action', 'import'),
+    operation: 'import_auth_users',
+    translate: (args) => ({ users: parseJsonArray(text(args, 'usersJson')) ?? [] }),
+  },
+  {
+    tool: 'manage_auth_users',
+    action: 'mint_token',
+    selects: on('action', 'mint_token'),
+    operation: 'create_auth_token',
+    translate: (args) => {
+      const translated: Args = { uid: args.uid };
+      assign(translated, 'claims', parseJsonObject(text(args, 'claimsJson')));
+      return translated;
+    },
   },
 ];
 
@@ -457,6 +497,7 @@ function translateFirstTestCase(args: Args): Args {
 /** Every route, in tool order. */
 export const DISCRIMINATOR_ROUTES: readonly DiscriminatorRoute[] = [
   ...AUTH_ROUTES,
+  ...APP_SESSION_ROUTES,
   ...DATA_ROUTES,
   ...STORAGE_ROUTES,
   ...RULES_ROUTES,

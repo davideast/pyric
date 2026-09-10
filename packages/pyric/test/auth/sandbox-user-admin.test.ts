@@ -611,3 +611,22 @@ describe('sandbox.subscribeUsers (A3)', () => {
     expect(b).toBe(1);
   });
 });
+
+describe('the admin record carries the tenant', () => {
+  it('reports tenantId on a seeded tenant user through listUsers', () => {
+    const auth = freshAuth();
+    authSandbox.seedUsers(auth, [
+      { uid: 'riley', email: 'riley@acme.test', password: 'hunter22', tenantId: 'tenant-acme' },
+      { uid: 'sam', email: 'sam@example.test', password: 'hunter22' },
+    ]);
+    const records = authSandbox.listUsers(auth);
+    expect(records.find((user) => user.uid === 'riley')?.tenantId).toBe('tenant-acme');
+    expect(records.find((user) => user.uid === 'sam')?.tenantId).toBe(null);
+  });
+
+  it('reports tenantId on a record created through the admin surface', () => {
+    const auth = freshAuth();
+    const created = authSandbox.createUser(auth, { uid: 'dana', email: 'dana@example.test' });
+    expect(created.tenantId).toBe(null);
+  });
+});

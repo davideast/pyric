@@ -36,7 +36,8 @@ export interface AuthIdentityToolDeps {
 const TARGET_SCHEMA = {
   type: 'string' as const,
   description:
-    'Another client connected to this bridge, by the target id auth_sessions reports. Omit to act on yourself.',
+    'Another client connected to this bridge, by the target id auth_sessions reports ' +
+    '(pyric serve sessions lists the ids). Omit to act on yourself.',
 };
 
 const IMPERSONATE_DESCRIPTION = [

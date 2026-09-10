@@ -183,6 +183,10 @@ export interface AuthUserRecord {
   isAnonymous: boolean;
   disabled: boolean;
   emailVerified: boolean;
+  /** Identity Platform tenant the record belongs to, or `null` for the
+   *  project-level pool. Rules read the same value as
+   *  `request.auth.token.firebase.tenant` once the identity signs in. */
+  tenantId: string | null;
   /** ISO timestamp. */
   createdAt: string;
   /** ISO timestamp, or null if the identity never signed in. */

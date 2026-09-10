@@ -1,0 +1,126 @@
+{
+  "sign-in-as-tenant-user-and-read-rules": [
+    {
+      "tool": "auth",
+      "args": {
+        "method": "signInWithEmailAndPassword",
+        "args": { "email": "riley@acme.test", "password": "hunter22" }
+      }
+    },
+    { "tool": "auth", "args": { "method": "useAppSession", "args": {} } },
+    {
+      "tool": "rules",
+      "args": {
+        "method": "simulate",
+        "args": { "service": "firestore", "operation": "get", "path": "invoices/inv-1" }
+      }
+    }
+  ],
+  "sign-out-then-disable-the-departed-account": [
+    { "tool": "auth", "args": { "method": "signOut", "args": {} } },
+    {
+      "tool": "auth",
+      "args": { "method": "getUserByEmail", "args": { "email": "morgan@example.test" } }
+    },
+    {
+      "tool": "auth",
+      "args": { "method": "updateUser", "args": { "uid": "morgan", "disabled": true } }
+    }
+  ],
+  "sign-in-a-guest-and-write-their-draft": [
+    { "tool": "auth", "args": { "method": "signInAnonymously", "args": {} } },
+    { "tool": "auth", "args": { "method": "listUsers", "args": { "maxResults": 50 } } },
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "setDoc",
+        "args": { "path": "drafts/first", "data": { "title": "untitled" } }
+      }
+    }
+  ],
+  "mint-a-token-for-our-own-backend-and-redeem-it": [
+    {
+      "tool": "auth",
+      "args": {
+        "method": "createCustomToken",
+        "args": { "uid": "dana", "developerClaims": { "plan": "pro" } }
+      }
+    },
+    {
+      "tool": "auth",
+      "args": {
+        "method": "signInWithCustomToken",
+        "args": { "token": "eyJ1aWQiOiJkYW5hIiwiY2xhaW1zIjp7InBsYW4iOiJwcm8ifX0" }
+      }
+    },
+    { "tool": "auth", "args": { "method": "useAppSession", "args": {} } },
+    {
+      "tool": "rules",
+      "args": {
+        "method": "simulate",
+        "args": { "service": "firestore", "operation": "get", "path": "reports/q3" }
+      }
+    }
+  ],
+  "sign-in-fails-so-reset-the-password": [
+    {
+      "tool": "auth",
+      "args": {
+        "method": "signInWithEmailAndPassword",
+        "args": { "email": "pat@example.test", "password": "correcthorse" }
+      }
+    },
+    {
+      "tool": "auth",
+      "args": { "method": "getUserByEmail", "args": { "email": "pat@example.test" } }
+    },
+    {
+      "tool": "auth",
+      "args": { "method": "updateUser", "args": { "uid": "pat", "password": "correcthorse" } }
+    },
+    {
+      "tool": "auth",
+      "args": {
+        "method": "signInWithEmailAndPassword",
+        "args": { "email": "pat@example.test", "password": "correcthorse" }
+      }
+    }
+  ],
+  "import-the-acme-team-then-look-one-up": [
+    {
+      "tool": "auth",
+      "args": {
+        "method": "importUsers",
+        "args": {
+          "users": [
+            {
+              "uid": "kim",
+              "email": "kim@acme.test",
+              "password": "hunter22",
+              "tenantId": "tenant-acme",
+              "customClaims": { "role": "owner" }
+            },
+            {
+              "uid": "noor",
+              "email": "noor@acme.test",
+              "password": "hunter22",
+              "tenantId": "tenant-acme",
+              "customClaims": { "role": "viewer" }
+            },
+            {
+              "uid": "ade",
+              "email": "ade@acme.test",
+              "password": "hunter22",
+              "tenantId": "tenant-acme",
+              "customClaims": { "role": "viewer" }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "auth",
+      "args": { "method": "getUserByEmail", "args": { "email": "kim@acme.test" } }
+    }
+  ]
+}

@@ -61,6 +61,12 @@ export interface AuthUserView {
   isAnonymous: boolean;
   disabled: boolean;
   emailVerified: boolean;
+  /**
+   * Identity Platform tenant the record belongs to, or `null` for the
+   * project-level pool. Rules read the same value as
+   * `request.auth.token.firebase.tenant` once the identity signs in.
+   */
+  tenantId: string | null;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -98,6 +104,7 @@ export function toUserView(record: AuthUserRecord): AuthUserView {
     isAnonymous: record.isAnonymous,
     disabled: record.disabled,
     emailVerified: record.emailVerified,
+    tenantId: record.tenantId,
     createdAt: record.createdAt,
     lastLoginAt: record.lastLoginAt,
   };

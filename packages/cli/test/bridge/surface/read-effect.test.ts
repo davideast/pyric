@@ -101,6 +101,15 @@ async function createTheExampleUser(call: Call): Promise<Teardown> {
   return NOTHING_TO_UNDO;
 }
 
+/** Create the account `auth.getUserByEmail` names, by the address it looks up. */
+async function createTheExampleAddress(call: Call): Promise<Teardown> {
+  await must(call, 'auth.createUser', {
+    uid: 'alice',
+    email: String(exampleOf('auth.getUserByEmail').email),
+  });
+  return NOTHING_TO_UNDO;
+}
+
 /** Fork the branch `sandbox.diff` names. */
 async function forkTheExampleBranch(call: Call): Promise<Teardown> {
   await must(call, 'sandbox.fork', exampleOf('sandbox.fork'));
@@ -141,6 +150,7 @@ const PRECONDITIONS: Record<string, (call: Call) => Promise<Teardown>> = {
   'storage.getBytes': uploadTheExampleObject,
   'storage.getMetadata': uploadTheExampleObject,
   'auth.getUser': createTheExampleUser,
+  'auth.getUserByEmail': createTheExampleAddress,
   'sandbox.diff': forkTheExampleBranch,
   'assurance.inspect': runTheExampleCampaign,
 };
