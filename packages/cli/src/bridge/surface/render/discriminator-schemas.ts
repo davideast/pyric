@@ -86,7 +86,7 @@ const batchOpSchema = z.object({
 export const mutateSandboxDataSchema = z.object({
   service: z.enum(['firestore', 'database']).describe('Target data service.'),
   action: z
-    .enum(['set', 'add', 'update', 'delete', 'batch', 'transaction'])
+    .enum(['set', 'add', 'update', 'delete', 'batch', 'transaction', 'writeIndexes'])
     .describe('Mutation operation.'),
   path: z.string().optional().describe('Document, collection, or database tree path.'),
   dataJson: z
@@ -373,4 +373,28 @@ export const configureAiMockSchema = z.object({
     .array(aiScriptEntrySchema)
     .optional()
     .describe('Scripted response entries pushed to the FIFO match queue.'),
+});
+
+// ─── Firestore lane: depth reads (count, aggregate, discovery, indexes) ────
+
+export const inspectFirestoreStructureSchema = z.object({
+  action: z
+    .enum(['count', 'aggregate', 'discoverPaths', 'findCollectionGroup', 'extractIndexes'])
+    .describe('Which Firestore depth read to run.'),
+  path: z.string().optional().describe("Collection path for 'count' and 'aggregate'."),
+  filtersJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded where clauses narrowing 'count' or 'aggregate'."),
+  specJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded aggregate spec for 'aggregate': {count?, sum?, average?}."),
+  collectionId: z.string().optional().describe("Collection id for 'findCollectionGroup'."),
+  depth: z.number().optional().describe("Deepest collection nesting level for 'discoverPaths'."),
+  limit: z.number().optional().describe("Maximum document paths for 'discoverPaths'."),
+  queriesJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded queries[] for 'extractIndexes'."),
 });

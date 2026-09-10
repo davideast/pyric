@@ -83,6 +83,7 @@ describe('the loaded record set', () => {
   it('marks every method that replaces or discards state destructive', () => {
     const destructive = METHODS.filter((method) => method.effect === 'destructive');
     expect(destructive.map((method) => method.key).sort()).toEqual([
+      'firestore.writeIndexes',
       'sandbox.deleteCheckpoint',
       'sandbox.promote',
       'sandbox.reset',

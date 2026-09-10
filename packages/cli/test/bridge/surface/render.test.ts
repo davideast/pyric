@@ -122,8 +122,8 @@ describe('the named variants', () => {
 describe('the discriminator variant', () => {
   const surface = renderSurface('discriminator');
 
-  it('renders the thirteen intent tools and the seven resource templates', () => {
-    expect(surface.tools).toHaveLength(13);
+  it('renders the fourteen intent tools and the seven resource templates', () => {
+    expect(surface.tools).toHaveLength(14);
     expect(surface.resources).toHaveLength(7);
   });
 

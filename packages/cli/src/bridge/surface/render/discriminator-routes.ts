@@ -16,6 +16,7 @@ import {
   assign,
   on,
   onBoth,
+  parseJsonArray,
   parseJsonObject,
   parseJsonValue,
   text,
@@ -26,6 +27,7 @@ import {
   diagnoseRuleDenialSchema,
   dryRunExperimentSchema,
   inspectAuthFlowSchema,
+  inspectFirestoreStructureSchema,
   invokeCloudFunctionSchema,
   judgeAuthorizationRiskSchema,
   manageAuthUsersSchema,
@@ -72,6 +74,12 @@ export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
     description:
       'Upload (base64), download (data: URI), delete, or list files in sandbox Cloud Storage.',
     parameters: manageStorageFilesSchema,
+  },
+  {
+    name: 'inspect_firestore_structure',
+    description:
+      'Count or aggregate a Firestore query on the server, list the paths a sandbox holds, find a collection group, or find the composite indexes a set of queries need.',
+    parameters: inspectFirestoreStructureSchema,
   },
   {
     name: 'diagnose_rule_denial',
@@ -273,6 +281,20 @@ const DATA_ROUTES: DiscriminatorRoute[] = [
       return { writes };
     },
   },
+  // Firestore lane: write the index definitions extractIndexes found.
+  {
+    tool: 'mutate_sandbox_data',
+    action: 'writeIndexes',
+    selects: onBoth('service', 'firestore', 'action', 'writeIndexes'),
+    operation: 'write_firestore_indexes',
+    translate: (args) => {
+      const payload = parseJsonObject(text(args, 'dataJson')) ?? {};
+      const translated: Args = { indexes: payload.indexes ?? [] };
+      assign(translated, 'path', payload.path);
+      assign(translated, 'confirm', payload.confirm);
+      return translated;
+    },
+  },
   {
     tool: 'mutate_sandbox_data',
     action: 'set',
@@ -355,6 +377,75 @@ function translateFilters(args: Args): Array<{ field: string; op: string; value:
     value: parseJsonValue(filter.valueJson),
   }));
 }
+
+// ─── Firestore lane: depth reads ────────────────────────────────────────
+
+/** `filtersJson`'s entries, translated into the `where` constraints the depth methods take. */
+function constraintsFromFiltersJson(args: Args): Args[] | undefined {
+  const parsed = parseJsonArray(text(args, 'filtersJson'));
+  if (parsed === undefined) return undefined;
+  return (parsed as QueryFilter[]).map((filter) => ({
+    type: 'where',
+    field: filter.field,
+    op: filter.op,
+    value: parseJsonValue(filter.valueJson),
+  }));
+}
+
+const FIRESTORE_STRUCTURE_ROUTES: DiscriminatorRoute[] = [
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'count',
+    selects: on('action', 'count'),
+    operation: 'count_firestore_documents',
+    translate: (args) => {
+      const translated: Args = { path: args.path };
+      assign(translated, 'constraints', constraintsFromFiltersJson(args));
+      return translated;
+    },
+  },
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'aggregate',
+    selects: on('action', 'aggregate'),
+    operation: 'aggregate_firestore_documents',
+    translate: (args) => {
+      const translated: Args = { path: args.path, spec: parseJsonObject(text(args, 'specJson')) ?? {} };
+      assign(translated, 'constraints', constraintsFromFiltersJson(args));
+      return translated;
+    },
+  },
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'discoverPaths',
+    selects: on('action', 'discoverPaths'),
+    operation: 'discover_firestore_paths',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'depth', args.depth);
+      assign(translated, 'limit', args.limit);
+      return translated;
+    },
+  },
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'findCollectionGroup',
+    selects: on('action', 'findCollectionGroup'),
+    operation: 'find_firestore_collection_group',
+    translate: (args) => ({ collectionId: args.collectionId }),
+  },
+  {
+    tool: 'inspect_firestore_structure',
+    action: 'extractIndexes',
+    selects: on('action', 'extractIndexes'),
+    operation: 'extract_firestore_indexes',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'queries', parseJsonArray(text(args, 'queriesJson')));
+      return translated;
+    },
+  },
+];
 
 const STORAGE_ROUTES: DiscriminatorRoute[] = [
   {
@@ -458,6 +549,7 @@ function translateFirstTestCase(args: Args): Args {
 export const DISCRIMINATOR_ROUTES: readonly DiscriminatorRoute[] = [
   ...AUTH_ROUTES,
   ...DATA_ROUTES,
+  ...FIRESTORE_STRUCTURE_ROUTES,
   ...STORAGE_ROUTES,
   ...RULES_ROUTES,
   ...ASSURANCE_ROUTES,
