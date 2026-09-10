@@ -78,3 +78,20 @@ describe('sandbox.mockSignInResult', () => {
     }
   });
 });
+
+describe('sandbox.signInProvider', () => {
+  it('reports the provider of the current sign-in, matching the minted token', async () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    await signInAnonymously(auth);
+
+    const user = auth.currentUser;
+    expect(user).not.toBe(null);
+    expect(authSandbox.signInProvider(auth)).toBe('anonymous');
+    expect((await user!.getIdTokenResult()).signInProvider).toBe('anonymous');
+  });
+
+  it('reports null while the app is signed out', () => {
+    expect(authSandbox.signInProvider(getAuth(initializeSandbox()))).toBe(null);
+  });
+});

@@ -89,6 +89,16 @@ export const sandbox = {
     return requireSandbox(auth).backend.mintDetachedSession(request);
   },
 
+  /**
+   * The provider the app session signed in through — `password`,
+   * `anonymous`, `custom`, or a federated provider id such as `google.com`.
+   * The same value `IdTokenResult.signInProvider` carries, so a reporter that
+   * labels a session keeps no second copy of it. `null` when signed out.
+   */
+  signInProvider(auth: Auth): string | null {
+    return requireSandbox(auth).backend.getCurrentSignInProvider();
+  },
+
   listUsers(auth: Auth): AuthUserRecord[] {
     return requireSandbox(auth).backend.listUsers();
   },

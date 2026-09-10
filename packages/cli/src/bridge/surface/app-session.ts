@@ -15,18 +15,19 @@
  *
  * The stored record supplies what the `User` handle does not carry: the custom
  * claims rules read, and the tenant when a session was restored rather than
- * signed in.
+ * signed in. The provider comes from the sandbox's own record of what this
+ * sign-in presented, which is what `IdTokenResult.signInProvider` reports.
  */
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import type { LocalSandbox } from 'pyric/sandbox';
-import type { AuthUserRecord, User } from 'pyric/auth';
+import type { Auth, AuthUserRecord, User } from 'pyric/auth';
 
 /** The app's own signed-in user, as every method that reports one spells it. */
 export interface AppSession {
   uid: string;
   email: string | null;
   isAnonymous: boolean;
-  /** The provider the session signed in through, for example `password`. */
+  /** The provider this sign-in presented: `password`, `anonymous`, `custom`, or a provider id. */
   providerId: string;
   /** Identity Platform tenant, or null for the project-level pool. */
   tenantId: string | null;
@@ -35,13 +36,24 @@ export interface AppSession {
 }
 
 /**
- * The provider that labels a session. An anonymous session has no linked
- * provider, and a record with no linked provider was created with a password.
+ * The provider that labels a session: the one this sign-in presented, not the
+ * first provider ever linked to the record.
+ *
+ * The sandbox already records it at sign-in time, and it is what
+ * `IdTokenResult.signInProvider` and the `firebase.sign_in_provider` claim
+ * carry, so this reads that rather than keeping a second copy. Reading the
+ * record's linked providers instead would report `password` for a federated
+ * credential presented for an address that already had a password account, and
+ * for a custom token, which Firebase labels `custom`.
+ *
+ * A session the test driver put in place records no provider. An anonymous
+ * user is `anonymous`, and anything else falls back to `password`, which is
+ * the only provider a record can hold without a sign-in having happened.
  */
-function providerOf(user: User, record: AuthUserRecord | undefined): string {
+function providerOf(auth: Auth, user: User): string {
+  const signedInThrough = authSandbox.signInProvider(auth);
+  if (signedInThrough !== null) return signedInThrough;
   if (user.isAnonymous) return 'anonymous';
-  const linked = record?.providerUserInfo[0]?.providerId;
-  if (linked !== undefined) return linked;
   return 'password';
 }
 
@@ -61,7 +73,7 @@ export function readAppSession(sandbox: LocalSandbox): AppSession | null {
     uid: user.uid,
     email: user.email,
     isAnonymous: user.isAnonymous,
-    providerId: providerOf(user, record),
+    providerId: providerOf(auth, user),
     tenantId: tenantOf(user, record),
     customClaims: record?.customClaims ?? {},
   };

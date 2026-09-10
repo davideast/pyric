@@ -54,6 +54,7 @@ const FROZEN_PROTOTYPE_METHODS = [
   'fanOut',
   'findByEmail',
   'findByUid',
+  'getCurrentSignInProvider',
   'getCurrentUser',
   'getIdTokenFor',
   'getIdTokenResultFor',

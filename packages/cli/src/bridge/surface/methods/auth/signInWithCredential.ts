@@ -3,10 +3,13 @@
  *
  * A sandbox has no identity provider to redeem a token against, so the
  * credential is resolved the way the sandbox resolves one: the address it
- * asserts names the identity, the identity is created if the pool does not hold
- * it, and the provider is linked onto the record so `listUsers` and
- * `IdTokenResult.signInProvider` label the session correctly. The tokens are
- * carried and never verified.
+ * asserts names the identity, the identity is created if the pool does not
+ * hold it, and the provider is linked onto the record, which is what
+ * `listUsers` reports. The tokens are carried and never verified.
+ *
+ * The session is labelled by the provider this call presented, not by the
+ * first provider linked to the record, so presenting a `google.com` credential
+ * for an address that already has a password account reports `google.com`.
  */
 import { z } from 'zod';
 import {
