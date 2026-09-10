@@ -26,7 +26,8 @@ import {
   provenanceForOperationContext,
   resolveOperationContext,
 } from 'pyric/sandbox/internal';
-import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
+import { openStorageBackend, storageDbName } from './persistence.js';
+import { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
 import type { StorageRules } from './sandbox/rules.js';
 import {
   compileStorageRules,
@@ -91,44 +92,7 @@ export interface FirebaseStorage {
 /** Storage handle returned by Firebase-shaped app overloads. */
 export type AppFirebaseStorage = FirebaseStorage & { readonly app: FirebaseApp };
 
-/**
- * Cross-service IAM posture for `firestore.get()/exists()` in Storage rules.
- *
- * Production Storage rules can read Firestore ONLY when the project's
- * Storage service agent holds `roles/firebaserules.firestoreServiceAgent`.
- * `'granted'` (the default, the common configured-project state) serves
- * lookups from the same-sandbox Firestore store; `'denied'` makes every
- * EXECUTED lookup fail exactly like production without the role (error →
- * rule denies), while short-circuited lookups are never executed and stay
- * unaffected. Captured boundary: conformance observation
- * `stdlib-realstorage-p3-lookup-budget` (registry row storage-rules#134).
- */
-export type CrossServiceIam = 'granted' | 'denied';
-
-/**
- * Internal sandbox service — owns the IDB connection + parsed rules.
- * Only constructed inside the sandbox `getStorageSandbox` path.
- */
-export class StorageService {
-  constructor(
-    readonly backend: StorageBackend,
-    /**
-     * The ruleset every operation on this service evaluates against.
-     * Assigned at construction and reassigned only by
-     * {@link replaceStorageRules}, which is the one deliberate way to
-     * install a new ruleset into a sandbox whose storage is already open.
-     */
-    public rules: StorageRules | null = null,
-    /**
-     * The cross-service IAM posture every operation on this service evaluates
-     * `firestore.get()/exists()` under. Assigned at construction and
-     * reassigned only by {@link replaceCrossServiceIam}, which is the one
-     * deliberate way to move a sandbox whose storage is already open between
-     * the granted and denied project states.
-     */
-    public crossServiceIam: CrossServiceIam = 'granted',
-  ) {}
-}
+export { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
 
 /** Options for {@link getStorageSandbox}. */
 export interface StorageOptions {
