@@ -74,7 +74,14 @@ export const exercised = new Set<string>();
  */
 // Each entry names a handler suite file; a service's depth methods get their
 // own suite rather than growing `handlers.test.ts` past the file-size limit.
-const SUITES: readonly string[] = ['services', 'assurance', 'storage', 'firestore-depth', 'messaging'];
+const SUITES: readonly string[] = [
+  'services',
+  'assurance',
+  'storage',
+  'firestore-depth',
+  'messaging',
+  'functions',
+];
 const finished = new Set<string>();
 
 /** Call one method through its service tool and record that it ran. */
