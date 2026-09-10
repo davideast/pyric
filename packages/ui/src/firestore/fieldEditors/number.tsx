@@ -1,3 +1,4 @@
+import { useFormControl } from '../../primitives/FormControl.js';
 import type { FieldEditorContract, FieldDisplayProps, FieldEditProps } from './types.js';
 
 function NumberDisplay({ value, path }: FieldDisplayProps<number>) {
@@ -9,30 +10,39 @@ function NumberDisplay({ value, path }: FieldDisplayProps<number>) {
 }
 
 function NumberEdit({ value, onChange, error, path }: FieldEditProps<number>) {
+  const formControl = useFormControl({ error });
   return (
-    <label
+    <span
       data-pyric-field-type="number"
       data-pyric-field-path={path}
       data-pyric-error={error ? '' : undefined}
     >
-      <input
-        type="number"
-        // Render NaN as empty so the input doesn't show literally
-        // "NaN" — the underlying value still carries it until the
-        // user types something valid.
-        value={Number.isFinite(value) ? value : ''}
-        onChange={(e) => {
-          const raw = e.target.value;
-          // Empty input commits NaN so the reducer's validator
-          // flags it; this keeps the editor's UI in sync with the
-          // underlying value rather than swallowing the change.
-          const parsed = raw === '' ? Number.NaN : parseFloat(raw);
-          onChange(parsed);
-        }}
-        aria-invalid={error ? 'true' : undefined}
-      />
-      {error ? <span data-pyric-error-message>{error}</span> : null}
-    </label>
+      <label>
+        <input
+          type="number"
+          // Render NaN as empty so the input doesn't show literally
+          // "NaN" — the underlying value still carries it until the
+          // user types something valid.
+          value={Number.isFinite(value) ? value : ''}
+          onChange={(e) => {
+            const raw = e.target.value;
+            // Empty input commits NaN so the reducer's validator
+            // flags it; this keeps the editor's UI in sync with the
+            // underlying value rather than swallowing the change.
+            const parsed = raw === '' ? Number.NaN : parseFloat(raw);
+            onChange(parsed);
+          }}
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
+          aria-label="Number value"
+        />
+      </label>
+      {error ? (
+        <span id={formControl.errorId} data-pyric-error-message>
+          {error}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

@@ -1,3 +1,4 @@
+import { useFormControl } from '../../primitives/FormControl.js';
 import { Timestamp } from 'pyric/firestore';
 import type { FieldEditorContract, FieldDisplayProps, FieldEditProps } from './types.js';
 
@@ -37,6 +38,7 @@ function TimestampDisplay({ value, path }: FieldDisplayProps<Timestamp>) {
  * timezone-correct.
  */
 function TimestampEdit({ value, onChange, error, path }: FieldEditProps<Timestamp>) {
+  const formControl = useFormControl({ error });
   // Convert the value to the `YYYY-MM-DDTHH:MM` shape <input
   // datetime-local> wants. Seconds and millis aren't part of the
   // native input precision; round-trips through this editor lose
@@ -47,24 +49,32 @@ function TimestampEdit({ value, onChange, error, path }: FieldEditProps<Timestam
   const inputValue = Number.isNaN(local.getTime()) ? '' : local.toISOString().slice(0, 16);
 
   return (
-    <label
+    <span
       data-pyric-field-type="timestamp"
       data-pyric-field-path={path}
       data-pyric-error={error ? '' : undefined}
     >
-      <input
-        type="datetime-local"
-        value={inputValue}
-        onChange={(e) => {
-          const next = e.target.value;
-          if (!next) return;
-          const localDate = new Date(next);
-          onChange(Timestamp.fromDate(localDate));
-        }}
-        aria-invalid={error ? 'true' : undefined}
-      />
-      {error ? <span data-pyric-error-message>{error}</span> : null}
-    </label>
+      <label>
+        <input
+          type="datetime-local"
+          value={inputValue}
+          onChange={(e) => {
+            const next = e.target.value;
+            if (!next) return;
+            const localDate = new Date(next);
+            onChange(Timestamp.fromDate(localDate));
+          }}
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
+          aria-label="Timestamp value"
+        />
+      </label>
+      {error ? (
+        <span id={formControl.errorId} data-pyric-error-message>
+          {error}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
