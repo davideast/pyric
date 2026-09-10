@@ -46,6 +46,8 @@ export interface SessionMeta {
   /** Byte length of the serialized payload — surfaced in the UI so
    *  users can spot oversized sessions before opening them. */
   payloadSize: number;
+  /** Cryptographic SHA-256 digest of the serialized payload for integrity verification. */
+  payloadDigest?: string;
   /** Set after a successful promote-to-Firestore. Absent for sessions
    *  that have never been pushed to the user's real project. UI shows
    *  a "synced" badge when present. */
