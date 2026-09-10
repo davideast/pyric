@@ -1,11 +1,5 @@
 import type { AuthState, Sandbox, SandboxOperationEvent } from 'pyric/sandbox';
-import {
-  emitSandboxEvent,
-  makeSandboxCommitEvent,
-  makeSandboxListenerEvent,
-  makeSandboxOperationEvent,
-  makeServiceMutationEvent,
-} from 'pyric/sandbox/internal';
+import { emitSandboxEvent, getClock, makeSandboxCommitEvent, makeSandboxListenerEvent, makeSandboxOperationEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import { joinPath, pathSegments } from './data-tree.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
 import type { RuleCheck, RuleEvaluationDetails } from './rules-eval.js';
@@ -45,6 +39,7 @@ export class OperationEvents {
     if (!this.sandbox) return;
     try {
       emitSandboxEvent(this.sandbox, makeServiceMutationEvent({
+        at: getClock(this.sandbox).now(),
         service: 'rtdb', op, path, auth,
         before: fields.before, after: fields.after, detail: fields.detail,
       }), { service: 'rtdb' });
@@ -117,6 +112,7 @@ export class OperationEvents {
     if (!this.sandbox) return;
     try {
       emitSandboxEvent(this.sandbox, makeSandboxCommitEvent({
+        at: getClock(this.sandbox).now(),
         service: 'rtdb', method, path: canonicalPath(path), auth,
         data: fields.data, priorState: fields.priorState, nextState: fields.nextState,
         groupId: fields.groupId, groupKind: fields.groupKind,
@@ -149,6 +145,7 @@ export class OperationEvents {
         kindVal = fields.event;
       }
       emitSandboxEvent(this.sandbox, makeSandboxListenerEvent({
+        at: getClock(this.sandbox).now(),
         service: 'rtdb', phase, listenerId: listener.id,
         target: { kind: kindVal, path: canonicalPath(listener.path) },
         auth, result: fields.result, size: fields.size, sample: fields.sample,

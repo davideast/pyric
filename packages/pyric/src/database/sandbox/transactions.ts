@@ -60,18 +60,18 @@ export class Transactions {
       return { committed: false, val: current, key };
     }
 
-    const now = Date.now();
+    const now = this.state.clock.now();
     const resolved = normalizeWrite(
       resolveSentinels(proposed, now, current) as JsonValue,
       path === '/' ? '' : path,
     );
-    const at = Date.now();
+    const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('write', path, {
       auth, mockData: this.state.tree.snapshot() as Record<string, unknown>, newData: resolved,
     });
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'transaction', path, denyResultFor(evaluation.check), evaluation, {
-        at, durationMs: Date.now() - at, origin: 'transaction',
+        at, durationMs: this.state.clock.now() - at, origin: 'transaction',
         request: { data: proposed, resourceData: proposed },
         resourceBefore: { data: current, exists: current !== null },
         resourceAfter: { data: resolved, exists: resolved !== null },
@@ -90,7 +90,7 @@ export class Transactions {
       return { committed: true, val: resolved, key };
     }
     this.state.events.operation(auth, 'transaction', path, 'allow', evaluation, {
-      at, durationMs: Date.now() - at, origin: 'transaction',
+      at, durationMs: this.state.clock.now() - at, origin: 'transaction',
       request: { data: proposed, resourceData: proposed },
       resourceBefore: { data: current, exists: current !== null },
       resourceAfter: { data: resolved, exists: resolved !== null },
@@ -114,7 +114,7 @@ export class Transactions {
     evaluation: ReturnType<BackendState['rules']['evaluate']>,
   ): void {
     this.state.events.operation(auth, 'transaction', path, 'allow', evaluation, {
-      at, durationMs: Date.now() - at, origin: 'transaction',
+      at, durationMs: this.state.clock.now() - at, origin: 'transaction',
       request: { data: proposed, resourceData: proposed },
       resourceBefore: { data: current, exists: current !== null },
       resourceAfter: { data: resolved, exists: resolved !== null },

@@ -39,7 +39,7 @@ export class ValueListeners {
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
   ): () => void {
-    const at = Date.now();
+    const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
       mockData: this.state.tree.snapshot() as Record<string, unknown>,
@@ -51,7 +51,7 @@ export class ValueListeners {
         requestVal = { query };
       }
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
-        at, durationMs: Date.now() - at, request: requestVal, origin: 'listener',
+        at, durationMs: this.state.clock.now() - at, request: requestVal, origin: 'listener',
       });
       const rulesObj = {
         engine: 'rtdb' as const,
@@ -85,7 +85,7 @@ export class ValueListeners {
 
   adminOnValue(path: string, cb: (snap: ValueListenerSnapshot) => void, query?: QuerySpec): () => void {
     return this.attach(null, path, cb, query, {
-      origin: 'admin', result: 'not-applicable', evaluation: undefined, at: Date.now(),
+      origin: 'admin', result: 'not-applicable', evaluation: undefined, at: this.state.clock.now(),
     });
   }
 
@@ -105,7 +105,7 @@ export class ValueListeners {
   ): () => void {
     const id = this.state.events.nextListenerId();
     this.state.events.operation(auth, 'listen', path, provenance.result, provenance.evaluation, {
-      at: provenance.at, durationMs: Date.now() - provenance.at,
+      at: provenance.at, durationMs: this.state.clock.now() - provenance.at,
       request: query ? { query } : undefined, origin: provenance.origin,
     });
     const listener: ValueListener = { id, auth, cb, path, query, cancelCallback, onCanceled };

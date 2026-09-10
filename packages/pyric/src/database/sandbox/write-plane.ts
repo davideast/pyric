@@ -33,7 +33,7 @@ export class WritePlane {
     this.state.priorities.clear();
     for (const [path, value] of Object.entries(seed)) {
       this.state.tree.write(path, normalizeWrite(
-        resolveSentinels(value, Date.now()) as JsonValue, path === '/' ? '' : path,
+        resolveSentinels(value, this.state.clock.now()) as JsonValue, path === '/' ? '' : path,
       ));
     }
     this.state.mutations.mark('/');
@@ -99,7 +99,7 @@ export class WritePlane {
     prioritySupplied = true,
   ): void {
     validatePriority(priority);
-    const now = Date.now();
+    const now = this.state.clock.now();
     const before = this.state.tree.read(path);
     const resolved = normalizeWrite(
       resolveSentinels(value, now, before) as JsonValue, path === '/' ? '' : path,
@@ -129,7 +129,7 @@ export class WritePlane {
   }
 
   adminUpdate(path: string, patch: Record<string, JsonValue>): void {
-    const now = Date.now();
+    const now = this.state.clock.now();
     const before = this.state.tree.read(path);
     const expanded = this.resolvePatch(path, patch, now);
     const multiPath = Object.keys(patch).some((key) => key.includes('/'));
@@ -164,35 +164,35 @@ export class WritePlane {
   }
 
   get(auth: AuthState, path: string): JsonValue {
-    const at = Date.now();
+    const at = this.state.clock.now();
     const value = this.state.tree.read(path);
     const evaluation = this.readEvaluation(auth, path);
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'get', path, denyResultFor(evaluation.check), evaluation, {
-        at, durationMs: Date.now() - at,
+        at, durationMs: this.state.clock.now() - at,
         resourceBefore: { data: value, exists: value !== null },
       });
       throw permissionDenied();
     }
     this.state.events.operation(auth, 'get', path, 'allow', evaluation, {
-      at, durationMs: Date.now() - at,
+      at, durationMs: this.state.clock.now() - at,
       resourceBefore: { data: value, exists: value !== null },
     });
     return this.state.tree.read(path);
   }
 
   getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryRow[] {
-    const at = Date.now();
+    const at = this.state.clock.now();
     const evaluation = this.readEvaluation(auth, path, spec);
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'get', path, denyResultFor(evaluation.check), evaluation, {
-        at, durationMs: Date.now() - at, request: { query: spec },
+        at, durationMs: this.state.clock.now() - at, request: { query: spec },
       });
       throw permissionDenied();
     }
     const rows = executeQuery(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
     this.state.events.operation(auth, 'get', path, 'allow', evaluation, {
-      at, durationMs: Date.now() - at, request: { query: spec },
+      at, durationMs: this.state.clock.now() - at, request: { query: spec },
       resourceBefore: { data: rowsToVal(rows), exists: rows.length > 0 },
     });
     return rows;
@@ -217,7 +217,7 @@ export class WritePlane {
 
   validateSet(auth: AuthState, path: string, value: unknown): void {
     const resolved = normalizeWrite(
-      resolveSentinels(value, Date.now(), this.state.tree.read(path)) as JsonValue,
+      resolveSentinels(value, this.state.clock.now(), this.state.tree.read(path)) as JsonValue,
       path === '/' ? '' : path,
     );
     if (this.writeEvaluation(auth, path, resolved).check !== 'allow') throw permissionDenied();
@@ -228,7 +228,7 @@ export class WritePlane {
     const updates = Object.entries(patch).map(([key, value]) => {
       const absolute = joinPath([...pathSegments(path), ...pathSegments(key)]);
       return { path: absolute, value: normalizeWrite(
-        resolveSentinels(value, Date.now(), this.state.tree.read(absolute)) as JsonValue, absolute,
+        resolveSentinels(value, this.state.clock.now(), this.state.tree.read(absolute)) as JsonValue, absolute,
       ) };
     });
     for (const update of updates) {
@@ -239,7 +239,7 @@ export class WritePlane {
   }
 
   update(auth: AuthState, path: string, patch: Record<string, JsonValue>): void {
-    const now = Date.now();
+    const now = this.state.clock.now();
     const expanded = this.resolvePatch(path, patch, now);
     const multiPath = Object.keys(patch).some((key) => key.includes('/'));
     const mockData = this.state.tree.snapshot() as Record<string, unknown>;
@@ -249,13 +249,13 @@ export class WritePlane {
     ]));
     const groupId = this.state.events.nextGroupId('update');
     for (const update of updates) {
-      const at = Date.now();
+      const at = this.state.clock.now();
       const before = this.state.tree.read(update.path);
       const evaluation = this.state.rules.evaluate('write', update.path, {
         auth, mockData, newData: update.value, updates,
       });
       const fields = {
-        at, durationMs: Date.now() - at, origin: 'batch' as const,
+        at, durationMs: this.state.clock.now() - at, origin: 'batch' as const,
         request: { data: update.value, resourceData: update.value },
         resourceBefore: { data: before, exists: before !== null },
         resourceAfter: { data: update.value, exists: update.value !== null },
@@ -297,17 +297,17 @@ export class WritePlane {
     auth: AuthState, path: string, value: JsonValue,
     op: 'set' | 'remove', priority: Priority, prioritySupplied: boolean,
   ): void {
-    const now = Date.now();
+    const now = this.state.clock.now();
     const resolved = normalizeWrite(
       resolveSentinels(value, now, this.state.tree.read(path)) as JsonValue,
       path === '/' ? '' : path,
     );
     const before = this.state.tree.read(path);
     const priorNodePriority = this.state.priorities.get(path);
-    const at = Date.now();
+    const at = this.state.clock.now();
     const evaluation = this.writeEvaluation(auth, path, resolved);
     const common = {
-      at, durationMs: Date.now() - at,
+      at, durationMs: this.state.clock.now() - at,
       request: { data: value, resourceData: value },
       resourceBefore: { data: before, exists: before !== null },
       resourceAfter: { data: resolved, exists: resolved !== null },

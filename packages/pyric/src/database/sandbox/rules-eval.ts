@@ -27,6 +27,7 @@ import {
 } from '../../rules/rtdb/compiled-rules.js';
 import type { SimulationInput } from '../../rules/rtdb/simulation/spec.js';
 import type { AuthState } from 'pyric/sandbox';
+import { SandboxClock } from 'pyric/sandbox';
 import type { QuerySpec } from './query.js';
 
 function toPrimitiveBoundValue(value: unknown): string | number | boolean | null {
@@ -176,6 +177,12 @@ export class RulesEvaluator {
   private compiled: CompiledRtdbRules | null = null;
   private defaultPolicy: RtdbDefaultPolicy = 'deny';
 
+  /**
+   * @param clock The sandbox's clock, read for the rules engine's `now`. A
+   * standalone evaluator keeps its own wall clock.
+   */
+  constructor(private readonly clock: SandboxClock = new SandboxClock()) {}
+
   /** Set default access policy when no rules are loaded ('allow' or 'deny'). */
   setDefaultPolicy(policy: RtdbDefaultPolicy): void {
     this.defaultPolicy = policy;
@@ -314,6 +321,7 @@ export class RulesEvaluator {
       newData: ctx.newData,
       updates: ctx.updates,
       query: simulatedQuery,
+      now: this.clock.now(),
     });
     if (!result.success) {
       if (result.error.code === 'NO_MATCHING_RULE') {
