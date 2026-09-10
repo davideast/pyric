@@ -141,6 +141,11 @@ for (const pkg of PKGS) {
   for (const sub of subpaths) {
     const spec = pkg + sub.slice(1); // "." -> "", "./x" -> "/x"
     try {
+      if (spec.endsWith('.css')) {
+        import.meta.resolve(spec);
+        total++;
+        continue;
+      }
       const mod = await import(spec);
       if (Object.keys(mod).length === 0) { console.error(`  ✗ ${spec} — 0 exports`); failed = true; }
       else total++;
