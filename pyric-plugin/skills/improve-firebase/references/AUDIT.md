@@ -19,7 +19,7 @@ Use this reference to select evidence, not to force every possible probe. Inspec
 |---|---|---|---|
 | E0 Pyric configuration | Package/lockfile, build configuration, scripts, environment-key names, and installed exports/types | Which integration and local/production switches the source declares | That a server started, a sandbox connected, or a production build/deploy used those settings |
 | E0 AI Logic configuration | `firebase/ai` and `pyric/ai` call sites, model/settings/schema declarations, and Pyric AI mode | Declared request flow, data boundaries, and configuration conflicts | Model behavior, cloud API enablement, production quality, latency, quota, billing, or availability |
-| E1 static rules | `firestore_lint_rules`; `pyric firestore rules lint`; Storage/RTDB lint and validate commands | Parseability, budgets, known unsafe constructs and smells | Runtime authorization for a concrete identity/state/query |
+| E1 static rules | `firestore_lint_rules`; `pyric rules lint --service <service>`; Storage/RTDB lint and validate commands | Parseability, budgets, known unsafe constructs and smells | Runtime authorization for a concrete identity/state/query |
 | E1 Standard Library | `rules_stdlib_list`; `rules_stdlib_get`; Firestore compatibility aliases on older versions | Available tested helpers, exact signatures, and service compatibility | That a helper fits the product model or proves a complete policy |
 | E1 modular build | `rules_resolve_modules`; `pyric firestore rules resolve`; `pyric storage rules resolve` | Imports resolve to a deployable version 2 artifact; source/artifact comparison exposes drift | Runtime authorization or deployment state |
 | E1 index extraction | `pyric firestore indexes generate <sources...> --out <temp>` | Composite shapes statically visible in supported query syntax | Runtime frequency, production build status, dynamic/admin-chain queries, necessity of every overshot branch |
@@ -196,7 +196,7 @@ Do not call an abstention a pass. Record unsupported constructs and registry gap
 
 ### Bounded schema discovery
 
-When `firestore_discover_paths` is registered with an authorized data source, start with its dry-run cost preview. Bound depth, samples, concurrency, and payload size; record reported read/list operations; resume only with the returned continuation. Use `firestore_find_collection_group` when the collection ID is known and only its host paths are unknown.
+`@pyric/cli/discover` ships credential-free crawl helpers (`discoverPaths`, `findCollectionGroup`) for an application that composes its own registry with an authorized data source; they are library functions, not tools registered on the default `pyric bridge` / `pyric sandbox --bridge` surface. When an application has wired one in, start with its dry-run cost preview. Bound depth, samples, concurrency, and payload size; record reported read/list operations; resume only with the returned continuation. Use `findCollectionGroup` when the collection ID is known and only its host paths are unknown.
 
 Discovery samples structure and field presence. It does not authorize data access, prove every production variant, or justify copying sensitive examples into plans. Prefer the connected local sandbox unless the user explicitly placed a production source in scope.
 

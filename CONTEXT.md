@@ -196,32 +196,45 @@ pyric verify cases
 pyric mcp
 ```
 
-Artifact commands use one service-first grammar:
+Two more command shapes exist.
+
+Artifact commands, a handful of local-tooling operations authored one per
+file under `packages/cli/src/cli/service-command-records/` and not derived
+from a method record:
 
 ```text
-pyric <service> <artifact> <operation>
-```
-
-The complete family is:
-
-```text
-pyric firestore rules lint <path>
 pyric firestore rules validate <path>
-pyric firestore rules simulate [--stdin]
 pyric firestore rules resolve <path> [--out <path>]
 pyric firestore indexes generate <path...> [--out <path>]
-pyric storage rules lint <path>
 pyric storage rules resolve <path> [--out <path>]
-pyric storage rules simulate [--stdin]
-pyric database rules lint <path>
 pyric database rules validate <path>
-pyric database rules simulate [--stdin]
 pyric database rules generate [--config <path>] [--out <path>]
+pyric auth reset [--target <id>]
+pyric auth sessions
 ```
+
+Service-tool commands, one per method record under
+`packages/cli/src/bridge/surface/methods/<tool>/<method>.ts`, derived rather
+than authored, and shared with `pyric mcp`:
+
+```text
+pyric <tool> <method> [--<arg> <value>...]
+```
+
+`<tool>` is one of `firestore`, `database`, `storage`, `auth`, `rules`,
+`sandbox`. Linting and simulating a ruleset, and every Firestore, Database,
+Storage, and Auth data operation, are service-tool commands now:
+`pyric rules lint --service firestore`, `pyric firestore setDoc --path
+posts/p1 --data '{"a":1}'`, `pyric auth impersonate --uid alice`, and so on.
+`docs/decisions/0014-service-tools-with-sdk-methods.md` records the design; a
+call's arguments are its method record's schema, under the SDK's own
+argument names, with an object or array argument passed as a JSON string on
+the command line.
 
 `packages/cli/src/cli/index.ts` owns top-level dispatch, help, and the usage
 text that is the practical reference for flags. `packages/cli/src/cli/service-commands.ts`
-owns the service-first hierarchy.
+owns the artifact-command hierarchy; `packages/cli/src/cli/surface-method-command.ts`
+and `surface-method-runner.ts` own the derived service-tool commands.
 
 `pyric sandbox` defaults to port 3473 and opens the served page, or Studio under
 `--ui`. It runs the project's own dev command (`-- <cmd>`, otherwise the
@@ -259,10 +272,18 @@ than silently creating another persistence domain.
 
 `pyric sandbox --bridge` mounts MCP on the sandbox server and routes calls to
 the same sandbox as the open application and Studio. `pyric bridge` provides a
-standalone sandbox bridge. `pyric mcp` is the stdio editor front: it attaches to
-a running development bridge when possible or hosts a headless sandbox.
+standalone sandbox bridge. `pyric mcp` is the stdio editor front: headless
+(the default) it hosts an in-process sandbox and serves the **product
+surface**, six service tools, one per Firebase capability, each carrying
+`{ method, args }` calls rendered from the method records under
+`packages/cli/src/bridge/surface/methods/`
+(`docs/decisions/0014-service-tools-with-sdk-methods.md`). `--surface <id>`
+selects another rendering of the same records for the surface evaluation.
 
-The default bridge contract is exactly 41 tool names: 28 forwarded to the
+The served bridge (`pyric sandbox --bridge`, `pyric bridge`) advertises a
+second, separate contract: the **transport surface** a browser sandbox peer
+executes, plus the rules and conformance tools that run in the bridge
+process without a peer. It is exactly 41 tool names: 28 forwarded to the
 sandbox and 13 that run in the MCP process without a browser peer. A tool name
 is the whole command path joined with underscores, and no tool takes an `op`
 field (ADR-0013, amending ADR-0012). The forwarded set adds the eight
@@ -273,11 +294,12 @@ each client the bridge holds in its consumer registry, and the identity the
 bridge records for its own MCP callers. Each tool family is one record under
 `packages/cli/src/bridge/tool-family-records/` (transport, order, and exact
 tool names); `packages/cli/scripts/generate-tool-family-registry.ts` renders
-the aggregate that `packages/cli/src/bridge/server/mcp-contract.ts` pins and
-that both the MCP process and the browser dispatcher compose from. The
-in-process set includes both the Firestore-specific spellings and the
-service-neutral `rules_stdlib_list`, `rules_stdlib_get`, and
-`rules_resolve_modules`, plus `pyric_can_i_use`. `getDefaultMcpToolSurface()`
+the aggregate that `packages/cli/src/bridge/server/mcp-contract.ts` pins as
+`BRIDGE_TOOL_NAMES` (the product surface's six tools are `DEFAULT_MCP_TOOL_NAMES`
+in the same file) and that both the MCP process and the browser dispatcher
+compose from. The in-process set includes both the Firestore-specific
+spellings and the service-neutral `rules_stdlib_list`, `rules_stdlib_get`,
+and `rules_resolve_modules`, plus `pyric_can_i_use`. `getBridgeToolSurface()`
 fails closed when a factory drifts, and `scripts/tool-parity.mjs` checks that
 exposed tool registries stay explicit.
 

@@ -24,18 +24,14 @@ Console to ship rules, indexes, hosting, and functions to a real project.
 | `pyric snapshot` | Promote saved sandbox state to a committable fixture. Load it with `pyric sandbox --seed <fixture>`. Supports `--out`, `--port`, `--force`, and `--json`. |
 | `pyric verify` | Replay a captured sandbox session against candidate rules (`--engine sandbox\|rules-test-api\|both`). Hosted Rules Test API needs SA/ADC via `FIREBASE_SA_BASE64` / `GOOGLE_APPLICATION_CREDENTIALS` |
 | `pyric can-i-use <feature>` | Query the canonical conformance model for availability, behaviour fidelity, assurance eligibility, caveats, and evidence. Only an exact canonical feature name exits 0; ambiguous names, spelling suggestions, and missing features exit 1. Accepts `--json`. |
-| `pyric mcp` | Start the stdio MCP server. It attaches to `pyric sandbox --bridge` when available or hosts a headless sandbox. |
-| `pyric firestore rules lint <path>` | Lint a Firestore rules file |
+| `pyric mcp` | Start the stdio MCP server. Headless (the default) it hosts an in-process sandbox and serves six service tools, one per Firebase capability. |
 | `pyric firestore rules validate <path>` | Validate Firestore rules structure |
-| `pyric firestore rules simulate` | Run the local Firestore rules simulator |
 | `pyric firestore rules resolve <path>` | Resolve `2+modules` imports into a Firebase rules artifact |
 | `pyric firestore indexes generate <path...>` | Derive composite-index definitions from application source |
-| `pyric storage rules lint <path>` / `simulate` | Run local Storage rules lint or simulation |
 | `pyric storage rules resolve <path> --out storage.rules` | Resolve `storage.modules.rules` into a deployable Storage rules artifact |
-| `pyric database rules lint <path>` | Lint a Realtime Database rules JSON file |
 | `pyric database rules validate <path>` | Validate Realtime Database rules expressions |
-| `pyric database rules simulate` | Run the local Realtime Database rules simulator |
 | `pyric database rules generate` | Compile a constraints module to local `database.rules.json` without contacting production |
+| `pyric <tool> <method> [--<arg> <value>...]` | Call one method of the service surface (`firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`) against this project's sandbox, with the SDK's own method and argument names, e.g. `pyric rules lint --service firestore` or `pyric firestore setDoc --path posts/p1 --data '{"a":1}'`. Any argument reads from a file as `--<arg>-file <path>`, as text for a string argument and parsed JSON for an object one: `pyric rules lint --service firestore --rules-file firestore.rules`. The same records serve `pyric mcp`. |
 
 Every command's full flags, defaults, exit codes, and environment variables are
 in the **[CLI reference](https://pyric.dev/docs/reference/cli/)**.

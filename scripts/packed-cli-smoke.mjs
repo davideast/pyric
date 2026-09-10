@@ -112,7 +112,20 @@ process.stdout.write('  ✓ packed pyric starts and reports its package + Fireba
 // deployment surface through generated help or stale dispatch code.
 const help = run(['--help']);
 expect(help.code === 0, 'pyric --help must exit 0', help);
-assertExact('packed pyric command inventory', advertisedCommands(help.stdout), contract.commands);
+// The help text advertises the whole derived `pyric <tool> <method>` family on
+// one row; the rows themselves are pinned in the contract's derivedCommands.
+const DERIVED_COMMAND_ROW = '<tool>';
+const advertised = advertisedCommands(help.stdout);
+expect(
+  advertised.includes(DERIVED_COMMAND_ROW),
+  'pyric --help must advertise the derived `pyric <tool> <method>` family',
+  help,
+);
+assertExact(
+  'packed pyric command inventory',
+  advertised.filter((command) => command !== DERIVED_COMMAND_ROW),
+  contract.commands,
+);
 expect(!help.stdout.includes('pyric deploy'), 'pyric --help must not advertise production deployment', help);
 expect(!help.stdout.includes('hosting:channel:deploy'), 'pyric --help must not advertise Hosting deployment', help);
 for (const command of [
@@ -139,16 +152,11 @@ for (const command of [
 expect(!help.stdout.includes('--mode'), 'pyric bridge help must not advertise backend selection', help);
 expect(!help.stdout.includes('PROD-MODE'), 'pyric bridge help must not advertise production policy controls', help);
 for (const command of [
-  'firestore rules lint',
   'firestore rules validate',
-  'firestore rules simulate',
   'firestore rules resolve',
   'firestore indexes generate',
-  'storage rules lint',
-  'storage rules simulate',
-  'database rules lint',
+  'storage rules resolve',
   'database rules validate',
-  'database rules simulate',
   'database rules generate',
 ]) {
   expect(
@@ -159,7 +167,11 @@ for (const command of [
 }
 const removedDeploy = run(['deploy', 'rules']);
 expect(removedDeploy.code === 1, 'pyric deploy must be rejected as an unknown command', removedDeploy);
-expect(removedDeploy.stderr.includes("unknown command 'deploy'"), 'pyric deploy must fail without a compatibility path', removedDeploy);
+expect(
+  removedDeploy.stderr.includes("unknown command 'deploy rules'"),
+  'pyric deploy must fail without a compatibility path',
+  removedDeploy,
+);
 const removedHostingDeploy = run(['hosting:channel:deploy']);
 expect(removedHostingDeploy.code === 1, 'pyric hosting:channel:deploy must be rejected as an unknown command', removedHostingDeploy);
 expect(
@@ -205,33 +217,36 @@ service cloud.firestore {
 }`;
 writeFileSync(resolve(workDir, 'firestore.rules'), `${allowAnonymous}\n`);
 
-// Slice 2: service-namespaced local tooling executes from the installed
-// artifact. These commands are credential-free by contract.
-const firestoreLint = run(['firestore', 'rules', 'lint', 'firestore.rules']);
-expect(firestoreLint.code === 0, 'pyric firestore rules lint must exit 0', firestoreLint);
+// Slice 2: the service surface's derived `pyric <tool> <method>` commands
+// execute from the installed artifact. These commands are credential-free by
+// contract. `firestore rules lint` and `firestore rules simulate` (and their
+// storage/database counterparts) were retired in favor of `rules lint` and
+// `rules simulate`, one command per service tool method, so this slice drives
+// those instead.
+const firestoreLint = run(['rules', 'lint', '--service', 'firestore', '--rules', allowAnonymous, '--json']);
+expect(firestoreLint.code === 0, 'pyric rules lint --service firestore must exit 0', firestoreLint);
 expect(
-  Array.isArray(parseJson(firestoreLint, 'pyric firestore rules lint').warnings),
-  'pyric firestore rules lint must return warnings JSON',
+  parseJson(firestoreLint, 'pyric rules lint --service firestore').ok === true,
+  'pyric rules lint --service firestore must report a clean ruleset',
   firestoreLint,
 );
-const firestoreSimulate = run(['firestore', 'rules', 'simulate', '--stdin'], {
-  input: JSON.stringify({
-    source: allowAnonymous,
-    testCases: [
-      {
-        description: 'anonymous read is denied',
-        expectation: 'DENY',
-        method: 'get',
-        path: 'notes/packed',
-        auth: null,
-      },
-    ],
-  }),
-});
+const firestoreSimulate = run([
+  'rules',
+  'simulate',
+  '--service',
+  'firestore',
+  '--operation',
+  'get',
+  '--path',
+  'notes/packed',
+  '--rules',
+  allowAnonymous,
+  '--json',
+]);
 expect(
   firestoreSimulate.code === 0 &&
-    parseJson(firestoreSimulate, 'pyric firestore rules simulate').success === true,
-  'pyric firestore rules simulate must execute through the packed artifact',
+    parseJson(firestoreSimulate, 'pyric rules simulate --service firestore').data?.allowed === false,
+  'pyric rules simulate --service firestore must execute through the packed artifact',
   firestoreSimulate,
 );
 
@@ -240,56 +255,58 @@ const storageRules = `service firebase.storage {
     match /{object=**} { allow read, write: if false; }
   }
 }`;
-writeFileSync(resolve(workDir, 'storage.rules'), `${storageRules}\n`);
-const storageLint = run(['storage', 'rules', 'lint', 'storage.rules']);
-expect(storageLint.code === 0, 'pyric storage rules lint must exit 0', storageLint);
+const storageLint = run(['rules', 'lint', '--service', 'storage', '--rules', storageRules, '--json']);
+expect(storageLint.code === 0, 'pyric rules lint --service storage must exit 0', storageLint);
 expect(
-  Array.isArray(parseJson(storageLint, 'pyric storage rules lint').warnings),
-  'pyric storage rules lint must return warnings JSON',
+  parseJson(storageLint, 'pyric rules lint --service storage').ok === true,
+  'pyric rules lint --service storage must report a clean ruleset',
   storageLint,
 );
-const storageSimulate = run(['storage', 'rules', 'simulate', '--stdin'], {
-  input: JSON.stringify({
-    source: storageRules,
-    request: {
-      auth: null,
-      method: 'get',
-      path: 'b/packed-bucket/o/notes/one.txt',
-    },
-    resource: { size: 12 },
-  }),
-});
+const storageSimulate = run([
+  'rules',
+  'simulate',
+  '--service',
+  'storage',
+  '--operation',
+  'get',
+  '--path',
+  'notes/one.txt',
+  '--rules',
+  storageRules,
+  '--json',
+]);
 expect(
   storageSimulate.code === 0 &&
-    parseJson(storageSimulate, 'pyric storage rules simulate').data?.allowed === false,
-  'pyric storage rules simulate must execute through the packed artifact',
+    parseJson(storageSimulate, 'pyric rules simulate --service storage').data?.allowed === false,
+  'pyric rules simulate --service storage must execute through the packed artifact',
   storageSimulate,
 );
 
-writeFileSync(
-  resolve(workDir, 'database.rules.json'),
-  `${JSON.stringify({ rules: { '.read': true, '.write': false } }, null, 2)}\n`,
-);
-const databaseLint = run(['database', 'rules', 'lint', 'database.rules.json']);
-expect(databaseLint.code === 0, 'pyric database rules lint must exit 0', databaseLint);
+const databaseRules = JSON.stringify({ rules: { '.read': true, '.write': false } });
+const databaseLint = run(['rules', 'lint', '--service', 'database', '--rules', databaseRules, '--json']);
+expect(databaseLint.code === 0, 'pyric rules lint --service database must exit 0', databaseLint);
 expect(
-  Array.isArray(parseJson(databaseLint, 'pyric database rules lint').warnings),
-  'pyric database rules lint must return warnings JSON',
+  parseJson(databaseLint, 'pyric rules lint --service database').ok === true,
+  'pyric rules lint --service database must report a clean ruleset',
   databaseLint,
 );
-const databaseSimulate = run(['database', 'rules', 'simulate', '--stdin'], {
-  input: JSON.stringify({
-    rulesJson: { rules: { '.read': true, '.write': false } },
-    operation: 'read',
-    path: '/notes/one',
-    auth: null,
-    mockData: {},
-  }),
-});
+const databaseSimulate = run([
+  'rules',
+  'simulate',
+  '--service',
+  'database',
+  '--operation',
+  'read',
+  '--path',
+  'notes/one',
+  '--rules',
+  databaseRules,
+  '--json',
+]);
 expect(
   databaseSimulate.code === 0 &&
-    parseJson(databaseSimulate, 'pyric database rules simulate').data?.allowed === true,
-  'pyric database rules simulate must execute through the packed artifact',
+    parseJson(databaseSimulate, 'pyric rules simulate --service database').data?.allowed === true,
+  'pyric rules simulate --service database must execute through the packed artifact',
   databaseSimulate,
 );
 

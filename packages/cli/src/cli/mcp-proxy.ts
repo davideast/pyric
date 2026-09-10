@@ -36,7 +36,10 @@
  * winning) selects the tool surface the headless server renders, and
  * `--project-dir <dir>` (or `PYRIC_PROJECT_DIR`, same precedence) names the
  * directory that headless server reads its rules files and `.pyric/state` from.
- * Absent both, the project directory is the process cwd.
+ * Absent both, the project directory is the process cwd. `--allow-production`
+ * (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`) mounts `production`
+ * methods on the headless server; absent, a `production` method is neither
+ * listed nor callable (ADR-0014 Decision 5).
  *
  * Discovery preference: the `.pyric/serve.json` pointer serve writes in the
  * project cwd (exact + project-correct), then a health probe across the scan
@@ -86,6 +89,8 @@ export interface HeadlessSelection {
   surface?: string;
   /** Project directory, or undefined to use the cwd the server is started in. */
   projectDir?: string;
+  /** Mount `production` methods (ADR-0014 Decision 5). Defaults to false. */
+  allowProduction?: boolean;
 }
 
 /** Environment variable naming the tool surface when `--surface` is absent. */
@@ -93,6 +98,9 @@ export const TOOL_SURFACE_ENV_KEY = 'PYRIC_TOOL_SURFACE';
 
 /** Environment variable naming the project directory when `--project-dir` is absent. */
 export const PROJECT_DIR_ENV_KEY = 'PYRIC_PROJECT_DIR';
+
+/** Environment variable that mounts `production` methods when `--allow-production` is absent. */
+export const ALLOW_PRODUCTION_ENV_KEY = 'PYRIC_ALLOW_PRODUCTION';
 
 /** `--headless` forces the in-process sandbox and skips discovery entirely. */
 function forcesHeadlessSandbox(parsed: ParsedArgs): boolean {
@@ -129,6 +137,27 @@ function selectFlagOrEnv(
   return undefined;
 }
 
+/** The only two values of `PYRIC_ALLOW_PRODUCTION` that mount production methods. */
+const ALLOW_PRODUCTION_ENV_VALUES: readonly string[] = ['1', 'true'];
+
+/**
+ * Whether `production` methods mount (ADR-0014 Decision 5). The flag wins over
+ * the environment; absent both, production methods do not mount. Shared with
+ * `pyric <tool> <method>` (`surface-method-runner.ts`), so the two paths that
+ * start a session read the flag the same way.
+ *
+ * The environment fallback takes an exact word rather than anything truthy.
+ * Mounting these methods hands a session real credentials and real Google
+ * infrastructure, so a variable set for some neighbouring purpose, or set to a
+ * word a reader would take for a refusal, opts nobody in.
+ */
+export function selectAllowProduction(parsed: ParsedArgs, env: NodeJS.ProcessEnv): boolean {
+  if (parsed.flags?.get('allow-production') === true) return true;
+  const envValue = env[ALLOW_PRODUCTION_ENV_KEY];
+  if (envValue === undefined) return false;
+  return ALLOW_PRODUCTION_ENV_VALUES.includes(envValue);
+}
+
 export async function runMcpProxy(
   parsed: ParsedArgs,
   cwd: string = process.cwd(),
@@ -143,6 +172,7 @@ export async function runMcpProxy(
   const selection: HeadlessSelection = {
     surface: selectToolSurface(parsed, env),
     projectDir: selectProjectDir(parsed, env),
+    allowProduction: selectAllowProduction(parsed, env),
   };
   const runHeadless =
     deps.headless ??

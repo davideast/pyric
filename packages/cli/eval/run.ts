@@ -64,7 +64,7 @@ import { buildEvalState, emptyEvalState } from './state.js';
 import { scoreRun, type SpawnOutcome } from './score.js';
 import { classifyRunOutcome } from './outcome.js';
 import { DEFAULT_BUDGET_PER_WINDOW, isThrottled, Pacer, type PacingOptions } from './pacing.js';
-import { defaultServerCommand } from './providers/server-env.js';
+import { defaultServerCommand, spawnEnv } from './providers/server-env.js';
 import { HEADLESS_STATE_RELATIVE } from '../src/bridge/server/headless.js';
 import { STORAGE_SIDECAR_RELATIVE } from './storage-sidecar.js';
 import { buildInvocation as buildClaude } from './providers/claude.js';
@@ -226,7 +226,7 @@ async function spawnInvocation(
     // The workspace, never the run directory: what the process can see from its
     // own cwd is part of what the run measures.
     cwd: run.workspaceDir,
-    env: { ...process.env, ...env },
+    env: spawnEnv(process.env, env),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   child.stdout.on('data', (chunk: Buffer) => {

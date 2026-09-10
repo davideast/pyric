@@ -9,17 +9,11 @@
  *   pyric vendor [dir] [--json]
  *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
  *   pyric mcp
- *   pyric firestore rules lint <path>
  *   pyric firestore rules validate <path>
- *   pyric firestore rules simulate [--stdin]
  *   pyric firestore rules resolve <path> [--out <path>]
  *   pyric firestore indexes generate <path...> [--out <path>]
- *   pyric storage rules lint <path>
  *   pyric storage rules resolve <path> [--out <path>]
- *   pyric storage rules simulate [--stdin]
- *   pyric database rules lint <path>
  *   pyric database rules validate <path>
- *   pyric database rules simulate [--stdin]
  *   pyric database rules generate [--config <path>] [--out <path>]
  *   pyric --help
  *   pyric --version
@@ -66,18 +60,13 @@ USAGE
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
   pyric can-i-use <feature> [--json]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
-  pyric firestore rules lint <path>
   pyric firestore rules validate <path>
-  pyric firestore rules simulate [--stdin]
   pyric firestore rules resolve <path> [--out <path>]
   pyric firestore indexes generate <path...> [--out <path>]
-  pyric storage rules lint <path>
   pyric storage rules resolve <path> [--out <path>]
-  pyric storage rules simulate [--stdin]
-  pyric database rules lint <path>
   pyric database rules validate <path>
-  pyric database rules simulate [--stdin]
   pyric database rules generate [--config <path>] [--out <path>]
+  pyric <tool> <method> [--<arg> <value>...]
   pyric --help
   pyric --version
 
@@ -121,31 +110,26 @@ COMMANDS
                              Exact and fuzzy queries use the same model as MCP. --json.
   verify cases [fixture]     Derive Firestore Rules Test API cases from a captured
                              fixture and print JSON, or write with --out FILE.
-  firestore rules lint       Run the Firestore rules linter against a file.
   firestore rules validate   Validate Firestore rules structure against a file.
-  firestore rules simulate   Run the local Firestore rules simulator.
   firestore rules resolve    Resolve Firestore 2+modules imports to one ruleset.
   firestore indexes generate Generate firestore.indexes.json from application source.
-  storage rules lint         Check Storage rules syntax locally.
   storage rules resolve      Resolve Storage 2+modules imports to one ruleset.
-  storage rules simulate     Run the local Storage rules evaluator.
-  database rules lint        Run the Realtime Database rules expression linter.
   database rules validate    Validate Realtime Database rules expressions.
-  database rules simulate    Run the local Realtime Database rules simulator.
   database rules generate    Compile a constraints module to database.rules.json.
-  auth impersonate           Act as a user: pyric auth impersonate <uid>
-                             [--tenant ID] [--claims JSON], or --admin to bypass
-                             rules, or --anonymous to be signed out. With no
-                             --target this records your own bridge identity and
-                             the Firestore data tools you forward run under it
-                             with rules enforced; --target <id> drives another
-                             connected client instead and leaves your own tool
-                             calls alone. Requires a running bridge. --json.
   auth reset                 Follow the application session again. --target <id>
                              resets another connected client instead of you.
                              Requires a running bridge. --json.
-  auth whoami                Report the identity the bridge holds for you.
-                             Requires a running bridge. --json.
+  <tool> <method>            Call one method of the service surface against this
+                             project's sandbox: firestore, database, storage,
+                             auth, rules, and sandbox, with the SDK's own method
+                             and argument names. Arguments are flags, and an
+                             object or array argument is a JSON string. Any
+                             argument reads from a file as --<arg>-file <path>:
+                             pyric auth impersonate --uid alice
+                             pyric firestore setDoc --path posts/p1 --data '{"a":1}'
+                             pyric rules lint --service firestore --rules-file firestore.rules
+                             The same records serve \`pyric mcp\`, so the two
+                             surfaces cannot drift. --json prints the whole result.
   auth sessions              List the clients connected to a running sandbox
                              bridge with the identity each one acts as, and the
                              target id to pass to impersonate or reset. --json.
@@ -375,7 +359,9 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
     case 'vendor':
       return await runVendor(parsed);
     default:
-      process.stderr.write(`pyric: unknown command '${parsed.subcommand}'.\n\n`);
+      process.stderr.write(
+        `pyric: unknown command '${[parsed.subcommand, ...parsed.positional].join(' ')}'.\n\n`,
+      );
       printUsage();
       return 1;
   }

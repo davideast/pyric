@@ -10,16 +10,16 @@
  * handler, so the same code runs here as under every other variant.
  */
 import { toJsonSchema } from '../json-schema.js';
-import { operationById } from '../operations/index.js';
 import type {
-  Operation,
   OperationResult,
   RenderedResource,
   RenderedSurface,
   RenderedTool,
+  RenderOptions,
   ResolvedCall,
   SurfaceContext,
 } from '../types.js';
+import { CANONICAL_OPERATION_IDS, runCanonicalOperation } from './canonical-dispatch.js';
 import {
   DISCRIMINATOR_RESOURCES,
   RESOURCE_ROUTES,
@@ -53,17 +53,20 @@ function callIdentity(args: Args): CallIdentity | null {
 
 /** Run one operation, under a per-call identity override when the arguments carry one. */
 async function runUnderCallIdentity(
-  operation: Operation,
+  operation: string,
   translated: Args,
   args: Args,
   ctx: SurfaceContext,
+  allowProduction: boolean,
 ): Promise<OperationResult> {
   const override = callIdentity(args);
-  if (override === null) return operation.handler(translated, ctx);
+  if (override === null) {
+    return runCanonicalOperation(operation, translated, ctx, allowProduction);
+  }
   const held = ctx.identity.describe();
   ctx.identity.switchTo(override);
   try {
-    return await operation.handler(translated, ctx);
+    return await runCanonicalOperation(operation, translated, ctx, allowProduction);
   } finally {
     ctx.identity.switchTo(held);
   }
@@ -98,7 +101,7 @@ function renderTool(name: string, description: string, parameters: RenderedTool[
   return { name, description, inputSchema: parameters };
 }
 
-function buildTools(): RenderedTool[] {
+function buildTools(allowProduction: boolean): RenderedTool[] {
   return DISCRIMINATOR_TOOLS.map((tool) => ({
     ...renderTool(tool.name, tool.description, toJsonSchema(tool.parameters)),
     async execute(args: Args, ctx: SurfaceContext) {
@@ -109,13 +112,18 @@ function buildTools(): RenderedTool[] {
           summary: `${tool.name}: this combination is not available in this build.`,
         };
       }
-      const operation = operationById(route.operation);
-      return runUnderCallIdentity(operation, route.translate(args), args, ctx);
+      return runUnderCallIdentity(
+        route.operation,
+        route.translate(args),
+        args,
+        ctx,
+        allowProduction,
+      );
     },
   }));
 }
 
-function buildResources(): RenderedResource[] {
+function buildResources(allowProduction: boolean): RenderedResource[] {
   return DISCRIMINATOR_RESOURCES.map((resource) => ({
     uriTemplate: resource.uriTemplate,
     name: resource.name,
@@ -131,13 +139,14 @@ function buildResources(): RenderedResource[] {
       if (route === undefined) {
         return { ok: false, summary: `${resource.name} is not available in this build.` };
       }
-      return operationById(route.operation).handler(route.translate(params), ctx);
+      return runCanonicalOperation(route.operation, route.translate(params), ctx, allowProduction);
     },
   }));
 }
 
-export function render(operations: readonly Operation[]): RenderedSurface {
-  const known = new Set(operations.map((operation) => operation.id));
+export function render(options?: RenderOptions): RenderedSurface {
+  const allowProduction = options?.allowProduction ?? false;
+  const known = new Set(CANONICAL_OPERATION_IDS);
   for (const route of DISCRIMINATOR_ROUTES) {
     if (!known.has(route.operation)) {
       throw new Error(`discriminator route names unknown operation '${route.operation}'`);
@@ -145,8 +154,8 @@ export function render(operations: readonly Operation[]): RenderedSurface {
   }
 
   return {
-    tools: buildTools(),
-    resources: buildResources(),
+    tools: buildTools(allowProduction),
+    resources: buildResources(allowProduction),
     resolve(toolName: string, args: Args): ResolvedCall {
       const route = routeFor(toolName, args);
       if (route !== undefined) return { operation: route.operation, action: route.action };

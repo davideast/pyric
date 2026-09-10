@@ -16,13 +16,8 @@
 import { describe, it, expect, mock } from 'bun:test';
 
 import { parseArgs } from './parse-args.js';
-import { runRulesLint, runRulesValidate, runRulesSimulate } from './rules.js';
-import {
-  runDatabaseRulesLint,
-  runDatabaseRulesValidate,
-  runDatabaseRulesSimulate,
-  runDatabaseRulesGenerate,
-} from './database-rules.js';
+import { runRulesValidate } from './rules.js';
+import { runDatabaseRulesValidate, runDatabaseRulesGenerate } from './database-rules.js';
 import { runInit } from './init.js';
 
 // ── Test helpers ──────────────────────────────────────────────────────
@@ -84,31 +79,6 @@ describe('parseArgs', () => {
 
 // ── rules ─────────────────────────────────────────────────────────────
 
-describe('runRulesLint', () => {
-  it('errors out when no path given', async () => {
-    const io = bufferIo();
-    const code = await runRulesLint(serviceArgs(['firestore', 'rules', 'lint']), { ...io });
-    expect(code).toBe(1);
-    expect(io.getErr()).toContain('missing rules-file path');
-  });
-
-  it('passes the source to the linter and prints JSON', async () => {
-    const io = bufferIo();
-    const lintFn = mock(() => ({ warnings: [], metrics: { sourceSize: 5 } as never }));
-    const code = await runRulesLint(serviceArgs(['firestore', 'rules', 'lint', 'firestore.rules']), {
-      ...io,
-      cwd: '/tmp',
-      readFile: (async () => 'source') as never,
-      lintFirestoreRules: lintFn as never,
-    });
-    expect(code).toBe(0);
-    expect(lintFn).toHaveBeenCalledTimes(1);
-    expect(lintFn).toHaveBeenCalledWith('source');
-    const out = JSON.parse(io.getOut()) as { warnings: unknown[] };
-    expect(out.warnings).toEqual([]);
-  });
-});
-
 describe('runRulesValidate', () => {
   it('errors out when no path given', async () => {
     const io = bufferIo();
@@ -128,75 +98,7 @@ describe('runRulesValidate', () => {
   });
 });
 
-describe('runRulesSimulate', () => {
-  it('runs a sample test against firebase.json rules path', async () => {
-    const io = bufferIo();
-    const simulateFn = mock(() => ({
-      success: true,
-      data: { results: [], passed: 0, failed: 0 },
-    } as never));
-    const code = await runRulesSimulate(serviceArgs(['firestore', 'rules', 'simulate']), {
-      ...io,
-      cwd: '/tmp',
-      readFirebaseJson: async () => ({ firestore: { rules: 'firestore.rules' } }),
-      readFile: (async () => 'rules source') as never,
-      simulate: simulateFn as never,
-    });
-    expect(code).toBe(0);
-    expect(simulateFn).toHaveBeenCalledTimes(1);
-    const callArgs = (simulateFn.mock.calls[0] ?? []) as [string, unknown[]];
-    expect(callArgs[0]).toBe('rules source');
-    expect(callArgs[1]).toHaveLength(1);
-  });
-
-  it('reads request from stdin when --stdin is set', async () => {
-    const io = bufferIo();
-    const simulateFn = mock(() => ({ success: true, data: { results: [], passed: 0, failed: 0 } } as never));
-    const code = await runRulesSimulate(serviceArgs(['firestore', 'rules', 'simulate', '--stdin']), {
-      ...io,
-      cwd: '/tmp',
-      readStdin: async () =>
-        JSON.stringify({
-          source: 'inline rules',
-          testCases: [
-            { description: 't', expectation: 'ALLOW', method: 'get', path: 'x/1', auth: null },
-            { description: 't2', expectation: 'DENY', method: 'get', path: 'x/2', auth: null },
-          ],
-        }),
-      simulate: simulateFn as never,
-    });
-    expect(code).toBe(0);
-    const callArgs = (simulateFn.mock.calls[0] ?? []) as [string, unknown[]];
-    expect(callArgs[0]).toBe('inline rules');
-    expect(callArgs[1]).toHaveLength(2);
-  });
-});
-
 // ── database rules ───────────────────────────────────────────────────
-
-describe('runDatabaseRulesLint', () => {
-  it('errors out when no path given', async () => {
-    const io = bufferIo();
-    const code = await runDatabaseRulesLint(serviceArgs(['database', 'rules', 'lint']), { ...io });
-    expect(code).toBe(1);
-    expect(io.getErr()).toContain('missing rules-file path');
-  });
-
-  it('prints RTDB expression lints as JSON', async () => {
-    const io = bufferIo();
-    const code = await runDatabaseRulesLint(serviceArgs(['database', 'rules', 'lint', 'database.rules.json']), {
-      ...io,
-      cwd: '/tmp',
-      readFile: (async () => '{"rules":{".read":true,".write":false}}') as never,
-    });
-    expect(code).toBe(0);
-    const out = JSON.parse(io.getOut()) as { warnings: Array<{ code: string }> };
-    expect(out.warnings.map((finding) => finding.code).sort()).toEqual([
-      'HARDCODED_FALSE',
-      'HARDCODED_TRUE',
-    ]);
-  });
-});
 
 describe('runDatabaseRulesValidate', () => {
   it('reports RTDB expression parse errors', async () => {
@@ -209,27 +111,6 @@ describe('runDatabaseRulesValidate', () => {
     expect(code).toBe(0);
     const out = JSON.parse(io.getOut()) as { errors: Array<{ code: string }> };
     expect(out.errors.some((finding) => finding.code === 'PARSE_ERROR')).toBe(true);
-  });
-});
-
-describe('runDatabaseRulesSimulate', () => {
-  it('simulates inline RTDB rules from stdin', async () => {
-    const io = bufferIo();
-    const code = await runDatabaseRulesSimulate(serviceArgs(['database', 'rules', 'simulate', '--stdin']), {
-      ...io,
-      readStdin: async () =>
-        JSON.stringify({
-          rulesJson: { rules: { '.read': true } },
-          operation: 'read',
-          path: '/sample',
-          auth: null,
-          mockData: {},
-        }),
-    });
-    expect(code).toBe(0);
-    const result = JSON.parse(io.getOut()) as { success: boolean; data: { allowed: boolean } };
-    expect(result.success).toBe(true);
-    expect(result.data.allowed).toBe(true);
   });
 });
 

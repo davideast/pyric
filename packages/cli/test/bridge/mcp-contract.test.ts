@@ -1,69 +1,122 @@
+/**
+ * The two contracts: the six service tools `pyric mcp` advertises, and the
+ * transport surface a browser sandbox peer executes underneath them.
+ */
 import { describe, expect, it } from 'bun:test';
 import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
 import {
-  DEFAULT_MCP_FORWARDED_TOOL_NAMES,
-  DEFAULT_MCP_IN_PROCESS_TOOL_NAMES,
+  BRIDGE_FORWARDED_TOOL_NAMES,
+  BRIDGE_IN_PROCESS_TOOL_NAMES,
   DEFAULT_MCP_TOOL_NAMES,
-  getDefaultMcpToolSurface,
+  getBridgeToolSurface,
 } from '../../src/bridge/server/mcp-contract.js';
+import { TOOLS } from '../../src/bridge/surface/methods/registry.js';
+import { renderSurface } from '../../src/bridge/surface/index.js';
 
-describe('default MCP tool contract', () => {
+/** The methods each service tool carries, in the order its directory lists them. */
+const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
+  firestore: [
+    'addDoc',
+    'deleteDoc',
+    'getDoc',
+    'getDocs',
+    'setDoc',
+    'updateDoc',
+    'writeBatch',
+  ],
+  database: ['get', 'query', 'remove', 'set', 'update'],
+  storage: ['deleteObject', 'getBytes', 'getMetadata', 'listAll', 'uploadBytes'],
+  auth: [
+    'actAsAdmin',
+    'actAsAnonymous',
+    'createUser',
+    'deleteUser',
+    'getUser',
+    'impersonate',
+    'listUsers',
+    'setCustomUserClaims',
+    'updateUser',
+    'useAppSession',
+    'whoami',
+  ],
+  rules: ['explainDenial', 'getStdlib', 'lint', 'listStdlib', 'set', 'simulate'],
+  sandbox: ['inspect', 'reset', 'seed'],
+};
+
+describe('the product MCP tool contract', () => {
   it('ratifies the exact public tools/list surface', () => {
     expect(DEFAULT_MCP_TOOL_NAMES).toEqual([
-      'firestore_simulator_create',
-      'firestore_simulator_execute',
-      'firestore_simulator_read',
-      'firestore_simulator_batch',
-      'firestore_create_with_auto_id',
-      'firestore_simulator_undo',
-      'firestore_simulator_redo',
-      'firestore_simulator_events',
-      'firestore_simulator_transaction',
+      'firestore',
+      'database',
+      'storage',
+      'auth',
+      'rules',
+      'sandbox',
+    ]);
+  });
+
+  it('is what a server with no surface flag renders', () => {
+    expect(renderSurface(undefined).tools.map((tool) => tool.name)).toEqual([
+      ...DEFAULT_MCP_TOOL_NAMES,
+    ]);
+  });
+
+  it('pins the methods behind each service tool', () => {
+    for (const tool of TOOLS) {
+      expect(tool.methods.map((method) => method.method)).toEqual(SERVICE_METHODS[tool.name]!);
+    }
+  });
+
+  it('advertises describe on every tool alongside its methods', () => {
+    for (const tool of renderSurface(undefined).tools) {
+      const schema = tool.inputSchema as {
+        properties: { method: { enum: string[] } };
+      };
+      expect(schema.properties.method.enum).toEqual([
+        ...SERVICE_METHODS[tool.name]!,
+        'describe',
+      ]);
+    }
+  });
+});
+
+describe('the bridge transport contract', () => {
+  it('matches the browser dispatcher and live in-process handlers exactly', () => {
+    const surface = getBridgeToolSurface();
+    expect(surface.forwarded.map((tool) => tool.name).sort()).toEqual(
+      [...BRIDGE_FORWARDED_TOOL_NAMES].sort(),
+    );
+    expect([...SANDBOX_TOOL_NAMES].sort()).toEqual([...BRIDGE_FORWARDED_TOOL_NAMES].sort());
+    expect(surface.inProcess.map((tool) => tool.name).sort()).toEqual(
+      [...BRIDGE_IN_PROCESS_TOOL_NAMES].sort(),
+    );
+  });
+
+  it('carries the sandbox tools the service methods dispatch onto', () => {
+    const transport = new Set([...BRIDGE_FORWARDED_TOOL_NAMES, ...BRIDGE_IN_PROCESS_TOOL_NAMES]);
+    for (const name of [
       'firestore_get_document',
       'firestore_list_documents',
       'firestore_create_document',
-      'firestore_add_document',
       'firestore_update_document',
       'firestore_delete_document',
-      'firestore_batch_write',
       'firestore_query_where',
-      'sandbox_inspect',
-      'rtdb_simulate_access',
-      'rtdb_crawl_structure',
+      'firestore_add_document',
+      'firestore_batch_write',
       'auth_create_user',
-      'auth_import_users',
       'auth_get_user',
       'auth_list_users',
       'auth_update_user',
       'auth_delete_user',
       'auth_set_claims',
-      'auth_custom_token',
+      'sandbox_inspect',
+      'rtdb_simulate_access',
+      'firestore_lint_rules',
       'firestore_simulate_rules',
       'firestore_rules_stdlib_list',
       'firestore_rules_stdlib_get',
-      'firestore_lint_rules',
-      'firestore_resolve_modules',
-      'rules_stdlib_list',
-      'rules_stdlib_get',
-      'rules_resolve_modules',
-      'pyric_can_i_use',
-      'auth_impersonate',
-      'auth_reset',
-      'auth_whoami',
-      'auth_sessions',
-    ]);
-  });
-
-  it('matches the browser dispatcher and live in-process handlers exactly', () => {
-    const surface = getDefaultMcpToolSurface();
-    expect(surface.forwarded.map((tool) => tool.name).sort()).toEqual(
-      [...DEFAULT_MCP_FORWARDED_TOOL_NAMES].sort(),
-    );
-    expect([...SANDBOX_TOOL_NAMES].sort()).toEqual(
-      [...DEFAULT_MCP_FORWARDED_TOOL_NAMES].sort(),
-    );
-    expect(surface.inProcess.map((tool) => tool.name).sort()).toEqual(
-      [...DEFAULT_MCP_IN_PROCESS_TOOL_NAMES].sort(),
-    );
+    ]) {
+      expect(transport.has(name)).toBe(true);
+    }
   });
 });

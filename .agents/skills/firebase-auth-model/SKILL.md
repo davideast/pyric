@@ -16,10 +16,11 @@ profile data, and rule behavior — not just SDK call names.
    and any service/admin actors. Complete when every access boundary has a
    named identity.
 
-2. **Choose provider flows.** Check what is enabled with `auth_get_config`;
-   enable or adjust providers with `auth_configure_provider` and authorized
-   domains with `auth_manage_domains`. Complete when every provider in the
-   model has a creation, sign-in, and error path.
+2. **Choose provider flows.** Check what is enabled, adjust providers, and
+   manage authorized domains through the Firebase Console or `firebase-tools`
+   (pyric mirrors sandbox auth state, not project provider configuration).
+   Complete when every provider in the model has a creation, sign-in, and
+   error path.
 
 3. **Design auth state.** Auth-state observation is the source of truth;
    synchronous current-user access is a nullable convenience (null while auth
@@ -39,16 +40,17 @@ profile data, and rule behavior — not just SDK call names.
 
 6. **Plan fixtures.** Define test users — UIDs, providers, claims, disabled
    state — and the profile/membership docs each rule branch needs. Seed the
-   documents with `firestore_add_document` / `firestore_batch_write` (or
-   `rtdb_set`). Complete when each rule branch has a matching identity
-   fixture.
+   documents with `firestore_add_document` / `firestore_batch_write` (or a
+   seed file loaded with `pyric sandbox --seed` for Realtime Database
+   fixtures). Complete when each rule branch has a matching identity fixture.
 
 7. **Verify auth-dependent rules.** Exercise signed-out, owner, other-user,
    member, claim-holder, invalid-claim, missing-profile, and disabled cases
-   with `firestore_simulate_rules` (set the auth context per case) and a
-   `firestore_test_rules` suite — `pyric_derive_rules_test_cases` generates
-   the case list; use `rtdb_simulate_access` for RTDB paths. Complete when
-   the answer names verified behavior and remaining unverified assumptions.
+   with `firestore_simulate_rules` (set the auth context per case) and the
+   hosted Rules Test API (`pyric verify --engine rules-test-api|both`),
+   with `pyric verify cases` generating the case list from a captured fixture; use
+   `rtdb_simulate_access` for RTDB paths. Complete when the answer names
+   verified behavior and remaining unverified assumptions.
 
 ## Reference — auth design rules
 

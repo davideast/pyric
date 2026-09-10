@@ -13,7 +13,7 @@ protocol. There is no fixed port to configure.
 
 - **`pyric` MCP server** (`.mcp.json`) auto-connects to the running sandbox
   via the stdio proxy. Gives the agent the sandbox tools (data plane, rules
-  lint/simulate, `pyric_sandbox_inspect`).
+  lint/simulate, `sandbox_inspect`).
 - **`pyric` skill** installs `@pyric/cli@latest`, configures the
   current `pyric` Vite plugin, starts one bridge, and opens the app so the
   in-page sandbox connects.

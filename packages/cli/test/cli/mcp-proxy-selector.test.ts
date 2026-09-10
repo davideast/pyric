@@ -8,7 +8,7 @@
  * injected `discover` + `headless` seams.
  */
 import { describe, it, expect } from 'bun:test';
-import { runMcpProxy } from '../../src/cli/mcp-proxy.js';
+import { runMcpProxy, selectAllowProduction } from '../../src/cli/mcp-proxy.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 
 /** Parse a `pyric mcp ...` command line the way the CLI entry point does. */
@@ -168,5 +168,35 @@ describe('mcp project-directory selection', () => {
   it('selects no project directory when neither is set, so the server uses its cwd', async () => {
     expect(await selectedProjectDir(['--headless'], {})).toBe(undefined);
     expect(await selectedProjectDir([], {})).toBe(undefined);
+  });
+});
+
+/**
+ * Production access is opt-in by an exact word. A variable left over from
+ * another purpose, or a value that reads as a refusal, must not mount methods
+ * that touch Google infrastructure, so only the literal `1` and `true` count.
+ */
+describe('mcp production-method selection', () => {
+  function allowsProduction(argv: string[], env: NodeJS.ProcessEnv): boolean {
+    return selectAllowProduction(parseArgs(['mcp', ...argv]), env);
+  }
+
+  it('mounts production methods for the flag', () => {
+    expect(allowsProduction(['--headless', '--allow-production'], {})).toBe(true);
+  });
+
+  it('mounts production methods for the two words the variable accepts', () => {
+    expect(allowsProduction([], { PYRIC_ALLOW_PRODUCTION: '1' })).toBe(true);
+    expect(allowsProduction([], { PYRIC_ALLOW_PRODUCTION: 'true' })).toBe(true);
+  });
+
+  it('mounts nothing for any other value of the variable', () => {
+    for (const value of ['', '0', 'false', 'yes', 'TRUE', 'on', '2', ' 1']) {
+      expect(allowsProduction([], { PYRIC_ALLOW_PRODUCTION: value })).toBe(false);
+    }
+  });
+
+  it('mounts nothing when neither the flag nor the variable is set', () => {
+    expect(allowsProduction([], {})).toBe(false);
   });
 });

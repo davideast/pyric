@@ -9,7 +9,7 @@ import { WebSocket } from 'ws';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { createBridgeMount } from '../../src/serve/bridge-mount.js';
 import { silentServeLogger } from '../../src/serve/server.js';
-import { DEFAULT_MCP_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
+import { BRIDGE_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
 
 function fixtureProject(): string {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-bridge-'));
@@ -95,7 +95,7 @@ describe('pyric dev --bridge', () => {
     const names = ((list.json as { result: { tools: Array<{ name: string }> } }).result.tools)
       .map((t) => t.name)
       .sort();
-    expect(names).toEqual([...DEFAULT_MCP_TOOL_NAMES].sort());
+    expect(names).toEqual([...BRIDGE_TOOL_NAMES].sort());
   });
 
   it('reclaims uninitialized transports and rejects stale session ids without exhausting the cap', async () => {
