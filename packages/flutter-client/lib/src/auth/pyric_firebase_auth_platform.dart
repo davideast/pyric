@@ -32,6 +32,11 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   final StreamController<AuthLens> _lensController =
       StreamController<AuthLens>.broadcast();
 
+  String? _tenantId;
+  String? _languageCode;
+  String? _emulatorHost;
+  int? _emulatorPort;
+
   PyricFirebaseAuthPlatform({
     super.appInstance,
     PyricBridgeClient? bridgeClient,
@@ -72,6 +77,20 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     return this;
   }
 
+  void _preservePreviousUserMetadata(
+    PyricUserPlatform user,
+    UserPlatform? prev,
+  ) {
+    if (prev is PyricUserPlatform && prev.uid == user.uid) {
+      if (user.customClaims == null && prev.customClaims != null) {
+        user.customClaims = prev.customClaims;
+      }
+      if (user.tenantId == null && prev.tenantId != null) {
+        user.tenantId = prev.tenantId;
+      }
+    }
+  }
+
   void _initBridgeAuthListeners() {
     _bridgeAuthSub = _bridgeClient.subscribeRaw({'target': 'authState'}).listen(
       (data) {
@@ -87,11 +106,13 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
           if (data['customClaims'] != null && map['customClaims'] == null) {
             map['customClaims'] = data['customClaims'];
           }
-          _currentUser = PyricUserPlatform.fromWire(
+          final user = PyricUserPlatform.fromWire(
             auth: this,
             data: map,
             client: _bridgeClient,
           );
+          _preservePreviousUserMetadata(user, _currentUser);
+          _currentUser = user;
         }
         _authStateController.add(_currentUser);
         _userChangesController.add(_currentUser);
@@ -121,13 +142,7 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
             data: map,
             client: _bridgeClient,
           );
-          final prev = _currentUser;
-          if (user.customClaims == null &&
-              prev is PyricUserPlatform &&
-              prev.uid == user.uid &&
-              prev.customClaims != null) {
-            user.customClaims = prev.customClaims;
-          }
+          _preservePreviousUserMetadata(user, _currentUser);
           _currentUser = user;
         }
         _idTokenController.add(_currentUser);
@@ -159,6 +174,42 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   @override
   set currentUser(UserPlatform? userPlatform) {
     _currentUser = userPlatform;
+  }
+
+  @override
+  String? get tenantId => _tenantId;
+
+  @override
+  set tenantId(String? value) {
+    _tenantId = value;
+  }
+
+  @override
+  Future<void> setTenantId(String? tenantId) async {
+    _tenantId = tenantId;
+  }
+
+  @override
+  String? get languageCode => _languageCode;
+
+  @override
+  Future<void> setLanguageCode(String? languageCode) async {
+    _languageCode = languageCode;
+  }
+
+  String? get emulatorHost => _emulatorHost;
+
+  int? get emulatorPort => _emulatorPort;
+
+  @override
+  Future<void> useAuthEmulator(String host, int port) async {
+    _emulatorHost = host;
+    _emulatorPort = port;
+  }
+
+  @override
+  Future<void> setPersistence(Persistence persistence) async {
+    await _bridgeClient.authSetPersistence(persistence.name);
   }
 
   @override
@@ -200,7 +251,7 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     final claims = user is PyricUserPlatform ? user.customClaims : null;
     return AuthLens.asUser(
       uid: user.uid,
-      tenant: user.tenantId,
+      tenant: user.tenantId ?? _tenantId,
       token: (claims != null && claims.isNotEmpty) ? claims : null,
     );
   }
@@ -232,8 +283,15 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     String password,
   ) async {
     try {
-      final res = await _bridgeClient.authSignInEmail(email, password);
+      final res = await _bridgeClient.authSignInEmail(
+        email,
+        password,
+        tenantId: _tenantId,
+      );
       final userMap = Map<String, dynamic>.from(res['user'] as Map);
+      if (_tenantId != null && userMap['tenantId'] == null) {
+        userMap['tenantId'] = _tenantId;
+      }
       if (res['claims'] != null && userMap['claims'] == null) {
         userMap['claims'] = res['claims'];
       }
@@ -249,7 +307,14 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       _authStateController.add(user);
       _idTokenController.add(user);
       _userChangesController.add(user);
-      return PyricUserCredentialPlatform(auth: this, user: user);
+      final addInfo = res['additionalUserInfo'] as Map?;
+      final isNewUser = addInfo != null ? (addInfo['isNewUser'] as bool? ?? false) : false;
+      final providerId = addInfo != null ? addInfo['providerId'] as String? : res['providerId'] as String?;
+      return PyricUserCredentialPlatform(
+        auth: this,
+        user: user,
+        additionalUserInfo: AdditionalUserInfo(isNewUser: isNewUser, providerId: providerId),
+      );
     } catch (e) {
       throw _mapAuthError(e);
     }
@@ -261,8 +326,15 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
     String password,
   ) async {
     try {
-      final res = await _bridgeClient.authCreateUser(email, password);
+      final res = await _bridgeClient.authCreateUser(
+        email,
+        password,
+        tenantId: _tenantId,
+      );
       final userMap = Map<String, dynamic>.from(res['user'] as Map);
+      if (_tenantId != null && userMap['tenantId'] == null) {
+        userMap['tenantId'] = _tenantId;
+      }
       if (res['claims'] != null && userMap['claims'] == null) {
         userMap['claims'] = res['claims'];
       }
@@ -278,10 +350,13 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       _authStateController.add(user);
       _idTokenController.add(user);
       _userChangesController.add(user);
+      final addInfo = res['additionalUserInfo'] as Map?;
+      final isNewUser = addInfo != null ? (addInfo['isNewUser'] as bool? ?? true) : true;
+      final providerId = addInfo != null ? addInfo['providerId'] as String? : res['providerId'] as String?;
       return PyricUserCredentialPlatform(
         auth: this,
         user: user,
-        additionalUserInfo: AdditionalUserInfo(isNewUser: true),
+        additionalUserInfo: AdditionalUserInfo(isNewUser: isNewUser, providerId: providerId),
       );
     } catch (e) {
       throw _mapAuthError(e);
@@ -291,8 +366,11 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
   @override
   Future<UserCredentialPlatform> signInAnonymously() async {
     try {
-      final res = await _bridgeClient.authSignInAnonymously();
+      final res = await _bridgeClient.authSignInAnonymously(tenantId: _tenantId);
       final userMap = Map<String, dynamic>.from(res['user'] as Map);
+      if (_tenantId != null && userMap['tenantId'] == null) {
+        userMap['tenantId'] = _tenantId;
+      }
       if (res['claims'] != null && userMap['claims'] == null) {
         userMap['claims'] = res['claims'];
       }
@@ -308,7 +386,13 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
       _authStateController.add(user);
       _idTokenController.add(user);
       _userChangesController.add(user);
-      return PyricUserCredentialPlatform(auth: this, user: user);
+      final addInfo = res['additionalUserInfo'] as Map?;
+      final isNewUser = addInfo != null ? (addInfo['isNewUser'] as bool? ?? true) : true;
+      return PyricUserCredentialPlatform(
+        auth: this,
+        user: user,
+        additionalUserInfo: AdditionalUserInfo(isNewUser: isNewUser),
+      );
     } catch (e) {
       throw _mapAuthError(e);
     }
@@ -328,8 +412,14 @@ class PyricFirebaseAuthPlatform extends FirebaseAuthPlatform
           'accessToken': credMap['accessToken'],
         if (credMap['rawNonce'] != null) 'rawNonce': credMap['rawNonce'],
       };
-      final res = await _bridgeClient.authSignInWithCredential(payload);
+      final res = await _bridgeClient.authSignInWithCredential(
+        payload,
+        tenantId: _tenantId,
+      );
       final userMap = Map<String, dynamic>.from(res['user'] as Map);
+      if (_tenantId != null && userMap['tenantId'] == null) {
+        userMap['tenantId'] = _tenantId;
+      }
       if (res['claims'] != null && userMap['claims'] == null) {
         userMap['claims'] = res['claims'];
       }

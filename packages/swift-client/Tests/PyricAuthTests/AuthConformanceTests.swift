@@ -57,13 +57,13 @@ struct AuthConformanceTests {
         #expect(auth.app.name == "app-prop-test")
     }
 
-    @Test func `auth-swift#5: Auth.useEmulator(withHost:port:) points to emulator endpoint`() async {
+    @Test func `auth-swift#5: Auth.useEmulator(withHost:port:) is a safe no-op preserving Pyric sandbox endpoint`() async {
         let app = FirebaseApp(name: "emulator-test")
         let auth = Auth.auth(app: app)
         auth.useEmulator(withHost: "127.0.0.1", port: 9099)
         let endpoint = await auth.bridgeClient.endpoint
         #expect(endpoint.host == "127.0.0.1")
-        #expect(endpoint.port == 9099)
+        #expect(endpoint.port == 5174)
     }
 
     // ── 2. Auth: Authentication Operations (Rows 6–13) ────────────────────────

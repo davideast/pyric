@@ -25,6 +25,9 @@ class InMemoryBridgeTransport : BridgeTransport {
 
     fun onServerReceive(handler: (String) -> Unit) {
         this.serverHandler = handler
+        for (msg in sentMessages) {
+            handler(msg)
+        }
     }
 
     fun sendToClient(text: String) {
