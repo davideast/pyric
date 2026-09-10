@@ -37,7 +37,7 @@
  */
 
 import type { Sandbox } from 'pyric/sandbox';
-import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 
 import { describeResponseBlock } from '../blocked.js';
 import { AiBrokerError, Synthesizer, badRole, emptyContents, missingThoughtSignature } from './synthesizer.js';
@@ -351,6 +351,7 @@ export class AiBroker {
       emitSandboxEvent(
         this.sandbox,
         makeServiceMutationEvent({
+          at: getClock(this.sandbox).now(),
           service: 'ai',
           op,
           path: model,

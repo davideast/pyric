@@ -56,7 +56,7 @@ export {
   normalizeAuthState,
   validateAuthState,
 } from './sandbox-context.js';
-// The sandbox clock — the one source of time every service on the sandbox
+// The sandbox clock: the one source of time every service on the sandbox
 // reads. `getClock(sandbox).set(...)` / `.advance(...)` / `.reset()` move
 // Firestore `serverTimestamp()` and `request.time`, Realtime Database
 // `ServerValue.TIMESTAMP` and rules `now`, Storage `timeCreated` / `updated`,
