@@ -33,6 +33,7 @@
   "run",
   "seed",
   "seedFromFixture",
+  "sessions",
   "set",
   "setClock",
   "simulate",

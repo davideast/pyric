@@ -20,6 +20,15 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `set_auth_claims` | set | auth | claims | `uid`, `claims` (object) | Replaces custom claims. |
 | `switch_auth_identity` | switch | auth | identity | `mode` (`admin`, `uid`, `anonymous`, `app-session`), `uid?`, `tenant?`, `claims?` | Sets the caller identity for subsequent calls. |
 | `get_auth_identity` | get | auth | identity | none | Reports the held identity: mode, uid, tenant, claims as projected. |
+| `get_auth_user_by_email` | get | auth | user_by_email | `email` | Matched case-insensitively. |
+| `import_auth_users` | import | auth | users | `users` (array of the seed users entry) | Same entry shape as `seed_sandbox`. |
+| `create_auth_token` | create | auth | token | `uid`, `claims?` (object) | Mints a custom token. Changes no state. |
+| `signin_auth_password` | signin | auth | password | `email`, `password` | Signs the app session in. The caller identity is unchanged. |
+| `signin_auth_anonymous` | signin | auth | anonymous | none | Mints an anonymous user and signs the app session in as it. |
+| `signin_auth_token` | signin | auth | token | `token` | Redeems what `create_auth_token` minted. |
+| `signin_auth_credential` | signin | auth | credential | `credential` (`providerId`, `email`, `idToken?`, `accessToken?`) | `providerId` is one of the federated providers the sandbox resolves. |
+| `signout_auth_session` | signout | auth | session | none | Clears the app session. The caller identity is unchanged. |
+| `list_auth_sessions` | list | auth | sessions | none | The sessions the sandbox holds: the caller identity and the app session. |
 | `get_firestore_document` | get | firestore | document | `path` | |
 | `list_firestore_documents` | list | firestore | documents | `path` (collection), `limit?` | |
 | `write_firestore_document` | write | firestore | document | `path`, `data` (object), `merge?` | Set semantics. |
@@ -227,6 +236,18 @@ bun packages/cli/eval/run.ts \
   --tasks stage-a-plan-then-walk-away,promote-the-reviewed-branch,throw-away-the-experiment-branch,list-the-open-branches,diff-against-a-checkpoint-that-is-not-there \
   --variants sdk-service \
   --transcripts packages/cli/eval/transcripts/sandbox-branches.json \
+  --no-wait --min-gap 0
+bun packages/cli/eval/report.ts <results>/runs.ndjson
+```
+
+The identity and sign-in family sweeps with:
+
+```
+bun packages/cli/eval/run.ts \
+  --rows claude-fable-5-1-low-mcp-only \
+  --tasks sign-in-as-tenant-user-and-read-rules,sign-out-then-disable-the-departed-account,sign-in-a-guest-and-write-their-draft,mint-a-token-for-our-own-backend-and-redeem-it,sign-in-fails-so-reset-the-password,import-the-acme-team-then-look-one-up \
+  --variants sdk-service \
+  --transcripts packages/cli/eval/transcripts/auth-sign-in.json \
   --no-wait --min-gap 0
 bun packages/cli/eval/report.ts <results>/runs.ndjson
 ```

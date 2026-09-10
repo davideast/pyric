@@ -15,6 +15,7 @@
  *   pyric storage rules resolve <path> [--out <path>]
  *   pyric database rules validate <path>
  *   pyric database rules generate [--config <path>] [--out <path>]
+ *   pyric serve sessions [--json]
  *   pyric --help
  *   pyric --version
  *
@@ -66,6 +67,7 @@ USAGE
   pyric storage rules resolve <path> [--out <path>]
   pyric database rules validate <path>
   pyric database rules generate [--config <path>] [--out <path>]
+  pyric serve sessions [--json]
   pyric <tool> <method> [--<arg> <value>...]
   pyric --help
   pyric --version
@@ -116,8 +118,12 @@ COMMANDS
   storage rules resolve      Resolve Storage 2+modules imports to one ruleset.
   database rules validate    Validate Realtime Database rules expressions.
   database rules generate    Compile a constraints module to database.rules.json.
+  serve sessions             List the clients connected to the running bridge with
+                             their target ids, platforms, and the identity each
+                             acts as. Requires a running bridge. --json.
   auth reset                 Follow the application session again. --target <id>
-                             resets another connected client instead of you.
+                             resets another connected client instead of you;
+                             \`pyric serve sessions\` lists the ids.
                              Requires a running bridge. --json.
   <tool> <method>            Call one method of the service surface against this
                              project's sandbox: firestore, database, storage,
@@ -130,9 +136,6 @@ COMMANDS
                              pyric rules lint --service firestore --rules-file firestore.rules
                              The same records serve \`pyric mcp\`, so the two
                              surfaces cannot drift. --json prints the whole result.
-  auth sessions              List the clients connected to a running sandbox
-                             bridge with the identity each one acts as, and the
-                             target id to pass to impersonate or reset. --json.
 CORE FLAGS (sandbox)
   --port             Port to serve on. Default 3473. Pyric scans forward when
                      the selected port is taken.

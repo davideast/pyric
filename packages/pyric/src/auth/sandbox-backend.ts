@@ -348,6 +348,20 @@ export class SandboxBackend {
     return this.cachedUser;
   }
 
+  /**
+   * The provider the current session signed in through. This is the same
+   * value {@link mintToken} puts on `IdTokenResult.signInProvider` and on the
+   * `firebase.sign_in_provider` claim, read without minting a token.
+   *
+   * `null` while the app is signed out, and `null` for an identity driven
+   * straight through the test driver, which records no provider.
+   */
+  getCurrentSignInProvider(): string | null {
+    const user = this.cachedUser;
+    if (user === null) return null;
+    return this.signInProviderByUid.get(user.uid) ?? null;
+  }
+
   // ─── Listener registries ────────────────────────────────────────────
 
   /**
@@ -1579,6 +1593,7 @@ export class SandboxBackend {
       isAnonymous: u.isAnonymous,
       disabled: u.disabled,
       emailVerified: u.emailVerified,
+      tenantId: u.tenantId,
       createdAt: u.createdAt,
       lastLoginAt: u.lastLoginAt,
     };

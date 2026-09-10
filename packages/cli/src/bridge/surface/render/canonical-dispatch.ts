@@ -139,6 +139,22 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
 
   switch_auth_identity: { key: identityKey, toMethodArgs: identityArgs },
   get_auth_user: { key: 'auth.getUser' },
+  get_auth_user_by_email: { key: 'auth.getUserByEmail' },
+  import_auth_users: { key: 'auth.importUsers' },
+  create_auth_token: {
+    key: 'auth.createCustomToken',
+    toMethodArgs: (args) => {
+      const call: Args = { uid: args.uid };
+      if (args.claims !== undefined) call.developerClaims = args.claims;
+      return call;
+    },
+  },
+  signin_auth_password: { key: 'auth.signInWithEmailAndPassword' },
+  signin_auth_anonymous: { key: 'auth.signInAnonymously' },
+  signin_auth_token: { key: 'auth.signInWithCustomToken' },
+  signin_auth_credential: { key: 'auth.signInWithCredential' },
+  signout_auth_session: { key: 'auth.signOut' },
+  list_auth_sessions: { key: 'auth.sessions' },
   update_auth_user: { key: 'auth.updateUser' },
   delete_auth_user: { key: 'auth.deleteUser' },
   get_auth_identity: { key: 'auth.whoami' },

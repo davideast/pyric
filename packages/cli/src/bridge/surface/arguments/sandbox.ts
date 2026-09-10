@@ -25,7 +25,7 @@ import type { Args, Fail, InvalidArguments } from '../method-types.js';
 import { closest, quoted } from '../closest-name.js';
 
 /** The fields a `seed` users entry accepts, after the Admin SDK rename. */
-const USER_FIELDS = ['uid', 'email', 'customClaims', 'tenantId'] as const;
+const USER_FIELDS = ['uid', 'email', 'password', 'customClaims', 'tenantId'] as const;
 
 /** Client SDK spellings of the two user fields the Admin SDK names differently. */
 const USER_FIELD_RENAMES: Readonly<Record<string, string>> = {
@@ -33,12 +33,19 @@ const USER_FIELD_RENAMES: Readonly<Record<string, string>> = {
   tenant: 'tenantId',
 };
 
-/** One seeded user, under the Admin SDK field names. */
+/**
+ * One seeded user, under the Admin SDK field names. `auth.importUsers` takes
+ * the same entry, so an import and a seed describe an identity one way.
+ */
 export const userSeed = z.object({
-  uid: z.string(),
-  email: z.string().optional(),
-  customClaims: z.record(z.unknown()).optional(),
-  tenantId: z.string().optional(),
+  uid: z.string().describe('The user id.'),
+  email: z.string().optional().describe('Email address. Generated when omitted.'),
+  password: z
+    .string()
+    .optional()
+    .describe('Password the identity can sign in with. Derived from the uid when omitted.'),
+  customClaims: z.record(z.unknown()).optional().describe('Custom claims on the record.'),
+  tenantId: z.string().optional().describe('Identity Platform tenant the record belongs to.'),
 });
 
 /** One seeded storage object. */

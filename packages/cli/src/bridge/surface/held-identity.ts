@@ -1,15 +1,40 @@
 /**
  * The result the identity methods return.
  *
- * `impersonate`, the two `actAs` methods, `useAppSession`, and `whoami` all
- * report the same thing: the identity every later call runs under. They differ
- * in what they set it to, so the reporting lives here once and each record
- * names only the mode it selects.
+ * `impersonate`, the two `actAs` methods, and `useAppSession` all report the
+ * same thing: the identity every later call runs under. They differ in what
+ * they set it to, so the reporting lives here once and each record names only
+ * the mode it selects.
+ *
+ * `whoami` reports more, because there are two identities and confusing them
+ * is the mistake this surface exists to prevent. It names the `agent`, which
+ * is what the agent's own calls run under, and the `appSession`, which is the
+ * user the sandbox's SDK is signed in as, and then says which of the two the
+ * next call runs as. A sign-in moves the app session and leaves the agent
+ * alone; only `useAppSession` copies one onto the other.
  */
+import { describeAppSession, readAppSession } from './app-session.js';
 import type { IdentityInput } from './identity.js';
 import type { OperationResult, SurfaceContext } from './types.js';
 
-/** Report the held identity in the shape every identity method returns. */
+/**
+ * One line naming the agent identity.
+ *
+ * The `default` mode is the mode a surface starts in and is not the app
+ * session: it is the identity a call runs under when nothing has claimed one,
+ * and it bypasses rules the way admin does. Saying so here is what keeps a
+ * `whoami` that reports both from reading as if the two were the same thing.
+ */
+export function describeAgentIdentity(held: IdentityInput): string {
+  if (held.mode === 'admin') return 'admin, which bypasses rules';
+  if (held.mode === 'anonymous') return 'anonymous';
+  if (held.mode === 'default') return 'the sandbox default, which bypasses rules';
+  const parts = [held.uid ?? ''];
+  if (held.tenant !== undefined) parts.push(`tenant ${held.tenant}`);
+  return parts.join(', ');
+}
+
+/** Report the held identity in the shape the identity methods return. */
 function reported(held: { mode: string; uid?: string }): OperationResult {
   return {
     ok: true,
@@ -23,7 +48,69 @@ export function switchHeldIdentity(ctx: SurfaceContext, input: IdentityInput): O
   return reported(ctx.identity.switchTo(input));
 }
 
-/** Report the identity later calls run under, without changing it. */
-export function describeHeldIdentity(ctx: SurfaceContext): OperationResult {
-  return reported(ctx.identity.describe());
+/** One identity this process holds a session for. */
+export interface HeldSession {
+  /** `agent` for the identity the agent's calls run under, `appSession` for the app's own user. */
+  kind: 'agent' | 'appSession';
+  /** The identity in one phrase, the way the summary says it. */
+  identity: string;
+  /** The user, for a session that has one. */
+  uid?: string;
+}
+
+/**
+ * The sessions this project's headless sandbox holds: the agent identity and
+ * the app session.
+ *
+ * The first line names that sandbox, because there is a second thing a caller
+ * could mean by a session. A running bridge holds connected clients, each with
+ * its own identity, and `pyric serve sessions` lists those with the target ids
+ * `--target` takes. These two are neither of those: they are the identities
+ * this process itself holds.
+ */
+export function listHeldSessions(ctx: SurfaceContext): OperationResult {
+  const agent = ctx.identity.describe();
+  const appSession = readAppSession(ctx.sandbox);
+
+  const agentSession: HeldSession = { kind: 'agent', identity: describeAgentIdentity(agent) };
+  if (agent.uid !== undefined) agentSession.uid = agent.uid;
+
+  const sessions: HeldSession[] = [agentSession];
+  if (appSession !== null) {
+    sessions.push({
+      kind: 'appSession',
+      identity: describeAppSession(appSession),
+      uid: appSession.uid,
+    });
+  }
+
+  return {
+    ok: true,
+    summary:
+      `The project's headless sandbox holds ${sessions.length} ` +
+      `session${sessions.length === 1 ? '' : 's'}. ` +
+      `The agent runs as ${agentSession.identity}. ` +
+      `The app session is ${describeAppSession(appSession)}. ` +
+      "Call 'pyric serve sessions' for the clients connected to a running bridge.",
+    data: { sessions, total: sessions.length, appSession },
+  };
+}
+
+/**
+ * Report both identities without changing either. `runsAs` is the agent
+ * identity, said again in one phrase, because that is the question a caller
+ * asks this method to answer.
+ */
+export function describeBothIdentities(ctx: SurfaceContext): OperationResult {
+  const agent = ctx.identity.describe();
+  const appSession = readAppSession(ctx.sandbox);
+  const runsAs = describeAgentIdentity(agent);
+  return {
+    ok: true,
+    summary:
+      `The next call runs as ${runsAs}. ` +
+      `The app session is ${describeAppSession(appSession)}. ` +
+      'A sign-in moves the app session only; useAppSession adopts it as the agent identity.',
+    data: { agent, appSession, runsAs },
+  };
 }

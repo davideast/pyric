@@ -55,6 +55,6 @@ describe('surfaceMethodCommand', () => {
     const other = surfaceMethodCommand('auth.whoami');
     const result = await run(other, ['auth', 'whoami']);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('Acting as');
+    expect(result.stdout).toContain('The next call runs as');
   });
 });

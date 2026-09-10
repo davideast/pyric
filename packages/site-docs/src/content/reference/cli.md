@@ -60,7 +60,7 @@ The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/r
 
 ## Auth identity
 
-`pyric auth impersonate` and `pyric auth whoami` are service-tool commands, derived like every `pyric <tool> <method>` command, and act on this project's local `.pyric/state`. No running bridge is required.
+`pyric auth impersonate`, `pyric auth whoami`, and `pyric auth sessions` are service-tool commands, derived like every `pyric <tool> <method>` command, and act on this project's local `.pyric/state`. No running bridge is required.
 
 ```bash
 pyric auth impersonate --uid <uid> [--tenantId <id>] [--customClaims '<json>'] [--json]
@@ -68,18 +68,20 @@ pyric auth actAsAdmin [--json]
 pyric auth actAsAnonymous [--json]
 pyric auth useAppSession [--json]
 pyric auth whoami [--json]
+pyric auth sessions [--json]
 ```
 
-`impersonate` runs every later call as the named user. `--tenantId` sets the Identity Platform tenant, and `--customClaims` takes a JSON object of custom claims that rules read as `request.auth.token.<name>`. `actAsAdmin` runs every later call with rules bypassed; `actAsAnonymous` runs every later call unauthenticated; `useAppSession` runs every later call as the application's own signed-in user. `whoami` reports the identity later calls run under.
+`impersonate` runs every later call as the named user. `--tenantId` sets the Identity Platform tenant, and `--customClaims` takes a JSON object of custom claims that rules read as `request.auth.token.<name>`. `actAsAdmin` runs every later call with rules bypassed; `actAsAnonymous` runs every later call unauthenticated; `useAppSession` runs every later call as the application's own signed-in user, with its tenant and claims.
 
-`pyric auth reset` and `pyric auth sessions` are different: they set and read who a bridge's *clients* act as. A client is a mobile runtime, a Studio tab, or a Node client attached to `pyric sandbox --bridge`. Both need a running bridge, which they find through `.pyric/serve.json` in the project directory; without one they print how to start it and exit `1`.
+`whoami` reports two identities apart: `agent`, the one your own calls run as, and `appSession`, the user the sandbox's SDK is signed in as. The sign-in commands (`pyric auth signInWithEmailAndPassword`, `signInAnonymously`, `signInWithCustomToken`, `signInWithCredential`, `signOut`) move the app session and leave the agent identity alone. `sessions` lists both.
+
+`pyric auth reset` is different: it sets who a bridge's *clients* act as. A client is a mobile runtime, a Studio tab, or a Node client attached to `pyric sandbox --bridge`. It needs a running bridge, which it finds through `.pyric/serve.json` in the project directory; without one it prints how to start it and exits `1`.
 
 ```bash
-pyric auth sessions [--json]
 pyric auth reset [--target <id>] [--json]
 ```
 
-`sessions` prints each connected client's target id, platform, and current identity. Take the target id from that output and pass it as `--target`. `reset` returns the named client (or, with no `--target`, your own bridge identity) to the application session, the user the app is signed in as.
+`reset` returns the named client (or, with no `--target`, your own bridge identity) to the application session, the user the app is signed in as.
 
 With `--target`, `reset` applies to the client it names and to nothing else. Without `--target`, it records your own identity on the bridge, which governs the tool calls you then forward through it: the Firestore data tools run under it with Security Rules enforced, and a call that passes its own `as` argument uses that instead without changing what you recorded. `sandbox_inspect`, the rules simulator, the Realtime Database inspectors, and the auth user tools take no identity and keep bypassing rules.
 

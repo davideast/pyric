@@ -39,7 +39,7 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | `firestore` | `getDoc`, `getDocs`, `addDoc`, `setDoc`, `updateDoc`, `deleteDoc`, `writeBatch` |
 | `database` | `get`, `query`, `set`, `update`, `remove` |
 | `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
-| `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
+| `auth` | `getUser`, `getUserByEmail`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `importUsers`, `createCustomToken`, `signInWithEmailAndPassword`, `signInAnonymously`, `signInWithCustomToken`, `signInWithCredential`, `signOut`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami`, `sessions` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
 | `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
 | `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
@@ -78,6 +78,30 @@ state it holds now, so state live gained after the fork survives the promotion.
 branch with when it was forked, how many events it carries, and how far it has
 drifted from live per service. A branch is a directory in the project, so it
 outlives the server that forked it.
+
+Two identities live in one sandbox and the `auth` tool keeps them apart. The
+agent identity is what your own calls run under. It starts in the `default`
+mode, the sandbox default, which bypasses rules the way admin does, and
+`impersonate`, `actAsAdmin`, `actAsAnonymous`, and `useAppSession` move it. The app
+session is the user the sandbox's own SDK is signed in as, which is what an
+application built on it sees from `onAuthStateChanged`. The five sign-in
+methods move the app session and nothing else, so a `signInWithEmailAndPassword`
+followed by a `firestore.getDoc` still reads as whatever the agent identity was.
+`whoami` reports both, under `agent` and `appSession`, and says which one the
+next call runs as; `sessions` lists them; `useAppSession` is the one method that
+adopts the app session's uid, tenant, and claims as the agent identity, after
+which Security Rules evaluate your calls exactly as they evaluate the
+application's. That adoption is a snapshot: a later sign-in moves the app
+session and leaves the agent identity where `useAppSession` put it. A sign-in resolves the credential in the tenant the stored record
+already belongs to, so a tenant identity keeps its tenant across a sign-in and
+`request.auth.token.firebase.tenant` is set for it.
+
+`createCustomToken` mints what `signInWithCustomToken` redeems, and stores
+nothing, so it is a read. `importUsers` takes the same user entry
+`sandbox.seed` does: `uid`, and optionally `email`, `password`, `customClaims`,
+and `tenantId`. The `password` is what the identity can then sign in with, and
+is derived from the uid when omitted. `getUser`, `getUserByEmail`,
+and `listUsers` all report `tenantId`.
 
 The sandbox carries one clock, which every `serverTimestamp()`, Realtime
 Database `now`, `request.time`, and minted auth token `iat` reads instead of
@@ -231,12 +255,16 @@ identity and keep bypassing rules.
 named client and nothing else. Both the tool descriptions and the results say
 so.
 
-`auth_reset` and `auth_sessions` are also on the CLI, as `pyric auth reset`
-and `pyric auth sessions`, calling this same bridge tool because "connected
-clients" is a concept only a running bridge has. `pyric auth impersonate` and
-`pyric auth whoami` are a different command now: the derived service-tool
-commands `auth.impersonate` and `auth.whoami` (product surface, above), which
-act on this project's local `.pyric/state` and need no running bridge.
+`auth_reset` is also on the CLI, as `pyric auth reset`, calling this same
+bridge tool because retargeting a connected client is a concept only a running
+bridge has. `pyric auth impersonate`, `pyric auth whoami`, and
+`pyric auth sessions` are different commands now: the derived service-tool
+commands `auth.impersonate`, `auth.whoami`, and `auth.sessions` (product
+surface, above), which act on this project's local `.pyric/state` and need no
+running bridge. `auth.sessions` reports the sessions the project's headless
+sandbox itself holds, the agent identity and the app session; `auth_sessions`
+on a bridge reports the clients connected to it, and `pyric serve sessions` is
+the command that prints those rows, with the target ids `--target` takes.
 
 ## Index extraction — `pyric/rules/indexes`
 

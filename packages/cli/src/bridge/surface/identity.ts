@@ -9,8 +9,16 @@
  */
 import { normalizeAuthState, type AuthLens, type AuthState } from 'pyric/sandbox';
 
-/** The modes a caller can hold, as the canonical operation set names them. */
-export type IdentityMode = 'admin' | 'uid' | 'anonymous' | 'app-session';
+/**
+ * The modes a caller can hold.
+ *
+ * `default` is the mode a surface starts in and is not the app session: it is
+ * what a call runs under when nothing has claimed an identity, and it bypasses
+ * rules the way `admin` does. A sign-in moves the app session and leaves this
+ * mode where it is; `useAppSession` adopts the app session's uid as a `uid`
+ * identity, which is a snapshot rather than a subscription.
+ */
+export type IdentityMode = 'admin' | 'uid' | 'anonymous' | 'default';
 
 export interface IdentityInput {
   mode: IdentityMode;
@@ -48,7 +56,7 @@ export function projectIdentity(
 
 /** The caller identity, held for the life of one server. */
 export class SurfaceIdentity {
-  private held: IdentityInput = { mode: 'app-session' };
+  private held: IdentityInput = { mode: 'default' };
   private readonly known = new Map<string, ProjectedIdentity>();
 
   /** Remember how a seeded user's tenant and claims project, for later switches and simulations. */
@@ -90,7 +98,10 @@ export class SurfaceIdentity {
     const held = this.held;
     if (held.mode === 'admin') return { mode: 'admin' };
     if (held.mode === 'anonymous') return { mode: 'anon' };
-    if (held.mode === 'app-session') return { mode: 'app-session' };
+    // The dispatcher's own name for the identity a call carries when nothing
+    // claimed one is `app-session`, which is the lens vocabulary rather than
+    // this surface's.
+    if (held.mode === 'default') return { mode: 'app-session' };
     const projected = this.projectionFor(held.uid ?? '', held.tenant, held.claims);
     if (projected.tenant !== undefined) {
       return { mode: 'as', uid: projected.uid, token: projected.token, tenant: projected.tenant };
@@ -111,6 +122,6 @@ export class SurfaceIdentity {
 
   /** Whether the held identity bypasses rules. */
   bypassesRules(): boolean {
-    return this.held.mode === 'admin' || this.held.mode === 'app-session';
+    return this.held.mode === 'admin' || this.held.mode === 'default';
   }
 }
