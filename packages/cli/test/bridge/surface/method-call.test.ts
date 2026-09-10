@@ -94,4 +94,31 @@ describe('callMethod', () => {
     );
     expect((result.data as { code: string }).code).toBe('denied_by_rules');
   });
+
+  it('names the trace call on a refusal the service reported by throwing', async () => {
+    const denied = fakeMethod({
+      tool: 'firestore',
+      method: 'getDoc2',
+      key: 'firestore.getDoc2',
+      async handler(): Promise<never> {
+        throw new Error('get orders/o2 denied by rules');
+      },
+    });
+    const result = await callMethod(denied, { value: 'hi' }, ctx);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain(
+      "Call rules.explainDenial with service 'firestore' for the trace.",
+    );
+    expect((result.data as { code: string }).code).toBe('denied_by_rules');
+  });
+
+  it('reports a thrown failure that rules never refused as the failure it is', async () => {
+    const broken = fakeMethod({
+      async handler(): Promise<never> {
+        throw new Error('the sandbox is not open');
+      },
+    });
+    const result = await callMethod(broken, { value: 'hi' }, ctx);
+    expect(result).toEqual({ ok: false, summary: 'the sandbox is not open' });
+  });
 });

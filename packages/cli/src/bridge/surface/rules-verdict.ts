@@ -58,6 +58,17 @@ export function markDenial(tool: string, result: OperationResult): OperationResu
   };
 }
 
+/**
+ * A thrown handler failure as the result shape every caller reads.
+ *
+ * The services report a refusal by throwing, so a refusal only becomes a
+ * result once something catches it. Catching it here rather than at each
+ * transport is what lets the refusal be marked and answered at all.
+ */
+export function thrownFailure(error: unknown): OperationResult {
+  return { ok: false, summary: error instanceof Error ? error.message : String(error) };
+}
+
 /** Mark a lint result that reports findings as the verdict it is. */
 export function markLintFindings(result: OperationResult): OperationResult {
   if (result.ok) return result;

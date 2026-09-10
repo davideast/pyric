@@ -15,7 +15,7 @@
  * on stderr with its own exit code rather than returning it as a result.
  */
 import { validateArguments } from './method-validation.js';
-import { markDenial } from './rules-verdict.js';
+import { markDenial, thrownFailure } from './rules-verdict.js';
 import type { Args, Method } from './method-types.js';
 import type { OperationResult, SurfaceContext } from './types.js';
 
@@ -34,6 +34,12 @@ export async function callMethod(
   if (rejection !== null) return rejection;
   // A refusal by Security Rules is marked here rather than in each service's
   // handlers, because every service reports one and every renderer arrives
-  // through this one entry.
-  return markDenial(method.tool, await method.handler(args, ctx));
+  // through this one entry. The services report a refusal by throwing, so the
+  // throw is turned into its result here too, which is where the mark can
+  // still be applied to it.
+  try {
+    return markDenial(method.tool, await method.handler(args, ctx));
+  } catch (error) {
+    return markDenial(method.tool, thrownFailure(error));
+  }
 }
