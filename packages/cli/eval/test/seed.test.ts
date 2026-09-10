@@ -132,4 +132,25 @@ describe('seed and state round trip', () => {
     await applySeed(dir, { firestore: { 'posts/p1': { title: 'hi' } } });
     expect(existsSync(join(dir, CAPTURE_RELATIVE_PATH))).toBe(false);
   });
+
+  test('declared project files are written into the run directory, parent directories included', async () => {
+    const dir = runDir();
+    await applySeed(dir, {
+      projectFiles: {
+        'firebase.json': '{"functions":{"source":"functions"}}',
+        'functions/index.js': 'exports.marker = 1;\n',
+      },
+    });
+
+    expect(readFileSync(join(dir, 'firebase.json'), 'utf8')).toBe(
+      '{"functions":{"source":"functions"}}',
+    );
+    expect(readFileSync(join(dir, 'functions/index.js'), 'utf8')).toBe('exports.marker = 1;\n');
+  });
+
+  test('a seed that declares no project files writes none', async () => {
+    const dir = runDir();
+    await applySeed(dir, { firestore: { 'posts/p1': { title: 'hi' } } });
+    expect(existsSync(join(dir, 'firebase.json'))).toBe(false);
+  });
 });

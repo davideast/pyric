@@ -43,7 +43,7 @@ import { describeResponseBlock } from '../blocked.js';
 import { AiBrokerError, Synthesizer, badRole, emptyContents, missingThoughtSignature } from './synthesizer.js';
 import { ScriptedEngine } from './scripted-engine.js';
 import { OpenAiEngine } from './openai-engine.js';
-import { GeminiEngine } from './gemini-engine.js';
+import { GeminiEngine, GEMINI_DEFAULT_BASE_URL } from './gemini-engine.js';
 import type {
   AnswerEngine,
   CountTokensRequest,
@@ -91,6 +91,19 @@ function isAnswerEngine(value: EngineConfig | AnswerEngine): value is AnswerEngi
 /** What Studio's stream (and the construction log line) name the engine. */
 type EngineKind = 'scripted' | 'openai' | 'gemini' | 'custom';
 
+/**
+ * What a status read reports about the resolved engine: the mode it is
+ * running in, the model and upstream it answers through when it has one, and
+ * whether a key is configured. Never the key itself, its prefix, or its
+ * length.
+ */
+export interface AiEngineStatus {
+  engine: EngineKind;
+  model?: string;
+  upstream?: string;
+  keyPresent: boolean;
+}
+
 export class AiBroker {
   readonly engine: AnswerEngine;
   private readonly sandbox: Sandbox | undefined;
@@ -135,6 +148,21 @@ export class AiBroker {
       return '[pyric/ai] engine resolved: custom AnswerEngine';
     }
     return '[pyric/ai] engine resolved: scripted (zero-config unless a script is queued)';
+  }
+
+  /**
+   * The engine, model, upstream, and whether a key is configured, for a
+   * status read. Never the key itself: only {@link GeminiEngine.hasKeyConfigured}'s
+   * boolean crosses this seam.
+   */
+  describeStatus(): AiEngineStatus {
+    const keyPresent = this.engine instanceof GeminiEngine ? this.engine.hasKeyConfigured() : false;
+    const status: AiEngineStatus = { engine: this.engineKind, keyPresent };
+    if (this.engineModel !== undefined) status.model = this.engineModel;
+    const upstream =
+      this.engineKind === 'gemini' ? (this.engineBaseUrl ?? GEMINI_DEFAULT_BASE_URL) : this.engineBaseUrl;
+    if (upstream !== undefined) status.upstream = upstream;
+    return status;
   }
 
   /** Additive detail fields every emitted event carries so Studio can show the engine. */

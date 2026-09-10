@@ -20,10 +20,19 @@ import type { PyricVerifyFixture } from '../src/verify/index.js';
  * there, so a task about replaying a capture needs the seeder to plant one,
  * and the field says which capture to plant. It is a recorder rather than a
  * recording, so importing the corpus drives no sandbox.
+ *
+ * `projectFiles` is the same idea for a file the project itself would have
+ * authored rather than the sandbox or a captured session: a `firebase.json`
+ * declaring a Functions source, and the source file `functions.listTriggers`
+ * and `functions.fire` read from disk. Keys are paths relative to the run's
+ * project directory; values are the file contents, written before the server
+ * starts.
  */
 export type EvalSeed = SandboxSeed & {
   /** Records the capture written to `.pyric/last-session.json` in the run's project directory. */
   session?: () => Promise<PyricVerifyFixture>;
+  /** Files written into the run's project directory before the server starts. */
+  projectFiles?: Record<string, string>;
 };
 
 /**

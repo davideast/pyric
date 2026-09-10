@@ -45,10 +45,12 @@ import type {
   BrokerMessage,
   ClientVisibilityState,
   DeliveredPayload,
+  DeliveryLogEntry,
   DeliveryResult,
   DeliveryRoute,
   MessagingBrokerConfig,
   PayloadHandler,
+  RegisteredToken,
   ResolvedTarget,
   TopicManagementOutcome,
 } from './types.js';
@@ -81,13 +83,15 @@ export class MessagingBroker {
   /** registrationId → active token (stability per registration is the captured contract). */
   private readonly registrations = new Map<string, string>();
   /** token → record. Deleted tokens stay, flipped to `unregistered`, so dead sends 404. */
-  private readonly tokens = new Map<string, TokenRecord>();
+  private readonly tokenRecords = new Map<string, TokenRecord>();
   /** topic → subscribed tokens. */
   private readonly subscriptions = new Map<string, Set<string>>();
   /** Window clients and their visibility — THE routing input (never focus). */
   private readonly clients = new Map<string, ClientVisibilityState>();
   private readonly foregroundHandlers = new Set<PayloadHandler>();
   private readonly backgroundHandlers = new Set<PayloadHandler>();
+  /** Every past delivery, in routing order. The `deliveries` method's own state. */
+  private readonly deliveryLog: DeliveryLogEntry[] = [];
   private numericIdCounter = 0;
 
   constructor(options: MessagingBrokerConfig & { sandbox?: Sandbox } = {}) {
@@ -108,7 +112,7 @@ export class MessagingBroker {
     if (existing !== undefined) return existing;
     const token = mintToken();
     this.registrations.set(registrationId, token);
-    this.tokens.set(token, { registrationId, state: 'active' });
+    this.tokenRecords.set(token, { registrationId, state: 'active' });
     this.emit('token_minted', { path: token, detail: { registrationId } });
     return token;
   }
@@ -128,7 +132,7 @@ export class MessagingBroker {
     const token = this.registrations.get(registrationId);
     if (token === undefined) return true;
     this.registrations.delete(registrationId);
-    const record = this.tokens.get(token);
+    const record = this.tokenRecords.get(token);
     if (record !== undefined) record.state = 'unregistered';
     this.emit('token_deleted', { path: token, detail: { registrationId } });
     return true;
@@ -136,7 +140,7 @@ export class MessagingBroker {
 
   /** `active` | `unregistered` (minted then deleted) | `unknown` (never minted here). */
   tokenState(token: string): 'active' | 'unregistered' | 'unknown' {
-    return this.tokens.get(token)?.state ?? 'unknown';
+    return this.tokenRecords.get(token)?.state ?? 'unknown';
   }
 
   // ── Topic / condition subscriptions ──────────────────────────────────────
@@ -209,6 +213,28 @@ export class MessagingBroker {
       if (set.has(token)) topics.add(topic);
     }
     return topics;
+  }
+
+  /**
+   * Every device token the broker knows about, minted or merely subscribed,
+   * and the topics each is subscribed to (the `tokens` service-tool method's
+   * read). A token stays listed after `deleteTokenFor` invalidates it,
+   * reported `unregistered`, the same dead-is-dead-immediately contract
+   * {@link tokenState} already carries. A token this sandbox never minted but
+   * that `subscribeToTopic` accepted anyway is listed `unknown`, because it
+   * is genuinely part of the sandbox's subscription state even though this
+   * sandbox never issued it.
+   */
+  tokens(): RegisteredToken[] {
+    const known = new Set(this.tokenRecords.keys());
+    for (const set of this.subscriptions.values()) {
+      for (const token of set) known.add(token);
+    }
+    return [...known].sort().map((token) => ({
+      token,
+      state: this.tokenState(token),
+      topics: [...this.topicsOf(token)].sort(),
+    }));
   }
 
   // ── Message intake (the admin mirror / future op-channel entry point) ────
@@ -286,7 +312,7 @@ export class MessagingBroker {
       return false;
     }
     // Condition: re-evaluate the parsed expression per active token's topic set.
-    for (const [token, record] of this.tokens) {
+    for (const [token, record] of this.tokenRecords) {
       if (record.state !== 'active') continue;
       if (evaluateCondition(target.condition, this.topicsOf(token))) return true;
     }
@@ -394,7 +420,36 @@ export class MessagingBroker {
     this.emit('message_delivered', {
       detail: { route, handlerCount, messageId: payload.messageId },
     });
+    this.deliveryLog.push({
+      messageId: payload.messageId,
+      route,
+      handled: handlerCount > 0,
+      at: this.clockNow(),
+      payload: structuredClone(payload),
+    });
     return { route, handlerCount, payload };
+  }
+
+  /**
+   * What was delivered, in delivery order: foreground or background, handled
+   * or not (the `deliveries` service-tool method's read). `since` is a clock
+   * timestamp cursor; entries at or after it are returned. A `send` with no
+   * matching recipient never calls {@link route}, so it never logs here.
+   * Only an actual routing decision does.
+   */
+  deliveries(since?: number): DeliveryLogEntry[] {
+    if (since === undefined) return [...this.deliveryLog];
+    return this.deliveryLog.filter((entry) => entry.at >= since);
+  }
+
+  /** The sandbox clock's current time, or the wall clock with no bound sandbox. */
+  private clockNow(): number {
+    if (this.sandbox === undefined) return Date.now();
+    try {
+      return getClock(this.sandbox).now();
+    } catch {
+      return Date.now();
+    }
   }
 
   // ── Event emission (Studio stream consumer seam) ──────────────────────────

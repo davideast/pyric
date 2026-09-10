@@ -88,6 +88,41 @@ export interface TopicManagementOutcome {
   errors: Array<{ index: number; reason: 'invalid-token' | 'unregistered-token' }>;
 }
 
+/**
+ * One token {@link MessagingBroker.tokens} reports: its state and the topics
+ * it is currently subscribed to. This is the seam the `tokens` service-tool
+ * method reads (`0014-service-tools-with-sdk-methods.md`); the broker already
+ * tracked this state privately for routing, and this is its first public
+ * read.
+ *
+ * `state` is `unknown` for a token that was never minted through
+ * {@link MessagingBroker.getTokenFor} in this sandbox but does appear in a
+ * topic's subscription set. `subscribeToTopic` accepts such a token, the
+ * captured contract for cross-sandbox fixture composition, so a listing that
+ * omitted it would under-report what the sandbox actually holds.
+ */
+export interface RegisteredToken {
+  token: string;
+  state: 'active' | 'unregistered' | 'unknown';
+  topics: string[];
+}
+
+/**
+ * One past delivery, as {@link MessagingBroker.deliveries} reports it. The
+ * broker computed a {@link DeliveryResult} on every `route()` call but never
+ * retained it; this is the retained form the `deliveries` service-tool method
+ * reads.
+ */
+export interface DeliveryLogEntry {
+  messageId: string;
+  route: DeliveryRoute;
+  /** Whether any handler on the chosen route ran (`handlerCount > 0`). */
+  handled: boolean;
+  /** Sandbox clock time the delivery was routed. */
+  at: number;
+  payload: DeliveredPayload;
+}
+
 export interface MessagingBrokerConfig {
   /** Project id minted into message resource names. */
   projectId?: string;

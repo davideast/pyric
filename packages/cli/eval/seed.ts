@@ -40,6 +40,20 @@ export async function writeSessionFile(dir: string, seed: EvalSeed): Promise<voi
   writeFileSync(path, `${JSON.stringify(session)}\n`, 'utf8');
 }
 
+/**
+ * Write each file a seed declares under `projectFiles` into the run's project
+ * directory, creating whatever parent directories the relative path needs.
+ */
+export function writeProjectFiles(dir: string, seed: EvalSeed): void {
+  const files = seed.projectFiles;
+  if (files === undefined) return;
+  for (const [relativePath, contents] of Object.entries(files)) {
+    const path = join(dir, relativePath);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, contents, 'utf8');
+  }
+}
+
 /** Write each declared rules source into the run directory as its own file. */
 export function writeRulesFiles(dir: string, seed: EvalSeed): void {
   mkdirSync(dir, { recursive: true });
@@ -67,6 +81,7 @@ export async function applySeed(dir: string, seed: EvalSeed): Promise<LocalSandb
   await applyRules(sandbox, seed);
   await applyData(sandbox, seed);
   writeRulesFiles(dir, seed);
+  writeProjectFiles(dir, seed);
   await writeSessionFile(dir, seed);
   saveSandboxSnapshot(sandbox, dir);
   await saveStorageSidecar(getAdminStorageSandbox(sandbox), dir);

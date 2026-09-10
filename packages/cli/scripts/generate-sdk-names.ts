@@ -82,6 +82,7 @@ async function firebaseAdminNames(): Promise<Record<string, string[]>> {
     database: extractFunctionNames(join(lib, 'database', 'index.d.ts')),
     storage: extractFunctionNames(join(lib, 'storage', 'index.d.ts')),
     auth: extractClassMethodNames(join(lib, 'auth', 'base-auth.d.ts')),
+    messaging: extractClassMethodNames(join(lib, 'messaging', 'messaging.d.ts')),
   };
 }
 

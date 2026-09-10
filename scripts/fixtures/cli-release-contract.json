@@ -20,6 +20,10 @@
     "serve sessions"
   ],
   "derivedCommands": [
+    "ai_logic clearScripts",
+    "ai_logic script",
+    "ai_logic scripts",
+    "ai_logic status",
     "assurance attach",
     "assurance canIUse",
     "assurance define",
@@ -74,6 +78,14 @@
     "firestore updateDoc",
     "firestore writeBatch",
     "firestore writeIndexes",
+    "functions executions",
+    "functions fire",
+    "functions listTriggers",
+    "messaging deliveries",
+    "messaging send",
+    "messaging subscribeToTopic",
+    "messaging tokens",
+    "messaging unsubscribeFromTopic",
     "rules explainDenial",
     "rules getStdlib",
     "rules lint",
@@ -141,15 +153,40 @@
     "./discover/production"
   ],
   "mcpTools": [
+    "ai_logic",
     "assurance",
     "auth",
     "database",
     "firestore",
+    "functions",
+    "messaging",
     "rules",
     "sandbox",
     "storage"
   ],
   "mcpToolMethods": {
+    "ai_logic": [
+      "clearScripts",
+      "script",
+      "scripts",
+      "status"
+    ],
+    "assurance": [
+      "attach",
+      "canIUse",
+      "define",
+      "export",
+      "inspect",
+      "map",
+      "minimize",
+      "propose",
+      "replaySession",
+      "run",
+      "start",
+      "testRulesHosted",
+      "verify",
+      "verifyCases"
+    ],
     "auth": [
       "actAsAdmin",
       "actAsAnonymous",
@@ -196,6 +233,18 @@
       "writeBatch",
       "writeIndexes"
     ],
+    "functions": [
+      "executions",
+      "fire",
+      "listTriggers"
+    ],
+    "messaging": [
+      "deliveries",
+      "send",
+      "subscribeToTopic",
+      "tokens",
+      "unsubscribeFromTopic"
+    ],
     "rules": [
       "explainDenial",
       "getStdlib",
@@ -236,22 +285,6 @@
       "status",
       "updateMetadata",
       "uploadBytes"
-    ],
-    "assurance": [
-      "attach",
-      "canIUse",
-      "define",
-      "export",
-      "inspect",
-      "map",
-      "minimize",
-      "propose",
-      "replaySession",
-      "run",
-      "start",
-      "testRulesHosted",
-      "verify",
-      "verifyCases"
     ]
   },
   "bridgeTools": [

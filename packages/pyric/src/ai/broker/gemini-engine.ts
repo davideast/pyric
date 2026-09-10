@@ -68,6 +68,22 @@ export class GeminiEngine implements AnswerEngine {
   }
 
   /**
+   * Whether a static key is configured, checking the explicit option and the
+   * same environment variables {@link resolveAuthToken} does, without
+   * resolving Application Default Credentials: a status read must never shell
+   * out, and ADC's own presence answers only at call time.
+   */
+  hasKeyConfigured(): boolean {
+    const candidates = [
+      this.explicitKey,
+      process.env.GEMINI_API_KEY,
+      process.env.GOOGLE_GENAI_API_KEY,
+      process.env.VITE_GEMINI_API_KEY,
+    ];
+    return candidates.some((key) => key !== undefined && key.trim() !== '');
+  }
+
+  /**
    * Resolves authentication credentials sequentially, checking static options,
    * environment variables, and finally Google Cloud Application Default
    * Credentials (`gcloud auth application-default print-access-token`).

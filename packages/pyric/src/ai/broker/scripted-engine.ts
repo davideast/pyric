@@ -11,7 +11,8 @@
  * directly) or a shorthand the synthesizer expands. Matcher semantics:
  *   - entries are consumed at most once, scanned in queue order;
  *   - a matcher (substring / regex / predicate) is checked against the last
- *     user turn's text (predicates get the whole request);
+ *     user turn's text (predicates get the whole request and the requested
+ *     model);
  *   - the FIRST unconsumed matching entry wins;
  *   - an entry without `match` is unconditional — next-in-queue.
  */
@@ -105,7 +106,7 @@ export class ScriptedEngine implements AnswerEngine {
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
     const opts = this.opts(req, model);
-    const respond = this.take(req);
+    const respond = this.take(req, model);
     if (respond === undefined) {
       this.warnSyntheticDefaultOnce();
       return specialDefault(this.synth, req, opts) ?? this.synth.text(defaultText(req), opts);
@@ -116,7 +117,7 @@ export class ScriptedEngine implements AnswerEngine {
 
   streamGenerateContent(req: GenerateContentRequest, model: string): AsyncIterable<WireChunk> {
     const opts = this.opts(req, model);
-    const respond = this.take(req);
+    const respond = this.take(req, model);
     const synth = this.synth;
     if (respond === undefined) this.warnSyntheticDefaultOnce();
 
@@ -161,7 +162,7 @@ export class ScriptedEngine implements AnswerEngine {
   }
 
   /** First unconsumed matching entry wins; marks it consumed. */
-  private take(req: GenerateContentRequest): ScriptRespond | undefined {
+  private take(req: GenerateContentRequest, model: string): ScriptRespond | undefined {
     const text = lastUserText(req);
     for (const slot of this.queue) {
       if (slot.consumed) continue;
@@ -173,13 +174,23 @@ export class ScriptedEngine implements AnswerEngine {
             ? text.includes(m)
             : m instanceof RegExp
               ? m.test(text)
-              : m(req);
+              : m(req, model);
       if (hit) {
         slot.consumed = true;
         return slot.entry.respond;
       }
     }
     return undefined;
+  }
+
+  /** Empty the queue. Nothing already answered is affected. */
+  clear(): void {
+    this.queue.length = 0;
+  }
+
+  /** The queue as it stands, each entry beside whether it has been consumed. */
+  list(): ReadonlyArray<{ entry: ScriptEntry; consumed: boolean }> {
+    return this.queue.map((slot) => ({ entry: slot.entry, consumed: slot.consumed }));
   }
 
   private expandUnary(respond: ScriptShorthand, opts: SynthesizeOptions): WireResponse {

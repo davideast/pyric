@@ -1,0 +1,67 @@
+{
+  "push-a-sale-notification-to-the-promotions-topic": [
+    {
+      "tool": "messaging",
+      "args": {
+        "method": "send",
+        "args": {
+          "message": {
+            "topic": "promotions",
+            "notification": {
+              "title": "Flash Sale",
+              "body": "Twenty percent off for the next hour."
+            }
+          }
+        }
+      }
+    }
+  ],
+  "sign-a-device-up-for-weather-alerts": [
+    {
+      "tool": "messaging",
+      "args": {
+        "method": "subscribeToTopic",
+        "args": {
+          "tokens": ["weather-app-device-01:APA91bWeatherTestSuffix"],
+          "topic": "weather-alerts"
+        }
+      }
+    },
+    {
+      "tool": "messaging",
+      "args": { "method": "tokens", "args": {} }
+    }
+  ],
+  "unsubscribe-a-device-from-the-daily-digest": [
+    {
+      "tool": "messaging",
+      "args": {
+        "method": "subscribeToTopic",
+        "args": {
+          "tokens": ["digest-reader-07:APA91bDigestTestSuffix"],
+          "topic": "daily-digest"
+        }
+      }
+    },
+    {
+      "tool": "messaging",
+      "args": {
+        "method": "unsubscribeFromTopic",
+        "args": {
+          "tokens": ["digest-reader-07:APA91bDigestTestSuffix"],
+          "topic": "daily-digest"
+        }
+      }
+    },
+    {
+      "tool": "messaging",
+      "args": { "method": "tokens", "args": {} }
+    }
+  ],
+  "check-what-messaging-delivered-so-far": [
+    {
+      "tool": "messaging",
+      "args": { "method": "deliveries", "args": {} }
+    }
+  ]
+}

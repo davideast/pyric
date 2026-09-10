@@ -1,0 +1,40 @@
+{
+  "discover-the-triggers-this-project-defines": [
+    {
+      "tool": "functions",
+      "args": { "method": "listTriggers", "args": {} }
+    }
+  ],
+  "run-the-uppercase-trigger-without-writing-the-database": [
+    {
+      "tool": "functions",
+      "args": {
+        "method": "fire",
+        "args": {
+          "trigger": "makeUppercase",
+          "path": "messages/abc123/original",
+          "value": "shout"
+        }
+      }
+    }
+  ],
+  "check-what-has-fired-so-far": [
+    {
+      "tool": "functions",
+      "args": { "method": "executions", "args": {} }
+    }
+  ],
+  "fire-a-trigger-name-that-does-not-exist": [
+    {
+      "tool": "functions",
+      "args": {
+        "method": "fire",
+        "args": {
+          "trigger": "sendWelcomeEmail",
+          "path": "users/new1/profile",
+          "value": true
+        }
+      }
+    }
+  ]
+}

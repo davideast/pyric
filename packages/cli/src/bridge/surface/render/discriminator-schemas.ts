@@ -405,37 +405,50 @@ export const controlSandboxEnvironmentSchema = z.object({
     ),
 });
 
-export const invokeCloudFunctionSchema = z.object({
-  functionName: z.string().describe('Name of the Cloud Function to invoke.'),
-  triggerType: z
-    .enum(['callable', 'firestore_write', 'auth_create', 'storage_object'])
-    .describe('Invocation trigger type.'),
-  dataJson: z.string().optional().describe('JSON-encoded request payload or event data.'),
-  auth: z
-    .object({
-      uid: z.string().optional(),
-      tenant: z.string().optional(),
-      claimsJson: z.string().optional(),
-    })
-    .optional()
-    .describe('Optional auth context for the function invocation.'),
-});
-
-const aiScriptEntrySchema = z.object({
-  matchSubstring: z.string().optional().describe('Optional prompt substring to match.'),
-  responseType: z.enum(['text', 'json', 'error']),
-  responsePayload: z.string().describe('Text response, JSON string, or error message.'),
-  errorCode: z.number().optional().describe("HTTP status code when responseType is 'error'."),
-});
-
-export const configureAiMockSchema = z.object({
+export const manageFunctionsSchema = z.object({
   action: z
-    .enum(['append_script', 'clear_scripts'])
-    .describe('Queue operation on the scripted AI engine.'),
-  entries: z
-    .array(aiScriptEntrySchema)
+    .enum(['list_triggers', 'fire', 'executions'])
+    .describe('Which functions operation to run.'),
+  trigger: z
+    .string()
     .optional()
-    .describe('Scripted response entries pushed to the FIFO match queue.'),
+    .describe("The trigger's export name, as list_triggers names it (when action is 'fire')."),
+  path: z
+    .string()
+    .optional()
+    .describe("Realtime Database path the synthetic event is built at (when action is 'fire')."),
+  valueJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded value the synthetic event carries at path (when action is 'fire')."),
+  since: z
+    .number()
+    .optional()
+    .describe("Clock timestamp cursor; only executions at or after it are returned (when action is 'executions')."),
+});
+
+export const manageAiLogicSchema = z.object({
+  action: z
+    .enum(['script', 'clear_scripts', 'list_scripts', 'status'])
+    .describe('Which AI Logic operation to run.'),
+  matchSubstring: z
+    .string()
+    .optional()
+    .describe("Prompt substring the entry answers (when action is 'script')."),
+  matchModel: z
+    .string()
+    .optional()
+    .describe("Model the entry answers, with or without the models/ prefix (when action is 'script')."),
+  responseType: z
+    .enum(['text', 'json', 'error'])
+    .optional()
+    .describe("The shape responsePayloadJson is read as (when action is 'script')."),
+  responsePayloadJson: z
+    .string()
+    .optional()
+    .describe(
+      "JSON-encoded payload: a quoted string for type 'text', an object for type 'json', or {code, message} for type 'error' (when action is 'script').",
+    ),
 });
 
 // ─── Firestore lane: depth reads (count, aggregate, discovery, indexes) ────
@@ -460,4 +473,31 @@ export const inspectFirestoreStructureSchema = z.object({
     .string()
     .optional()
     .describe("JSON-encoded queries[] for 'extractIndexes'."),
+});
+
+// ─── Messaging lane ─────────────────────────────────────────────────────
+
+export const manageMessagingSchema = z.object({
+  action: z
+    .enum(['send', 'subscribe', 'unsubscribe', 'list_tokens', 'list_deliveries'])
+    .describe('Firebase Cloud Messaging operation.'),
+  token: z.string().optional().describe("Single device token, for 'send'."),
+  topic: z.string().optional().describe("Topic name, for 'send', 'subscribe', 'unsubscribe'."),
+  condition: z.string().optional().describe("Boolean expression over topics, for 'send'."),
+  notificationJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded {title?, body?}, for 'send'."),
+  dataJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded flat string map payload, for 'send'."),
+  tokensJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded array of device tokens, for 'subscribe' and 'unsubscribe'."),
+  since: z
+    .number()
+    .optional()
+    .describe("Clock timestamp cursor, for 'list_deliveries'."),
 });

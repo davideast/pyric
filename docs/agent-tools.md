@@ -3,12 +3,13 @@
 This repo carries two MCP tool contracts, both sourced from
 `packages/cli/src/bridge/server/mcp-contract.ts`.
 
-1. **`pyric mcp`** (headless, the default): the **product surface**, seven
+1. **`pyric mcp`** (headless, the default): the **product surface**, ten
    service tools, one per Firebase capability, rendered from the method
    records under `packages/cli/src/bridge/surface/methods/`. Every call is
    `{ method, args }`, where `method` is the SDK's own method name where the
    SDK has one, and pyric's own name where it does not. `DEFAULT_MCP_TOOL_NAMES`
-   is the exact list, and it is the seven tools this section documents.
+   is the exact list, and it is the ten tools this section documents. Ten is
+   the ceiling `0014-service-tools-with-sdk-methods.md` sets.
 2. **`pyric sandbox --bridge`** (or `pyric bridge`): the **transport
    surface** a browser sandbox peer executes, plus the rules and conformance
    tools that run in the bridge process. Its names are authored per family in
@@ -25,8 +26,8 @@ the same underlying tool-family factories the transport surface composes.
 
 ## The product surface: `pyric mcp` (headless, default)
 
-Seven tools: `firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`,
-`assurance`. Every one of them answers `describe` with `args: { method }`,
+Ten tools: `firestore`, `database`, `storage`, `auth`, `messaging`, `functions`,
+`rules`, `sandbox`, `assurance`, `ai_logic`. Every one of them answers `describe` with `args: { method }`,
 which returns that method's full argument schema, an example call, its
 effect class (`read`, `write`, `destructive`, or `production`), and its
 `status` on this server. A `destructive` call is refused unless
@@ -40,6 +41,9 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | `database` | `get`, `query`, `set`, `update`, `remove`, `push`, `crawl` (bounded structural view, no leaf values, depth 0 to 10, default 10) |
 | `storage` | `getBytes`, `getDownloadURL`, `getMetadata`, `listAll`, `uploadBytes`, `updateMetadata`, `deleteObject`, `setCrossServiceIam`, `status` and `provision` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 | `auth` | `getUser`, `getUserByEmail`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `importUsers`, `createCustomToken`, `signInWithEmailAndPassword`, `signInAnonymously`, `signInWithCustomToken`, `signInWithCredential`, `signOut`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami`, `sessions` |
+| `messaging` | `send`, `subscribeToTopic`, `unsubscribeFromTopic`, `tokens`, `deliveries` |
+| `functions` | `listTriggers`, `fire`, `executions` |
+| `ai_logic` | `script`, `clearScripts`, `scripts`, `status` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
 | `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
 | `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
@@ -173,6 +177,51 @@ enabling the service needs `roles/serviceusage.serviceUsageAdmin` or
 carry. Both are refused without `--allow-production`, refused again without
 `confirm: true`, and refused a third time when no credentials are found, naming
 the same three sources the hosted rules test reads.
+
+`messaging.send` carries its payload under `message`, exactly one of
+`token`, `topic`, or `condition` naming the recipient, the way the admin
+SDK's own `Message` union does; naming none or more than one is refused
+naming all three. A send to a token the sandbox does not recognize, minted
+here or not, is refused pointing at `messaging.tokens` to see what is
+registered. `messaging.subscribeToTopic` and `messaging.unsubscribeFromTopic`
+manage topic membership for a batch of tokens and report per-token success
+and failure counts, never all-or-nothing. `messaging.tokens` and
+`messaging.deliveries` are pyric's own reads: the first lists every
+registered device token, its state, and the topics it is subscribed to; the
+second lists what the sandbox delivered, foreground or background, handled
+or not, optionally since a clock timestamp cursor. Both change no state.
+
+`functions` covers the Cloud Functions RTDB trigger runtime and nothing
+else: callable functions are a deferred mirror by design, so there is no
+`call` method. `functions.listTriggers` discovers the handlers a project's
+Functions source defines, their reference patterns, and any exports whose
+trigger kind the runtime does not support yet, with the reason; a project
+with no Functions source answers with an empty list and names where it
+looked. `functions.fire` runs one discovered handler on a synthetic event
+built from `path` and `value`, matching `path` against the handler's own
+reference pattern to capture its wildcard params; it never writes `value` at
+`path`, and naming a trigger `listTriggers` did not discover is refused
+pointing at `listTriggers`. `functions.executions` lists the runs `fire`
+caused, with cause, duration, and result or error, optionally since a clock
+timestamp cursor.
+
+`ai_logic` is a local mirror control, not a way to send a prompt: no method
+here ever calls an upstream model. `ai_logic.script` registers one
+deterministic response on the local scripted answer engine, matched by
+prompt substring, by the model a call names, by both, or by neither
+(unconditional). `response.payload` must agree with `response.type`: a
+string for `text`, a plain object for `json`, `{ code, message }` for
+`error`; a mismatched call is refused naming the accepted form.
+`ai_logic.clearScripts` empties the queue, and `ai_logic.scripts` lists what
+is queued, each entry beside whether it has already answered a call. All
+three reach only the scripted engine, and are refused when the project's
+resolved AI Logic engine is something else. `ai_logic.status` reports the
+resolved engine (`scripted`, `openai` for a local loopback upstream, or
+`gemini` for production pass-through to Google AI or Vertex AI), its model
+and upstream when it has one, and whether a key is configured; it never
+returns the key value, a prefix of it, or its length, only the boolean
+`keyPresent`. When the resolved engine is `gemini`, `status` says so, and
+`script` still only ever affects the local scripted engine.
 
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path

@@ -13,7 +13,7 @@ contract. The `id` field equals the filename without its extension. A record car
 
 ## Distribution
 
-One hundred nineteen tasks, counted by the first tag each one carries:
+One hundred thirty-one tasks, counted by the first tag each one carries:
 
 - 21 auth and tenant: seed a tenant user with claims, switch the active identity, list users, set
   or revoke claims, delete an account, import a team and read one back by address, and the app's
@@ -45,6 +45,19 @@ One hundred nineteen tasks, counted by the first tag each one carries:
 - 9 multi-step: two or three operations in sequence, such as seeding a tenant user, writing a
   document as that user, and reading it back. Three of these install rules with `set` and then read
   the effect back through `simulate`, one per service.
+- 4 messaging: send a message to a topic, subscribe a device token to a topic and read the
+  membership back, unsubscribe one and confirm the topic dropped out of its read-back list, and
+  read the delivery log. None of these seed messaging state, because the seed shape has no place
+  for it; each one drives the setup itself through the tool.
+- 4 functions: discover the RTDB trigger handlers a planted Functions source defines and the one
+  the runtime cannot run, run a discovered handler on a synthetic event and read back what it
+  returned without writing the database, read the run log, and fire a trigger name the project
+  never defined. These are the only tasks that seed `projectFiles`, the Functions source planted
+  into the run's project directory rather than sandbox state.
+- 4 ai_logic: register one scripted response matched by prompt substring, list what is queued,
+  clear the queue, and read the resolved engine's mode, model, upstream, and whether a key is
+  configured. None of these seed anything: the scripted queue starts empty, and the resolved
+  engine is whatever the sandbox's default AI handle already carries.
 
 ## Rules for new tasks
 
@@ -56,6 +69,7 @@ One hundred nineteen tasks, counted by the first tag each one carries:
   has no state effect, such as a read or a rules verdict.
 - Every entry in `acceptedFirstOperations` must be a canonical operation id from the contract.
 - A task that needs a file the app would have left behind, rather than sandbox state, declares it on
-  the seed. `session` is the one such field today: the seeder writes it to
-  `.pyric/last-session.json` in the run's project directory, which is where the assurance methods
-  look for a capture.
+  the seed. `session` writes to `.pyric/last-session.json` in the run's project directory, which is
+  where the assurance methods look for a capture. `projectFiles` writes an arbitrary map of relative
+  path to contents into the same directory before the server starts; the functions tasks use it to
+  plant `firebase.json` and a Functions source the runtime's trigger discovery reads from disk.
