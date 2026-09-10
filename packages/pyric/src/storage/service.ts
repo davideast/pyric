@@ -119,7 +119,14 @@ export class StorageService {
      * install a new ruleset into a sandbox whose storage is already open.
      */
     public rules: StorageRules | null = null,
-    readonly crossServiceIam: CrossServiceIam = 'granted',
+    /**
+     * The cross-service IAM posture every operation on this service evaluates
+     * `firestore.get()/exists()` under. Assigned at construction and
+     * reassigned only by {@link replaceCrossServiceIam}, which is the one
+     * deliberate way to move a sandbox whose storage is already open between
+     * the granted and denied project states.
+     */
+    public crossServiceIam: CrossServiceIam = 'granted',
   ) {}
 }
 
@@ -284,6 +291,54 @@ export async function replaceStorageRules(sandbox: Sandbox, source: string): Pro
   for (const scopedPromise of SCOPED_SERVICES.get(sandbox)?.values() ?? []) {
     const scoped = await scopedPromise;
     scoped.rules = compiled.rules;
+  }
+}
+
+/**
+ * The cross-service IAM posture a sandbox's storage service is running under.
+ *
+ * A sandbox whose storage service has never been opened reports the default a
+ * first open would take, so a reader gets the mode that is in force rather
+ * than an absence it has to interpret.
+ */
+export function getStorageCrossServiceIam(sandbox: Sandbox): CrossServiceIam {
+  return OPEN_SERVICES.get(sandbox)?.crossServiceIam ?? 'granted';
+}
+
+/**
+ * Move a sandbox's storage service between the granted and denied
+ * cross-service IAM states, replacing whatever it is enforcing.
+ *
+ * This is the deliberate counterpart to the late-config guard in
+ * {@link ensureService}, on the same argument that gives
+ * {@link replaceStorageRules} its exception: a `crossServiceIam` option passed
+ * to a FACTORY after the service is open would be silently discarded, and a
+ * caller asking for a handle has not asked to change the project's IAM
+ * posture. Here the caller has asked for exactly that.
+ *
+ * The new mode reaches the root service and every per-bucket scoped service,
+ * because each holds its own reference to it.
+ */
+export async function replaceCrossServiceIam(
+  sandbox: Sandbox,
+  mode: CrossServiceIam,
+): Promise<void> {
+  const open = OPEN_SERVICES.get(sandbox);
+  if (open === undefined) {
+    await ensureService(sandbox, { crossServiceIam: mode }, 'replaceCrossServiceIam');
+    return;
+  }
+  OPEN_SERVICES.set(sandbox, {
+    service: open.service,
+    rulesSource: open.rulesSource,
+    rulesResolution: open.rulesResolution,
+    crossServiceIam: mode,
+  });
+  const root = await open.service;
+  root.crossServiceIam = mode;
+  for (const scopedPromise of SCOPED_SERVICES.get(sandbox)?.values() ?? []) {
+    const scoped = await scopedPromise;
+    scoped.crossServiceIam = mode;
   }
 }
 
