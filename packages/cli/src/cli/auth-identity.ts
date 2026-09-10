@@ -1,18 +1,19 @@
 /**
- * `pyric auth reset` and `pyric auth sessions`: the CLI view of who this
- * bridge's connected clients, and its own callers, act as.
+ * `pyric auth reset`: the CLI view of pointing a connected client, or this
+ * caller, at an identity.
  *
- * Impersonating an identity and reading whose calls run under it are
- * `auth impersonate` and `auth whoami` on the service surface now
+ * Impersonating an identity, reading whose calls run under it, and listing the
+ * sessions a sandbox holds are `auth impersonate`, `auth whoami`, and
+ * `auth sessions` on the service surface now
  * (`packages/cli/src/bridge/surface/methods/auth/`), which act on this
- * project's local `.pyric/state` and need no running bridge. Reset and
- * sessions stay here because "connected clients" is a concept a bridge alone
- * has: the state lives in the bridge process, not this one, so both commands
- * discover the running sandbox bridge (`.pyric/serve.json`, then the port
- * scan, via `serve/discovery.ts`) and call the identically named MCP tool.
- * Those are the same handlers an agent calls, so the CLI and MCP surfaces
- * cannot drift: the logic lives once, in `../auth/identity.ts`, and both
- * surfaces reach it through one tool.
+ * project's local `.pyric/state` and need no running bridge. Reset stays here
+ * because retargeting a connected client is a concept a bridge alone has: the
+ * state lives in the bridge process, not this one, so the command discovers the
+ * running sandbox bridge (`.pyric/serve.json`, then the port scan, via
+ * `serve/discovery.ts`) and calls the identically named MCP tool. That is the
+ * same handler an agent calls, so the CLI and MCP surfaces cannot drift: the
+ * logic lives once, in `../auth/identity.ts`, and both surfaces reach it
+ * through one tool.
  *
  * `--target` names another connected client. Without it a command acts on
  * this caller's own bridge identity, which the bridge records but does not
@@ -167,26 +168,6 @@ async function run(
   }
   render(result, out);
   return 0;
-}
-
-interface ListedSession {
-  target: string;
-  platform: string;
-  deviceLabel?: string;
-  identity: string;
-}
-
-export async function runAuthSessions(
-  parsed: ParsedArgs,
-  deps: AuthIdentityDeps = {},
-): Promise<number> {
-  return run('auth sessions', 'auth_sessions', {}, parsed, deps, (result, out) => {
-    out.write(`${result.summary}\n`);
-    for (const session of (result.data as { sessions?: ListedSession[] })?.sessions ?? []) {
-      const label = session.deviceLabel ? ` (${session.deviceLabel})` : '';
-      out.write(`  ${session.target}  ${session.platform}${label}  ${session.identity}\n`);
-    }
-  });
 }
 
 /**

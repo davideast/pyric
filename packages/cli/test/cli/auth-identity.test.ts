@@ -1,16 +1,16 @@
 /**
- * `pyric auth reset` / `sessions`: self versus `--target`, the `--json`
- * shape, the human rendering, and the exit codes for a missing bridge, a bad
- * flag combination, and a bridge that answers with a failure.
+ * `pyric auth reset`: self versus `--target`, the `--json` shape, the human
+ * rendering, and the exit codes for a missing bridge, a bad flag combination,
+ * and a bridge that answers with a failure.
  *
- * `auth impersonate` and `auth whoami` are derived service-tool commands now
- * (`pyric auth impersonate --uid alice`, acting on this project's local
- * `.pyric/state`, no bridge needed); their tests live under
- * `test/bridge/surface/`. Reset and sessions stay bridge-only, because
- * "connected clients" is a concept only a running bridge has, so their
- * discovery and MCP round trip are injected here, and the assertions are
- * about the tool each command calls, the arguments it sends, and the output
- * it prints, not the wire.
+ * `auth impersonate`, `auth whoami`, and `auth sessions` are derived
+ * service-tool commands now (`pyric auth impersonate --uid alice`, acting on
+ * this project's local `.pyric/state`, no bridge needed); their tests live
+ * under `test/bridge/surface/`. Reset stays bridge-only, because retargeting a
+ * connected client is a concept only a running bridge has, so its discovery
+ * and MCP round trip are injected here, and the assertions are about the tool
+ * the command calls, the arguments it sends, and the output it prints, not the
+ * wire.
  */
 import { describe, expect, it } from 'bun:test';
 import { parseArgs } from '../../src/cli/parse-args.js';
@@ -18,7 +18,6 @@ import { dispatchServiceCommand } from '../../src/cli/service-commands.js';
 import {
   parseToolResponse,
   runAuthReset,
-  runAuthSessions,
   type AuthIdentityDeps,
   type AuthToolResult,
 } from '../../src/cli/auth-identity.js';
@@ -84,59 +83,6 @@ describe('parseToolResponse', () => {
 
   it('reports an empty response', () => {
     expect(parseToolResponse('auth_sessions', {}).summary).toContain('empty response');
-  });
-});
-
-describe('pyric auth sessions', () => {
-  it('prints one line per connected client', async () => {
-    const h = harness({
-      ok: true,
-      summary: '2 connected clients',
-      data: {
-        total: 2,
-        sessions: [
-          { target: 'sess-1', platform: 'flutter', deviceLabel: 'iPhone 17 Pro', identity: 'app session' },
-          { target: 'sess-2', platform: 'studio', identity: 'as alice · tenant acme' },
-        ],
-      },
-    });
-
-    expect(await runAuthSessions(parsed('auth', 'sessions'), h.deps)).toBe(0);
-    expect(h.calls).toEqual([{ tool: 'auth_sessions', args: {} }]);
-    expect(h.stdout()).toContain('2 connected clients');
-    expect(h.stdout()).toContain('sess-1  flutter (iPhone 17 Pro)  app session');
-    expect(h.stdout()).toContain('sess-2  studio  as alice · tenant acme');
-  });
-
-  it('prints the raw result under --json', async () => {
-    const result = {
-      ok: true,
-      summary: 'No clients are connected to this bridge.',
-      data: { sessions: [], total: 0 },
-    };
-    const h = harness(result);
-
-    expect(await runAuthSessions(parsed('auth', 'sessions', '--json'), h.deps)).toBe(0);
-    expect(JSON.parse(h.stdout())).toEqual(result);
-  });
-
-  it('exits 1 with an actionable message when no bridge is running', async () => {
-    const h = harness(OK);
-    h.deps.discover = async () => null;
-
-    expect(await runAuthSessions(parsed('auth', 'sessions'), h.deps)).toBe(1);
-    expect(h.stderr()).toContain(NO_BRIDGE_CLI_MESSAGE);
-    expect(h.calls).toEqual([]);
-  });
-
-  it('exits 2 when the bridge cannot be reached', async () => {
-    const h = harness(OK);
-    h.deps.callTool = async () => {
-      throw new Error('socket hang up');
-    };
-
-    expect(await runAuthSessions(parsed('auth', 'sessions'), h.deps)).toBe(2);
-    expect(h.stderr()).toContain('socket hang up');
   });
 });
 

@@ -35,7 +35,17 @@ export const switchAuthIdentitySchema = z.object({
 
 export const manageAuthUsersSchema = z.object({
   action: z
-    .enum(['create', 'get', 'list', 'update', 'delete', 'set_claims', 'mint_token', 'import'])
+    .enum([
+      'create',
+      'get',
+      'get_by_email',
+      'list',
+      'update',
+      'delete',
+      'set_claims',
+      'mint_token',
+      'import',
+    ])
     .describe('Auth user administration action.'),
   uid: z
     .string()
@@ -68,6 +78,21 @@ export const inspectAuthFlowSchema = z.object({
     .string()
     .optional()
     .describe('JSON-encoded mock UserCredential payload (for stage_oauth_mock).'),
+});
+
+export const manageAppSessionSchema = z.object({
+  action: z
+    .enum(['sign_in_password', 'sign_in_anonymous', 'sign_in_custom_token', 'sign_in_credential', 'sign_out'])
+    .describe("The app's own sign-in action. None of these change the caller's identity."),
+  email: z.string().optional().describe('Email address, for password and credential sign-in.'),
+  password: z.string().optional().describe('Password, for password sign-in.'),
+  token: z.string().optional().describe('Custom token, for custom-token sign-in.'),
+  providerId: z
+    .string()
+    .optional()
+    .describe("Federated provider id e.g. 'google.com', for credential sign-in."),
+  idToken: z.string().optional().describe('Provider id token, for credential sign-in.'),
+  accessToken: z.string().optional().describe('Provider access token, for credential sign-in.'),
 });
 
 const authOverrideSchema = z.object({

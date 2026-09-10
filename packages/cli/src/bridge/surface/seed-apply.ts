@@ -72,6 +72,36 @@ function seedPassword(uid: string): string {
   return `seed-${uid}`;
 }
 
+/**
+ * Write user records into the auth pool. `seedUsers` is the only entry point
+ * that carries a tenant onto a stored record, so every seeded identity goes
+ * through it, and `auth.importUsers` reaches the pool through this same
+ * function rather than a second import path of its own.
+ */
+export function applyUsers(sandbox: LocalSandbox, users: readonly SeedUserEntry[]): void {
+  if (users.length === 0) return;
+  const auth = getAuth(sandbox);
+  authSandbox.seedUsers(
+    auth,
+    users.map((user) => {
+      const record: {
+        uid: string;
+        email: string;
+        password: string;
+        customClaims?: Record<string, unknown>;
+        tenantId?: string;
+      } = {
+        uid: user.uid,
+        email: seedEmail(user.uid, user.email),
+        password: user.password ?? seedPassword(user.uid),
+      };
+      if (user.customClaims !== undefined) record.customClaims = user.customClaims;
+      if (user.tenantId !== undefined) record.tenantId = user.tenantId;
+      return record;
+    }),
+  );
+}
+
 /** Install the rules a seed carries, before any data write. */
 export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Promise<void> {
   const storageRules = seed.storageRules;
@@ -97,31 +127,7 @@ export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Prom
 
 /** Load the data a seed carries: users, documents, database tree, storage objects. */
 export async function applyData(sandbox: LocalSandbox, seed: SandboxSeed): Promise<void> {
-  const users = seed.users ?? [];
-  if (users.length > 0) {
-    // `seedUsers` is the only entry point that carries a tenant onto the stored
-    // record, so every seeded identity goes through it.
-    const auth = getAuth(sandbox);
-    authSandbox.seedUsers(
-      auth,
-      users.map((user) => {
-        const record: {
-          uid: string;
-          email: string;
-          password: string;
-          customClaims?: Record<string, unknown>;
-          tenantId?: string;
-        } = {
-          uid: user.uid,
-          email: seedEmail(user.uid, user.email),
-          password: user.password ?? seedPassword(user.uid),
-        };
-        if (user.customClaims !== undefined) record.customClaims = user.customClaims;
-        if (user.tenantId !== undefined) record.tenantId = user.tenantId;
-        return record;
-      }),
-    );
-  }
+  applyUsers(sandbox, seed.users ?? []);
 
   const documents = seed.firestore ?? {};
   const db = getAdminFirestore(sandbox);

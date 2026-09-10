@@ -41,6 +41,47 @@ export function switchHeldIdentity(ctx: SurfaceContext, input: IdentityInput): O
   return reported(ctx.identity.switchTo(input));
 }
 
+/** One identity this process holds a session for. */
+export interface HeldSession {
+  /** `agent` for the identity the agent's calls run under, `appSession` for the app's own user. */
+  kind: 'agent' | 'appSession';
+  /** The identity in one phrase, the way the summary says it. */
+  identity: string;
+  /** The user, for a session that has one. */
+  uid?: string;
+}
+
+/**
+ * The sessions this sandbox holds: the agent identity and the app session.
+ * A process that also hosts connected clients reports those clients through
+ * its own bridge surface; these two are the sessions the sandbox itself has.
+ */
+export function listHeldSessions(ctx: SurfaceContext): OperationResult {
+  const agent = ctx.identity.describe();
+  const appSession = readAppSession(ctx.sandbox);
+
+  const agentSession: HeldSession = { kind: 'agent', identity: describeAgentIdentity(agent) };
+  if (agent.uid !== undefined) agentSession.uid = agent.uid;
+
+  const sessions: HeldSession[] = [agentSession];
+  if (appSession !== null) {
+    sessions.push({
+      kind: 'appSession',
+      identity: describeAppSession(appSession),
+      uid: appSession.uid,
+    });
+  }
+
+  return {
+    ok: true,
+    summary:
+      `${sessions.length} session${sessions.length === 1 ? '' : 's'} in this sandbox. ` +
+      `The agent runs as ${agentSession.identity}. ` +
+      `The app session is ${describeAppSession(appSession)}.`,
+    data: { sessions, total: sessions.length, appSession },
+  };
+}
+
 /**
  * Report both identities without changing either. `runsAs` is the agent
  * identity, said again in one phrase, because that is the question a caller

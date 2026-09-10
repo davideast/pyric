@@ -578,3 +578,162 @@ it('forks, applies, diffs, lists, promotes, and discards a branch', async () => 
   expect((await run('sandbox.fork', { branch: 'dropped' })).ok).toBe(true);
   expect((await run('sandbox.discard', { branch: 'dropped' })).ok).toBe(true);
 });
+
+// Step 6: identity and sign-in. The one thing under test in every case below
+// is that a sign-in moves the app session and nothing else, and that the rules
+// the sandbox is running are what decides who a call was evaluated as. The
+// installed ruleset allows `/tenants/{docId}` for tenant-a and denies every
+// other path to every identity, so a read of `rooms/lobby` succeeds only for
+// an identity that bypasses rules.
+it('imports users with their tenants and claims, and reads one back by address', async () => {
+  await run('auth.actAsAdmin');
+  const imported = await run('auth.importUsers', {
+    users: [
+      {
+        uid: 'riley',
+        email: 'riley@acme.test',
+        password: 'hunter22',
+        tenantId: 'tenant-a',
+        customClaims: { role: 'viewer' },
+      },
+      { uid: 'sam', email: 'sam@example.test', password: 'hunter22' },
+    ],
+  });
+  expect(imported.ok).toBe(true);
+
+  const byUid = await run('auth.getUser', { uid: 'riley' });
+  const record = (byUid.data as { user: { tenantId: string | null; claims: Record<string, unknown> } })
+    .user;
+  expect(record.tenantId).toBe('tenant-a');
+  expect(record.claims).toEqual({ role: 'viewer' });
+
+  const byEmail = await run('auth.getUserByEmail', { email: 'RILEY@acme.test' });
+  expect((byEmail.data as { user: { uid: string } }).user.uid).toBe('riley');
+});
+
+it('signs the app session in and leaves the agent administering as admin', async () => {
+  await run('auth.actAsAdmin');
+  const signedIn = await run('auth.signInWithEmailAndPassword', {
+    email: 'sam@example.test',
+    password: 'hunter22',
+  });
+  expect(signedIn.ok).toBe(true);
+
+  const reported = await run('auth.whoami');
+  const both = reported.data as {
+    agent: { mode: string };
+    appSession: { uid: string } | null;
+    runsAs: string;
+  };
+  expect(both.appSession?.uid).toBe('sam');
+  expect(both.agent.mode).toBe('admin');
+  expect(both.runsAs).toContain('admin');
+
+  // The rules deny this path to every identity, so a read that succeeds ran
+  // with rules bypassed, which is the agent identity and not the app session.
+  expect((await run('firestore.getDoc', { path: 'rooms/lobby' })).ok).toBe(true);
+
+  const listed = await run('auth.sessions');
+  const sessions = (listed.data as { sessions: Array<{ kind: string; uid?: string }> }).sessions;
+  expect(sessions.map((session) => session.kind)).toEqual(['agent', 'appSession']);
+  expect(sessions[1]?.uid).toBe('sam');
+});
+
+it('adopts the app session, and rules then evaluate the agent as that user', async () => {
+  await run('auth.actAsAdmin');
+  expect(
+    (await run('auth.signInWithEmailAndPassword', {
+      email: 'riley@acme.test',
+      password: 'hunter22',
+    })).ok,
+  ).toBe(true);
+  expect((await run('auth.useAppSession')).ok).toBe(true);
+  expect(ctx.identity.describe().uid).toBe('riley');
+
+  const simulated = await run('rules.simulate', {
+    service: 'firestore',
+    operation: 'get',
+    path: 'tenants/t1',
+  });
+  const evaluated = simulated.data as {
+    allowed: boolean;
+    auth: { uid: string; token: Record<string, unknown> };
+  };
+  expect(evaluated.auth.uid).toBe('riley');
+  expect(evaluated.auth.token).toMatchObject({ role: 'viewer', firebase: { tenant: 'tenant-a' } });
+  expect(evaluated.allowed).toBe(true);
+
+  // The same read that succeeded under admin is refused now, so the agent is
+  // running as the adopted user rather than bypassing rules.
+  expect((await run('firestore.getDoc', { path: 'rooms/lobby' })).ok).toBe(false);
+});
+
+it('signs the app session out and leaves the agent able to administer users', async () => {
+  await run('auth.actAsAdmin');
+  expect((await run('auth.signOut')).ok).toBe(true);
+
+  const reported = await run('auth.whoami');
+  const both = reported.data as { agent: { mode: string }; appSession: unknown };
+  expect(both.appSession).toBe(null);
+  expect(both.agent.mode).toBe('admin');
+  expect((await run('auth.listUsers', { maxResults: 50 })).ok).toBe(true);
+});
+
+it('signs in anonymously and shows the minted user in the pool', async () => {
+  await run('auth.actAsAdmin');
+  expect((await run('auth.signInAnonymously')).ok).toBe(true);
+
+  const reported = await run('auth.whoami');
+  const session = (
+    reported.data as {
+      appSession: { uid: string; providerId: string; isAnonymous: boolean } | null;
+    }
+  ).appSession;
+  expect(session?.isAnonymous).toBe(true);
+  expect(session?.providerId).toBe('anonymous');
+
+  const listed = await run('auth.listUsers', { maxResults: 100 });
+  const users = (listed.data as { users: Array<{ uid: string; isAnonymous: boolean }> }).users;
+  expect(users.find((user) => user.uid === session?.uid)?.isAnonymous).toBe(true);
+});
+
+it('mints a custom token, redeems it, and carries its claims into rules', async () => {
+  await run('auth.actAsAdmin');
+  const minted = await run('auth.createCustomToken', {
+    uid: 'sam',
+    developerClaims: { role: 'auditor' },
+  });
+  expect(minted.ok).toBe(true);
+
+  const token = (minted.data as { token: string }).token;
+  expect((await run('auth.signInWithCustomToken', { token })).ok).toBe(true);
+  expect((await run('auth.useAppSession')).ok).toBe(true);
+
+  const simulated = await run('rules.simulate', {
+    service: 'firestore',
+    operation: 'get',
+    path: 'tenants/t1',
+  });
+  const evaluated = simulated.data as { auth: { uid: string; token: Record<string, unknown> } };
+  expect(evaluated.auth.uid).toBe('sam');
+  expect(evaluated.auth.token).toMatchObject({ role: 'auditor' });
+});
+
+it('signs in with a federated credential and refuses a provider it has none for', async () => {
+  await run('auth.actAsAdmin');
+  const signedIn = await run('auth.signInWithCredential', {
+    credential: { providerId: 'google.com', email: 'dana@example.test' },
+  });
+  expect(signedIn.ok).toBe(true);
+  const session = (signedIn.data as { appSession: { providerId: string } | null }).appSession;
+  expect(session?.providerId).toBe('google.com');
+
+  const refused = await run('auth.signInWithCredential', {
+    credential: { providerId: 'linkedin.com', email: 'dana@example.test' },
+  });
+  expect(refused.ok).toBe(false);
+  expect(refused.summary).toContain('google.com');
+  expect(refused.summary).toContain('yahoo.com');
+
+  await run('auth.actAsAdmin');
+});

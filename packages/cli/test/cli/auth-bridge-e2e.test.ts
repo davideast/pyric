@@ -2,13 +2,13 @@
  * The auth tool families against a real bridge over real MCP.
  *
  * The unit tests inject the transport; this one does not. It starts the
- * standalone bridge, registers a client in its registry, and runs `pyric auth
- * reset` / `pyric auth sessions` with their default `callTool` (the two
- * identity commands that still need a running bridge, because "connected
- * clients" is a concept only a bridge has), and calls the bridge's
- * `auth_impersonate` / `auth_whoami` tools directly over MCP (the CLI reaches
- * different, local-state commands for those names now:
- * `pyric auth impersonate` / `pyric auth whoami`, covered under
+ * standalone bridge, registers a client in its registry, runs `pyric auth
+ * reset` with its default `callTool` (the one identity command that still
+ * needs a running bridge, because retargeting a connected client is a concept
+ * only a bridge has), and calls the bridge's `auth_sessions`,
+ * `auth_impersonate`, and `auth_whoami` tools directly over MCP (the CLI
+ * reaches different, local-state commands for those names now:
+ * `pyric auth sessions` / `impersonate` / `whoami`, covered under
  * `test/bridge/surface/`), so the MCP handshake, the registration of all
  * twelve `auth_*` tools, and the bridge's own result shape are all exercised.
  *
@@ -28,7 +28,6 @@ import { isBridgeMessage } from '../../src/bridge/protocol.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import {
   runAuthReset,
-  runAuthSessions,
   type AuthIdentityDeps,
 } from '../../src/cli/auth-identity.js';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
@@ -77,21 +76,21 @@ function deps(out: string[], err: string[]): AuthIdentityDeps {
 
 describe('pyric auth identity commands over a live bridge', () => {
   it('lists the registered client', async () => {
-    const out: string[] = [];
-    const err: string[] = [];
-
-    expect(await runAuthSessions(parsed('auth', 'sessions', '--json'), deps(out, err))).toBe(0);
-    expect(err.join('')).toBe('');
-    const result = JSON.parse(out.join('')) as {
-      ok: boolean;
-      data: { sessions: Array<{ target: string; identity: string }> };
-    };
-    expect(result.ok).toBe(true);
-    expect(result.data.sessions).toHaveLength(1);
-    expect(result.data.sessions[0]).toMatchObject({
-      target: 'sess-live',
-      identity: 'app session',
-    });
+    const { client, close } = await mcpClient();
+    try {
+      const result = payload(await client.callTool({ name: 'auth_sessions', arguments: {} })) as {
+        ok: boolean;
+        data: { sessions: Array<{ target: string; identity: string }> };
+      };
+      expect(result.ok).toBe(true);
+      expect(result.data.sessions).toHaveLength(1);
+      expect(result.data.sessions[0]).toMatchObject({
+        target: 'sess-live',
+        identity: 'app session',
+      });
+    } finally {
+      await close();
+    }
   });
 
   it('impersonates a uid with a tenant and claims on a named target', async () => {

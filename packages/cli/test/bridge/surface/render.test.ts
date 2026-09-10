@@ -122,8 +122,8 @@ describe('the named variants', () => {
 describe('the discriminator variant', () => {
   const surface = renderSurface('discriminator');
 
-  it('renders the thirteen intent tools and the seven resource templates', () => {
-    expect(surface.tools).toHaveLength(13);
+  it('renders the fourteen intent tools and the seven resource templates', () => {
+    expect(surface.tools).toHaveLength(14);
     expect(surface.resources).toHaveLength(7);
   });
 
@@ -174,9 +174,9 @@ describe('the discriminator variant', () => {
   });
 
   it('resolves a discriminator value with no canonical counterpart to no operation', () => {
-    const call = surface.resolve('manage_auth_users', { action: 'mint_token' });
+    const call = surface.resolve('inspect_auth_flow', { action: 'take_mail' });
     expect(call.operation).toBeNull();
-    expect(call.action).toBe('mint_token');
+    expect(call.action).toBe('take_mail');
   });
 
   it('keeps every rendered schema within two object levels', () => {

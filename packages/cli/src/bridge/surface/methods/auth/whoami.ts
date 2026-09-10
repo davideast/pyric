@@ -9,7 +9,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'whoami()',
-  description: 'Report the agent identity and the app session, and which one later calls run as.',
+  description: 'Report the agent identity, the app session, and which one runs next.',
   args: z.object({}),
   operation: 'get_auth_identity',
   example: {},

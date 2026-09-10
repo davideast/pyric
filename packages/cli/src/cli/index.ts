@@ -130,9 +130,6 @@ COMMANDS
                              pyric rules lint --service firestore --rules-file firestore.rules
                              The same records serve \`pyric mcp\`, so the two
                              surfaces cannot drift. --json prints the whole result.
-  auth sessions              List the clients connected to a running sandbox
-                             bridge with the identity each one acts as, and the
-                             target id to pass to impersonate or reset. --json.
 CORE FLAGS (sandbox)
   --port             Port to serve on. Default 3473. Pyric scans forward when
                      the selected port is taken.
