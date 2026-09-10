@@ -45,7 +45,9 @@
     "auth updateUser",
     "auth useAppSession",
     "auth whoami",
+    "database crawl",
     "database get",
+    "database push",
     "database query",
     "database remove",
     "database set",
@@ -142,7 +144,9 @@
       "whoami"
     ],
     "database": [
+      "crawl",
       "get",
+      "push",
       "query",
       "remove",
       "set",

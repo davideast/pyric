@@ -37,7 +37,7 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | Tool | Methods |
 |---|---|
 | `firestore` | `getDoc`, `getDocs`, `addDoc`, `setDoc`, `updateDoc`, `deleteDoc`, `writeBatch` |
-| `database` | `get`, `query`, `set`, `update`, `remove` |
+| `database` | `get`, `query`, `set`, `update`, `remove`, `push`, `crawl` (bounded structural view, no leaf values, depth 0 to 10, default 10) |
 | `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
 | `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |

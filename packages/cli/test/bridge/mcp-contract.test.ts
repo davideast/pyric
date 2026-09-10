@@ -24,7 +24,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'updateDoc',
     'writeBatch',
   ],
-  database: ['get', 'query', 'remove', 'set', 'update'],
+  database: ['crawl', 'get', 'push', 'query', 'remove', 'set', 'update'],
   storage: ['deleteObject', 'getBytes', 'getMetadata', 'listAll', 'uploadBytes'],
   auth: [
     'actAsAdmin',

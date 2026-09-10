@@ -86,7 +86,8 @@ const batchOpSchema = z.object({
 export const mutateSandboxDataSchema = z.object({
   service: z.enum(['firestore', 'database']).describe('Target data service.'),
   action: z
-    .enum(['set', 'add', 'update', 'delete', 'batch', 'transaction'])
+    // The database lane's own addition: 'push' mints an auto-id child key.
+    .enum(['set', 'add', 'update', 'delete', 'batch', 'transaction', 'push'])
     .describe('Mutation operation.'),
   path: z.string().optional().describe('Document, collection, or database tree path.'),
   dataJson: z
@@ -130,6 +131,17 @@ export const querySandboxDataSchema = z.object({
   orderDirection: z.enum(['asc', 'desc']).optional().describe('Sort direction.'),
   limit: z.number().optional().describe('Maximum number of records or child keys to return.'),
   auth: authOverrideSchema.optional().describe('Optional per-call auth override.'),
+  // The database lane's own addition: a structural read with no leaf values.
+  // Firestore reads carry 'read'; only 'crawl' changes what the call does.
+  action: z
+    .enum(['read', 'crawl'])
+    .describe(
+      "Realtime Database only. 'crawl' returns structure (child names, counts), no leaf values.",
+    ),
+  depth: z
+    .number()
+    .optional()
+    .describe("Realtime Database only, with action 'crawl'. Maximum object depth, 0 to 10, default 10."),
 });
 
 export const manageStorageFilesSchema = z.object({

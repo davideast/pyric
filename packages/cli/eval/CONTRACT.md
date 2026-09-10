@@ -33,6 +33,8 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `update_database_value` | update | database | value | `path`, `value` (object) | |
 | `delete_database_value` | delete | database | value | `path` | |
 | `query_database_values` | query | database | values | `path`, `orderByChild?`, `equalTo?`, `limitToFirst?` | |
+| `push_database_value` | push | database | value | `path`, `value?` | Mints an auto-id child key; returns the key and the full child path. With no `value`, only the key is minted and nothing is written. |
+| `crawl_database_structure` | crawl | database | structure | `path?`, `depth?` (0 to 10, default 10) | Bounded structural view, no leaf values. Reuses the `rtdb_crawl_structure` bridge tool's implementation. |
 | `upload_storage_file` | upload | storage | file | `path`, `contentBase64`, `contentType?`, `metadata?` (object) | |
 | `download_storage_file` | download | storage | file | `path` | |
 | `list_storage_files` | list | storage | files | `prefix?` | |

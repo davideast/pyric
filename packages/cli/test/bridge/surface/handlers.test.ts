@@ -163,6 +163,25 @@ it('reads and writes the Realtime Database tree', async () => {
   expect(queried.ok).toBe(true);
 
   expect((await run('database.remove', { path: 'rooms/lobby/seats' })).ok).toBe(true);
+
+  // The database lane's own additions: an auto-id write and a structural read.
+  const pushed = await run('database.push', { path: 'rooms', value: { open: true } });
+  expect(pushed.ok).toBe(true);
+  const pushedPath = (pushed.data as { path: string }).path;
+  expect(pushedPath.startsWith('rooms/')).toBe(true);
+  const pushedRead = await run('database.get', { path: pushedPath });
+  expect((pushedRead.data as { value: { open: boolean } }).value.open).toBe(true);
+
+  const minted = await run('database.push', { path: 'rooms' });
+  expect(minted.ok).toBe(true);
+  const mintedRead = await run('database.get', { path: (minted.data as { path: string }).path });
+  expect((mintedRead.data as { exists: boolean }).exists).toBe(false);
+
+  const crawled = await run('database.crawl', { path: 'rooms', depth: 1 });
+  expect(crawled.ok).toBe(true);
+  // The structural view reports the leaf's type, never its value: the tree
+  // holds only `true` values here, so the rendered output carries no `true`.
+  expect(JSON.stringify((crawled.data as { children: unknown[] }).children)).not.toContain('true');
 });
 
 it('stores and reads back a Cloud Storage object', async () => {
