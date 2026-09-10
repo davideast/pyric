@@ -99,6 +99,22 @@ sandbox clock's current instant, so a rule with no explicit time still moves
 when the clock does. Naming `requestTime` evaluates the rule at that instant
 without moving the sandbox clock.
 
+A Firestore field value is a function call in the SDK, and a tool call is
+JSON, so each one has a JSON spelling that `setDoc`, `updateDoc`, `addDoc`,
+and `writeBatch` decode in `data`, at any depth:
+`{"$serverTimestamp": true}`, `{"$increment": <number>}`,
+`{"$arrayUnion": [...]}`, `{"$arrayRemove": [...]}`, and
+`{"$deleteField": true}`. `$deleteField` removes a key from a document that
+already exists, so it is accepted by `updateDoc` and by a `writeBatch` entry
+of type `update`, and refused elsewhere naming the method. Any other `$` key,
+or one of these with a value of the wrong shape, is refused naming the field
+path and the form it accepts, rather than stored as a literal. A server
+timestamp written this way reads the sandbox clock, so pinning the clock and
+writing two documents gives them the same instant. The Realtime Database
+takes Firebase's own wire form instead, `{".sv": "timestamp"}`, which
+`database.set` and `database.update` accept verbatim and resolve against the
+same clock.
+
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path
 posts/p1 --data '{"a":1}'` and an MCP call with `{ method: "setDoc", args:
