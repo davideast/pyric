@@ -111,4 +111,38 @@ describe('startOnValueCreatedExecution', () => {
     expect(started).toEqual(['one', 'two']);
     host.close();
   });
+
+  test('awaits an event envelope the caller resolves asynchronously', async () => {
+    const { onValueCreated } = databaseFunctions;
+    const times: unknown[] = [];
+    const created = onValueCreated('/items/{itemId}', (event) => {
+      times.push((event as unknown as { time: string }).time);
+    });
+    const delivery = new InMemoryRtdbTriggerDelivery();
+    delivery.seed('/items', null);
+    // The instant is the sandbox's, and a sandbox behind a transport answers
+    // for it asynchronously, so the envelope arrives as a promise.
+    const pinned = '2031-01-01T00:00:00.000Z';
+    const host = startOnValueCreatedExecution({
+      exported: { created },
+      delivery,
+      eventOptions: async (_projection, sequence) => {
+        await Promise.resolve();
+        return {
+          id: `async-${sequence}`,
+          time: pinned,
+          instance: 'demo-project-default-rtdb',
+          location: 'us-central1',
+          databaseHost: 'firebasedatabase.app',
+        };
+      },
+    });
+    await host.ready;
+
+    delivery.emit('/items', { one: 1 });
+    await host.idle();
+
+    expect(times).toEqual([pinned]);
+    host.close();
+  });
 });

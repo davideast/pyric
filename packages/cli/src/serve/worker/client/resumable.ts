@@ -5,6 +5,7 @@
  * `uploadBytes` RPC to commit the file to the shared storage backend.
  */
 import type { FullMetadata } from 'pyric/storage';
+import { sandboxNow } from './clock.js';
 import type { ClientStorageReference, ClientSettableMetadata } from './storage.js';
 import { uploadBytes, deleteObject } from './storage.js';
 
@@ -88,7 +89,10 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     this._metadata = metadata;
 
     const size = computePayloadSize(data);
-    const now = new Date().toISOString();
+    // The placeholder metadata an in-flight task reports. The stamp is the
+    // sandbox clock's, so a paused task's snapshot agrees with the object the
+    // host writes when it completes.
+    const now = new Date(sandboxNow()).toISOString();
 
     let contentType = 'application/octet-stream';
     const isBlob = data instanceof Blob;

@@ -38,7 +38,7 @@
  *                          subtree differs.
  *   - `time-drift`      — like `sentinel-drift` but specifically a
  *                          captured `serverTimestamp`. Surfaces when
- *                          `pinRequestTime: false` and the wall clock
+ *                          `pinRequestTime: false` and the sandbox clock
  *                          advanced between capture and replay.
  *   - `real-divergence` — anything else. If the captured metadata
  *                          doesn't license drift at this exact leaf,

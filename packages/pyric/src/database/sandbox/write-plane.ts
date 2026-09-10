@@ -74,6 +74,7 @@ export class WritePlane {
   adminGet(path: string): JsonValue {
     const value = this.state.tree.read(path);
     this.state.events.operation(null, 'get', path, 'not-applicable', undefined, {
+      at: this.state.clock.now(),
       origin: 'admin', resourceBefore: { data: value, exists: value !== null },
     });
     return value;
@@ -82,6 +83,7 @@ export class WritePlane {
   adminGetQuery(path: string, spec: QuerySpec): QueryRow[] {
     const rows = executeQuery(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
     this.state.events.operation(null, 'get', path, 'not-applicable', undefined, {
+      at: this.state.clock.now(),
       origin: 'admin', request: { query: spec },
       resourceBefore: { data: rowsToVal(rows), exists: rows.length > 0 },
     });
@@ -106,6 +108,7 @@ export class WritePlane {
     );
     const method = resolved === null ? 'remove' : 'set';
     this.state.events.operation(null, method, path, 'not-applicable', undefined, {
+      at: now,
       origin: 'admin', request: { data: value, resourceData: value },
       resourceBefore: { data: before, exists: before !== null },
       resourceAfter: { data: resolved, exists: resolved !== null },
@@ -134,6 +137,7 @@ export class WritePlane {
     const expanded = this.resolvePatch(path, patch, now);
     const multiPath = Object.keys(patch).some((key) => key.includes('/'));
     this.state.events.operation(null, 'update', path, 'not-applicable', undefined, {
+      at: now,
       origin: 'admin', request: { data: patch, resourceData: patch },
       resourceBefore: { data: before, exists: before !== null },
       detail: multiPath

@@ -19,6 +19,7 @@ import {
 } from '../../src/firestore/index.js';
 import {
   get as dbGet,
+  getAdminDatabase,
   getDatabase,
   ref as dbRef,
   sandbox as rtdbSandbox,
@@ -238,5 +239,40 @@ describe('reset returns the sandbox to the wall clock', () => {
     const stored = getInternalEnv(sandbox).snapshot()['things/a'];
     const at = stored?.['at'] as { toMillis(): number };
     expect(Math.abs(at.toMillis() - Date.now())).toBeLessThan(1000);
+  });
+});
+
+describe('the sandbox clock stamps the Realtime Database operation log', () => {
+  it('stamps an admin write from the clock', async () => {
+    const sandbox = initializeSandbox();
+    getClock(sandbox).set(FUTURE);
+
+    const stamps: number[] = [];
+    const unsubscribe = sandbox.onEvent((event) => {
+      if (event.kind === 'operation' && event.service === 'rtdb') stamps.push(event.at);
+    });
+    const db = getAdminDatabase(sandbox);
+    await dbSet(dbRef(db, 'rooms/one'), { title: 'first' });
+    unsubscribe();
+
+    expect(stamps.length).toBeGreaterThan(0);
+    for (const at of stamps) expect(at).toBe(FUTURE);
+  });
+
+  it('stamps an admin read from the clock', async () => {
+    const sandbox = initializeSandbox();
+    const db = getAdminDatabase(sandbox);
+    await dbSet(dbRef(db, 'rooms/one'), { title: 'first' });
+    getClock(sandbox).set(FUTURE);
+
+    const stamps: number[] = [];
+    const unsubscribe = sandbox.onEvent((event) => {
+      if (event.kind === 'operation' && event.service === 'rtdb') stamps.push(event.at);
+    });
+    await dbGet(dbRef(db, 'rooms/one'));
+    unsubscribe();
+
+    expect(stamps.length).toBeGreaterThan(0);
+    for (const at of stamps) expect(at).toBe(FUTURE);
   });
 });

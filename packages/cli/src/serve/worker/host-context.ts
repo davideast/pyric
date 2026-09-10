@@ -105,6 +105,8 @@ export interface HostCtx {
   };
   /** Per-port subscription registry. Map<port, Map<subId, unsub>>. */
   subs: Map<PortLike, Map<string, () => void>>;
+  /** Ports mirroring the sandbox clock. Created on the first `clock-subscribe`. */
+  clockPorts?: Set<PortLike>;
   /** Ports whose app containers completed explicit deletion. */
   disconnectedPorts?: WeakSet<PortLike>;
   /** Virtual ports multiplexed over a browser tab for remote client sessions. */

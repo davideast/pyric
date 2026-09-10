@@ -49,11 +49,6 @@ import type { Sandbox } from './types/service.js';
  */
 export const SANDBOX_CLOCK = Symbol.for('pyric.sandbox.clock');
 
-/** What a sandbox carries under {@link SANDBOX_CLOCK}. */
-export interface ClockBearingSandbox {
-  readonly [SANDBOX_CLOCK]: SandboxClock;
-}
-
 /**
  * Resolve one sandbox's clock. The clock is the sandbox's whole notion of
  * time: every `serverTimestamp()`, `request.time`, token `iat`, and event stamp
@@ -67,7 +62,7 @@ export interface ClockBearingSandbox {
  * `getInternalEnv` applies.
  */
 export function getClock(sandbox: Sandbox): SandboxClock {
-  const carried = (sandbox as Partial<ClockBearingSandbox>)[SANDBOX_CLOCK];
+  const carried = (sandbox as Partial<Record<typeof SANDBOX_CLOCK, SandboxClock>>)[SANDBOX_CLOCK];
   if (carried === undefined) {
     throw new SandboxError(
       'invalid-argument',
@@ -115,6 +110,27 @@ export class SandboxClock {
   private currentMode: SandboxClockMode = 'wall';
   private fixedAt = 0;
   private offsetMs = 0;
+  private readonly listeners = new Set<(state: SandboxClockState) => void>();
+
+  /**
+   * Watch for a move. A sandbox hosted behind a transport (the SharedWorker
+   * host, say) has readers in another realm that cannot call `now()`
+   * synchronously, so they mirror this state instead and need to be told when
+   * it changes. Returns the function that stops watching.
+   */
+  onChange(listener: (state: SandboxClockState) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private announce(): void {
+    const state = this.capture();
+    for (const listener of [...this.listeners]) {
+      listener(state);
+    }
+  }
 
   /** Which of the three modes the clock is in. */
   get mode(): SandboxClockMode {
@@ -146,6 +162,7 @@ export class SandboxClock {
     this.currentMode = 'fixed';
     this.fixedAt = epochMs;
     this.offsetMs = 0;
+    this.announce();
   }
 
   /**
@@ -157,10 +174,12 @@ export class SandboxClock {
     assertFiniteMilliseconds(ms, 'A clock advance');
     if (this.currentMode === 'fixed') {
       this.fixedAt += ms;
+      this.announce();
       return;
     }
     this.currentMode = 'offset';
     this.offsetMs += ms;
+    this.announce();
   }
 
   /** Return to the wall clock, discarding any pin or offset. */
@@ -168,6 +187,7 @@ export class SandboxClock {
     this.currentMode = 'wall';
     this.fixedAt = 0;
     this.offsetMs = 0;
+    this.announce();
   }
 
   /** This clock's whole state, as a value a checkpoint or branch can hold. */
@@ -180,5 +200,6 @@ export class SandboxClock {
     this.currentMode = state.mode;
     this.fixedAt = state.fixedAt;
     this.offsetMs = state.offsetMs;
+    this.announce();
   }
 }

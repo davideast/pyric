@@ -502,15 +502,14 @@ export function buildRemoteRtdb(channel: RemoteSandboxChannel): RemoteRtdb {
       await channel.op({ method: 'rtdb.remove', path, actAs: ADMIN_LENS });
     },
     async push(path, value) {
-      const key = generatePushId();
-      const res = (await channel.op({
-        method: 'rtdb.push',
-        path,
-        key,
-        ...(value !== undefined ? { value } : {}),
-        actAs: ADMIN_LENS,
-      })) as { key: string; path: string };
-      return res;
+      // The key is the worker's, minted from the sandbox clock. This arm can
+      // wait for the reply, so it never mints one of its own from the wall
+      // clock of a different process.
+      let op: WorkerOpPayload = { method: 'rtdb.push', path, actAs: ADMIN_LENS };
+      if (value !== undefined) {
+        op = { method: 'rtdb.push', path, value, actAs: ADMIN_LENS };
+      }
+      return (await channel.op(op)) as { key: string; path: string };
     },
     onValue(path, callback, onError) {
       return channel.subscribe(
@@ -1000,53 +999,3 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
   });
 }
 
-// ─── RTDB push-id generator ────────────────────────────────────────────────
-// Client-minted push ids (the worker-protocol contract: `rtdb.push` carries
-// the key so `.key` is synchronously known to callers). Standard Firebase
-// algorithm — 8 chars of timestamp + 12 random, monotonic within one ms.
-// Inlined (like pyric-admin does) because pyric doesn't export its generator.
-
-const PUSH_CHARS =
-  '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz';
-
-let lastPushTime = 0;
-const lastRandChars: number[] = new Array(12).fill(0);
-
-function generatePushId(now: number = Date.now()): string {
-  const duplicateTime = now === lastPushTime;
-  lastPushTime = now;
-
-  const timeStampChars: string[] = new Array(8);
-  let ts = now;
-  for (let i = 7; i >= 0; i--) {
-    timeStampChars[i] = PUSH_CHARS.charAt(ts % 64);
-    ts = Math.floor(ts / 64);
-  }
-  if (ts !== 0) {
-    throw new Error('RTDB push-id: timestamp overflow.');
-  }
-  let id = timeStampChars.join('');
-
-  if (!duplicateTime) {
-    for (let i = 0; i < 12; i++) {
-      lastRandChars[i] = Math.floor(Math.random() * 64);
-    }
-  } else {
-    let i: number;
-    for (i = 11; i >= 0 && lastRandChars[i] === 63; i--) {
-      lastRandChars[i] = 0;
-    }
-    if (i < 0) {
-      for (let j = 0; j < 12; j++) {
-        lastRandChars[j] = Math.floor(Math.random() * 64);
-      }
-    } else {
-      lastRandChars[i] = (lastRandChars[i] ?? 0) + 1;
-    }
-  }
-
-  for (let i = 0; i < 12; i++) {
-    id += PUSH_CHARS.charAt(lastRandChars[i]!);
-  }
-  return id;
-}

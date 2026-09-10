@@ -113,3 +113,33 @@ describe('getClock', () => {
     expect(() => getClock({} as never)).toThrow(/initializeSandbox/);
   });
 });
+
+describe('watching the clock for a move', () => {
+  it('reports the new state on every move', () => {
+    const sandbox = initializeSandbox();
+    const seen: string[] = [];
+    const stop = getClock(sandbox).onChange((state) => seen.push(state.mode));
+
+    getClock(sandbox).set(Date.UTC(2031, 0, 1));
+    getClock(sandbox).advance(1000);
+    getClock(sandbox).reset();
+    getClock(sandbox).restore({ mode: 'offset', fixedAt: 0, offsetMs: 500 });
+    stop();
+    getClock(sandbox).set(Date.UTC(2032, 0, 1));
+
+    expect(seen).toEqual(['fixed', 'fixed', 'wall', 'offset']);
+  });
+
+  it('carries the instant the pin names', () => {
+    const sandbox = initializeSandbox();
+    const pinned = Date.UTC(2031, 0, 1);
+    let fixedAt = 0;
+    getClock(sandbox).onChange((state) => {
+      fixedAt = state.fixedAt;
+    });
+
+    getClock(sandbox).set(pinned);
+
+    expect(fixedAt).toBe(pinned);
+  });
+});

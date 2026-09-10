@@ -82,6 +82,13 @@ export class OperationEvents {
       if (fields.origin) {
         originVal = fields.origin;
       }
+      // A caller that already resolved the operation's instant passes it, so the
+      // event and the write it describes agree exactly. A caller that did not
+      // reads the same clock here rather than falling back to the wall clock.
+      let at = fields.at;
+      if (at === undefined) {
+        at = getClock(this.sandbox).now();
+      }
       emitSandboxEvent(this.sandbox, makeSandboxOperationEvent({
         service: 'rtdb', method, path: canonicalPath(path), auth, result,
         origin: originVal, durationMs: fields.durationMs,
@@ -90,7 +97,7 @@ export class OperationEvents {
         request: fields.request, resourceBefore: fields.resourceBefore,
         resourceAfter: fields.resourceAfter, groupId: fields.groupId,
         groupKind: fields.groupKind, triggeredBy: fields.triggeredBy,
-        detail: fields.detail, at: fields.at,
+        detail: fields.detail, at,
       }), { service: 'rtdb' });
     } catch { /* telemetry is observational */ }
   }
