@@ -185,6 +185,24 @@ describe('advanceClock', () => {
     );
   });
 
+  it('reports how far it shifted the wall clock', async () => {
+    const { ctx } = freshContext();
+    await call(ctx, 'sandbox.advanceClock', { ms: 3_600_000 });
+    const inspected = await call(ctx, 'sandbox.inspect');
+    const clock = (inspected.data as { clock: { mode: string; offsetMs?: number } }).clock;
+    expect(clock.mode).toBe('offset');
+    expect(clock.offsetMs).toBe(3_600_000);
+  });
+
+  it('reports no offset while the clock is pinned', async () => {
+    const { ctx } = freshContext();
+    await call(ctx, 'sandbox.setClock', { isoTime: '2026-01-01T00:00:00.000Z' });
+    const inspected = await call(ctx, 'sandbox.inspect');
+    const clock = (inspected.data as { clock: { mode: string; offsetMs?: number } }).clock;
+    expect(clock.mode).toBe('fixed');
+    expect(clock.offsetMs).toBeUndefined();
+  });
+
   it('keeps flowing under the wall clock', async () => {
     const { ctx } = freshContext();
     await call(ctx, 'sandbox.advanceClock', { ms: 60_000 });

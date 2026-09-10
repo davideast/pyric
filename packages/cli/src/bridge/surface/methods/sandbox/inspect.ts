@@ -18,7 +18,16 @@ export default {
     const result = await callSandboxTool(ctx, 'sandbox_inspect', {});
     if (!result.ok) return result;
     const clock = getClock(ctx.sandbox);
-    const report = { mode: clock.mode, now: clock.now() };
+    // An offset clock's instant alone does not say how far it was shifted, and
+    // a caller that advanced it needs to know whether it landed where it meant
+    // to. The other two modes have no offset to report, so they carry none.
+    const report: { mode: string; now: number; offsetMs?: number } = {
+      mode: clock.mode,
+      now: clock.now(),
+    };
+    if (clock.mode === 'offset') {
+      report.offsetMs = clock.capture().offsetMs;
+    }
     const base =
       result.data !== null && typeof result.data === 'object'
         ? (result.data as Record<string, unknown>)
