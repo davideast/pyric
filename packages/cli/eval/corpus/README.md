@@ -13,11 +13,12 @@ contract. The `id` field equals the filename without its extension. A record car
 
 ## Distribution
 
-Eighty-three tasks, counted by the first tag each one carries:
+Ninety-one tasks, counted by the first tag each one carries:
 
 - 15 auth and tenant: seed a tenant user with claims, switch the active identity, list users, set
   or revoke claims, delete an account.
-- 15 Firestore and Database data: write, update, add, delete, query, batch, and tree writes.
+- 19 Firestore and Database data: write, update, add, delete, query, batch, tree writes, an
+  auto-id push with and without a value, and a bounded structural crawl.
   Several run under a tenant identity so the rules gate them.
 - 10 rules: lint a broken ruleset for each service, simulate a request, trace a denial, compare an
   allow expectation against a deny expectation, reach for a rules helper module.
