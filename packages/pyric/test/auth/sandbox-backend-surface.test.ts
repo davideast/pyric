@@ -77,6 +77,7 @@ const FROZEN_PROTOTYPE_METHODS = [
   'notifyProviderConfigChanged',
   'notifySessionChanged',
   'notifyUsersChanged',
+  'now',
   'peekActionCode',
   'recordProviderSignIn',
   'reloadFor',
