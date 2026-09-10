@@ -81,7 +81,7 @@ describe('renderToolDescription', () => {
   it('throws when the rendered description exceeds the length limit', () => {
     const method = fakeMethod({ description: 'x'.repeat(DESCRIPTION_LIMIT + 100) });
     expect(() => renderToolDescription(fakeTool([method]))).toThrow(
-      /widgets description is \d+ characters, over the 1600 limit/,
+      new RegExp(`widgets description is \\d+ characters, over the ${DESCRIPTION_LIMIT} limit`),
     );
   });
 });

@@ -25,7 +25,7 @@ export default {
   effect: 'write',
   signature: 'export(campaignId, path?)',
   description:
-    'Export the campaign and its cases, redacted.',
+    'Export the campaign, redacted.',
   args: z.object({
     campaignId,
     path: z

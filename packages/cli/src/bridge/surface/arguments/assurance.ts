@@ -12,6 +12,19 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 
+import {
+  ACQUISITION_KINDS,
+  INVARIANT_CONFIDENCES,
+  INVARIANT_DECISIONS,
+  INVARIANT_SERVICES,
+  INVARIANT_SOURCES,
+  MUTATION_DIMENSIONS,
+  OBSERVATION_RESULTS,
+  OBSERVATION_SOURCES,
+  OPERATION_METHODS,
+  OPERATION_SERVICES,
+  REQUIRES_KINDS,
+} from '../../../assurance/validation.js';
 import { parseVerifyFixture, type PyricVerifyFixture, type VerifiableService } from '../../../verify/index.js';
 import type { Fail, InvalidArguments } from '../method-types.js';
 import { projectPathWithin } from './sandbox.js';
@@ -52,6 +65,103 @@ export const probeId = z
   .string()
   .min(1)
   .describe('The probe this call acts on, as propose or run reported it.');
+
+/**
+ * The request methods any service evaluates, as one enum.
+ *
+ * A method is only meaningful for the service that evaluates it, and the
+ * campaign validator holds each service to its own list. The schema spells the
+ * union so every value is visible before the first call, and the validator
+ * narrows it to the named service and says which values that service takes.
+ */
+export const OPERATION_METHOD_VALUES: readonly string[] = [
+  ...new Set(Object.values(OPERATION_METHODS).flat()),
+];
+
+/** One operation against one service, as every authored record spells it. */
+export const firebaseOperation = z
+  .object({
+    service: z.enum(OPERATION_SERVICES).describe('The service the operation runs against.'),
+    method: z
+      .enum(OPERATION_METHOD_VALUES as [string, ...string[]])
+      .describe('The request method, from the set the named service evaluates.'),
+    path: z.string().min(1).describe('The document, node, or object path.'),
+    data: z.record(z.unknown()).optional().describe('The value written, for a write.'),
+    query: z.record(z.unknown()).optional().describe('The query, for a list.'),
+    dataBase64: z.string().optional().describe('The object body, for a storage upload.'),
+    contentType: z.string().optional().describe('The object content type, for a storage upload.'),
+    customMetadata: z
+      .record(z.string())
+      .optional()
+      .describe('The object custom metadata, for a storage upload.'),
+  })
+  .describe('One operation: the service, the request method, the path, and the value.');
+
+/** How an actor gets its identity, and what that acquisition needs. */
+export const actorAcquisition = z
+  .object({
+    kind: z.enum(ACQUISITION_KINDS).describe('How the identity is obtained.'),
+    email: z.string().optional().describe('The sign-in email, for a password acquisition.'),
+    password: z.string().optional().describe('The sign-in password, for a password acquisition.'),
+    uid: z
+      .string()
+      .optional()
+      .describe('The user id, for a fixture-user or synthetic acquisition.'),
+    token: z.record(z.unknown()).optional().describe('The token claims, for a synthetic actor.'),
+  })
+  .describe('How this identity is acquired.');
+
+/** One identity an attacker can reach the target as. */
+export const assuranceActor = z.object({
+  id: z.string().min(1).describe('The name later records use for this actor.'),
+  acquisition: actorAcquisition,
+});
+
+/** One operation observed succeeding, which a probe is proposed from. */
+export const assuranceObservation = z.object({
+  id: z.string().min(1).describe('The name a proposal uses for this observation.'),
+  actorId: z.string().min(1).describe('The actor the operation ran as.'),
+  result: z
+    .enum(OBSERVATION_RESULTS)
+    .describe('An observation records a known-good operation, so the result is ALLOW.'),
+  source: z.enum(OBSERVATION_SOURCES).describe('Where the observation came from.'),
+  operation: firebaseOperation,
+});
+
+/** The one change a probe makes to its control operation. */
+export const probeMutation = z.object({
+  dimension: z.enum(MUTATION_DIMENSIONS).describe('The one thing this probe changes.'),
+  description: z.string().min(1).describe('What the change is, in one sentence.'),
+  operation: firebaseOperation,
+});
+
+/** One authored probe: a control operation, and the single change made to it. */
+export const assuranceProbe = z.object({
+  id: z.string().min(1).describe('The name a run and an inspect use for this probe.'),
+  actorId: z.string().min(1).describe('The actor both operations run as.'),
+  invariantId: z.string().min(1).describe('The invariant this probe is judged against.'),
+  control: firebaseOperation,
+  mutation: probeMutation,
+  requires: z
+    .array(
+      z.object({
+        kind: z.enum(REQUIRES_KINDS).describe('What the probe depends on.'),
+        id: z.string().min(1).describe('The construct or registry row it names.'),
+      }),
+    )
+    .optional()
+    .describe('What this probe depends on, for a report that traces its evidence.'),
+});
+
+/** One authorization boundary a probe is judged against. */
+export const securityInvariant = z.object({
+  id: z.string().min(1).describe('The name a probe uses for this invariant.'),
+  statement: z.string().min(1).describe('What is supposed to happen, in one sentence.'),
+  service: z.enum(INVARIANT_SERVICES).describe('The service this boundary is stated about.'),
+  expected: z.enum(INVARIANT_DECISIONS).describe('The decision the boundary requires.'),
+  source: z.enum(INVARIANT_SOURCES).describe('Where the boundary was stated.'),
+  confidence: z.enum(INVARIANT_CONFIDENCES).describe('How much weight the boundary carries.'),
+});
 
 /** One authored record a run-loop method carries through to the campaign. */
 export const authoredRecord = z.record(z.unknown());

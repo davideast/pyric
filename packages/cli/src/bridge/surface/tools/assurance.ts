@@ -4,5 +4,5 @@ import type { ToolRecord } from '../method-types.js';
 export default {
   order: 70,
   intro:
-    'Judge rules before they ship: replay a capture, decide its cases, and run a campaign.',
+    'Judge rules before they ship.',
 } satisfies ToolRecord;

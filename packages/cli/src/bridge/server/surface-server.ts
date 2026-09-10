@@ -73,6 +73,30 @@ function isArgumentRejection(result: OperationResult): boolean {
   return (data as { code?: unknown }).code === 'invalid_arguments';
 }
 
+/**
+ * Result codes that report a verdict rather than a fault. A data-plane call
+ * Security Rules refused is the enforcement working, and a lint run that found
+ * problems is the linter working. Both come back as a failing result because
+ * the answer is negative, not because the call went wrong.
+ */
+const VERDICT_CODES: ReadonlySet<string> = new Set(['denied_by_rules', 'lint_findings']);
+
+/**
+ * Whether a result is the surface reporting a verdict. The call reached its
+ * handler, the handler ran, and the answer is a refusal or a set of findings.
+ * Counting either as an error call would score a surface down for telling the
+ * truth it was asked for, so the event carries the distinction and the scorer
+ * reads it back.
+ */
+function isVerdictResult(result: OperationResult): boolean {
+  if (result.ok) return false;
+  const data = result.data;
+  if (data === null || typeof data !== 'object') return false;
+  const code = (data as { code?: unknown }).code;
+  if (typeof code !== 'string') return false;
+  return VERDICT_CODES.has(code);
+}
+
 /** The operation result shape, from whatever a handler returned. */
 function normalise(result: OperationResult): OperationResult {
   return { ok: result.ok, summary: result.summary, data: result.data };
@@ -106,6 +130,7 @@ function recordCall(
     action: fields.action,
     schemaRejected: isArgumentRejection(fields.result),
     isError: !fields.result.ok,
+    verdict: isVerdictResult(fields.result),
   };
   bridge.recordToolEvent(event);
 }

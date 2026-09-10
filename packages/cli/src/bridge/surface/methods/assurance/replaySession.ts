@@ -63,7 +63,7 @@ export default {
   effect: 'read',
   signature: 'replaySession(sessionPath?, candidateRules?, service?: firestore|database)',
   description:
-    'Replay a capture under candidate rules and report what changed.',
+    'Replay a capture under candidate rules.',
   args: z.object({
     sessionPath: z
       .string()

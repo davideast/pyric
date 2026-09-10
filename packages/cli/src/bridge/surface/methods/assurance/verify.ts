@@ -24,7 +24,7 @@ export default {
   effect: 'write',
   signature: 'verify(campaignId, rules, includeCandidates?, verificationId?)',
   description:
-    "Check candidate rules against the campaign's cases, recording verdicts on it.",
+    "Check candidate rules against the cases.",
   args: z.object({
     campaignId,
     rules: authoredRecord.describe('The candidate rules by service: firestore, rtdb, and storage.'),

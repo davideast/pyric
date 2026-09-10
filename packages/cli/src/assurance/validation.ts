@@ -39,12 +39,12 @@ export const INVARIANT_SERVICES = [
 ] as const;
 
 /** The one dimension a probe is allowed to change. */
-export const MUTATION_DIMENSIONS: readonly MutationDimension[] = [
+export const MUTATION_DIMENSIONS = [
   "path",
   "query",
   "payload",
   "operation",
-];
+] as const satisfies readonly MutationDimension[];
 
 /** How an actor's identity is obtained. */
 export const ACQUISITION_KINDS = [
@@ -84,7 +84,7 @@ export const OPERATION_METHODS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** The requires node kinds a probe can carry. */
-const REQUIRES_KINDS = ["construct", "registry-row"] as const;
+export const REQUIRES_KINDS = ["construct", "registry-row"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
