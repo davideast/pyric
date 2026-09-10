@@ -1,3 +1,4 @@
+export { Slot } from '@radix-ui/react-slot';
 export { CopyButton, type CopyButtonProps } from './CopyButton.js';
 export { Badge, type BadgeProps } from './Badge.js';
 export {

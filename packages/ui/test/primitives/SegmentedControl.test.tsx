@@ -76,4 +76,45 @@ describe('<SegmentedControl>', () => {
     fireEvent.click(allowBtn);
     expect(picked).toBe('allow');
   });
+
+  it('implements roving tabIndex: active option has tabIndex 0, others -1', () => {
+    const { container } = render(
+      <SegmentedControl options={OPTIONS} value="deny" onChange={() => {}} />,
+    );
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('[data-pyric-segment]'));
+    expect(buttons[0].getAttribute('tabindex')).toBe('-1');
+    expect(buttons[1].getAttribute('tabindex')).toBe('0');
+    expect(buttons[2].getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('navigates options with ArrowRight/ArrowDown and ArrowLeft/ArrowUp wrapping', () => {
+    let picked: string | null = null;
+    const { container } = render(
+      <SegmentedControl
+        options={OPTIONS}
+        value="all"
+        onChange={(v) => {
+          picked = v;
+        }}
+      />,
+    );
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('[data-pyric-segment]'));
+
+    // ArrowRight moves to next ('deny')
+    fireEvent.keyDown(buttons[0], { key: 'ArrowRight' });
+    expect(picked).toBe('deny');
+
+    // ArrowLeft wraps backwards from first ('all' -> 'allow')
+    fireEvent.keyDown(buttons[0], { key: 'ArrowLeft' });
+    expect(picked).toBe('allow');
+
+    // End moves to last ('allow')
+    fireEvent.keyDown(buttons[0], { key: 'End' });
+    expect(picked).toBe('allow');
+
+    // Home moves to first ('all')
+    fireEvent.keyDown(buttons[2], { key: 'Home' });
+    expect(picked).toBe('all');
+  });
 });
+

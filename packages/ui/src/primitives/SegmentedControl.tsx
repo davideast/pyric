@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type KeyboardEvent, type ReactNode } from 'react';
 
 export interface SegmentedOption<T extends string> {
   /** The value committed via `onChange` when this segment is picked. */
@@ -28,7 +28,8 @@ export interface SegmentedControlProps<T extends string> {
 
 /**
  * Headless segmented control — a single-select group of pill
- * buttons that reads as one widget. Wired as an ARIA radiogroup.
+ * buttons that reads as one widget. Wired as an ARIA radiogroup
+ * with roving tabindex and ArrowLeft/ArrowRight/ArrowUp/ArrowDown/Home/End navigation.
  *
  * Ships no visual styling. Consumers style via:
  * - `[data-pyric-ui="segmented-control"]` — the container
@@ -43,6 +44,30 @@ export function SegmentedControl<T extends string>({
   className,
   ariaLabel,
 }: SegmentedControlProps<T>) {
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const count = options.length;
+    if (count === 0) return;
+
+    let nextIndex: number | null = null;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      nextIndex = (index + 1) % count;
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      nextIndex = (index - 1 + count) % count;
+    } else if (e.key === 'Home') {
+      nextIndex = 0;
+    } else if (e.key === 'End') {
+      nextIndex = count - 1;
+    }
+
+    if (nextIndex !== null) {
+      e.preventDefault();
+      onChange(options[nextIndex].value);
+      buttonRefs.current[nextIndex]?.focus();
+    }
+  };
+
   return (
     <div
       data-pyric-ui="segmented-control"
@@ -50,15 +75,20 @@ export function SegmentedControl<T extends string>({
       role="radiogroup"
       aria-label={ariaLabel}
     >
-      {options.map((opt) => {
+      {options.map((opt, idx) => {
         const active = opt.value === value;
         return (
           <button
             key={opt.value}
+            ref={(el) => {
+              buttonRefs.current[idx] = el;
+            }}
             type="button"
             role="radio"
             aria-checked={active}
+            tabIndex={active ? 0 : -1}
             onClick={() => onChange(opt.value)}
+            onKeyDown={(e) => handleKeyDown(e, idx)}
             data-pyric-segment=""
             data-pyric-active={active ? '' : undefined}
             data-pyric-segment-tone={opt.tone}

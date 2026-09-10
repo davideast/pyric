@@ -51,8 +51,7 @@ function VectorDisplay({ value, path }: FieldDisplayProps<unknown>) {
  * Result of parsing the raw-replace textarea. `ok` carries the new
  * wire-sentinel value to commit; otherwise `error` is a human message.
  * Exported (and pure) so the parse/validation contract is unit-testable
- * without the JSDOM text-input event path, which is broken under this
- * repo's bun:test + JSDOM setup (see DocumentEditor.test.tsx note).
+ * directly without requiring DOM event simulation.
  */
 export type ParsedVectorInput =
   | { ok: true; value: { __type__: '__vector__'; value: number[] } }
