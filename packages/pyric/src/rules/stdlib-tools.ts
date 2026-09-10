@@ -169,7 +169,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
     {
       name: 'firestore_resolve_modules',
       description:
-        "Resolve `2+modules` imports in a Firestore Rules source. Inlines the imported functions from the stdlib modules (`auth`, `validation`, `lobby`, and the rest of the catalogue) and rewrites the version line from `2+modules` to plain `2`. Call this before installing a source that uses `2+modules` syntax — the playground's `runOnce` only understands plain v2 source. Pure-local; the stdlib modules are bundled into the package, no filesystem access required.",
+        "Resolve `2+modules` imports in a Firestore Rules source. Inlines the imported functions from the stdlib modules (`auth`, `validation`, `lobby`, and the rest of the catalogue) and rewrites the version line from `2+modules` to plain `2`. Call this before installing a source that uses `2+modules` syntax, because the playground's `runOnce` only understands plain v2 source. Pure-local; the stdlib modules are bundled into the package, no filesystem access required.",
       parameters: {
         type: 'object',
         properties: {
