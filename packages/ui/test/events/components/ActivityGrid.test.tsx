@@ -149,6 +149,30 @@ describe('<ActivityGrid>', () => {
       container.querySelector('[data-pyric-band-key="signed-in"]'),
     ).not.toBeNull();
   });
+
+  it('exposes grid/row/gridcell roles and navigates rows with arrow keys', () => {
+    const events = [
+      writeEvent({ id: 'r1', method: 'create' }),
+      writeEvent({ id: 'r2', method: 'create' }),
+    ];
+    const { container } = render(<ActivityGrid events={events} options={{ now: NOW }} />);
+    const grid = container.querySelector('[data-pyric-ui="activity-grid"]')!;
+    expect(grid.getAttribute('role')).toBe('grid');
+
+    const rows = container.querySelectorAll<HTMLButtonElement>('[data-pyric-event-row]');
+    expect(rows.length).toBe(2);
+    expect(rows[0].getAttribute('role')).toBe('row');
+    expect(rows[0].querySelector('[data-pyric-event-target]')!.getAttribute('role')).toBe('gridcell');
+
+    rows[0].focus();
+    expect(document.activeElement).toBe(rows[0]);
+
+    fireEvent.keyDown(rows[0], { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(rows[1]);
+
+    fireEvent.keyDown(rows[1], { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(rows[0]);
+  });
 });
 
 describe('<ActivityActionItems>', () => {

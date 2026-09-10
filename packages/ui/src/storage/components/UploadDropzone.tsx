@@ -35,6 +35,9 @@ export interface UploadDropzoneProps {
    */
   disabledReason?: string;
   className?: string;
+  tabIndex?: number;
+  role?: string;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void;
 }
 
 /**
@@ -117,11 +120,42 @@ export function UploadDropzone({
   disabled,
   disabledReason,
   className,
+  tabIndex,
+  role,
+  onKeyDown: onKeyDownProp,
 }: UploadDropzoneProps) {
   const [dragging, setDragging] = useState(false);
   // dragenter/dragleave fire for every child crossing — count the
   // pairs and only clear at depth 0.
   const depthRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      onKeyDownProp?.(e);
+      if (e.defaultPrevented || disabled) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        fileInputRef.current?.click();
+      }
+    },
+    [disabled, onKeyDownProp],
+  );
+
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (files && files.length > 0) {
+        const dropped: DroppedFile[] = Array.from(files).map((f) => ({
+          file: f,
+          relativePath: f.name,
+        }));
+        onFiles(dropped);
+      }
+      e.target.value = '';
+    },
+    [onFiles],
+  );
 
   const handleDragEnter = useCallback(
     (e: DragEvent<HTMLDivElement>) => {
@@ -171,11 +205,24 @@ export function UploadDropzone({
       data-disabled={disabled ? '' : undefined}
       data-disabled-reason={disabled ? disabledReason : undefined}
       aria-disabled={disabled || undefined}
+      role={role ?? 'button'}
+      tabIndex={tabIndex ?? (disabled ? -1 : 0)}
+      onKeyDown={handleKeyDown}
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        tabIndex={-1}
+        aria-hidden="true"
+        style={{ display: 'none' }}
+        disabled={disabled}
+        onChange={handleFileInputChange}
+      />
       {children}
     </div>
   );

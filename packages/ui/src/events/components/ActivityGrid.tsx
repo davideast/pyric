@@ -144,7 +144,7 @@ export function ActivityGrid({
     }
 
     return (
-      <div data-pyric-band-rows="">
+      <div data-pyric-band-rows="" role="rowgroup">
         {body}
         {hidden > 0
           ? renderBandMore
@@ -160,11 +160,11 @@ export function ActivityGrid({
   };
 
   return (
-    <div className={className} data-pyric-ui="activity-grid">
+    <div className={className} data-pyric-ui="activity-grid" role="grid" aria-label="Activity">
       {showColumnHeader ? (
-        <div data-pyric-event-colhead="">
+        <div data-pyric-event-colhead="" role="row">
           {COLUMN_HEADERS.map((h) => (
-            <span key={h} data-pyric-event-col={h}>
+            <span key={h} data-pyric-event-col={h} role="columnheader">
               {h}
             </span>
           ))}

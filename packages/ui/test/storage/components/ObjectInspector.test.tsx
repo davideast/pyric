@@ -194,4 +194,17 @@ describe('ObjectInspector', () => {
       expect(container.querySelector('[data-extra-action]')).not.toBeNull(),
     );
   });
+
+  it('exposes role="status" and aria-busy="true" during loading state', () => {
+    // When path is provided, initial render is in loading state before async fetch completes
+    const storage = makeStorage('loading');
+    const { container } = render(<ObjectInspector storage={storage} path="async-load.txt" />);
+    const loading = container.querySelector('[data-pyric-loading]');
+    if (loading) {
+      expect(loading.getAttribute('role')).toBe('status');
+      expect(loading.getAttribute('aria-busy')).toBe('true');
+      expect(loading.getAttribute('aria-live')).toBe('polite');
+      expect(loading.textContent).toContain('Loading object');
+    }
+  });
 });
