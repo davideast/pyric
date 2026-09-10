@@ -8,9 +8,9 @@
  * resolves as `request.auth.token.firebase.tenant` here too.
  */
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
-import { getClock } from 'pyric/sandbox';
 import { inspect } from 'pyric/sandbox/firestore';
 import { callSandboxTool } from './context.js';
+import { requestInstant } from './request-instant.js';
 import type { OperationResult, SurfaceContext } from './types.js';
 
 export interface SimulationRequest {
@@ -76,7 +76,8 @@ export async function simulateFirestoreCase(
   // `request.time` always names an instant, explicit or the sandbox clock's
   // own, so a simulation with no `requestTime` still moves with a pinned or
   // advanced clock rather than falling back to the engine's own wall clock.
-  const requestTime = request.requestTime ?? getClock(ctx.sandbox).date().toISOString();
+  // The engine wants it as ISO, so this is where that conversion happens.
+  const requestTime = new Date(requestInstant(ctx, request.requestTime)).toISOString();
   const testCase: Record<string, unknown> = {
     description: `${request.operation} ${request.path}`,
     expectation: 'ALLOW',
