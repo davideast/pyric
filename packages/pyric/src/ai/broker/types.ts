@@ -193,8 +193,12 @@ export type RawEnvelope = WireResponse &
 
 export type ScriptRespond = ScriptShorthand | RawEnvelope;
 
-/** Matcher: substring / regex against the last user turn text, or a predicate on the request. */
-export type ScriptMatcher = string | RegExp | ((req: GenerateContentRequest) => boolean);
+/**
+ * Matcher: substring / regex against the last user turn text, or a predicate
+ * on the request. The predicate also receives the requested model, so a
+ * matcher can select on the model a call names as well as its text.
+ */
+export type ScriptMatcher = string | RegExp | ((req: GenerateContentRequest, model?: string) => boolean);
 
 export interface ScriptEntry {
   /** Absent ⇒ unconditional next-in-queue. */
