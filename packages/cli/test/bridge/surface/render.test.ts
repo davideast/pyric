@@ -195,6 +195,7 @@ describe('surface selection', () => {
       'storage',
       'auth',
       'messaging',
+      'functions',
       'rules',
       'sandbox',
       'assurance',

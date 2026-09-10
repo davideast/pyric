@@ -74,6 +74,9 @@
     "firestore updateDoc",
     "firestore writeBatch",
     "firestore writeIndexes",
+    "functions executions",
+    "functions fire",
+    "functions listTriggers",
     "messaging deliveries",
     "messaging send",
     "messaging subscribeToTopic",
@@ -150,6 +153,7 @@
     "auth",
     "database",
     "firestore",
+    "functions",
     "messaging",
     "rules",
     "sandbox",
@@ -217,6 +221,11 @@
       "updateDoc",
       "writeBatch",
       "writeIndexes"
+    ],
+    "functions": [
+      "executions",
+      "fire",
+      "listTriggers"
     ],
     "messaging": [
       "deliveries",

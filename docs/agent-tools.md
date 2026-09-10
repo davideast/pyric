@@ -3,12 +3,12 @@
 This repo carries two MCP tool contracts, both sourced from
 `packages/cli/src/bridge/server/mcp-contract.ts`.
 
-1. **`pyric mcp`** (headless, the default): the **product surface**, eight
+1. **`pyric mcp`** (headless, the default): the **product surface**, nine
    service tools, one per Firebase capability, rendered from the method
    records under `packages/cli/src/bridge/surface/methods/`. Every call is
    `{ method, args }`, where `method` is the SDK's own method name where the
    SDK has one, and pyric's own name where it does not. `DEFAULT_MCP_TOOL_NAMES`
-   is the exact list, and it is the eight tools this section documents.
+   is the exact list, and it is the nine tools this section documents.
 2. **`pyric sandbox --bridge`** (or `pyric bridge`): the **transport
    surface** a browser sandbox peer executes, plus the rules and conformance
    tools that run in the bridge process. Its names are authored per family in
@@ -25,8 +25,8 @@ the same underlying tool-family factories the transport surface composes.
 
 ## The product surface: `pyric mcp` (headless, default)
 
-Eight tools: `firestore`, `database`, `storage`, `auth`, `messaging`, `rules`,
-`sandbox`, `assurance`. Every one of them answers `describe` with `args: { method }`,
+Nine tools: `firestore`, `database`, `storage`, `auth`, `messaging`, `functions`,
+`rules`, `sandbox`, `assurance`. Every one of them answers `describe` with `args: { method }`,
 which returns that method's full argument schema, an example call, its
 effect class (`read`, `write`, `destructive`, or `production`), and its
 `status` on this server. A `destructive` call is refused unless
@@ -41,6 +41,7 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | `storage` | `getBytes`, `getDownloadURL`, `getMetadata`, `listAll`, `uploadBytes`, `updateMetadata`, `deleteObject`, `setCrossServiceIam`, `status` and `provision` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 | `auth` | `getUser`, `getUserByEmail`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `importUsers`, `createCustomToken`, `signInWithEmailAndPassword`, `signInAnonymously`, `signInWithCustomToken`, `signInWithCredential`, `signOut`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami`, `sessions` |
 | `messaging` | `send`, `subscribeToTopic`, `unsubscribeFromTopic`, `tokens`, `deliveries` |
+| `functions` | `listTriggers`, `fire`, `executions` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
 | `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
 | `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
@@ -187,6 +188,20 @@ and failure counts, never all-or-nothing. `messaging.tokens` and
 registered device token, its state, and the topics it is subscribed to; the
 second lists what the sandbox delivered, foreground or background, handled
 or not, optionally since a clock timestamp cursor. Both change no state.
+
+`functions` covers the Cloud Functions RTDB trigger runtime and nothing
+else: callable functions are a deferred mirror by design, so there is no
+`call` method. `functions.listTriggers` discovers the handlers a project's
+Functions source defines, their reference patterns, and any exports whose
+trigger kind the runtime does not support yet, with the reason; a project
+with no Functions source answers with an empty list and names where it
+looked. `functions.fire` runs one discovered handler on a synthetic event
+built from `path` and `value`, matching `path` against the handler's own
+reference pattern to capture its wildcard params; it never writes `value` at
+`path`, and naming a trigger `listTriggers` did not discover is refused
+pointing at `listTriggers`. `functions.executions` lists the runs `fire`
+caused, with cause, duration, and result or error, optionally since a clock
+timestamp cursor.
 
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path
