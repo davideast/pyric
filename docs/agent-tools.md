@@ -98,7 +98,9 @@ already belongs to, so a tenant identity keeps its tenant across a sign-in and
 
 `createCustomToken` mints what `signInWithCustomToken` redeems, and stores
 nothing, so it is a read. `importUsers` takes the same user entry
-`sandbox.seed` does, tenants and claims included. `getUser`, `getUserByEmail`,
+`sandbox.seed` does: `uid`, and optionally `email`, `password`, `customClaims`,
+and `tenantId`. The `password` is what the identity can then sign in with, and
+is derived from the uid when omitted. `getUser`, `getUserByEmail`,
 and `listUsers` all report `tenantId`.
 
 The sandbox carries one clock, which every `serverTimestamp()`, Realtime
@@ -259,9 +261,10 @@ bridge has. `pyric auth impersonate`, `pyric auth whoami`, and
 `pyric auth sessions` are different commands now: the derived service-tool
 commands `auth.impersonate`, `auth.whoami`, and `auth.sessions` (product
 surface, above), which act on this project's local `.pyric/state` and need no
-running bridge. `auth.sessions` reports the sessions the sandbox itself holds,
-the agent identity and the app session; `auth_sessions` on a bridge reports the
-clients connected to it.
+running bridge. `auth.sessions` reports the sessions the project's headless
+sandbox itself holds, the agent identity and the app session; `auth_sessions`
+on a bridge reports the clients connected to it, and `pyric serve sessions` is
+the command that prints those rows, with the target ids `--target` takes.
 
 ## Index extraction — `pyric/rules/indexes`
 

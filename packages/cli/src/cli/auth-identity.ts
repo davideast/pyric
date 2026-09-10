@@ -8,7 +8,8 @@
  * (`packages/cli/src/bridge/surface/methods/auth/`), which act on this
  * project's local `.pyric/state` and need no running bridge. Reset stays here
  * because retargeting a connected client is a concept a bridge alone has, so
- * it runs through `bridge-tool-call.ts` against the running bridge.
+ * it runs through `bridge-tool-call.ts` against the running bridge, and
+ * `pyric serve sessions` lists the ids it can be pointed at.
  *
  * `--target` names another connected client. Without it a command acts on
  * this caller's own bridge identity, which the bridge records but does not
@@ -36,7 +37,11 @@ function stringFlag(parsed: ParsedArgs, key: string): string | null | undefined 
 function targetFromFlags(parsed: ParsedArgs): { target?: string } | { error: string } {
   const target = stringFlag(parsed, 'target');
   if (target === null) {
-    return { error: '--target requires the target id of a connected client.' };
+    return {
+      error:
+        '--target requires the target id of a connected client. ' +
+        'pyric serve sessions lists the ids.',
+    };
   }
   return target === undefined ? {} : { target };
 }

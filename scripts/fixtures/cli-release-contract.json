@@ -16,7 +16,8 @@
     "storage rules resolve",
     "database rules validate",
     "database rules generate",
-    "auth reset"
+    "auth reset",
+    "serve sessions"
   ],
   "derivedCommands": [
     "assurance attach",

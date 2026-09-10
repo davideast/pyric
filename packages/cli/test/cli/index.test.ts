@@ -250,12 +250,18 @@ describe('pyric sandbox command surface', () => {
     expect((await runDispatch(['dev'])).code).toBe(1);
   });
 
-  it('advertises sandbox and never dev or serve', async () => {
+  it('advertises sandbox and never the removed dev or serve spellings', async () => {
     const { code, stdout } = await runDispatch(['--help']);
     expect(code).toBe(0);
     expect(stdout).toContain('pyric sandbox [flags] [--] [command...]');
     expect(stdout).not.toContain('pyric dev');
-    expect(stdout).not.toContain('pyric serve');
+    // `pyric serve sessions` is a bridge query, not the removed name for the
+    // sandbox: `pyric serve` on its own is still not a command.
+    expect(stdout).not.toMatch(/pyric serve(?! sessions)/);
+  });
+
+  it('rejects the removed serve spelling for the sandbox', async () => {
+    expect((await runDispatch(['serve'])).code).toBe(1);
   });
 });
 

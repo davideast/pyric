@@ -13,6 +13,7 @@ import { createSurfaceContext } from '../../../src/bridge/surface/context.js';
 import {
   describeAgentIdentity,
   describeBothIdentities,
+  listHeldSessions,
   switchHeldIdentity,
 } from '../../../src/bridge/surface/held-identity.js';
 import type { SurfaceContext } from '../../../src/bridge/surface/types.js';
@@ -116,5 +117,14 @@ describe('describeBothIdentities', () => {
     expect(data.appSession?.uid).toBe('riley');
     expect(data.runsAs).toBe('admin, which bypasses rules');
     expect(ctx.identity.describe().mode).toBe('admin');
+  });
+});
+
+describe('listHeldSessions', () => {
+  it("names the sandbox it describes, so it is not read as the running bridge's clients", () => {
+    const summary = listHeldSessions(freshContext()).summary;
+    expect(summary.split('.')[0]).toBe(
+      "The project's headless sandbox holds 1 session",
+    );
   });
 });

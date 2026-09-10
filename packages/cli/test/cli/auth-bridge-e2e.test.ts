@@ -27,6 +27,7 @@ import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../src/bridge/client
 import { isBridgeMessage } from '../../src/bridge/protocol.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runAuthReset } from '../../src/cli/auth-identity.js';
+import { runServeSessions } from '../../src/cli/serve-sessions.js';
 import type { BridgeCommandDeps } from '../../src/cli/bridge-tool-call.js';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
 
@@ -117,6 +118,16 @@ describe('pyric auth identity commands over a live bridge', () => {
     } finally {
       await close();
     }
+  });
+
+  it('lists the registered client at the terminal, with the id --target takes', async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+
+    expect(await runServeSessions(parsed('serve', 'sessions'), deps(out, err))).toBe(0);
+    expect(err.join('')).toBe('');
+    expect(out.join('')).toContain('1 connected client\n');
+    expect(out.join('')).toContain('  sess-live  kotlin (Pixel 10)  ');
   });
 
   it('resets a named target back to the application session', async () => {

@@ -59,9 +59,14 @@ export interface HeldSession {
 }
 
 /**
- * The sessions this sandbox holds: the agent identity and the app session.
- * A process that also hosts connected clients reports those clients through
- * its own bridge surface; these two are the sessions the sandbox itself has.
+ * The sessions this project's headless sandbox holds: the agent identity and
+ * the app session.
+ *
+ * The first line names that sandbox, because there is a second thing a caller
+ * could mean by a session. A running bridge holds connected clients, each with
+ * its own identity, and `pyric serve sessions` lists those with the target ids
+ * `--target` takes. These two are neither of those: they are the identities
+ * this process itself holds.
  */
 export function listHeldSessions(ctx: SurfaceContext): OperationResult {
   const agent = ctx.identity.describe();
@@ -82,9 +87,11 @@ export function listHeldSessions(ctx: SurfaceContext): OperationResult {
   return {
     ok: true,
     summary:
-      `${sessions.length} session${sessions.length === 1 ? '' : 's'} in this sandbox. ` +
+      `The project's headless sandbox holds ${sessions.length} ` +
+      `session${sessions.length === 1 ? '' : 's'}. ` +
       `The agent runs as ${agentSession.identity}. ` +
-      `The app session is ${describeAppSession(appSession)}.`,
+      `The app session is ${describeAppSession(appSession)}. ` +
+      "Call 'pyric serve sessions' for the clients connected to a running bridge.",
     data: { sessions, total: sessions.length, appSession },
   };
 }
