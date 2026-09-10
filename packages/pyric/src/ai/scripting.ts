@@ -128,7 +128,7 @@ export function scripts(ai: AI): ReadonlyArray<ScriptedEntryStatus> {
  * The resolved answer engine's mode, model, upstream, and whether a key is
  * configured. Never the key itself. Works for whichever engine is
  * configured, not only the scripted one, so a sandbox running the gemini
- * production-passthrough engine still reports through this call — `script`,
+ * production-passthrough engine still reports through this call; `script`,
  * `clearScripts`, and `scripts` are what stay scoped to the scripted engine.
  */
 export function aiStatus(ai: AI): AiEngineStatus {
