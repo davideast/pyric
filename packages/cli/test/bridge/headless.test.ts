@@ -457,7 +457,7 @@ describe('headless event writer selection', () => {
 });
 
 describe('the surface a headless session serves', () => {
-  it('serves the nine service tools when no surface is named', async () => {
+  it('serves the ten service tools when no surface is named', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-headless-default-'));
     try {
       const session = await openSession(dir, {});
@@ -472,6 +472,7 @@ describe('the surface a headless session serves', () => {
         'rules',
         'sandbox',
         'assurance',
+        'ai_logic',
       ]);
       await session.close();
     } finally {

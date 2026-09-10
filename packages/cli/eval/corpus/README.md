@@ -13,7 +13,7 @@ contract. The `id` field equals the filename without its extension. A record car
 
 ## Distribution
 
-One hundred twenty-seven tasks, counted by the first tag each one carries:
+One hundred thirty-one tasks, counted by the first tag each one carries:
 
 - 21 auth and tenant: seed a tenant user with claims, switch the active identity, list users, set
   or revoke claims, delete an account, import a team and read one back by address, and the app's
@@ -54,6 +54,10 @@ One hundred twenty-seven tasks, counted by the first tag each one carries:
   returned without writing the database, read the run log, and fire a trigger name the project
   never defined. These are the only tasks that seed `projectFiles`, the Functions source planted
   into the run's project directory rather than sandbox state.
+- 4 ai_logic: register one scripted response matched by prompt substring, list what is queued,
+  clear the queue, and read the resolved engine's mode, model, upstream, and whether a key is
+  configured. None of these seed anything: the scripted queue starts empty, and the resolved
+  engine is whatever the sandbox's default AI handle already carries.
 
 ## Rules for new tasks
 

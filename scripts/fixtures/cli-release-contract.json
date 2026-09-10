@@ -20,6 +20,10 @@
     "serve sessions"
   ],
   "derivedCommands": [
+    "ai_logic clearScripts",
+    "ai_logic script",
+    "ai_logic scripts",
+    "ai_logic status",
     "assurance attach",
     "assurance canIUse",
     "assurance define",
@@ -149,6 +153,7 @@
     "./discover/production"
   ],
   "mcpTools": [
+    "ai_logic",
     "assurance",
     "auth",
     "database",
@@ -160,6 +165,12 @@
     "storage"
   ],
   "mcpToolMethods": {
+    "ai_logic": [
+      "clearScripts",
+      "script",
+      "scripts",
+      "status"
+    ],
     "assurance": [
       "attach",
       "canIUse",

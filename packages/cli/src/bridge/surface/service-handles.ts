@@ -7,6 +7,7 @@
  * identity decides whether that handle bypasses rules (admin and default)
  * or enforces them (a uid, or unauthenticated).
  */
+import { getAI, type AI } from 'pyric/ai';
 import { getAdminDatabase, getDatabase, type Database } from 'pyric/database';
 import { getAdminFirestore, getFirestore, type Firestore } from 'pyric/firestore';
 import { getMessagingBroker, type MessagingBroker } from 'pyric/messaging/internal';
@@ -47,6 +48,15 @@ export function storageFor(ctx: SurfaceContext): FirebaseStorage {
  */
 export function messagingBrokerFor(ctx: SurfaceContext): MessagingBroker {
   return getMessagingBroker(ctx.sandbox);
+}
+
+/**
+ * The sandbox's AI handle. AI Logic carries no rules identity of its own,
+ * the way messaging does not, so this is not routed through the held
+ * identity either.
+ */
+export function aiFor(ctx: SurfaceContext): AI {
+  return getAI(ctx.sandbox);
 }
 
 /** Bytes for a base64 payload. */

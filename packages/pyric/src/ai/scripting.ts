@@ -19,6 +19,7 @@
 
 import {
   ScriptedEngine,
+  type AiEngineStatus,
   type ScriptEntry,
   type ScriptMatcher,
   type ScriptRespond,
@@ -28,7 +29,14 @@ import { AIError, AIErrorCode } from './errors.js';
 import { targetOf } from './target.js';
 import type { AI } from './types.js';
 
-export type { ScriptEntry, ScriptMatcher, ScriptRespond } from './broker/index.js';
+export { lastUserText } from './broker/index.js';
+export type { AiEngineStatus, GenerateContentRequest, ScriptEntry, ScriptMatcher, ScriptRespond } from './broker/index.js';
+
+/** One queued entry, beside whether it has already answered a call. */
+export interface ScriptedEntryStatus {
+  entry: ScriptEntry;
+  consumed: boolean;
+}
 
 /** An HTTP error capture pasted whole: status + the wire error body. */
 export interface HttpErrorRespond {
@@ -87,21 +95,48 @@ function normalizeEntry(entry: ScriptingEntry): ScriptEntry {
  * entries are unconditional FIFO (broker semantics).
  */
 export function script(ai: AI, entries: ScriptingEntry[]): void {
+  scriptedEngineOf(ai, 'script(ai, entries)').push(...entries.map(normalizeEntry));
+}
+
+/** The scripted engine behind a sandbox AI handle, or a refusal matching {@link script}'s own. */
+function scriptedEngineOf(ai: AI, caller: string): ScriptedEngine {
   const target = targetOf(ai);
   if (target.kind !== 'sandbox') {
-    throw new AIError(
-      AIErrorCode.UNSUPPORTED,
-      'script(ai, entries) is unavailable for a transport-backed AI handle.',
-    );
+    throw new AIError(AIErrorCode.UNSUPPORTED, `${caller} is unavailable for a transport-backed AI handle.`);
   }
   const engine = target.broker.engine;
   if (!(engine instanceof ScriptedEngine)) {
     throw new AIError(
       AIErrorCode.UNSUPPORTED,
-      "script(ai, entries) requires the scripted engine (the getAI(sandbox) default, or engine: { kind: 'scripted' }).",
+      `${caller} requires the scripted engine (the getAI(sandbox) default, or engine: { kind: 'scripted' }).`,
     );
   }
-  engine.push(...entries.map(normalizeEntry));
+  return engine;
+}
+
+/** Empty the scripted engine's entry queue. A later call matches nothing until entries are pushed again. */
+export function clearScripts(ai: AI): void {
+  scriptedEngineOf(ai, 'clearScripts(ai)').clear();
+}
+
+/** The scripted engine's queued entries, each beside whether it has already answered a call. */
+export function scripts(ai: AI): ReadonlyArray<ScriptedEntryStatus> {
+  return scriptedEngineOf(ai, 'scripts(ai)').list();
+}
+
+/**
+ * The resolved answer engine's mode, model, upstream, and whether a key is
+ * configured. Never the key itself. Works for whichever engine is
+ * configured, not only the scripted one, so a sandbox running the gemini
+ * production-passthrough engine still reports through this call; `script`,
+ * `clearScripts`, and `scripts` are what stay scoped to the scripted engine.
+ */
+export function aiStatus(ai: AI): AiEngineStatus {
+  const target = targetOf(ai);
+  if (target.kind !== 'sandbox') {
+    throw new AIError(AIErrorCode.UNSUPPORTED, 'aiStatus(ai) is unavailable for a transport-backed AI handle.');
+  }
+  return target.broker.describeStatus();
 }
 
 /**

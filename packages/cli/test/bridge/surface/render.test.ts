@@ -199,6 +199,7 @@ describe('surface selection', () => {
       'rules',
       'sandbox',
       'assurance',
+      'ai_logic',
     ]);
   });
 

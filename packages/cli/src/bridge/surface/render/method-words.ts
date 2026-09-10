@@ -38,6 +38,15 @@ const OVERRIDES: Readonly<Record<string, MethodWords>> = {
   'rules.lint': { verb: 'lint', service: 'rules', object: 'source' },
   'rules.simulate': { verb: 'simulate', service: 'rules', object: 'request' },
   'rules.set': { verb: 'set', service: 'rules', object: 'source' },
+  // `ai_logic` is the one tool name that itself carries an underscore.
+  // `fromCanonicalId` splits a canonical id on '_' and takes the second word
+  // as the whole service, which would read the service off `script_ai_logic`
+  // as `ai` and strand `logic` as the object. Every ai_logic method is
+  // overridden here so its words are spelled by hand instead of parsed.
+  'ai_logic.script': { verb: 'script', service: 'ai_logic', object: '' },
+  'ai_logic.clearScripts': { verb: 'clear', service: 'ai_logic', object: 'scripts' },
+  'ai_logic.scripts': { verb: 'list', service: 'ai_logic', object: 'scripts' },
+  'ai_logic.status': { verb: 'get', service: 'ai_logic', object: 'status' },
 };
 
 /** The words a canonical id carries, which is `verb_service_object` by construction. */

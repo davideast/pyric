@@ -23,13 +23,13 @@ import {
   text,
 } from './discriminator-route-shapes.js';
 import {
-  configureAiMockSchema,
   controlSandboxEnvironmentSchema,
   diagnoseRuleDenialSchema,
   dryRunExperimentSchema,
   inspectAuthFlowSchema,
   inspectFirestoreStructureSchema,
   judgeAuthorizationRiskSchema,
+  manageAiLogicSchema,
   manageAppSessionSchema,
   manageAuthUsersSchema,
   manageFunctionsSchema,
@@ -133,10 +133,10 @@ export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
     parameters: manageFunctionsSchema,
   },
   {
-    name: 'configure_ai_mock',
+    name: 'manage_ai_logic',
     description:
-      'Configure deterministic scripted responses or simulated HTTP errors for Vertex AI / Gemini calls in the sandbox.',
-    parameters: configureAiMockSchema,
+      "Register a scripted response on AI Logic's local answer engine, clear or list what is queued, or read the resolved engine's mode, model, upstream, and whether a key is configured. Never sends a prompt anywhere, and never returns the key itself.",
+    parameters: manageAiLogicSchema,
   },
 ];
 
@@ -701,6 +701,45 @@ const FUNCTIONS_ROUTES: DiscriminatorRoute[] = [
   },
 ];
 
+const AI_LOGIC_ROUTES: DiscriminatorRoute[] = [
+  {
+    tool: 'manage_ai_logic',
+    action: 'script',
+    selects: on('action', 'script'),
+    operation: 'script_ai_logic',
+    translate: (args) => {
+      const match: Args = {};
+      assign(match, 'substring', args.matchSubstring);
+      assign(match, 'model', args.matchModel);
+      const response: Args = {};
+      assign(response, 'type', args.responseType);
+      assign(response, 'payload', parseJsonValue(text(args, 'responsePayloadJson')));
+      return { match, response };
+    },
+  },
+  {
+    tool: 'manage_ai_logic',
+    action: 'clear_scripts',
+    selects: on('action', 'clear_scripts'),
+    operation: 'clear_ai_logic_scripts',
+    translate: () => ({}),
+  },
+  {
+    tool: 'manage_ai_logic',
+    action: 'list_scripts',
+    selects: on('action', 'list_scripts'),
+    operation: 'list_ai_logic_scripts',
+    translate: () => ({}),
+  },
+  {
+    tool: 'manage_ai_logic',
+    action: 'status',
+    selects: on('action', 'status'),
+    operation: 'get_ai_logic_status',
+    translate: () => ({}),
+  },
+];
+
 const RULES_ROUTES: DiscriminatorRoute[] = [
   {
     tool: 'diagnose_rule_denial',
@@ -773,4 +812,5 @@ export const DISCRIMINATOR_ROUTES: readonly DiscriminatorRoute[] = [
   ...BRANCH_ROUTES,
   ...SANDBOX_STATE_ROUTES,
   ...FUNCTIONS_ROUTES,
+  ...AI_LOGIC_ROUTES,
 ];
