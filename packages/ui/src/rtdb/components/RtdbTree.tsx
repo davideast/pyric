@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useFormControl } from '../../primitives/FormControl.js';
 import type { RtdbApi } from '../rtdbApi.js';
 import type { RtdbTreeController } from '../hooks/useRtdbTree.js';
 import {
@@ -320,6 +321,7 @@ function ValueEditor({
   const valueRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
   const [type, setType] = useState<RtdbEditorType>(initialType);
   const [error, setError] = useState<string | null>(null);
+  const formControl = useFormControl({ error: error ?? undefined });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -351,6 +353,8 @@ function ValueEditor({
           ref={keyRef}
           data-rtdb-editor-key
           aria-label="Child key"
+          aria-invalid={formControl.isInvalid ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
           placeholder="key"
           autoFocus
           onKeyDown={onEscape}
@@ -375,6 +379,8 @@ function ValueEditor({
           ref={valueRef as { current: HTMLSelectElement | null }}
           data-rtdb-editor-value
           aria-label="Value"
+          aria-invalid={formControl.isInvalid ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
           defaultValue={initialText.trim().toLowerCase() === 'true' ? 'true' : 'false'}
           onKeyDown={onEscape}
         >
@@ -386,6 +392,8 @@ function ValueEditor({
           ref={valueRef as { current: HTMLInputElement | null }}
           data-rtdb-editor-value
           aria-label="Value"
+          aria-invalid={formControl.isInvalid ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
           placeholder={type === 'json' ? '{ "key": "value" }' : 'value'}
           autoFocus={!withKey}
           defaultValue={initialText}
@@ -400,7 +408,7 @@ function ValueEditor({
         Cancel
       </button>
       {error ? (
-        <span role="alert" data-rtdb-editor-error>
+        <span id={formControl.errorId} role="alert" data-rtdb-editor-error>
           {error}
         </span>
       ) : null}

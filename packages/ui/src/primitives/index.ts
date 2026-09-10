@@ -39,6 +39,21 @@ export {
 } from './hooks/useUpdateHighlights.js';
 export { Modal, type ModalProps } from './Modal.js';
 export {
+  FormControl,
+  Field,
+  FormControlContext,
+  FieldContext,
+  useFormControl,
+  useFieldContext,
+  type FormControlProps,
+  type FormControlContextValue,
+  type UseFormControlOptions,
+  type FormLabelProps,
+  type FormInputProps,
+  type FormErrorMessageProps,
+  type FormHelperTextProps,
+} from './FormControl.js';
+export {
   PYRIC_THEME_TOKENS,
   type PyricThemeToken,
   ACCESSIBILITY_CONTRACT,

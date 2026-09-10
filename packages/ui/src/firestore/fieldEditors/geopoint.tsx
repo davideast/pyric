@@ -1,3 +1,4 @@
+import { useFormControl } from '../../primitives/FormControl.js';
 import { GeoPoint } from 'pyric/firestore';
 import type { FieldEditorContract, FieldDisplayProps, FieldEditProps } from './types.js';
 
@@ -15,6 +16,7 @@ function GeoPointDisplay({ value, path }: FieldDisplayProps<GeoPoint>) {
 }
 
 function GeoPointEdit({ value, onChange, error, path }: FieldEditProps<GeoPoint>) {
+  const formControl = useFormControl({ error });
   return (
     <span
       data-pyric-field-type="geopoint"
@@ -39,6 +41,8 @@ function GeoPointEdit({ value, onChange, error, path }: FieldEditProps<GeoPoint>
             }
           }}
           aria-label="Latitude"
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
         />
       </label>
       <label>
@@ -57,9 +61,15 @@ function GeoPointEdit({ value, onChange, error, path }: FieldEditProps<GeoPoint>
             }
           }}
           aria-label="Longitude"
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
         />
       </label>
-      {error ? <span data-pyric-error-message>{error}</span> : null}
+      {error ? (
+        <span id={formControl.errorId} data-pyric-error-message>
+          {error}
+        </span>
+      ) : null}
     </span>
   );
 }

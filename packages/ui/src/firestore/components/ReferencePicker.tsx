@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useFormControl } from '../../primitives/FormControl.js';
 import type {
   CollectionReference,
   DocumentReference,
@@ -53,6 +54,7 @@ export function ReferencePicker({
 }: ReferencePickerProps) {
   const picker = useReferencePicker({ firestore, listCollections, initialPath });
   const [browseOpen, setBrowseOpen] = useState(false);
+  const formControl = useFormControl({ error: picker.error ?? undefined });
 
   return (
     <div className={className} data-pyric-ui="reference-picker">
@@ -65,10 +67,13 @@ export function ReferencePicker({
           placeholder="users/alice"
           data-pyric-reference-path-input
           aria-invalid={picker.error ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
         />
       </label>
       {picker.error ? (
-        <span data-pyric-error-message>{picker.error}</span>
+        <span id={formControl.errorId} data-pyric-error-message>
+          {picker.error}
+        </span>
       ) : null}
       <div data-pyric-reference-actions>
         <button
