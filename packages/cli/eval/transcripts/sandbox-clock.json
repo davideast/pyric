@@ -1,0 +1,47 @@
+{
+  "pretend-its-next-tuesday-check-promo-rule": [
+    { "tool": "sandbox", "args": { "method": "setClock", "args": { "isoTime": "2026-09-15T12:00:00.000Z" } } },
+    {
+      "tool": "rules",
+      "args": {
+        "method": "simulate",
+        "args": { "service": "firestore", "operation": "get", "path": "promos/summer-sale" }
+      }
+    }
+  ],
+  "advance-clock-an-hour-check-session-token": [
+    { "tool": "sandbox", "args": { "method": "advanceClock", "args": { "ms": 3600000 } } },
+    {
+      "tool": "rules",
+      "args": {
+        "method": "simulate",
+        "args": {
+          "service": "firestore",
+          "operation": "get",
+          "path": "accounts/dana",
+          "uid": "dana"
+        }
+      }
+    }
+  ],
+  "freeze-time-write-two-documents-same-timestamp": [
+    { "tool": "sandbox", "args": { "method": "setClock", "args": { "isoTime": "2026-06-01T00:00:00.000Z" } } },
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "setDoc",
+        "args": { "path": "ledger/first", "data": { "at": "2026-06-01T00:00:00.000Z" } }
+      }
+    },
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "setDoc",
+        "args": { "path": "ledger/second", "data": { "at": "2026-06-01T00:00:00.000Z" } }
+      }
+    }
+  ],
+  "reset-clock-after-an-experiment": [
+    { "tool": "sandbox", "args": { "method": "resetClock", "args": {} } }
+  ]
+}
