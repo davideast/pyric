@@ -245,6 +245,55 @@ describe('rules.simulate(requestTime) leaves the sandbox clock untouched', () =>
   });
 });
 
+const GATED_RULES = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /promo/{id} {
+      allow read: if request.time < timestamp.date(2028, 1, 1);
+    }
+  }
+}`;
+
+interface BatchVerdict {
+  allowed: boolean;
+}
+
+describe('rules.simulate cases evaluate at their own instant', () => {
+  it('a case names its instant, else the call names it, else the clock', async () => {
+    const { ctx } = freshContext();
+    await call(ctx, 'sandbox.setClock', { isoTime: '2026-01-01T00:00:00.000Z' });
+    const answered = await call(ctx, 'rules.simulate', {
+      service: 'firestore',
+      rules: GATED_RULES,
+      requestTime: '2029-01-01T00:00:00.000Z',
+      cases: [
+        { operation: 'get', path: 'promo/p1', requestTime: '2027-06-01T00:00:00.000Z' },
+        { operation: 'get', path: 'promo/p1' },
+      ],
+    });
+    expect(answered.ok).toBe(true);
+    const verdicts = (answered.data as { cases: BatchVerdict[] }).cases;
+    expect(verdicts.map((one) => one.allowed)).toEqual([true, false]);
+
+    const fromClock = await call(ctx, 'rules.simulate', {
+      service: 'firestore',
+      rules: GATED_RULES,
+      cases: [{ operation: 'get', path: 'promo/p1' }],
+    });
+    expect((fromClock.data as { cases: BatchVerdict[] }).cases[0]?.allowed).toBe(true);
+  });
+
+  it('refuses a case whose instant does not parse', async () => {
+    const { ctx } = freshContext();
+    const refused = await call(ctx, 'rules.simulate', {
+      service: 'firestore',
+      cases: [{ operation: 'get', path: 'promo/p1', requestTime: 'next tuesday' }],
+    });
+    expect(refused.ok).toBe(false);
+    expect(refused.summary).toContain('next tuesday');
+  });
+});
+
 describe('a checkpoint taken under a pinned clock restores that clock', () => {
   it('checkpoint, resetClock, restore, inspect', async () => {
     const { ctx } = freshContext();
