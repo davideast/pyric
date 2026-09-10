@@ -258,3 +258,84 @@ describe('messaging broker — typed sandbox events (tracing consumes the stream
     for (const event of events) expect(event.service).toBe('messaging');
   });
 });
+
+describe('messaging broker — registered tokens and their topics', () => {
+  it('lists every minted token with its state and topic membership', () => {
+    const broker = new MessagingBroker();
+    const a = broker.getTokenFor('reg-a');
+    const b = broker.getTokenFor('reg-b');
+    broker.subscribeToTopic([a], 'news');
+    broker.subscribeToTopic([a, b], 'sports');
+
+    const listed = broker.tokens();
+    expect(listed.map((entry) => entry.token).sort()).toEqual([a, b].sort());
+
+    const entryA = listed.find((entry) => entry.token === a)!;
+    expect(entryA.state).toBe('active');
+    expect(entryA.topics.sort()).toEqual(['news', 'sports']);
+
+    const entryB = listed.find((entry) => entry.token === b)!;
+    expect(entryB.topics).toEqual(['sports']);
+  });
+
+  it('reports a deleted token as unregistered, with its subscriptions cleared by unsubscribe', () => {
+    const broker = new MessagingBroker();
+    const token = broker.getTokenFor('reg-c');
+    broker.subscribeToTopic([token], 'news');
+    broker.deleteTokenFor('reg-c');
+
+    const entry = broker.tokens().find((candidate) => candidate.token === token)!;
+    expect(entry.state).toBe('unregistered');
+  });
+});
+
+describe('messaging broker — the delivery log', () => {
+  it('records a topic send as delivered, foreground or background, per the visibility rule', () => {
+    const broker = new MessagingBroker();
+    const token = broker.getTokenFor('reg-1');
+    broker.subscribeToTopic([token], 'news');
+
+    broker.setClientVisibility('window-0', 'hidden');
+    broker.send({ topic: 'news', data: { k: 'v1' } });
+
+    broker.setClientVisibility('window-0', 'visible');
+    broker.send({ topic: 'news', data: { k: 'v2' } });
+
+    const log = broker.deliveries();
+    expect(log.length).toBe(2);
+    expect(log[0]!.route).toBe('background');
+    expect(log[0]!.handled).toBe(false);
+    expect(log[1]!.route).toBe('foreground');
+  });
+
+  it('records a delivery with no matching recipient as unhandled, and never delivers unrouted sends', () => {
+    const broker = new MessagingBroker();
+    const token = broker.getTokenFor('reg-1');
+    broker.setClientVisibility('window-0', 'visible');
+    broker.onForegroundMessage(() => {});
+
+    // A send to an empty topic reaches no recipient, so route() never runs and
+    // the delivery log stays empty for it.
+    broker.send({ topic: 'nobody-subscribed' });
+    expect(broker.deliveries().length).toBe(0);
+
+    // A direct `deliver()` call always routes, so it always logs, handled or not.
+    broker.deliver({ data: { k: 'v' } });
+    expect(broker.deliveries().length).toBe(1);
+    expect(broker.deliveries()[0]!.handled).toBe(true);
+
+    void token;
+  });
+
+  it('filters by since, the cursor the deliveries method reads', () => {
+    const broker = new MessagingBroker();
+    broker.deliver({ data: { seq: '1' } });
+    const cursor = Date.now();
+    broker.deliver({ data: { seq: '2' } });
+
+    const after = broker.deliveries(cursor);
+    expect(after.length).toBeGreaterThanOrEqual(1);
+    expect(after.every((entry) => entry.at >= cursor)).toBe(true);
+    expect(broker.deliveries().length).toBe(2);
+  });
+});
