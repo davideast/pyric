@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
+import { parseStorageRules, type StorageEvaluationOptions } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 
 // ─── request.time + timestamp constructors ───────────────────────
@@ -130,6 +130,7 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
     cond: string,
     docs: Record<string, Record<string, unknown>>,
     auth: { uid: string } | null = { uid: 'alice' },
+    options?: StorageEvaluationOptions,
   ): { allowed: boolean; reasons: string[] } {
     const rules = parseStorageRules(`service firebase.storage {
       match /b/{bucket}/o {
@@ -149,6 +150,7 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
       { request: { auth, method: 'read', path }, resource: { size: 1 } },
       undefined,
       lookup,
+      options,
     );
   }
 
@@ -239,7 +241,37 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
     expect(r.allowed).toBe(false);
   });
 
-  it('denies a third distinct Firestore document access', () => {
+  it('allows a third distinct Firestore document access by default and denies a fourth', () => {
+    const r3 = evalFs(
+      'firestore.exists(/databases/(default)/documents/members/a)'
+        + ' && firestore.exists(/databases/(default)/documents/members/b)'
+        + ' && firestore.exists(/databases/(default)/documents/members/c)',
+      {
+        'members/a': { active: true },
+        'members/b': { active: true },
+        'members/c': { active: true },
+      },
+    );
+
+    expect(r3.allowed).toBe(true);
+
+    const r4 = evalFs(
+      'firestore.exists(/databases/(default)/documents/members/a)'
+        + ' && firestore.exists(/databases/(default)/documents/members/b)'
+        + ' && firestore.exists(/databases/(default)/documents/members/c)'
+        + ' && firestore.exists(/databases/(default)/documents/members/d)',
+      {
+        'members/a': { active: true },
+        'members/b': { active: true },
+        'members/c': { active: true },
+        'members/d': { active: true },
+      },
+    );
+
+    expect(r4.allowed).toBe(false);
+  });
+
+  it('denies a third distinct Firestore document access when maxFirestoreLookups is configured to 2', () => {
     const r = evalFs(
       'firestore.exists(/databases/(default)/documents/members/a)'
         + ' && firestore.exists(/databases/(default)/documents/members/b)'
@@ -249,6 +281,8 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
         'members/b': { active: true },
         'members/c': { active: true },
       },
+      { uid: 'alice' },
+      { maxFirestoreLookups: 2 },
     );
 
     expect(r.allowed).toBe(false);

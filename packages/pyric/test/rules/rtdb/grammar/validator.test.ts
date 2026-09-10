@@ -56,4 +56,14 @@ describe('validateExpression', () => {
     const errors = validateExpression('auth ===', 'read');
     expect(errors).toHaveLength(0);
   });
+
+  test('isolates state across interleaved validateExpression calls', () => {
+    const first = validateExpression('newData.exists()', 'read');
+    const second = validateExpression('newData.exists()', 'write');
+    const third = validateExpression('newData.exists()', 'read');
+
+    expect(first.map(e => e.code)).toContain('NEWDATA_IN_READ');
+    expect(second).toHaveLength(0);
+    expect(third.map(e => e.code)).toContain('NEWDATA_IN_READ');
+  });
 });

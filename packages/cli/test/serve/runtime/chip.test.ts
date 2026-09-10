@@ -365,4 +365,78 @@ describe('PyricRuntimeChip', () => {
     setCurrentLens({ mode: 'as', uid: 'detached-user' });
     expect(root.textContent).not.toContain('detached-user');
   });
+
+  it('does not announce status on initial render to prevent unsolicited screen reader interruption', () => {
+    const { root } = setup({ initiallyOpen: false });
+    const announcer = root.querySelector('.announcer');
+    expect(announcer?.textContent).toBe('');
+  });
+
+  it('collapses panel on Escape keydown and returns focus to expand button', () => {
+    const { root } = setup({ initiallyOpen: true });
+    const panel = root.querySelector<HTMLElement>('.panel')!;
+    expect(panel).not.toBeNull();
+
+    const collapse = root.querySelector<HTMLButtonElement>('[data-collapse]')!;
+    collapse.focus();
+
+    const escapeEvent = new root.ownerDocument.defaultView!.KeyboardEvent('keydown', {
+      key: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    });
+    panel.dispatchEvent(escapeEvent);
+
+    expect(root.querySelector('.panel')).toBeNull();
+    const expand = root.querySelector<HTMLButtonElement>('[data-expand]')!;
+    expect(expand).not.toBeNull();
+    expect(root.activeElement).toBe(expand);
+  });
+
+  it('traps focus with Tab and Shift+Tab within the dialog panel', () => {
+    const { root } = setup({ initiallyOpen: true });
+    const panel = root.querySelector<HTMLElement>('.panel')!;
+    const focusable = panel.querySelectorAll<HTMLElement>(
+      'button:not([disabled]):not([aria-disabled="true"]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    expect(focusable.length).toBeGreaterThan(1);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    // Tab on last element should wrap to first element
+    last.focus();
+    expect(root.activeElement).toBe(last);
+    const tabEvent = new root.ownerDocument.defaultView!.KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    panel.dispatchEvent(tabEvent);
+    expect(root.activeElement).toBe(first);
+
+    // Shift+Tab on first element should wrap to last element
+    first.focus();
+    expect(root.activeElement).toBe(first);
+    const shiftTabEvent = new root.ownerDocument.defaultView!.KeyboardEvent('keydown', {
+      key: 'Tab',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    panel.dispatchEvent(shiftTabEvent);
+    expect(root.activeElement).toBe(last);
+  });
+
+  it('announces copy failure via the live region announcer', async () => {
+    const writeText = mock(() => Promise.reject(new Error('denied')));
+    const { runtime, root } = setup({ initiallyOpen: true, clipboard: { writeText } });
+    runtime.reportError('copy test failure', 'sandbox');
+    const copy = root.querySelector<HTMLButtonElement>('[data-copy-error]')!;
+    copy.click();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const announcer = root.querySelector('.announcer');
+    expect(announcer?.textContent).toBe('Copy failed');
+  });
 });

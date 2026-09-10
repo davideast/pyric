@@ -20,6 +20,93 @@
 
 const PAGE_STORAGE_KEY = 'pyric.diagnostics.log';
 const MAX_PAGE_ENTRIES = 1000;
+export const REDACTED = '[REDACTED]';
+
+const SENSITIVE_KEY_RE =
+  /(?:^|[-_])(authorization|proxy-authorization|x-api-key|api[-_]?key|apikey|token|access[-_]?token|refresh[-_]?token|secret|client[-_]?secret|private[-_]?key|password|passwd|credential|cookie|set-cookie|bearer)(?:$|[-_])/i;
+
+const SENSITIVE_HEADER_RE =
+  /^(authorization|proxy-authorization|x-api-key|api-key|cookie|set-cookie|x-auth-token)$/i;
+
+/**
+ * Scrubs inline Bearer/Basic tokens and known provider API key patterns from string values.
+ */
+export function redactDiagnosticString(value: string): string {
+  return value
+    .replace(/(\bBearer\s+)[A-Za-z0-9._~+/-]+=*/gi, `$1${REDACTED}`)
+    .replace(/(\bBasic\s+)[A-Za-z0-9+/=]{8,}/gi, `$1${REDACTED}`)
+    .replace(/\bsk-(?:or-v1-|proj-|ant-)?[A-Za-z0-9_-]{16,}\b/g, REDACTED)
+    .replace(/\bAIza[0-9A-Za-z_-]{35}\b/g, REDACTED)
+    .replace(/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{30,}\b/g, REDACTED);
+}
+
+/**
+ * Sanitizes a headers collection (Headers instance, [k,v] tuples, or plain object)
+ * by redacting sensitive header names and scrubbing remaining string values.
+ */
+export function sanitizeHeaders(headers: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (!headers) return out;
+
+  const entries: Array<[string, unknown]> = [];
+  if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+    headers.forEach((v, k) => entries.push([k, v]));
+  } else if (Array.isArray(headers)) {
+    for (const item of headers) {
+      if (Array.isArray(item) && item.length >= 2) {
+        entries.push([String(item[0]), item[1]]);
+      }
+    }
+  } else if (typeof headers === 'object') {
+    for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+      entries.push([k, v]);
+    }
+  }
+
+  for (const [k, v] of entries) {
+    if (SENSITIVE_HEADER_RE.test(k.trim()) || SENSITIVE_KEY_RE.test(k.trim())) {
+      out[k] = REDACTED;
+    } else if (typeof v === 'string') {
+      out[k] = redactDiagnosticString(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function sanitizeValue(val: unknown, depth: number, seen: WeakSet<object>): unknown {
+  if (val === null || val === undefined) return val;
+  if (typeof val === 'string') return redactDiagnosticString(val);
+  if (typeof val !== 'object') return val;
+  if (seen.has(val as object) || depth > 8) return REDACTED;
+  seen.add(val as object);
+
+  if (Array.isArray(val)) {
+    return val.map((item) => sanitizeValue(item, depth + 1, seen));
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(val as Record<string, unknown>)) {
+    if (/^(headers|requestHeaders|responseHeaders)$/i.test(k)) {
+      out[k] = sanitizeHeaders(v);
+    } else if (SENSITIVE_KEY_RE.test(k)) {
+      out[k] = REDACTED;
+    } else {
+      out[k] = sanitizeValue(v, depth + 1, seen);
+    }
+  }
+  return out;
+}
+
+/**
+ * Recursively redacts API keys, Authorization tokens, and sensitive fields from diagnostic metadata.
+ */
+export function sanitizeDiagnosticMeta(
+  meta: Record<string, unknown>,
+): Record<string, unknown> {
+  return sanitizeValue(meta, 0, new WeakSet()) as Record<string, unknown>;
+}
 
 export interface LogEntry {
   ts: number;
@@ -58,15 +145,23 @@ function readPageArray(): LogEntry[] {
   }
 }
 
+function sanitizeEntries(arr: LogEntry[]): LogEntry[] {
+  return arr.map((e) => (e.meta ? { ...e, meta: sanitizeDiagnosticMeta(e.meta) } : e));
+}
+
 function writePageArray(arr: LogEntry[]): void {
   const ls = safeLocalStorage();
   if (!ls) return;
+  const sanitized = sanitizeEntries(arr);
   try {
-    ls.setItem(PAGE_STORAGE_KEY, JSON.stringify(arr));
+    ls.setItem(PAGE_STORAGE_KEY, JSON.stringify(sanitized));
   } catch {
     // Quota exceeded — drop the older half and retry once.
     try {
-      ls.setItem(PAGE_STORAGE_KEY, JSON.stringify(arr.slice(-Math.floor(MAX_PAGE_ENTRIES / 2))));
+      ls.setItem(
+        PAGE_STORAGE_KEY,
+        JSON.stringify(sanitized.slice(-Math.floor(MAX_PAGE_ENTRIES / 2))),
+      );
     } catch {
       /* give up; instrumentation must not crash */
     }
@@ -78,7 +173,7 @@ export function logPage(event: string, reqId?: string, meta?: Record<string, unk
   const arr = readPageArray();
   const entry: LogEntry = { ts: Date.now(), event };
   if (reqId) entry.reqId = reqId;
-  if (meta) entry.meta = meta;
+  if (meta) entry.meta = sanitizeDiagnosticMeta(meta);
   arr.push(entry);
   if (arr.length > MAX_PAGE_ENTRIES) {
     arr.splice(0, arr.length - MAX_PAGE_ENTRIES);

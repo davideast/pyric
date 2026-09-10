@@ -186,6 +186,9 @@ export interface ChatMessage {
    *  response so the Trace drill-in can look up `byTurn[turnId]`.
    *  Absent for historical / restored messages. */
   turnId?: string;
+  /** Turn-start checkpoint sha capturing the pre-turn workspace state.
+   *  Enables rollback if the turn is aborted or fails. */
+  turnStartCheckpoint?: string;
   /** Captured at message creation so the per-message header shows the
    *  provider/model that actually produced it — switching the picker
    *  later doesn't rewrite history. */

@@ -5,57 +5,63 @@ import {
 } from '../expression-engine.js';
 import type { RuleLint } from '../types.js';
 
-let _warnings: RuleLint[] = [];
-let _lintContext: 'read' | 'write' | 'validate' = 'read';
-let _hasData = false;
-let _hasNewData = false;
-let _hasDataChildAccess = false;
+interface LintContext {
+  warnings: RuleLint[];
+  context: 'read' | 'write' | 'validate';
+  hasData: boolean;
+  hasNewData: boolean;
+  hasDataChildAccess: boolean;
+}
 
 let linterSemantics: Semantics | undefined;
 
 function getLinterSemantics(): Semantics {
   if (linterSemantics) return linterSemantics;
   const semantics = createRtdbExpressionSemantics();
-  semantics.addOperation('lint', {
+  semantics.addOperation('lint(ctx)', {
     _nonterminal(...children) {
-      children.forEach(c => (c as any).lint());
+      children.forEach(c => (c as any).lint(this.args.ctx));
     },
     _iter(...children) {
-      children.forEach(c => (c as any).lint());
+      children.forEach(c => (c as any).lint(this.args.ctx));
     },
     _terminal() {},
 
     CallExpr_methodCall(receiver, _dot, methodName, _open, args, _close) {
-      (receiver as any).lint();
-      args.asIteration().children.forEach((a: any) => (a as any).lint());
+      const ctx = this.args.ctx as LintContext;
+      (receiver as any).lint(ctx);
+      args.asIteration().children.forEach((a: any) => (a as any).lint(ctx));
       // Detect data.child() pattern — indicates intentional data comparison
       if (methodName.sourceString === 'child' && receiver.sourceString === 'data') {
-        _hasDataChildAccess = true;
+        ctx.hasDataChildAccess = true;
       }
     },
 
     ident(_dollar, _start, _rest) {
+      const ctx = this.args.ctx as LintContext;
       const name = this.sourceString;
-      if (name === 'data') _hasData = true;
-      if (name === 'newData') _hasNewData = true;
+      if (name === 'data') ctx.hasData = true;
+      if (name === 'newData') ctx.hasNewData = true;
     },
 
     bool_true(_true) {
-      _warnings.push({ code: 'HARDCODED_TRUE', message: 'Rule expression is hardcoded to true' });
+      const ctx = this.args.ctx as LintContext;
+      ctx.warnings.push({ code: 'HARDCODED_TRUE', message: 'Rule expression is hardcoded to true' });
     },
 
     bool_false(_false) {
-      _warnings.push({ code: 'HARDCODED_FALSE', message: 'Rule expression is hardcoded to false' });
+      const ctx = this.args.ctx as LintContext;
+      ctx.warnings.push({ code: 'HARDCODED_FALSE', message: 'Rule expression is hardcoded to false' });
     },
 
     Comparison_looseEq(left, _op, right) {
-      (left as any).lint();
-      (right as any).lint();
+      (left as any).lint(this.args.ctx);
+      (right as any).lint(this.args.ctx);
     },
 
     Comparison_looseNeq(left, _op, right) {
-      (left as any).lint();
-      (right as any).lint();
+      (left as any).lint(this.args.ctx);
+      (right as any).lint(this.args.ctx);
     },
   });
   linterSemantics = semantics;
@@ -69,20 +75,22 @@ export function lintExpression(
   const match = matchRtdbExpression(raw);
   if (match.failed()) return [];
 
-  _warnings = [];
-  _lintContext = context;
-  _hasData = false;
-  _hasNewData = false;
-  _hasDataChildAccess = false;
+  const ctx: LintContext = {
+    warnings: [],
+    context,
+    hasData: false,
+    hasNewData: false,
+    hasDataChildAccess: false,
+  };
 
-  (getLinterSemantics()(match) as any).lint();
+  (getLinterSemantics()(match) as any).lint(ctx);
 
-  if (context === 'write' && _hasData && !_hasNewData && !_hasDataChildAccess) {
-    _warnings.push({
+  if (context === 'write' && ctx.hasData && !ctx.hasNewData && !ctx.hasDataChildAccess) {
+    ctx.warnings.push({
       code: 'DATA_IN_WRITE',
       message: "Write rule references 'data' but not 'newData'; consider using 'newData' to check incoming data",
     });
   }
 
-  return [..._warnings];
+  return ctx.warnings;
 }

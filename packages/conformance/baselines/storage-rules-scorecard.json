@@ -78,10 +78,10 @@
     ]
   },
   "score": {
-    "numerator": 67,
+    "numerator": 69,
     "denominator": 69,
-    "ratio": 0.9710144927536232,
-    "percent": 97.1
+    "ratio": 1,
+    "percent": 100
   },
   "axes": {
     "productionAcceptance": {
@@ -103,14 +103,14 @@
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 67,
-      "diverged": 2,
+      "verified": 69,
+      "diverged": 0,
       "unverified": 0
     }
   },
   "counts": {
-    "conformant": 67,
-    "diverged": 2,
+    "conformant": 69,
+    "diverged": 0,
     "unknown": 0,
     "acceptance-mismatch": 0,
     "local-unsupported": 0,
@@ -680,19 +680,18 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "firestore-lookup",
         "firestore-lookup-budget"
       ],
       "verifiedByRows": [
+        "storage-rules#129",
         "storage-rules#131",
         "storage-rules#134"
       ],
-      "divergedByRows": [
-        "storage-rules#129"
-      ]
+      "divergedByRows": []
     },
     "storage.function.firestore.exists": {
       "productionAcceptance": "accepted",
@@ -703,19 +702,18 @@
       "acceptanceProbeBound": true,
       "productionEvaluationAgreement": true,
       "localEvaluationAgreement": true,
-      "productionEvidence": "diverged",
-      "classification": "diverged",
+      "productionEvidence": "verified",
+      "classification": "conformant",
       "verifiedBy": [
         "firestore-lookup",
         "firestore-lookup-budget"
       ],
       "verifiedByRows": [
+        "storage-rules#129",
         "storage-rules#131",
         "storage-rules#134"
       ],
-      "divergedByRows": [
-        "storage-rules#129"
-      ]
+      "divergedByRows": []
     },
     "storage.method.string.matches": {
       "productionAcceptance": "accepted",

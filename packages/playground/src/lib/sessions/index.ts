@@ -85,6 +85,46 @@ export async function flushSessions(): Promise<void> {
   await sandbox.getSandbox().flush();
 }
 
+/**
+ * Compute a SHA-256 checksum digest of the serialized payload using `crypto.subtle`
+ * (with Node / environment fallback) to verify payload integrity and detect
+ * tampering in local storage.
+ */
+export async function computePayloadDigest(payloadJson: string): Promise<string> {
+  const bytes = new TextEncoder().encode(payloadJson);
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.subtle) {
+    const digest = await globalThis.crypto.subtle.digest(
+      'SHA-256',
+      bytes as unknown as BufferSource,
+    );
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  try {
+    const { createHash } = await import('node:crypto');
+    return createHash('sha256').update(bytes).digest('hex');
+  } catch {
+    let hash = 2166136261;
+    for (let i = 0; i < bytes.length; i++) {
+      hash ^= bytes[i];
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+  }
+}
+
+/**
+ * Verify payload integrity by comparing its computed SHA-256 digest with the expected digest.
+ */
+export async function verifyPayloadDigest(
+  payloadJson: string,
+  expectedDigest: string,
+): Promise<boolean> {
+  const actualDigest = await computePayloadDigest(payloadJson);
+  return actualDigest === expectedDigest;
+}
+
 /** Max characters retained in `preview`. ASCII-roundish — matches what
  *  fits comfortably on one card line in the home page list. */
 const PREVIEW_LIMIT = 120;
@@ -173,6 +213,15 @@ export async function loadSession(
       `Session '${sessionId}' has no payload field`,
     );
   }
+  if (raw.payloadDigest) {
+    const valid = await verifyPayloadDigest(raw.payload, raw.payloadDigest);
+    if (!valid) {
+      throw new SessionError(
+        'invalid-payload',
+        `Session '${sessionId}' payload failed integrity verification (corrupted or tampered digest)`,
+      );
+    }
+  }
   let payload: SessionPayload;
   try {
     payload = JSON.parse(raw.payload) as SessionPayload;
@@ -203,6 +252,7 @@ export async function saveSession(
     throw new SessionError('invalid-payload', 'saveSession: id is required');
   }
   const payloadJson = JSON.stringify(input.payload);
+  const payloadDigest = await computePayloadDigest(payloadJson);
   const now = Date.now();
 
   // Preserve `createdAt` from the prior version. Read-then-write
@@ -231,6 +281,7 @@ export async function saveSession(
     createdAt: priorData?.createdAt ?? now,
     updatedAt: now,
     payloadSize: payloadJson.length,
+    payloadDigest,
     ...(priorData?.promotedTo ? { promotedTo: priorData.promotedTo } : {}),
     ...(priorData?.remoteExports
       ? { remoteExports: normalizeRemoteExports(priorData.remoteExports) }
@@ -250,6 +301,7 @@ export async function saveSession(
   const docToWrite: SessionDoc = {
     ...meta,
     payload: payloadJson,
+    payloadDigest,
   };
 
   await setDoc(ref, docToWrite as unknown as Record<string, unknown>);
@@ -293,6 +345,7 @@ export async function recordSessionRemoteExport(
     updatedAt: now,
     remoteExports: nextExports,
     payload: raw.payload,
+    ...(raw.payloadDigest ? { payloadDigest: raw.payloadDigest } : {}),
   };
   await setDoc(ref, nextDoc as unknown as Record<string, unknown>);
   return toMeta(nextDoc, sessionId);
@@ -335,6 +388,7 @@ function toMeta(raw: Partial<SessionDoc>, id: string): SessionMeta {
     createdAt,
     updatedAt,
     payloadSize: raw.payloadSize ?? 0,
+    ...(raw.payloadDigest ? { payloadDigest: raw.payloadDigest } : {}),
     ...(raw.promotedTo
       ? {
           promotedTo: {

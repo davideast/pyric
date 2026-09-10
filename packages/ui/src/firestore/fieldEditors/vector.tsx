@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useFormControl } from '../../primitives/FormControl.js';
 import { asVectorView, type VectorView } from '../types.js';
 import type { FieldEditorContract, FieldDisplayProps, FieldEditProps } from './types.js';
 
@@ -111,6 +112,7 @@ function VectorEdit({ value, onChange, error, path }: FieldEditProps<unknown>) {
 
   const dims = view ? view.dimension : 0;
   const shown = parseError ?? error;
+  const formControl = useFormControl({ error: shown });
 
   return (
     <label
@@ -126,9 +128,14 @@ function VectorEdit({ value, onChange, error, path }: FieldEditProps<unknown>) {
         value={draft}
         onChange={(e) => commit(e.target.value)}
         aria-invalid={shown ? 'true' : undefined}
+        aria-describedby={formControl.describedBy}
         aria-label="Vector value (JSON number array)"
       />
-      {shown ? <span data-pyric-error-message>{shown}</span> : null}
+      {shown ? (
+        <span id={formControl.errorId} data-pyric-error-message>
+          {shown}
+        </span>
+      ) : null}
     </label>
   );
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useFormControl } from '../../primitives/FormControl.js';
 
 export interface ClaimsFieldProps {
   /** Raw claims JSON text. */
@@ -28,23 +29,31 @@ export function ClaimsField({
   placeholder = '{"role":"admin"}',
   className,
 }: ClaimsFieldProps) {
+  const formControl = useFormControl({ error, hint });
+
   return (
     <div className={className} data-pyric-ui="claims-field">
       <textarea
+        id={formControl.inputId}
         data-pyric-field="claims"
         data-pyric-claims-invalid={error != null ? '' : undefined}
         aria-label="Custom claims (optional)"
         aria-invalid={error != null || undefined}
+        aria-describedby={formControl.describedBy}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
       {error != null && (
-        <p role="alert" data-pyric-claims-error>
+        <p id={formControl.errorId} role="alert" data-pyric-claims-error>
           {error}
         </p>
       )}
-      {hint != null && <p data-pyric-claims-hint>{hint}</p>}
+      {hint != null && (
+        <p id={formControl.descriptionId} data-pyric-claims-hint>
+          {hint}
+        </p>
+      )}
     </div>
   );
 }

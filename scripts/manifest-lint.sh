@@ -52,7 +52,25 @@ done
 echo ""
 echo "━━━ attw (types resolve for ESM consumers; esm-only profile) ━━━"
 for p in "${PACKAGES[@]}"; do
-  if "$ATTW" --pack "packages/$p" --profile esm-only > "$LOG/attw-$p.txt" 2>&1; then
+  css_entrypoints=()
+  while IFS= read -r key; do
+    [ -n "$key" ] && css_entrypoints+=("$key")
+  done < <(node -e '
+    const fs = require("node:fs");
+    const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    for (const k of Object.keys(m.exports || {})) {
+      if (typeof m.exports[k] === "string" && m.exports[k].endsWith(".css")) {
+        process.stdout.write(`${k}\n`);
+      }
+    }
+  ' "packages/$p/package.json")
+
+  extra_args=()
+  if [ "${#css_entrypoints[@]}" -gt 0 ]; then
+    extra_args=(--exclude-entrypoints "${css_entrypoints[@]}")
+  fi
+
+  if "$ATTW" --pack "packages/$p" --profile esm-only ${extra_args[@]+"${extra_args[@]}"} > "$LOG/attw-$p.txt" 2>&1; then
     echo "  ✓ $p"
   else
     echo "  ✗ $p — types resolution problems:"; cat "$LOG/attw-$p.txt"; fail=1

@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from '../../src/rules/simulator/handler.js';
-import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
+import { parseStorageRules, type StorageEvaluationOptions } from '../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
 
 // ═══════════════════════════════════════════════════════════════
@@ -60,6 +60,7 @@ service cloud.firestore {
 function storageAllowed(
   cond: string,
   docs?: Record<string, Record<string, unknown>>,
+  options?: StorageEvaluationOptions,
 ): boolean {
   const rules = parseStorageRules(`service firebase.storage {
     match /b/{bucket}/o {
@@ -80,6 +81,7 @@ function storageAllowed(
     },
     undefined,
     lookup,
+    options,
   ).allowed;
 }
 
@@ -163,6 +165,18 @@ describe('CEL commutative error absorption for && and ||', () => {
         'firestore.exists(/databases/(default)/documents/g/p0)'
         + ' && firestore.exists(/databases/(default)/documents/g/p1)'
         + ' && !(firestore.exists(/databases/(default)/documents/g/p2) && false)',
+        docs,
+        { maxFirestoreLookups: 2 },
+      )).toBe(false);
+    });
+
+    test('Storage default 3-lookup cap exhaustion inside (lookup && false) → DENY', () => {
+      const docs = { 'g/p0': { ok: true }, 'g/p1': { ok: true }, 'g/p2': { ok: true }, 'g/p3': { ok: true } };
+      expect(storageAllowed(
+        'firestore.exists(/databases/(default)/documents/g/p0)'
+        + ' && firestore.exists(/databases/(default)/documents/g/p1)'
+        + ' && firestore.exists(/databases/(default)/documents/g/p2)'
+        + ' && !(firestore.exists(/databases/(default)/documents/g/p3) && false)',
         docs,
       )).toBe(false);
     });

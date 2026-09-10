@@ -18,6 +18,7 @@ import {
   sessionContainerRoot,
   setActiveVFSSessionId,
   setVFSReadOnly,
+  withWriteMutex,
 } from './index';
 
 function stubOPFS(): () => void {
@@ -105,5 +106,35 @@ describe('sessionContainerRoot — id sanitization', () => {
     expect(sessionContainerRoot('..')).toBe('/sessions/_');
     expect(sessionContainerRoot('../../etc')).toBe('/sessions/.._.._etc');
     expect(sessionContainerRoot('a/b')).toBe('/sessions/a_b');
+  });
+});
+
+describe('withWriteMutex — single-tab concurrency control', () => {
+  it('serializes concurrent async tasks in FIFO order', async () => {
+    const order: number[] = [];
+    const p1 = withWriteMutex(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      order.push(1);
+    });
+    const p2 = withWriteMutex(async () => {
+      order.push(2);
+    });
+    const p3 = withWriteMutex(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      order.push(3);
+    });
+    await Promise.all([p1, p2, p3]);
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('allows subsequent writes after a failed mutex operation', async () => {
+    await expect(
+      withWriteMutex(async () => {
+        throw new Error('failed write');
+      }),
+    ).rejects.toThrow('failed write');
+
+    const result = await withWriteMutex(async () => 'recovered');
+    expect(result).toBe('recovered');
   });
 });

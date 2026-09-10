@@ -1,3 +1,4 @@
+import { useFormControl } from '../../primitives/FormControl.js';
 import type { DocumentReference } from 'pyric/firestore';
 import type { FieldEditorContract, FieldDisplayProps, FieldEditProps } from './types.js';
 import { useDisplayContext } from '../components/context.js';
@@ -41,42 +42,51 @@ function ReferenceDisplay({ value, path }: FieldDisplayProps<DocumentReference>)
  * at this layer.
  */
 function ReferenceEdit({ value, onChange, error, path }: FieldEditProps<DocumentReference>) {
+  const formControl = useFormControl({ error });
   return (
-    <label
+    <span
       data-pyric-field-type="reference"
       data-pyric-field-path={path}
       data-pyric-error={error ? '' : undefined}
     >
-      <input
-        type="text"
-        value={value.path}
-        placeholder="users/alice"
-        onChange={(e) => {
-          const nextPath = e.target.value;
-          const segments = nextPath.split('/').filter(Boolean);
-          const id = segments[segments.length - 1] ?? '';
-          // Build a ref-shaped stand-in. Real refs are constructed
-          // by `<ReferencePicker>` (M5) once it can talk to a
-          // Firestore handle.
-          // Preserve the existing firestore handle if the current
-          // value already carries one (so it can be wired back when
-          // the M5 picker arrives). Cast through `unknown` because
-          // the pyric/firestore type union doesn't expose
-          // `.firestore` uniformly across chainable + modular.
-          const existingFirestore =
-            (value as unknown as { firestore?: unknown }).firestore ?? {};
-          const stand = {
-            path: nextPath,
-            id,
-            firestore: existingFirestore,
-            type: 'document',
-          } as unknown as DocumentReference;
-          onChange(stand);
-        }}
-        aria-invalid={error ? 'true' : undefined}
-      />
-      {error ? <span data-pyric-error-message>{error}</span> : null}
-    </label>
+      <label>
+        <input
+          type="text"
+          value={value.path}
+          placeholder="users/alice"
+          onChange={(e) => {
+            const nextPath = e.target.value;
+            const segments = nextPath.split('/').filter(Boolean);
+            const id = segments[segments.length - 1] ?? '';
+            // Build a ref-shaped stand-in. Real refs are constructed
+            // by `<ReferencePicker>` (M5) once it can talk to a
+            // Firestore handle.
+            // Preserve the existing firestore handle if the current
+            // value already carries one (so it can be wired back when
+            // the M5 picker arrives). Cast through `unknown` because
+            // the pyric/firestore type union doesn't expose
+            // `.firestore` uniformly across chainable + modular.
+            const existingFirestore =
+              (value as unknown as { firestore?: unknown }).firestore ?? {};
+            const stand = {
+              path: nextPath,
+              id,
+              firestore: existingFirestore,
+              type: 'document',
+            } as unknown as DocumentReference;
+            onChange(stand);
+          }}
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
+          aria-label="Reference value"
+        />
+      </label>
+      {error ? (
+        <span id={formControl.errorId} data-pyric-error-message>
+          {error}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

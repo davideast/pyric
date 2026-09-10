@@ -226,6 +226,8 @@ export interface HostCtx {
    * stops counting as visible. Lazily populated by host-messaging.ts.
    */
   messagingClients?: Map<PortLike, string>;
+  /** Teardown for fallback-worker cross-tab sync bridge, if initialized. */
+  fallbackWorkerSyncTeardown?: () => void;
 }
 
 export interface ActiveRulesState {

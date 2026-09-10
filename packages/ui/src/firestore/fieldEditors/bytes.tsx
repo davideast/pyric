@@ -1,3 +1,4 @@
+import { useFormControl } from '../../primitives/FormControl.js';
 import { Bytes } from 'pyric/firestore';
 import type { FieldEditorContract, FieldDisplayProps, FieldEditProps } from './types.js';
 
@@ -23,26 +24,35 @@ function BytesDisplay({ value, path }: FieldDisplayProps<Bytes>) {
  * editor.
  */
 function BytesEdit({ value, onChange, error, path }: FieldEditProps<Bytes>) {
+  const formControl = useFormControl({ error });
   return (
-    <label
+    <span
       data-pyric-field-type="bytes"
       data-pyric-field-path={path}
       data-pyric-error={error ? '' : undefined}
     >
-      <textarea
-        value={value.toBase64()}
-        onChange={(e) => {
-          try {
-            onChange(Bytes.fromBase64String(e.target.value));
-          } catch {
-            // Invalid base64 — keep the previous value. The user
-            // sees the bad text in the textarea until they fix it.
-          }
-        }}
-        aria-invalid={error ? 'true' : undefined}
-      />
-      {error ? <span data-pyric-error-message>{error}</span> : null}
-    </label>
+      <label>
+        <textarea
+          value={value.toBase64()}
+          onChange={(e) => {
+            try {
+              onChange(Bytes.fromBase64String(e.target.value));
+            } catch {
+              // Invalid base64 — keep the previous value. The user
+              // sees the bad text in the textarea until they fix it.
+            }
+          }}
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={formControl.describedBy}
+          aria-label="Bytes value"
+        />
+      </label>
+      {error ? (
+        <span id={formControl.errorId} data-pyric-error-message>
+          {error}
+        </span>
+      ) : null}
+    </span>
   );
 }
 

@@ -75,5 +75,11 @@ export function mapFirebaseSpecifier(
       return to + subpath;
     }
   }
+  if (
+    (specifier.startsWith('./') || specifier.startsWith('../')) &&
+    specifier.includes('vendor-firebase-admin')
+  ) {
+    return 'pyric-admin';
+  }
   return null;
 }

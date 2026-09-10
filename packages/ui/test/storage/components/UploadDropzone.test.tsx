@@ -257,4 +257,45 @@ service firebase.storage {
     await new Promise((r) => setTimeout(r, 30));
     expect(ownerRoot.hasAttribute('data-disabled')).toBe(false);
   });
+
+  it('provides keyboard focus and triggers file input on Enter/Space', () => {
+    const received: DroppedFile[][] = [];
+    const { container } = render(<UploadDropzone onFiles={(f) => received.push(f)} />);
+    const root = container.querySelector('[data-pyric-ui="upload-dropzone"]') as HTMLElement;
+    expect(root.getAttribute('role')).toBe('button');
+    expect(root.getAttribute('tabIndex')).toBe('0');
+
+    const input = root.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input).not.toBeNull();
+
+    let clicked = false;
+    input.click = () => {
+      clicked = true;
+    };
+
+    fireEvent.keyDown(root, { key: 'Enter' });
+    expect(clicked).toBe(true);
+
+    clicked = false;
+    fireEvent.keyDown(root, { key: ' ' });
+    expect(clicked).toBe(true);
+
+    // Disabled dropzone has tabIndex -1 and suppresses trigger
+    const { container: disC } = render(<UploadDropzone disabled onFiles={() => {}} />);
+    const disRoot = disC.querySelector('[data-pyric-ui="upload-dropzone"]') as HTMLElement;
+    expect(disRoot.getAttribute('tabIndex')).toBe('-1');
+  });
+
+  it('delivers files selected via hidden file input', () => {
+    const received: DroppedFile[][] = [];
+    const { container } = render(<UploadDropzone onFiles={(f) => received.push(f)} />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    const file = new File(['hello'], 'manual.txt');
+    fireEvent.change(input, { target: { files: [file] } });
+
+    expect(received.length).toBe(1);
+    expect(received[0][0].relativePath).toBe('manual.txt');
+    expect(received[0][0].file).toBe(file);
+  });
 });

@@ -1,5 +1,6 @@
 import { Fragment } from 'react';
 import type { FormEvent, ReactNode } from 'react';
+import { FormControl } from '../../primitives/FormControl.js';
 import { FEDERATED_PROVIDER_IDS } from 'pyric/auth';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
 import { useAuthUserEditor } from '../hooks/useAuthUserEditor.js';
@@ -118,8 +119,8 @@ export interface AuthUserFormProps {
  *   `pyric/auth`; multiple selectable, entries land on
  *   `CreateUserRequest.providerUserInfo`)
  * - claims via the standalone `<ClaimsField>`
- * - per-field messages `[data-pyric-field-error="email" | "password"]`
- *   render INSIDE the field's label wrapper, after the input
+ * - per-field messages [data-pyric-field-error="email" | "password"]
+ *   linked via aria-describedby and rendered outside the label wrapper
  * - `button[data-pyric-cancel]` / `button[data-pyric-submit]` (submit is
  *   disabled while invalid, or pristine in edit mode)
  *
@@ -148,35 +149,49 @@ export function AuthUserForm({
     kind: 'text' | 'checkbox' | 'group',
     input: ReactNode,
     error: string | null = null,
-  ): AuthUserFormField => ({
-    name,
-    label,
-    input,
-    error,
-    kind,
-    defaultRender: () =>
-      kind === 'checkbox' ? (
-        <label data-pyric-field-label={name} key={name}>
-          {input}
-          <span data-pyric-label-text>{label}</span>
-        </label>
-      ) : kind === 'group' ? (
-        <fieldset data-pyric-field-label={name} key={name}>
-          <legend data-pyric-label-text>{label}</legend>
-          {input}
-        </fieldset>
-      ) : (
-        <label data-pyric-field-label={name} key={name}>
-          <span data-pyric-label-text>{label}</span>
-          {input}
-          {error != null && (
-            <p role="alert" data-pyric-field-error={name}>
-              {error}
-            </p>
-          )}
-        </label>
-      ),
-  });
+  ): AuthUserFormField => {
+    const errorId = `auth-user-error-${name}`;
+    return {
+      name,
+      label,
+      input,
+      error,
+      kind,
+      defaultRender: () =>
+        kind === 'checkbox' ? (
+          <label data-pyric-field-label={name} key={name}>
+            {input}
+            <span data-pyric-label-text>{label}</span>
+          </label>
+        ) : kind === 'group' ? (
+          <fieldset data-pyric-field-label={name} key={name}>
+            <legend data-pyric-label-text>{label}</legend>
+            {input}
+          </fieldset>
+        ) : (
+          <FormControl
+            key={name}
+            id={`auth-user-${name}`}
+            isInvalid={error != null}
+            error={error}
+            data-pyric-field-group={name}
+          >
+            <label data-pyric-field-label={name}>
+              <span data-pyric-label-text>{label}</span>
+              {input}
+            </label>
+            {error != null && (
+              <FormControl.Error
+                id={errorId}
+                data-pyric-field-error={name}
+              >
+                {error}
+              </FormControl.Error>
+            )}
+          </FormControl>
+        ),
+    };
+  };
 
   const fields: AuthUserFormField[] = [
     field(
@@ -189,6 +204,8 @@ export function AuthUserForm({
         placeholder="email@example.com"
         value={editor.fields.email}
         onChange={(e) => editor.setField('email', e.target.value)}
+        aria-invalid={editor.errors.email ? true : undefined}
+        aria-describedby={editor.errors.email ? 'auth-user-error-email' : undefined}
       />,
       editor.errors.email ?? null,
     ),
@@ -202,6 +219,8 @@ export function AuthUserForm({
         placeholder={mode === 'edit' ? 'New password (unchanged if empty)' : 'Password'}
         value={editor.fields.password}
         onChange={(e) => editor.setField('password', e.target.value)}
+        aria-invalid={editor.errors.password ? true : undefined}
+        aria-describedby={editor.errors.password ? 'auth-user-error-password' : undefined}
       />,
       editor.errors.password ?? null,
     ),

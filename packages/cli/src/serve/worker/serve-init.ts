@@ -43,6 +43,7 @@ import { setupFirebaseActivityGuard } from './activity-bootstrap.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-persistence.js';
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
+import { setupFallbackWorkerSync } from './fallback-worker-sync.js';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
 
 /** Injected environment — `fetch` is the only ambient the worker init needs
@@ -645,6 +646,10 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   if (env.makeEventSource) {
     setupWorkerHotReload(ctx, env.makeEventSource);
   }
+
+  // Mixed-mode fallback-worker sync: bridge transport mismatch between worker-mode
+  // and in-page fallback-mode tabs over 'pyric:serve:tabsync' and 'pyric:serve:auth-sync'.
+  setupFallbackWorkerSync(ctx);
 
   return ctx;
 }

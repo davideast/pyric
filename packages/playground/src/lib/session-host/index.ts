@@ -83,6 +83,11 @@ import {
   snapshotHistoryForTurn,
   type AggregatedTurnMetrics,
 } from './turn-accounting';
+import {
+  beginTransaction,
+  rollback,
+  turnStartCheckpoint,
+} from '~/lib/checkpoints/service';
 import type { Tracer, TraceEvent } from '@inbrowser/agent';
 
 /**
@@ -176,6 +181,12 @@ export async function runOneTurn(
   userId: string,
   opts: SubmitOptions,
 ): Promise<void> {
+  // Establish a turn transaction boundary (turn-start checkpoint)
+  // so any pre-turn uncommitted workspace state is saved and partial
+  // mutations from an aborted or failed turn can be rolled back.
+  const txn = await beginTransaction(`turn: ${prompt.slice(0, 32)}`);
+  const turnStartSha = txn.turnStartSha;
+
   const settings = useSettingsStore.getState();
 
   // Drop the streaming assistant placeholder AND the in-flight user
@@ -392,7 +403,10 @@ export async function runOneTurn(
 
   try {
   for await (const ev of session.submit(prompt, opts.signal) as AsyncIterable<SessionEvent>) {
-    if (opts.signal.aborted) return;
+    if (opts.signal.aborted) {
+      await txn.rollback();
+      return;
+    }
     // Keep the rendered message current before anything that isn't a
     // stream chunk (tool events, turn boundaries, errors) acts on it.
     if (ev.kind !== 'text' && ev.kind !== 'thinking') flushStreamBufs();
@@ -404,9 +418,15 @@ export async function runOneTurn(
           // Stamp the user prompt and first assistant message with
           // the session-emitted turnId so the Trace drill-in can
           // look up `getTurnTrace(turnId)` from the chat
-          // message we're rendering.
-          opts.patchMessage(userId, { turnId: ev.turnId });
-          opts.patchMessage(currentId, { turnId: ev.turnId });
+          // message we're rendering, plus the turn-start checkpoint sha.
+          opts.patchMessage(userId, {
+            turnId: ev.turnId,
+            ...(turnStartSha ? { turnStartCheckpoint: turnStartSha } : {}),
+          });
+          opts.patchMessage(currentId, {
+            turnId: ev.turnId,
+            ...(turnStartSha ? { turnStartCheckpoint: turnStartSha } : {}),
+          });
         } else {
           opts.patchMessage(currentId, { streaming: false });
           const id = `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -538,6 +558,7 @@ export async function runOneTurn(
           text: currentBuf || `_(error: ${ev.message})_`,
           streaming: false,
         });
+        await txn.rollback();
         throw new Error(ev.message);
       case 'strategy_event': {
         // Reflexion (0.2.0) surfaces each critique decision here. Attach
@@ -586,7 +607,13 @@ export async function runOneTurn(
         break;
     }
   }
+  } catch (err) {
+    await txn.rollback();
+    throw err;
   } finally {
+    if (opts.signal.aborted) {
+      await txn.rollback();
+    }
     // Land the tail of the throttled stream buffer (≤80ms of text) —
     // covers completion, thrown errors, and user aborts alike.
     flushStreamBufs();

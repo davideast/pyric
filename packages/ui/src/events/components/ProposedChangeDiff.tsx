@@ -151,8 +151,25 @@ export function ProposedChangeDiff({
                       key={field.field}
                       data-pyric-change-field
                       data-pyric-change-kind={field.kind}
+                      aria-label={`${field.field}: ${field.kind}`}
                     >
                       <span data-pyric-change-key>{field.field}</span>
+                      <span
+                        className="sr-only"
+                        style={{
+                          position: 'absolute',
+                          width: 1,
+                          height: 1,
+                          padding: 0,
+                          margin: -1,
+                          overflow: 'hidden',
+                          clip: 'rect(0, 0, 0, 0)',
+                          whiteSpace: 'nowrap',
+                          border: 0,
+                        }}
+                      >
+                        ({field.kind})
+                      </span>
                       {field.kind !== 'added' ? (
                         <span data-pyric-change-before>{formatValue(field.before)}</span>
                       ) : null}

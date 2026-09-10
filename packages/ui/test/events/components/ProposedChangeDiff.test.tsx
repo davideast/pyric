@@ -74,4 +74,12 @@ describe('ProposedChangeDiff - auth users group', () => {
     expect(authOnly.container.textContent ?? '').not.toContain('nothing');
     expect(authOnly.container.querySelector('[data-pyric-change-authgroup]')).not.toBeNull();
   });
+
+  it('exposes accessible aria-label and text for change kind', () => {
+    const { container } = render(<ProposedChangeDiff changes={CHANGES} />);
+    const field = container.querySelector('[data-pyric-change-field]')!;
+    expect(field.getAttribute('data-pyric-change-kind')).toBe('added');
+    expect(field.getAttribute('aria-label')).toBe('(document): added');
+    expect(field.querySelector('.sr-only')?.textContent).toBe('(added)');
+  });
 });

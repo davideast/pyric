@@ -1,4 +1,5 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
+import { useFormControl } from '../../primitives/FormControl.js';
 import type { HelperState, NewIdentitySpec, SandboxIdentity } from '../controller.js';
 import { validateSerializedClaims } from '../claims.js';
 import { providerLabel } from '../providers.js';
@@ -68,6 +69,7 @@ export function AuthSignInHelper({
   const [displayName, setDisplayName] = useState(initialValues?.displayName ?? '');
   const [claims, setClaims] = useState(initialValues?.claims ?? '');
   const [claimsError, setClaimsError] = useState<string | null>(null);
+  const claimsControl = useFormControl({ error: claimsError ?? undefined });
 
   if (!state.request) return null;
   const { providerId, authType } = state.request;
@@ -166,11 +168,14 @@ export function AuthSignInHelper({
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
         />
+        {/* Custom claims */}
         <textarea
+          id={claimsControl.inputId}
           data-pyric-field="claims"
           data-pyric-claims-invalid={claimsError != null ? '' : undefined}
           aria-label="Custom claims (optional)"
           aria-invalid={claimsError != null || undefined}
+          aria-describedby={claimsControl.describedBy}
           placeholder={'Enter valid json, e.g. {"role":"admin"}'}
           value={claims}
           onChange={(e) => {
@@ -179,7 +184,7 @@ export function AuthSignInHelper({
           }}
         />
         {claimsError != null && (
-          <p role="alert" data-pyric-claims-error>
+          <p id={claimsControl.errorId} role="alert" data-pyric-claims-error>
             {claimsError}
           </p>
         )}

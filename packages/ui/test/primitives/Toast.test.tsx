@@ -165,4 +165,74 @@ describe('<ToastProvider> + useToast', () => {
     }
     expect(() => render(<Bad />)).toThrow(/ToastProvider/);
   });
+
+  it('pauses auto-dismiss timer on mouseEnter and resumes on mouseLeave', async () => {
+    let api: ReturnType<typeof useToast> | null = null;
+    render(
+      <ToastProvider>
+        <Probe
+          onAction={(a) => {
+            api = a;
+          }}
+        />
+      </ToastProvider>,
+    );
+    const trigger = document.querySelector('[data-test-action]') as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(trigger);
+      api!.toast({ title: 'Hover me', duration: 100 });
+    });
+    const toast = document.querySelector('[data-pyric-toast]') as HTMLElement;
+    expect(toast).not.toBeNull();
+
+    // Hover over toast to pause
+    fireEvent.mouseEnter(toast);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+    });
+    // Toast should still exist because timer was paused
+    expect(document.querySelector('[data-pyric-toast]')).not.toBeNull();
+
+    // Leave hover to resume
+    fireEvent.mouseLeave(toast);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+    });
+    // Toast should now be dismissed
+    expect(document.querySelector('[data-pyric-toast]')).toBeNull();
+  });
+
+  it('pauses auto-dismiss timer on focus and resumes on blur', async () => {
+    let api: ReturnType<typeof useToast> | null = null;
+    render(
+      <ToastProvider>
+        <Probe
+          onAction={(a) => {
+            api = a;
+          }}
+        />
+      </ToastProvider>,
+    );
+    const trigger = document.querySelector('[data-test-action]') as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(trigger);
+      api!.toast({ title: 'Focus me', duration: 100 });
+    });
+    const toast = document.querySelector('[data-pyric-toast]') as HTMLElement;
+    expect(toast).not.toBeNull();
+
+    // Focus toast to pause
+    fireEvent.focus(toast);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+    });
+    expect(document.querySelector('[data-pyric-toast]')).not.toBeNull();
+
+    // Blur to resume
+    fireEvent.blur(toast);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+    });
+    expect(document.querySelector('[data-pyric-toast]')).toBeNull();
+  });
 });

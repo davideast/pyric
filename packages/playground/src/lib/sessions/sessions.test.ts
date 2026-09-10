@@ -9,6 +9,7 @@
  * test cleanup mirrors how a real page reload would reset state.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
+import { doc, getDoc, setDoc } from 'pyric/firestore';
 import { disposeSessionsSandbox, getSessionsSandbox } from './sandbox';
 import {
   deleteSession,
@@ -277,6 +278,48 @@ describe('saveSession + loadSession', () => {
     const loaded = await loadSession(ALICE, 's-export');
     expect(loaded.meta.remoteExports?.[0]?.exportId).toBe('export-1');
     expect(JSON.stringify(loaded.payload)).not.toContain('manifest.json');
+  });
+
+  it('computes payload digest and verifies integrity on load', async () => {
+    await freshSandbox();
+    const meta = await saveSession(ALICE, {
+      id: 's-digest',
+      payload: makePayload('integrity test'),
+    });
+    expect(meta.payloadDigest).toBeDefined();
+    expect(typeof meta.payloadDigest).toBe('string');
+    expect(meta.payloadDigest?.length).toBe(64);
+
+    const loaded = await loadSession(ALICE, 's-digest');
+    expect(loaded.meta.payloadDigest).toBe(meta.payloadDigest);
+  });
+
+  it('rejects tampered session payloads with invalid-payload SessionError', async () => {
+    await freshSandbox();
+    await saveSession(ALICE, {
+      id: 's-tamper',
+      payload: makePayload('original prompt'),
+    });
+
+    // Tamper with the raw payload in the sandbox doc without updating payloadDigest
+    const db = getSessionsSandbox().getDb();
+    const ref = doc(db, 'pyric', 'playground', 'sessions', ALICE, 'items', 's-tamper');
+    const snap = await getDoc(ref);
+    const data = snap.data() as Record<string, unknown>;
+    await setDoc(ref, {
+      ...data,
+      payload: JSON.stringify(makePayload('maliciously modified prompt')),
+    });
+
+    let err: unknown;
+    try {
+      await loadSession(ALICE, 's-tamper');
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(SessionError);
+    expect((err as SessionError).code).toBe('invalid-payload');
+    expect((err as SessionError).message).toContain('integrity verification');
   });
 });
 

@@ -98,7 +98,7 @@ export function QueryBuilder({ initial, onChange, className }: QueryBuilderProps
       </button>
 
       <div data-pyric-query-modifiers>
-        <label data-pyric-query-orderby>
+        <div data-pyric-query-orderby>
           <span>orderBy</span>
           <input
             type="text"
@@ -116,6 +116,7 @@ export function QueryBuilder({ initial, onChange, className }: QueryBuilderProps
               }
             }}
             data-pyric-query-orderby-field
+            aria-label="Order by field"
           />
           <select
             value={builder.orderBy?.direction ?? 'asc'}
@@ -128,11 +129,12 @@ export function QueryBuilder({ initial, onChange, className }: QueryBuilderProps
             }}
             disabled={!builder.orderBy?.field}
             data-pyric-query-orderby-direction
+            aria-label="Order by direction"
           >
             <option value="asc">asc</option>
             <option value="desc">desc</option>
           </select>
-        </label>
+        </div>
         <label data-pyric-query-limit>
           <span>limit</span>
           <input
