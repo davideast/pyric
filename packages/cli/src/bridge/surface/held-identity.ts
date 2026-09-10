@@ -17,11 +17,18 @@ import { describeAppSession, readAppSession } from './app-session.js';
 import type { IdentityInput } from './identity.js';
 import type { OperationResult, SurfaceContext } from './types.js';
 
-/** One line naming the agent identity, in the words each method sets it with. */
+/**
+ * One line naming the agent identity.
+ *
+ * The `app-session` mode is the surface's default and is not the app session:
+ * it is the identity a call runs under when nothing has claimed one, and it
+ * bypasses rules the way admin does. Saying so here is what keeps a `whoami`
+ * that reports both from reading as if the two were the same thing.
+ */
 export function describeAgentIdentity(held: IdentityInput): string {
   if (held.mode === 'admin') return 'admin, which bypasses rules';
   if (held.mode === 'anonymous') return 'anonymous';
-  if (held.mode === 'app-session') return "the app's own session";
+  if (held.mode === 'app-session') return 'the sandbox default, which bypasses rules';
   const parts = [held.uid ?? ''];
   if (held.tenant !== undefined) parts.push(`tenant ${held.tenant}`);
   return parts.join(', ');
