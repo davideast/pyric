@@ -13,6 +13,7 @@
 
 import { applyFullState, captureFullState, type FullSandboxState } from '../full-state.js';
 import type { LocalSandbox } from '../types/service.js';
+import { getClock } from '../clock.js';
 import { CHECKPOINT_FORMAT, type Checkpoint, type CheckpointCounts } from './types.js';
 
 /** True when a JSON value is a plain object with keys to count. */
@@ -49,7 +50,7 @@ export function countsOf(state: FullSandboxState): CheckpointCounts {
  */
 export async function captureCheckpoint(sandbox: LocalSandbox): Promise<Checkpoint> {
   const state = await captureFullState(sandbox);
-  return { format: CHECKPOINT_FORMAT, at: Date.now(), counts: countsOf(state), state };
+  return { format: CHECKPOINT_FORMAT, at: getClock(sandbox).now(), counts: countsOf(state), state };
 }
 
 /**

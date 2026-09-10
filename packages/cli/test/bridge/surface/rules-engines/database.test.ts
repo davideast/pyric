@@ -6,13 +6,15 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 
 import { createSurfaceContext } from '../../../../src/bridge/surface/context.js';
 import { DATABASE_RULES } from '../../../../src/bridge/surface/rules-engines/database.js';
 
 const OPEN_RULES = JSON.stringify({ rules: { '.read': true, '.write': true } });
 const CLOSED_RULES = JSON.stringify({ rules: { '.read': false, '.write': false } });
+const GATE_INSTANT = Date.parse('2026-01-01T00:00:00.000Z');
+const NOW_GATED_RULES = JSON.stringify({ rules: { '.read': `now > ${GATE_INSTANT}` } });
 
 function freshContext() {
   return createSurfaceContext(initializeSandbox());
@@ -98,5 +100,51 @@ describe('simulate', () => {
       path: 'rooms/lobby',
     });
     expect(allowed.ok).toBe(true);
+  });
+
+  it('evaluates now-gated rules by an explicit requestTime, against the running ruleset', async () => {
+    const ctx = freshContext();
+    await DATABASE_RULES.install(ctx, NOW_GATED_RULES);
+    const before = await DATABASE_RULES.simulate(ctx, {
+      operation: 'read',
+      path: 'rooms/lobby',
+      requestTime: new Date(GATE_INSTANT - 1000).toISOString(),
+    });
+    expect((before.data as { decision: string }).decision).toBe('DENY');
+    const after = await DATABASE_RULES.simulate(ctx, {
+      operation: 'read',
+      path: 'rooms/lobby',
+      requestTime: new Date(GATE_INSTANT + 1000).toISOString(),
+    });
+    expect((after.data as { decision: string }).decision).toBe('ALLOW');
+  });
+
+  it('evaluates now-gated rules by an explicit requestTime, against a supplied ruleset', async () => {
+    const ctx = freshContext();
+    const before = await DATABASE_RULES.simulate(ctx, {
+      operation: 'read',
+      path: 'rooms/lobby',
+      rules: NOW_GATED_RULES,
+      requestTime: new Date(GATE_INSTANT - 1000).toISOString(),
+    });
+    expect((before.data as { decision: string }).decision).toBe('DENY');
+    const after = await DATABASE_RULES.simulate(ctx, {
+      operation: 'read',
+      path: 'rooms/lobby',
+      rules: NOW_GATED_RULES,
+      requestTime: new Date(GATE_INSTANT + 1000).toISOString(),
+    });
+    expect((after.data as { decision: string }).decision).toBe('ALLOW');
+  });
+
+  it('defaults now to the sandbox clock when requestTime is omitted', async () => {
+    const ctx = freshContext();
+    await DATABASE_RULES.install(ctx, NOW_GATED_RULES);
+    getClock(ctx.sandbox).set(GATE_INSTANT - 1000);
+    const before = await DATABASE_RULES.simulate(ctx, { operation: 'read', path: 'rooms/lobby' });
+    expect((before.data as { decision: string }).decision).toBe('DENY');
+    getClock(ctx.sandbox).set(GATE_INSTANT + 1000);
+    const after = await DATABASE_RULES.simulate(ctx, { operation: 'read', path: 'rooms/lobby' });
+    expect((after.data as { decision: string }).decision).toBe('ALLOW');
   });
 });

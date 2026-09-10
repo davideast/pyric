@@ -1,4 +1,13 @@
-/** RTDB writes, priorities, and push-ID generation over the worker port. */
+/**
+ * RTDB writes, priorities, and push-ID generation over the worker port.
+ *
+ * `push()` hands its caller a reference before the write lands, so the key is
+ * minted here rather than by the host. The first eight characters of a key
+ * encode the instant it was minted at, and that instant is the sandbox's, read
+ * from the clock mirror, so a key minted under a pinned clock sorts where the
+ * pin says rather than where the wall clock does.
+ */
+import { sandboxNow } from './clock.js';
 import { dataRpc, nextId } from './core.js';
 import type { RtdbRefHandle } from './handles.js';
 import { makeRtdbRef } from './rtdb-references.js';
@@ -7,7 +16,7 @@ const RTDB_PUSH_CHARS = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopq
 let lastRtdbPushTime = 0;
 const lastRtdbRandChars: number[] = new Array(12).fill(0);
 
-function generateRtdbPushId(now: number = Date.now()): string {
+function generateRtdbPushId(now: number): string {
   const duplicateTime = now === lastRtdbPushTime;
   lastRtdbPushTime = now;
   const timestampChars: string[] = new Array(8);
@@ -61,7 +70,7 @@ export function rtdbPush(
   ref: RtdbRefHandle,
   value?: unknown,
 ): RtdbRefHandle & PromiseLike<RtdbRefHandle> {
-  const key = generateRtdbPushId();
+  const key = generateRtdbPushId(sandboxNow());
   const pushed = makeRtdbRef(ref.port, `${ref.path}/${key}`);
   const settledRef = makeRtdbRef(ref.port, pushed.path);
   const promise = dataRpc(ref.port, {

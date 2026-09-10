@@ -11,7 +11,8 @@ export default {
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'update(path, values)',
-  description: 'Merge child keys into the value at one path.',
+  description:
+    'Merge child keys into the value at one path. A server timestamp is written as {".sv": "timestamp"}.',
   args: z.object({
     path: pathArgument,
     values: z

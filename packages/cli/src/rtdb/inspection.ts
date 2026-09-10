@@ -1,7 +1,7 @@
 /** Local RTDB inspection tools bound to one authoritative sandbox. */
 import type { ToolHandler } from '@inbrowser/agent';
 import { rtdbRules, type RtdbCase } from 'pyric/rules';
-import type { LocalSandbox } from 'pyric/sandbox';
+import { getClock, type LocalSandbox } from 'pyric/sandbox';
 import { getActiveRules, snapshotState } from 'pyric/sandbox/database';
 import { countDescendantObjects, crawlSnapshot } from './crawl-snapshot.js';
 
@@ -14,6 +14,8 @@ interface SimulateAccessArgs {
   path: string;
   auth?: { uid: string; claims?: Record<string, unknown> } | null;
   newData?: unknown;
+  /** The instant `now` evaluates at, in epoch milliseconds. Defaults to the sandbox clock's own instant. */
+  now?: number;
 }
 
 interface CrawlStructureArgs {
@@ -52,6 +54,7 @@ export function createRtdbInspectionTools(
             ],
           },
           newData: {},
+          now: { type: 'number' },
         },
         required: ['operation', 'path'],
       },
@@ -71,16 +74,28 @@ export function createRtdbInspectionTools(
         const data = state !== null && typeof state === 'object' && !Array.isArray(state)
           ? state as Record<string, unknown>
           : {};
+        // `now` is the sandbox clock's unless the call names an instant, so a
+        // simulation of a `now`-gated rule moves with a pinned or advanced
+        // clock rather than against the wall clock the process runs on.
+        let now = args.now;
+        if (now === undefined) {
+          now = getClock(sandbox).now();
+        }
+        let identity: RtdbCase['auth'] = null;
+        if (args.auth) {
+          identity = { uid: args.auth.uid, token: args.auth.claims ?? {} };
+        }
         const oneCase: RtdbCase = {
           expectation: 'ALLOW',
           operation: args.operation,
           path: args.path,
-          auth: args.auth
-            ? { uid: args.auth.uid, token: args.auth.claims ?? {} }
-            : null,
+          auth: identity,
           data,
-          ...(args.newData !== undefined ? { newData: args.newData } : {}),
+          now,
         };
+        if (args.newData !== undefined) {
+          oneCase.newData = args.newData;
+        }
         const result = rtdbRules(rules).simulate([oneCase]).cases[0];
 
         return {

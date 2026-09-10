@@ -22,6 +22,7 @@ import {
   defineRtdbRules,
   allow,
   deny,
+  expr,
   type FirestoreCase,
   type RtdbCase,
   type RuleIssue,
@@ -367,6 +368,35 @@ describe('rtdbRules constructor', () => {
     const summary = ruleset.simulate(cases);
     expect(summary.cases).toHaveLength(2);
     expect(summary.passed + summary.failed + summary.unsupported).toBe(2);
+  });
+
+  test('simulate() honors an explicit now against a now-gated rule', () => {
+    const gated = {
+      paths: {
+        '/events/$eventId': { read: expr('now > 1000'), write: deny() },
+      },
+    };
+    const ruleset = rtdbRules(gated);
+    const before = ruleset.simulate([
+      {
+        expectation: 'DENY',
+        operation: 'read',
+        path: '/events/e1',
+        auth: { uid: 'alice' },
+        now: 500,
+      },
+    ]).cases[0]!;
+    const after = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'read',
+        path: '/events/e1',
+        auth: { uid: 'alice' },
+        now: 1500,
+      },
+    ]).cases[0]!;
+    expect(before.decision).toBe('DENY');
+    expect(after.decision).toBe('ALLOW');
   });
 });
 

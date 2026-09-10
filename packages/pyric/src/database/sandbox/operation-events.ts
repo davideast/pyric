@@ -1,11 +1,5 @@
 import type { AuthState, Sandbox, SandboxOperationEvent } from 'pyric/sandbox';
-import {
-  emitSandboxEvent,
-  makeSandboxCommitEvent,
-  makeSandboxListenerEvent,
-  makeSandboxOperationEvent,
-  makeServiceMutationEvent,
-} from 'pyric/sandbox/internal';
+import { emitSandboxEvent, getClock, makeSandboxCommitEvent, makeSandboxListenerEvent, makeSandboxOperationEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import { joinPath, pathSegments } from './data-tree.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
 import type { RuleCheck, RuleEvaluationDetails } from './rules-eval.js';
@@ -45,6 +39,7 @@ export class OperationEvents {
     if (!this.sandbox) return;
     try {
       emitSandboxEvent(this.sandbox, makeServiceMutationEvent({
+        at: getClock(this.sandbox).now(),
         service: 'rtdb', op, path, auth,
         before: fields.before, after: fields.after, detail: fields.detail,
       }), { service: 'rtdb' });
@@ -87,6 +82,13 @@ export class OperationEvents {
       if (fields.origin) {
         originVal = fields.origin;
       }
+      // A caller that already resolved the operation's instant passes it, so the
+      // event and the write it describes agree exactly. A caller that did not
+      // reads the same clock here rather than falling back to the wall clock.
+      let at = fields.at;
+      if (at === undefined) {
+        at = getClock(this.sandbox).now();
+      }
       emitSandboxEvent(this.sandbox, makeSandboxOperationEvent({
         service: 'rtdb', method, path: canonicalPath(path), auth, result,
         origin: originVal, durationMs: fields.durationMs,
@@ -95,7 +97,7 @@ export class OperationEvents {
         request: fields.request, resourceBefore: fields.resourceBefore,
         resourceAfter: fields.resourceAfter, groupId: fields.groupId,
         groupKind: fields.groupKind, triggeredBy: fields.triggeredBy,
-        detail: fields.detail, at: fields.at,
+        detail: fields.detail, at,
       }), { service: 'rtdb' });
     } catch { /* telemetry is observational */ }
   }
@@ -117,6 +119,7 @@ export class OperationEvents {
     if (!this.sandbox) return;
     try {
       emitSandboxEvent(this.sandbox, makeSandboxCommitEvent({
+        at: getClock(this.sandbox).now(),
         service: 'rtdb', method, path: canonicalPath(path), auth,
         data: fields.data, priorState: fields.priorState, nextState: fields.nextState,
         groupId: fields.groupId, groupKind: fields.groupKind,
@@ -149,6 +152,7 @@ export class OperationEvents {
         kindVal = fields.event;
       }
       emitSandboxEvent(this.sandbox, makeSandboxListenerEvent({
+        at: getClock(this.sandbox).now(),
         service: 'rtdb', phase, listenerId: listener.id,
         target: { kind: kindVal, path: canonicalPath(listener.path) },
         auth, result: fields.result, size: fields.size, sample: fields.sample,

@@ -20,6 +20,12 @@ export interface RulesRequest {
   uid?: string;
   data?: Record<string, unknown>;
   rules?: string;
+  /**
+   * The instant `request.time` (Firestore, Storage) or `now` (database)
+   * evaluates at, as an ISO 8601 string. Omit to evaluate at the sandbox
+   * clock's current instant.
+   */
+  requestTime?: string;
 }
 
 /** Why a rules source does not parse for one service, in the caller's words. */

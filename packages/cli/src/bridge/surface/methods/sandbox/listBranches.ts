@@ -40,7 +40,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'listBranches()',
-  description: 'List branches with fork time, events, and drift.',
+  description: 'List branches.',
   args: z.object({}),
   operation: 'list_sandbox_branches',
   example: {},

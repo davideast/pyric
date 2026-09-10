@@ -3,6 +3,7 @@ import { evaluateStorageRules, parseStorageRules, ref } from 'pyric/storage';
 import type { StorageRequestMethod } from 'pyric/storage';
 import { replaceStorageRules } from 'pyric/storage/internal';
 import { operationFailure } from '../context.js';
+import { requestInstant } from '../request-instant.js';
 import { storageFor } from '../service-handles.js';
 import { activeStorageRules, rulesRequestPath } from '../storage-rules.js';
 import type { SurfaceContext } from '../types.js';
@@ -75,14 +76,18 @@ export const STORAGE_RULES: RulesEngine = {
     }
 
     const object = ref(storageFor(ctx), request.path);
-    const evaluated = evaluateStorageRules(parsed, {
-      request: {
-        auth: identityFor(ctx, request.uid),
-        method: request.operation as StorageRequestMethod,
-        path: rulesRequestPath(object),
+    const evaluated = evaluateStorageRules(
+      parsed,
+      {
+        request: {
+          auth: identityFor(ctx, request.uid),
+          method: request.operation as StorageRequestMethod,
+          path: rulesRequestPath(object),
+        },
+        resource: null,
       },
-      resource: null,
-    });
+      new Date(requestInstant(ctx, request.requestTime)),
+    );
     return {
       ok: true,
       summary: `${request.operation} ${request.path}: ${evaluated.allowed ? 'ALLOW' : 'DENY'}`,

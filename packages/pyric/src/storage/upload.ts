@@ -23,7 +23,7 @@
  *     payload's intrinsic type (`Blob.type`, data-url prefix) →
  *     `application/octet-stream`. Matches the JS SDK.
  */
-import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
@@ -63,7 +63,10 @@ export async function uploadBytes(
   const target = targetOf(ref.storage);
   const operationProvenance = storageOperationProvenance(target, provenance);
   const blob = toBlob(data, metadata?.contentType);
-  const stored = buildStoredMetadata({ ref, blob, settable: metadata });
+  // Server-set object times come from the sandbox clock, so `timeCreated` and
+  // `updated` agree with the `request.time` the rules see for this same upload.
+  const uploadedAt = getClock(target.sandbox).date();
+  const stored = buildStoredMetadata({ ref, blob, settable: metadata, now: uploadedAt });
   const service = await getStorageService(ref.storage);
   const existing = await service.backend.getMetadata(ref.fullPath);
   enforceRules(service, {
@@ -89,6 +92,7 @@ export async function uploadBytes(
     emitSandboxEvent(
       target.sandbox,
       makeServiceMutationEvent({
+        at: getClock(target.sandbox).now(),
         service: 'storage',
         op: 'object_put',
         path: ref.fullPath,

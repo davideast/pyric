@@ -39,6 +39,7 @@ import type {
   SnapshotSuppressedEvent,
   ListenerLifecycleEvent,
 } from '../../sandbox/types/events.js';
+import { SandboxClock } from '../../sandbox/clock.js';
 
 /**
  * The engine capabilities listener dispatch needs — nothing more. Both are
@@ -100,6 +101,9 @@ export class ListenerDispatch {
     private readonly events: FirestoreEventBus,
     private readonly triggerScope: TriggerScope,
     private readonly host: ListenerDispatchHost,
+    /** The sandbox's clock, read for every server-set time this produces.
+     *  Defaults to a private wall clock for a standalone construction. */
+    private readonly clock: SandboxClock = new SandboxClock(),
   ) {}
 
   // ═══ Listener-owned event payloads ═══
@@ -119,7 +123,7 @@ export class ListenerDispatch {
     const event: SnapshotDeliveryEvent = {
       kind: 'snapshot_delivery',
       id: nextRequestEventId().replace(/^req-/, 'snd-'),
-      at: Date.now(),
+      at: this.clock.now(),
       listenerId: input.listenerId,
       target: input.target,
       auth: input.auth
@@ -145,7 +149,7 @@ export class ListenerDispatch {
     const event: SnapshotSuppressedEvent = {
       kind: 'snapshot_suppressed',
       id: nextRequestEventId().replace(/^req-/, 'sup-'),
-      at: Date.now(),
+      at: this.clock.now(),
       listenerId: input.listenerId,
       target: input.target,
       auth: input.auth
@@ -167,7 +171,7 @@ export class ListenerDispatch {
     const event: ListenerLifecycleEvent = {
       kind: input.phase,
       id: nextRequestEventId().replace(/^req-/, 'lc-'),
-      at: Date.now(),
+      at: this.clock.now(),
       listenerId: input.listenerId,
       target: input.target,
       auth: input.auth

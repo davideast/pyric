@@ -61,10 +61,11 @@ export class PersistenceSchemaError extends Error {
 export function serializeSnapshot(
   firestore: Record<string, Record<string, unknown>>,
   services: Record<string, unknown> = {},
+  savedAt: number = Date.now(),
 ): string {
   const payload: SerializedBlob = {
     version: SCHEMA_VERSION,
-    savedAt: Date.now(),
+    savedAt,
     firestore,
     services,
   };

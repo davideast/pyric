@@ -51,7 +51,7 @@ import {
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
 
 import type { AuthState, Sandbox } from 'pyric/sandbox';
-import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 
 import {
   USER_INTERNAL,
@@ -479,7 +479,7 @@ export class SandboxBackend {
       providerUserInfo: [],
       disabled: false,
       emailVerified: false,
-      createdAt: new Date().toISOString(),
+      createdAt: this.now().toISOString(),
       lastLoginAt: null,
       tenantId: null,
       ...init,
@@ -510,6 +510,17 @@ export class SandboxBackend {
   }
 
   /**
+   * The sandbox's current time. Every time this backend records reads it: an
+   * account's `createdAt` and `lastLoginAt`, and a minted token's `iat`,
+   * `auth_time`, and `exp`. So a token minted while the sandbox clock is
+   * pinned to a date carries that date, and a rule reading
+   * `request.auth.token.iat` sees the same instant the write pipeline stamps.
+   */
+  private now(): Date {
+    return getClock(this.sandbox).date();
+  }
+
+  /**
    * Emit an auth {@link ServiceMutationEvent} onto the sandbox's unified
    * `onEvent`/`history()` stream (Pyric Studio keystone). Best-effort and
    * fully isolated — a throw from the emit path (or a sandbox that somehow
@@ -527,6 +538,7 @@ export class SandboxBackend {
       emitSandboxEvent(
         this.sandbox,
         makeServiceMutationEvent({
+          at: this.now().getTime(),
           service: 'auth',
           op,
           path: fields.path,
@@ -1337,7 +1349,7 @@ export class SandboxBackend {
     // A `signInProvider` argument marks an actual sign-in (the test
     // driver omits it) — bump the record's lastLoginAt.
     if (signInProvider !== undefined && stored) {
-      stored.lastLoginAt = new Date().toISOString();
+      stored.lastLoginAt = this.now().toISOString();
       this.notifyUsersChanged();
     }
 
@@ -1876,7 +1888,7 @@ export class SandboxBackend {
     const stored = this.usersByUid.get(user.uid);
     const claims = stored?.customClaims ?? {};
     if (stored) {
-      stored.lastLoginAt = new Date().toISOString();
+      stored.lastLoginAt = this.now().toISOString();
       this.notifyUsersChanged();
     }
     this.tokenCache.set(user.uid, this.mintToken(user.uid, claims));
@@ -1935,7 +1947,7 @@ export class SandboxBackend {
     uid: string,
     claims: Record<string, unknown>,
   ): { token: string; result: IdTokenResult } {
-    const issuedAt = new Date();
+    const issuedAt = this.now();
     // 100 years out — sandbox tokens never expire.
     const expires = new Date(issuedAt.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
     const serial = this.nextTokenSerial++;

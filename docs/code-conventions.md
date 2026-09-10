@@ -256,6 +256,7 @@ packages/pyric/src/sandbox/
   replay/             re-issue a captured session against a fresh sandbox
   branches/           fork / apply / diff / promote / discard
   checkpoints/        named saved states over a pluggable backend
+  clock.ts            the sandbox clock every service reads for server-set time
   full-state.ts       capture and apply the whole sandbox as one value
   remote.ts           remote-sandbox brand + channel contract
 ```
@@ -507,7 +508,7 @@ every rule in this section mechanically.
 3. **Central-sandbox whitelist.** The top-level entries of `src/sandbox/` must
    match the whitelist in 8.2 (`index.ts`, `internal`, `sandbox-context.ts`,
    `types`, `persistence`, `tab-sync`, `replay`, `branches`, `checkpoints`,
-   `full-state.ts`, `remote.ts`). Any
+   `clock.ts`, `full-state.ts`, `remote.ts`). Any
    entry that names a capability (`firestore`, `admin-firestore`, `admin-compat`,
    `auth`, ...) fails. This is the check that keeps firestore's backend from
    drifting back in, and that fails today until the firestore move lands.

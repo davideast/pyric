@@ -276,7 +276,9 @@ export const controlSandboxEnvironmentSchema = z.object({
   action: z
     .enum([
       'reset_all',
+      'set_clock',
       'advance_clock',
+      'reset_clock',
       'set_network',
       'seed',
       'checkpoint',
@@ -317,11 +319,11 @@ export const controlSandboxEnvironmentSchema = z.object({
   advanceMs: z
     .number()
     .optional()
-    .describe("Milliseconds to advance mock clock (when action is 'advance_clock')."),
+    .describe("Milliseconds to advance the clock by (when action is 'advance_clock')."),
   targetTimestampIso: z
     .string()
     .optional()
-    .describe("ISO-8601 timestamp to set mock clock to (when action is 'advance_clock')."),
+    .describe("ISO-8601 instant to pin the clock to, frozen there (when action is 'set_clock')."),
   networkState: z
     .enum(['online', 'offline'])
     .optional()

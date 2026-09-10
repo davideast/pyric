@@ -60,6 +60,7 @@ import {
 import { isFirestoreReadOp, handleFirestoreReadOp } from './firestore-reads.js';
 import { isFirestoreWriteOp, handleFirestoreWriteOp } from './firestore-writes.js';
 import { isRulesOp, handleRulesOp } from './rules.js';
+import { handleClockOp, isClockOp, subscribeClock, unsubscribeClock } from './clock.js';
 import { isAdminFirestoreOp, handleAdminFirestoreOp } from './admin-firestore.js';
 import { isRtdbOp, handleRtdbOp, drainPortRtdbDisconnects, forgetPortRtdbConnection } from './rtdb.js';
 import { isStorageOp, handleStorageOp } from './storage.js';
@@ -112,6 +113,7 @@ async function handleOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<v
   if (isConnectionOp(msg.method)) return handleConnectionOp(ctx, port, msg);
   if (isStudioOp(msg.method)) return handleStudioOp(ctx, port, msg);
   if (isPresenceOp(msg.method)) return handlePresenceOp(ctx, port, msg);
+  if (isClockOp(msg.method)) return handleClockOp(ctx, port, msg);
 
   // Auth (`auth.*`), AI (`ai.*`), and messaging (`messaging.*`) ops are routed
   // to their handlers by dispatchMessage BEFORE reaching handleOp, so any
@@ -322,6 +324,8 @@ async function dispatchMessage(
     } catch (error) {
       fail(port, msg.id, error);
     }
+  } else if (msg.t === 'clock-subscribe') {
+    subscribeClock(ctx, port);
   } else if (msg.t === 'tool') {
     await handleTool(ctx, port, msg);
   }
@@ -384,6 +388,7 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   // last association (lease expiry remains the correctness path).
   attempt(() => { cleanupPortPresence(ctx, port); });
   attempt(() => { forgetPortRtdbConnection(ctx, port); });
+  attempt(() => { unsubscribeClock(ctx, port); });
 
   const portSubs = ctx.subs.get(port);
   if (portSubs) {

@@ -3,6 +3,7 @@ import { rtdbRules } from 'pyric/rules';
 import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
 import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
 import { callSandboxTool, operationFailure } from '../context.js';
+import { requestInstant } from '../request-instant.js';
 import type { SurfaceContext } from '../types.js';
 import type { RulesEngine, RulesRequest, RulesSourceProblem } from './types.js';
 
@@ -61,6 +62,7 @@ function simulateAgainst(
     path: rooted(request.path),
     auth: identity,
     data,
+    now: requestInstant(ctx, request.requestTime),
   };
   if (request.data !== undefined) oneCase.newData = request.data;
   return rtdbRules(ruleset).simulate([oneCase]).cases[0];
@@ -109,7 +111,12 @@ export const DATABASE_RULES: RulesEngine = {
     const path = rooted(request.path);
 
     if (request.rules === undefined) {
-      const call: Record<string, unknown> = { operation: request.operation, path, auth };
+      const call: Record<string, unknown> = {
+        operation: request.operation,
+        path,
+        auth,
+        now: requestInstant(ctx, request.requestTime),
+      };
       if (request.data !== undefined) call.newData = request.data;
       return callSandboxTool(ctx, 'rtdb_simulate_access', call);
     }

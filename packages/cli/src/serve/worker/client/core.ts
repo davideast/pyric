@@ -16,6 +16,7 @@ import type { RuntimeReloadMessage } from '../protocol.js';
 // leaf client bundle stays engine-free.
 import type { AuthLens, SandboxEvent } from 'pyric/sandbox';
 import { FirebaseError } from 'pyric/app';
+import { receiveClockState } from './clock.js';
 import type { ClientPort } from './handles.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
@@ -250,8 +251,14 @@ export function wirePort(port: ClientPort): void {
       if (subscription) subscription.next(msg.events);
     } else if (msg.t === 'runtime-reload') {
       for (const listener of runtimeReloadListeners) listener(msg);
+    } else if (msg.t === 'clock') {
+      receiveClockState(msg.state);
     }
   };
+  // Ask for the clock mirror as the port is wired, so the values the page
+  // mints synchronously (push ids, in-flight upload stamps) read the sandbox's
+  // clock rather than the wall clock from the first op onward.
+  port.postMessage({ t: 'clock-subscribe' } satisfies InboundMessage);
 }
 
 // ─── Auth lens (Pyric Studio) ──────────────────────────────────────────────

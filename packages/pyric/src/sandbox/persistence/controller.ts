@@ -13,6 +13,7 @@ import type { SandboxEvent } from '../types/events.js';
 import type { PersistableService } from '../types/persistence.js';
 import type { Sandbox } from '../types/service.js';
 import { SandboxImpl } from '../internal/sandbox-impl.js';
+import { getClock } from '../clock.js';
 import { createIndexedDBBackend, createMemoryBackend } from './backends.js';
 import {
   serializeToBuckets,
@@ -142,7 +143,9 @@ export async function attachPersistence(
     // services map is built live from the registry, so services registered
     // after enablePersistence (late registration) are naturally included.
     const snap = sandbox.snapshot();
-    const records = serializeToBuckets(snap.firestore, snap.services, Date.now());
+    // The flush stamp is sandbox time, so a restored bundle says when the
+    // sandbox saved it rather than when the host process happened to run.
+    const records = serializeToBuckets(snap.firestore, snap.services, getClock(sandbox).now());
     // Incremental flush: write ONLY the buckets whose content changed since the
     // last flush, and delete buckets that disappeared. Comparison is by content
     // hash, so it is safe by construction: a changed bucket cannot hash equal to

@@ -51,7 +51,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'apply(branch, events? | sessionPath?)',
-  description: 'Re-issue events onto a branch: events or sessionPath, not both.',
+  description: 'Re-issue events onto a branch.',
   args: z.object({
     branch: branchName,
     events: z

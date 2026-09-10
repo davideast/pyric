@@ -18,6 +18,9 @@ describe('the sandbox state routes', () => {
     const operations = SANDBOX_STATE_ROUTES.map((route) => [route.action, route.operation]);
     expect(operations).toEqual([
       ['reset_all', 'reset_sandbox'],
+      ['set_clock', 'set_clock'],
+      ['advance_clock', 'advance_clock'],
+      ['reset_clock', 'reset_clock'],
       ['seed', 'seed_sandbox'],
       ['checkpoint', 'checkpoint_sandbox'],
       ['restore', 'restore_sandbox'],
@@ -27,6 +30,21 @@ describe('the sandbox state routes', () => {
       ['export_fixture', 'export_sandbox_fixture'],
       ['seed_fixture', 'seed_sandbox_fixture'],
     ]);
+  });
+
+  it('carries the target instant a set_clock action names', () => {
+    const args = { action: 'set_clock', targetTimestampIso: '2026-09-09T12:00:00.000Z' };
+    expect(routeFor(args).translate(args)).toEqual({ isoTime: '2026-09-09T12:00:00.000Z' });
+  });
+
+  it('carries the advance an advance_clock action names', () => {
+    const args = { action: 'advance_clock', advanceMs: 3600000 };
+    expect(routeFor(args).translate(args)).toEqual({ ms: 3600000 });
+  });
+
+  it('carries nothing for a reset_clock action', () => {
+    const args = { action: 'reset_clock' };
+    expect(routeFor(args).translate(args)).toEqual({});
   });
 
   it('carry the scope and the confirm a reset takes', () => {

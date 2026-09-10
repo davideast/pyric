@@ -100,7 +100,7 @@ export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
   {
     name: 'control_sandbox_environment',
     description:
-      'Control sandbox environment state: reset one or all services, advance mock clock, simulate online/offline network connectivity, checkpoint and restore, page the event log, or export and load a fixture.',
+      'Control sandbox environment state: reset one or all services, pin or advance or reset the clock, simulate online/offline network connectivity, checkpoint and restore, page the event log, or export and load a fixture.',
     parameters: controlSandboxEnvironmentSchema,
   },
   {

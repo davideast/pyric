@@ -84,13 +84,19 @@ class DocumentRtdbRuleset implements RtdbRuleset {
   }
 
   private runOne(c: RtdbCase): RtdbCaseResult {
-    const result = this.doc.simulate({
+    // Assembled with explicit branches rather than conditional spreads: `data`,
+    // `newData`, and `now` each mean something different when absent, and an
+    // absent `now` in particular is the difference between "evaluate at this
+    // instant" and "evaluate at whatever the simulator decides".
+    const input: RtdbRulesSimulationInput = {
       operation: c.operation,
       path: c.path,
       auth: c.auth ?? null,
-      ...(c.data !== undefined ? { data: c.data } : {}),
-      ...(c.newData !== undefined ? { newData: c.newData } : {}),
-    });
+    };
+    if (c.data !== undefined) input.data = c.data;
+    if (c.newData !== undefined) input.newData = c.newData;
+    if (c.now !== undefined) input.now = c.now;
+    const result = this.doc.simulate(input);
     if (!result.success) {
       // Could not evaluate — report as unsupported rather than throw.
       return {
@@ -188,13 +194,15 @@ class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
   }
 
   simulate(input: RtdbRulesSimulationInput): SimulateResult {
-    return simulateRtdbRules(this.compiled, {
+    const simulation: SimulationInput = {
       operation: input.operation,
       path: input.path,
       auth: normalizeAuth(input.auth),
       mockData: input.mockData ?? input.data ?? {},
-      ...(input.newData !== undefined ? { newData: input.newData } : {}),
-    });
+    };
+    if (input.newData !== undefined) simulation.newData = input.newData;
+    if (input.now !== undefined) simulation.now = input.now;
+    return simulateRtdbRules(this.compiled, simulation);
   }
 }
 

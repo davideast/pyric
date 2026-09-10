@@ -57,6 +57,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'verifyCases',
   ],
   sandbox: [
+    'advanceClock',
     'apply',
     'checkpoint',
     'deleteCheckpoint',
@@ -70,9 +71,11 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'listCheckpoints',
     'promote',
     'reset',
+    'resetClock',
     'restore',
     'seed',
     'seedFromFixture',
+    'setClock',
   ],
 };
 

@@ -11,7 +11,8 @@ export default {
   sdkOrigin: 'firebase-js',
   effect: 'write',
   signature: 'set(path, value)',
-  description: 'Replace the value at one path.',
+  description:
+    'Replace the value at one path. A server timestamp is written as {".sv": "timestamp"}.',
   args: z.object({
     path: pathArgument,
     value: z.unknown().describe('The value written at the path. Replaces whatever is there.'),

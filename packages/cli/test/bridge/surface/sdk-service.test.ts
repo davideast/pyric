@@ -336,7 +336,7 @@ describe('describe', () => {
   it('refuses a describe that names no method', async () => {
     const result = await call('sandbox', 'describe', {});
     expect(result.summary).toBe(
-      "sandbox.describe: args.method is missing. describe reads one method schema, so it names the method to read. Pass args: { method: 'apply' }.",
+      "sandbox.describe: args.method is missing. describe reads one method schema, so it names the method to read. Pass args: { method: 'advanceClock' }.",
     );
   });
 });

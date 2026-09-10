@@ -14,11 +14,16 @@ import {
 export interface OnValueCreatedExecutionOptions {
   exported: Record<string, unknown>;
   delivery: RtdbTriggerDelivery;
+  /**
+   * The CloudEvent envelope for one delivery. Awaited, because `time` is the
+   * instant the sandbox that produced the write reports, and a sandbox behind a
+   * transport answers that asynchronously.
+   */
   eventOptions(
     projection: CreatedValueProjection,
     sequence: number,
     trigger: DiscoveredOnValueCreated,
-  ): CreatedEventOptions;
+  ): CreatedEventOptions | Promise<CreatedEventOptions>;
   onExecution?(
     result: CreatedExecutionResult,
     trigger: DiscoveredOnValueCreated,
@@ -81,7 +86,7 @@ export function startOnValueCreatedExecution(
               const result = await executeOnValueCreated(
                 trigger,
                 projection,
-                options.eventOptions(projection, deliverySequence, trigger),
+                await options.eventOptions(projection, deliverySequence, trigger),
               );
               options.onExecution?.(result, trigger, projection);
             });

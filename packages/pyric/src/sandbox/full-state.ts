@@ -47,6 +47,7 @@ import {
   replaceStorageRules,
 } from '../storage/internal.js';
 import { getInternalEnv } from './internal/sandbox-impl.js';
+import { getClock, type SandboxClockState } from './clock.js';
 import type { LocalSandbox } from './types/service.js';
 
 /** A Realtime Database ruleset, in the `{ rules: ... }` envelope the SDK takes. */
@@ -118,6 +119,16 @@ export interface FullSandboxState {
   auth: AuthAccountsState;
   /** The three rule sources. */
   rules: SandboxRuleSources;
+  /**
+   * The sandbox clock's state at capture. A checkpoint restore and a branch
+   * fork both carry it, so a forked branch reaches the same `request.time`
+   * verdict its base reached and a restored checkpoint stamps the same
+   * `serverTimestamp()` the sandbox was stamping when it was taken.
+   *
+   * Optional: a state written before the clock existed, or by a producer that
+   * does not model time, restores the sandbox to the wall clock.
+   */
+  clock?: SandboxClockState;
 }
 
 /** The auth handle onto one sandbox, created on first reach the way `getAuth` does. */
@@ -208,7 +219,22 @@ export async function captureFullState(sandbox: LocalSandbox): Promise<FullSandb
       providers: authSandbox.exportProviderConfig(auth),
     },
     rules: structuredClone(rules),
+    clock: getClock(sandbox).capture(),
   };
+}
+
+/**
+ * Adopt the captured clock, or return the sandbox to the wall clock when the
+ * state carries none. A total replace, like every other service here: applying
+ * a state never leaves the target on a clock the state did not name.
+ */
+function applyClock(sandbox: LocalSandbox, captured: SandboxClockState | undefined): void {
+  const clock = getClock(sandbox);
+  if (captured === undefined) {
+    clock.reset();
+    return;
+  }
+  clock.restore(captured);
 }
 
 /** Replace the target's Firestore documents with exactly the ones the state holds. */
@@ -288,6 +314,7 @@ export async function applyFullState(
   sandbox: LocalSandbox,
   state: FullSandboxState,
 ): Promise<void> {
+  applyClock(sandbox, state.clock);
   applyFirestoreDocuments(sandbox, state.firestore);
   getInternalEnv(sandbox).deployRules(state.rules.firestore);
   applyDatabase(sandbox, state);

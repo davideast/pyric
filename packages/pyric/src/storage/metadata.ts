@@ -16,7 +16,7 @@
  *   URI carrying the object's own bytes, so it has no Firebase download token
  *   to expose.
  */
-import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
@@ -196,12 +196,13 @@ export async function updateMetadata(
   if (!existing) {
     throw objectNotFound(ref.fullPath);
   }
-  const next = applyMetadataPatch(existing, patch);
+  const next = applyMetadataPatch(existing, patch, getClock(target.sandbox).date());
   await service.backend.putMetadata(ref.fullPath, next);
   try {
     emitSandboxEvent(
       target.sandbox,
       makeServiceMutationEvent({
+        at: getClock(target.sandbox).now(),
         service: 'storage',
         op: 'metadata_update',
         path: ref.fullPath,
