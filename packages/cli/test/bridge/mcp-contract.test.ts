@@ -18,11 +18,17 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
   firestore: [
     'addDoc',
     'deleteDoc',
+    'discoverPaths',
+    'extractIndexes',
+    'findCollectionGroup',
+    'getAggregateFromServer',
+    'getCountFromServer',
     'getDoc',
     'getDocs',
     'setDoc',
     'updateDoc',
     'writeBatch',
+    'writeIndexes',
   ],
   database: ['crawl', 'get', 'push', 'query', 'remove', 'set', 'update'],
   storage: [

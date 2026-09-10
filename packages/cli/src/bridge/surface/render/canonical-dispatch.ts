@@ -112,6 +112,14 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     }),
   },
 
+  // Firestore depth: aggregates, discovery, and index extraction.
+  count_firestore_documents: { key: 'firestore.getCountFromServer' },
+  aggregate_firestore_documents: { key: 'firestore.getAggregateFromServer' },
+  discover_firestore_paths: { key: 'firestore.discoverPaths' },
+  find_firestore_collection_group: { key: 'firestore.findCollectionGroup' },
+  extract_firestore_indexes: { key: 'firestore.extractIndexes' },
+  write_firestore_indexes: { key: 'firestore.writeIndexes' },
+
   get_database_value: { key: 'database.get' },
   write_database_value: { key: 'database.set' },
   delete_database_value: { key: 'database.remove' },

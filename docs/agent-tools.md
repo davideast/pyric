@@ -36,7 +36,7 @@ A `production` method reaches Google infrastructure with real credentials. It is
 
 | Tool | Methods |
 |---|---|
-| `firestore` | `getDoc`, `getDocs`, `addDoc`, `setDoc`, `updateDoc`, `deleteDoc`, `writeBatch` |
+| `firestore` | `getDoc`, `getDocs`, `addDoc`, `setDoc`, `updateDoc`, `deleteDoc`, `writeBatch`, `getCountFromServer`, `getAggregateFromServer`, `discoverPaths`, `findCollectionGroup`, `extractIndexes`, `writeIndexes` (destructive; requires `confirm: true`) |
 | `database` | `get`, `query`, `set`, `update`, `remove`, `push`, `crawl` (bounded structural view, no leaf values, depth 0 to 10, default 10) |
 | `storage` | `getBytes`, `getDownloadURL`, `getMetadata`, `listAll`, `uploadBytes`, `updateMetadata`, `deleteObject`, `setCrossServiceIam`, `status` and `provision` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 | `auth` | `getUser`, `getUserByEmail`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `importUsers`, `createCustomToken`, `signInWithEmailAndPassword`, `signInAnonymously`, `signInWithCustomToken`, `signInWithCredential`, `signOut`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami`, `sessions` |
@@ -304,8 +304,13 @@ the command that prints those rows, with the target ids `--target` takes.
 ## Index extraction — `pyric/rules/indexes`
 
 `firestore_extract_indexes` — derive composite-index definitions from query
-shapes. Available as a library and via `pyric firestore indexes generate`;
-**not** registered on the default MCP bridge.
+shapes found by static analysis of application source. Available as a library
+and via `pyric firestore indexes generate`; **not** registered on the default
+MCP bridge.
+
+The product surface's `firestore.extractIndexes` and `firestore.writeIndexes`
+(above) are a different capability: they take queries directly rather than
+parsing source, and run against the sandbox rather than a source tree.
 
 ## Realtime Database rule artifacts — `@pyric/cli`
 
@@ -332,7 +337,10 @@ provide the data source:
 `firestore_discover_paths` · `firestore_find_collection_group`
 
 These exist in `@pyric/cli/discover` but are **not** registered on the default
-`pyric bridge` / `pyric sandbox --bridge` surface.
+`pyric bridge` / `pyric sandbox --bridge` surface. The product surface's
+`firestore.discoverPaths` and `firestore.findCollectionGroup` (above) are a
+separate, exhaustive implementation over the sandbox's own document index
+rather than a sampled crawl, and are registered on `pyric mcp`.
 
 ## Assurance — `createAssuranceTools` (`@pyric/cli/assurance`)
 

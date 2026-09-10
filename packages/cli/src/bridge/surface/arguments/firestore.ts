@@ -9,6 +9,18 @@
  * have refused them at the reference constructor rather than at the write.
  */
 import { z } from 'zod';
+import {
+  collection,
+  limit as limitConstraint,
+  orderBy as orderByConstraint,
+  query,
+  where as whereConstraint,
+  type Firestore,
+  type Query,
+  type QueryConstraint,
+  type WhereFilterOp,
+} from 'pyric/firestore';
+import type { QueryShape } from 'pyric/rules/internal';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
 import { quoted } from '../closest-name.js';
 import { decodeFieldValues, type FieldValueScope } from './field-values.js';
@@ -187,7 +199,17 @@ function checkInequalityOrdering(entries: Args[], fail: Fail): InvalidArguments 
 
 /** Check a collection read: its path, each constraint, and their ordering. */
 export function checkConstraints(args: Args, fail: Fail): InvalidArguments | null {
-  const collection = checkCollectionPath('getDocs', args, fail);
+  return checkQueryArgs('getDocs', args, fail);
+}
+
+/**
+ * Check a collection read for any method that takes a path and a constraint
+ * list: its path, each constraint, and their ordering. `checkConstraints` is
+ * this with `method` fixed to `getDocs`; the aggregate methods name
+ * themselves so their own rejections read correctly.
+ */
+export function checkQueryArgs(method: string, args: Args, fail: Fail): InvalidArguments | null {
+  const collection = checkCollectionPath(method, args, fail);
   if (collection !== null) return collection;
   const entries = constraintsOf(args);
   for (const [index, entry] of entries.entries()) {
@@ -310,4 +332,94 @@ export function batchFieldValuesOf(index: number, write: Args): unknown {
   const decoded = decodeFieldValues(write.data, batchScopeFor(index, write.type));
   if (decoded.ok) return decoded.value;
   return write.data;
+}
+
+// ─── Firestore depth (getCountFromServer, getAggregateFromServer, discoverPaths,
+// findCollectionGroup, extractIndexes, writeIndexes) ───────────────────────
+//
+// The aggregate methods build a live `Query` through the modular client
+// shape, so a collection path and a constraint list have to become that
+// `Query` rather than the plain-object call the data-plane dispatcher takes.
+// `queryFrom` is that one conversion, shared by both aggregate methods.
+
+/** The `Query` a collection path and constraint list build, for the aggregate methods. */
+export function queryFrom(db: Firestore, path: string, args: Args): Query {
+  const source = collection(db, ...path.split('/').filter((segment) => segment !== ''));
+  const constraints: QueryConstraint[] = [];
+  for (const entry of constraintsOf(args)) {
+    if (entry.type === 'where') {
+      constraints.push(
+        whereConstraint(String(entry.field), entry.op as WhereFilterOp, entry.value),
+      );
+    } else if (entry.type === 'orderBy') {
+      const direction = entry.direction as 'asc' | 'desc' | undefined;
+      constraints.push(orderByConstraint(String(entry.field), direction));
+    } else if (entry.type === 'limit') {
+      constraints.push(limitConstraint(Number(entry.value)));
+    }
+  }
+  return query(source, ...constraints);
+}
+
+/** The aggregate spec's keys, spelled in `getAggregateFromServer`'s signature. */
+export const AGGREGATE_KEYS = ['count', 'sum', 'average'] as const;
+
+/** One `getAggregateFromServer` spec: which aggregates to compute, and over which field. */
+export const aggregateSpec = z
+  .object({
+    count: z.boolean().optional().describe('Count the matching documents.'),
+    sum: z.string().optional().describe('Field to sum across the matching documents.'),
+    average: z.string().optional().describe('Field to average across the matching documents.'),
+  })
+  .describe('Which aggregates to compute: count, sum of a field, and average of a field.');
+
+/** Refuse a `getAggregateFromServer` call whose spec asks for nothing. */
+export function checkAggregateSpec(args: Args, fail: Fail): InvalidArguments | null {
+  const spec = (args.spec ?? {}) as Args;
+  const hasCount = spec.count === true;
+  const hasSum = typeof spec.sum === 'string';
+  const hasAverage = typeof spec.average === 'string';
+  if (hasCount || hasSum || hasAverage) return null;
+  return fail(
+    `spec is ${quoted(spec)}, which asks for no aggregate.`,
+    `Set spec.count to true, or spec.sum or spec.average to a field name.`,
+    'spec',
+  );
+}
+
+/** One query `extractIndexes` reads, in the same shape `getDocs` takes constraints. */
+export const indexQuery = z
+  .object({
+    path: z.string().describe('Collection path the query runs against.'),
+    constraints: z
+      .array(constraint)
+      .optional()
+      .describe('where, orderBy, and limit constraints, applied in order.'),
+    collectionGroup: z
+      .boolean()
+      .optional()
+      .describe('True when the query is a collectionGroup query rather than a collection query.'),
+  })
+  .describe('One query, in the shape getDocs takes it.');
+
+/** One `indexQuery` entry, as the composite-index detector's `QueryShape`. */
+export function queryShapeOf(entry: Args): QueryShape {
+  const entries = constraintsOf(entry);
+  const filters = entries
+    .filter((item) => item.type === 'where')
+    .map((item) => ({ field: String(item.field), op: String(item.op) }));
+  const orders = entries
+    .filter((item) => item.type === 'orderBy')
+    .map((item) => ({
+      field: String(item.field),
+      direction: (item.direction as 'asc' | 'desc' | undefined) ?? 'asc',
+    }));
+  const limitEntry = entries.find((item) => item.type === 'limit');
+  return {
+    collectionPath: String(entry.path),
+    isCollectionGroup: entry.collectionGroup === true,
+    filters,
+    orders,
+    limit: limitEntry === undefined ? null : Number(limitEntry.value),
+  };
 }

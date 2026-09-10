@@ -11,10 +11,13 @@
   "deleteCheckpoint",
   "diff",
   "discard",
+  "discoverPaths",
   "events",
   "explainDenial",
   "export",
   "exportFixture",
+  "extractIndexes",
+  "findCollectionGroup",
   "fork",
   "getStdlib",
   "impersonate",
@@ -46,5 +49,6 @@
   "useAppSession",
   "verify",
   "verifyCases",
-  "whoami"
+  "whoami",
+  "writeIndexes"
 ]

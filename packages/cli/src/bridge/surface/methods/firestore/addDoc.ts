@@ -16,7 +16,7 @@ export default {
   effect: 'write',
   signature: 'addDoc(path, data)',
   description:
-    'Add a document to a collection under a generated id. Field values are written as JSON: {"$serverTimestamp": true}, {"$increment": <number>}, {"$arrayUnion": [...]}, {"$arrayRemove": [...]}.',
+    'Add a document to a collection under a generated id. Field values may use the $serverTimestamp/$increment/$arrayUnion/$arrayRemove JSON sentinels.',
   args: z.object({
     path: z.string().describe('Collection path, for example users.'),
     data: z.record(z.unknown()).describe('The document fields to write.'),

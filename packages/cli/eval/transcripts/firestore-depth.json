@@ -1,0 +1,176 @@
+{
+  "count-open-invoices-for-tenant": [
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "getCountFromServer",
+        "args": {
+          "path": "invoices",
+          "constraints": [
+            { "type": "where", "field": "tenant", "op": "==", "value": "tenant-acme" },
+            { "type": "where", "field": "status", "op": "==", "value": "open" }
+          ]
+        }
+      }
+    }
+  ],
+  "count-total-orders-in-catalog": [
+    { "tool": "firestore", "args": { "method": "getCountFromServer", "args": { "path": "orders" } } }
+  ],
+  "total-and-average-of-paid-orders": [
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "getAggregateFromServer",
+        "args": {
+          "path": "orders",
+          "spec": { "sum": "total", "average": "total" },
+          "constraints": [{ "type": "where", "field": "status", "op": "==", "value": "paid" }]
+        }
+      }
+    }
+  ],
+  "average-rating-across-reviews": [
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "getAggregateFromServer",
+        "args": { "path": "reviews", "spec": { "average": "rating" } }
+      }
+    }
+  ],
+  "map-out-the-database-shape": [
+    { "tool": "firestore", "args": { "method": "discoverPaths", "args": { "depth": 3 } } }
+  ],
+  "how-deep-does-the-catalog-nest": [
+    { "tool": "firestore", "args": { "method": "discoverPaths", "args": { "depth": 2 } } }
+  ],
+  "find-every-comments-collection": [
+    {
+      "tool": "firestore",
+      "args": { "method": "findCollectionGroup", "args": { "collectionId": "comments" } }
+    }
+  ],
+  "locate-nested-attachments-collections": [
+    {
+      "tool": "firestore",
+      "args": { "method": "findCollectionGroup", "args": { "collectionId": "attachments" } }
+    }
+  ],
+  "check-index-for-paid-orders-by-date": [
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "extractIndexes",
+        "args": {
+          "queries": [
+            {
+              "path": "orders",
+              "constraints": [
+                { "type": "where", "field": "status", "op": "==", "value": "paid" },
+                { "type": "orderBy", "field": "createdAt", "direction": "desc" }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "check-index-for-tenant-filtered-tasks": [
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "extractIndexes",
+        "args": {
+          "queries": [
+            {
+              "path": "tasks",
+              "constraints": [
+                { "type": "where", "field": "tenant", "op": "==", "value": "tenant-acme" },
+                { "type": "where", "field": "priority", "op": ">", "value": 2 },
+                { "type": "orderBy", "field": "priority", "direction": "asc" }
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "write-the-index-file-for-that-query": [
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "extractIndexes",
+        "args": {
+          "queries": [
+            {
+              "path": "orders",
+              "constraints": [
+                { "type": "where", "field": "status", "op": "==", "value": "paid" },
+                { "type": "orderBy", "field": "createdAt", "direction": "desc" }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "writeIndexes",
+        "args": {
+          "indexes": [
+            {
+              "collectionGroup": "orders",
+              "queryScope": "COLLECTION",
+              "fields": [
+                { "fieldPath": "status", "order": "ASCENDING" },
+                { "fieldPath": "createdAt", "order": "DESCENDING" }
+              ]
+            }
+          ],
+          "confirm": true
+        }
+      }
+    }
+  ],
+  "save-composite-index-definitions": [
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "extractIndexes",
+        "args": {
+          "queries": [
+            {
+              "path": "tasks",
+              "constraints": [
+                { "type": "where", "field": "tenant", "op": "==", "value": "tenant-acme" },
+                { "type": "where", "field": "priority", "op": ">", "value": 2 },
+                { "type": "orderBy", "field": "priority", "direction": "asc" }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "tool": "firestore",
+      "args": {
+        "method": "writeIndexes",
+        "args": {
+          "indexes": [
+            {
+              "collectionGroup": "tasks",
+              "queryScope": "COLLECTION",
+              "fields": [
+                { "fieldPath": "tenant", "order": "ASCENDING" },
+                { "fieldPath": "priority", "order": "ASCENDING" }
+              ]
+            }
+          ],
+          "confirm": true
+        }
+      }
+    }
+  ]
+}

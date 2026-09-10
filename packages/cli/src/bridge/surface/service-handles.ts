@@ -8,6 +8,7 @@
  * or enforces them (a uid, or unauthenticated).
  */
 import { getAdminDatabase, getDatabase, type Database } from 'pyric/database';
+import { getAdminFirestore, getFirestore, type Firestore } from 'pyric/firestore';
 import { getStorageSandbox, type FirebaseStorage } from 'pyric/storage';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import type { SurfaceContext } from './types.js';
@@ -16,6 +17,18 @@ import type { SurfaceContext } from './types.js';
 export function databaseFor(ctx: SurfaceContext): Database {
   if (ctx.identity.bypassesRules()) return getAdminDatabase(ctx.sandbox);
   return getDatabase(ctx.sandbox.withAuth(ctx.identity.authState()));
+}
+
+// ─── firestore lane ────────────────────────────────────────────────────
+//
+// The aggregate methods build a `Query` through the modular client shape
+// (`collection`, `query`, `where`, `orderBy`, `limit`), which needs a live
+// `Firestore` handle rather than the dispatcher's plain-object tool call.
+
+/** A Cloud Firestore handle for the held identity, for the methods that build a `Query` directly. */
+export function firestoreFor(ctx: SurfaceContext): Firestore {
+  if (ctx.identity.bypassesRules()) return getAdminFirestore(ctx.sandbox);
+  return getFirestore(ctx.sandbox.withAuth(ctx.identity.authState()));
 }
 
 /** A Cloud Storage handle for the held identity. */
