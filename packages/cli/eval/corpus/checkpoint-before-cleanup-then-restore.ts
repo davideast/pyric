@@ -5,7 +5,10 @@ const task: EvalTask = {
   prompt:
     "I'm about to run a bulk cleanup script against the sandbox. Save a checkpoint called before-cleanup first, then delete the demo/archived-note document, and if it turns out I needed it, restore before-cleanup.",
   seed: {
-    firestore: { 'demo/archived-note': { keep: true } },
+    // The prompt asks for this document to be deleted, so its own fields must
+    // not argue the other way. A neutral field carries the same weight without
+    // telling the agent to keep it.
+    firestore: { 'demo/archived-note': { title: 'archived note' } },
   },
   acceptedFirstOperations: ['checkpoint_sandbox'],
   assert: (state) => {

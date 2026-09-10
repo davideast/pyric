@@ -42,6 +42,12 @@ export interface EvalCall {
   operation: string | null;
   tool: string;
   ok: boolean;
+  /**
+   * True when the call failed because the surface reported a verdict: a
+   * data-plane call Security Rules refused, or a rules lint that found
+   * problems. The task worked, so the scorer counts these apart from errors.
+   */
+  verdict: boolean;
   schemaRejected: boolean;
   args: Record<string, unknown>;
   data: unknown;
@@ -185,7 +191,10 @@ export interface EvalResultLine {
   acceptedOpReached: boolean;
   callCount: number;
   schemaRejections: number;
+  /** Failing calls that reported no verdict, so the call itself went wrong. */
   errorCalls: number;
+  /** Failing calls that reported a rules denial or a set of lint findings. */
+  verdictCalls: number;
   durationMs: number;
   assertReason: string | null;
 }
@@ -203,6 +212,8 @@ export interface EvalEvent {
   durationMs: number;
   schemaRejected: boolean;
   isError: boolean;
+  /** True when the failing result reported a verdict rather than a fault. */
+  verdict?: boolean;
   run: {
     runId: string;
     taskId: string;

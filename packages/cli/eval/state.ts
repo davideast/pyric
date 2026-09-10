@@ -41,6 +41,9 @@ export function readCalls(eventsPath: string): EvalCall[] {
     operation: event.operation ?? null,
     tool: event.tool,
     ok: event.result?.ok === true,
+    // A log written before the field existed carries no verdict, and a call
+    // that reported one is the exception, so absence reads as false.
+    verdict: event.verdict === true,
     schemaRejected: event.schemaRejected === true,
     args: event.args ?? {},
     data: event.result?.data,
