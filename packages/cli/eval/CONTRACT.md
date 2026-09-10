@@ -65,6 +65,9 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `unsubscribe_messaging_topic` | unsubscribe | messaging | topic | `tokens` (array), `topic` | |
 | `list_messaging_tokens` | list | messaging | tokens | none | Registered device tokens and their topics. |
 | `list_messaging_deliveries` | list | messaging | deliveries | `since?` | What was delivered, foreground or background, handled or not. |
+| `list_functions_triggers` | list | functions | triggers | none | Discovered RTDB trigger handlers, their reference patterns, and any exports whose trigger kind is unsupported, with the reason. |
+| `fire_functions_trigger` | fire | functions | trigger | `trigger`, `path`, `value` | Runs a discovered trigger on a synthetic event built from `path` and `value`. Does not write `value` at `path`. |
+| `list_functions_executions` | list | functions | executions | `since?` | Runs that fired through `fire_functions_trigger`, with cause, duration, and result or error. |
 | `lint_firestore_rules` | lint | firestore | rules | `rules?` (source; default current) | |
 | `simulate_firestore_rules` | simulate | firestore | rules | `operation`, `path`, `uid?`, `data?` (object), `cases?` (array of `{ operation, path, uid?, data? }`), `rules?` | Exactly one of the single form and `cases`. |
 | `diagnose_firestore_denial` | diagnose | firestore | denial | `operation`, `path`, `uid?`, `data?` | Trace of why a request was denied. |
@@ -111,7 +114,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `advance_clock` | advance | sandbox | clock | `ms` | From wall clock shifts and keeps flowing; under a pinned clock stays frozen at the new instant. |
 | `reset_clock` | reset | sandbox | clock | none | Back to wall clock. |
 
-Ninety-eight operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of a method's own arguments is at most two object levels below the root. The assurance methods carry the campaign document's own authored records rather than arguments of their own, and a probe holds a mutation, which holds an operation, which holds a payload, so those nest at most four.
+101 operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of a method's own arguments is at most two object levels below the root. The assurance methods carry the campaign document's own authored records rather than arguments of their own, and a probe holds a mutation, which holds an operation, which holds a payload, so those nest at most four.
 
 ## 2. Surface variants
 
