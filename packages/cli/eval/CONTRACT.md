@@ -33,10 +33,15 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `update_database_value` | update | database | value | `path`, `value` (object) | |
 | `delete_database_value` | delete | database | value | `path` | |
 | `query_database_values` | query | database | values | `path`, `orderByChild?`, `equalTo?`, `limitToFirst?` | |
-| `upload_storage_file` | upload | storage | file | `path`, `contentBase64`, `contentType?`, `metadata?` (object) | |
+| `upload_storage_file` | upload | storage | file | `path`, `contentBase64?`, `sourcePath?`, `contentType?`, `metadata?` (object) | Exactly one of `contentBase64` and `sourcePath`; `sourcePath` names a file inside the project directory. The path's extension supplies an unnamed content type. |
 | `download_storage_file` | download | storage | file | `path` | |
+| `get_storage_download_url` | get | storage | url | `path` | The sandbox mints a `data:` URI carrying the object's own bytes. |
 | `list_storage_files` | list | storage | files | `prefix?` | |
 | `get_storage_metadata` | get | storage | metadata | `path` | |
+| `update_storage_metadata` | update | storage | metadata | `path`, `metadata` (`contentType?`, `customMetadata?`, `cacheControl?`, `contentDisposition?`, `contentEncoding?`, `contentLanguage?`) | Custom metadata is replaced wholesale; `updated` follows the sandbox clock. |
+| `set_storage_cross_service_iam` | set | storage | iam | `mode` (`granted`, `denied`) | Whether storage rules may read Firestore through `firestore.get` and `exists`. |
+| `get_storage_service_status` | get | storage | status | `confirm` | Production: the real project's Storage service, location, and buckets. No run may reach it. |
+| `provision_storage_bucket` | provision | storage | bucket | `bucket?`, `confirm` | Production: enables Storage on the real project. No run may reach it. |
 | `delete_storage_file` | delete | storage | file | `path` | |
 | `lint_firestore_rules` | lint | firestore | rules | `rules?` (source; default current) | |
 | `simulate_firestore_rules` | simulate | firestore | rules | `operation`, `path`, `uid?`, `data?` (object), `cases?` (array of `{ operation, path, uid?, data? }`), `rules?` | Exactly one of the single form and `cases`. |
@@ -67,7 +72,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `discard_sandbox_branch` | discard | sandbox | branch | `branch` | Deletes the branch; live is untouched. |
 | `list_sandbox_branches` | list | sandbox | branches | none | Name, created, base, event count, and divergences against live. |
 
-Fifty-three operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of a method's own arguments is at most two object levels below the root. The assurance methods carry the campaign document's own authored records rather than arguments of their own, and a probe holds a mutation, which holds an operation, which holds a payload, so those nest at most four.
+Sixty operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of a method's own arguments is at most two object levels below the root. The assurance methods carry the campaign document's own authored records rather than arguments of their own, and a probe holds a mutation, which holds an operation, which holds a payload, so those nest at most four.
 
 ## 2. Surface variants
 

@@ -13,7 +13,7 @@ contract. The `id` field equals the filename without its extension. A record car
 
 ## Distribution
 
-Eighty-three tasks, counted by the first tag each one carries:
+Ninety-seven tasks, counted by the first tag each one carries:
 
 - 15 auth and tenant: seed a tenant user with claims, switch the active identity, list users, set
   or revoke claims, delete an account.
@@ -21,7 +21,11 @@ Eighty-three tasks, counted by the first tag each one carries:
   Several run under a tenant identity so the rules gate them.
 - 10 rules: lint a broken ruleset for each service, simulate a request, trace a denial, compare an
   allow expectation against a deny expectation, reach for a rules helper module.
-- 8 storage: upload, read metadata, list, download, overwrite, delete.
+- 18 storage: upload, read metadata, list, download, overwrite, delete, mint a download URL,
+  retag an object without rewriting it, and move the sandbox between the two cross-service IAM
+  postures so a rule reading Firestore is decided both ways. Four of them ask for the project's
+  real Storage control plane by name, which no run may reach, and are not done until something
+  local answered after the refusal.
 - 18 sandbox: inspect, reset, seed, checkpoint and restore, page the operation log, export a fixture
   and reload it, and the branch lifecycle from fork through promote or discard. One reset task
   phrases the request so the natural first attempt omits `confirm`, which the destructive-method
