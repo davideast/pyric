@@ -41,7 +41,7 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
 | `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
-| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
+| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
 | `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 
 `checkpoint` writes the whole live sandbox under a name into
@@ -78,6 +78,22 @@ state it holds now, so state live gained after the fork survives the promotion.
 branch with when it was forked, how many events it carries, and how far it has
 drifted from live per service. A branch is a directory in the project, so it
 outlives the server that forked it.
+
+The sandbox carries one clock, which every `serverTimestamp()`, Realtime
+Database `now`, `request.time`, and minted auth token `iat` reads instead of
+`Date.now()`. `setClock(isoTime)` pins the clock to that instant and freezes it
+there; a value that does not parse as a date is refused, naming the value and
+the ISO 8601 form it expects. `advanceClock(ms)` moves the clock forward by
+that many milliseconds: a pinned clock stays frozen at the new instant, and a
+flowing clock keeps flowing from the new offset. `resetClock()` returns to the
+wall clock. `inspect` reports the clock's mode and current instant alongside
+its other counts. A checkpoint or a branch fork carries the clock's state, so
+restoring or applying one moves the clock along with the data.
+`rules.simulate` takes an optional `requestTime` (ISO 8601); when a call omits
+it, `request.time` (Firestore, Storage) and `now` (database) evaluate at the
+sandbox clock's current instant, so a rule with no explicit time still moves
+when the clock does. Naming `requestTime` evaluates the rule at that instant
+without moving the sandbox clock.
 
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path
