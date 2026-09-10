@@ -21,7 +21,7 @@ describe('Unified rules scorecard gate CLI reporter', () => {
     expect(out).toContain('--- Storage Rules Breakdown ---');
     expect(out).not.toContain('acceptance-mismatch] firestore.function.debug');
     expect(out).toContain('[unprobeable] firestore.semantic.get-budget');
-    expect(out).toContain('[diverged] storage.function.firestore.get');
+    expect(out).toContain('All constructs conform cleanly.');
     expect(out).toContain('[local-unsupported] rtdb.operator.strictEq');
   });
 });

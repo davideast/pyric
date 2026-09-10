@@ -57,6 +57,14 @@ export const NON_USER_FACING_EXPORTS: ReadonlyMap<string, string> = new Map([
     'pyric:./sandbox/admin-firestore',
     'Cross-package admin Firestore seam, not a developer API.',
   ],
+  [
+    'ui:./styles.css',
+    'CSS stylesheet asset export without TypeScript type definitions.',
+  ],
+  [
+    'ui:./tokens.css',
+    'CSS tokens stylesheet asset export without TypeScript type definitions.',
+  ],
 ]);
 
 type ExportTarget = string | { [condition: string]: ExportTarget | undefined };
