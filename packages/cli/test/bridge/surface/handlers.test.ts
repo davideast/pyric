@@ -8,7 +8,10 @@
  */
 import 'fake-indexeddb/auto';
 import { afterAll, expect, it } from 'bun:test';
-import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { getAuth, sandbox as authSandbox, signInWithEmailAndPassword } from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 
@@ -49,7 +52,10 @@ const sandbox = initializeSandbox();
 setRules(sandbox, TENANT_RULES);
 
 const surface = renderSurface(undefined);
-const ctx: SurfaceContext = createSurfaceContext(sandbox);
+// A project directory of its own, because the methods that reach the file
+// system must not leave `.pyric/` behind in the package this suite runs from.
+const projectDir = mkdtempSync(join(tmpdir(), 'pyric-handlers-'));
+const ctx: SurfaceContext = createSurfaceContext(sandbox, projectDir);
 const exercised = new Set<string>();
 
 /** Call one method through its service tool and record that it ran. */
@@ -65,6 +71,7 @@ async function run(
 }
 
 afterAll(() => {
+  rmSync(projectDir, { recursive: true, force: true });
   expect([...exercised].sort()).toEqual(METHODS.map((method) => method.key).sort());
 });
 
@@ -271,6 +278,207 @@ it('inspects, seeds, and resets the sandbox', async () => {
   expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
 });
 
+it('checkpoints, restores, pages events, and round-trips a fixture', async () => {
+  expect((await run('firestore.setDoc', { path: 'ledger/keep', data: { value: 1 } })).ok).toBe(
+    true,
+  );
+  expect((await run('database.set', { path: 'ledger/keep', value: 1 })).ok).toBe(true);
+  expect(
+    (await run('auth.createUser', { uid: 'checkpoint-erin', email: 'erin@example.com' })).ok,
+  ).toBe(true);
+
+  const checkpointed = await run('sandbox.checkpoint', { name: 'before-break' });
+  expect(checkpointed.ok).toBe(true);
+
+  // Break something after the checkpoint.
+  expect((await run('firestore.setDoc', { path: 'ledger/temp', data: { value: 2 } })).ok).toBe(
+    true,
+  );
+  expect((await run('database.set', { path: 'ledger/temp', value: 2 })).ok).toBe(true);
+  expect(
+    (await run('auth.createUser', { uid: 'checkpoint-frank', email: 'frank@example.com' })).ok,
+  ).toBe(true);
+
+  const listing = await run('sandbox.listCheckpoints');
+  expect(listing.ok).toBe(true);
+  expect(
+    (listing.data as { checkpoints: Array<{ name: string }> }).checkpoints.map((c) => c.name),
+  ).toContain('before-break');
+
+  const missingRestore = await run('sandbox.restore', { name: 'no-such-checkpoint', confirm: true });
+  expect(missingRestore.ok).toBe(false);
+  expect(missingRestore.summary).toContain('before-break');
+
+  const restored = await run('sandbox.restore', { name: 'before-break', confirm: true });
+  expect(restored.ok).toBe(true);
+
+  const keptDoc = await run('firestore.getDoc', { path: 'ledger/keep' });
+  expect((keptDoc.data as { data: { value: number } }).data.value).toBe(1);
+  const tempDoc = await run('firestore.getDoc', { path: 'ledger/temp' });
+  expect((tempDoc.data as { exists: boolean }).exists).toBe(false);
+
+  const keptValue = await run('database.get', { path: 'ledger/keep' });
+  expect((keptValue.data as { value: number }).value).toBe(1);
+  const tempValue = await run('database.get', { path: 'ledger/temp' });
+  expect((tempValue.data as { exists: boolean }).exists).toBe(false);
+
+  expect((await run('auth.getUser', { uid: 'checkpoint-frank' })).ok).toBe(false);
+  expect((await run('auth.getUser', { uid: 'checkpoint-erin' })).ok).toBe(true);
+
+  // Deleting the checkpoint removes it from the listing and leaves the sandbox
+  // exactly as the restore left it.
+  const unconfirmedDelete = await run('sandbox.deleteCheckpoint', { name: 'before-break' });
+  expect(unconfirmedDelete.ok).toBe(false);
+  expect((unconfirmedDelete.data as { field?: string }).field).toBe('confirm');
+  expect(
+    ((await run('sandbox.listCheckpoints')).data as { checkpoints: Array<{ name: string }> })
+      .checkpoints.map((c) => c.name),
+  ).toContain('before-break');
+
+  const missingDelete = await run('sandbox.deleteCheckpoint', {
+    name: 'no-such-checkpoint',
+    confirm: true,
+  });
+  expect(missingDelete.ok).toBe(false);
+  expect(missingDelete.summary).toContain('before-break');
+
+  const deleted = await run('sandbox.deleteCheckpoint', { name: 'before-break', confirm: true });
+  expect(deleted.ok).toBe(true);
+  const afterDelete = await run('sandbox.listCheckpoints');
+  expect(
+    (afterDelete.data as { checkpoints: Array<{ name: string }> }).checkpoints.map((c) => c.name),
+  ).not.toContain('before-break');
+  expect((await run('firestore.getDoc', { path: 'ledger/keep' })).ok).toBe(true);
+
+  // Page the operation log: a burst of writes, then two pages with no overlap.
+  const before = await run('sandbox.events', { limit: 1 });
+  expect(before.ok).toBe(true);
+  await run('firestore.setDoc', { path: 'ledger/page-a', data: { n: 1 } });
+  await run('firestore.setDoc', { path: 'ledger/page-b', data: { n: 2 } });
+  const firstPage = await run('sandbox.events', {
+    since: (before.data as { nextCursor: string }).nextCursor,
+    limit: 1,
+    kind: 'writes',
+  });
+  expect(firstPage.ok).toBe(true);
+  const firstData = firstPage.data as { events: Array<{ id: string; path?: string }>; nextCursor: string | null };
+  expect(firstData.events).toHaveLength(1);
+  expect(firstData.nextCursor).not.toBeNull();
+  const secondPage = await run('sandbox.events', {
+    since: firstData.nextCursor!,
+    limit: 10,
+    kind: 'writes',
+  });
+  const secondData = secondPage.data as { events: Array<{ id: string }> };
+  const firstIds = new Set(firstData.events.map((event) => event.id));
+  for (const event of secondData.events) expect(firstIds.has(event.id)).toBe(false);
+
+  // Round-trip a fixture across a full reset.
+  const exported = await run('sandbox.exportFixture', { path: 'fixtures/round-trip.json' });
+  expect(exported.ok).toBe(true);
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+  const afterReset = await run('firestore.getDoc', { path: 'ledger/keep' });
+  expect((afterReset.data as { exists: boolean }).exists).toBe(false);
+
+  const reseeded = await run('sandbox.seedFromFixture', { path: 'fixtures/round-trip.json' });
+  expect(reseeded.ok).toBe(true);
+  const reseededDoc = await run('firestore.getDoc', { path: 'ledger/keep' });
+  expect((reseededDoc.data as { data: { value: number } }).data.value).toBe(1);
+
+  const readBack = await run('auth.getUser', { uid: 'checkpoint-erin' });
+  expect(readBack.ok).toBe(true);
+
+  const refusedOldName = await run('sandbox.exportFixture', {
+    path: 'fixtures/refused.json',
+    includePasswords: true,
+  });
+  expect(refusedOldName.ok).toBe(false);
+  expect(refusedOldName.summary).toContain("unknown argument 'includePasswords'");
+});
+
+it("refuses 'includePasswords' by saying passwords are already included", async () => {
+  const refused = await run('sandbox.exportFixture', {
+    path: 'fixtures/refused.json',
+    includePasswords: true,
+  });
+
+  expect(refused.ok).toBe(false);
+  expect(refused.summary).toContain('passwords');
+  expect(refused.summary).toContain('by default');
+  expect(refused.summary).toContain('excludePasswords');
+  // The near-miss suggestion would have read as a rename, which inverts what
+  // the call asked for: excluding is the opposite of including.
+  expect(refused.summary).not.toContain("names this argument 'excludePasswords'");
+  expect((refused.data as { field?: string }).field).toBe('includePasswords');
+  expect(existsSync(join(projectDir, 'fixtures', 'refused.json'))).toBe(false);
+});
+
+it('exports the seeded password by default and withholds it when asked', async () => {
+  expect(
+    (
+      await run('auth.createUser', {
+        uid: 'password-holder',
+        email: 'holder@example.com',
+        password: 'super-secret-1',
+      })
+    ).ok,
+  ).toBe(true);
+
+  const carried = await run('sandbox.exportFixture', { path: 'fixtures/with-password.json' });
+  expect(carried.ok).toBe(true);
+  expect(readFileSync(join(projectDir, 'fixtures', 'with-password.json'), 'utf8')).toContain(
+    'super-secret-1',
+  );
+
+  const withheld = await run('sandbox.exportFixture', {
+    path: 'fixtures/no-password.json',
+    excludePasswords: true,
+  });
+  expect(withheld.ok).toBe(true);
+  expect(readFileSync(join(projectDir, 'fixtures', 'no-password.json'), 'utf8')).not.toContain(
+    'super-secret-1',
+  );
+
+  // The password the fixture carried signs in after a reset; the one it
+  // withheld does not, which is the difference the flag names.
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+  expect((await run('sandbox.seedFromFixture', { path: 'fixtures/no-password.json' })).ok).toBe(
+    true,
+  );
+  await expect(
+    signInWithEmailAndPassword(getAuth(sandbox), 'holder@example.com', 'super-secret-1'),
+  ).rejects.toBeTruthy();
+
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+  expect((await run('sandbox.seedFromFixture', { path: 'fixtures/with-password.json' })).ok).toBe(
+    true,
+  );
+  const signedIn = await signInWithEmailAndPassword(
+    getAuth(sandbox),
+    'holder@example.com',
+    'super-secret-1',
+  );
+  expect(signedIn.user.uid).toBe('password-holder');
+
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+});
+
+it('resets one service without touching the others', async () => {
+  expect((await run('firestore.setDoc', { path: 'scoped/doc', data: { kept: true } })).ok).toBe(
+    true,
+  );
+  expect((await run('database.set', { path: 'scoped/value', value: 'kept' })).ok).toBe(true);
+
+  expect((await run('sandbox.reset', { scope: 'database', confirm: true })).ok).toBe(true);
+
+  const doc = await run('firestore.getDoc', { path: 'scoped/doc' });
+  expect((doc.data as { exists: boolean }).exists).toBe(true);
+  const value = await run('database.get', { path: 'scoped/value' });
+  expect((value.data as { exists: boolean }).exists).toBe(false);
+
+  expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
+});
+
 it('reports the identity every later call runs under', async () => {
   await run('auth.impersonate', { uid: 'alice', tenantId: 'tenant-a' });
   const identity = await run('auth.whoami');
@@ -335,4 +543,40 @@ it('reaches the same handler through the discriminator rendering', async () => {
   const read = await run('auth.getUser', { uid: 'carol' });
   const user = (read.data as { user: { claims?: Record<string, unknown> } }).user;
   expect(user.claims).toEqual({ role: 'auditor' });
+});
+
+// Step 3B: the persisted branches. What each one does to the world is pinned
+// in `methods/sandbox/branches.test.ts`; this block is the coverage arm, so it
+// runs every record once through its service tool.
+it('forks, applies, diffs, lists, promotes, and discards a branch', async () => {
+  await run('firestore.setDoc', { path: 'tenants/branch-base', data: { open: true } });
+
+  expect((await run('sandbox.fork', { branch: 'coverage' })).ok).toBe(true);
+  const applied = await run('sandbox.apply', {
+    branch: 'coverage',
+    events: [
+      {
+        kind: 'write',
+        method: 'set',
+        path: 'tenants/branch-staged',
+        data: { open: false },
+        auth: null,
+        requestTime: { seconds: 1_700_000_000, nanoseconds: 0 },
+      },
+    ],
+  });
+  expect(applied.ok).toBe(true);
+
+  const diffed = await run('sandbox.diff', { branch: 'coverage' });
+  expect(diffed.ok).toBe(true);
+
+  const listed = await run('sandbox.listBranches');
+  expect((listed.data as { branches: unknown[] }).branches).toHaveLength(1);
+
+  expect((await run('sandbox.promote', { branch: 'coverage', confirm: true })).ok).toBe(true);
+  const staged = await run('firestore.getDoc', { path: 'tenants/branch-staged' });
+  expect(staged.ok).toBe(true);
+
+  expect((await run('sandbox.fork', { branch: 'dropped' })).ok).toBe(true);
+  expect((await run('sandbox.discard', { branch: 'dropped' })).ok).toBe(true);
 });

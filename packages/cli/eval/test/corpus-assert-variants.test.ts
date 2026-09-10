@@ -20,21 +20,21 @@ function stateWithCalls(calls: EvalCall[]): EvalState {
 describe('query-open-invoices accepts either shape getDocs resolves to', () => {
   it('accepts a query call', () => {
     const state = stateWithCalls([
-      { operation: 'query_firestore_documents', tool: 'firestore', ok: true, schemaRejected: false },
+      { operation: 'query_firestore_documents', tool: 'firestore', ok: true, schemaRejected: false, args: {}, data: undefined },
     ]);
     expect(queryOpenInvoices.assert(state)).toBe(true);
   });
 
   it('accepts a plain listing, since getDocs without constraints lists', () => {
     const state = stateWithCalls([
-      { operation: 'list_firestore_documents', tool: 'firestore', ok: true, schemaRejected: false },
+      { operation: 'list_firestore_documents', tool: 'firestore', ok: true, schemaRejected: false, args: {}, data: undefined },
     ]);
     expect(queryOpenInvoices.assert(state)).toBe(true);
   });
 
   it('fails when the invoices collection was never reached', () => {
     const state = stateWithCalls([
-      { operation: 'get_firestore_document', tool: 'firestore', ok: true, schemaRejected: false },
+      { operation: 'get_firestore_document', tool: 'firestore', ok: true, schemaRejected: false, args: {}, data: undefined },
     ]);
     expect(queryOpenInvoices.assert(state)).not.toBe(true);
   });
@@ -46,12 +46,14 @@ describe('lint-then-simulate-fix accepts a verdict or a verified impersonated re
     tool: 'rules',
     ok: true,
     schemaRejected: false,
+    args: {},
+    data: undefined,
   };
 
   it('accepts a simulate verdict', () => {
     const state = stateWithCalls([
       lintCall,
-      { operation: 'simulate_firestore_rules', tool: 'rules', ok: true, schemaRejected: false },
+      { operation: 'simulate_firestore_rules', tool: 'rules', ok: true, schemaRejected: false, args: {}, data: undefined },
     ]);
     expect(lintThenSimulateFix.assert(state)).toBe(true);
   });
@@ -59,8 +61,8 @@ describe('lint-then-simulate-fix accepts a verdict or a verified impersonated re
   it('accepts a real read run as alice after switching identity', () => {
     const state = stateWithCalls([
       lintCall,
-      { operation: 'switch_auth_identity', tool: 'auth', ok: true, schemaRejected: false },
-      { operation: 'get_firestore_document', tool: 'firestore', ok: true, schemaRejected: false },
+      { operation: 'switch_auth_identity', tool: 'auth', ok: true, schemaRejected: false, args: {}, data: undefined },
+      { operation: 'get_firestore_document', tool: 'firestore', ok: true, schemaRejected: false, args: {}, data: undefined },
     ]);
     expect(lintThenSimulateFix.assert(state)).toBe(true);
   });
@@ -68,14 +70,14 @@ describe('lint-then-simulate-fix accepts a verdict or a verified impersonated re
   it('rejects a read that never switched identity first', () => {
     const state = stateWithCalls([
       lintCall,
-      { operation: 'get_firestore_document', tool: 'firestore', ok: true, schemaRejected: false },
+      { operation: 'get_firestore_document', tool: 'firestore', ok: true, schemaRejected: false, args: {}, data: undefined },
     ]);
     expect(lintThenSimulateFix.assert(state)).not.toBe(true);
   });
 
   it('still requires the rules to have been linted', () => {
     const state = stateWithCalls([
-      { operation: 'simulate_firestore_rules', tool: 'rules', ok: true, schemaRejected: false },
+      { operation: 'simulate_firestore_rules', tool: 'rules', ok: true, schemaRejected: false, args: {}, data: undefined },
     ]);
     expect(lintThenSimulateFix.assert(state)).not.toBe(true);
   });

@@ -1,13 +1,19 @@
 /**
- * The storage sidecar codec now lives with the headless server, which reads and
- * writes the file as part of its own session lifecycle. The eval seeds and
- * scores through the same codec, so it imports it from there.
+ * The bucket walk and the sidecar file the harness seeds and scores through.
+ *
+ * Reading a bucket out and writing one back is `bridge/surface/storage-state`,
+ * a leaf the whole surface shares. Where that state is stored between headless
+ * sessions is `bridge/server/storage-sidecar`. The harness uses both, and
+ * imports each from where it lives.
  */
 export {
-  STORAGE_SIDECAR_RELATIVE,
   listStoredPaths,
   exportStorage,
+  type StorageObjectRecord,
+} from '../src/bridge/surface/storage-state.js';
+
+export {
+  STORAGE_SIDECAR_RELATIVE,
   saveStorageSidecar,
   loadStorageSidecar,
-  type StorageObjectRecord,
 } from '../src/bridge/server/storage-sidecar.js';

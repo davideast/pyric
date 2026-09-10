@@ -1,14 +1,24 @@
 /**
- * The twelve intent tools and the route each of their discriminator values
- * takes to a canonical operation.
+ * The twelve intent tools, and the routes for the auth, data, storage, and
+ * rules families.
  *
- * A route is the whole mapping for one value of a tool's discriminator: which
- * operation runs, what the audit log stamps as the action, and how the tool's
- * arguments (JSON-encoded strings included) translate into the operation's
- * object parameters. A discriminator value with no canonical counterpart has
- * no route and resolves to no operation.
+ * A discriminator value with no canonical counterpart has no route and
+ * resolves to no operation. The sandbox-state and branch families have their
+ * own files; what a route is, and the readings every route makes of a call's
+ * arguments, is `discriminator-route-shapes.ts`. This module assembles the
+ * whole set in tool order.
  */
-import type { z } from 'zod';
+import { BRANCH_ROUTES } from './discriminator-branch-routes.js';
+import { SANDBOX_STATE_ROUTES } from './discriminator-sandbox-state-routes.js';
+import type { Args, DiscriminatorRoute, DiscriminatorTool } from './discriminator-route-shapes.js';
+import {
+  assign,
+  on,
+  onBoth,
+  parseJsonObject,
+  parseJsonValue,
+  text,
+} from './discriminator-route-shapes.js';
 import {
   configureAiMockSchema,
   controlSandboxEnvironmentSchema,
@@ -23,66 +33,6 @@ import {
   switchAuthIdentitySchema,
   verifySecurityRulesSchema,
 } from './discriminator-schemas.js';
-
-type Args = Record<string, unknown>;
-
-/** One of the twelve tools, as the client sees it. */
-export interface DiscriminatorTool {
-  name: string;
-  description: string;
-  parameters: z.ZodObject<z.ZodRawShape>;
-}
-
-/** One discriminator value's route to a canonical operation. */
-export interface DiscriminatorRoute {
-  tool: string;
-  /** The action the audit event records, or null for a tool with no discriminator. */
-  action: string | null;
-  /** Whether these arguments take this route. */
-  selects(args: Args): boolean;
-  operation: string;
-  translate(args: Args): Args;
-}
-
-function text(args: Args, key: string): string | undefined {
-  const value = args[key];
-  return typeof value === 'string' ? value : undefined;
-}
-
-/** Parse a JSON-encoded object parameter back into the object it stands for. */
-export function parseJsonObject(source: string | undefined): Record<string, unknown> | undefined {
-  if (source === undefined) return undefined;
-  const parsed = JSON.parse(source) as unknown;
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('expected a JSON object');
-  }
-  return parsed as Record<string, unknown>;
-}
-
-/** Parse a JSON-encoded value parameter back into the value it stands for. */
-export function parseJsonValue(source: string | undefined): unknown {
-  if (source === undefined) return undefined;
-  return JSON.parse(source) as unknown;
-}
-
-function assign(target: Args, key: string, value: unknown): void {
-  if (value !== undefined) target[key] = value;
-}
-
-/** A route selected by one field's value. */
-function on(field: string, value: string): (args: Args) => boolean {
-  return (args) => args[field] === value;
-}
-
-/** A route selected by two fields' values. */
-function onBoth(
-  first: string,
-  firstValue: string,
-  second: string,
-  secondValue: string,
-): (args: Args) => boolean {
-  return (args) => args[first] === firstValue && args[second] === secondValue;
-}
 
 export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
   {
@@ -142,7 +92,7 @@ export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
   {
     name: 'control_sandbox_environment',
     description:
-      'Control sandbox environment state: reset all services, advance mock clock, or simulate online/offline network connectivity.',
+      'Control sandbox environment state: reset one or all services, advance mock clock, simulate online/offline network connectivity, checkpoint and restore, page the event log, or export and load a fixture.',
     parameters: controlSandboxEnvironmentSchema,
   },
   {
@@ -496,32 +446,12 @@ function translateFirstTestCase(args: Args): Args {
   return translated;
 }
 
-const ENVIRONMENT_ROUTES: DiscriminatorRoute[] = [
-  {
-    tool: 'control_sandbox_environment',
-    action: 'reset_all',
-    selects: on('action', 'reset_all'),
-    operation: 'reset_sandbox',
-    translate: (args) => {
-      const call: Args = {};
-      assign(call, 'confirm', args.confirm);
-      return call;
-    },
-  },
-  {
-    tool: 'control_sandbox_environment',
-    action: 'seed',
-    selects: on('action', 'seed'),
-    operation: 'seed_sandbox',
-    translate: (args) => parseJsonObject(text(args, 'seedSnapshotJson')) ?? {},
-  },
-];
-
 /** Every route, in tool order. */
 export const DISCRIMINATOR_ROUTES: readonly DiscriminatorRoute[] = [
   ...AUTH_ROUTES,
   ...DATA_ROUTES,
   ...STORAGE_ROUTES,
   ...RULES_ROUTES,
-  ...ENVIRONMENT_ROUTES,
+  ...BRANCH_ROUTES,
+  ...SANDBOX_STATE_ROUTES,
 ];

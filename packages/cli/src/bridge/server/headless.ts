@@ -67,6 +67,11 @@ export interface HeadlessMcpServerOptions extends LocalBridgeOptions {
   /** Tool-surface variant id. Absent serves the default surface. */
   surface?: string;
   /**
+   * Directory the session's `.pyric/` files live under, handed to every method
+   * that reaches the filesystem. Absent, the process working directory.
+   */
+  projectDir?: string;
+  /**
    * Mount `production` methods (ADR-0014 Decision 5). Defaults to false: a
    * `production` method is neither listed nor callable unless the server was
    * started with `--allow-production`.
@@ -112,7 +117,8 @@ export function buildHeadlessMcpServer(sandbox: LocalSandbox, opts?: HeadlessMcp
   // rather than measuring the wrong surface.
   const rendered = renderSurface(opts?.surface, { allowProduction: opts?.allowProduction });
   const server = new McpServer({ name: 'pyric', version: bridge.version });
-  return registerRenderedSurface(server, bridge, rendered, createSurfaceContext(sandbox), {
+  const surfaceContext = createSurfaceContext(sandbox, opts?.projectDir ?? process.cwd());
+  return registerRenderedSurface(server, bridge, rendered, surfaceContext, {
     onCallRejected: onCallRejected ? rejectionEvent : undefined,
     onAfterCall: opts?.onAfterDispatch,
   });
@@ -319,6 +325,7 @@ export async function runHeadlessMcp(
     onAfterDispatch: scheduleSave,
     surface: options.surface,
     allowProduction: options.allowProduction,
+    projectDir,
   };
   // A surface id no renderer claims is a start-up failure, not a per-call one:
   // serving the wrong surface would silently mislabel a whole run.

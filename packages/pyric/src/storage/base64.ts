@@ -20,3 +20,16 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   }
   return btoa(binary);
 }
+
+/** Decode standard base64 back to the bytes {@link arrayBufferToBase64} encoded. */
+export function base64ToBytes(encoded: string): Uint8Array {
+  if (typeof Buffer === 'function' && typeof Buffer.from === 'function') {
+    return Uint8Array.from(Buffer.from(encoded, 'base64'));
+  }
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}

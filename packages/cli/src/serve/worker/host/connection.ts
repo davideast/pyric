@@ -4,17 +4,25 @@
  * The worker-lifecycle surface the client's `connection` family talks to:
  *   - `getVersion` (build hash + per-worker instance id),
  *   - full-state transfer (`exportState`/`importState`, the portable bundle),
- *   - named branches (`saveBranch`/`listBranches`/`switchBranch`/`deleteBranch`,
- *     saved-state bundles in the RAW idb).
+ *   - named saved states (`checkpoint`/`listCheckpoints`/`restore`/
+ *     `deleteCheckpoint`, whole sandbox states in the RAW idb).
  *
- * Owns the stable per-worker instance id (persisted to the raw idb) and the
- * branch registry helpers. `getOrCreateInstanceId` is imported by serve-init;
- * the instance-id + branch constants/helpers are part of the host's public
- * surface (re-exported by the host barrel). Never imports the dispatcher.
+ * Owns the stable per-worker instance id (persisted to the raw idb).
+ * `getOrCreateInstanceId` is imported by serve-init; the instance-id helpers
+ * are part of the host's public surface (re-exported by the host barrel).
+ * Never imports the dispatcher.
  */
 
 import type { PersistenceBackend } from 'pyric/sandbox';
 import { serializeToBuckets, bundleRecords, parseBundle, deserializeFromBuckets } from 'pyric/sandbox';
+import {
+  listCheckpoints,
+  recordCheckpointBackend,
+  removeCheckpoint,
+  restoreNamedCheckpoint,
+  saveCheckpoint,
+  type CheckpointBackend,
+} from 'pyric/sandbox/checkpoints';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
@@ -56,34 +64,29 @@ export async function getOrCreateInstanceId(idb: PersistenceBackend): Promise<st
   return id;
 }
 
-// ── Phase 3: named branches ─────────────────────────────────────────────────
-// A branch is a named saved state bundle in the RAW idb (local-only, like the
-// instance id + session; it must NEVER reach the committable server file). They
-// let one instance keep several named states it can switch between
-// (switchBranch = loadSnapshot the bundle, a clobber). A registry record holds
-// the ordered name list, since the backend lists records WITHIN a key, not keys.
-export const BRANCH_PREFIX = 'pyric:worker:branch:';
-export const BRANCH_REGISTRY_KEY = 'pyric:worker:branches';
+// ── Named saved states ──────────────────────────────────────────────────────
+// A checkpoint is a named full sandbox state kept in the RAW idb (local-only,
+// like the instance id and the session record; it must NEVER reach the
+// committable server file). They let one instance keep several named states it
+// can go back to (`restore` is a clobber). What a checkpoint holds, how it is
+// named, and how a store keeps one is decided in `pyric/sandbox/checkpoints`,
+// so a state a page saves and a state the CLI saves are the same value.
 
-export async function listBranchNames(idb?: PersistenceBackend): Promise<string[]> {
-  if (!idb) return [];
-  const rec = (await idb.getRecord(BRANCH_REGISTRY_KEY, 'names')) as { value?: string[] } | undefined;
-  return Array.isArray(rec?.value) ? rec.value : [];
+/** Where this worker keeps its checkpoints, or nothing when it has no store. */
+function checkpointsOf(ctx: HostCtx): CheckpointBackend | null {
+  if (!ctx.sessionBackend) return null;
+  return recordCheckpointBackend(ctx.sessionBackend);
 }
 
-async function writeBranchRegistry(idb: PersistenceBackend, names: string[]): Promise<void> {
-  await idb.putRecords(BRANCH_REGISTRY_KEY, new Map([['names', { value: names }]]));
-}
-
-/** The connection/state/branch op methods routed to {@link handleConnectionOp}. */
+/** The connection, state-transfer, and checkpoint methods routed here. */
 const CONNECTION_METHODS = new Set<string>([
   'getVersion',
   'exportState',
   'importState',
-  'saveBranch',
-  'listBranches',
-  'switchBranch',
-  'deleteBranch',
+  'checkpoint',
+  'listCheckpoints',
+  'restore',
+  'deleteCheckpoint',
 ]);
 
 export function isConnectionOp(method: OpMessage['method']): boolean {
@@ -126,49 +129,52 @@ export async function handleConnectionOp(
       break;
     }
 
-    case 'saveBranch': {
-      // Phase 3: snapshot the live sandbox into a named branch bundle (raw idb).
-      if (!ctx.sessionBackend) {
+    case 'checkpoint': {
+      // Capture the whole sandbox under a name, replacing whatever it held.
+      const backend = checkpointsOf(ctx);
+      if (backend === null) {
         ok(port, msg.id, { ok: false, error: 'no persistence backend' });
         break;
       }
-      const snap = ctx.sandbox.snapshot();
-      const bundle = bundleRecords(serializeToBuckets(snap.firestore, snap.services, 0));
-      await ctx.sessionBackend.putRecords(BRANCH_PREFIX + msg.name, new Map([['bundle', { value: bundle }]]));
-      const names = await listBranchNames(ctx.sessionBackend);
-      if (!names.includes(msg.name)) await writeBranchRegistry(ctx.sessionBackend, [...names, msg.name]);
-      ok(port, msg.id, { ok: true });
+      const saved = await saveCheckpoint(backend, msg.name, ctx.sandbox);
+      ok(port, msg.id, { ok: true, at: saved.checkpoint.at, counts: saved.checkpoint.counts });
       break;
     }
 
-    case 'listBranches': {
-      ok(port, msg.id, { branches: await listBranchNames(ctx.sessionBackend) });
-      break;
-    }
-
-    case 'switchBranch': {
-      // Phase 3: loadSnapshot the named branch bundle (a clobber).
-      const rec = ctx.sessionBackend
-        ? ((await ctx.sessionBackend.getRecord(BRANCH_PREFIX + msg.name, 'bundle')) as { value?: string } | undefined)
-        : undefined;
-      if (!rec?.value) {
-        ok(port, msg.id, { ok: false, error: `no such branch: ${msg.name}` });
+    case 'listCheckpoints': {
+      const backend = checkpointsOf(ctx);
+      if (backend === null) {
+        ok(port, msg.id, { checkpoints: [] });
         break;
       }
-      ctx.sandbox.loadSnapshot(deserializeFromBuckets(parseBundle(rec.value)));
-      ok(port, msg.id, { ok: true });
+      ok(port, msg.id, { checkpoints: await listCheckpoints(backend) });
       break;
     }
 
-    case 'deleteBranch': {
-      if (ctx.sessionBackend) {
-        await ctx.sessionBackend.clear(BRANCH_PREFIX + msg.name);
-        await writeBranchRegistry(
-          ctx.sessionBackend,
-          (await listBranchNames(ctx.sessionBackend)).filter((n) => n !== msg.name),
-        );
+    case 'restore': {
+      // Replace the whole sandbox with the named checkpoint (a clobber).
+      const backend = checkpointsOf(ctx);
+      if (backend === null) {
+        ok(port, msg.id, { ok: false, error: 'no persistence backend' });
+        break;
       }
-      ok(port, msg.id, { ok: true });
+      const restored = await restoreNamedCheckpoint(backend, msg.name, ctx.sandbox);
+      if (restored === null) {
+        ok(port, msg.id, { ok: false, error: `no such checkpoint: ${msg.name}` });
+        break;
+      }
+      ok(port, msg.id, { ok: true, at: restored.at, counts: restored.counts });
+      break;
+    }
+
+    case 'deleteCheckpoint': {
+      const backend = checkpointsOf(ctx);
+      if (backend === null) {
+        ok(port, msg.id, { ok: false, error: 'no persistence backend' });
+        break;
+      }
+      const removed = await removeCheckpoint(backend, msg.name);
+      ok(port, msg.id, { ok: removed });
       break;
     }
 

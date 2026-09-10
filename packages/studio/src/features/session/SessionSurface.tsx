@@ -15,16 +15,18 @@ import { useState, useRef, type ChangeEvent } from 'react';
 import { ActivityActionItems, ActivityGrid, useActivityDigest } from '@pyric/ui/events';
 import type { ActivityRow, AnyActivityEvent } from '@pyric/ui/events';
 import { useDataNav, parseDocPath } from '../data/navigation.js';
+import { useStudioEvents } from '../../shell/studio-events.js';
 import {
-  useStudioEvents,
-  useStudioReset,
   useSandboxInstanceId,
   useStudioExport,
   useStudioImport,
-  useStudioBranches,
-} from '../../shell/studio-data.js';
+  useSavedStates,
+  type StudioSavedStates,
+} from '../../shell/studio-saved-states.js';
+import { useStudioReset } from '../../shell/studio-writes.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import { useProposals, focusProposal } from '../proposals/proposals.js';
+import { usePersistedBranches } from '../proposals/persisted-branches.js';
 import '../proposals/proposals.css';
 import './session.css';
 
@@ -41,6 +43,7 @@ export function SessionSurface() {
   const slug = instanceSlug(useSandboxInstanceId());
   const nav = useDataNav();
   const { open: proposals } = useProposals();
+  const persistedBranches = usePersistedBranches();
 
   // Transfer (Phase 2): export this sandbox's full state to a file, or import
   // (clobber) another instance's file into this one. Both are no-ops in review
@@ -79,25 +82,30 @@ export function SessionSurface() {
     }
   };
 
-  // Named branches (Phase 3): saved states of THIS instance you can switch
-  // between. Switch is a clobber, so it confirms; save prompts for a name.
-  const branches = useStudioBranches();
-  const onSaveBranch = async () => {
-    const name = typeof window !== 'undefined' ? window.prompt('Save current sandbox as a branch named:')?.trim() : '';
-    if (name) await branches.save(name);
+  // Saved states of THIS instance, which you can go back to. Save prompts for
+  // a name; restore is a clobber and delete discards the only copy of a state,
+  // so both confirm first.
+  const savedStates: StudioSavedStates = useSavedStates();
+  const onSaveState = async () => {
+    if (typeof window === 'undefined') return;
+    const answered = window.prompt('Save current sandbox as a state named:');
+    if (answered === null) return;
+    const name = answered.trim();
+    if (name === '') return;
+    await savedStates.save(name);
   };
-  const onSwitchBranch = async (name: string) => {
+  const onRestoreState = async (name: string) => {
     if (
       typeof window !== 'undefined' &&
-      !window.confirm(`Switch to branch "${name}"? This REPLACES the current sandbox state.`)
+      !window.confirm(`Restore saved state "${name}"? This REPLACES the current sandbox state.`)
     ) {
       return;
     }
-    await branches.switchTo(name);
+    await savedStates.restore(name);
   };
-  const onDeleteBranch = async (name: string) => {
-    if (typeof window !== 'undefined' && !window.confirm(`Delete branch "${name}"?`)) return;
-    await branches.remove(name);
+  const onDeleteState = async (name: string) => {
+    if (typeof window !== 'undefined' && !window.confirm(`Delete saved state "${name}"?`)) return;
+    await savedStates.remove(name);
   };
 
   const denialCount = digest.denials.length;
@@ -175,8 +183,8 @@ export function SessionSurface() {
             style={{ display: 'none' }}
             onChange={onImportFile}
           />
-          <button type="button" className="session__reset" onClick={onSaveBranch}>
-            Save branch
+          <button type="button" className="session__reset" onClick={onSaveState}>
+            Save state
           </button>
           <button
             type="button"
@@ -196,18 +204,18 @@ export function SessionSurface() {
         </span>
       </div>
 
-      {/* Named branches (Phase 3): saved states of THIS instance. Switching is a
-          clobber; the bundles live in the worker's local IDB. */}
-      {branches.branches.length > 0 ? (
-        <div className="session__branches">
-          <span className="session__branches-label">Branches</span>
-          {branches.branches.map((name) => (
-            <span key={name} className="session__branch">
-              <span className="session__branch-name mono">{name}</span>
-              <button type="button" className="session__reset" onClick={() => onSwitchBranch(name)}>
-                Switch
+      {/* Saved states of THIS instance. Restoring is a clobber; the states
+          live in the worker's local IDB. */}
+      {savedStates.names.length > 0 ? (
+        <div className="session__saved-states">
+          <span className="session__saved-states-label">Saved states</span>
+          {savedStates.names.map((name) => (
+            <span key={name} className="session__saved-state">
+              <span className="session__saved-state-name mono">{name}</span>
+              <button type="button" className="session__reset" onClick={() => onRestoreState(name)}>
+                Restore
               </button>
-              <button type="button" className="session__reset" onClick={() => onDeleteBranch(name)}>
+              <button type="button" className="session__reset" onClick={() => onDeleteState(name)}>
                 Delete
               </button>
             </span>
@@ -237,6 +245,31 @@ export function SessionSurface() {
                 >
                   Review →
                 </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Branches on disk: a change staged through the sandbox tool, which
+          outlives this tab because it is a directory under
+          `.pyric/state/branches/` rather than state this page holds. */}
+      {persistedBranches.length > 0 ? (
+        <section className="session__panel session__panel--attention">
+          <header className="session__head">
+            <h2 className="session__title">Branches on disk</h2>
+            <span className="session__count">{persistedBranches.length}</span>
+          </header>
+          <div className="session__actions">
+            {persistedBranches.map((branch) => (
+              <div key={branch.name} className="session__staged-item">
+                <div className="session__staged-what">
+                  <div className="session__staged-title">{branch.name}</div>
+                  <div className="session__staged-meta">
+                    forked {new Date(branch.created).toLocaleString()} from {branch.base} ·{' '}
+                    {branch.eventCount} events · {branch.divergences} documents differ from live
+                  </div>
+                </div>
               </div>
             ))}
           </div>

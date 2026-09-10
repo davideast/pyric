@@ -8,7 +8,8 @@
  * No playground tool is lifted: the verification rides the in-repo rerun engine.
  */
 
-import { fork, discard, type SandboxSnapshot } from 'pyric/sandbox';
+import { discard, type SandboxSnapshot } from 'pyric/sandbox';
+import { forkFromSavedState } from '../../shell/saved-state-branches.js';
 import type { ToolHandler, ToolResult } from '@inbrowser/agent';
 import { rerunAgainstRules, issueOp } from '../rules-debug/rerun.js';
 import type { Denial as ModelDenial } from '../rules-debug/model.js';
@@ -98,7 +99,7 @@ export function makeTestRulesEditTool(deps: TestRulesEditDeps): ToolHandler {
       // 2. Regression: re-run a sample of recently-allowed ops under the edit.
       const regressions: string[] = [];
       for (const op of deps.recentOps.slice(0, 8)) {
-        const branch = fork(snap, rules);
+        const branch = await forkFromSavedState(snap, rules);
         try {
           const r = await issueOp(branch.sandbox, op);
           if (r.outcome === 'deny') regressions.push(`${op.method} ${op.path}`);

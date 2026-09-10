@@ -51,10 +51,23 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `list_rules_stdlib` | list | rules | stdlib | none | |
 | `get_rules_stdlib` | get | rules | stdlib | `module` | |
 | `inspect_sandbox` | inspect | sandbox | state | none | Counts and status per service. |
-| `reset_sandbox` | reset | sandbox | state | none | |
+| `reset_sandbox` | reset | sandbox | state | `scope?` (`all`, `firestore`, `database`, `storage`, `auth`), `confirm` | `scope` narrows the reset to one service; default is `all`. |
 | `seed_sandbox` | seed | sandbox | state | `users?`, `firestore?`, `database?`, `storage?`, `firestoreRules?`, `databaseRules?`, `storageRules?` | Matches `EvalSeed`. Any other top-level key is rejected. |
+| `checkpoint_sandbox` | checkpoint | sandbox | state | `name` | Saves the whole sandbox under a name. Overwrites a checkpoint of the same name. |
+| `restore_sandbox` | restore | sandbox | state | `name`, `confirm` | Replaces the live sandbox with a named checkpoint. |
+| `list_sandbox_checkpoints` | list | sandbox | checkpoints | none | Names, save time, and per-service counts. |
+| `delete_sandbox_checkpoint` | delete | sandbox | checkpoints | `name` | Removes one checkpoint. The sandbox is untouched. |
+| `list_sandbox_events` | list | sandbox | events | `since?`, `limit?`, `kind?` (`all`, `denials`, `writes`) | Cursor-paged operation log; the result carries `nextCursor`. |
+| `export_sandbox_fixture` | export | sandbox | fixture | `path`, `excludePasswords?` | Writes a seed fixture file. The seeded passwords are carried unless `excludePasswords: true`. |
+| `seed_sandbox_fixture` | seed | sandbox | fixture | `path` | Loads a fixture written by `export_sandbox_fixture` on top of live state. |
+| `fork_sandbox_branch` | fork | sandbox | branch | `branch`, `candidateRules?` (a Firestore rules string, or an object naming `firestore`, `database`, and `storage`) | Copies the whole live sandbox into a persisted branch under `.pyric/state/branches/<branch>/`. |
+| `apply_sandbox_events` | apply | sandbox | events | `branch`, `events?` (array), `sessionPath?` | Exactly one of `events` and `sessionPath`; naming neither is refused. |
+| `diff_sandbox_branch` | diff | sandbox | branch | `branch`, `against?` (`live` or a checkpoint name) | Defaults to `live`. Every divergence names its service, and the result carries per-service counts. |
+| `promote_sandbox_branch` | promote | sandbox | branch | `branch`, `confirm` | Destructive: lands the branch on live and deletes it. |
+| `discard_sandbox_branch` | discard | sandbox | branch | `branch` | Deletes the branch; live is untouched. |
+| `list_sandbox_branches` | list | sandbox | branches | none | Name, created, base, event count, and divergences against live. |
 
-Forty-one operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of any parameter schema is at most two object levels below the root.
+Fifty-three operations. Parameter objects are real nested JSON objects, never JSON-encoded strings. Nesting depth of any parameter schema is at most two object levels below the root.
 
 ## 2. Surface variants
 
@@ -79,7 +92,7 @@ The variant is selected at server start by `pyric mcp --surface <variant-id>` or
 
 The headless server records one event per tool call through the bridge's existing `recordToolEvent` seam. When the environment variable `PYRIC_EVAL_LOG` names a file, events append there as NDJSON, one object per line, and nothing is written to the per-project audit log. When it is absent, behavior is unchanged.
 
-Effect enforcement (ADR-0014 Decision 5) runs once, in `method-validation.ts`'s `validateArguments`, which both the MCP dispatch path and `pyric <tool> <method>` call. A `destructive` method (today only `sandbox.reset`) is refused unless `args.confirm === true`; the refusal is an ordinary `InvalidArguments` rejection naming the field `confirm`. A `production` method is not mounted: it is absent from `tools/list`, `describe` does not answer for it, and a call naming it is refused, unless the headless server was started with `--allow-production` (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`, with the flag winning). The harness passes the flag nowhere, and it deletes `PYRIC_ALLOW_PRODUCTION` from the environment of every process it spawns, so the variable a maintainer has set for their own session cannot reach a run and a `production` method never mounts in one.
+Effect enforcement (ADR-0014 Decision 5) runs once, in `method-validation.ts`'s `validateArguments`, which both the MCP dispatch path and `pyric <tool> <method>` call. A `destructive` method (today `sandbox.reset`, `sandbox.restore`, and `sandbox.promote`) is refused unless `args.confirm === true`; the refusal is an ordinary `InvalidArguments` rejection naming the field `confirm`. A `production` method is not mounted: it is absent from `tools/list`, `describe` does not answer for it, and a call naming it is refused, unless the headless server was started with `--allow-production` (or `PYRIC_ALLOW_PRODUCTION` set to `1` or `true`, with the flag winning). The harness passes the flag nowhere, and it deletes `PYRIC_ALLOW_PRODUCTION` from the environment of every process it spawns, so the variable a maintainer has set for their own session cannot reach a run and a `production` method never mounts in one.
 
 Event shape (a superset of today's `BridgeToolEvent`):
 
@@ -198,7 +211,29 @@ For each run the runner:
 
 `--dry-run` prepares everything, prints the run, workspace and state directories with the invocation, and spawns nothing.
 
-A fourth provider, `providers/fake.ts`, replays a canned transcript against the real headless server so the whole pipeline is testable without a model.
+A fourth provider, `providers/fake.ts`, replays a canned transcript against the real headless server so the whole pipeline is testable without a model. `--transcripts <file>` selects it and reads one canned call list per task id; the call lists live under `eval/transcripts/`, named by the family of tasks they drive. The branch family sweeps with:
+
+```
+bun packages/cli/eval/run.ts \
+  --rows claude-fable-5-1-low-mcp-only \
+  --tasks stage-a-plan-then-walk-away,promote-the-reviewed-branch,throw-away-the-experiment-branch,list-the-open-branches,diff-against-a-checkpoint-that-is-not-there \
+  --variants sdk-service \
+  --transcripts packages/cli/eval/transcripts/sandbox-branches.json \
+  --no-wait --min-gap 0
+bun packages/cli/eval/report.ts <results>/runs.ndjson
+```
+
+The checkpoint, event, and fixture family sweeps the same way:
+
+```
+bun packages/cli/eval/run.ts \
+  --rows claude-fable-5-1-low-mcp-only \
+  --tasks checkpoint-before-cleanup-then-restore,clear-database-only-leave-firestore,export-fixture-then-reload-after-reset,list-checkpoints-restore-after-import,page-through-events-after-a-burst \
+  --variants sdk-service \
+  --transcripts packages/cli/eval/transcripts/sandbox-state.json \
+  --no-wait --min-gap 0
+bun packages/cli/eval/report.ts <results>/runs.ndjson
+```
 
 Pacing: one CLI process at a time per CLI, a configurable minimum gap between spawns per CLI, and a per-CLI budget per five-hour window; a rejected or rate-limited run is recorded with outcome `throttled`, not retried.
 

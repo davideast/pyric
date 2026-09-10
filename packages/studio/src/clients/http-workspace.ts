@@ -9,6 +9,7 @@
  * the `?path=` query.
  */
 import type {
+  WorkspaceBranch,
   WorkspaceChange,
   WorkspaceEntry,
   WorkspaceStore,
@@ -124,6 +125,13 @@ export function httpWorkspace(
       const res = await fetch(joinUrl(base, `/__pyric/workspace/list${q}`), { headers });
       if (!res.ok) throw new Error(`workspace.list(${dir ?? ''}) → ${res.status}`);
       return (await res.json()) as WorkspaceEntry[];
+    },
+
+    async branches() {
+      const headers = await getAuthHeaders(false);
+      const res = await fetch(joinUrl(base, '/__pyric/workspace/branches'), { headers });
+      if (!res.ok) throw new Error(`workspace.branches() → ${res.status}`);
+      return (await res.json()) as WorkspaceBranch[];
     },
 
     async remove(path) {

@@ -1,7 +1,7 @@
 /**
  * Settings surface styling: the two-column settings grid, the sandbox card
- * (live instance/inventory/persistence + branch actions), and the
- * choice/panel/branch primitives the surface renders. Imported by
+ * (live instance, inventory, persistence, and saved-state actions), and the
+ * choice, panel, and saved-state primitives the surface renders. Imported by
  * `SettingsSurface.tsx`, the only consumer of these classes.
  *
  * This file's own `@media (max-width: 760px)` block is last, so it overrides
@@ -12,7 +12,7 @@
 }
 
 .studio-settings__actions,
-.studio-settings__branch-actions {
+.studio-settings__saved-state-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -70,7 +70,7 @@
   line-height: 1.45;
 }
 .studio-settings__row,
-.studio-settings__branch {
+.studio-settings__saved-state {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -87,7 +87,7 @@
 .studio-settings__file {
   display: none;
 }
-.studio-settings__branches {
+.studio-settings__saved-states {
   display: grid;
   gap: 8px;
   padding-top: 4px;
@@ -169,7 +169,7 @@
   line-height: 1.45;
 }
 
-/* Transient rows: inline branch naming, inline reset confirm (no modals). */
+/* Transient rows: inline saved-state naming, inline reset confirm (no modals). */
 .studio-sandbox__name-row {
   display: flex;
   flex-wrap: wrap;
@@ -210,7 +210,7 @@
   display: inline-flex;
   gap: 8px;
 }
-.studio-sandbox__branches-empty {
+.studio-sandbox__saved-states-empty {
   margin: 0;
   color: var(--faint);
   font-size: var(--fs-label);
@@ -222,7 +222,7 @@
   }
 
   .studio-settings__row,
-  .studio-settings__branch {
+  .studio-settings__saved-state {
     align-items: stretch;
     flex-direction: column;
   }

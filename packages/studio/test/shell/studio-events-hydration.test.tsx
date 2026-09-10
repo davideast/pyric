@@ -96,7 +96,7 @@ describe('useStudioEvents first-open hydration (issue #364)', () => {
     const shim = installWorkerShim(HISTORY);
     try {
       const { EnvironmentProvider } = await import('../../src/shell/environment.js');
-      const { useStudioEvents } = await import('../../src/shell/studio-data.js');
+      const { useStudioEvents } = await import('../../src/shell/studio-events.js');
 
       function Probe() {
         const events = useStudioEvents();

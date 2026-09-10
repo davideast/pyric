@@ -13,6 +13,13 @@ import { serverEntry, serverEnv } from './server-env.js';
 
 export const FAKE_PLAN_FILE = 'fake-plan.json';
 
+/**
+ * The placeholder a canned argument uses for a value only the run can know.
+ * The replay client substitutes the most recent `nextCursor` a call returned,
+ * which is how a transcript pages a log it has not read yet.
+ */
+export const NEXT_CURSOR = '<nextCursor>';
+
 /** One canned call. The tool name is whatever the variant under test renders. */
 export interface FakeCall {
   tool: string;

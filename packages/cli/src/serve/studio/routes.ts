@@ -128,6 +128,16 @@ async function handleWorkspace(
     return;
   }
 
+  // ── branches ─────────────────────────────────────────────────────────
+  if (url.pathname === '/__pyric/workspace/branches') {
+    if (req.method !== 'GET') {
+      res.writeHead(405, { allow: 'GET' }).end('method not allowed');
+      return;
+    }
+    sendJson(res, 200, await ws.branches());
+    return;
+  }
+
   // ── read / write / remove a single path ──────────────────────────────
   const path = url.searchParams.get('path');
   if (path === null) {

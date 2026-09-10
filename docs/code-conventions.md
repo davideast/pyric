@@ -255,6 +255,8 @@ packages/pyric/src/sandbox/
   tab-sync/           cross-tab realtime over BroadcastChannel
   replay/             re-issue a captured session against a fresh sandbox
   branches/           fork / apply / diff / promote / discard
+  checkpoints/        named saved states over a pluggable backend
+  full-state.ts       capture and apply the whole sandbox as one value
   remote.ts           remote-sandbox brand + channel contract
 ```
 
@@ -377,9 +379,23 @@ Today's sideways edges, enumerated:
    integration test importing surface barrels to exercise their public service
    factories. Test-only composition is the intended direction. Not a violation.
 
+5. **sandbox/full-state.ts and sandbox/branches/* -> the surfaces, upward.**
+   Capturing, applying, forking, and promoting the whole sandbox has to read and
+   write every service, so these three modules depend upward on the surfaces
+   rather than downward on the runtime. Ruling: permitted, because the
+   alternative is each surface knowing how to serialize itself into a shared
+   value, which would put the definition of "everything the sandbox holds" in
+   five places instead of one. The edge is narrow: each surface is reached only
+   through its published barrel (`pyric/auth`, `pyric/storage`), its published
+   host seam (`pyric/storage/internal`), or the `database/sandbox` backend
+   accessor, never through a family file or a backend internal. The auth account
+   store is reached through the `sandbox` namespace `pyric/auth` exports, so no
+   consumer of a full state holds an auth backend handle. Encode narrowly (8.7
+   check 2, exception (f)).
+
 No mirror surface imports another mirror surface's family or backend files. The
 direction rule holds today except for the documented native-engine and
-shared-syntax edges above (cases 1–3).
+shared-syntax edges above (cases 1–3) and the whole-sandbox state edge (case 5).
 
 ## 8.4 Native (non-mirror) surfaces
 
@@ -481,12 +497,17 @@ every rule in this section mechanically.
    `rules/simulator/wrappers/float.js` (8.3 case 2's misfiled shared primitive,
    second consumer — dissolves with the shared-leaf move); (e)
    `storage/service.ts` importing the browser-safe module compiler
-   `rules/modules/resolver-browser.js` (8.3 case 3, compile-only). Any other
-   cross-surface deep import fails.
+   `rules/modules/resolver-browser.js` (8.3 case 3, compile-only); (f) the
+   cross-surface state modules `sandbox/full-state.ts`,
+   `sandbox/branches/promotion.ts`, and `sandbox/branches/engine.ts` importing
+   the `pyric/auth`, `pyric/storage`, and `pyric/storage/internal` published
+   surfaces and the `database/sandbox` backend seam (8.3 case 5, upward). Any
+   other cross-surface deep import fails.
 
 3. **Central-sandbox whitelist.** The top-level entries of `src/sandbox/` must
    match the whitelist in 8.2 (`index.ts`, `internal`, `sandbox-context.ts`,
-   `types`, `persistence`, `tab-sync`, `replay`, `branches`, `remote.ts`). Any
+   `types`, `persistence`, `tab-sync`, `replay`, `branches`, `checkpoints`,
+   `full-state.ts`, `remote.ts`). Any
    entry that names a capability (`firestore`, `admin-firestore`, `admin-compat`,
    `auth`, ...) fails. This is the check that keeps firestore's backend from
    drifting back in, and that fails today until the firestore move lands.
