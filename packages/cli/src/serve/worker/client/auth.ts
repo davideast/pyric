@@ -56,6 +56,11 @@ export interface ClientUserCredential {
   user: ClientUser;
   providerId: string | null;
   operationType: 'signIn' | 'reauthenticate' | 'link';
+  additionalUserInfo?: {
+    readonly isNewUser: boolean;
+    readonly profile: Record<string, unknown>;
+    readonly providerId: string | null;
+  };
 }
 
 /**
@@ -250,7 +255,12 @@ export async function restorePortSession(
 function hydrateCred(auth: ClientAuth, raw: SerializedUserCredential): ClientUserCredential {
   const user = makeClientUser(auth.port, raw.user);
   auth.currentUser = user;
-  return { user, providerId: raw.providerId, operationType: raw.operationType };
+  return {
+    user,
+    providerId: raw.providerId,
+    operationType: raw.operationType,
+    additionalUserInfo: raw.additionalUserInfo,
+  };
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────
@@ -389,6 +399,7 @@ export async function updateCurrentUser(
 ): Promise<void> {
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.updateCurrentUser', uid: user?.uid ?? null,
+    tenantId: user?.tenantId ?? auth.tenantId ?? null,
   })) as SerializedUser | null;
   auth.currentUser = toClientUser(auth.port, raw);
 }

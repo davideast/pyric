@@ -19,6 +19,8 @@ import {
   type HostCtx,
   type PortLike,
 } from '../host.js';
+import { portSession } from '../host-auth.js';
+import { remintSessionWithClaims } from '../host/auth-session-seeder.js';
 import type {
   InboundMessage,
   OutboundMessage,
@@ -100,7 +102,7 @@ async function createTestHarness() {
   const clientRtdb: ClientRtdb = { __kind: 'client-rtdb', port: clientPort };
   const clientAuth = getClientAuth(clientDb);
 
-  return { ctx, sandbox, clientPort, clientDb, clientRtdb, clientAuth };
+  return { ctx, sandbox, clientPort, hostPort, clientDb, clientRtdb, clientAuth };
 }
 
 describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
@@ -409,4 +411,267 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     unsubAuthState();
     unsubIdToken();
   });
+
+  it('8. handles Flutter client wire payloads sending newEmail and newPassword on auth.updateEmail and auth.updatePassword', async () => {
+    const { ctx, clientAuth } = await createTestHarness();
+    const cred = await createUserWithEmailAndPassword(clientAuth, 'flutter-old@example.com', 'oldPass123');
+    expect(cred.user.email).toBe('flutter-old@example.com');
+
+    const sentMessages: OutboundMessage[] = [];
+    const testPort: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        sentMessages.push(msg);
+      },
+    };
+
+    // First restore the user session on testPort
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'restore-op',
+      method: 'auth.restorePortSession',
+      uid: cred.user.uid,
+    });
+
+    // Send Flutter wire format { method: 'auth.updateEmail', newEmail: 'flutter-new@example.com' }
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'flutter-email-op',
+      method: 'auth.updateEmail',
+      newEmail: 'flutter-new@example.com',
+    } as unknown as InboundMessage);
+
+    const emailRes = sentMessages.find((m) => m.t === 'res' && m.id === 'flutter-email-op') as {
+      t: 'res';
+      id: string;
+      ok: boolean;
+      value?: { email: string };
+    };
+    expect(emailRes?.ok).toBe(true);
+    expect(emailRes?.value?.email).toBe('flutter-new@example.com');
+  });
+
+  it('9. auth.tenantId propagates through auth.signInWithCredential to user.tenantId', async () => {
+    const { ctx } = await createTestHarness();
+    const sentMessages: OutboundMessage[] = [];
+    const testPort: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        sentMessages.push(msg);
+      },
+    };
+
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'oauth-tenant-op',
+      method: 'auth.signInWithCredential',
+      credential: {
+        providerId: 'google.com',
+        idToken: 'token-oauth-999',
+        email: 'oauth-tenant@example.com',
+      },
+      tenantId: 'tenant-oauth-1',
+    } as unknown as InboundMessage);
+
+    const oauthRes = sentMessages.find((m) => m.t === 'res' && m.id === 'oauth-tenant-op') as {
+      t: 'res';
+      id: string;
+      ok: boolean;
+      value?: { user: { tenantId?: string | null } };
+    };
+    expect(oauthRes?.ok).toBe(true);
+    expect(oauthRes?.value?.user?.tenantId).toBe('tenant-oauth-1');
+  });
+
+  it('10. multi-tenant user retains tenantId across reload, updateEmail, updatePassword, and updateCurrentUser', async () => {
+    const { ctx, hostPort, clientAuth } = await createTestHarness();
+
+    clientAuth.tenantId = 'tenant-corp';
+    const cred = await createUserWithEmailAndPassword(clientAuth, 'tenant-user@example.com', 'initialPass123');
+    const user = cred.user;
+    expect(user.tenantId).toBe('tenant-corp');
+
+    // reload
+    authSandboxOps.updateUser(ctx.auth!, user.uid, { displayName: 'Tenant User Reloaded' });
+    await reload(user);
+    expect(user.displayName).toBe('Tenant User Reloaded');
+    expect(user.tenantId).toBe('tenant-corp');
+    const sessionAfterReload = portSession(ctx, hostPort);
+    expect(sessionAfterReload?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterReload?.state.tenant).toBe('tenant-corp');
+
+    // updateEmail
+    await updateEmail(user, 'tenant-user-updated@example.com');
+    expect(user.email).toBe('tenant-user-updated@example.com');
+    const sessionAfterEmail = portSession(ctx, hostPort);
+    expect(sessionAfterEmail?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterEmail?.state.tenant).toBe('tenant-corp');
+
+    // updatePassword
+    await updatePassword(user, 'newTenantPass789');
+    const sessionAfterPassword = portSession(ctx, hostPort);
+    expect(sessionAfterPassword?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterPassword?.state.tenant).toBe('tenant-corp');
+
+    // updateCurrentUser
+    await updateCurrentUser(clientAuth, null);
+    expect(clientAuth.currentUser).toBeNull();
+    await updateCurrentUser(clientAuth, user);
+    expect(clientAuth.currentUser?.tenantId).toBe('tenant-corp');
+    const sessionAfterUpdateCurrent = portSession(ctx, hostPort);
+    expect(sessionAfterUpdateCurrent?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterUpdateCurrent?.state.tenant).toBe('tenant-corp');
+
+    // updateCurrentUser on a second port with un-set clientAuth.tenantId
+    let clientPort2!: ClientPort;
+    const hostPort2: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        clientPort2.onmessage?.({ data: msg } as MessageEvent<OutboundMessage>);
+      },
+    };
+    clientPort2 = {
+      onmessage: null,
+      postMessage(msg: InboundMessage) {
+        void handleMessage(ctx, hostPort2, msg);
+      },
+      start() {},
+    };
+    wirePort(clientPort2);
+    const clientDb2: ClientDb = { __kind: 'client-db', port: clientPort2 };
+    const clientAuth2 = getClientAuth(clientDb2);
+
+    await updateCurrentUser(clientAuth2, user);
+    expect(clientAuth2.currentUser?.tenantId).toBe('tenant-corp');
+    const sessionAfterUpdateCurrent2 = portSession(ctx, hostPort2);
+    expect(sessionAfterUpdateCurrent2?.user.tenantId).toBe('tenant-corp');
+    expect(sessionAfterUpdateCurrent2?.state.tenant).toBe('tenant-corp');
+  });
+
+  it('11. remintSessionWithClaims preserves session.user.tenantId and session.state.tenant', () => {
+    const sandbox = initializeSandbox();
+    const auth = getAuth(sandbox);
+    const session = authSandboxOps.mintSession(auth, {
+      kind: 'createPassword',
+      email: 'tenant-direct@example.com',
+      password: 'password123',
+      tenantId: 'tenant-gold',
+    });
+    expect(session.user.tenantId).toBe('tenant-gold');
+    expect(session.state.tenant).toBe('tenant-gold');
+
+    const reminted = remintSessionWithClaims(auth, session);
+    expect(reminted.user.tenantId).toBe('tenant-gold');
+    expect(reminted.state.tenant).toBe('tenant-gold');
+  });
+
+  it('12. auth.signInWithCredential supports flattened payload from mobile clients (Swift and Flutter)', async () => {
+    const { ctx } = await createTestHarness();
+    const sentMessages: OutboundMessage[] = [];
+    const testPort: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        sentMessages.push(msg);
+      },
+    };
+
+    // Swift and Flutter send providerId, idToken, accessToken, rawNonce directly on the op message
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'flat-oauth-op',
+      method: 'auth.signInWithCredential',
+      providerId: 'google.com',
+      idToken: 'token-oauth-flat',
+      email: 'flat-mobile@example.com',
+      displayName: 'Flat Mobile User',
+      tenantId: 'tenant-mobile',
+    } as unknown as InboundMessage);
+
+    const res = sentMessages.find((m) => m.t === 'res' && m.id === 'flat-oauth-op') as {
+      t: 'res';
+      id: string;
+      ok: boolean;
+      value?: { user: { uid: string; email: string; tenantId?: string | null }; providerId: string };
+      error?: string;
+    };
+    expect(res).toBeDefined();
+    expect(res?.ok).toBe(true);
+    expect(res?.value?.user.email).toBe('flat-mobile@example.com');
+    expect(res?.value?.user.tenantId).toBe('tenant-mobile');
+    expect(res?.value?.providerId).toBe('google.com');
+
+    const session = portSession(ctx, testPort);
+    expect(session).not.toBeNull();
+    expect(session?.user.tenantId).toBe('tenant-mobile');
+  });
+
+  it('13. auth credential replies return additionalUserInfo with accurate isNewUser', async () => {
+    const { ctx } = await createTestHarness();
+    const sentMessages: OutboundMessage[] = [];
+    const testPort: PortLike = {
+      postMessage(msg: OutboundMessage) {
+        sentMessages.push(msg);
+      },
+    };
+
+    // 1. auth.createUser should return additionalUserInfo.isNewUser = true
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'create-user-op',
+      method: 'auth.createUser',
+      email: 'newbie@example.com',
+      password: 'password123',
+    } as InboundMessage);
+
+    const createRes = sentMessages.find((m) => m.t === 'res' && m.id === 'create-user-op') as any;
+    expect(createRes).toBeDefined();
+    expect(createRes.ok).toBe(true);
+    expect(createRes.value.additionalUserInfo).toBeDefined();
+    expect(createRes.value.additionalUserInfo.isNewUser).toBe(true);
+
+    // 2. auth.signInEmail on existing user should return additionalUserInfo.isNewUser = false
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'signin-email-op',
+      method: 'auth.signInEmail',
+      email: 'newbie@example.com',
+      password: 'password123',
+    } as InboundMessage);
+
+    const signInRes = sentMessages.find((m) => m.t === 'res' && m.id === 'signin-email-op') as any;
+    expect(signInRes).toBeDefined();
+    expect(signInRes.ok).toBe(true);
+    expect(signInRes.value.additionalUserInfo).toBeDefined();
+    expect(signInRes.value.additionalUserInfo.isNewUser).toBe(false);
+
+    // 3. auth.signInWithCredential on new user should return isNewUser = true
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'oauth-new-op',
+      method: 'auth.signInWithCredential',
+      providerId: 'google.com',
+      idToken: 'oauth-token-fresh',
+      email: 'oauth-fresh@example.com',
+    } as any);
+
+    const oauthNewRes = sentMessages.find((m) => m.t === 'res' && m.id === 'oauth-new-op') as any;
+    expect(oauthNewRes).toBeDefined();
+    expect(oauthNewRes.ok).toBe(true);
+    expect(oauthNewRes.value.additionalUserInfo).toBeDefined();
+    expect(oauthNewRes.value.additionalUserInfo.isNewUser).toBe(true);
+
+    // 4. auth.signInWithCredential on existing user should return isNewUser = false
+    await handleMessage(ctx, testPort, {
+      t: 'op',
+      id: 'oauth-existing-op',
+      method: 'auth.signInWithCredential',
+      providerId: 'google.com',
+      idToken: 'oauth-token-returning',
+      email: 'oauth-fresh@example.com',
+    } as any);
+
+    const oauthExistRes = sentMessages.find((m) => m.t === 'res' && m.id === 'oauth-existing-op') as any;
+    expect(oauthExistRes).toBeDefined();
+    expect(oauthExistRes.ok).toBe(true);
+    expect(oauthExistRes.value.additionalUserInfo).toBeDefined();
+    expect(oauthExistRes.value.additionalUserInfo.isNewUser).toBe(false);
+  });
 });
+
+
