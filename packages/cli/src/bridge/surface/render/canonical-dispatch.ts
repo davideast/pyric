@@ -131,10 +131,26 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
       const grouped: Args = {};
       if (args.contentType !== undefined) grouped.contentType = args.contentType;
       if (args.metadata !== undefined) grouped.customMetadata = args.metadata;
-      const call: Args = { path: args.path, contentBase64: args.contentBase64 };
+      const call: Args = { path: args.path };
+      if (args.contentBase64 !== undefined) call.contentBase64 = args.contentBase64;
+      if (args.sourcePath !== undefined) call.sourcePath = args.sourcePath;
       if (Object.keys(grouped).length > 0) call.metadata = grouped;
       return call;
     },
+  },
+
+  // Storage depth: download URLs, metadata updates, the cross-service posture,
+  // and the control plane behind the production gate.
+  get_storage_download_url: { key: 'storage.getDownloadURL' },
+  update_storage_metadata: { key: 'storage.updateMetadata' },
+  set_storage_cross_service_iam: { key: 'storage.setCrossServiceIam' },
+  get_storage_service_status: {
+    key: 'storage.status',
+    toMethodArgs: (args) => pick(args, ['confirm']),
+  },
+  provision_storage_bucket: {
+    key: 'storage.provision',
+    toMethodArgs: (args) => pick(args, ['bucket', 'confirm']),
   },
 
   switch_auth_identity: { key: identityKey, toMethodArgs: identityArgs },

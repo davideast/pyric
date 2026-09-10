@@ -72,7 +72,7 @@ export const exercised = new Set<string>();
  * its `finishHandlerSuite` call leaves the check unrun, which is why the list
  * is short and lives beside the set it guards.
  */
-const SUITES: readonly string[] = ['services', 'assurance'];
+const SUITES: readonly string[] = ['services', 'assurance', 'storage'];
 const finished = new Set<string>();
 
 /** Call one method through its service tool and record that it ran. */

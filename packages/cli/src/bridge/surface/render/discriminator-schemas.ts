@@ -133,18 +133,45 @@ export const querySandboxDataSchema = z.object({
 });
 
 export const manageStorageFilesSchema = z.object({
-  action: z.enum(['upload', 'download', 'delete', 'list']).describe('Storage file operation.'),
+  action: z
+    .enum([
+      'upload',
+      'download',
+      'delete',
+      'list',
+      // Step 7, the storage lane: download URLs, metadata updates, the
+      // cross-service posture, and the control plane.
+      'download_url',
+      'update_metadata',
+      'set_cross_service_iam',
+      'service_status',
+      'provision',
+    ])
+    .describe('Storage file operation.'),
   bucket: z
     .string()
     .optional()
     .describe('Storage bucket name (defaults to default sandbox bucket).'),
   path: z.string().describe('Object full path within the bucket.'),
   base64Content: z.string().optional().describe("Base64-encoded file payload for 'upload'."),
+  sourcePath: z
+    .string()
+    .optional()
+    .describe("Path of a file inside the project directory to upload for 'upload'."),
   contentType: z.string().optional().describe('MIME type of the uploaded file.'),
   customMetadataJson: z
     .string()
     .optional()
     .describe('JSON-encoded flat key-value custom metadata.'),
+  cacheControl: z.string().optional().describe("Cache-Control for 'update_metadata'."),
+  crossServiceIam: z
+    .enum(['granted', 'denied'])
+    .optional()
+    .describe("Whether storage rules may read Firestore, for 'set_cross_service_iam'."),
+  confirm: z
+    .boolean()
+    .optional()
+    .describe("Must be true for 'service_status' and 'provision', which reach Google."),
 });
 
 export const diagnoseRuleDenialSchema = z.object({

@@ -6,10 +6,13 @@
 import { describe, expect, it } from 'bun:test';
 
 import {
+  contentTypeForPath,
+  CROSS_SERVICE_IAM_MODES,
   decodesAsBase64,
   metadata,
   pathArgument,
   RENAMES,
+  settableMetadata,
 } from '../../../../src/bridge/surface/arguments/storage.js';
 
 describe('the renames', () => {
@@ -22,6 +25,52 @@ describe('the renames', () => {
     expect(RENAMES.bytes).toBe('contentBase64');
     expect(RENAMES.content).toBe('contentBase64');
     expect(RENAMES.folder).toBe('prefix');
+  });
+
+  it('maps the file spellings onto sourcePath and the posture onto mode', () => {
+    expect(RENAMES.file).toBe('sourcePath');
+    expect(RENAMES.filePath).toBe('sourcePath');
+    expect(RENAMES.localPath).toBe('sourcePath');
+    expect(RENAMES.crossServiceIam).toBe('mode');
+    expect(RENAMES.bucketId).toBe('bucket');
+  });
+});
+
+describe('settableMetadata', () => {
+  it('accepts every client-settable field the SDK groups', () => {
+    const parsed = settableMetadata.safeParse({
+      contentType: 'text/plain',
+      customMetadata: { owner: 'alice' },
+      cacheControl: 'max-age=60',
+      contentDisposition: 'inline',
+      contentEncoding: 'gzip',
+      contentLanguage: 'en',
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('refuses a server-set field, which an update cannot write', () => {
+    expect(settableMetadata.safeParse({ size: 12 }).success).toBe(true);
+    expect(settableMetadata.safeParse({ contentType: 12 }).success).toBe(false);
+  });
+});
+
+describe('CROSS_SERVICE_IAM_MODES', () => {
+  it('names the two postures a project can be in', () => {
+    expect([...CROSS_SERVICE_IAM_MODES]).toEqual(['granted', 'denied']);
+  });
+});
+
+describe('contentTypeForPath', () => {
+  it('reads the type off a known extension, whatever its case', () => {
+    expect(contentTypeForPath('uploads/report.csv')).toBe('text/csv');
+    expect(contentTypeForPath('uploads/logo.PNG')).toBe('image/png');
+  });
+
+  it('infers nothing from an unknown or absent extension', () => {
+    expect(contentTypeForPath('uploads/archive.dat')).toBeNull();
+    expect(contentTypeForPath('uploads/README')).toBeNull();
+    expect(contentTypeForPath('uploads/trailing.')).toBeNull();
   });
 });
 
