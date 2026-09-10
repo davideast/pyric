@@ -13,7 +13,7 @@ contract. The `id` field equals the filename without its extension. A record car
 
 ## Distribution
 
-One hundred nineteen tasks, counted by the first tag each one carries:
+One hundred twenty-three tasks, counted by the first tag each one carries:
 
 - 21 auth and tenant: seed a tenant user with claims, switch the active identity, list users, set
   or revoke claims, delete an account, import a team and read one back by address, and the app's
@@ -45,6 +45,10 @@ One hundred nineteen tasks, counted by the first tag each one carries:
 - 9 multi-step: two or three operations in sequence, such as seeding a tenant user, writing a
   document as that user, and reading it back. Three of these install rules with `set` and then read
   the effect back through `simulate`, one per service.
+- 4 messaging: send a message to a topic, subscribe a device token to a topic and read the
+  membership back, unsubscribe one and confirm the topic dropped out of its read-back list, and
+  read the delivery log. None of these seed messaging state, because the seed shape has no place
+  for it; each one drives the setup itself through the tool.
 
 ## Rules for new tasks
 

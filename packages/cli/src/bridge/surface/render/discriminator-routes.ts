@@ -1,6 +1,6 @@
 /**
- * The fourteen intent tools, and the routes for the auth, app session, data,
- * storage, and rules families.
+ * The sixteen intent tools, and the routes for the auth, app session, data,
+ * storage, messaging, and rules families.
  *
  * A discriminator value with no canonical counterpart has no route and
  * resolves to no operation. The sandbox-state and branch families have their
@@ -33,6 +33,7 @@ import {
   judgeAuthorizationRiskSchema,
   manageAppSessionSchema,
   manageAuthUsersSchema,
+  manageMessagingSchema,
   manageStorageFilesSchema,
   mutateSandboxDataSchema,
   querySandboxDataSchema,
@@ -82,6 +83,12 @@ export const DISCRIMINATOR_TOOLS: readonly DiscriminatorTool[] = [
     description:
       'Upload (base64), download (data: URI), delete, or list files in sandbox Cloud Storage.',
     parameters: manageStorageFilesSchema,
+  },
+  {
+    name: 'manage_messaging',
+    description:
+      'Send a Firebase Cloud Messaging message as the FCM server would, manage topic subscriptions, or read back the registered tokens and past deliveries.',
+    parameters: manageMessagingSchema,
   },
   {
     name: 'inspect_firestore_structure',
@@ -606,6 +613,62 @@ const STORAGE_ROUTES: DiscriminatorRoute[] = [
   },
 ];
 
+const MESSAGING_ROUTES: DiscriminatorRoute[] = [
+  {
+    tool: 'manage_messaging',
+    action: 'send',
+    selects: on('action', 'send'),
+    operation: 'send_messaging_message',
+    translate: (args) => {
+      const message: Args = {};
+      assign(message, 'token', text(args, 'token'));
+      assign(message, 'topic', text(args, 'topic'));
+      assign(message, 'condition', text(args, 'condition'));
+      assign(message, 'notification', parseJsonObject(text(args, 'notificationJson')));
+      assign(message, 'data', parseJsonObject(text(args, 'dataJson')));
+      return { message };
+    },
+  },
+  {
+    tool: 'manage_messaging',
+    action: 'subscribe',
+    selects: on('action', 'subscribe'),
+    operation: 'subscribe_messaging_topic',
+    translate: (args) => ({
+      tokens: parseJsonArray(text(args, 'tokensJson')) ?? [],
+      topic: args.topic,
+    }),
+  },
+  {
+    tool: 'manage_messaging',
+    action: 'unsubscribe',
+    selects: on('action', 'unsubscribe'),
+    operation: 'unsubscribe_messaging_topic',
+    translate: (args) => ({
+      tokens: parseJsonArray(text(args, 'tokensJson')) ?? [],
+      topic: args.topic,
+    }),
+  },
+  {
+    tool: 'manage_messaging',
+    action: 'list_tokens',
+    selects: on('action', 'list_tokens'),
+    operation: 'list_messaging_tokens',
+    translate: () => ({}),
+  },
+  {
+    tool: 'manage_messaging',
+    action: 'list_deliveries',
+    selects: on('action', 'list_deliveries'),
+    operation: 'list_messaging_deliveries',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'since', args.since);
+      return translated;
+    },
+  },
+];
+
 const RULES_ROUTES: DiscriminatorRoute[] = [
   {
     tool: 'diagnose_rule_denial',
@@ -672,6 +735,7 @@ export const DISCRIMINATOR_ROUTES: readonly DiscriminatorRoute[] = [
   ...DATA_ROUTES,
   ...FIRESTORE_STRUCTURE_ROUTES,
   ...STORAGE_ROUTES,
+  ...MESSAGING_ROUTES,
   ...RULES_ROUTES,
   ...ASSURANCE_ROUTES,
   ...BRANCH_ROUTES,

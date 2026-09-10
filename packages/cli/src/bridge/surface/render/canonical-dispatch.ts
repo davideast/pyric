@@ -164,6 +164,17 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     toMethodArgs: (args) => pick(args, ['bucket', 'confirm']),
   },
 
+  // Messaging: send as the FCM server would, topic membership, and the two
+  // pyric-origin reads over the sandbox's own broker state.
+  send_messaging_message: { key: 'messaging.send' },
+  subscribe_messaging_topic: { key: 'messaging.subscribeToTopic' },
+  unsubscribe_messaging_topic: { key: 'messaging.unsubscribeFromTopic' },
+  list_messaging_tokens: { key: 'messaging.tokens' },
+  list_messaging_deliveries: {
+    key: 'messaging.deliveries',
+    toMethodArgs: (args) => pick(args, ['since']),
+  },
+
   switch_auth_identity: { key: identityKey, toMethodArgs: identityArgs },
   get_auth_user: { key: 'auth.getUser' },
   get_auth_user_by_email: { key: 'auth.getUserByEmail' },

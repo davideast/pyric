@@ -38,5 +38,13 @@
     "updateUser",
     "verifyIdToken",
     "verifySessionCookie"
+  ],
+  "messaging": [
+    "enableLegacyHttpTransport",
+    "send",
+    "sendEach",
+    "sendEachForMulticast",
+    "subscribeToTopic",
+    "unsubscribeFromTopic"
   ]
 }

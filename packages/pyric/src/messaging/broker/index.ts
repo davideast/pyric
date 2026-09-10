@@ -47,10 +47,12 @@ export type {
   BrokerMessage,
   ClientVisibilityState,
   DeliveredPayload,
+  DeliveryLogEntry,
   DeliveryResult,
   DeliveryRoute,
   MessagingBrokerConfig,
   PayloadHandler,
+  RegisteredToken,
   ResolvedTarget,
   TopicManagementOutcome,
 } from './types.js';

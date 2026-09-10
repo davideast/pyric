@@ -158,11 +158,11 @@ describe('a one-tool-per-method variant over a real MCP session', () => {
 });
 
 describe('the discriminator variant over a real MCP session', () => {
-  it('advertises fifteen intent tools and seven resource templates', async () => {
+  it('advertises sixteen intent tools and seven resource templates', async () => {
     const session = await openSurface('discriminator');
     try {
       const listed = await session.client.listTools();
-      expect(listed.tools.length).toBe(15);
+      expect(listed.tools.length).toBe(16);
       const templates = await session.client.listResourceTemplates();
       expect(templates.resourceTemplates.length).toBe(7);
     } finally {
