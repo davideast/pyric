@@ -3,12 +3,12 @@
 This repo carries two MCP tool contracts, both sourced from
 `packages/cli/src/bridge/server/mcp-contract.ts`.
 
-1. **`pyric mcp`** (headless, the default): the **product surface**, seven
+1. **`pyric mcp`** (headless, the default): the **product surface**, eight
    service tools, one per Firebase capability, rendered from the method
    records under `packages/cli/src/bridge/surface/methods/`. Every call is
    `{ method, args }`, where `method` is the SDK's own method name where the
    SDK has one, and pyric's own name where it does not. `DEFAULT_MCP_TOOL_NAMES`
-   is the exact list, and it is the seven tools this section documents.
+   is the exact list, and it is the eight tools this section documents.
 2. **`pyric sandbox --bridge`** (or `pyric bridge`): the **transport
    surface** a browser sandbox peer executes, plus the rules and conformance
    tools that run in the bridge process. Its names are authored per family in
@@ -25,8 +25,8 @@ the same underlying tool-family factories the transport surface composes.
 
 ## The product surface: `pyric mcp` (headless, default)
 
-Seven tools: `firestore`, `database`, `storage`, `auth`, `rules`, `sandbox`,
-`assurance`. Every one of them answers `describe` with `args: { method }`,
+Eight tools: `firestore`, `database`, `storage`, `auth`, `messaging`, `rules`,
+`sandbox`, `assurance`. Every one of them answers `describe` with `args: { method }`,
 which returns that method's full argument schema, an example call, its
 effect class (`read`, `write`, `destructive`, or `production`), and its
 `status` on this server. A `destructive` call is refused unless
@@ -40,6 +40,7 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | `database` | `get`, `query`, `set`, `update`, `remove`, `push`, `crawl` (bounded structural view, no leaf values, depth 0 to 10, default 10) |
 | `storage` | `getBytes`, `getDownloadURL`, `getMetadata`, `listAll`, `uploadBytes`, `updateMetadata`, `deleteObject`, `setCrossServiceIam`, `status` and `provision` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 | `auth` | `getUser`, `getUserByEmail`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `importUsers`, `createCustomToken`, `signInWithEmailAndPassword`, `signInAnonymously`, `signInWithCustomToken`, `signInWithCredential`, `signOut`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami`, `sessions` |
+| `messaging` | `send`, `subscribeToTopic`, `unsubscribeFromTopic`, `tokens`, `deliveries` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
 | `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
 | `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
@@ -173,6 +174,19 @@ enabling the service needs `roles/serviceusage.serviceUsageAdmin` or
 carry. Both are refused without `--allow-production`, refused again without
 `confirm: true`, and refused a third time when no credentials are found, naming
 the same three sources the hosted rules test reads.
+
+`messaging.send` carries its payload under `message`, exactly one of
+`token`, `topic`, or `condition` naming the recipient, the way the admin
+SDK's own `Message` union does; naming none or more than one is refused
+naming all three. A send to a token the sandbox does not recognize, minted
+here or not, is refused pointing at `messaging.tokens` to see what is
+registered. `messaging.subscribeToTopic` and `messaging.unsubscribeFromTopic`
+manage topic membership for a batch of tokens and report per-token success
+and failure counts, never all-or-nothing. `messaging.tokens` and
+`messaging.deliveries` are pyric's own reads: the first lists every
+registered device token, its state, and the topics it is subscribed to; the
+second lists what the sandbox delivered, foreground or background, handled
+or not, optionally since a clock timestamp cursor. Both change no state.
 
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path

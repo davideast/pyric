@@ -461,3 +461,30 @@ export const inspectFirestoreStructureSchema = z.object({
     .optional()
     .describe("JSON-encoded queries[] for 'extractIndexes'."),
 });
+
+// ─── Messaging lane ─────────────────────────────────────────────────────
+
+export const manageMessagingSchema = z.object({
+  action: z
+    .enum(['send', 'subscribe', 'unsubscribe', 'list_tokens', 'list_deliveries'])
+    .describe('Firebase Cloud Messaging operation.'),
+  token: z.string().optional().describe("Single device token, for 'send'."),
+  topic: z.string().optional().describe("Topic name, for 'send', 'subscribe', 'unsubscribe'."),
+  condition: z.string().optional().describe("Boolean expression over topics, for 'send'."),
+  notificationJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded {title?, body?}, for 'send'."),
+  dataJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded flat string map payload, for 'send'."),
+  tokensJson: z
+    .string()
+    .optional()
+    .describe("JSON-encoded array of device tokens, for 'subscribe' and 'unsubscribe'."),
+  since: z
+    .number()
+    .optional()
+    .describe("Clock timestamp cursor, for 'list_deliveries'."),
+});

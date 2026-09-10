@@ -74,6 +74,11 @@
     "firestore updateDoc",
     "firestore writeBatch",
     "firestore writeIndexes",
+    "messaging deliveries",
+    "messaging send",
+    "messaging subscribeToTopic",
+    "messaging tokens",
+    "messaging unsubscribeFromTopic",
     "rules explainDenial",
     "rules getStdlib",
     "rules lint",
@@ -145,11 +150,28 @@
     "auth",
     "database",
     "firestore",
+    "messaging",
     "rules",
     "sandbox",
     "storage"
   ],
   "mcpToolMethods": {
+    "assurance": [
+      "attach",
+      "canIUse",
+      "define",
+      "export",
+      "inspect",
+      "map",
+      "minimize",
+      "propose",
+      "replaySession",
+      "run",
+      "start",
+      "testRulesHosted",
+      "verify",
+      "verifyCases"
+    ],
     "auth": [
       "actAsAdmin",
       "actAsAnonymous",
@@ -196,6 +218,13 @@
       "writeBatch",
       "writeIndexes"
     ],
+    "messaging": [
+      "deliveries",
+      "send",
+      "subscribeToTopic",
+      "tokens",
+      "unsubscribeFromTopic"
+    ],
     "rules": [
       "explainDenial",
       "getStdlib",
@@ -236,22 +265,6 @@
       "status",
       "updateMetadata",
       "uploadBytes"
-    ],
-    "assurance": [
-      "attach",
-      "canIUse",
-      "define",
-      "export",
-      "inspect",
-      "map",
-      "minimize",
-      "propose",
-      "replaySession",
-      "run",
-      "start",
-      "testRulesHosted",
-      "verify",
-      "verifyCases"
     ]
   },
   "bridgeTools": [

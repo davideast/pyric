@@ -20,7 +20,16 @@ import {
 describe('TOOLS', () => {
   it('loads every service tool, ordered by its declared order', () => {
     const names = TOOLS.map((tool) => tool.name);
-    expect(names).toEqual(['firestore', 'database', 'storage', 'auth', 'rules', 'sandbox', 'assurance']);
+    expect(names).toEqual([
+      'firestore',
+      'database',
+      'storage',
+      'auth',
+      'messaging',
+      'rules',
+      'sandbox',
+      'assurance',
+    ]);
   });
 
   it('gives every tool at least one method', () => {
