@@ -122,6 +122,13 @@ export interface RtdbCase {
   data?: Record<string, unknown>;
   /** Proposed write value (`newData`), for write/validate cases. */
   newData?: unknown;
+  /**
+   * The instant `now` reports in this case, in epoch milliseconds. A caller
+   * hosting a sandbox passes its sandbox clock so a `now`-gated rule moves
+   * with the sandbox rather than the wall clock. Omit to evaluate at the
+   * real current instant.
+   */
+  now?: number;
 }
 
 /** The outcome of running one RTDB case through `simulate`. */

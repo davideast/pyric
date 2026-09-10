@@ -58,6 +58,7 @@ import { HistoryControls } from './history-controls.js';
 import { RulesState } from './rules-state.js';
 import { RulesReadEngine } from './rules-read-engine.js';
 import { WriteEngine } from './write-engine.js';
+import { SandboxClock } from '../../sandbox/clock.js';
 import {
   DEFAULT_OPEN_RULES,
 } from './rules-evaluation.js';
@@ -102,9 +103,16 @@ export class LocalEnvironment {
    */
   private readonly listeners: ListenerDispatch;
 
-  constructor() {
+  /**
+   * @param clock The sandbox's clock. Every server-set time this environment
+   * produces (`serverTimestamp()`, `request.time`, listener dispatch stamps,
+   * event-log entries) reads it, so the collaborators below all receive it.
+   * Defaults to a private wall clock, which is what an environment constructed
+   * on its own did before the seam existed.
+   */
+  constructor(clock: SandboxClock = new SandboxClock()) {
     this.state = new LocalState();
-    this.eventLog = new EventLog();
+    this.eventLog = new EventLog(clock);
     const engine = this;
     this.simulator = new SimulateFirestoreRulesHandler();
     // Default to an allow-all ruleset so a freshly-constructed sandbox
@@ -125,10 +133,11 @@ export class LocalEnvironment {
       this.simulator,
       { get state() { return engine.state; } },
       this.eventLog,
+      clock,
     );
     // Listener dispatch calls back into the engine only for rules-gated
     // silent reads — RulesReadEngine IS its ListenerDispatchHost.
-    this.listeners = new ListenerDispatch(this.events, this.triggerScope, this.reads);
+    this.listeners = new ListenerDispatch(this.events, this.triggerScope, this.reads, clock);
     this.writes = new WriteEngine(
       {
         get state() { return engine.state; },
@@ -139,6 +148,7 @@ export class LocalEnvironment {
       this.eventLog,
       this.events,
       this.triggerScope,
+      clock,
     );
     // Undo/redo needs live keyspace access (`seed()` replaces `state`) and
     // the write engine's affected-path helpers.

@@ -38,6 +38,12 @@ export const SimulationInputSchema = z.object({
     .array(z.object({ path: z.string().min(1).startsWith('/'), value: z.unknown() }))
     .optional(),
   query: SimulationQuerySchema.optional(),
+  /**
+   * The instant the rules engine reports as `now`, in epoch milliseconds.
+   * Callers hosting a sandbox pass their sandbox clock so a `now`-gated rule
+   * moves with it. Omitted, the engine reads the wall clock.
+   */
+  now: z.number().optional(),
 });
 export type SimulationInput = z.infer<typeof SimulationInputSchema>;
 

@@ -17,6 +17,12 @@
  * What lands is the delta between the state the branch forked from and the
  * state it holds now, so state live gained after the fork and the branch never
  * touched survives the promotion rather than being reverted by it.
+ *
+ * The clock is not part of what lands. A fork carries the clock its branch was
+ * taken under, because a branch is a copy of a session, but the clock is an
+ * experiment control rather than data: promoting a branch that ran under a
+ * pinned instant must not silently pin the live sandbox to it. So live keeps
+ * the clock it had, and a caller who wants the branch's instant sets it.
  */
 import { promote } from 'pyric/sandbox';
 import { loadBranch, removeBranch } from 'pyric/sandbox/branches/store';
@@ -33,7 +39,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'destructive',
   signature: 'promote(branch, confirm)',
-  description: 'Land the branch on live, then delete it.',
+  description: 'Land the branch on live, then delete it. The clock does not move.',
   args: z.object({
     branch: branchName,
     confirm: z

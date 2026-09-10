@@ -309,6 +309,12 @@ function send(message: FunctionsRtdbChildMessage): void {
   process.send?.(message);
 }
 
+/** The current instant of the sandbox this child is attached to. */
+async function sandboxNow(sandbox: RemoteSandbox): Promise<number> {
+  const read = (await sandbox.channel.op({ method: 'sandbox.clock' })) as { now: number };
+  return read.now;
+}
+
 function usesCommonJs(entry: string): boolean {
   const extension = extname(entry);
   if (extension === '.cjs') return true;
@@ -401,9 +407,12 @@ async function runFunctionsRtdbChild(): Promise<void> {
     host = startOnValueCreatedExecution({
       exported,
       delivery: new RemoteRtdbTriggerDelivery(app.sandbox.rtdb),
-      eventOptions: (_projection, sequence, trigger) => ({
+      eventOptions: async (_projection, sequence, trigger) => ({
         id: `${randomUUID()}-${sequence}`,
-        time: new Date().toISOString(),
+        // The delivery's instant is the sandbox's, not this process's: the
+        // write that triggered it was stamped by that clock, and a CloudEvent
+        // claiming a different `time` would contradict the data it carries.
+        time: new Date(await sandboxNow(app.sandbox)).toISOString(),
         instance: trigger.instance === '*' ? instance : trigger.instance,
         location: trigger.location ?? location,
         databaseHost,

@@ -23,7 +23,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'exportFixture(path, excludePasswords?)',
-  description: 'Write a seed fixture, passwords included.',
+  description: 'Write a fixture.',
   args: z.object({
     path: z.string().describe('Where to write the fixture, inside the project directory.'),
     excludePasswords: z

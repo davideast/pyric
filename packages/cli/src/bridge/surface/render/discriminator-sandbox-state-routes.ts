@@ -25,6 +25,27 @@ export const SANDBOX_STATE_ROUTES: DiscriminatorRoute[] = [
   },
   {
     tool: 'control_sandbox_environment',
+    action: 'set_clock',
+    selects: on('action', 'set_clock'),
+    operation: 'set_clock',
+    translate: (args) => ({ isoTime: args.targetTimestampIso }),
+  },
+  {
+    tool: 'control_sandbox_environment',
+    action: 'advance_clock',
+    selects: on('action', 'advance_clock'),
+    operation: 'advance_clock',
+    translate: (args) => ({ ms: args.advanceMs }),
+  },
+  {
+    tool: 'control_sandbox_environment',
+    action: 'reset_clock',
+    selects: on('action', 'reset_clock'),
+    operation: 'reset_clock',
+    translate: () => ({}),
+  },
+  {
+    tool: 'control_sandbox_environment',
     action: 'seed',
     selects: on('action', 'seed'),
     operation: 'seed_sandbox',

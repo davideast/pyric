@@ -44,7 +44,7 @@ export class ChildListeners {
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
   ): () => void {
-    const at = Date.now();
+    const at = this.state.clock.now();
     const id = this.state.events.nextListenerId();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
@@ -53,7 +53,7 @@ export class ChildListeners {
     });
     if (evaluation.check !== 'allow') {
       this.state.events.operation(auth, 'listen', path, denyResultFor(evaluation.check), evaluation, {
-        at, durationMs: Date.now() - at, origin: 'listener', detail: { event },
+        at, durationMs: this.state.clock.now() - at, origin: 'listener', detail: { event },
       });
       const rulesObj = {
         engine: 'rtdb' as const,
@@ -81,7 +81,7 @@ export class ChildListeners {
       throw permissionDenied();
     }
     this.state.events.operation(auth, 'listen', path, 'allow', evaluation, {
-      at, durationMs: Date.now() - at, origin: 'listener', detail: { event },
+      at, durationMs: this.state.clock.now() - at, origin: 'listener', detail: { event },
     });
     const listener: ChildListener = { id, auth, event, path, cb, spec, cancelCallback, onCanceled };
     this.state.childListeners.add(listener);

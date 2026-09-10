@@ -15,7 +15,7 @@
  *     `getBlobInternal`, which slice after fetch because GCS may ignore
  *     Range on small objects — see COMPAT row 55.
  */
-import { emitSandboxEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
@@ -113,6 +113,7 @@ export async function deleteObject(
     emitSandboxEvent(
       target.sandbox,
       makeServiceMutationEvent({
+        at: getClock(target.sandbox).now(),
         service: 'storage',
         op: 'object_delete',
         path: ref.fullPath,

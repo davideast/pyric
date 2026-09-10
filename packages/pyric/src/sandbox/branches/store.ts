@@ -44,6 +44,7 @@ import {
   type FullSandboxState,
   type SandboxService,
 } from '../full-state.js';
+import { wallClockState, type SandboxClockState } from '../clock.js';
 import type { SandboxEvent } from '../types/index.js';
 import { fork, type Branch, type BranchCandidateRules } from './engine.js';
 
@@ -56,6 +57,7 @@ export const BRANCH_STORE_RELATIVE = join('.pyric', 'state', 'branches');
 const MANIFEST_FILE = 'manifest.json';
 const EVENTS_FILE = 'events.json';
 const CANDIDATE_RULES_FILE = 'candidate-rules.json';
+const CLOCK_FILE = 'clock.json';
 const BASE_DIRECTORY = 'base';
 const STATE_DIRECTORY = 'state';
 
@@ -129,6 +131,14 @@ function writeState(dir: string, stateDir: string, state: FullSandboxState): voi
       'utf8',
     );
   }
+  // The clock is not a service, so it gets its own file beside them rather than
+  // a place in the service list the diff walks. A branch reloaded from disk
+  // reaches the same `request.time` verdict the branch reached in memory.
+  writeFileSync(
+    join(dir, stateDir, CLOCK_FILE),
+    `${JSON.stringify(state.clock ?? wallClockState())}\n`,
+    'utf8',
+  );
 }
 
 /** Read one service's slice back, or null when the branch directory has no such file. */
@@ -138,9 +148,17 @@ function readSandboxService(dir: string, stateDir: string, service: SandboxServi
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
+/** The clock one state directory carries, or the wall clock when it has none. */
+function readClock(dir: string, stateDir: string): SandboxClockState {
+  const path = join(dir, stateDir, CLOCK_FILE);
+  if (!existsSync(path)) return wallClockState();
+  return JSON.parse(readFileSync(path, 'utf8')) as SandboxClockState;
+}
+
 /** One full state a branch directory carries, under `base/` or under `state/`. */
 function readState(dir: string, stateDir: string): FullSandboxState {
   return {
+    clock: readClock(dir, stateDir),
     firestore: (readSandboxService(dir, stateDir, 'firestore') ?? {}) as FullSandboxState['firestore'],
     database: readSandboxService(dir, stateDir, 'database') as FullSandboxState['database'],
     storage: (readSandboxService(dir, stateDir, 'storage') ?? []) as FullSandboxState['storage'],

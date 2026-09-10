@@ -23,7 +23,7 @@ import type {
   ResolvedIdentity,
   AuthSubMessage,
 } from './protocol/auth.js';
-import type { AuthLens, SandboxEvent, DenialContext } from 'pyric/sandbox';
+import type { AuthLens, SandboxClockState, SandboxEvent, DenialContext } from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
 import type {
   BrokerMessage,
@@ -98,7 +98,13 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'rtdb.setWithPriority'; path: string; value: unknown; priority: string | number | null }
   | { t: 'op'; id: string; method: 'rtdb.update'; path: string; values: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'rtdb.remove'; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.push'; path: string; key: string; value?: unknown }
+  // `key` is the client's when the client needed it synchronously (the page's
+  // `push()` returns a reference before the write lands). A caller that can
+  // wait omits it, and the host mints one from the sandbox clock.
+  | { t: 'op'; id: string; method: 'rtdb.push'; path: string; key?: string; value?: unknown }
+  // Read the sandbox clock. For a caller in another process, which cannot
+  // mirror the stream a page port gets and can afford the round trip.
+  | { t: 'op'; id: string; method: 'sandbox.clock' }
   | { t: 'op'; id: string; method: 'rtdb.adminSnapshot' }
   | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; path: string; value: unknown; priority?: string | number | null }
   | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; path: string; values: Record<string, unknown> }
@@ -354,6 +360,18 @@ export interface AppConfigMessage {
   options: Record<string, unknown>;
 }
 
+/**
+ * Ask the host to stream this port the sandbox clock's state.
+ *
+ * The clock lives in the worker, and a page reads it synchronously: a push id
+ * and an in-flight upload stamp are minted before any round trip can complete.
+ * So the state is mirrored rather than fetched. The host answers with the
+ * current {@link ClockMessage} and sends another on every later move.
+ */
+export interface ClockSubscribeMessage {
+  t: 'clock-subscribe';
+}
+
 /** Agent tool-call, forwarded by the bridge peer to the worker. */
 export interface ToolMessage {
   t: 'tool';
@@ -369,6 +387,7 @@ export type InboundMessage = (
   | UnsubMessage
   | DisconnectMessage
   | AppConfigMessage
+  | ClockSubscribeMessage
   | ToolMessage
 ) & {
   clientSessionId?: string;
@@ -398,11 +417,18 @@ export interface RuntimeReloadMessage {
   epoch: string;
 }
 
+/** The sandbox clock's whole state, for a port that asked to mirror it. */
+export interface ClockMessage {
+  t: 'clock';
+  state: SandboxClockState;
+}
+
 export type OutboundMessage = (
   | ResMessage
   | SnapMessage
   | EventStreamMessage
   | RuntimeReloadMessage
+  | ClockMessage
 ) & {
   clientSessionId?: string;
 };

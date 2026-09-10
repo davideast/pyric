@@ -378,6 +378,10 @@ export class SimulateHandler {
     }
 
     const { operation, path, auth, mockData, newData, updates, query } = parsed.data;
+    // `now` in an RTDB rule is the instant the request is evaluated. A caller
+    // hosting a sandbox names it so a `now`-gated rule moves with the sandbox
+    // clock; a standalone caller leaves it out and gets the wall clock.
+    const evaluationNow = parsed.data.now ?? Date.now();
 
     try {
       const pathSegments = path.split('/').filter(Boolean);
@@ -449,7 +453,7 @@ export class SimulateHandler {
           data,
           newData: newDataArg,
           root: rootData,
-          now: Date.now(),
+          now: evaluationNow,
           pathVariableBindings: pvBindings,
           query: contextQuery,
         };

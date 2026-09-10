@@ -168,15 +168,15 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   set_storage_rules: { key: 'rules.set', toMethodArgs: forService('storage', ['rules']) },
   simulate_firestore_rules: {
     key: 'rules.simulate',
-    toMethodArgs: forService('firestore', ['operation', 'path', 'uid', 'data', 'rules']),
+    toMethodArgs: forService('firestore', ['operation', 'path', 'uid', 'data', 'rules', 'requestTime']),
   },
   simulate_database_rules: {
     key: 'rules.simulate',
-    toMethodArgs: forService('database', ['operation', 'path', 'uid', 'data', 'rules']),
+    toMethodArgs: forService('database', ['operation', 'path', 'uid', 'data', 'rules', 'requestTime']),
   },
   simulate_storage_rules: {
     key: 'rules.simulate',
-    toMethodArgs: forService('storage', ['operation', 'path', 'uid', 'rules']),
+    toMethodArgs: forService('storage', ['operation', 'path', 'uid', 'rules', 'requestTime']),
   },
   diagnose_firestore_denial: { key: 'rules.explainDenial' },
   list_rules_stdlib: { key: 'rules.listStdlib' },
@@ -230,6 +230,11 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   verify_assurance_rules: { key: 'assurance.verify' },
   export_assurance_campaign: { key: 'assurance.export' },
   test_assurance_rules_hosted: { key: 'assurance.testRulesHosted' },
+
+  // The sandbox clock.
+  set_clock: { key: 'sandbox.setClock' },
+  advance_clock: { key: 'sandbox.advanceClock' },
+  reset_clock: { key: 'sandbox.resetClock' },
 
   // The persisted branches.
   fork_sandbox_branch: { key: 'sandbox.fork' },

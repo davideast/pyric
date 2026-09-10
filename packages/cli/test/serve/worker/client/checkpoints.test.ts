@@ -30,6 +30,9 @@ function answeringPort(reply: unknown): {
   const port: ClientPort = {
     onmessage: null,
     postMessage(message: InboundMessage) {
+      // `wirePort` opens the clock mirror on every port. It is not part of the
+      // wire these wrappers write, and it is pinned in `client/clock.test.ts`.
+      if (message.t === 'clock-subscribe') return;
       sent.push(message);
       const { id } = message as { id: string };
       queueMicrotask(() => {

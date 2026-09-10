@@ -36,6 +36,7 @@
 import type { Sandbox } from '../../sandbox/types/service.js';
 import type { AuthState } from '../../sandbox/types/auth-state.js';
 import { emitSandboxEvent, makeServiceMutationEvent } from '../../sandbox/internal/sandbox-impl.js';
+import { getClock } from '../../sandbox/clock.js';
 import { BrokerSendError, unregisteredTokenEnvelope, invalidTopicNameEnvelope } from './envelopes.js';
 import { mintToken } from './tokens.js';
 import { validateMessage, isValidTopicName, canonicalTopicName, TOKEN_SHAPE_RE } from './validate.js';
@@ -408,7 +409,13 @@ export class MessagingBroker {
     try {
       emitSandboxEvent(
         this.sandbox,
-        makeServiceMutationEvent({ service: 'messaging', op, auth: ADMIN_AUTH, ...fields }),
+        makeServiceMutationEvent({
+          at: getClock(this.sandbox).now(),
+          service: 'messaging',
+          op,
+          auth: ADMIN_AUTH,
+          ...fields,
+        }),
         { service: 'messaging' },
       );
     } catch {

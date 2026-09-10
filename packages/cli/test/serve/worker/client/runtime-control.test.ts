@@ -11,7 +11,12 @@ describe('worker runtime control', () => {
     const sent: Array<{ id?: string; method?: string }> = [];
     const port: ClientPort = {
       onmessage: null,
-      postMessage(message) { sent.push(message as { id?: string; method?: string }); },
+      postMessage(message) {
+        // `wirePort` opens the clock mirror on every port; that handshake is
+        // pinned in `client/clock.test.ts`, not here.
+        if ((message as { t?: string }).t === 'clock-subscribe') return;
+        sent.push(message as { id?: string; method?: string });
+      },
       start() {},
       close() {},
     };

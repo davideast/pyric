@@ -41,7 +41,7 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | `storage` | `getBytes`, `getMetadata`, `listAll`, `uploadBytes`, `deleteObject` |
 | `auth` | `getUser`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
-| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches` |
+| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
 | `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 
 `checkpoint` writes the whole live sandbox under a name into
@@ -78,6 +78,42 @@ state it holds now, so state live gained after the fork survives the promotion.
 branch with when it was forked, how many events it carries, and how far it has
 drifted from live per service. A branch is a directory in the project, so it
 outlives the server that forked it.
+
+The sandbox carries one clock, which every `serverTimestamp()`, Realtime
+Database `now`, `request.time`, and minted auth token `iat` reads instead of
+`Date.now()`. `setClock(isoTime)` pins the clock to that instant and freezes it
+there; a value that does not parse as a date is refused, naming the value and
+the ISO 8601 form it expects. `advanceClock(ms)` moves the clock forward by
+that many milliseconds: a pinned clock stays frozen at the new instant, and a
+flowing clock keeps flowing from the new offset. `resetClock()` returns to the
+wall clock. `inspect` reports the clock's mode and current instant alongside
+its other counts, and how far an offset clock is shifted. A checkpoint or a
+branch fork carries the clock's state, so restoring or applying one moves the
+clock along with the data. `promote` does not: the clock is an experiment
+control rather than data, so landing a branch that ran under a pinned instant
+leaves live on the clock it already had. `diff` ignores the clock for the same
+reason, so a branch that only moved its clock has no divergences.
+`rules.simulate` takes an optional `requestTime` (ISO 8601); when a call omits
+it, `request.time` (Firestore, Storage) and `now` (database) evaluate at the
+sandbox clock's current instant, so a rule with no explicit time still moves
+when the clock does. Naming `requestTime` evaluates the rule at that instant
+without moving the sandbox clock.
+
+A Firestore field value is a function call in the SDK, and a tool call is
+JSON, so each one has a JSON spelling that `setDoc`, `updateDoc`, `addDoc`,
+and `writeBatch` decode in `data`, at any depth:
+`{"$serverTimestamp": true}`, `{"$increment": <number>}`,
+`{"$arrayUnion": [...]}`, `{"$arrayRemove": [...]}`, and
+`{"$deleteField": true}`. `$deleteField` removes a key from a document that
+already exists, so it is accepted by `updateDoc` and by a `writeBatch` entry
+of type `update`, and refused elsewhere naming the method. Any other `$` key,
+or one of these with a value of the wrong shape, is refused naming the field
+path and the form it accepts, rather than stored as a literal. A server
+timestamp written this way reads the sandbox clock, so pinning the clock and
+writing two documents gives them the same instant. The Realtime Database
+takes Firebase's own wire form instead, `{".sv": "timestamp"}`, which
+`database.set` and `database.update` accept verbatim and resolve against the
+same clock.
 
 The CLI derives `pyric <tool> <method> [--<arg> <value>...]` from the same
 method records the MCP tool calls, so `pyric firestore setDoc --path

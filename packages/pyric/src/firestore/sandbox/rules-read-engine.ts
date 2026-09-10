@@ -48,6 +48,7 @@ import {
   type RunQueryRequest,
   type RunQueryResult,
 } from './query-execution.js';
+import { SandboxClock } from '../../sandbox/clock.js';
 
 /**
  * The engine capability read paths need from the facade. `state` is a live
@@ -68,6 +69,9 @@ export class RulesReadEngine implements ListenerDispatchHost {
     private readonly simulator: SimulateFirestoreRulesHandler,
     private readonly host: RulesReadHost,
     eventLog: EventLog,
+    /** The sandbox's clock, read for every server-set time this produces.
+     *  Defaults to a private wall clock for a standalone construction. */
+    private readonly clock: SandboxClock = new SandboxClock(),
   ) {
     this.operationReader = new RulesOperationReader(
       events,
@@ -75,8 +79,9 @@ export class RulesReadEngine implements ListenerDispatchHost {
       simulator,
       host,
       eventLog,
+      clock,
     );
-    this.listAuthorizer = new RulesListAuthorizer(events, rules, simulator, host);
+    this.listAuthorizer = new RulesListAuthorizer(events, rules, simulator, host, clock);
   }
 
   private get state(): DocStore {
@@ -110,7 +115,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
     if (bypassRules) {
       const data = this.state.get(path);
       this.emitRequest({
-        at: Date.now(),
+        at: this.clock.now(),
         evalMs: 0,
         method: 'get',
         path,
@@ -124,10 +129,10 @@ export class RulesReadEngine implements ListenerDispatchHost {
       });
       return { allowed: true, data };
     }
-    const readServerTime = Timestamp.fromMillis(Date.now());
+    const readServerTime = Timestamp.fromMillis(this.clock.now());
     const testCase = buildRulesTestCase(this.state, { method: 'get', path, auth }, readServerTime);
-    // Issue #307 — time the simulate call for listener-origin RequestEvents.
-    const evalAt = Date.now();
+    // Time the simulate call for listener-origin RequestEvents.
+    const evalAt = this.clock.now();
     const evalStart = performance.now();
     const simResult = this.simulator.simulate(this.rules.source, [testCase], {
       getDoc: (path) => this.state.get(path),
@@ -264,8 +269,8 @@ export class RulesReadEngine implements ListenerDispatchHost {
       ? queryConstraintsForProof(execution)
       : {};
     const timing = {
-      requestTime: Timestamp.fromMillis(Date.now()),
-      at: Date.now(),
+      requestTime: Timestamp.fromMillis(this.clock.now()),
+      at: this.clock.now(),
     };
     const triggeredBy = this.triggerScope.current();
     if (bypassRules) {

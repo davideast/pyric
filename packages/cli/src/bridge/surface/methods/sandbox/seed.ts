@@ -18,7 +18,7 @@ export default {
   effect: 'write',
   signature:
     'seed(users?, firestore?, database?, storage?, firestoreRules?, databaseRules?, storageRules?)',
-  description: 'Load users, documents, values, objects, and rules.',
+  description: 'Load users, documents, values, objects, rules.',
   args: z.object({
     users: z
       .array(userSeed)

@@ -15,6 +15,12 @@ import { z } from 'zod';
 import { RULES_SERVICES, rulesEngineFor } from '../rules-engines/registry.js';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
 import { quoted } from '../closest-name.js';
+import { checkInstant } from './instants.js';
+
+/** Reject a `requestTime` that does not parse as a date. */
+export function checkRequestTime(args: Args, fail: Fail): InvalidArguments | null {
+  return checkInstant('requestTime', args, fail);
+}
 
 /** The services that carry Security Rules, from the engine records. */
 export const SERVICES: readonly string[] = RULES_SERVICES;
@@ -74,8 +80,12 @@ export const simulationCase = z
     path,
     uid: uid.optional(),
     data: data.optional(),
+    requestTime: z
+      .string()
+      .optional()
+      .describe('ISO 8601 instant this case evaluates at. Defaults to the call-level requestTime, then the sandbox clock.'),
   })
-  .describe('One request: the method, the path, the identity, and the value.');
+  .describe('One request: the method, the path, the identity, the value, and the instant.');
 
 /** The batch form: one array entry per request to evaluate, answered in order. */
 export const cases = z

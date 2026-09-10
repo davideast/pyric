@@ -31,7 +31,7 @@ export class PriorityWrites {
   set(auth: AuthState, path: string, priority: Priority): void {
     validatePriority(priority);
     const current = this.state.tree.read(path);
-    const at = Date.now();
+    const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('write', path === '/' ? '/' : path, {
       auth,
       mockData: this.state.tree.snapshot() as Record<string, unknown>,
@@ -39,7 +39,7 @@ export class PriorityWrites {
     });
     const priorPriority = this.state.priorities.get(path);
     const common = {
-      at, durationMs: Date.now() - at, request: { data: priority },
+      at, durationMs: this.state.clock.now() - at, request: { data: priority },
       resourceBefore: { data: current, exists: current !== null },
       resourceAfter: { data: current, exists: current !== null },
       detail: { priority, priorPriority },

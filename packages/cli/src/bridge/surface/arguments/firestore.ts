@@ -11,6 +11,7 @@
 import { z } from 'zod';
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
 import { quoted } from '../closest-name.js';
+import { decodeFieldValues, type FieldValueScope } from './field-values.js';
 
 /** The where operators the SDK accepts. */
 const OPERATORS = [
@@ -243,4 +244,70 @@ export function checkBatch(args: Args, fail: Fail): InvalidArguments | null {
     }
   }
   return null;
+}
+
+// ─── Field values ─────────────────────────────────────────────────────────
+//
+// `data` used to travel verbatim, so an agent could write any value except the
+// five that are function calls in the SDK. `field-values.ts` owns the JSON
+// spelling of those five; these two functions are how the write methods reach
+// it, once to refuse a bad spelling before the call runs and once to decode a
+// good one on the way through.
+
+/** Where `$deleteField` is accepted: an update, and nothing else. */
+function acceptsDeleteField(method: string): boolean {
+  return method === 'updateDoc';
+}
+
+/** The scope one direct write decodes under. */
+function scopeFor(method: string): FieldValueScope {
+  return { method, deleteFieldAccepted: acceptsDeleteField(method), root: 'data' };
+}
+
+/** Refuse a field-value spelling `data` gets wrong, naming the field path. */
+export function checkFieldValues(
+  method: string,
+  args: Args,
+  fail: Fail,
+): InvalidArguments | null {
+  const decoded = decodeFieldValues(args.data, scopeFor(method));
+  if (decoded.ok) return null;
+  return fail(decoded.body, decoded.fix, decoded.path);
+}
+
+/**
+ * `data` with every field-value spelling replaced by the SDK's own value.
+ * Called after {@link checkFieldValues} has passed, so a refusal here cannot
+ * happen; if one somehow did, the data is passed through unchanged and the
+ * write plane refuses it rather than this returning a half-decoded object.
+ */
+export function fieldValuesOf(method: string, data: unknown): unknown {
+  const decoded = decodeFieldValues(data, scopeFor(method));
+  if (decoded.ok) return decoded.value;
+  return data;
+}
+
+/** The scope one batched write decodes under, named by its index. */
+function batchScopeFor(index: number, type: unknown): FieldValueScope {
+  return {
+    method: `a writeBatch ${String(type)}`,
+    deleteFieldAccepted: type === 'update',
+    root: `writes.${index}.data`,
+  };
+}
+
+/** Refuse a field-value spelling any batched write gets wrong. */
+export function checkBatchFieldValues(args: Args, fail: Fail): InvalidArguments | null {
+  for (const [index, write] of (args.writes as Args[]).entries()) {
+    const decoded = decodeFieldValues(write.data, batchScopeFor(index, write.type));
+    if (!decoded.ok) return fail(decoded.body, decoded.fix, decoded.path);
+  }
+  return null;
+}
+
+/** One batched write's `data`, with its field-value spellings decoded. */
+export function batchFieldValuesOf(index: number, write: Args): unknown {
+  const decoded = decodeFieldValues(write.data, batchScopeFor(index, write.type));
+  if (decoded.ok) return decoded.value;
+  return write.data;
 }

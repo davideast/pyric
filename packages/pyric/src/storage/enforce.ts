@@ -38,7 +38,7 @@
  * throws `StorageError` exactly as before — the error contract to
  * app code is unchanged.
  */
-import { emitSandboxEvent, makeSandboxOperationEvent } from 'pyric/sandbox/internal';
+import { emitSandboxEvent, getClock, makeSandboxOperationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import {
   storageOperationProvenance,
@@ -76,10 +76,14 @@ export function enforceRules(
     throw unauthorized(input.request.method, input.request.path, ' — No Storage rules configured; default deny.');
   }
   const evaluationInput = target ? withCanonicalRulesPath(input, target.bucket) : input;
+  // `request.time` is the sandbox's clock when the caller has a sandbox handle,
+  // so a `request.time < timestamp.date(...)` rule flips with it. A pure
+  // evaluation with no target keeps the evaluator's own wall-clock default.
+  const requestTime = target ? getClock(target.sandbox).date() : undefined;
   const result = evaluateStorageRules(
     service.rules,
     evaluationInput,
-    undefined,
+    requestTime,
     firestoreLookupFor(target, service.crossServiceIam),
   );
   if (!result.allowed) {
@@ -126,6 +130,7 @@ function emitOperation(
     emitSandboxEvent(
       target.sandbox,
       makeSandboxOperationEvent({
+        at: getClock(target.sandbox).now(),
         service: 'storage',
         method: input.request.method,
         path: input.request.path,

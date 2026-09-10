@@ -5,6 +5,7 @@
  * via state snapshots — no need to replay events.
  */
 import type { DocumentData } from './local-state.js';
+import { SandboxClock } from '../../sandbox/clock.js';
 
 export interface AgentEvent {
   id: number;
@@ -65,12 +66,15 @@ export class EventLog {
   private nextId = 1;
   private undoneEvents: AgentEvent[] = [];
 
+  /** @param clock The sandbox clock every appended entry is stamped from. */
+  constructor(private readonly clock: SandboxClock = new SandboxClock()) {}
+
   /** Append an event. Clears redo stack unless preserveRedo is true. */
   append(event: Omit<AgentEvent, 'id' | 'timestamp'>, preserveRedo = false): AgentEvent {
     const full: AgentEvent = {
       ...event,
       id: this.nextId++,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(this.clock.now()).toISOString(),
     };
     this.events.push(full);
     if (!preserveRedo) this.undoneEvents = [];

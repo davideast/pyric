@@ -9,7 +9,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'listCheckpoints()',
-  description: 'List checkpoints with save time and counts.',
+  description: 'List checkpoints.',
   args: z.object({}),
   operation: 'list_sandbox_checkpoints',
   example: {},

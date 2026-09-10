@@ -9,7 +9,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'write',
   signature: 'checkpoint(name)',
-  description: 'Save the sandbox under a name, replacing that name.',
+  description: 'Save the sandbox under a name.',
   args: z.object({
     name: z
       .string()

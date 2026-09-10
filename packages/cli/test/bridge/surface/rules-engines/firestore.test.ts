@@ -5,7 +5,7 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 
 import { createSurfaceContext } from '../../../../src/bridge/surface/context.js';
 import {
@@ -92,6 +92,52 @@ describe('simulate', () => {
       uid: 'alice',
     });
     expect((signedIn.data as { allowed: boolean }).allowed).toBe(true);
+  });
+
+  it('flips a request.time-gated rule by an explicit requestTime', async () => {
+    const ctx = freshContext();
+    const gateInstant = Date.parse('2026-01-01T00:00:00.000Z');
+    const gated = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.time > timestamp.date(2026, 1, 1);
+    }
+  }
+}`;
+    await FIRESTORE_RULES.install(ctx, gated);
+    const before = await FIRESTORE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'posts/p1',
+      requestTime: new Date(gateInstant - 60_000).toISOString(),
+    });
+    expect((before.data as { allowed: boolean }).allowed).toBe(false);
+    const after = await FIRESTORE_RULES.simulate(ctx, {
+      operation: 'get',
+      path: 'posts/p1',
+      requestTime: new Date(gateInstant + 60_000).toISOString(),
+    });
+    expect((after.data as { allowed: boolean }).allowed).toBe(true);
+  });
+
+  it('defaults request.time to the sandbox clock when requestTime is omitted', async () => {
+    const ctx = freshContext();
+    const gateInstant = Date.parse('2026-01-01T00:00:00.000Z');
+    const gated = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.time > timestamp.date(2026, 1, 1);
+    }
+  }
+}`;
+    await FIRESTORE_RULES.install(ctx, gated);
+    getClock(ctx.sandbox).set(gateInstant - 60_000);
+    const before = await FIRESTORE_RULES.simulate(ctx, { operation: 'get', path: 'posts/p1' });
+    expect((before.data as { allowed: boolean }).allowed).toBe(false);
+    getClock(ctx.sandbox).set(gateInstant + 60_000);
+    const after = await FIRESTORE_RULES.simulate(ctx, { operation: 'get', path: 'posts/p1' });
+    expect((after.data as { allowed: boolean }).allowed).toBe(true);
   });
 });
 

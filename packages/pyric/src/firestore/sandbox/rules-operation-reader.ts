@@ -17,6 +17,7 @@ import {
 import { buildRulesTestCase } from './rules-test-case.js';
 import { EventLog } from './event-log.js';
 import { simulateRules } from './rules-simulator.js';
+import { SandboxClock } from '../../sandbox/clock.js';
 
 interface RulesOperationReaderHost {
   readonly state: DocStore;
@@ -30,6 +31,9 @@ export class RulesOperationReader {
     private readonly simulator: SimulateFirestoreRulesHandler,
     private readonly host: RulesOperationReaderHost,
     private readonly eventLog: EventLog,
+    /** The sandbox's clock, read for every server-set time this produces.
+     *  Defaults to a private wall clock for a standalone construction. */
+    private readonly clock: SandboxClock = new SandboxClock(),
   ) {}
 
   private get state(): DocStore {
@@ -55,10 +59,10 @@ export class RulesOperationReader {
     // No data to resolve on reads, but still pin a serverTime so the
     // handler's `request.time` is deterministic relative to anything
     // observed by debug messages (Item 1).
-    const readServerTime = Timestamp.fromMillis(Date.now());
+    const readServerTime = Timestamp.fromMillis(this.clock.now());
     const testCase = buildRulesTestCase(this.state, operation, readServerTime);
-    // Issue #307 — time the simulate call for RequestEvent.evalMs.
-    const evalAt = Date.now();
+    // Time the simulate call for RequestEvent.evalMs.
+    const evalAt = this.clock.now();
     const evalStart = performance.now();
     const simResult = simulateRules(
       this.state,

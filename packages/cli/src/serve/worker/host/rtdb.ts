@@ -21,6 +21,7 @@ import {
   onDisconnect as rtdbOnDisconnect,
   serverTimestamp as rtdbServerTimestamp,
   runTransaction as rtdbRunTransaction,
+  push as rtdbPush,
   QUERY_SYMBOL,
   sandbox as rtdbSandbox,
   type DataSnapshot,
@@ -270,7 +271,15 @@ export async function handleRtdbOp(
     case 'rtdb.push': {
       try {
         const db = lensRtdb(ctx, msg.actAs, port);
-        const childPath = `${msg.path}/${msg.key}`;
+        // A caller that can wait for the reply omits `key`, and the key is
+        // minted here from the sandbox clock. A page cannot wait: its `push()`
+        // returns a reference synchronously, so it mints its own from the clock
+        // mirror and sends it.
+        let key = msg.key;
+        if (key === undefined) {
+          key = rtdbPush(rtdbRef(db, msg.path)).key ?? '';
+        }
+        const childPath = `${msg.path}/${key}`;
         if (msg.value !== undefined) {
           await rtdbSet(
             rtdbRef(db, childPath),
@@ -279,7 +288,7 @@ export async function handleRtdbOp(
           await bestEffortFlush(ctx);
         }
         const normalizedPath = `/${childPath.split('/').filter(Boolean).join('/')}`;
-        ok(port, msg.id, { key: msg.key, path: normalizedPath });
+        ok(port, msg.id, { key, path: normalizedPath });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

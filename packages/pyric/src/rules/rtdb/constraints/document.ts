@@ -75,13 +75,15 @@ function normalizeAuth(auth: RtdbRulesSimulationAuth | undefined): SimulationInp
 }
 
 function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {
-  return {
+  const simulation: SimulationInput = {
     operation: input.operation,
     path: input.path,
     auth: normalizeAuth(input.auth),
     mockData: input.mockData ?? input.data ?? {},
-    ...(input.newData !== undefined ? { newData: input.newData } : {}),
   };
+  if (input.newData !== undefined) simulation.newData = input.newData;
+  if (input.now !== undefined) simulation.now = input.now;
+  return simulation;
 }
 
 function collectExpressionFindings(

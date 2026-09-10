@@ -36,6 +36,7 @@ import type {
 import { WriteRuntime } from './write-runtime.js';
 import { BatchWriteExecutor } from './batch-write-executor.js';
 import { TransactionWriteExecutor } from './transaction-write-executor.js';
+import { SandboxClock } from '../../sandbox/clock.js';
 
 interface WriteEngineHost {
   readonly state: DocStore;
@@ -55,6 +56,9 @@ export class WriteEngine {
     eventLog: EventLog,
     events: FirestoreEventBus,
     triggerScope: TriggerScope,
+    /** The sandbox's clock, read for every server-set time this produces.
+     *  Defaults to a private wall clock for a standalone construction. */
+    clock: SandboxClock = new SandboxClock(),
   ) {
     this.runtime = new WriteRuntime(
       host,
@@ -63,6 +67,7 @@ export class WriteEngine {
       eventLog,
       events,
       triggerScope,
+      clock,
     );
     this.batches = new BatchWriteExecutor(this.runtime);
     this.transactions = new TransactionWriteExecutor(this.runtime);
@@ -122,9 +127,9 @@ export class WriteEngine {
     // `request.time`) must see field-equal values, otherwise rules like
     // `data.createdAt == request.time` flake on sub-millisecond drift.
     // Replay engine: `operation.requestTime` (when provided) overrides
-    // Date.now() so the rule eval re-evaluates against the captured
-    // wall-clock instant, eliminating time-drift on replay.
-    const serverTime = pinnedRequestTime ?? Timestamp.fromMillis(Date.now());
+    // the sandbox clock so the rule eval re-evaluates against the captured
+    // instant, eliminating time-drift on replay.
+    const serverTime = pinnedRequestTime ?? Timestamp.fromMillis(this.runtime.clock.now());
 
     // Resolve the write payload BEFORE rule evaluation so rules see the
     // same shape storage will see (Item 0: write-boundary value-resolve).
@@ -164,7 +169,7 @@ export class WriteEngine {
       // engine but the user's op still produced a denial. evalMs is 0
       // because no simulate call happened.
       this.runtime.emitRequest({
-        at: Date.now(), evalMs: 0, method, path, auth, result: 'deny',
+        at: this.runtime.clock.now(), evalMs: 0, method, path, auth, result: 'deny',
         debugMessages: [`FieldValue resolve error: ${msg}`],
         ...(resolvedData ? { resourceData: resolvedData } : data ? { resourceData: data } : {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
@@ -184,7 +189,7 @@ export class WriteEngine {
 
     const testCase = this.runtime.buildTestCase({ ...operation, data: resolvedData }, serverTime);
     // Issue #307 — time the simulate call for RequestEvent.evalMs.
-    const evalAt = Date.now();
+    const evalAt = this.runtime.clock.now();
     const evalStart = performance.now();
     const simResult = this.runtime.runSimulate([testCase], bypassRules);
     const evalMs = performance.now() - evalStart;
