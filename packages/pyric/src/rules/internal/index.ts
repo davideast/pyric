@@ -183,6 +183,19 @@ export { resolveModulesBrowser, STDLIB_INLINE, resolveAuthoredSourceLoc, type Au
 // so neither tree-shaking nor lazy-loading keeps it out). See `./extract.ts`.
 // The erasable TYPES stay here (type-only exports compile away, never bundled).
 export type { ExtractIndexesOptions } from '../indexes/extractHandler.js';
+
+// Composite-index detection over a structured query shape, not source text.
+// `needsCompositeIndex` and `shapeToIndexEntry` have no TypeScript-compiler
+// dependency (pure data functions over `QueryShape`), unlike the source-text
+// extractor above, so they stay on this browser-safe entry rather than the
+// compiler-heavy `pyric/rules/extract` subpath. A caller that already has a
+// query's collection path, filters, and orderings (a recorded sandbox query,
+// or one an agent names directly) reaches these without paying for the parser.
+export {
+  needsCompositeIndex,
+  shapeToIndexEntry,
+  indexEntryKey,
+} from '../indexes/extract/composite.js';
 export type {
   ExtractResult,
   ExtractionWarning,
