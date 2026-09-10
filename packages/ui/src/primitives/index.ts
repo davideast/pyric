@@ -38,3 +38,9 @@ export {
   type UseUpdateHighlightsOptions,
 } from './hooks/useUpdateHighlights.js';
 export { Modal, type ModalProps } from './Modal.js';
+export {
+  PYRIC_THEME_TOKENS,
+  type PyricThemeToken,
+  ACCESSIBILITY_CONTRACT,
+} from '../tokens.js';
+

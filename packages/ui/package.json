@@ -11,9 +11,15 @@
   "bugs": {
     "url": "https://github.com/davideast/pyric/issues"
   },
-  "description": "Headless React data-admin components and hooks for Firebase apps built on pyric. Same components work in sandbox (pyric/firestore against pyric/sandbox) and production (firebase/firestore against real Firebase) via a single Firestore handle prop. Ships zero visual styling \u2014 consumers bring their own design system via className + data-* attributes.",
+  "description": "Headless React data-admin components and hooks for Firebase apps built on pyric. Same components work in sandbox (pyric/firestore against pyric/sandbox) and production (firebase/firestore against real Firebase) via a single Firestore handle prop. Ships design token contracts and accessible styling defaults with full forced-colors and focus-visible support.",
   "type": "module",
   "exports": {
+    "./styles.css": "./styles.css",
+    "./tokens.css": "./tokens.css",
+    "./tokens": {
+      "types": "./dist/tokens.d.ts",
+      "import": "./dist/tokens.js"
+    },
     "./auth": {
       "types": "./dist/auth/index.d.ts",
       "import": "./dist/auth/index.js"
@@ -78,6 +84,8 @@
   "files": [
     "dist",
     "src",
+    "styles.css",
+    "tokens.css",
     "README.md",
     "LICENSE"
   ],

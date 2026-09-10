@@ -1,0 +1,30 @@
+:root {
+  --pyric-color: #8f7fe8;
+  --pyric-bg: #16161a;
+  --pyric-fg: #fbfbfe;
+  --pyric-text: #fbfbfe;
+  --pyric-border: #3a3a45;
+  --pyric-focus: #8f7fe8;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --pyric-color: #6b57d6;
+    --pyric-bg: #ffffff;
+    --pyric-fg: #16181d;
+    --pyric-text: #16181d;
+    --pyric-border: #e7e8ec;
+    --pyric-focus: #6b57d6;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --pyric-color: Highlight;
+    --pyric-bg: Canvas;
+    --pyric-fg: CanvasText;
+    --pyric-text: CanvasText;
+    --pyric-border: ButtonBorder;
+    --pyric-focus: Highlight;
+  }
+}

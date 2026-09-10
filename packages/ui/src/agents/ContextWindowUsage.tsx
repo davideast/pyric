@@ -87,9 +87,13 @@ export function ContextWindowRing({
   const pct = snapshot.percentFull === undefined
     ? 0.28
     : Math.max(0, Math.min(1, snapshot.percentFull));
-  const degrees = Math.max(10, Math.round(pct * 360));
-  const color = `var(--pyric-context-window-status-color, ${STATUS_COLORS[snapshot.status]})`;
-  const track = 'var(--pyric-context-window-track-color, #3a3a45)';
+  const strokeWidth = Math.max(2, Math.round(size * 0.17));
+  const center = size / 2;
+  const radius = Math.max(1, (size - strokeWidth) / 2);
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference * (1 - pct);
+  const color = `var(--pyric-color, var(--pyric-context-window-status-color, ${STATUS_COLORS[snapshot.status]}))`;
+  const track = 'var(--pyric-border, var(--pyric-context-window-track-color, #3a3a45))';
   const innerSize = Math.max(8, size - Math.max(6, Math.round(size * 0.34)));
   return (
     <span
@@ -100,14 +104,46 @@ export function ContextWindowRing({
       style={{
         display: 'inline-grid',
         placeItems: 'center',
+        position: 'relative',
         borderRadius: '999px',
         width: size,
         height: size,
-        background: `conic-gradient(${color} ${degrees}deg, ${track} ${degrees}deg)`,
         ...style,
       }}
       aria-hidden="true"
     >
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          transform: 'rotate(-90deg)',
+          forcedColorAdjust: 'none',
+        }}
+      >
+        <circle
+          cx={center}
+          cy={center}
+          r={radius}
+          fill="none"
+          stroke={track}
+          strokeWidth={strokeWidth}
+        />
+        <circle
+          cx={center}
+          cy={center}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+        />
+      </svg>
       <span
         data-pyric-ui="context-window-ring-inner"
         className={innerClassName}
@@ -116,7 +152,7 @@ export function ContextWindowRing({
           borderRadius: '999px',
           width: innerSize,
           height: innerSize,
-          background: 'var(--pyric-context-window-inner-color, currentColor)',
+          background: 'var(--pyric-bg, var(--pyric-context-window-inner-color, currentColor))',
         }}
       />
     </span>
