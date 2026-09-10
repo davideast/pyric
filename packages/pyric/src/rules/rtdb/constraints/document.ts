@@ -81,6 +81,7 @@ function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationIn
     auth: normalizeAuth(input.auth),
     mockData: input.mockData ?? input.data ?? {},
     ...(input.newData !== undefined ? { newData: input.newData } : {}),
+    ...(input.now !== undefined ? { now: input.now } : {}),
   };
 }
 

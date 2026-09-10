@@ -90,6 +90,7 @@ class DocumentRtdbRuleset implements RtdbRuleset {
       auth: c.auth ?? null,
       ...(c.data !== undefined ? { data: c.data } : {}),
       ...(c.newData !== undefined ? { newData: c.newData } : {}),
+      ...(c.now !== undefined ? { now: c.now } : {}),
     });
     if (!result.success) {
       // Could not evaluate — report as unsupported rather than throw.
@@ -194,6 +195,7 @@ class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
       auth: normalizeAuth(input.auth),
       mockData: input.mockData ?? input.data ?? {},
       ...(input.newData !== undefined ? { newData: input.newData } : {}),
+      ...(input.now !== undefined ? { now: input.now } : {}),
     });
   }
 }
