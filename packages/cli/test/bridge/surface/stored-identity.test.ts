@@ -113,8 +113,8 @@ service cloud.firestore {
       true,
     );
     const held = await call(ctx, 'auth.whoami', {});
-    const identity = (held.data as { identity: { claims?: Record<string, unknown> } }).identity;
-    expect(identity.claims).toMatchObject({ role: 'billingAdmin' });
+    const agent = (held.data as { agent: { claims?: Record<string, unknown> } }).agent;
+    expect(agent.claims).toMatchObject({ role: 'billingAdmin' });
   });
 
   it('keeps the role in a rules simulation when only a tenant is named', async () => {

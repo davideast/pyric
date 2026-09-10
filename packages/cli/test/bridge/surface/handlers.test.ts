@@ -459,11 +459,18 @@ it('resets one service without touching the others', async () => {
   expect((await run('sandbox.reset', { confirm: true })).ok).toBe(true);
 });
 
-it('reports the identity every later call runs under', async () => {
+it('reports the agent identity and the app session apart', async () => {
   await run('auth.impersonate', { uid: 'alice', tenantId: 'tenant-a' });
   const identity = await run('auth.whoami');
   expect(identity.ok).toBe(true);
-  expect((identity.data as { identity: { uid: string } }).identity.uid).toBe('alice');
+  const reported = identity.data as {
+    agent: { uid: string };
+    appSession: { uid: string } | null;
+    runsAs: string;
+  };
+  expect(reported.agent.uid).toBe('alice');
+  expect(reported.runsAs).toContain('alice');
+  expect(reported.appSession).toBe(null);
   await run('auth.actAsAdmin');
 });
 

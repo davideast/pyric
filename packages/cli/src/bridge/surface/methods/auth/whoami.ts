@@ -1,6 +1,6 @@
-/** Report the identity later calls run under. */
+/** Report the agent identity and the app session, and which one runs next. */
 import { z } from 'zod';
-import { describeHeldIdentity } from '../../held-identity.js';
+import { describeBothIdentities } from '../../held-identity.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
@@ -9,11 +9,11 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: 'whoami()',
-  description: 'Report the identity later calls run under.',
+  description: 'Report the agent identity and the app session, and which one later calls run as.',
   args: z.object({}),
   operation: 'get_auth_identity',
   example: {},
   async handler(_args, ctx) {
-    return describeHeldIdentity(ctx);
+    return describeBothIdentities(ctx);
   },
 } satisfies MethodRecord;
