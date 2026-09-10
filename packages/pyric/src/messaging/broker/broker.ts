@@ -216,15 +216,23 @@ export class MessagingBroker {
   }
 
   /**
-   * Every registered device token and the topics it is subscribed to (the
-   * `tokens` service-tool method's read). A token stays listed after
-   * `deleteTokenFor` invalidates it, reported `unregistered`, the same
-   * dead-is-dead-immediately contract {@link tokenState} already carries.
+   * Every device token the broker knows about, minted or merely subscribed,
+   * and the topics each is subscribed to (the `tokens` service-tool method's
+   * read). A token stays listed after `deleteTokenFor` invalidates it,
+   * reported `unregistered`, the same dead-is-dead-immediately contract
+   * {@link tokenState} already carries. A token this sandbox never minted but
+   * that `subscribeToTopic` accepted anyway is listed `unknown`, because it
+   * is genuinely part of the sandbox's subscription state even though this
+   * sandbox never issued it.
    */
   tokens(): RegisteredToken[] {
-    return [...this.tokenRecords.entries()].map(([token, record]) => ({
+    const known = new Set(this.tokenRecords.keys());
+    for (const set of this.subscriptions.values()) {
+      for (const token of set) known.add(token);
+    }
+    return [...known].sort().map((token) => ({
       token,
-      state: record.state,
+      state: this.tokenState(token),
       topics: [...this.topicsOf(token)].sort(),
     }));
   }
@@ -426,8 +434,8 @@ export class MessagingBroker {
    * What was delivered, in delivery order: foreground or background, handled
    * or not (the `deliveries` service-tool method's read). `since` is a clock
    * timestamp cursor; entries at or after it are returned. A `send` with no
-   * matching recipient never calls {@link route}, so it never logs here —
-   * only an actual routing decision does.
+   * matching recipient never calls {@link route}, so it never logs here.
+   * Only an actual routing decision does.
    */
   deliveries(since?: number): DeliveryLogEntry[] {
     if (since === undefined) return [...this.deliveryLog];

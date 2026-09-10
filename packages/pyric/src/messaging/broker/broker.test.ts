@@ -259,7 +259,7 @@ describe('messaging broker — typed sandbox events (tracing consumes the stream
   });
 });
 
-describe('messaging broker — registered tokens and their topics', () => {
+describe('messaging broker, registered tokens and their topics', () => {
   it('lists every minted token with its state and topic membership', () => {
     const broker = new MessagingBroker();
     const a = broker.getTokenFor('reg-a');
@@ -278,6 +278,17 @@ describe('messaging broker — registered tokens and their topics', () => {
     expect(entryB.topics).toEqual(['sports']);
   });
 
+  it('lists a subscribed token this sandbox never minted, state unknown', () => {
+    const broker = new MessagingBroker();
+    const foreign = 'foreign-device-01:APA91bForeignSuffix';
+    broker.subscribeToTopic([foreign], 'alerts');
+
+    const entry = broker.tokens().find((candidate) => candidate.token === foreign);
+    expect(entry).toBeDefined();
+    expect(entry!.state).toBe('unknown');
+    expect(entry!.topics).toEqual(['alerts']);
+  });
+
   it('reports a deleted token as unregistered, with its subscriptions cleared by unsubscribe', () => {
     const broker = new MessagingBroker();
     const token = broker.getTokenFor('reg-c');
@@ -289,7 +300,7 @@ describe('messaging broker — registered tokens and their topics', () => {
   });
 });
 
-describe('messaging broker — the delivery log', () => {
+describe('messaging broker, the delivery log', () => {
   it('records a topic send as delivered, foreground or background, per the visibility rule', () => {
     const broker = new MessagingBroker();
     const token = broker.getTokenFor('reg-1');

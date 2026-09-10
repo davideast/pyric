@@ -89,15 +89,21 @@ export interface TopicManagementOutcome {
 }
 
 /**
- * One registered token, as {@link MessagingBroker.tokens} reports it: its
- * registration state and the topics it is currently subscribed to. This is
- * the seam the `tokens` service-tool method reads (`0014-service-tools-with-sdk-methods.md`);
- * the broker already tracked this state privately for routing, and this is
- * its first public read.
+ * One token {@link MessagingBroker.tokens} reports: its state and the topics
+ * it is currently subscribed to. This is the seam the `tokens` service-tool
+ * method reads (`0014-service-tools-with-sdk-methods.md`); the broker already
+ * tracked this state privately for routing, and this is its first public
+ * read.
+ *
+ * `state` is `unknown` for a token that was never minted through
+ * {@link MessagingBroker.getTokenFor} in this sandbox but does appear in a
+ * topic's subscription set — `subscribeToTopic` accepts such a token, the
+ * captured contract for cross-sandbox fixture composition, so a listing that
+ * omitted it would under-report what the sandbox actually holds.
  */
 export interface RegisteredToken {
   token: string;
-  state: 'active' | 'unregistered';
+  state: 'active' | 'unregistered' | 'unknown';
   topics: string[];
 }
 
