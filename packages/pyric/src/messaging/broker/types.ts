@@ -97,7 +97,7 @@ export interface TopicManagementOutcome {
  *
  * `state` is `unknown` for a token that was never minted through
  * {@link MessagingBroker.getTokenFor} in this sandbox but does appear in a
- * topic's subscription set — `subscribeToTopic` accepts such a token, the
+ * topic's subscription set. `subscribeToTopic` accepts such a token, the
  * captured contract for cross-sandbox fixture composition, so a listing that
  * omitted it would under-report what the sandbox actually holds.
  */
