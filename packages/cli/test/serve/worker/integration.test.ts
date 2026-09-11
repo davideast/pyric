@@ -11,6 +11,8 @@ import { monitorFirebaseActivity, type ActivityIncident } from 'pyric/firestore/
 import * as client from '../../../src/serve/worker/client.js';
 import { rtdbGetDatabase, rtdbRef } from '../../../src/serve/worker/client/rtdb-references.js';
 import { rtdbOnValue } from '../../../src/serve/worker/client/rtdb-listeners.js';
+import { onListenerDelivery } from '../../../src/serve/worker/client/listener-delivery.js';
+import { activeListeners } from 'pyric/sandbox';
 import {
   connectClient,
   connectClientToHost,
@@ -133,6 +135,28 @@ describe('client↔host round-trip (gate repro)', () => {
 
     expect(errors).toEqual([]);
     expect((seen.at(-1) as { marker?: string }).marker).toBe('shared');
+  });
+
+  it('stamps the client subscription id on the attach of both services and reports deliveries by it', async () => {
+    const ctx = await makeHostCtx();
+    const { db } = connectClientToHost(ctx, 'worker://client-ids');
+    const auth = client.getAuth(db);
+    const cred = await client.createUserWithEmailAndPassword(auth, 'ids@example.com', 'pw123456');
+    await client.setDoc(client.doc(db, 'notes/ids'), { uid: cred.user.uid });
+    const reported: string[] = [];
+    const stopReports = onListenerDelivery((id) => reported.push(id));
+    const firestoreUnsub = client.onSnapshot(client.doc(db, 'notes/ids'), { owner: 'notes-panel' }, () => {}, () => {});
+    const databaseUnsub = rtdbOnValue(rtdbRef(rtdbGetDatabase(db), 'rooms/ids'), () => {}, () => {}, { owner: 'rooms-panel' });
+    await sleep();
+    const listeners = activeListeners(ctx.sandbox.history());
+    const clientIds = listeners.map((listener) => listener.clientListenerId).filter((id): id is string => typeof id === 'string');
+    expect(clientIds).toHaveLength(2);
+    expect(new Set(listeners.map((listener) => listener.service))).toEqual(new Set(['firestore', 'database']));
+    expect(reported.length).toBeGreaterThan(0);
+    for (const id of reported) expect(clientIds).toContain(id);
+    firestoreUnsub();
+    databaseUnsub();
+    stopReports();
   });
 
   it('records the page-side owners on the worker attach, for both services', async () => {

@@ -55,6 +55,9 @@ export interface ListenerOutlineIncident {
 /** One listener as the overlay draws it. */
 export interface ListenerOutline {
   readonly listenerId: string;
+  /** The page client's own subscription id, when the attach carried it; a
+   * delivery observed on the page names the listener by this id. */
+  readonly clientListenerId?: string;
   /** Component name, else owner tag name, else creating function or file. */
   readonly label: string;
   /**
@@ -185,6 +188,7 @@ function outlineFor(
   const owners = listener.owners ?? [];
   return {
     listenerId: listener.id,
+    ...(listener.clientListenerId === undefined ? {} : { clientListenerId: listener.clientListenerId }),
     label: outlineLabel(owners, listener.id),
     labelIsOwner: labelIsOwner(owners),
     target: targetPath(listener.target),

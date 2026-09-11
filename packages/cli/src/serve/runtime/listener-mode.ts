@@ -171,7 +171,9 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       document: documentLike,
       container: overlay.container(),
       commits,
-      outlineFor: (listenerId) => current.find((outline) => outline.listenerId === listenerId) ?? null,
+      // A delivery observed on the page carries the client's subscription id;
+      // the outline knows both ids.
+      outlineFor: (listenerId) => current.find((outline) => outline.listenerId === listenerId || outline.clientListenerId === listenerId) ?? null,
       isVisible: (listenerId) => !hidden.has(listenerId),
       ...(options.flow ?? {}),
     });
