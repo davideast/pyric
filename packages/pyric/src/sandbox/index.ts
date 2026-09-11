@@ -75,9 +75,10 @@ export {
   isOperationEvent,
   operationContextFor,
   rulesDispositionFor,
+  toListenerRecord,
   toOperationRecord,
 } from './operation-record.js';
-export type { OperationRecord } from './operation-record.js';
+export type { ListenerPhase, OperationRecord } from './operation-record.js';
 
 // Remote sandbox (slice 1) — the brand + minimal channel contract that
 // lets `pyric-admin` recognize a Node-side handle onto the browser-hosted
