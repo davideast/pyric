@@ -28,7 +28,7 @@ import {
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
-import { getAuth } from 'pyric/auth';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { getAdminDatabase } from 'pyric/database';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import type { FirebaseStorage } from 'pyric/storage';
@@ -169,13 +169,63 @@ export function openPersistedServices(sandbox: LocalSandbox, cwd: string): Fireb
 }
 
 /**
+ * Where the app session rides inside a snapshot's `services` map, alongside
+ * the persistable services the sandbox core knows about. `sandbox.snapshot()`
+ * and `loadSnapshot()` are keyed by registered service name and this name is
+ * never registered, so the sandbox core passes it through untouched in both
+ * directions without knowing it carries anything auth-shaped.
+ */
+const APP_SESSION_SERVICE_KEY = '__pyric_cli_app_session';
+
+/** What is captured for the app session: the signed-in uid and the tenant
+ *  scope it authenticated under, so a later process restores both rather than
+ *  just the uid and a default (untenanted) scope. */
+interface PersistedAppSession {
+  uid: string;
+  tenantId: string | null;
+}
+
+/** The app session to fold into a snapshot's `services` map, or `null` when
+ *  signed out, meaning nothing for a later process to restore. */
+function captureAppSession(sandbox: LocalSandbox): PersistedAppSession | null {
+  const auth = getAuth(sandbox);
+  const uid = auth.currentUser?.uid ?? null;
+  if (uid === null) return null;
+  return { uid, tenantId: authSandbox.getTenantId(auth) };
+}
+
+/**
+ * Sign the captured uid back in through the auth backend's own restore seam
+ * (`sandbox.restoreSession`), never a session minted outside it, then restore
+ * the tenant scope it carried. Called after `sandbox.loadSnapshot()` so the
+ * user pool the uid names is already back in place. A uid the pool no longer
+ * holds (the user was deleted since the snapshot was taken) leaves the app
+ * signed out rather than throwing: the state file is stale, not corrupt.
+ */
+function restoreAppSession(sandbox: LocalSandbox, stored: unknown): void {
+  const parsed = stored as PersistedAppSession | null | undefined;
+  if (parsed === null || parsed === undefined) return;
+  const auth = getAuth(sandbox);
+  try {
+    authSandbox.restoreSession(auth, parsed.uid);
+  } catch {
+    return;
+  }
+  authSandbox.setTenantId(auth, parsed.tenantId);
+}
+
+/**
  * Persist the sandbox to `<cwd>/.pyric/state/in-process.json` using the v3 bundle
  * codec (the same `serializeToBuckets` + `bundleRecords` the worker uses). Atomic
- * tmp+rename so a crash mid-write never truncates the live file.
+ * tmp+rename so a crash mid-write never truncates the live file. Carries the
+ * app session (the uid `auth.currentUser` names, and its tenant) alongside the
+ * user pool, so `pyric auth signInWithEmailAndPassword` in one process and
+ * `pyric auth whoami` in the next see the same session.
  */
 export function saveSandboxSnapshot(sandbox: LocalSandbox, cwd: string): void {
   const snap = sandbox.snapshot();
-  const bundle = bundleRecords(serializeToBuckets(snap.firestore, snap.services, 0));
+  const services = { ...snap.services, [APP_SESSION_SERVICE_KEY]: captureAppSession(sandbox) };
+  const bundle = bundleRecords(serializeToBuckets(snap.firestore, services, 0));
   const path = join(cwd, IN_PROCESS_STATE_RELATIVE);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
@@ -192,6 +242,7 @@ export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number 
   if (!existsSync(path)) return null;
   const snap = deserializeFromBuckets(parseBundle(readFileSync(path, 'utf8')));
   sandbox.loadSnapshot(snap);
+  restoreAppSession(sandbox, snap.services[APP_SESSION_SERVICE_KEY]);
   return Object.keys(snap.firestore).length;
 }
 

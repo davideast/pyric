@@ -21,7 +21,7 @@ export interface FunctionExecutionRecord {
   /** Sandbox clock instant the run started, in epoch milliseconds. */
   startedAt: number;
   durationMs: number;
-  status: 'fulfilled' | 'rejected';
+  status: 'fulfilled' | 'rejected' | 'timeout';
   /** What the handler returned, present only when `status` is `fulfilled`. */
   result?: unknown;
   /** The handler's thrown error, present only when `status` is `rejected`. */
@@ -64,7 +64,7 @@ function toRecord(event: SandboxEvent, ordinal: number): FunctionExecutionRecord
     },
     startedAt: Number(detail.startedAt),
     durationMs: Number(detail.durationMs),
-    status: detail.status === 'rejected' ? 'rejected' : 'fulfilled',
+    status: statusOf(detail.status),
   };
   if (record.status === 'fulfilled') record.result = detail.result;
   if (record.status === 'rejected') record.error = String(detail.error);
@@ -79,4 +79,11 @@ export function listExecutions(
   const records = finishedRuns(sandbox).map((event, index) => toRecord(event, index + 1));
   if (since === undefined) return records;
   return records.filter((record) => record.startedAt >= since);
+}
+
+/** The record status an emitted outcome status folds to. */
+function statusOf(status: unknown): FunctionExecutionRecord['status'] {
+  if (status === 'rejected') return 'rejected';
+  if (status === 'timeout') return 'timeout';
+  return 'fulfilled';
 }

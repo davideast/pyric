@@ -82,6 +82,7 @@ const SUITES: readonly string[] = [
   'messaging',
   'functions',
   'ai-logic',
+  'sandbox-listeners',
 ];
 const finished = new Set<string>();
 

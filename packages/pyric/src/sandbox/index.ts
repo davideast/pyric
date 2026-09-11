@@ -81,6 +81,9 @@ export {
 } from './operation-record.js';
 export type { ListenerPhase, OperationRecord } from './operation-record.js';
 
+export { activeListeners, activeListenerTargetStartsWith } from './active-listeners.js';
+export type { ActiveListener, ActiveListenerTarget } from './active-listeners.js';
+
 // Remote sandbox (slice 1) — the brand + minimal channel contract that
 // lets `pyric-admin` recognize a Node-side handle onto the browser-hosted
 // worker sandbox (constructed by `@pyric/cli`' `connectRemoteSandbox`)

@@ -127,6 +127,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
  * verbatim. The first word after `sandbox` is what separates them.
  */
 export const SANDBOX_METHOD_WORDS: ReadonlySet<string> = new Set([
+  'activity',
   'advanceClock',
   'apply',
   'checkpoint',
@@ -138,6 +139,7 @@ export const SANDBOX_METHOD_WORDS: ReadonlySet<string> = new Set([
   'inspect',
   'listBranches',
   'listCheckpoints',
+  'listeners',
   'deleteCheckpoint',
   'promote',
   'reset',

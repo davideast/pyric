@@ -103,6 +103,30 @@ export const SANDBOX_STATE_ROUTES: DiscriminatorRoute[] = [
   },
   {
     tool: 'control_sandbox_environment',
+    action: 'listeners',
+    selects: on('action', 'listeners'),
+    operation: 'list_sandbox_listeners',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'service', args.service);
+      assign(call, 'target', args.target);
+      return call;
+    },
+  },
+  {
+    tool: 'control_sandbox_environment',
+    action: 'activity',
+    selects: on('action', 'activity'),
+    operation: 'list_sandbox_activity',
+    translate: (args) => {
+      const call: Args = {};
+      assign(call, 'since', args.since);
+      assign(call, 'pattern', args.pattern);
+      return call;
+    },
+  },
+  {
+    tool: 'control_sandbox_environment',
     action: 'export_fixture',
     selects: on('action', 'export_fixture'),
     operation: 'export_sandbox_fixture',

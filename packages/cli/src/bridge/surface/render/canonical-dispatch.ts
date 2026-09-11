@@ -277,6 +277,14 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
     key: 'sandbox.events',
     toMethodArgs: (args) => pick(args, ['since', 'limit', 'kind']),
   },
+  list_sandbox_listeners: {
+    key: 'sandbox.listeners',
+    toMethodArgs: (args) => pick(args, ['service', 'target']),
+  },
+  list_sandbox_activity: {
+    key: 'sandbox.activity',
+    toMethodArgs: (args) => pick(args, ['since', 'pattern']),
+  },
   export_sandbox_fixture: {
     key: 'sandbox.exportFixture',
     toMethodArgs: (args) => pick(args, ['path', 'excludePasswords']),

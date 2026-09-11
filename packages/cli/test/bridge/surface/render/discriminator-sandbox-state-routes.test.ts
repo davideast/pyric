@@ -27,6 +27,8 @@ describe('the sandbox state routes', () => {
       ['list_checkpoints', 'list_sandbox_checkpoints'],
       ['delete_checkpoint', 'delete_sandbox_checkpoint'],
       ['events', 'list_sandbox_events'],
+      ['listeners', 'list_sandbox_listeners'],
+      ['activity', 'list_sandbox_activity'],
       ['export_fixture', 'export_sandbox_fixture'],
       ['seed_fixture', 'seed_sandbox_fixture'],
     ]);
@@ -64,6 +66,16 @@ describe('the sandbox state routes', () => {
       limit: 20,
       kind: 'denials',
     });
+  });
+
+  it('carry the service and target filter a listeners action takes', () => {
+    const args = { action: 'listeners', service: 'database', target: 'rooms/' };
+    expect(routeFor(args).translate(args)).toEqual({ service: 'database', target: 'rooms/' });
+  });
+
+  it('carry the cursor and pattern filter an activity action takes', () => {
+    const args = { action: 'activity', since: 'evt-1', pattern: 'listener-churn' };
+    expect(routeFor(args).translate(args)).toEqual({ since: 'evt-1', pattern: 'listener-churn' });
   });
 
   it('carry the fixture path, and the flag that leaves passwords out', () => {

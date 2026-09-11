@@ -56,7 +56,7 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | `functions` | `listTriggers`, `fire`, `executions` |
 | `ai_logic` | `script`, `clearScripts`, `scripts`, `status` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
-| `sandbox` | `inspect`, `events`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
+| `sandbox` | `inspect`, `events`, `listeners`, `activity`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
 | `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 
 `checkpoint` writes the whole live sandbox under a name into
@@ -70,6 +70,20 @@ refused rather than read as the start of the new log. `exportFixture` writes the
 passwords, so a user it seeds back can sign in; `excludePasswords: true` leaves
 them out. The file is the seed shape `sandbox.seed` accepts, not the state file
 `pyric snapshot` writes.
+
+`listeners` lists every listener currently attached across Firestore and the
+Realtime Database, folded from the attach and detach events rather than
+tracked as separate state: id, service, target, the actor and the identity it
+ran as, when it attached, how many deliveries and suppressions it has seen,
+and the last delivery instant. `service` narrows to one service and `target`
+keeps only listeners whose target starts with the given prefix. `activity`
+reports the Firebase activity monitor's incidents: a document read repeated
+past its window (`repeated-read`), more than one listener attached to the same
+target from one identity (`duplicate-listener`), and a listener attaching and
+detaching in a burst (`listener-churn`). `pattern` narrows to one, and `since`
+keeps only incidents whose evidence is newer than a prior event id. The
+monitor watches Firestore only; a Realtime Database listener never produces an
+incident.
 
 The six branch methods work a change out on a copy before it reaches the live
 sandbox. A branch carries every service the sandbox does, so an experiment can
