@@ -42,6 +42,7 @@ function setup(options: {
   studioUrl?: string | null;
   incidents?: (events: readonly SandboxEvent[]) => readonly ActivityIncident[];
 } = {}) {
+  const copied: string[] = [];
   const dom = new JSDOM(
     '<!doctype html><body><div id="todos"></div><div id="profile"></div></body>',
     { url: 'http://localhost/' },
@@ -52,6 +53,12 @@ function setup(options: {
     runtime: createPyricRuntimeStatus(manifest),
     document: doc,
     initiallyOpen: true,
+    clipboard: {
+      writeText: (text: string) => {
+        copied.push(text);
+        return Promise.resolve();
+      },
+    },
     ...('studioUrl' in options ? { studioUrl: options.studioUrl } : {}),
     identity: { subscribeAuth: () => () => {} },
     getLens: () => undefined,
@@ -73,6 +80,7 @@ function setup(options: {
   return {
     doc,
     chip,
+    copied,
     root: chip.element.shadowRoot!,
     push: (events: readonly SandboxEvent[]) => deliver?.(events),
   };
@@ -160,8 +168,11 @@ describe('the chip Listeners mode', () => {
 
     const panel = page.root.querySelector('[data-listener-panel]');
     expect(panel?.querySelector('.state-label')?.textContent).toBe('2 listeners · 1 duplicate');
-    const incidentLine = panel?.querySelector('.listener-line:not(.listener-link)');
-    expect(incidentLine?.textContent).toBe('conversations (query) attached twice by ChatPage');
+    const incidentRow = panel?.querySelector('.listener-row.incident');
+    expect(incidentRow?.querySelector('.listener-label')?.textContent).toBe('duplicate');
+    expect(incidentRow?.querySelector('.listener-target')?.textContent).toBe('conversations (query)');
+    expect(incidentRow?.querySelector('.listener-mark')?.getAttribute('title'))
+      .toBe('conversations (query) attached twice by ChatPage');
     page.chip.dispose();
   });
 
@@ -191,8 +202,10 @@ describe('the chip Listeners mode', () => {
     toggle(page.root);
     page.push([attach('e1', 'l1', { kind: 'doc', path: '/presence' }, [{ kind: 'tag', name: 'PresenceBadge' }])]);
 
-    const incidentLine = page.root.querySelector('[data-listener-panel] .listener-line:not(.listener-link)');
-    expect(incidentLine?.textContent).toBe('/presence reattached 40 times in 10s');
+    const incidentRow = page.root.querySelector('[data-listener-panel] .listener-row.incident');
+    expect(incidentRow?.querySelector('.listener-label')?.textContent).toBe('churn');
+    expect(incidentRow?.querySelector('.listener-mark')?.getAttribute('title'))
+      .toBe('/presence reattached 40 times in 10s');
     page.chip.dispose();
   });
 
@@ -216,14 +229,20 @@ describe('the chip Listeners mode', () => {
     ]);
 
     const panel = page.root.querySelector('[data-listener-panel]')!;
-    const rows = [...panel.querySelectorAll('.listener-row')].map((row) => row.textContent);
+    const rows = [...panel.querySelectorAll('.listener-row')];
     expect(rows.length).toBeLessThanOrEqual(4);
-    expect(rows[0]).toContain('ChatPage');
-    expect(rows[0]).toContain('4 listeners');
-    expect(rows[0]).toContain('3 deliveries');
-    const lines = [...panel.children];
-    expect(lines.length).toBeLessThanOrEqual(6);
-    expect(lines.at(-1)?.className).toContain('listener-link');
+    const cells = [...rows[0].children].map((cell) => cell.textContent);
+    expect(cells[0]).toBe('01');
+    expect(cells[1]).toBe('ChatPage');
+    expect(cells[2]).toBe('4 targets');
+    expect(cells[3]).toBe('4');
+    expect(cells[4]).toBe('3');
+    const counts = [...rows[0].querySelectorAll('.listener-count')]
+      .map((cell) => cell.getAttribute('title'));
+    expect(counts).toEqual(['4 listeners', '3 deliveries']);
+    // One header line, the rows, and the Studio link: six lines at most.
+    expect(2 + rows.length).toBeLessThanOrEqual(6);
+    expect(panel.lastElementChild?.className).toContain('listener-link');
     page.chip.dispose();
   });
 
@@ -301,6 +320,73 @@ describe('the chip Listeners mode', () => {
     expect(page.doc.querySelector('[data-pyric-listener-overlay]')).toBeNull();
     expect(page.root.querySelector('[data-toggle-listeners]')?.getAttribute('aria-pressed')).toBe('false');
     expect(page.root.querySelector('[data-listener-notice]')?.textContent).toContain('attribution is off');
+    page.chip.dispose();
+  });
+
+  it('copies a row as one plain-text line', () => {
+    const page = setup();
+    toggle(page.root);
+    page.push([
+      attach('e1', 'l1', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard' }]),
+      attach('e2', 'l2', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard' }]),
+    ]);
+    page.root.querySelector<HTMLButtonElement>('[data-listener-panel] [data-copy-listener]')!.click();
+    expect(page.copied).toEqual(['ProfileCard · users/u1 · 2 listeners · 0 deliveries']);
+    page.chip.dispose();
+  });
+
+  it('hides a dismissed row until a new listener attaches on it', () => {
+    const page = setup();
+    toggle(page.root);
+    page.push([attach('e1', 'l1', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard' }])]);
+    expect(page.root.querySelectorAll('[data-listener-panel] .listener-row')).toHaveLength(1);
+
+    page.root.querySelector<HTMLButtonElement>('[data-listener-panel] [data-dismiss-listener]')!.click();
+    expect(page.root.querySelectorAll('[data-listener-panel] .listener-row')).toHaveLength(0);
+
+    // A delivery leaves the row's listener set alone, so the row stays hidden.
+    page.push([delivery('d1', 'l1', { kind: 'doc', path: 'users/u1' })]);
+    expect(page.root.querySelectorAll('[data-listener-panel] .listener-row')).toHaveLength(0);
+
+    page.push([attach('e2', 'l2', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard' }])]);
+    const rows = page.root.querySelectorAll('[data-listener-panel] .listener-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].querySelector('.listener-count')?.textContent).toBe('2');
+    page.chip.dispose();
+  });
+
+  it('marks an owner row whose listeners are part of an incident', () => {
+    const page = setup({
+      incidents: (events) => {
+        const attachIds = events
+          .filter((event) => (event as { kind: string }).kind === 'listener_attach')
+          .map((event) => (event as { id: string }).id);
+        return [{
+          fingerprint: 'fp1',
+          pattern: 'duplicate-listener',
+          confidence: 'high',
+          severity: 'warning',
+          service: 'firestore',
+          method: 'listen',
+          targetFingerprint: 'conversations',
+          actor: { kind: 'unknown' },
+          authLens: 'app',
+          authUid: null,
+          count: 2,
+          windowMs: 5000,
+          evidenceEventIds: attachIds,
+        } as unknown as ActivityIncident];
+      },
+    });
+    toggle(page.root);
+    page.push([
+      attach('e1', 'l1', { kind: 'query', collection: 'conversations' }, [{ kind: 'tag', name: 'ChatPage' }]),
+      attach('e2', 'l2', { kind: 'query', collection: 'conversations' }, [{ kind: 'tag', name: 'ChatPage' }]),
+    ]);
+    const ownerRow = page.root.querySelector('[data-listener-panel] .listener-row:not(.incident)');
+    expect(ownerRow?.querySelector('.listener-label')?.textContent).toBe('ChatPage');
+    expect(ownerRow?.querySelector('.listener-mark')?.textContent).toBe('!');
+    expect(ownerRow?.querySelector('.listener-mark')?.getAttribute('title')).toBe('duplicate ×2');
     page.chip.dispose();
   });
 
