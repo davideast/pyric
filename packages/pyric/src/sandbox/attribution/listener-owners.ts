@@ -25,10 +25,20 @@ import {
 } from './element-selector.js';
 
 /**
- * What a caller may pass as a listener's `owner`: a name, or the DOM element
- * the listener feeds.
+ * What a caller may pass as a listener's `owner`: a name, the DOM element the
+ * listener feeds, or a fully-built {@link ListenerOwner} record. The third
+ * form is for a framework binding (`@pyric/ui`'s `useListenerOwner`) that has
+ * already computed a `component` owner and wants it recorded verbatim,
+ * rather than wrapped in a `tag`.
  */
-export type ListenerOwnerHint = string | SelectableElement;
+export type ListenerOwnerHint = string | SelectableElement | ListenerOwner;
+
+/** `true` when `value` is already a {@link ListenerOwner} record rather than
+ *  a name or an element to derive one from. */
+function isListenerOwner(value: ListenerOwnerHint): value is ListenerOwner {
+  if (value === null || typeof value !== 'object') return false;
+  return 'kind' in value && typeof (value as { kind: unknown }).kind === 'string';
+}
 
 /**
  * Pyric's own root directory, derived from this module's own location.
@@ -141,10 +151,12 @@ export function captureCreationFrame(): ListenerOwner | undefined {
 }
 
 /**
- * Build the `tag` owner from whatever the caller passed as `owner`. A string
- * is the name verbatim; an element contributes its tag name plus a selector
- * that finds it again. Unlike frame capture this is not gated on the
- * attribution switch: the caller asked for it by name.
+ * Build the explicit owner from whatever the caller passed as `owner`. A
+ * string is the name of a `tag` owner verbatim; an element contributes its
+ * tag name plus a selector that finds it again; an already-built
+ * {@link ListenerOwner} (a framework binding's `component` owner) is
+ * recorded as-is. Unlike frame capture this is not gated on the attribution
+ * switch: the caller asked for it by name.
  */
 export function tagOwnerFor(hint: ListenerOwnerHint | undefined): ListenerOwner | undefined {
   if (hint === undefined) return undefined;
@@ -152,6 +164,7 @@ export function tagOwnerFor(hint: ListenerOwnerHint | undefined): ListenerOwner 
     if (hint.length === 0) return undefined;
     return { kind: 'tag', name: hint };
   }
+  if (isListenerOwner(hint)) return hint;
   if (!isSelectableElement(hint)) return undefined;
   return { kind: 'tag', name: tagNameOf(hint), element: ownerSelectorFor(hint) };
 }

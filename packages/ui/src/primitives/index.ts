@@ -37,4 +37,9 @@ export {
   type UpdateHighlightKind,
   type UseUpdateHighlightsOptions,
 } from './hooks/useUpdateHighlights.js';
+export {
+  useListenerOwner,
+  type UseListenerOwnerOptions,
+  type UseListenerOwnerResult,
+} from './hooks/useListenerOwner.js';
 export { Modal, type ModalProps } from './Modal.js';

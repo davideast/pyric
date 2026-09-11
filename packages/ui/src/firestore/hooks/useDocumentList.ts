@@ -5,6 +5,7 @@ import type {
   Query,
   QueryDocumentSnapshot,
 } from 'pyric/firestore';
+import { useListenerOwner } from '../../primitives/hooks/useListenerOwner.js';
 import { useFirestoreApi } from '../firestoreApi.js';
 
 export interface UseDocumentListOptions {
@@ -88,6 +89,7 @@ export function useDocumentList({
     setDoc,
     startAfter: startAfterFn,
   } = useFirestoreApi();
+  const { owner } = useListenerOwner();
 
   useEffect(() => {
     setRequestedCount(pageSize);
@@ -118,6 +120,7 @@ export function useDocumentList({
       const generation = ++nextSubscriptionGeneration.current;
       const unsubscribe = onSnapshot(
         pagedQuery,
+        { owner },
         (snap: unknown) => {
           setSubscriptionGeneration(generation);
           accept(snap as { readonly docs: readonly QueryDocumentSnapshot[] });
@@ -144,6 +147,7 @@ export function useDocumentList({
     limitFn,
     mode,
     onSnapshot,
+    owner,
     pageSize,
     query,
     queryFn,

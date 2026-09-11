@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { DocumentReference, DocumentSnapshot } from 'pyric/firestore';
+import { useListenerOwner } from '../../primitives/hooks/useListenerOwner.js';
 import { coerceError } from './coerceError.js';
 import { useFirestoreApi } from '../firestoreApi.js';
 
@@ -22,6 +23,7 @@ export function useFirestoreDoc(
   ref: DocumentReference | null | undefined,
 ): SubscriptionState<DocumentSnapshot> {
   const { onSnapshot } = useFirestoreApi();
+  const { owner } = useListenerOwner();
   const [state, setState] = useState<SubscriptionState<DocumentSnapshot>>(() => ({
     data: undefined,
     error: undefined,
@@ -38,6 +40,7 @@ export function useFirestoreDoc(
 
     const unsubscribe = onSnapshot(
       ref,
+      { owner },
       (snap) =>
         setState({ data: snap as DocumentSnapshot, error: undefined, isLoading: false }),
       (err) =>
@@ -49,7 +52,7 @@ export function useFirestoreDoc(
     );
 
     return unsubscribe;
-  }, [onSnapshot, ref]);
+  }, [onSnapshot, owner, ref]);
 
   return state;
 }
