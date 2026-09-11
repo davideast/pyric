@@ -121,15 +121,18 @@ describe('createListenerMode', () => {
     page.mode.dispose();
   });
 
-  it('subscribes only while the mode is on', () => {
+  it('observes events from creation and only outlines while the mode is on', () => {
     const page = harness();
-    expect(page.subscriptions()).toBe(0);
+    expect(page.subscriptions()).toBe(1);
+    expect(page.doc.querySelector('[data-pyric-listener-overlay]')).toBeNull();
     page.mode.setEnabled(true);
     expect(page.subscriptions()).toBe(1);
+    expect(page.doc.querySelector('[data-pyric-listener-overlay]')).not.toBeNull();
     page.mode.setEnabled(false);
-    expect(page.subscriptions()).toBe(0);
+    expect(page.subscriptions()).toBe(1);
     expect(page.doc.querySelector('[data-pyric-listener-overlay]')).toBeNull();
     page.mode.dispose();
+    expect(page.subscriptions()).toBe(0);
   });
 });
 

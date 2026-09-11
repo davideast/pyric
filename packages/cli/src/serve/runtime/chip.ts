@@ -650,13 +650,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     let listenerPanelHtml = '';
     if (listenerNotice !== null) {
       listenerPanelHtml = `<div class="worker-state-col" data-listener-notice><div class="worker-state-row"><span class="state-label">${escapeAttribute(listenerNotice)}</span></div></div>`;
-    } else if (listenersOn) {
+    } else if (listenerMode !== null) {
       listenerPanelHtml = listenerOutlines.length === 0
         ? `<div class="worker-state-col" data-listener-panel><div class="worker-state-row"><span class="state-label">No listeners</span></div></div>`
         : listenerSectionHtml(listenerOutlines, studioUrl ?? null, Boolean(clipboard), dismissedListenerRows);
     }
     const hasListenerIncident = listenerOutlines.some((outline) => outline.incident !== null);
-    const listenerCountHtml = everReportedListeners && (listenerOutlines.length > 0 || listenersOn)
+    const listenerCountHtml = everReportedListeners
       ? `<span class="signal${hasListenerIncident ? ' error' : ''}" data-listener-count>${pluralize(listenerOutlines.length, 'listener')}</span>`
       : '';
 
@@ -810,6 +810,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const unsubLens = subscribeLensFn(() => {
     render();
   });
+
+  // The Listeners summary and the collapsed count read the mode's fold, so the
+  // mode exists from the start; the button only toggles the outlines.
+  ensureListenerMode();
 
   const unsubAuth = identity.subscribeAuth((user) => {
     clientUser = user;

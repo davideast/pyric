@@ -88,22 +88,23 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     options.onChange?.(current);
   };
 
-  const stop = (): void => {
-    unsubscribe?.();
-    unsubscribe = null;
+  // The mode observes from the moment it exists: the chip's count and summary
+  // read the fold whether or not anything is outlined. Enabling the mode only
+  // adds the overlay on top of a fold that is already current.
+  unsubscribe = options.subscribeEvents((batch) => {
+    events.push(...batch);
+    recompute();
+  });
+  recompute();
+
+  const hideOutlines = (): void => {
     overlay?.dispose();
     overlay = null;
-    events.length = 0;
-    current = [];
   };
 
-  const start = (): void => {
+  const showOutlines = (): void => {
     overlay = createListenerOverlay({ document: documentLike, onSelect: openStudio });
-    unsubscribe = options.subscribeEvents((batch) => {
-      events.push(...batch);
-      recompute();
-    });
-    recompute();
+    overlay.update(current);
   };
 
   return {
@@ -111,11 +112,11 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       const isOn = overlay !== null;
       if (next === isOn) return;
       if (!next) {
-        stop();
+        hideOutlines();
         return;
       }
       if (!readAttribution()) return;
-      start();
+      showOutlines();
     },
     enabled() {
       return overlay !== null;
@@ -127,7 +128,11 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       return current.filter((outline) => outline.selectors.length === 0);
     },
     dispose() {
-      stop();
+      hideOutlines();
+      unsubscribe?.();
+      unsubscribe = null;
+      events.length = 0;
+      current = [];
     },
   };
 }
