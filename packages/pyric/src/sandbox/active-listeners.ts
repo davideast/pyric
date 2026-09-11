@@ -59,7 +59,7 @@ function externalService(service: EventService | undefined): 'firestore' | 'data
   return 'firestore';
 }
 
-/** Legacy Firestore lifecycle target: a doc path, or a query's collection. */
+/** Firestore's own lifecycle target shape: a doc path, or a query's collection. */
 function firestoreTarget(target: { kind: 'doc'; path: string } | { kind: 'query'; collection: string; query?: unknown }): ActiveListenerTarget {
   if (target.kind === 'doc') return target.path;
   return { collection: target.collection, query: target.query };
