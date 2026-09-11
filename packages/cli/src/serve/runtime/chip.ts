@@ -149,7 +149,11 @@ const styles = `
   .worker-state-col { border-top: 1px solid var(--pyric-border-soft); color: var(--pyric-muted); font-size: 10px; display: flex; flex-direction: column; min-height: 34px; padding: 7px 12px; }
   .worker-state-row { align-items: center; display: flex; justify-content: space-between; width: 100%; }
   .worker-state-subline { color: #89899f; font: 9px/1.4 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; text-align: right; width: 100%; }
-  .listener-row { color: #d7d7df; display: flex; font: 9px/1.6 ui-monospace, monospace; gap: 8px; justify-content: space-between; margin-top: 4px; overflow-wrap: anywhere; }
+  .listener-line, .listener-row { color: #d7d7df; display: block; font: 9px/1.6 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; }
+  .listener-link { color: var(--pyric-muted); text-decoration: none; }
+  a.listener-link:hover { color: var(--pyric-text); }
+  .listener-link[aria-disabled="true"] { cursor: not-allowed; opacity: .6; }
+  .signal.error { color: var(--pyric-error); }
   .button[aria-pressed="true"] { background: rgba(25,204,97,.12); border-color: rgba(25,204,97,.4); color: var(--pyric-accent); }
   .worker-state .available { color: var(--pyric-warning); }
   .worker-state .state-label, .worker-state-col .state-label { align-items: center; display: flex; gap: 7px; white-space: nowrap; }
@@ -213,10 +217,141 @@ export function formatPyricRuntimeError(error: PyricRuntimeError): string {
   return `${error.message}${context ? `\n${context}` : ''}${error.stack ? `\n${error.stack}` : ''}`;
 }
 
-/** `true` when two off-screen listener lists would render the same rows. */
+/** `true` when two listener lists would render the same Listeners summary. */
 function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline[]): boolean {
   if (a.length !== b.length) return false;
-  return a.every((outline, i) => outline.listenerId === b[i].listenerId && outline.label === b[i].label && outline.target === b[i].target && outline.deliveryCount === b[i].deliveryCount);
+  return a.every((outline, i) => {
+    const other = b[i];
+    return outline.listenerId === other.listenerId
+      && outline.label === other.label
+      && outline.labelIsOwner === other.labelIsOwner
+      && outline.target === other.target
+      && outline.isQuery === other.isQuery
+      && outline.deliveryCount === other.deliveryCount
+      && outline.incident?.pattern === other.incident?.pattern
+      && outline.incident?.count === other.incident?.count
+      && outline.incident?.windowMs === other.incident?.windowMs;
+  });
+}
+
+/** `12 listeners`, `1 listener`, `2 duplicates`, etc. */
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+/** The target the way the app wrote it: `conversations (query)`, `users/u1`. */
+function displayTarget(outline: ListenerOutline): string {
+  return outline.isQuery ? `${outline.target} (query)` : outline.target;
+}
+
+/** The group a listener's owner row belongs under: its owner label, or its
+ * target when nothing on the page named it. */
+function groupKey(outline: ListenerOutline): string {
+  return outline.labelIsOwner ? outline.label : displayTarget(outline);
+}
+
+interface ListenerIncidentGroup {
+  pattern: 'duplicate-listener' | 'listener-churn';
+  target: string;
+  label: string | null;
+  count: number;
+  windowMs: number;
+}
+
+/** One incident line per distinct (pattern, target, count) triple, so a
+ * duplicate or churn incident shared by several listeners reads once. */
+function listenerIncidentGroups(outlines: readonly ListenerOutline[]): ListenerIncidentGroup[] {
+  const groups = new Map<string, ListenerIncidentGroup>();
+  for (const outline of outlines) {
+    const incident = outline.incident;
+    if (incident === null) continue;
+    const target = displayTarget(outline);
+    const key = `${incident.pattern}:${target}:${incident.count}:${incident.windowMs}`;
+    if (groups.has(key)) continue;
+    groups.set(key, {
+      pattern: incident.pattern,
+      target,
+      label: outline.labelIsOwner ? outline.label : null,
+      count: incident.count,
+      windowMs: incident.windowMs,
+    });
+  }
+  return [...groups.values()];
+}
+
+function listenerIncidentLine(group: ListenerIncidentGroup): string {
+  if (group.pattern === 'duplicate-listener') {
+    const times = group.count === 2 ? 'twice' : `${group.count} times`;
+    const by = group.label !== null ? ` by ${group.label}` : '';
+    return `${group.target} attached ${times}${by}`;
+  }
+  const seconds = Math.round(group.windowMs / 1000);
+  const duration = seconds > 0 ? `${seconds}s` : `${group.windowMs}ms`;
+  return `${group.target} reattached ${group.count} times in ${duration}`;
+}
+
+interface ListenerOwnerGroup {
+  key: string;
+  listeners: number;
+  deliveries: number;
+  targets: Set<string>;
+}
+
+/** The owner groups a Listeners panel lists, busiest by total deliveries
+ * first. */
+function listenerOwnerGroups(outlines: readonly ListenerOutline[]): ListenerOwnerGroup[] {
+  const groups = new Map<string, ListenerOwnerGroup>();
+  for (const outline of outlines) {
+    const key = groupKey(outline);
+    const target = displayTarget(outline);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.listeners += 1;
+      existing.deliveries += outline.deliveryCount;
+      existing.targets.add(target);
+    } else {
+      groups.set(key, { key, listeners: 1, deliveries: outline.deliveryCount, targets: new Set([target]) });
+    }
+  }
+  return [...groups.values()].sort((a, b) => b.deliveries - a.deliveries || a.key.localeCompare(b.key));
+}
+
+/** `ChatPage · 4 listeners · 61 deliveries`, or, when every listener in the
+ * group hits the same target, `ChatPage · users/u1 · 4 listeners · 61
+ * deliveries` — the only way a single-listener group still names its target. */
+function listenerOwnerLine(group: ListenerOwnerGroup): string {
+  const target = group.targets.size === 1 ? ` · ${[...group.targets][0]}` : '';
+  return `${group.key}${target} · ${pluralize(group.listeners, 'listener')} · ${pluralize(group.deliveries, 'delivery', 'deliveries')}`;
+}
+
+/** `?view=listeners`, appended to whatever query string Studio's URL already carries. */
+function studioListenersUrl(studioUrl: string): string {
+  const separator = studioUrl.includes('?') ? '&' : '?';
+  return `${studioUrl}${separator}view=listeners`;
+}
+
+/**
+ * The Listeners panel section: a header line, up to two incident lines, the
+ * busiest owners filling what is left, and a link to Studio — six lines at
+ * most. Incidents are kept first when the budget is tight, then owner
+ * groups, and the Studio link always gets its line.
+ */
+function listenerSectionHtml(outlines: readonly ListenerOutline[], studioUrl: string | null): string {
+  const incidentGroups = listenerIncidentGroups(outlines);
+  const duplicateCount = incidentGroups.filter((group) => group.pattern === 'duplicate-listener').length;
+  const header = `${pluralize(outlines.length, 'listener')}${duplicateCount > 0 ? ` · ${pluralize(duplicateCount, 'duplicate')}` : ''}`;
+  const incidentLines = incidentGroups.slice(0, 2).map(listenerIncidentLine);
+  const ownerBudget = Math.max(0, 4 - incidentLines.length);
+  const ownerLines = listenerOwnerGroups(outlines).slice(0, ownerBudget).map(listenerOwnerLine);
+  const linkHtml = studioUrl
+    ? `<a class="listener-line listener-link" data-open-listeners-studio href="${escapeAttribute(studioListenersUrl(studioUrl))}" target="_blank" rel="noopener noreferrer">All listeners in Studio</a>`
+    : `<span class="listener-line listener-link" data-open-listeners-studio aria-disabled="true" title="Pyric Studio is disabled">All listeners in Studio</span>`;
+  return `<div class="worker-state-col" data-listener-panel>
+      <div class="worker-state-row"><span class="state-label">${escapeAttribute(header)}</span></div>
+      ${incidentLines.map((line) => `<div class="listener-line">${escapeAttribute(line)}</div>`).join('')}
+      ${ownerLines.map((line) => `<div class="listener-row">${escapeAttribute(line)}</div>`).join('')}
+      ${linkHtml}
+    </div>`;
 }
 
 function renderErrors(snapshot: PyricRuntimeSnapshot, canCopy: boolean): string {
@@ -293,7 +428,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   let listenerMode: ListenerMode | null = null;
-  let unattributedListeners: readonly ListenerOutline[] = [];
+  let listenerOutlines: readonly ListenerOutline[] = [];
+  /** `true` once the Listeners mode has reported at least once. The collapsed
+   * chip's listener count stays hidden until then. */
+  let everReportedListeners = false;
   /** Why the last Listeners toggle did nothing, shown until the next toggle. */
   let listenerNotice: string | null = null;
   const ensureListenerMode = (): ListenerMode | null => {
@@ -301,11 +439,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const build = options.listeners;
     if (build === undefined) return null;
     listenerMode = build((outlines) => {
-      const next = outlines.filter((outline) => outline.selectors.length === 0);
-      // The mode reports on every attach, delivery, and resize; the chip only
-      // shows the off-screen list, so rebuild the view only when that changes.
-      if (sameOutlines(next, unattributedListeners)) return;
-      unattributedListeners = next;
+      everReportedListeners = true;
+      // The mode reports on every attach, delivery, and resize; rebuild the
+      // view only when what the Listeners summary shows actually changes.
+      if (sameOutlines(outlines, listenerOutlines)) return;
+      listenerOutlines = outlines;
       render();
     });
     return listenerMode;
@@ -380,18 +518,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     let listenerPanelHtml = '';
     if (listenerNotice !== null) {
       listenerPanelHtml = `<div class="worker-state-col" data-listener-notice><div class="worker-state-row"><span class="state-label">${escapeAttribute(listenerNotice)}</span></div></div>`;
+    } else if (listenersOn) {
+      listenerPanelHtml = listenerOutlines.length === 0
+        ? `<div class="worker-state-col" data-listener-panel><div class="worker-state-row"><span class="state-label">No listeners</span></div></div>`
+        : listenerSectionHtml(listenerOutlines, studioUrl ?? null);
     }
-    if (listenersOn && unattributedListeners.length > 0) {
-      const rows = unattributedListeners.map((outline) => {
-        const target = outline.isQuery ? `${outline.target} (query)` : outline.target;
-        return `<div class="listener-row"><span>${escapeAttribute(outline.label)}</span><span>${escapeAttribute(target)}</span></div>`;
-      }).join('');
-      listenerPanelHtml = `<div class="worker-state-col" data-listener-panel>
-          <div class="worker-state-row"><span class="state-label">Listeners off screen</span><span class="epochs">${unattributedListeners.length}</span></div>
-          ${rows}
-          <div class="worker-state-subline">Nothing on the page could be outlined for these.</div>
-        </div>`;
-    }
+    const hasListenerIncident = listenerOutlines.some((outline) => outline.incident !== null);
+    const listenerCountHtml = everReportedListeners && (listenerOutlines.length > 0 || listenersOn)
+      ? `<span class="signal${hasListenerIncident ? ' error' : ''}" data-listener-count>${pluralize(listenerOutlines.length, 'listener')}</span>`
+      : '';
 
     view.innerHTML = `${open ? `
       <section class="panel" role="dialog" aria-label="pyric">
@@ -426,7 +561,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ` : `
       <button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">
         <span class="brand"><span class="dot${errorCount > 0 ? ' error' : ''}"></span><span class="brand-label">pyric</span></span>
-        <span class="signals">${identitySignalHtml}${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : ''}${icons.chevron}</span>
+        <span class="signals">${identitySignalHtml}${listenerCountHtml}${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : ''}${icons.chevron}</span>
       </button>
     `}`;
 
@@ -481,7 +616,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       listenerNotice = wanted && !mode.enabled()
         ? 'Listener attribution is off in this build, so there are no owners to outline.'
         : null;
-      if (!mode.enabled()) unattributedListeners = [];
+      if (!mode.enabled()) listenerOutlines = [];
       render();
     });
     root.querySelector('[data-open-impersonate]')?.addEventListener('click', (e) => {
