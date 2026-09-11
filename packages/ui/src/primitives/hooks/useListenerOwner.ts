@@ -14,13 +14,13 @@ import {
  * call site.
  *
  * Capture happens during render, while the calling component function is
- * still on the call stack — the same moment `pyric/sandbox`'s own `frame`
+ * still on the call stack, the same moment `pyric/sandbox`'s own `frame`
  * attribution reads a stack. Two things are read from two different stacks:
  *
  * - `name` comes from `new Error().stack`, the plain call stack. The first
  *   frame outside this module's own directory and `node_modules` (which
  *   covers `react`, `react-dom`, and every other dependency, `pyric`
- *   included) is the component function currently rendering — this hook is
+ *   included) is the component function currently rendering; this hook is
  *   always called directly from that function's body, so that frame names
  *   it. A minified production build mangles this the same way it mangles any
  *   other identifier; state that to the consumer rather than guessing at the
@@ -31,7 +31,7 @@ import {
  *   not carry a parent chain: React's reconciler does not call a parent
  *   component's function from within its child's, so `new Error().stack`
  *   alone can only ever name the immediate function. `captureOwnerStack`
- *   reads React's own render-phase bookkeeping through a public export —
+ *   reads React's own render-phase bookkeeping through a public export,
  *   this hook never touches a fiber. Best effort: absent when the installed
  *   React does not report an owner stack for this render.
  *
@@ -42,7 +42,7 @@ import {
  * duplicated.
  *
  * Capture is skipped entirely, and `owner` is `undefined`, when listener
- * attribution is off — the same production/test switch `pyric/sandbox`
+ * attribution is off, the same production/test switch `pyric/sandbox`
  * itself reads.
  */
 export interface UseListenerOwnerResult {
@@ -72,7 +72,7 @@ const FRAME_WITH_FUNCTION = /^\s*at\s+([^\s(]+)\s+\((.+):(\d+):(\d+)\)\s*$/;
  * `packages/ui` string. A hardcoded string would misfire inside this very
  * monorepo, where the test files that exercise a consumer component also
  * happen to sit under a path containing `packages/ui` (`packages/ui/test/
- * ...`) — only this package's own source or build output should be
+ * ...`), only this package's own source or build output should be
  * excluded, not sibling test or app code that shares the package root by
  * coincidence of this repository's own layout.
  *
@@ -124,7 +124,7 @@ function parseRenderFrame(line: string): RenderFrame | undefined {
   return { name: match[1]!, file: match[2]! };
 }
 
-/** The first non-framework frame in a plain call stack — the component
+/** The first non-framework frame in a plain call stack: the component
  *  currently rendering, when this is called directly from its body. */
 function callingComponentName(stack: string | undefined): string | undefined {
   if (typeof stack !== 'string') return undefined;
