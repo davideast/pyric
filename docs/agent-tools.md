@@ -10,10 +10,13 @@ This repo carries two MCP tool contracts, both sourced from
    SDK has one, and pyric's own name where it does not. `DEFAULT_MCP_TOOL_NAMES`
    is the exact list, and it is the ten tools this section documents. Ten is
    the ceiling `0014-service-tools-with-sdk-methods.md` sets. Which sandbox
-   the server acts on depends on what is running: with a `pyric serve` or
-   `pyric sandbox --bridge` up for the project it attaches to that process and
-   relays to the sandbox it holds in the browser tab, which today advertises
-   the transport surface below; otherwise it owns an in-process sandbox, a
+   the server acts on depends on what is running: when the project's own
+   `.pyric/serve.json` pointer names a running `pyric serve` or
+   `pyric sandbox --bridge`, it attaches to that process and relays to the
+   sandbox it holds in the browser tab, which today advertises the transport
+   surface below (a sandbox server found only by the port scan is reported
+   and not attached to, since it may belong to another project); otherwise
+   it owns an in-process sandbox, a
    plain object inside the `pyric mcp` process with no browser involved,
    persisted to `.pyric/state/in-process.json`. `--attach` insists on the
    running one and fails when there is none; `--in-process` insists on owning

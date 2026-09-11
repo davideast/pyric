@@ -233,3 +233,41 @@ describe('mcp production-method selection', () => {
     expect(allowsProduction([], {})).toBe(false);
   });
 });
+
+describe('a serve found only by the port scan', () => {
+  const scanned = {
+    mcpUrl: 'http://127.0.0.1:5174/__pyric/mcp',
+    url: 'http://localhost:5174',
+    base: 'http://127.0.0.1:5174',
+    instanceId: 'other-project',
+    source: 'port scan (:5174)',
+  };
+
+  it('is not attached to; the command owns an in-process sandbox instead', async () => {
+    let inProcessCwd: string | null = null;
+    const code = await runMcpProxy(mcpArgs(), '/proj', {
+      discover: async () => scanned,
+      inProcess: async (cwd) => {
+        inProcessCwd = cwd;
+        return 0;
+      },
+      env: {},
+    });
+    expect(code).toBe(0);
+    expect(inProcessCwd).toBe('/proj');
+  });
+
+  it('does not satisfy --attach', async () => {
+    let wentInProcess = false;
+    const code = await runMcpProxy(mcpArgs('--attach'), '/proj', {
+      discover: async () => scanned,
+      inProcess: async () => {
+        wentInProcess = true;
+        return 0;
+      },
+      env: {},
+    });
+    expect(code).toBe(1);
+    expect(wentInProcess).toBe(false);
+  });
+});
