@@ -294,6 +294,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   let listenerMode: ListenerMode | null = null;
   let unattributedListeners: readonly ListenerOutline[] = [];
+  /** Why the last Listeners toggle did nothing, shown until the next toggle. */
+  let listenerNotice: string | null = null;
   const ensureListenerMode = (): ListenerMode | null => {
     if (listenerMode !== null) return listenerMode;
     const build = options.listeners;
@@ -376,6 +378,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       listenersButtonHtml = `<button class="button" type="button" data-toggle-listeners aria-pressed="${listenersOn}">Listeners</button>`;
     }
     let listenerPanelHtml = '';
+    if (listenerNotice !== null) {
+      listenerPanelHtml = `<div class="worker-state-col" data-listener-notice><div class="worker-state-row"><span class="state-label">${escapeAttribute(listenerNotice)}</span></div></div>`;
+    }
     if (listenersOn && unattributedListeners.length > 0) {
       const rows = unattributedListeners.map((outline) => {
         const target = outline.isQuery ? `${outline.target} (query)` : outline.target;
@@ -425,7 +430,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       </button>
     `}`;
 
-    const announcement = `${workerLabel}. ${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.`;
+    const announcement = `${workerLabel}. ${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${listenerNotice === null ? '' : ` ${listenerNotice}`}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
     const newViewport = view.querySelector<HTMLElement>('[data-error-viewport]');
     if (oldScroll && newViewport) {
@@ -469,7 +474,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     root.querySelector('[data-toggle-listeners]')?.addEventListener('click', () => {
       const mode = ensureListenerMode();
       if (mode === null) return;
-      mode.setEnabled(!mode.enabled());
+      const wanted = !mode.enabled();
+      mode.setEnabled(wanted);
+      // The mode refuses to start when attribution is off; say so rather than
+      // rebuilding the panel with nothing changed.
+      listenerNotice = wanted && !mode.enabled()
+        ? 'Listener attribution is off in this build, so there are no owners to outline.'
+        : null;
       if (!mode.enabled()) unattributedListeners = [];
       render();
     });

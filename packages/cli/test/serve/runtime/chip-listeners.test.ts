@@ -96,6 +96,7 @@ describe('the chip Listeners mode', () => {
 
     expect(page.doc.querySelector('[data-pyric-listener-overlay]')).toBeNull();
     expect(page.root.querySelector('[data-toggle-listeners]')?.getAttribute('aria-pressed')).toBe('false');
+    expect(page.root.querySelector('[data-listener-notice]')?.textContent).toContain('attribution is off');
     page.chip.dispose();
   });
 
