@@ -122,17 +122,43 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
 
 // ─── onSnapshot ──────────────────────────────────────────────────────────
 
+type SnapshotCallback = (snap: ClientDocSnapshot | ClientQuerySnapshot) => void;
+type SnapshotErrorCallback = (err: unknown) => void;
+
 /**
- * Subscribe to a document or query. Mirrors `pyric/firestore`'s `onSnapshot`.
+ * Subscribe to a document or query. Mirrors `pyric/firestore`'s `onSnapshot`,
+ * including its options-second form `onSnapshot(target, options, next,
+ * error)`: `@pyric/ui`'s hooks pass `{ owner }` there for listener
+ * attribution, and a caller injecting this client as the hooks' backend must
+ * not lose its callback to that slot. The options are accepted and dropped;
+ * the worker protocol carries no listener owner yet.
  *
  * Returns an `unsub` function. Sends `{ t:'unsub', subId }` to the worker
  * to deregister the listener on the worker side.
  */
 export function onSnapshot(
   target: DocRefHandle | CollRefHandle | QueryHandle,
-  callback: (snap: ClientDocSnapshot | ClientQuerySnapshot) => void,
-  errorCallback?: (err: unknown) => void,
+  callback: SnapshotCallback,
+  errorCallback?: SnapshotErrorCallback,
+): Unsubscribe;
+export function onSnapshot(
+  target: DocRefHandle | CollRefHandle | QueryHandle,
+  options: object,
+  callback: SnapshotCallback,
+  errorCallback?: SnapshotErrorCallback,
+): Unsubscribe;
+export function onSnapshot(
+  target: DocRefHandle | CollRefHandle | QueryHandle,
+  optionsOrCallback: object | SnapshotCallback,
+  callbackOrError?: SnapshotCallback | SnapshotErrorCallback,
+  maybeError?: SnapshotErrorCallback,
 ): Unsubscribe {
+  const callback = (typeof optionsOrCallback === 'function'
+    ? optionsOrCallback
+    : callbackOrError) as SnapshotCallback;
+  const errorCallback = (typeof optionsOrCallback === 'function'
+    ? callbackOrError
+    : maybeError) as SnapshotErrorCallback | undefined;
   let currentSubId = nextSubId();
   const port = target.port;
 

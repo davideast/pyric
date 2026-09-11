@@ -101,6 +101,37 @@ describe('client↔host round-trip (gate repro)', () => {
     expect(fires.at(-1)).toBe(1);
   });
 
+  it('onSnapshot accepts the options-second form the @pyric/ui hooks use', async () => {
+    const ctx = await makeHostCtx();
+    const { a: clientPort, b: hostPort } = portPair();
+    const hostPortLike: PortLike = { postMessage: (m: OutboundMessage) => hostPort.postMessage(m) };
+    hostPort.onmessage = (ev) => { void handleMessage(ctx, hostPortLike, ev.data as InboundMessage); };
+    (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+      port = clientPort;
+      constructor(_url: unknown, _opts: unknown) {}
+    };
+
+    const db = client.getFirestore('worker://test');
+    const auth = client.getAuth(db);
+    const cred = await client.createUserWithEmailAndPassword(auth, 'alice@example.com', 'pw123456');
+    const ref = client.doc(db, 'notes/astro-host');
+    await client.setDoc(ref, { uid: cred.user.uid, marker: 'shared' });
+
+    const seen: unknown[] = [];
+    const errors: unknown[] = [];
+    const unsubscribe = client.onSnapshot(
+      ref,
+      { owner: { kind: 'component', name: 'DocumentView' } },
+      (snap) => seen.push((snap as { data(): unknown }).data()),
+      (err) => errors.push(err),
+    );
+    await sleep();
+    unsubscribe();
+
+    expect(errors).toEqual([]);
+    expect((seen.at(-1) as { marker?: string }).marker).toBe('shared');
+  });
+
   it('excludes split transaction reads from activity warnings', async () => {
     const ctx = await makeHostCtx();
     const { a: clientPort, b: hostPort } = portPair();
