@@ -1,0 +1,17 @@
+{
+  "which-components-are-still-listening-after-i-navigated-away": [
+    { "tool": "sandbox", "args": { "method": "listeners", "args": {} } }
+  ],
+  "is-anything-subscribed-twice": [
+    {
+      "tool": "sandbox",
+      "args": { "method": "activity", "args": { "pattern": "duplicate-listener" } }
+    }
+  ],
+  "why-is-my-read-count-so-high": [
+    {
+      "tool": "sandbox",
+      "args": { "method": "activity", "args": { "pattern": "repeated-read" } }
+    }
+  ]
+}
