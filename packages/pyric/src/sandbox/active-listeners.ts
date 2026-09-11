@@ -15,7 +15,7 @@
  */
 import type { AuthLens, EventActor, EventService } from './types/operation.js';
 import { operationContextFor } from './operation-record.js';
-import type { SandboxEvent } from './types/events.js';
+import type { ListenerOwner, SandboxEvent } from './types/events.js';
 
 /** The two families of target a listener watches. */
 export type ActiveListenerTarget =
@@ -33,9 +33,12 @@ export interface ActiveListener {
   readonly deliveryCount: number;
   readonly suppressedCount: number;
   readonly lastDeliveryAt?: number;
-  /** Where the listener was attached in application code. Not yet carried by
-   * any emitter; present when a future attach event names one. */
-  readonly callSite?: string;
+  /**
+   * Who owns the listener, as its attach event recorded it (a creation frame,
+   * an explicit tag) and as its deliveries revealed it (the DOM regions its
+   * callback changed). Absent when the emitter recorded nothing.
+   */
+  readonly owners?: readonly ListenerOwner[];
 }
 
 type ListenerPhase = 'attach' | 'detach' | 'delivery' | 'suppressed' | 'errored';
@@ -48,7 +51,7 @@ interface ListenerEventInfo {
   readonly target: ActiveListenerTarget;
   readonly actor: EventActor;
   readonly authLens: AuthLens;
-  readonly callSite?: string;
+  readonly owners?: readonly ListenerOwner[];
 }
 
 /** The internal service token 'rtdb' translated to the word this module's
@@ -76,11 +79,8 @@ function canonicalTarget(target: { kind: string; path?: string; query?: unknown 
  * listener lifecycle. */
 function listenerEventInfo(event: SandboxEvent): ListenerEventInfo | null {
   const context = operationContextFor(event);
-  let callSite: string | undefined;
-  if (event.kind === 'listener' && typeof event.detail?.callSite === 'string') {
-    callSite = event.detail.callSite;
-  }
-  const identity = { actor: context.source, authLens: context.authLens, callSite };
+  const owners = 'owners' in event && Array.isArray(event.owners) ? event.owners : undefined;
+  const identity = { actor: context.source, authLens: context.authLens, owners };
 
   if (event.kind === 'listener_attach') {
     return { phase: 'attach', listenerId: event.listenerId, service: 'firestore', target: firestoreTarget(event.target), ...identity };
@@ -119,7 +119,7 @@ interface ActiveListenerDraft {
   deliveryCount: number;
   suppressedCount: number;
   lastDeliveryAt?: number;
-  callSite?: string;
+  owners?: ListenerOwner[];
 }
 
 /**
@@ -143,7 +143,7 @@ export function activeListeners(events: readonly SandboxEvent[]): readonly Activ
         deliveryCount: 0,
         suppressedCount: 0,
       };
-      if (info.callSite !== undefined) draft.callSite = info.callSite;
+      if (info.owners !== undefined) draft.owners = [...info.owners];
       active.set(info.listenerId, draft);
       continue;
     }
@@ -152,6 +152,7 @@ export function activeListeners(events: readonly SandboxEvent[]): readonly Activ
     if (info.phase === 'delivery') {
       entry.deliveryCount += 1;
       entry.lastDeliveryAt = event.at;
+      if (info.owners !== undefined) entry.owners = withDeliveryOwners(entry.owners, info.owners);
       continue;
     }
     if (info.phase === 'suppressed') {
@@ -162,6 +163,21 @@ export function activeListeners(events: readonly SandboxEvent[]): readonly Activ
     active.delete(info.listenerId);
   }
   return Object.freeze([...active.values()].map((entry) => Object.freeze({ ...entry })));
+}
+
+/**
+ * A listener's owners after one delivery: the attach-time owners stay, and the
+ * delivery's `regions` replace any earlier regions, since the latest delivery
+ * is the current answer to what the callback paints.
+ */
+function withDeliveryOwners(
+  current: readonly ListenerOwner[] | undefined,
+  delivered: readonly ListenerOwner[],
+): ListenerOwner[] {
+  const regions = delivered.filter((owner) => owner.kind === 'regions');
+  if (regions.length === 0) return [...(current ?? [])];
+  const kept = (current ?? []).filter((owner) => owner.kind !== 'regions');
+  return [...kept, ...regions];
 }
 
 /** Whether a listener's target starts with a caller-supplied prefix. A

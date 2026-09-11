@@ -84,3 +84,31 @@ describe('activeListeners', () => {
     expect(activeListeners(sandbox.history())).toHaveLength(0);
   });
 });
+
+describe('activeListeners owners', () => {
+  it('carries the owners the attach event recorded: the creation frame and an explicit tag', () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, OPEN_FIRESTORE_RULES);
+    const db = getFirestore(sandbox);
+
+    const unsubscribe = onSnapshot(doc(db, 'notes/tagged'), { owner: 'notes-panel' }, () => {});
+
+    const [listener] = activeListeners(sandbox.history());
+    expect(listener.owners).toBeDefined();
+    const kinds = (listener.owners ?? []).map((owner) => owner.kind);
+    expect(kinds).toContain('tag');
+    expect(kinds).toContain('frame');
+    const tag = (listener.owners ?? []).find((owner) => owner.kind === 'tag');
+    expect(tag).toMatchObject({ kind: 'tag', name: 'notes-panel' });
+    const frame = (listener.owners ?? []).find((owner) => owner.kind === 'frame');
+    expect(frame && 'file' in frame && frame.file.endsWith('active-listeners.test.ts')).toBe(true);
+
+    unsubscribe();
+    expect(activeListeners(sandbox.history())).toHaveLength(0);
+  });
+
+  it('reports no owners for a listener whose attach event recorded none', () => {
+    const events = [] as const;
+    expect(activeListeners(events)).toHaveLength(0);
+  });
+});
