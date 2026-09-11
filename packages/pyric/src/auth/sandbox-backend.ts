@@ -844,7 +844,7 @@ export class SandboxBackend {
         out.push(seed);
         continue;
       }
-      if (u.email === null) continue; // credential-less, non-anonymous — not round-trippable
+      if (u.email === null) continue; // credential-less, non-anonymous: not round-trippable
       const seed: SeedUser = {
         uid: u.uid,
         email: u.email,

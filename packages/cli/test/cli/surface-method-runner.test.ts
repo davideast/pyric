@@ -211,4 +211,35 @@ describe('pyric <tool> <method>', () => {
     const usersAfterRestore = JSON.parse(listedAfterRestore.stdout).data.users as Array<{ uid: string }>;
     expect(usersAfterRestore.map((u) => u.uid)).toContain(uid);
   });
+
+  it('carries the app session into a fresh process in the same working directory', async () => {
+    const created = await run('auth.createUser', [
+      'auth',
+      'createUser',
+      '--uid',
+      'session-carrier',
+      '--email',
+      'carrier@example.com',
+      '--password',
+      'hunter222',
+    ]);
+    expect(created.code).toBe(0);
+
+    const signedIn = await run('auth.signInWithEmailAndPassword', [
+      'auth',
+      'signInWithEmailAndPassword',
+      '--email',
+      'carrier@example.com',
+      '--password',
+      'hunter222',
+    ]);
+    expect(signedIn.code).toBe(0);
+
+    // A fresh call, in the same working directory: no process, no handle,
+    // and no argument carries the session forward except the state file.
+    const whoami = await run('auth.whoami', ['auth', 'whoami', '--json']);
+    expect(whoami.code).toBe(0);
+    const appSession = JSON.parse(whoami.stdout).data.appSession as { uid: string } | null;
+    expect(appSession?.uid).toBe('session-carrier');
+  });
 });
