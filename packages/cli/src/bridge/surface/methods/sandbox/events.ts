@@ -7,7 +7,8 @@
  * continuation and is not one, so a cursor the log does not carry is refused.
  */
 import { z } from 'zod';
-import { toOperationRecord, type OperationRecord } from 'pyric/sandbox';
+import { toListenerRecord, toOperationRecord, type OperationRecord } from 'pyric/sandbox';
+import type { SandboxEvent } from 'pyric/sandbox';
 import { operationFailure } from '../../context.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -24,17 +25,31 @@ function matchesKind(record: OperationRecord, kind: string): boolean {
   return isWrite(record);
 }
 
+/**
+ * The record one event contributes to the requested page, or `null` when the
+ * event belongs to a different page. `listeners` reads the lifecycle stream
+ * (attach, detach, delivery, suppressed, errored) and nothing else; every
+ * other kind reads the operation stream, where lifecycle never appeared.
+ */
+function recordForKind(event: SandboxEvent, kind: string): OperationRecord | null {
+  if (kind === 'listeners') return toListenerRecord(event);
+  const record = toOperationRecord(event);
+  if (record === null) return null;
+  if (!matchesKind(record, kind)) return null;
+  return record;
+}
+
 export default {
   tool: 'sandbox',
   method: 'events',
   sdkOrigin: 'pyric',
   effect: 'read',
-  signature: 'events(since?, limit?, kind?: all|denials|writes)',
+  signature: 'events(since?, limit?, kind?: all|denials|writes|listeners)',
   description: 'Page the operation log; since is a prior nextCursor.',
   args: z.object({
     since: z.string().optional().describe('The nextCursor a prior call returned.'),
     limit: z.number().int().positive().max(500).optional().describe('Default 50, maximum 500.'),
-    kind: z.enum(['all', 'denials', 'writes']).optional(),
+    kind: z.enum(['all', 'denials', 'writes', 'listeners']).optional(),
   }),
   operation: 'list_sandbox_events',
   example: { limit: 20, kind: 'denials' },
@@ -59,9 +74,8 @@ export default {
     let lastIndex = startIndex - 1;
     for (let i = startIndex; i < history.length && events.length < limit; i++) {
       lastIndex = i;
-      const record = toOperationRecord(history[i]!);
+      const record = recordForKind(history[i]!, kind);
       if (record === null) continue;
-      if (!matchesKind(record, kind)) continue;
       events.push(record);
     }
     const hasMore = lastIndex < history.length - 1;

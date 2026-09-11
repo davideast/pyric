@@ -252,3 +252,75 @@ export function toOperationRecord(event: SandboxEvent): OperationRecord | null {
     queryProof,
   });
 }
+
+/** The five phases a listener passes through, whatever variant carried it. */
+export type ListenerPhase = 'attach' | 'detach' | 'delivery' | 'suppressed' | 'errored';
+
+/** Which phase an event reports, or `null` when it is not listener lifecycle. */
+function listenerPhaseOf(event: SandboxEvent): ListenerPhase | null {
+  if (event.kind === 'listener') return event.phase;
+  if (event.kind === 'listener_attach') return 'attach';
+  if (event.kind === 'listener_detach') return 'detach';
+  if (event.kind === 'listener_errored') return 'errored';
+  if (event.kind === 'snapshot_delivery') return 'delivery';
+  if (event.kind === 'snapshot_suppressed') return 'suppressed';
+  return null;
+}
+
+/** Only an errored listener met Security Rules; the other phases never did. */
+function listenerRulesDisposition(event: SandboxEvent, phase: ListenerPhase): RulesDisposition {
+  if (phase !== 'errored') return { kind: 'not-evaluated', reason: 'not-a-rules-operation' };
+  return rulesDispositionFor(event as OperationEvent);
+}
+
+/** The listener-shaped fields every lifecycle variant carries. */
+interface ListenerShape {
+  target: { kind: string; path?: string };
+  auth: AuthState;
+}
+
+/**
+ * Project one listener lifecycle event into the canonical record, with the
+ * phase as the record's `method`.
+ *
+ * Firestore reports lifecycle through its own `listener_attach` /
+ * `listener_detach` / `listener_errored` / `snapshot_delivery` /
+ * `snapshot_suppressed` variants; every other service reports it through the
+ * canonical `listener` variant. Both arrive here as the same five phases, so a
+ * caller paging listener activity never has to know which service produced it.
+ *
+ * Returns `null` for anything that is not listener lifecycle.
+ */
+export function toListenerRecord(event: SandboxEvent): OperationRecord | null {
+  const phase = listenerPhaseOf(event);
+  if (phase === null) return null;
+  const listener = event as unknown as ListenerShape;
+
+  let serviceVal: EventService = 'firestore';
+  if (event.service !== undefined) {
+    serviceVal = event.service;
+  }
+
+  let resultVal: OperationRecord['result'] = undefined;
+  if (event.kind === 'listener' && event.result !== undefined) {
+    resultVal = event.result;
+  } else if (phase === 'errored') {
+    resultVal = 'deny';
+  }
+
+  const record: {
+    -readonly [Key in keyof OperationRecord]: OperationRecord[Key];
+  } = {
+    id: event.id,
+    at: event.at,
+    eventKind: 'listener',
+    service: serviceVal,
+    method: phase,
+    auth: immutableAuthState(listener.auth),
+    result: resultVal,
+    context: operationContextFor(event),
+    rules: Object.freeze(listenerRulesDisposition(event, phase)),
+  };
+  if (listener.target.path !== undefined) record.path = listener.target.path;
+  return Object.freeze(record);
+}

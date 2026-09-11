@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
+import { doc, getFirestore, onSnapshot } from 'pyric/firestore';
 
 import { createSurfaceContext, renderSurface } from '../../../../../src/bridge/surface/index.js';
 import type { OperationResult, SurfaceContext } from '../../../../../src/bridge/surface/index.js';
@@ -76,6 +77,37 @@ describe('sandbox.events', () => {
     expect(refused.summary).toContain(cursor);
     expect(refused.summary).toContain('replaced');
     expect(refused.summary).toContain("without 'since'");
+  });
+
+  it('pages listener lifecycle with kind listeners, and nothing else', async () => {
+    const stop = onSnapshot(doc(getFirestore(sandbox), 'ledger/one'), () => {});
+    await run('firestore.setDoc', { path: 'ledger/one', data: { n: 1 } });
+    stop();
+
+    const listed = await run('sandbox.events', { kind: 'listeners' });
+    expect(listed.ok).toBe(true);
+    const events = (listed.data as { events: Array<{ method: string }> }).events;
+    const phases = events.map((event) => event.method);
+    expect(phases).toContain('attach');
+    expect(phases).toContain('delivery');
+    expect(phases).toContain('detach');
+    for (const phase of phases) {
+      expect(['attach', 'detach', 'delivery', 'suppressed', 'errored']).toContain(phase);
+    }
+  });
+
+  it('keeps listener lifecycle out of the write and denial pages', async () => {
+    const stop = onSnapshot(doc(getFirestore(sandbox), 'ledger/one'), () => {});
+    await run('firestore.setDoc', { path: 'ledger/one', data: { n: 1 } });
+    stop();
+
+    const writes = await run('sandbox.events', { kind: 'writes' });
+    const methods = (writes.data as { events: Array<{ method: string }> }).events.map(
+      (event) => event.method,
+    );
+    expect(methods).not.toContain('attach');
+    expect(methods).not.toContain('detach');
+    expect(methods).not.toContain('delivery');
   });
 
   it('refuses a cursor the sandbox never handed out', async () => {

@@ -1,4 +1,5 @@
 import type { QueryProofDiagnostic } from './query-proof.js';
+import type { ServiceMutationEvent } from './service-mutation-event.js';
 /**
  * The sandbox event surface: every discriminated event variant the
  * sandbox can emit, the shared provenance/service/actor/lens types that
@@ -12,6 +13,16 @@ import type {
   OperationContext,
   RulesDisposition,
 } from './operation.js';
+export type { MutationEventService, ServiceEventOperation } from './service-event-records.js';
+export type {
+  ServiceMutationEvent,
+  ServiceMutationEventFields,
+  ServiceMutationEventOf,
+} from './service-mutation-event.js';
+export type {
+  ServiceEventRecord,
+  ServiceEventTarget,
+} from './service-event-record.js';
 export type {
   ActivityEventProvenance,
   AuthLens,
@@ -342,80 +353,6 @@ export interface SessionBoundaryEvent {
   priorOpCount: number;
 }
 
-/**
- * Cross-service mutation event — the unified envelope the NON-Firestore
- * services (`auth` / `storage` / `rtdb`) emit into the single
- * `onEvent`/`history()` stream (Pyric Studio keystone, track T1).
- *
- * **Why a new variant rather than reusing `request`/`write`.** Firestore's
- * existing kinds are tightly coupled to the rules-simulator: `RequestEvent`
- * carries `result: 'allow'|'deny'`, `evalMs`, the simulator's `reasons[]`,
- * and `matchedRule`; `WriteSandboxEvent` carries Firestore-specific
- * `sentinels`, `autoId`, and a Firestore `requestTime` Timestamp. Auth user-
- * DB mutations (no path, no rule eval), Storage object puts, and RTDB tree
- * writes don't have those concepts, and bending them into the Firestore
- * shapes would either lie (synthesize a fake `result`/`requestTime`) or
- * pollute the Firestore consumer contract. So this is ONE small, additive
- * variant the three services share — Firestore consumers filter on their
- * existing `kind`s and never see it. See the design rationale.
- *
- * It is intentionally generic: `op` is a free-ish string discriminated by
- * `service`, and `before`/`after` are best-effort serializable snapshots
- * (omitted when not meaningful — e.g. a sign-out has no `after`). Studio's
- * data grids / Action Center render `service` + `op` + `path` directly and
- * diff `before`→`after` when both are present.
- */
-export interface ServiceMutationEvent {
-  kind: 'service_mutation';
-  id: string;
-  at: number;
-  /**
-   * Which service performed the mutation. Always one of the non-Firestore
-   * services — Firestore rides its own `request`/`write` path. (The
-   * provenance `service` field on the stamped event mirrors this; it is set
-   * redundantly here so a consumer matching purely on `kind` still gets the
-   * discriminator without reaching into provenance.)
-   */
-  service: 'auth' | 'storage' | 'rtdb' | 'messaging' | 'ai';
-  /**
-   * Service-scoped operation name. Stable, lowercase, snake/kebab-free:
-   *   - auth:    `user_create` | `user_update` | `user_delete` |
-   *              `users_clear` | `sign_in` | `sign_out`
-   *   - storage: `object_put` | `object_delete` | `metadata_update`
-   *   - rtdb:    `set` | `update` | `remove` | `transaction`
-   *   - ai:      `generate_content` | `stream_generate_content` |
-   *              `count_tokens` | `request_rejected` | `response_blocked` |
-   *              `model_substituted`
-   * New ops can be added without a breaking change (consumers switch with a
-   * default branch).
-   */
-  op: string;
-  /**
-   * The thing mutated, in the service's own addressing scheme:
-   *   - auth:    the user `uid` (or `'*'` for a clear-all). Absent for a
-   *              sign-out with no prior user.
-   *   - storage: the object `fullPath` (e.g. `avatars/alice.png`).
-   *   - rtdb:    the database path (e.g. `/rooms/r1/messages`), or for a
-   *              multi-path `update` the ref path the call targeted.
-   */
-  path?: string;
-  /** Identity in effect when the op ran (the service's `request.auth`
-   *  equivalent). `null` for admin/anonymous-driven mutations (e.g.
-   *  `sandbox.createUser`, an unauthenticated RTDB write). */
-  auth: AuthState;
-  /** Best-effort serializable snapshot of the state BEFORE the mutation.
-   *  Absent when there was no prior state (a create) or it isn't cheap to
-   *  capture. */
-  before?: unknown;
-  /** Best-effort serializable snapshot of the state AFTER the mutation.
-   *  Absent on deletes / sign-outs (nothing remains). */
-  after?: unknown;
-  /** Free-form, service-specific extras a consumer may surface without
-   *  re-deriving (e.g. storage `{ size, contentType }`, rtdb
-   *  `{ committed }` for a transaction). Kept loose on purpose — it's a
-   *  display hint, not a contract. */
-  detail?: Record<string, unknown>;
-}
 
 /**
  * Canonical service operation event. This is the service-neutral successor to

@@ -1,6 +1,6 @@
 /** List the runs `fire` caused: cause, duration, and result or error. */
 import { z } from 'zod';
-import { executionLogFor } from '../../../../functions-rtdb/execution-log.js';
+import { listExecutions } from '../../../../functions-rtdb/execution-log.js';
 import type { MethodRecord } from '../../method-types.js';
 
 export default {
@@ -21,7 +21,7 @@ export default {
   example: {},
   async handler(args, ctx) {
     const since = args.since === undefined ? undefined : Number(args.since);
-    const executions = executionLogFor(ctx.sandbox).list(since);
+    const executions = listExecutions(ctx.sandbox, since);
     return {
       ok: true,
       summary: `${executions.length} execution(s)`,

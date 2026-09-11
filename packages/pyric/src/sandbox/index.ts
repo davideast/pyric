@@ -30,6 +30,7 @@ export type {
   OperationContext,
   ListenerLifecycleEvent,
   LocalSandbox,
+  MutationEventService,
   PersistableService,
   RequestEvent,
   RulesDisposition,
@@ -43,14 +44,18 @@ export type {
   SandboxOperationEvent,
   SandboxRuntimeErrorEvent,
   SandboxSnapshot,
+  ServiceEventOperation,
+  ServiceEventRecord,
+  ServiceEventTarget,
   ServiceMutationEvent,
+  ServiceMutationEventFields,
   SessionBoundaryEvent,
   SnapshotDeliveryEvent,
   SnapshotErrorEvent,
   SnapshotSuppressedEvent,
   WriteSandboxEvent,
 } from './types/index.js';
-export { SandboxError } from './types/index.js';
+export { SandboxError, MUTATION_EVENT_SERVICES, SERVICE_EVENT_RECORDS } from './types/index.js';
 export {
   SandboxContextImpl,
   normalizeAuthState,
@@ -70,9 +75,10 @@ export {
   isOperationEvent,
   operationContextFor,
   rulesDispositionFor,
+  toListenerRecord,
   toOperationRecord,
 } from './operation-record.js';
-export type { OperationRecord } from './operation-record.js';
+export type { ListenerPhase, OperationRecord } from './operation-record.js';
 
 // Remote sandbox (slice 1) — the brand + minimal channel contract that
 // lets `pyric-admin` recognize a Node-side handle onto the browser-hosted
