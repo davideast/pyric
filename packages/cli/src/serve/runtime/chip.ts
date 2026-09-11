@@ -748,7 +748,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       listenerNotice = wanted && !mode.enabled()
         ? 'Listener attribution is off in this build, so there are no owners to outline.'
         : null;
-      if (!mode.enabled()) listenerOutlines = [];
+      // The summary reads the fold whether the outlines are on or off; the
+      // mode only reports on change, so take its current answer here.
+      listenerOutlines = mode.outlines();
       render();
     });
     root.querySelector('[data-open-impersonate]')?.addEventListener('click', (e) => {

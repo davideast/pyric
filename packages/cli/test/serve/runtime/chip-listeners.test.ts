@@ -312,6 +312,19 @@ describe('the chip Listeners mode', () => {
     page.chip.dispose();
   });
 
+  it('keeps the summary when the outlines are toggled off and on again', () => {
+    const page = setup();
+    page.push([attach('e1', 'l1', { kind: 'query', collection: 'todos' }, [{ kind: 'tag', name: 'TodoList', element: '#todos' }])]);
+    toggle(page.root);
+    expect(page.root.querySelector('[data-listener-panel]')?.textContent).toContain('TodoList');
+    toggle(page.root);
+    expect(page.root.querySelector('[data-listener-panel]')?.textContent).toContain('TodoList');
+    toggle(page.root);
+    expect(page.root.querySelector('[data-listener-panel]')?.textContent).toContain('TodoList');
+    expect(page.doc.querySelector('[data-pyric-listener-overlay]')).not.toBeNull();
+    page.chip.dispose();
+  });
+
   it('draws nothing while listener attribution is off', () => {
     const page = setup({ attributionEnabled: false });
     toggle(page.root);
