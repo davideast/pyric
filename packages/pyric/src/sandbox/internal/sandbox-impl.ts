@@ -751,8 +751,8 @@ export function primeEventHistory(
  * their activity lands on the same stream — e.g.
  *   `emitSandboxEvent(sandbox, userCreatedEvent, { service: 'auth' })`.
  *
- * Every non-Firestore service emits here, sharing one additive union variant —
- * {@link ServiceMutationEvent} (`kind: 'service_mutation'`) — built via
+ * Every non-Firestore service emits here, sharing one additive union variant,
+ * {@link ServiceMutationEvent} (`kind: 'service_mutation'`), built via
  * {@link makeServiceMutationEvent}, rather than bending into Firestore's
  * rule-eval-shaped `request`/`write` kinds. Which services those are, and
  * which operations each of them emits, is declared once per service in
