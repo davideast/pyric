@@ -52,6 +52,7 @@ import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js'
 
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import type { AuthEventOperation } from './events.js';
 
 import {
   USER_INTERNAL,
@@ -545,7 +546,7 @@ export class SandboxBackend {
    * via `stampProvenance`.
    */
   private emitAuthEvent(
-    op: string,
+    op: AuthEventOperation,
     fields: { path?: string; auth?: AuthState; before?: unknown; after?: unknown; detail?: Record<string, unknown> } = {},
   ): void {
     try {

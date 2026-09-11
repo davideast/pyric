@@ -35,7 +35,9 @@
  */
 import type { Sandbox } from '../../sandbox/types/service.js';
 import type { AuthState } from '../../sandbox/types/auth-state.js';
+import type { ServiceMutationEvent } from '../../sandbox/types/events.js';
 import { emitSandboxEvent, makeServiceMutationEvent } from '../../sandbox/internal/sandbox-impl.js';
+import type { MessagingEventOperation } from '../events.js';
 import { getClock } from '../../sandbox/clock.js';
 import { BrokerSendError, unregisteredTokenEnvelope, invalidTopicNameEnvelope } from './envelopes.js';
 import { mintToken } from './tokens.js';
@@ -75,6 +77,22 @@ interface TokenRecord {
 /** Ops run on the admin/send plane or the SDK control plane — never a rules identity. */
 const ADMIN_AUTH: AuthState = null;
 
+/**
+ * Rebuild one delivery entry from the event that reported the delivery. The
+ * event carries everything the entry reports, so this reads fields rather than
+ * recomputing any of them.
+ */
+function toDeliveryLogEntry(event: ServiceMutationEvent): DeliveryLogEntry {
+  const detail = event.detail ?? {};
+  return {
+    messageId: String(detail.messageId),
+    route: detail.route as DeliveryRoute,
+    handled: detail.handled === true,
+    at: event.at,
+    payload: detail.payload as DeliveredPayload,
+  };
+}
+
 export class MessagingBroker {
   readonly projectId: string;
   readonly senderId: string;
@@ -90,8 +108,6 @@ export class MessagingBroker {
   private readonly clients = new Map<string, ClientVisibilityState>();
   private readonly foregroundHandlers = new Set<PayloadHandler>();
   private readonly backgroundHandlers = new Set<PayloadHandler>();
-  /** Every past delivery, in routing order. The `deliveries` method's own state. */
-  private readonly deliveryLog: DeliveryLogEntry[] = [];
   private numericIdCounter = 0;
 
   constructor(options: MessagingBrokerConfig & { sandbox?: Sandbox } = {}) {
@@ -417,39 +433,47 @@ export class MessagingBroker {
       }
     }
 
+    // The delivery history IS this event. `deliveries` folds the stream back
+    // into entries, so everything an entry reports has to ride here.
     this.emit('message_delivered', {
-      detail: { route, handlerCount, messageId: payload.messageId },
-    });
-    this.deliveryLog.push({
-      messageId: payload.messageId,
-      route,
-      handled: handlerCount > 0,
-      at: this.clockNow(),
-      payload: structuredClone(payload),
+      detail: {
+        route,
+        handlerCount,
+        handled: handlerCount > 0,
+        messageId: payload.messageId,
+        payload: structuredClone(payload),
+      },
     });
     return { route, handlerCount, payload };
   }
 
   /**
    * What was delivered, in delivery order: foreground or background, handled
-   * or not (the `deliveries` service-tool method's read). `since` is a clock
-   * timestamp cursor; entries at or after it are returned. A `send` with no
-   * matching recipient never calls {@link route}, so it never logs here.
-   * Only an actual routing decision does.
+   * or not (the `deliveries` service-tool method's read). Folded out of the
+   * sandbox event stream's `message_delivered` events, which are the delivery
+   * history; the broker keeps no second copy. `since` is a clock timestamp
+   * cursor; entries at or after it are returned. A `send` with no matching
+   * recipient never calls {@link route}, so it emits nothing here. Only an
+   * actual routing decision does.
    */
   deliveries(since?: number): DeliveryLogEntry[] {
-    if (since === undefined) return [...this.deliveryLog];
-    return this.deliveryLog.filter((entry) => entry.at >= since);
+    const entries = this.deliveredEvents().map((event) => toDeliveryLogEntry(event));
+    if (since === undefined) return entries;
+    return entries.filter((entry) => entry.at >= since);
   }
 
-  /** The sandbox clock's current time, or the wall clock with no bound sandbox. */
-  private clockNow(): number {
-    if (this.sandbox === undefined) return Date.now();
-    try {
-      return getClock(this.sandbox).now();
-    } catch {
-      return Date.now();
+  /** The `message_delivered` events this broker's sandbox carries, in order. */
+  private deliveredEvents(): ServiceMutationEvent[] {
+    if (this.sandbox === undefined) return [];
+    const history = this.sandbox.history();
+    const delivered: ServiceMutationEvent[] = [];
+    for (const event of history) {
+      if (event.kind !== 'service_mutation') continue;
+      if (event.service !== 'messaging') continue;
+      if (event.op !== 'message_delivered') continue;
+      delivered.push(event);
     }
+    return delivered;
   }
 
   // ── Event emission (Studio stream consumer seam) ──────────────────────────
@@ -459,7 +483,7 @@ export class MessagingBroker {
    * Best-effort, storage-precedent: a throw from the emit path must never
    * fail the messaging operation the caller just completed.
    */
-  private emit(op: string, fields: { path?: string; detail?: Record<string, unknown> }): void {
+  private emit(op: MessagingEventOperation, fields: { path?: string; detail?: Record<string, unknown> }): void {
     if (this.sandbox === undefined) return;
     try {
       emitSandboxEvent(

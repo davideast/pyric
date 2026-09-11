@@ -25,16 +25,26 @@ export { SandboxError } from './errors.js';
 
 export type { PersistableService, SandboxSnapshot } from './persistence.js';
 
+export {
+  MUTATION_EVENT_SERVICES,
+  SERVICE_EVENT_RECORDS,
+} from './service-event-records.js';
+
 export type {
   DenialEvent,
   ListenerLifecycleEvent,
+  MutationEventService,
   RequestEvent,
   SandboxCommitEvent,
   SandboxEvent,
   SandboxListenerEvent,
   SandboxOperationEvent,
   SandboxRuntimeErrorEvent,
+  ServiceEventOperation,
+  ServiceEventRecord,
+  ServiceEventTarget,
   ServiceMutationEvent,
+  ServiceMutationEventFields,
   SessionBoundaryEvent,
   SnapshotDeliveryEvent,
   SnapshotErrorEvent,

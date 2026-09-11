@@ -1,23 +1,18 @@
 /**
- * The record of runs `fire` caused, one log per sandbox.
+ * The record of runs `fire` caused, read back off the sandbox event stream.
  *
- * The runtime this package wraps had no execution log before this file: the
- * real dev runtime only ever reports an execution to a log line
- * (`vite-functions-development.ts`'s `reportEvent`) and forgets it. A synthetic
- * call needs somewhere to read that history back from, so this is a small,
- * one-file seam added to the runtime rather than a claim about a log that
- * already existed.
- *
- * The store is keyed on the sandbox rather than held as one process-wide
- * value, the same reason `assurance-campaigns.ts` keys its campaign store on
- * the sandbox: a second sandbox in the same process, which is what a test
- * suite is, never sees another sandbox's executions.
+ * The runtime this package wraps had no execution log: the real dev runtime
+ * only ever reports an execution to a log line and forgets it. A synthetic
+ * call needs somewhere to read that history back from, and that somewhere is
+ * the stream every other service already lands on, so `fire` emits one
+ * `execution_finished` event per run and this module folds those events back
+ * into the records a caller reads. There is no second copy to drift from it.
  */
-import type { LocalSandbox } from 'pyric/sandbox';
+import type { LocalSandbox, SandboxEvent } from 'pyric/sandbox';
 
 /** One run `fire` caused. */
 export interface FunctionExecutionRecord {
-  /** Stable id, assigned in log order. */
+  /** Stable id, assigned in the order runs finished. */
   id: string;
   /** The trigger export name `fire` ran. */
   trigger: string;
@@ -33,36 +28,62 @@ export interface FunctionExecutionRecord {
   error?: string;
 }
 
-/** What `fire` reports to the log once a run finishes. */
-export type FunctionExecutionEntry = Omit<FunctionExecutionRecord, 'id'>;
-
-export class FunctionsExecutionLog {
-  #records: FunctionExecutionRecord[] = [];
-  #sequence = 0;
-
-  /** Append one finished run and return the record it was stored as. */
-  record(entry: FunctionExecutionEntry): FunctionExecutionRecord {
-    this.#sequence += 1;
-    const stored: FunctionExecutionRecord = { id: String(this.#sequence), ...entry };
-    this.#records.push(stored);
-    return stored;
-  }
-
-  /** Every run at or after `since`, in the order they finished. */
-  list(since?: number): FunctionExecutionRecord[] {
-    if (since === undefined) return [...this.#records];
-    return this.#records.filter((record) => record.startedAt >= since);
-  }
+/** Whether one event is a finished Functions run. */
+function isExecutionFinished(event: SandboxEvent): boolean {
+  if (event.kind !== 'service_mutation') return false;
+  if (event.service !== 'functions') return false;
+  return event.op === 'execution_finished';
 }
 
-/** One execution log per sandbox, created the first time a call reaches it. */
-const LOGS = new WeakMap<LocalSandbox, FunctionsExecutionLog>();
+/** The finished-run events this sandbox carries, in the order they landed. */
+function finishedRuns(sandbox: LocalSandbox): SandboxEvent[] {
+  return sandbox.history().filter(isExecutionFinished);
+}
 
-/** The execution log this sandbox holds. */
-export function executionLogFor(sandbox: LocalSandbox): FunctionsExecutionLog {
-  const existing = LOGS.get(sandbox);
-  if (existing !== undefined) return existing;
-  const created = new FunctionsExecutionLog();
-  LOGS.set(sandbox, created);
-  return created;
+/**
+ * The id the next run to finish will carry.
+ *
+ * Ids count the finished runs the stream already holds, so they stay the
+ * one-based sequence a caller saw before the log became a fold, and a restore
+ * that replaces the stream renumbers with it rather than drifting past it.
+ */
+export function executionIdFor(sandbox: LocalSandbox): string {
+  return String(finishedRuns(sandbox).length + 1);
+}
+
+/** Rebuild one record from the event that reported the run. */
+function toRecord(event: SandboxEvent, ordinal: number): FunctionExecutionRecord {
+  const mutation = event as { path?: string; detail?: Record<string, unknown> };
+  const detail = mutation.detail ?? {};
+  const record: FunctionExecutionRecord = {
+    id: String(ordinal),
+    trigger: String(detail.trigger),
+    cause: {
+      ref: mutation.path ?? '',
+      params: (detail.params as Record<string, string> | undefined) ?? {},
+    },
+    startedAt: Number(detail.startedAt),
+    durationMs: Number(detail.durationMs),
+    status: statusOf(detail.status),
+  };
+  if (record.status === 'fulfilled') record.result = detail.result;
+  if (record.status === 'rejected') record.error = String(detail.error);
+  return record;
+}
+
+/** Every run at or after `since`, in the order they finished. */
+export function listExecutions(
+  sandbox: LocalSandbox,
+  since?: number,
+): FunctionExecutionRecord[] {
+  const records = finishedRuns(sandbox).map((event, index) => toRecord(event, index + 1));
+  if (since === undefined) return records;
+  return records.filter((record) => record.startedAt >= since);
+}
+
+/** The record status an emitted outcome status folds to. */
+function statusOf(status: unknown): FunctionExecutionRecord['status'] {
+  if (status === 'rejected') return 'rejected';
+  if (status === 'timeout') return 'timeout';
+  return 'fulfilled';
 }

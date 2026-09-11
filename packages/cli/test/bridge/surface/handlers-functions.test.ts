@@ -106,6 +106,50 @@ it('reports a thrown handler as a rejected execution with its error', async () =
   expect(last.error).toContain('PYRIC_EXPECTED_FIRE_FAILURE');
 });
 
+it('lands the discovery, the firing, and the finish on the sandbox event stream', async () => {
+  const before = ctx.sandbox.history().length;
+  await run('functions.fire', {
+    trigger: 'makeUppercase',
+    path: 'messages/streamed/original',
+    value: 'hi',
+  });
+
+  const emitted = ctx.sandbox
+    .history()
+    .slice(before)
+    .filter((event) => event.kind === 'service_mutation' && event.service === 'functions');
+  expect(emitted.map((event) => (event as { op: string }).op)).toEqual([
+    'trigger_discovered',
+    'handler_fired',
+    'execution_finished',
+  ]);
+
+  const fired = emitted[1] as { path?: string };
+  expect(fired.path).toBe('messages/streamed/original');
+
+  const finished = emitted[2] as { detail?: Record<string, unknown> };
+  expect(finished.detail?.status).toBe('fulfilled');
+  expect(finished.detail?.result).toBe('HI');
+  expect(typeof finished.detail?.durationMs).toBe('number');
+});
+
+it('carries the thrown error on the finish event', async () => {
+  const before = ctx.sandbox.history().length;
+  await run('functions.fire', { trigger: 'alwaysThrows', path: 'failures/two', value: true });
+
+  const finished = ctx.sandbox
+    .history()
+    .slice(before)
+    .find(
+      (event) =>
+        event.kind === 'service_mutation'
+        && event.service === 'functions'
+        && event.op === 'execution_finished',
+    ) as { detail?: Record<string, unknown> } | undefined;
+  expect(finished?.detail?.status).toBe('rejected');
+  expect(String(finished?.detail?.error)).toContain('PYRIC_EXPECTED_FIRE_FAILURE');
+});
+
 it('refuses an unknown trigger, naming listTriggers', async () => {
   const refused = await run('functions.fire', {
     trigger: 'doesNotExist',

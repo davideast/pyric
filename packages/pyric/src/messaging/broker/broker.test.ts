@@ -300,9 +300,31 @@ describe('messaging broker, registered tokens and their topics', () => {
   });
 });
 
-describe('messaging broker, the delivery log', () => {
+describe('messaging broker, the delivery history', () => {
+  it('reads the delivery history off the sandbox event stream', () => {
+    const sandbox = initializeSandbox();
+    const broker = new MessagingBroker({ sandbox });
+    broker.setClientVisibility('window-0', 'visible');
+    broker.deliver({ data: { k: 'v' } });
+
+    const delivered = sandbox
+      .history()
+      .filter(
+        (event) =>
+          event.kind === 'service_mutation'
+          && event.service === 'messaging'
+          && event.op === 'message_delivered',
+      ) as Array<{ at: number; detail?: Record<string, unknown> }>;
+    expect(delivered.length).toBe(1);
+
+    const [entry] = broker.deliveries();
+    expect(entry!.messageId).toBe(delivered[0]!.detail!.messageId as string);
+    expect(entry!.at).toBe(delivered[0]!.at);
+    expect(entry!.payload).toEqual(delivered[0]!.detail!.payload as never);
+  });
+
   it('records a topic send as delivered, foreground or background, per the visibility rule', () => {
-    const broker = new MessagingBroker();
+    const broker = new MessagingBroker({ sandbox: initializeSandbox() });
     const token = broker.getTokenFor('reg-1');
     broker.subscribeToTopic([token], 'news');
 
@@ -320,7 +342,7 @@ describe('messaging broker, the delivery log', () => {
   });
 
   it('records a delivery with no matching recipient as unhandled, and never delivers unrouted sends', () => {
-    const broker = new MessagingBroker();
+    const broker = new MessagingBroker({ sandbox: initializeSandbox() });
     const token = broker.getTokenFor('reg-1');
     broker.setClientVisibility('window-0', 'visible');
     broker.onForegroundMessage(() => {});
@@ -339,7 +361,7 @@ describe('messaging broker, the delivery log', () => {
   });
 
   it('filters by since, the cursor the deliveries method reads', () => {
-    const broker = new MessagingBroker();
+    const broker = new MessagingBroker({ sandbox: initializeSandbox() });
     broker.deliver({ data: { seq: '1' } });
     const cursor = Date.now();
     broker.deliver({ data: { seq: '2' } });
