@@ -173,4 +173,42 @@ describe('pyric <tool> <method>', () => {
     expect(rejected.code).toBe(1);
     expect(rejected.stderr).toContain('not valid JSON');
   });
+
+  it('carries an anonymous user through a checkpoint, a reset, and a restore', async () => {
+    const signedIn = await run('auth.signInAnonymously', ['auth', 'signInAnonymously', '--json']);
+    expect(signedIn.code).toBe(0);
+    const uid = (JSON.parse(signedIn.stdout).data.appSession as { uid: string }).uid;
+
+    const listedBefore = await run('auth.listUsers', ['auth', 'listUsers', '--json']);
+    const usersBefore = JSON.parse(listedBefore.stdout).data.users as Array<{ uid: string }>;
+    expect(usersBefore.map((u) => u.uid)).toContain(uid);
+
+    const saved = await run('sandbox.checkpoint', ['sandbox', 'checkpoint', '--name', 'anon-check']);
+    expect(saved.code).toBe(0);
+
+    const cleared = await run('sandbox.reset', [
+      'sandbox',
+      'reset',
+      '--scope',
+      'auth',
+      '--confirm',
+    ]);
+    expect(cleared.code).toBe(0);
+    const listedAfterReset = await run('auth.listUsers', ['auth', 'listUsers', '--json']);
+    const usersAfterReset = JSON.parse(listedAfterReset.stdout).data.users as Array<{ uid: string }>;
+    expect(usersAfterReset.map((u) => u.uid)).not.toContain(uid);
+
+    const restored = await run('sandbox.restore', [
+      'sandbox',
+      'restore',
+      '--name',
+      'anon-check',
+      '--confirm',
+    ]);
+    expect(restored.code).toBe(0);
+
+    const listedAfterRestore = await run('auth.listUsers', ['auth', 'listUsers', '--json']);
+    const usersAfterRestore = JSON.parse(listedAfterRestore.stdout).data.users as Array<{ uid: string }>;
+    expect(usersAfterRestore.map((u) => u.uid)).toContain(uid);
+  });
 });
