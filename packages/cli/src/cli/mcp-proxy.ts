@@ -42,10 +42,13 @@
  * listed, under a heading that says it is disabled, and every call to one is
  * refused (ADR-0014 Decision 5).
  *
- * Discovery preference: the `.pyric/serve.json` pointer serve writes in the
- * project cwd (exact + project-correct), then a health probe across the scan
- * window as a fallback. Degrades LEGIBLY: if no serve is found, or the pointed
- * server's identity can't be matched, we report it — never a silent hang.
+ * Discovery: the `.pyric/serve.json` pointer serve writes in the project cwd
+ * is the only thing that attaches, because it is the only thing that proves
+ * the server belongs to this project. The health probe across the scan window
+ * still runs, but a server it finds is reported and not attached to: it may be
+ * another project's sandbox on the same machine. Degrades LEGIBLY: if no serve
+ * is found, or the pointed server's identity can't be matched, we report it
+ * and never hang.
  */
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import type { ParsedArgs } from './parse-args.js';
@@ -188,7 +191,18 @@ export async function runMcpProxy(
     return await runInProcess(cwd, selection);
   }
 
-  const found = await (deps.discover ?? discoverServe)(cwd, log);
+  const discovered = await (deps.discover ?? discoverServe)(cwd, log);
+  // Only the project's own pointer file proves a serve belongs to this
+  // project. A server the port scan found may be another project's sandbox on
+  // the same machine, so it is reported and left alone.
+  const found = discovered !== null && discovered.source.startsWith('pointer') ? discovered : null;
+  if (discovered !== null && found === null) {
+    log(
+      `a sandbox server is answering at ${discovered.base} (${discovered.source}), but no ` +
+        '.pyric/serve.json in this project names it, so it is not attached to. Start `pyric serve` ' +
+        'from this project to write the pointer, or ignore the server if it belongs to another project.',
+    );
+  }
   if (!found && requiresRunningServe(parsed)) {
     log(
       'no running `pyric serve` or `pyric sandbox --bridge` found for this project (looked for ' +
