@@ -199,6 +199,29 @@ class FirestoreAuthIntegrationTest {
         FirebaseFirestore.clearInstancesForTest()
     }
 
+    /**
+     * Polls sentOps for the first op matching [method]. The op list is filled from a
+     * background dispatcher, so a lookup immediately after Tasks.await can run before the op
+     * (and, for ops that carry one, its actAs stamp) has landed. Waits up to [timeoutMs] for
+     * both the op to appear and, when [requireActAs] is set, for its actAs field to be stamped.
+     */
+    private fun awaitOp(
+        method: String,
+        timeoutMs: Long = 3000,
+        requireActAs: Boolean = true
+    ): Map<String, Any?>? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        var found: Map<String, Any?>? = null
+        while (System.currentTimeMillis() < deadline) {
+            found = sentOps.find { it["method"] == method }
+            if (found != null && (!requireActAs || found["actAs"] != null)) {
+                return found
+            }
+            Thread.sleep(10)
+        }
+        return found
+    }
+
     @Test
     fun testDocCrudStampsActAsAnonWhenSignedOut() {
         val docRef = firestore.document("users/guest")
@@ -206,25 +229,25 @@ class FirestoreAuthIntegrationTest {
         // 1. getDoc
         val snap = Tasks.await(docRef.get())
         assertTrue(snap.exists())
-        val getOp = sentOps.find { it["method"] == "getDoc" }
+        val getOp = awaitOp("getDoc")
         assertNotNull(getOp)
         assertEquals(mapOf("mode" to "anon"), getOp?.get("actAs"))
 
         // 2. setDoc
         Tasks.await(docRef.set(mapOf("test" to "data")))
-        val setOp = sentOps.find { it["method"] == "setDoc" }
+        val setOp = awaitOp("setDoc")
         assertNotNull(setOp)
         assertEquals(mapOf("mode" to "anon"), setOp?.get("actAs"))
 
         // 3. updateDoc
         Tasks.await(docRef.update(mapOf("test" to "updated")))
-        val updateOp = sentOps.find { it["method"] == "updateDoc" }
+        val updateOp = awaitOp("updateDoc")
         assertNotNull(updateOp)
         assertEquals(mapOf("mode" to "anon"), updateOp?.get("actAs"))
 
         // 4. deleteDoc
         Tasks.await(docRef.delete())
-        val deleteOp = sentOps.find { it["method"] == "deleteDoc" }
+        val deleteOp = awaitOp("deleteDoc")
         assertNotNull(deleteOp)
         assertEquals(mapOf("mode" to "anon"), deleteOp?.get("actAs"))
     }
@@ -237,7 +260,7 @@ class FirestoreAuthIntegrationTest {
         // 1. getDoc
         val snap = Tasks.await(docRef.get())
         assertTrue(snap.exists())
-        val getOp = sentOps.find { it["method"] == "getDoc" }
+        val getOp = awaitOp("getDoc")
         assertNotNull(getOp)
         @Suppress("UNCHECKED_CAST")
         val actAsGet = getOp?.get("actAs") as Map<String, Any?>
@@ -246,7 +269,7 @@ class FirestoreAuthIntegrationTest {
 
         // 2. setDoc
         Tasks.await(docRef.set(mapOf("name" to "Alice")))
-        val setOp = sentOps.find { it["method"] == "setDoc" }
+        val setOp = awaitOp("setDoc")
         assertNotNull(setOp)
         @Suppress("UNCHECKED_CAST")
         val actAsSet = setOp?.get("actAs") as Map<String, Any?>
@@ -255,7 +278,7 @@ class FirestoreAuthIntegrationTest {
 
         // 3. updateDoc
         Tasks.await(docRef.update(mapOf("name" to "Alice A")))
-        val updateOp = sentOps.find { it["method"] == "updateDoc" }
+        val updateOp = awaitOp("updateDoc")
         assertNotNull(updateOp)
         @Suppress("UNCHECKED_CAST")
         val actAsUpdate = updateOp?.get("actAs") as Map<String, Any?>
@@ -264,7 +287,7 @@ class FirestoreAuthIntegrationTest {
 
         // 4. deleteDoc
         Tasks.await(docRef.delete())
-        val deleteOp = sentOps.find { it["method"] == "deleteDoc" }
+        val deleteOp = awaitOp("deleteDoc")
         assertNotNull(deleteOp)
         @Suppress("UNCHECKED_CAST")
         val actAsDelete = deleteOp?.get("actAs") as Map<String, Any?>
@@ -280,7 +303,7 @@ class FirestoreAuthIntegrationTest {
         // Query
         val querySnap = Tasks.await(coll.whereEqualTo("active", true).get())
         assertEquals(1, querySnap.size())
-        val queryOp = sentOps.find { it["method"] == "getDocs" }
+        val queryOp = awaitOp("getDocs")
         assertNotNull(queryOp)
         @Suppress("UNCHECKED_CAST")
         val actAsQuery = queryOp?.get("actAs") as Map<String, Any?>
@@ -290,7 +313,7 @@ class FirestoreAuthIntegrationTest {
         // Count
         val countSnap = Tasks.await(coll.count().get())
         assertEquals(5L, countSnap.count)
-        val countOp = sentOps.find { it["method"] == "count" }
+        val countOp = awaitOp("count")
         assertNotNull(countOp)
         @Suppress("UNCHECKED_CAST")
         val actAsCount = countOp?.get("actAs") as Map<String, Any?>
@@ -300,7 +323,7 @@ class FirestoreAuthIntegrationTest {
         // Aggregate
         val aggSnap = Tasks.await(coll.aggregate(AggregateField.average("score")).get())
         assertEquals(88.5, aggSnap.get(AggregateField.average("score")))
-        val aggOp = sentOps.find { it["method"] == "aggregate" }
+        val aggOp = awaitOp("aggregate")
         assertNotNull(aggOp)
         @Suppress("UNCHECKED_CAST")
         val actAsAgg = aggOp?.get("actAs") as Map<String, Any?>
@@ -317,7 +340,7 @@ class FirestoreAuthIntegrationTest {
         batch.set(firestore.document("users/1"), mapOf("a" to 1))
         Tasks.await(batch.commit())
 
-        val batchOp = sentOps.find { it["method"] == "batchCommit" }
+        val batchOp = awaitOp("batchCommit")
         assertNotNull(batchOp)
         @Suppress("UNCHECKED_CAST")
         val actAsBatch = batchOp?.get("actAs") as Map<String, Any?>
@@ -331,7 +354,7 @@ class FirestoreAuthIntegrationTest {
         })
         assertEquals("committed", txnResult)
 
-        val txnOp = sentOps.find { it["method"] == "txnCommit" }
+        val txnOp = awaitOp("txnCommit")
         assertNotNull(txnOp)
         @Suppress("UNCHECKED_CAST")
         val actAsTxn = txnOp?.get("actAs") as Map<String, Any?>
@@ -421,7 +444,7 @@ class FirestoreAuthIntegrationTest {
         val docRef = firestore.document("settings/admin")
 
         Tasks.await(docRef.set(mapOf("theme" to "dark")))
-        val setOp = sentOps.find { it["method"] == "setDoc" }
+        val setOp = awaitOp("setDoc")
         assertNotNull(setOp)
         @Suppress("UNCHECKED_CAST")
         val actAs = setOp?.get("actAs") as Map<String, Any?>
@@ -491,7 +514,7 @@ class FirestoreAuthIntegrationTest {
         Tasks.await(auth.signInWithEmailAndPassword("alice@example.com", "secret"))
 
         // 1. Verify signInEmail RPC payload included tenantId
-        val signInOp = sentOps.find { it["method"] == "auth.signInEmail" }
+        val signInOp = awaitOp("auth.signInEmail", requireActAs = false)
         assertNotNull(signInOp)
         assertEquals("tenant-acme", signInOp?.get("tenantId"))
 
@@ -502,7 +525,7 @@ class FirestoreAuthIntegrationTest {
         val docRef = firestore.document("tenants/acme/users/alice")
         Tasks.await(docRef.get())
 
-        val getOp = sentOps.find { it["method"] == "getDoc" }
+        val getOp = awaitOp("getDoc")
         assertNotNull(getOp)
         @Suppress("UNCHECKED_CAST")
         val actAs = getOp?.get("actAs") as Map<String, Any?>
@@ -513,26 +536,26 @@ class FirestoreAuthIntegrationTest {
         // 4. Verify createUserWithEmailAndPassword, signInAnonymously, and signInWithCredential forward tenantId
         auth.tenantId = "tenant-beta"
         Tasks.await(auth.createUserWithEmailAndPassword("new@example.com", "secret"))
-        val createOp = sentOps.find { it["method"] == "auth.createUser" }
+        val createOp = awaitOp("auth.createUser", requireActAs = false)
         assertNotNull(createOp)
         assertEquals("tenant-beta", createOp?.get("tenantId"))
         assertEquals("tenant-beta", auth.currentUser?.tenantId)
 
         Tasks.await(auth.signInAnonymously())
-        val anonOp = sentOps.find { it["method"] == "auth.signInAnonymously" }
+        val anonOp = awaitOp("auth.signInAnonymously", requireActAs = false)
         assertNotNull(anonOp)
         assertEquals("tenant-beta", anonOp?.get("tenantId"))
         assertEquals("tenant-beta", auth.currentUser?.tenantId)
 
         Tasks.await(auth.signInWithCredential(mapOf("providerId" to "google.com", "idToken" to "mock")))
-        val credOp = sentOps.find { it["method"] == "auth.signInWithCredential" }
+        val credOp = awaitOp("auth.signInWithCredential", requireActAs = false)
         assertNotNull(credOp)
         assertEquals("tenant-beta", credOp?.get("tenantId"))
         assertEquals("tenant-beta", auth.currentUser?.tenantId)
 
         sentOps.clear()
         Tasks.await(auth.signInWithCredential(GoogleAuthProvider.getCredential("typed-id-token", "typed-access-token")))
-        val typedCredOp = sentOps.find { it["method"] == "auth.signInWithCredential" }
+        val typedCredOp = awaitOp("auth.signInWithCredential", requireActAs = false)
         assertNotNull(typedCredOp)
         assertEquals("tenant-beta", typedCredOp?.get("tenantId"))
         assertEquals("tenant-beta", auth.currentUser?.tenantId)

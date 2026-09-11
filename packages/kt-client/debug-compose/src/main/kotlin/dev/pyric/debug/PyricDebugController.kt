@@ -93,7 +93,7 @@ class PyricDebugController(
     }
 
     fun refreshUsers() {
-        scope.launch(Dispatchers.IO) {
+        scope.launch {
             _isLoadingUsers.value = true
             try {
                 val rawUsers = BridgeAuthOperations.listUsers(bridgeClient)

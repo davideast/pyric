@@ -7,6 +7,7 @@ import dev.pyric.auth.AuthLens
 import dev.pyric.auth.BridgeAuthOperations
 import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -22,10 +23,11 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 class FirebaseAuth internal constructor(
     val app: FirebaseApp,
-    val bridgeClient: PyricBridgeClient
+    val bridgeClient: PyricBridgeClient,
+    dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : CredentialsProvider {
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(dispatcher)
 
     private val _currentUser = MutableStateFlow<FirebaseUser?>(null)
     val currentUser: FirebaseUser? get() = _currentUser.value
@@ -344,6 +346,16 @@ class FirebaseAuth internal constructor(
         fun getInstance(app: FirebaseApp, bridgeClient: PyricBridgeClient): FirebaseAuth {
             return instances.computeIfAbsent(app.name) {
                 FirebaseAuth(app, bridgeClient)
+            }
+        }
+
+        fun getInstance(
+            app: FirebaseApp,
+            bridgeClient: PyricBridgeClient,
+            dispatcher: CoroutineDispatcher
+        ): FirebaseAuth {
+            return instances.computeIfAbsent(app.name) {
+                FirebaseAuth(app, bridgeClient, dispatcher)
             }
         }
 
