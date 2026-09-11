@@ -275,11 +275,18 @@ export interface WriteSandboxEvent {
  * - `regions`, what the delivery changed. The selectors of the elements a
  *   snapshot callback mutated during its own synchronous run. Present only in
  *   a browser, and only on a delivery event.
+ * - `component`, the framework component that owns the listener, captured
+ *   during render. Unlike `frame`, which reads the call stack at the moment
+ *   the listener attaches, `component` reads the render-phase call stack of
+ *   the component that will go on to attach it. `@pyric/ui`'s framework
+ *   bindings capture this once per component instance and thread it through
+ *   the `owner` listen option.
  *
  * One listener can have more than one owner at once: an attach usually
- * carries a frame and, when the caller supplied one, a tag. Events therefore
- * carry `owners` as an array rather than a single field. An event with no
- * attribution omits the array entirely rather than carrying an empty one.
+ * carries a frame and, when the caller supplied one, a tag or a component.
+ * Events therefore carry `owners` as an array rather than a single field. An
+ * event with no attribution omits the array entirely rather than carrying an
+ * empty one.
  */
 export type ListenerOwner =
   | {
@@ -304,6 +311,20 @@ export type ListenerOwner =
       kind: 'regions';
       /** Selectors of the elements the snapshot callback mutated. */
       selectors: string[];
+    }
+  | {
+      kind: 'component';
+      /** The component function's name, read from the render-phase stack. A
+       *  minified production build mangles this like any other identifier;
+       *  the consuming UI states that rather than guessing at the original
+       *  name. */
+      name: string;
+      /** The chain of enclosing component frames, outermost first, best
+       *  effort. Absent when only one component frame was found. */
+      path?: string[];
+      /** Selector that re-identifies the component's root DOM element, once
+       *  the consumer has attached the returned `ref` to it. */
+      element?: string;
     };
 
 /**

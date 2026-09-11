@@ -31,6 +31,12 @@ export {
   type ListenerOwnerHint,
 } from '../attribution/listener-owners.js';
 export { recordEffectRegions } from '../attribution/effect-regions.js';
+export {
+  isSelectableElement,
+  ownerSelectorFor,
+  tagNameOf,
+  type SelectableElement,
+} from '../attribution/element-selector.js';
 export { getClock } from '../clock.js';
 export { stampProvenance } from './provenance.js';
 export { bindOperationContext } from '../sandbox-context.js';
