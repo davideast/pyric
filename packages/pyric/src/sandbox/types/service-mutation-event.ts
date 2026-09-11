@@ -69,7 +69,7 @@ export interface ServiceMutationEventOf<Service extends MutationEventService> {
   after?: unknown;
   /** Free-form, service-specific extras a consumer may surface without
    *  re-deriving (e.g. storage `{ size, contentType }`, rtdb
-   *  `{ committed }` for a transaction). Kept loose on purpose — it's a
+   *  `{ committed }` for a transaction). Kept loose on purpose: it is a
    *  display hint, not a contract. */
   detail?: Record<string, unknown>;
 }
