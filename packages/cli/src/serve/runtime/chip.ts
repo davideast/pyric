@@ -183,7 +183,8 @@ const styles = `
     .worker-state { align-items: flex-start; flex-direction: column; gap: 4px; }
   }
   @media (prefers-reduced-motion: no-preference) {
-    .chip, .panel { animation: pyric-enter 120ms ease-out; transform-origin: bottom right; }
+    .chip, .panel { transform-origin: bottom right; }
+    .entering { animation: pyric-enter 120ms ease-out; }
     @keyframes pyric-enter { from { opacity: 0; transform: translateY(4px) scale(.98); } }
   }
 
@@ -210,6 +211,12 @@ export function formatPyricRuntimeError(error: PyricRuntimeError): string {
     error.code,
   ].filter(Boolean).join(' · ');
   return `${error.message}${context ? `\n${context}` : ''}${error.stack ? `\n${error.stack}` : ''}`;
+}
+
+/** `true` when two off-screen listener lists would render the same rows. */
+function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((outline, i) => outline.listenerId === b[i].listenerId && outline.label === b[i].label && outline.target === b[i].target && outline.deliveryCount === b[i].deliveryCount);
 }
 
 function renderErrors(snapshot: PyricRuntimeSnapshot, canCopy: boolean): string {
@@ -251,6 +258,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ? options.studioUrl
     : options.runtime.getSnapshot().manifest.studioUrl;
   let open = options.initiallyOpen ?? false;
+  /** The `open` value the view was last built for; the enter animation plays only when it changes. */
+  let renderedOpen: boolean | null = null;
   let snapshot = options.runtime.getSnapshot();
 
   const getLensFn = options.getLens ?? defaultGetLens;
@@ -290,7 +299,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const build = options.listeners;
     if (build === undefined) return null;
     listenerMode = build((outlines) => {
-      unattributedListeners = outlines.filter((outline) => outline.selectors.length === 0);
+      const next = outlines.filter((outline) => outline.selectors.length === 0);
+      // The mode reports on every attach, delivery, and resize; the chip only
+      // shows the off-screen list, so rebuild the view only when that changes.
+      if (sameOutlines(next, unattributedListeners)) return;
+      unattributedListeners = next;
       render();
     });
     return listenerMode;
@@ -426,6 +439,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const meta = row?.querySelector('.error-meta');
       if (code) code.textContent = error.message;
       if (meta) meta.textContent = [error.source, error.service && error.method ? `${error.service}.${error.method}` : error.service ?? error.method, error.path, error.code].filter(Boolean).join(' · ');
+    }
+
+    if (renderedOpen !== open) {
+      view.querySelector(open ? '.panel' : '.chip')?.classList.add('entering');
+      renderedOpen = open;
     }
 
     root.querySelector('[data-expand]')?.addEventListener('click', () => {
