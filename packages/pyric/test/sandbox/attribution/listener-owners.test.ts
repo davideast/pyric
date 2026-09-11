@@ -101,6 +101,41 @@ describe('tagOwnerFor', () => {
     expect(owner.element).toBe(`[${OWNER_ATTRIBUTE}="${element.getAttribute(OWNER_ATTRIBUTE)}"]`);
   });
 
+  it('records a component owner as it stands', () => {
+    expect(tagOwnerFor({ kind: 'component', name: 'OrdersTable', path: ['App'] })).toEqual({
+      kind: 'component',
+      name: 'OrdersTable',
+      path: ['App'],
+    });
+  });
+
+  it('derives the selector for a component owner carrying an element', () => {
+    const element = new FakeElement('section');
+    element.id = 'orders';
+    expect(tagOwnerFor({ kind: 'component', name: 'OrdersTable', element })).toEqual({
+      kind: 'component',
+      name: 'OrdersTable',
+      element: '#orders',
+    });
+  });
+
+  it('keeps no element on the recorded component owner', () => {
+    const element = new FakeElement('section');
+    const owner = tagOwnerFor({ kind: 'component', name: 'OrdersTable', element });
+    if (owner?.kind !== 'component') throw new Error('expected a component owner');
+    expect(typeof owner.element).toBe('string');
+    expect(JSON.parse(JSON.stringify(owner))).toEqual(owner);
+  });
+
+  it('drops an element that cannot be turned into a selector', () => {
+    const owner = tagOwnerFor({
+      kind: 'component',
+      name: 'OrdersTable',
+      element: {} as never,
+    });
+    expect(owner).toEqual({ kind: 'component', name: 'OrdersTable' });
+  });
+
   it('reports nothing for an absent or empty hint', () => {
     expect(tagOwnerFor(undefined)).toBeUndefined();
     expect(tagOwnerFor('')).toBeUndefined();

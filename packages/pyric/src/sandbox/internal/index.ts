@@ -28,6 +28,7 @@ export {
   captureCreationFrame,
   listenerAttachOwners,
   tagOwnerFor,
+  type ComponentOwnerInput,
   type ListenerOwnerHint,
 } from '../attribution/listener-owners.js';
 export { recordEffectRegions } from '../attribution/effect-regions.js';

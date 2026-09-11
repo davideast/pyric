@@ -25,19 +25,69 @@ import {
 } from './element-selector.js';
 
 /**
- * What a caller may pass as a listener's `owner`: a name, the DOM element the
- * listener feeds, or a fully-built {@link ListenerOwner} record. The third
- * form is for a framework binding (`@pyric/ui`'s `useListenerOwner`) that has
- * already computed a `component` owner and wants it recorded verbatim,
- * rather than wrapped in a `tag`.
+ * The input form of a `component` owner, as a framework binding builds it.
+ *
+ * It differs from the recorded {@link ListenerOwner} `component` form in one
+ * field: `element` is the live DOM element, not a selector for it. The
+ * binding hands the element over and this module derives the selector,
+ * exactly as it does for an element hint, so that the selector rules live in
+ * one place and the binding never has to import pyric at runtime. Owners are
+ * serialized into events, so the element itself is never kept on the
+ * recorded owner.
  */
-export type ListenerOwnerHint = string | SelectableElement | ListenerOwner;
+export interface ComponentOwnerInput {
+  kind: 'component';
+  /** The component function's name, read from the render-phase stack. */
+  name: string;
+  /** The chain of enclosing component frames, outermost first. */
+  path?: string[];
+  /** The component's root element, when the binding's ref was attached. */
+  element?: SelectableElement;
+}
 
-/** `true` when `value` is already a {@link ListenerOwner} record rather than
- *  a name or an element to derive one from. */
-function isListenerOwner(value: ListenerOwnerHint): value is ListenerOwner {
+/**
+ * What a caller may pass as a listener's `owner`: a name, the DOM element the
+ * listener feeds, a fully-built {@link ListenerOwner} record, or a
+ * {@link ComponentOwnerInput}. The last two forms are for a framework binding
+ * (`@pyric/ui`'s `useListenerOwner`) that has already identified the owning
+ * component and wants it recorded as a `component` owner rather than wrapped
+ * in a `tag`.
+ */
+export type ListenerOwnerHint =
+  | string
+  | SelectableElement
+  | ListenerOwner
+  | ComponentOwnerInput;
+
+/** `true` when `value` is already an owner record rather than a name or an
+ *  element to derive one from. */
+function isOwnerRecord(
+  value: ListenerOwnerHint,
+): value is ListenerOwner | ComponentOwnerInput {
   if (value === null || typeof value !== 'object') return false;
   return 'kind' in value && typeof (value as { kind: unknown }).kind === 'string';
+}
+
+/**
+ * Turn an owner record into its recorded form. A `component` owner carrying a
+ * live element has that element replaced by a selector; a `component` owner
+ * whose `element` is not a selectable element drops the field. Every other
+ * owner kind is already in recorded form and passes through unchanged.
+ */
+function recordedOwner(value: ListenerOwner | ComponentOwnerInput): ListenerOwner {
+  if (value.kind !== 'component') return value as ListenerOwner;
+  const owner: Extract<ListenerOwner, { kind: 'component' }> = {
+    kind: 'component',
+    name: value.name,
+  };
+  if (value.path !== undefined && value.path.length > 0) owner.path = value.path;
+  const element = value.element;
+  if (typeof element === 'string') {
+    owner.element = element;
+  } else if (element !== undefined && isSelectableElement(element)) {
+    owner.element = ownerSelectorFor(element);
+  }
+  return owner;
 }
 
 /**
@@ -153,10 +203,11 @@ export function captureCreationFrame(): ListenerOwner | undefined {
 /**
  * Build the explicit owner from whatever the caller passed as `owner`. A
  * string is the name of a `tag` owner verbatim; an element contributes its
- * tag name plus a selector that finds it again; an already-built
- * {@link ListenerOwner} (a framework binding's `component` owner) is
- * recorded as-is. Unlike frame capture this is not gated on the attribution
- * switch: the caller asked for it by name.
+ * tag name plus a selector that finds it again; an owner record (a framework
+ * binding's `component` owner) is recorded as it stands, except that a live
+ * element on a `component` owner is reduced to a selector here. Unlike frame
+ * capture this is not gated on the attribution switch: the caller asked for
+ * it by name.
  */
 export function tagOwnerFor(hint: ListenerOwnerHint | undefined): ListenerOwner | undefined {
   if (hint === undefined) return undefined;
@@ -164,7 +215,7 @@ export function tagOwnerFor(hint: ListenerOwnerHint | undefined): ListenerOwner 
     if (hint.length === 0) return undefined;
     return { kind: 'tag', name: hint };
   }
-  if (isListenerOwner(hint)) return hint;
+  if (isOwnerRecord(hint)) return recordedOwner(hint);
   if (!isSelectableElement(hint)) return undefined;
   return { kind: 'tag', name: tagNameOf(hint), element: ownerSelectorFor(hint) };
 }
