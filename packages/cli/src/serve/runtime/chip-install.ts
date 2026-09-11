@@ -9,6 +9,7 @@ import type { RuntimeIdentityBindings } from './identity.js';
 import { listenerAttributionEnabled } from 'pyric/sandbox/internal';
 import { createListenerMode } from './listener-mode.js';
 import type { SandboxEventSource } from './listener-event-source.js';
+import { installReactCommitSource, type ReactCommitSource } from './react-commit-source.js';
 
 export interface InstallPyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
@@ -16,6 +17,14 @@ export interface InstallPyricRuntimeChipOptions {
   identity?: Partial<RuntimeIdentityBindings>;
   /** The page's sandbox event source. Omitted leaves the Listeners mode out. */
   listenerEvents?: SandboxEventSource | null;
+  /**
+   * React's commits, for the Listeners mode's Flow painting. Install this from
+   * the page's own init script, before the application's script runs: React
+   * reads the hook global once, while its own module first evaluates, so a
+   * source installed later never sees a commit. Omitted, the chip installs one
+   * here, which is in time only when the chip itself mounts that early.
+   */
+  commits?: ReactCommitSource;
   mount?: (options: PyricRuntimeChipOptions) => PyricRuntimeChip;
 }
 
@@ -38,11 +47,15 @@ export function installPyricRuntimeChip(
     const studioUrl = config.studioEnabled
       ? options.runtime.getSnapshot().manifest.studioUrl
       : null;
+    // Installed here rather than inside the mode, which the chip builds only
+    // when a developer first opens the Listeners panel, long after React.
+    const commits = options.commits ?? installReactCommitSource(options.document.defaultView);
     chipOptions.listeners = (onChange) => createListenerMode({
       document: options.document,
       subscribeEvents: events,
       attributionEnabled: listenerAttributionEnabled,
       studioUrl,
+      commits,
       onChange,
     });
   }

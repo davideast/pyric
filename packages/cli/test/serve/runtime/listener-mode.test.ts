@@ -32,7 +32,31 @@ function delivery(id: string, listenerId: string, target: Target, owners?: unkno
   return event as unknown as SandboxEvent;
 }
 
-function harness(options: { attributionEnabled?: boolean } = {}) {
+/** A commit source that reports a React the test drives. */
+function fakeCommits(available: boolean) {
+  let commit: (() => void) | null = null;
+  return {
+    source: {
+      available: () => available,
+      reason: () => (available ? null : 'no React'),
+      subscribe: (listener: () => void) => {
+        commit = listener;
+        return () => {
+          commit = null;
+        };
+      },
+      dispose: () => {},
+    },
+    fire: () => commit?.(),
+    subscribed: () => commit !== null,
+  };
+}
+
+function harness(options: {
+  attributionEnabled?: boolean;
+  react?: boolean;
+  paintStorage?: Parameters<typeof createListenerMode>[0]['paintStorage'];
+} = {}) {
   const dom = new JSDOM(
     '<!doctype html><body><div id="todos"></div><div id="profile"></div></body>',
     { url: 'http://localhost/' },
@@ -40,10 +64,23 @@ function harness(options: { attributionEnabled?: boolean } = {}) {
   const doc = dom.window.document;
   let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
   let subscriptions = 0;
+  let delivered: ((listenerId: string) => void) | null = null;
+  const commits = fakeCommits(options.react ?? true);
   const mode = createListenerMode({
     document: doc,
     attributionEnabled: () => options.attributionEnabled ?? true,
     incidents: () => [],
+    commits: commits.source,
+    paintStorage: options.paintStorage ?? null,
+    flow: {
+      subscribeDeliveries: (listener) => {
+        delivered = listener;
+        return () => {
+          delivered = null;
+        };
+      },
+      changedNodes: () => ({ drain: () => [], stop: () => {} }),
+    },
     subscribeEvents: (callback) => {
       subscriptions += 1;
       deliver = callback;
@@ -56,8 +93,10 @@ function harness(options: { attributionEnabled?: boolean } = {}) {
   return {
     doc,
     mode,
+    commits,
     push: (events: readonly SandboxEvent[]) => deliver?.(events),
     subscriptions: () => subscriptions,
+    flowWatching: () => delivered !== null,
   };
 }
 
@@ -196,5 +235,155 @@ describe('studio hand-off', () => {
 
     expect(opened).toEqual(['/__pyric/ui/studio?view=listeners&listener=l1&target=todos']);
     mode.dispose();
+  });
+});
+
+const todosAttach = attach(
+  'e1',
+  'l1',
+  { kind: 'query', collection: 'todos' },
+  [{ kind: 'tag', name: 'TodoList', element: '#todos' }],
+);
+const profileAttach = attach(
+  'e3',
+  'l2',
+  { kind: 'doc', path: 'users/u1' },
+  [{ kind: 'tag', name: 'ProfileCard', element: '#profile' }],
+);
+
+function boxes(doc: Document): HTMLElement[] {
+  return [...doc.querySelectorAll<HTMLElement>('[data-pyric-listener-box]')];
+}
+
+describe('the two painting modes', () => {
+  it('starts in Overview and paints one box per listener', () => {
+    const page = harness();
+    expect(page.mode.mode()).toBe('overview');
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+    expect(boxes(page.doc)).toHaveLength(2);
+    page.mode.dispose();
+  });
+
+  it('gives each listener its own colour', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+    const drawn = boxes(page.doc);
+    expect(drawn[0].style.borderColor).not.toBe('');
+    expect(drawn[0].style.borderColor).not.toBe(drawn[1].style.borderColor);
+    page.mode.dispose();
+  });
+
+  it('takes the Overview boxes down when it switches to Flow, and watches for deliveries', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    expect(boxes(page.doc)).toHaveLength(1);
+
+    page.mode.setMode('flow');
+    expect(page.mode.mode()).toBe('flow');
+    expect(boxes(page.doc)).toHaveLength(0);
+    expect(page.flowWatching()).toBe(true);
+    page.mode.dispose();
+  });
+
+  it('brings the Overview boxes back and stops watching when it switches back', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    page.mode.setMode('flow');
+    page.mode.setMode('overview');
+
+    expect(boxes(page.doc)).toHaveLength(1);
+    expect(page.flowWatching()).toBe(false);
+    page.mode.dispose();
+  });
+
+  it('keeps the mode across a turn of the painting off and on', () => {
+    const page = harness();
+    page.mode.setMode('flow');
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    expect(boxes(page.doc)).toHaveLength(0);
+    expect(page.flowWatching()).toBe(true);
+
+    page.mode.setEnabled(false);
+    expect(page.flowWatching()).toBe(false);
+    page.mode.setEnabled(true);
+    expect(page.mode.mode()).toBe('flow');
+    expect(page.flowWatching()).toBe(true);
+    page.mode.dispose();
+  });
+
+  it('refuses Flow and says why when the page has no React', () => {
+    const page = harness({ react: false });
+    expect(page.mode.flowAvailable()).toBe(false);
+    expect(page.mode.flowUnavailableReason()).toContain('React');
+
+    page.mode.setMode('flow');
+    expect(page.mode.mode()).toBe('overview');
+    page.mode.dispose();
+  });
+
+  it('remembers the mode where the page keeps it', () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+    };
+    const first = harness({ paintStorage: storage });
+    first.mode.setMode('flow');
+    first.mode.dispose();
+
+    const second = harness({ paintStorage: storage });
+    expect(second.mode.mode()).toBe('flow');
+    second.mode.dispose();
+  });
+});
+
+describe('switching one listener off', () => {
+  it('stops painting that listener and leaves the others', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+
+    page.mode.setListenerVisible('l1', false);
+    const drawn = boxes(page.doc);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].dataset.listenerId).toBe('l2');
+    expect(page.mode.isListenerVisible('l1')).toBe(false);
+    expect(page.mode.isListenerVisible('l2')).toBe(true);
+    page.mode.dispose();
+  });
+
+  it('paints it again when it is switched back on', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+    page.mode.setListenerVisible('l1', false);
+    page.mode.setListenerVisible('l1', true);
+    expect(boxes(page.doc)).toHaveLength(2);
+    page.mode.dispose();
+  });
+
+  it('keeps the listener in the panel summary while its paint is off', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+    page.mode.setListenerVisible('l1', false);
+    expect(page.mode.outlines()).toHaveLength(2);
+    page.mode.dispose();
+  });
+
+  it('forgets which listeners were off once the mode is disposed', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    page.mode.setListenerVisible('l1', false);
+    page.mode.dispose();
+    expect(page.mode.isListenerVisible('l1')).toBe(true);
   });
 });

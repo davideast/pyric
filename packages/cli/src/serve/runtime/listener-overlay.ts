@@ -11,6 +11,7 @@
  * drew. It installs nothing on application elements.
  */
 import type { ListenerOutline } from './listener-outline-model.js';
+import { listenerColors } from './listener-palette.js';
 
 export interface ListenerOverlayOptions {
   document: Document;
@@ -21,6 +22,15 @@ export interface ListenerOverlayOptions {
 export interface ListenerOverlay {
   /** Replace every box with the ones these outlines describe. */
   update(outlines: readonly ListenerOutline[]): void;
+  /**
+   * The container both painting modes draw into. The Flow painter appends its
+   * own boxes here, so the two modes share one layer and one z-index.
+   */
+  container(): HTMLElement;
+  /** Recompute the boxes already drawn against the page's current geometry. */
+  reposition(): void;
+  /** Called after a resize, so a second painter can follow the page too. */
+  onReposition(listener: () => void): () => void;
   /** Remove the container and its resize handler. */
   dispose(): void;
 }
@@ -39,6 +49,13 @@ const BOX_STYLE = [
   'background:rgba(25,204,97,.08)',
   'pointer-events:none',
 ].join(';');
+
+/**
+ * The container is a layer both painting modes draw into, so the boxes an
+ * Overview pass replaces are addressed by their own attribute rather than by
+ * clearing the container.
+ */
+const BOX_ATTRIBUTE = 'data-pyric-listener-box';
 
 const BADGE_STYLE = [
   'position:absolute',
@@ -100,15 +117,20 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
   let drawn: Array<{ box: HTMLElement; element: Element }> = [];
 
   const draw = (outlines: readonly ListenerOutline[]): void => {
-    container.replaceChildren();
+    for (const previous of [...container.querySelectorAll(`[${BOX_ATTRIBUTE}]`)]) previous.remove();
     drawn = [];
     for (const outline of outlines) {
+      const colors = listenerColors(outline.listenerId);
       for (const element of ownedElements(documentLike, outline)) {
         const box = documentLike.createElement('div');
-        box.setAttribute('data-pyric-listener-box', '');
+        box.setAttribute(BOX_ATTRIBUTE, '');
         box.setAttribute('style', BOX_STYLE);
         box.dataset.listenerId = outline.listenerId;
         box.dataset.listenerTarget = outline.target;
+        box.style.borderColor = colors.border;
+        box.style.background = colors.fill;
+        // An incident outranks the listener's own colour: the warm border is
+        // what a duplicate or a churn reads as everywhere else in the chip.
         if (outline.incident !== null) box.style.borderColor = INCIDENT_BORDER;
 
         const badge = documentLike.createElement('button');
@@ -116,6 +138,8 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
         badge.setAttribute('data-pyric-listener-badge', '');
         badge.setAttribute('style', BADGE_STYLE);
         badge.dataset.listenerId = outline.listenerId;
+        badge.style.borderColor = colors.border;
+        badge.style.color = colors.accent;
         if (outline.incident !== null) {
           badge.dataset.incident = outline.incident.pattern;
           badge.style.borderColor = INCIDENT_BORDER;
@@ -133,8 +157,11 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
     }
   };
 
+  const followers = new Set<() => void>();
+
   const reposition = (): void => {
     for (const entry of drawn) positionBox(entry.box, entry.element);
+    for (const follower of [...followers]) follower();
   };
 
   const view = documentLike.defaultView;
@@ -144,8 +171,19 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
     update(outlines) {
       draw(outlines);
     },
+    container() {
+      return container;
+    },
+    reposition,
+    onReposition(listener) {
+      followers.add(listener);
+      return () => {
+        followers.delete(listener);
+      };
+    },
     dispose() {
       view?.removeEventListener('resize', reposition);
+      followers.clear();
       drawn = [];
       container.remove();
     },
