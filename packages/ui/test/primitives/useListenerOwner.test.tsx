@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test';
-import { configureListenerAttribution } from 'pyric/sandbox/internal';
 import { useListenerOwner } from '../../src/primitives/hooks/useListenerOwner.js';
 import { act, renderHook } from '../helpers/render-hook.js';
 import { FakeElement } from '../helpers/fake-element.js';
@@ -43,7 +42,7 @@ describe('useListenerOwner', () => {
     expect(result.current.owner.path).toBeUndefined();
   });
 
-  it('fills owner.element once ref is attached', () => {
+  it('hands the element itself over once ref is attached', () => {
     const { result } = renderHook(() => useListenerOwner());
     const element = new FakeElement('table');
     element.id = 'orders';
@@ -54,16 +53,17 @@ describe('useListenerOwner', () => {
 
     expect(result.current.owner?.kind).toBe('component');
     if (result.current.owner?.kind !== 'component') throw new Error('expected a component owner');
-    expect(result.current.owner.element).toBe('#orders');
+    expect(result.current.owner.element).toBe(element);
   });
 
-  it('records no owner at all when attribution is off', () => {
-    configureListenerAttribution('off');
+  it('records no owner at all in a production build', () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
     try {
       const { result } = renderHook(() => useListenerOwner());
       expect(result.current.owner).toBeUndefined();
     } finally {
-      configureListenerAttribution('auto');
+      process.env.NODE_ENV = previous;
     }
   });
 });
