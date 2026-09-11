@@ -5,6 +5,10 @@
  * trigger module from disk. The event vocabulary lives here, beside every
  * other service's, because the sandbox core derives the stream's service union
  * from these records and `@pyric/cli` depends downward on `pyric`.
+ *
+ * This file is not part of the deferred `pyric/functions` mirror beside it,
+ * which stands in for `firebase/functions` callables. It is data, and the
+ * deferred barrel does not re-export it.
  */
 import type { ServiceEventRecord } from '../sandbox/types/service-event-record.js';
 

@@ -161,6 +161,12 @@ Rule: one feature, one place. The implementation of one surface gap lives in one
 
 Rule: append-friendly structures are per-record, not per-list. A shared list, registry, or switch that every feature must edit is a conflict generator. Replace it with one record per file and a computed aggregation. This is the data-record convention applied to code. The compat registry and the oracle observations already work this way and never conflict on additions. In source, `packages/cli/src/cli/service-command-records/` and `packages/cli/src/bridge/tool-family-records/` follow the same convention: one record per file, keyed by filename, with the aggregate rendered by a generator rather than maintained by hand.
 
+In `packages/pyric/src`, `<surface>/events.ts` follows the same convention for
+the sandbox event stream: one record per service, keyed by the service name the
+record itself declares, aggregated once in
+`sandbox/types/service-event-records.ts`. A service adds an operation by editing
+its own record, never a shared list.
+
 Rule: shared registries and lists must be computed or per-file. If the system needs a list of all X, it computes that list by reading the directory of X records at build or load time. No source file holds a hand-maintained master list that all contributors edit. A global counter for ordering is banned for the same reason; order by a stable key on each record.
 
 Rule: keep the seam stable, not the file small. Where files co-change because they implement one protocol across a boundary (client, host, wire protocol), splitting them further does not reduce conflict. Stabilize the shared contract, the protocol or type file, and change it deliberately and rarely. Treat a high-fan-out shared type file as a fragile contract.
@@ -502,8 +508,21 @@ every rule in this section mechanically.
    cross-surface state modules `sandbox/full-state.ts`,
    `sandbox/branches/promotion.ts`, and `sandbox/branches/engine.ts` importing
    the `pyric/auth`, `pyric/storage`, and `pyric/storage/internal` published
-   surfaces and the `database/sandbox` backend seam (8.3 case 5, upward). Any
-   other cross-surface deep import fails.
+   surfaces and the `database/sandbox` backend seam (8.3 case 5, upward); and
+   (g) `sandbox/types/service-event-records.ts` importing each surface's
+   `<surface>/events.ts` record. Any other cross-surface deep import fails.
+
+   Exception (g) in full. Every service declares what it puts on the sandbox
+   event stream in one record file beside its own code, and the stream's
+   service union and per-service operation enums are derived from those
+   declarations rather than restated in `sandbox/types`. The derivation has to
+   be static: `ServiceMutationEvent.op` is a type, and a record pushed into a
+   runtime registry at module load carries no type a `.d.ts` can name, so a
+   registry would also make the vocabulary depend on which surfaces a bundle
+   happened to load. The imported files declare data and import nothing but
+   the record type, so the edge costs the central runtime no capability code.
+   The aggregate is the only file allowed to hold it; no other file under
+   `sandbox/` may import a surface's record.
 
 3. **Central-sandbox whitelist.** The top-level entries of `src/sandbox/` must
    match the whitelist in 8.2 (`index.ts`, `internal`, `sandbox-context.ts`,

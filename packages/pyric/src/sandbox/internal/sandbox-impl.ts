@@ -751,18 +751,14 @@ export function primeEventHistory(
  * their activity lands on the same stream — e.g.
  *   `emitSandboxEvent(sandbox, userCreatedEvent, { service: 'auth' })`.
  *
- * STATUS (Wave 1.5, Gap #1): Auth / Storage / RTDB now emit here. They share
- * one additive union variant — {@link ServiceMutationEvent} (`kind:
- * 'service_mutation'`) — built via {@link makeServiceMutationEvent}, rather
- * than bending into Firestore's rule-eval-shaped `request`/`write` kinds.
- * Wired emit sites:
- *   - auth:    user create/update/delete, users-clear, sign-in, sign-out
- *              (`SandboxBackend` in `pyric/auth`).
- *   - storage: object put / delete / metadata-update (`pyric/storage`).
- *   - rtdb:    set / update / remove / transaction-commit
- *              (`RtdbBackend` in `pyric/database`, via the modular surface).
- * Firestore still rides the env→sandbox fan-out and is unchanged. See
- * the design rationale.
+ * Every non-Firestore service emits here, sharing one additive union variant —
+ * {@link ServiceMutationEvent} (`kind: 'service_mutation'`) — built via
+ * {@link makeServiceMutationEvent}, rather than bending into Firestore's
+ * rule-eval-shaped `request`/`write` kinds. Which services those are, and
+ * which operations each of them emits, is declared once per service in
+ * `<surface>/events.ts` and derived into this variant's types by
+ * `sandbox/types/service-event-records.ts`. Firestore still rides the
+ * env→sandbox fan-out and is unchanged.
  *
  * Throws if `sandbox` wasn't produced by `initializeSandbox()` (same guard
  * as {@link getInternalEnv}).
