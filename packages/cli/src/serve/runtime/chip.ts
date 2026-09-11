@@ -12,6 +12,12 @@ import {
 import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
 import type { ListenerMode } from './listener-mode.js';
 import type { ListenerOutline, ListenerOutlineIncident } from './listener-outline-model.js';
+import { listenerColors } from './listener-palette.js';
+import {
+  pagePaintModeStorage,
+  readListenerPaintMode,
+  type ListenerPaintMode,
+} from './listener-paint-mode.js';
 import {
   getLens as defaultGetLens,
   setLens as defaultSetLens,
@@ -158,9 +164,26 @@ const styles = `
     color: #d7d7df;
     display: grid;
     gap: 6px;
-    grid-template-columns: 16px minmax(0,1fr) minmax(0,1.2fr) 30px 34px 10px 24px 24px;
+    grid-template-columns: 14px 8px minmax(0,1fr) minmax(0,1.1fr) 28px 32px 10px 16px 22px 22px;
     padding: 4px 0 4px 2px;
   }
+  .listener-swatch { border-radius: 2px; height: 8px; width: 8px; }
+  .listener-swatch.empty { background: transparent; }
+  .listener-paint { accent-color: var(--pyric-accent); cursor: pointer; height: 11px; margin: 0; width: 11px; }
+  .listener-paint:disabled { cursor: not-allowed; opacity: .3; }
+  .listener-row.hidden-paint .listener-label, .listener-row.hidden-paint .listener-target { opacity: .5; }
+  .segmented { border: 1px solid var(--pyric-border-soft); border-radius: 999px; display: inline-flex; overflow: hidden; }
+  .segmented button {
+    background: transparent;
+    border: 0;
+    color: var(--pyric-muted);
+    cursor: pointer;
+    font: 10px/1 ui-monospace, monospace;
+    padding: 5px 9px;
+  }
+  .segmented button:hover { color: var(--pyric-text); }
+  .segmented button[aria-pressed="true"] { background: rgba(25,204,97,.12); color: var(--pyric-accent); }
+  .segmented button[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
   .listener-row:last-child { border-bottom: 0; }
   .listener-row:hover { background: rgba(255,255,255,.05); }
   .listener-number { color: var(--pyric-muted); font: 10px/18px ui-monospace, monospace; }
@@ -318,6 +341,11 @@ interface ListenerOwnerGroup {
   deliveries: number;
   targets: Set<string>;
   incident: ListenerOutlineIncident | null;
+  /**
+   * The listeners the row stands for. A row collapsed from several listeners
+   * under one owner switches all of them at once.
+   */
+  listenerIds: string[];
 }
 
 /** The owner groups a Listeners panel lists, busiest by total deliveries
@@ -333,6 +361,7 @@ function listenerOwnerGroups(outlines: readonly ListenerOutline[]): ListenerOwne
       existing.deliveries += outline.deliveryCount;
       existing.targets.add(target);
       existing.incident ??= outline.incident;
+      existing.listenerIds.push(outline.listenerId);
     } else {
       groups.set(key, {
         key,
@@ -340,6 +369,7 @@ function listenerOwnerGroups(outlines: readonly ListenerOutline[]): ListenerOwne
         deliveries: outline.deliveryCount,
         targets: new Set([target]),
         incident: outline.incident,
+        listenerIds: [outline.listenerId],
       });
     }
   }
@@ -373,6 +403,8 @@ interface ListenerTableRow {
   mark: string;
   markTitle: string;
   copyText: string;
+  /** The listeners this row paints, empty on an incident row. */
+  listenerIds: readonly string[];
 }
 
 /** `duplicate ×2`, `churn ×40`: what an incident mark stands for. */
@@ -395,6 +427,7 @@ function incidentTableRow(group: ListenerIncidentGroup): ListenerTableRow {
     mark: '!',
     markTitle: prose,
     copyText: prose,
+    listenerIds: [],
   };
 }
 
@@ -417,6 +450,7 @@ function ownerTableRow(group: ListenerOwnerGroup): ListenerTableRow {
     mark: group.incident === null ? '' : '!',
     markTitle: group.incident === null ? '' : incidentMarkTitle(group.incident),
     copyText: `${group.key} · ${target} · ${counts}${incidentSuffix}`,
+    listenerIds: group.listenerIds,
   };
 }
 
@@ -439,16 +473,45 @@ function listenerTableRows(
   return [...incidents, ...owners];
 }
 
-function listenerRowHtml(row: ListenerTableRow, index: number, canCopy: boolean): string {
+/**
+ * The swatch a row shows: the listener's own colour, or a band across the
+ * colours of the listeners an owner row collapsed together.
+ */
+function listenerSwatchStyle(listenerIds: readonly string[]): string {
+  const colors = listenerIds.map((listenerId) => listenerColors(listenerId).swatch);
+  if (colors.length === 0) return '';
+  if (colors.length === 1) return `background:${colors[0]}`;
+  const stops = colors
+    .slice(0, 4)
+    .map((color, index, all) => `${color} ${Math.round((index / all.length) * 100)}% ${Math.round(((index + 1) / all.length) * 100)}%`)
+    .join(',');
+  return `background:linear-gradient(180deg,${stops})`;
+}
+
+function listenerRowHtml(
+  row: ListenerTableRow,
+  index: number,
+  canCopy: boolean,
+  isPainted: (listenerId: string) => boolean,
+): string {
   const ordinal = String(index + 1).padStart(2, '0');
   const name = escapeAttribute(`${row.label} ${row.target}`);
-  return `<div class="listener-row${row.isIncident ? ' incident' : ''}" data-listener-row="${escapeAttribute(row.signature)}">
+  const painted = row.listenerIds.length > 0 && row.listenerIds.some(isPainted);
+  const paintLabel = row.listenerIds.length > 1
+    ? `Paint the ${row.listenerIds.length} listeners under ${row.label}`
+    : `Paint ${row.label} ${row.target}`;
+  const paintHtml = row.listenerIds.length === 0
+    ? '<span class="listener-paint" aria-hidden="true"></span>'
+    : `<input class="listener-paint" type="checkbox" data-toggle-listener-paint="${escapeAttribute(row.signature)}" ${painted ? 'checked' : ''} aria-label="${escapeAttribute(paintLabel)}" title="${escapeAttribute(paintLabel)}">`;
+  return `<div class="listener-row${row.isIncident ? ' incident' : ''}${row.listenerIds.length > 0 && !painted ? ' hidden-paint' : ''}" data-listener-row="${escapeAttribute(row.signature)}">
       <span class="listener-number">${ordinal}</span>
+      <span class="listener-swatch${row.listenerIds.length === 0 ? ' empty' : ''}" data-listener-swatch style="${escapeAttribute(listenerSwatchStyle(row.listenerIds))}" aria-hidden="true"></span>
       <span class="listener-label" title="${escapeAttribute(row.label)}">${escapeAttribute(row.label)}</span>
       <span class="listener-target" title="${escapeAttribute(row.target)}">${escapeAttribute(row.target)}</span>
       <span class="listener-count" title="${escapeAttribute(row.firstTitle)}">${escapeAttribute(row.first)}</span>
       <span class="listener-count" title="${escapeAttribute(row.secondTitle)}">${escapeAttribute(row.second)}</span>
       <span class="listener-mark" title="${escapeAttribute(row.markTitle)}" aria-hidden="${row.mark === '' ? 'true' : 'false'}">${escapeAttribute(row.mark)}</span>
+      ${paintHtml}
       <button class="icon-button" type="button" data-copy-listener="${escapeAttribute(row.signature)}" aria-label="${canCopy ? `Copy ${name}` : 'Copy unavailable'}" title="${canCopy ? 'Copy listener row' : 'Clipboard unavailable'}" ${canCopy ? '' : 'disabled'}>${icons.copy}</button>
       <button class="icon-button" type="button" data-dismiss-listener="${escapeAttribute(row.signature)}" aria-label="Dismiss ${name}" title="Dismiss listener row">${icons.close}</button>
     </div>`;
@@ -464,6 +527,7 @@ function listenerSectionHtml(
   studioUrl: string | null,
   canCopy: boolean,
   dismissed: ReadonlySet<string>,
+  isPainted: (listenerId: string) => boolean,
 ): string {
   const incidentGroups = listenerIncidentGroups(outlines);
   const duplicateCount = incidentGroups.filter((group) => group.pattern === 'duplicate-listener').length;
@@ -474,7 +538,7 @@ function listenerSectionHtml(
     : `<span class="listener-link" data-open-listeners-studio aria-disabled="true" title="Pyric Studio is disabled">All listeners in Studio</span>`;
   return `<div class="worker-state-col" data-listener-panel>
       <div class="worker-state-row"><span class="state-label listener-header${incidentGroups.length > 0 ? ' has-incident' : ''}">${escapeAttribute(header)}</span></div>
-      <div class="listener-rows">${rows.map((row, index) => listenerRowHtml(row, index, canCopy)).join('')}</div>
+      <div class="listener-rows">${rows.map((row, index) => listenerRowHtml(row, index, canCopy, isPainted)).join('')}</div>
       ${linkHtml}
     </div>`;
 }
@@ -554,6 +618,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   let listenerMode: ListenerMode | null = null;
   let listenerOutlines: readonly ListenerOutline[] = [];
+  /** The remembered painting mode, for the control the chip draws before the
+   * Listeners mode is built. */
+  const paintModeBeforeBuild = readListenerPaintMode(pagePaintModeStorage(documentLike));
   /** `true` once the Listeners mode has reported at least once. The collapsed
    * chip's listener count stays hidden until then. */
   let everReportedListeners = false;
@@ -645,7 +712,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const listenersOn = listenerMode?.enabled() === true;
     let listenersButtonHtml = '';
     if (options.listeners) {
-      listenersButtonHtml = `<button class="button" type="button" data-toggle-listeners aria-pressed="${listenersOn}">Listeners</button>`;
+      // The mode may not be built yet; the control still has to show which way
+      // the painting would go, so it falls back to the remembered mode.
+      const paintMode: ListenerPaintMode = listenerMode?.mode() ?? paintModeBeforeBuild;
+      const flowReason = listenerMode === null ? null : listenerMode.flowUnavailableReason();
+      const flowOff = flowReason !== null;
+      listenersButtonHtml = `<button class="button" type="button" data-toggle-listeners aria-pressed="${listenersOn}">Listeners</button>
+          <div class="segmented" role="group" aria-label="How listeners are painted" data-listener-modes>
+            <button type="button" data-listener-mode="overview" aria-pressed="${paintMode === 'overview'}" title="Outline every attached listener">Overview</button>
+            <button type="button" data-listener-mode="flow" aria-pressed="${paintMode === 'flow'}"${flowOff ? ` aria-disabled="true" title="${escapeAttribute(flowReason)}"` : ' title="Outline what rendered after each delivery"'}>Flow</button>
+          </div>`;
     }
     let listenerPanelHtml = '';
     if (listenerNotice !== null) {
@@ -653,7 +729,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     } else if (listenerMode !== null) {
       listenerPanelHtml = listenerOutlines.length === 0
         ? `<div class="worker-state-col" data-listener-panel><div class="worker-state-row"><span class="state-label">No listeners</span></div></div>`
-        : listenerSectionHtml(listenerOutlines, studioUrl ?? null, Boolean(clipboard), dismissedListenerRows);
+        : listenerSectionHtml(
+          listenerOutlines,
+          studioUrl ?? null,
+          Boolean(clipboard),
+          dismissedListenerRows,
+          (listenerId) => listenerMode?.isListenerVisible(listenerId) !== false,
+        );
     }
     const hasListenerIncident = listenerOutlines.some((outline) => outline.incident !== null);
     const listenerCountHtml = everReportedListeners
@@ -753,6 +835,30 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       listenerOutlines = mode.outlines();
       render();
     });
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-listener-mode]')) {
+      button.addEventListener('click', () => {
+        const mode = ensureListenerMode();
+        if (mode === null) return;
+        const wanted = button.dataset.listenerMode === 'flow' ? 'flow' : 'overview';
+        mode.setMode(wanted);
+        // The mode refuses Flow on a page whose renders it cannot read; say
+        // which of the two is missing rather than leaving the control still.
+        listenerNotice = mode.mode() === wanted ? null : mode.flowUnavailableReason();
+        listenerOutlines = mode.outlines();
+        render();
+      });
+    }
+    for (const box of root.querySelectorAll<HTMLInputElement>('[data-toggle-listener-paint]')) {
+      box.addEventListener('change', () => {
+        const mode = listenerMode;
+        if (mode === null) return;
+        const row = listenerTableRows(listenerOutlines, dismissedListenerRows)
+          .find((candidate) => candidate.signature === box.dataset.toggleListenerPaint);
+        if (row === undefined) return;
+        for (const listenerId of row.listenerIds) mode.setListenerVisible(listenerId, box.checked);
+        render();
+      });
+    }
     root.querySelector('[data-open-impersonate]')?.addEventListener('click', (e) => {
       void dialogController.open(e.currentTarget as HTMLElement);
     });
