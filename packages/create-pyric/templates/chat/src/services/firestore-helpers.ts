@@ -1,3 +1,4 @@
+import type { ListenerOwner } from '@pyric/ui/listener-owner';
 import {
   doc,
   type DocumentData,
@@ -39,12 +40,16 @@ export const clampPageSize = (value: number | undefined, fallback = 50): number 
   Math.min(Math.max(Math.trunc(value ?? fallback), 1), 100);
 
 /**
- * The region name a caller gives a listener. Under the local sandbox the SDK
- * records it as the listener's owner, which is how the runtime chip and
+ * Who owns a listener: either a region name the caller gives it, or the
+ * React component `useListenerOwner` identified. Under the local sandbox the
+ * SDK records this as the listener's owner, which is how the runtime chip and
  * Studio group listeners by the UI they feed. The production SDK reads only
- * its own keys from the listen options and ignores the name.
+ * its own keys from the listen options and ignores the owner.
+ *
+ * `ListenerOwner` is a type-only import. `@pyric/ui` is a development
+ * dependency and none of it reaches the production build.
  */
-export type ListenerOptions = { owner?: string };
+export type ListenerOptions = { owner?: string | ListenerOwner };
 
 /** The listen options object to hand the SDK, typed as whatever the SDK expects so the extra key passes. */
 export function listenOptions<T extends object>(options: ListenerOptions | undefined): T {

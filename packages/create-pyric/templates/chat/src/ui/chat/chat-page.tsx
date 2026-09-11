@@ -4,6 +4,7 @@ import * as jsxRuntime from 'react/jsx-runtime';
 import * as jsxDevRuntime from 'react/jsx-dev-runtime';
 import { createElement, isValidElement, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
+import { useListenerOwner } from '@pyric/ui/listener-owner';
 import { ArrowUp, Bell, Check, CheckCircle2, ChevronsUpDown, Code2, Copy, LoaderCircle, LogIn, LogOut, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Square, TerminalSquare, Trash2, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -245,6 +246,12 @@ export function ChatPage({ services }: ChatPageProps) {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
 
+  // The React component that owns these listeners, captured during render.
+  // In a production build the hook returns no owner and reads no stack, so
+  // each listener falls back to the name of the UI region it feeds.
+  const { owner: componentOwner } = useListenerOwner();
+  const ownerFor = (region: string) => componentOwner ?? region;
+
   useEffect(() => {
     setAuthLoading(true);
     return services.auth.observe((nextUser) => {
@@ -258,7 +265,7 @@ export function ChatPage({ services }: ChatPageProps) {
       setOnline([]);
       return;
     }
-    const unsubscribe = services.presence.observe(setOnline, { owner: 'presence-bar' });
+    const unsubscribe = services.presence.observe(setOnline, { owner: ownerFor('presence-bar') });
     let alive = true;
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       void services.notifications.enable((message) => {
@@ -315,7 +322,7 @@ export function ChatPage({ services }: ChatPageProps) {
     void services.conversations.list().then(applyList).catch((reason: unknown) => {
       if (alive) { setError(errorMessage(reason, 'Could not load conversations')); setConversationLoading(false); }
     });
-    const unsubscribe = services.conversations.observeList(applyList, { owner: 'conversation-list' });
+    const unsubscribe = services.conversations.observeList(applyList, { owner: ownerFor('conversation-list') });
     return () => { alive = false; unsubscribe(); };
   }, [deletingConversationId, services, user]);
 
@@ -334,10 +341,10 @@ export function ChatPage({ services }: ChatPageProps) {
       if (!alive) return;
       setMessages((current) => reconcileMessages(nextMessages, current));
       setMessageLoading(false);
-    }, { owner: 'message-thread' });
+    }, { owner: ownerFor('message-thread') });
     const unsubscribeConversation = services.conversations.observe(activeConversationId, (conversation) => {
       setConversations((current) => current.map((item) => item.id === conversation.id ? conversation : item));
-    }, { owner: 'conversation-header' });
+    }, { owner: ownerFor('conversation-header') });
     return () => { alive = false; unsubscribeMessages(); unsubscribeConversation(); };
   }, [activeConversationId, services, user]);
 

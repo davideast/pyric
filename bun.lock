@@ -189,6 +189,7 @@
       },
       "devDependencies": {
         "@pyric/cli": "*",
+        "@pyric/ui": "*",
         "@tailwindcss/vite": "^4.3.3",
         "@types/react": "^19.2.17",
         "@types/react-dom": "^19.2.3",
