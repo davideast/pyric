@@ -1,4 +1,4 @@
-/** Listener incidents — the activity monitor run over a Studio event snapshot. */
+/** Listener incidents, the activity monitor run over a Studio event snapshot. */
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
 import { incidentsForTarget, listenerIncidents, repeatedReadIncidents } from './listener-incidents.js';

@@ -145,7 +145,7 @@ function Shell() {
   // The runtime chip's deep link (`?view=listeners&listener=<id>&target=
   // <path>`) opens the Listeners surface regardless of the routed tab. Read
   // once at startup: Studio has no router for this query shape, and it isn't
-  // one — `useState`'s lazy initializer runs exactly once, on mount.
+  // one; `useState`'s lazy initializer runs exactly once, on mount.
   const [listenersDeepLink] = useState<ListenersDeepLink>(() => currentListenersDeepLink());
 
   // Global ⌘K (Ctrl+K non-mac): on Home it focuses the inline command input;

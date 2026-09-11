@@ -1,4 +1,4 @@
-/** The Listeners deep link — pure query-string decode tests. */
+/** The Listeners deep link, pure query-string decode tests. */
 import { describe, expect, it } from 'bun:test';
 import { parseListenersDeepLink } from './listeners-deep-link.js';
 

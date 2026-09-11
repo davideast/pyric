@@ -1,4 +1,4 @@
-/** Listener grouping — pure fold tests. */
+/** Listener grouping, pure fold tests. */
 import { describe, expect, it } from 'bun:test';
 import type { ActiveListener } from 'pyric/sandbox';
 import { formatListenerTarget, groupIdentityFor, groupListeners } from './listener-groups.js';
