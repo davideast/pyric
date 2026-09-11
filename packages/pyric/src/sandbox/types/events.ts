@@ -258,6 +258,55 @@ export interface WriteSandboxEvent {
 }
 
 /**
+ * Who owns a listener: the diagnostic attribution pyric records alongside
+ * its own listener events. This is pyric's own surface, not a Firebase one.
+ *
+ * Three kinds, each answering a different question about the same listener:
+ *
+ * - `frame`, where the listener was created. The first stack frame outside
+ *   pyric's own files at the moment the listener attached: the application
+ *   file, line, optional column, and the enclosing function name when the
+ *   runtime reported one. Captured once per attach, and only while listener
+ *   attribution is enabled, which a production build never is.
+ * - `tag`, what the application says owns the listener. Supplied by the
+ *   caller through the `owner` listen option, either as a name or as a DOM
+ *   element. For an element, `name` is the element's lower-case tag name and
+ *   `element` is a selector that identifies it again later.
+ * - `regions`, what the delivery changed. The selectors of the elements a
+ *   snapshot callback mutated during its own synchronous run. Present only in
+ *   a browser, and only on a delivery event.
+ *
+ * One listener can have more than one owner at once: an attach usually
+ * carries a frame and, when the caller supplied one, a tag. Events therefore
+ * carry `owners` as an array rather than a single field. An event with no
+ * attribution omits the array entirely rather than carrying an empty one.
+ */
+export type ListenerOwner =
+  | {
+      kind: 'frame';
+      /** Path or URL of the application file that created the listener. */
+      file: string;
+      /** 1-based line number within {@link file}. */
+      line: number;
+      /** 1-based column, when the runtime's stack format carried one. */
+      column?: number;
+      /** Enclosing function name, when the runtime's stack format named one. */
+      function?: string;
+    }
+  | {
+      kind: 'tag';
+      /** Caller-supplied name, or the element's lower-case tag name. */
+      name: string;
+      /** Selector that re-identifies the element the caller named. */
+      element?: string;
+    }
+  | {
+      kind: 'regions';
+      /** Selectors of the elements the snapshot callback mutated. */
+      selectors: string[];
+    };
+
+/**
  * Snapshot delivered to a `onSnapshot` listener's user callback.
  *
  * Fires AFTER the no-op suppression check — every `snapshot_delivery`
@@ -291,6 +340,11 @@ export interface SnapshotDeliveryEvent {
   /** The user op that triggered this re-eval. Absent on initial fire
    *  and on `deployRules`-driven re-evals. */
   triggeredBy?: { method: string; path: string };
+  /** Attribution for this delivery: the `regions` owner naming the elements
+   *  the callback mutated during its own synchronous run. The `frame` and
+   *  `tag` owners live on the matching `listener_attach` event; correlate on
+   *  `listenerId` rather than repeating them on every delivery. */
+  owners?: ListenerOwner[];
 }
 
 /**
@@ -336,6 +390,9 @@ export interface ListenerLifecycleEvent {
     message: string;
     reasons?: string[];
   };
+  /** Attribution recorded on `listener_attach`: the creation `frame` and,
+   *  when the caller supplied one, the `tag`. */
+  owners?: ListenerOwner[];
 }
 
 /**
@@ -468,6 +525,10 @@ export interface SandboxListenerEvent {
   reasons?: string[];
   rules?: SandboxOperationEvent['rules'];
   rulesDisposition?: RulesDisposition;
+  /** Attribution for this listener. `attach` carries the creation `frame`
+   *  and any caller-supplied `tag`; `delivery` carries the `regions` the
+   *  callback mutated. */
+  owners?: ListenerOwner[];
 }
 
 /** Canonical non-rules operational failure. */
