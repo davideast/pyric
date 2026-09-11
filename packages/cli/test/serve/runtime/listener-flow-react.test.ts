@@ -26,7 +26,8 @@ const outline: ListenerOutline = {
   isQuery: true,
   service: 'firestore',
   deliveryCount: 1,
-  selectors: [],
+  // The element the owner registered, which is what the paint is rooted on.
+  selectors: ['#page'],
   incident: null,
 };
 
@@ -78,16 +79,27 @@ describe.if(reactInstalled)('the Flow path against a real React', () => {
     };
 
     let publish: ((messages: string[]) => void) | null = null;
+    let announce: ((presence: string) => void) | null = null;
     function MessageThread({ messages }: { messages: string[] }): unknown {
       return h('div', { id: 'thread' }, messages.map((text, index) => h('span', { key: index }, text)));
     }
     function Sidebar(): unknown {
       return h('div', { id: 'sidebar' }, 'rooms');
     }
+    // The page renders its presence bar as inline JSX, so nothing between the
+    // page root and that element is a component of its own.
     function ChatPage(): unknown {
       const [messages, setMessages] = useState<string[]>(['one']);
+      const [presence, setPresence] = useState('1 online');
       publish = setMessages;
-      return h('div', { id: 'page' }, h(Sidebar, null), h(MessageThread, { messages }));
+      announce = setPresence;
+      return h(
+        'div',
+        { id: 'page' },
+        h(Sidebar, null),
+        h('div', { id: 'presence' }, presence),
+        h(MessageThread, { messages }),
+      );
     }
 
     const doc = dom.window.document;
@@ -116,14 +128,21 @@ describe.if(reactInstalled)('the Flow path against a real React', () => {
     deliver!('sub-1');
     await act(() => {
       publish!(['one', 'two']);
+      announce!('2 online');
     });
 
     const boxes = [...container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
     const names = boxes.map((box) => box.dataset.component);
-    expect(names).toContain('ChatPage');
+    // The root is the region the owner registered, not the owner's own host,
+    // and the badge is where the owner is named.
+    const rootBox = boxes.find((box) => box.dataset.flowKind === 'region');
+    expect(rootBox?.dataset.component).toBe('ChatPage');
     expect(names).toContain('MessageThread');
     // Nothing in the branch that did not re-render is named.
     expect(names).not.toContain('Sidebar');
+    // The presence bar is inline JSX, so the changed element speaks for itself.
+    expect(names).toContain('div#presence');
+    expect(boxes.find((box) => box.dataset.component === 'div#presence')?.dataset.flowKind).toBe('host');
     expect(container.querySelector('[data-pyric-flow-badge]')?.textContent)
       .toBe('ChatPage · conversations/c1/messages (query) · 1');
     expect(boxes.every((box) => box.dataset.listenerId === 'sub-1')).toBe(true);

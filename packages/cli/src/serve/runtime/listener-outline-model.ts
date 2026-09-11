@@ -71,6 +71,8 @@ export interface ListenerOutline {
   readonly isQuery: boolean;
   readonly service: 'firestore' | 'database';
   readonly deliveryCount: number;
+  /** When this listener last handed the application a snapshot, when it has. */
+  readonly lastDeliveryAt?: number;
   /** Selectors to outline. Empty when nothing on the page could be found. */
   readonly selectors: readonly string[];
   readonly incident: ListenerOutlineIncident | null;
@@ -195,6 +197,7 @@ function outlineFor(
     isQuery: targetIsQuery(listener.target),
     service: listener.service,
     deliveryCount: listener.deliveryCount,
+    ...(listener.lastDeliveryAt === undefined ? {} : { lastDeliveryAt: listener.lastDeliveryAt }),
     selectors: outlineSelectors(owners),
     incident: incidentMark(incidents, attachEventIds.get(listener.id)),
   };

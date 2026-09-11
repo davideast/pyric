@@ -8,6 +8,7 @@ import {
   hostElementFor,
   isNamedComponent,
   nearestFiber,
+  regionSubtree,
   type FiberLike,
 } from '../../../src/serve/runtime/fiber-flow.js';
 
@@ -56,11 +57,17 @@ function link(element: Element, fiber: MutableFiber): void {
  * ChatPage
  *   ConversationList  -> #list, with an #item inside it
  *   MessageThread     -> #thread, with a #bubble inside it
+ *   #bar              -> inline JSX, with a .conversation chip inside it
+ *
+ * The #bar branch is what the chat template looks like: the page component
+ * renders it directly, so nothing between the page root and those elements is
+ * a component of its own.
  */
 function buildPage() {
   const dom = new JSDOM(`<!doctype html><body><div id="page">
     <div id="list"><span id="item">one</span></div>
     <div id="thread"><span id="bubble">hi</span></div>
+    <div id="bar"><span class="conversation pinned">c</span></div>
   </div></body>`);
   const doc = dom.window.document;
   const pageEl = doc.querySelector('#page')!;
@@ -68,6 +75,8 @@ function buildPage() {
   const itemEl = doc.querySelector('#item')!;
   const threadEl = doc.querySelector('#thread')!;
   const bubbleEl = doc.querySelector('#bubble')!;
+  const barEl = doc.querySelector('#bar')!;
+  const chipEl = doc.querySelector('.conversation')!;
 
   const chatPage = component('ChatPage');
   const pageHost = appendChild(chatPage, host(pageEl));
@@ -78,13 +87,18 @@ function buildPage() {
   const threadHost = appendChild(thread, host(threadEl));
   const bubbleHost = appendChild(threadHost, host(bubbleEl));
 
+  const barHost = appendChild(pageHost, host(barEl));
+  const chipHost = appendChild(barHost, host(chipEl));
+
   link(pageEl, pageHost);
   link(listEl, listHost);
   link(itemEl, itemHost);
   link(threadEl, threadHost);
   link(bubbleEl, bubbleHost);
+  link(barEl, barHost);
+  link(chipEl, chipHost);
 
-  return { doc, pageEl, listEl, itemEl, threadEl, bubbleEl, chatPage, list, thread };
+  return { doc, pageEl, listEl, itemEl, threadEl, bubbleEl, barEl, chipEl, chatPage, list, thread };
 }
 
 describe('reading a fiber off a node', () => {
@@ -187,6 +201,76 @@ describe('the subtree a delivery rendered', () => {
     const subtree = flowSubtree([page.doc.createElement('div')]);
     expect(subtree.root).toBeNull();
     expect(subtree.components).toHaveLength(0);
+    expect(subtree.leaves).toHaveLength(0);
+  });
+
+  it('roots on the registered region and leaves the named owner unoutlined', () => {
+    const page = buildPage();
+    const subtree = flowSubtree([page.bubbleEl], {
+      regionElement: page.pageEl,
+      ownerName: 'ChatPage',
+    });
+    expect(subtree.root?.element).toBe(page.pageEl);
+    expect(subtree.root?.kind).toBe('region');
+    expect(subtree.root?.name).toBe('ChatPage');
+    // ChatPage's own host node is the page root; the badge names it instead.
+    expect(subtree.components.filter((box) => box.name === 'ChatPage')).toHaveLength(1);
+    expect(subtree.leaves.map((leaf) => leaf.name)).toEqual(['MessageThread']);
+  });
+
+  it('names the region by its element when the owner label is not one the app gave', () => {
+    const page = buildPage();
+    const subtree = flowSubtree([page.bubbleEl], { regionElement: page.pageEl });
+    expect(subtree.root?.name).toBe('div#page');
+    expect(subtree.root?.kind).toBe('region');
+  });
+
+  it('makes a changed node its own leaf when only the owner sits above it', () => {
+    const page = buildPage();
+    const subtree = flowSubtree([page.barEl], {
+      regionElement: page.pageEl,
+      ownerName: 'ChatPage',
+    });
+    expect(subtree.leaves).toHaveLength(1);
+    expect(subtree.leaves[0]?.kind).toBe('host');
+    expect(subtree.leaves[0]?.name).toBe('div#bar');
+    expect(subtree.leaves[0]?.element).toBe(page.barEl);
+  });
+
+  it('labels a changed element by its first class when it carries no id', () => {
+    const page = buildPage();
+    const subtree = flowSubtree([page.chipEl], {
+      regionElement: page.pageEl,
+      ownerName: 'ChatPage',
+    });
+    expect(subtree.leaves.map((leaf) => leaf.name)).toEqual(['span.conversation']);
+  });
+
+  it('collapses nested changed nodes to the one at the top', () => {
+    const page = buildPage();
+    const subtree = flowSubtree([page.chipEl, page.barEl], {
+      regionElement: page.pageEl,
+      ownerName: 'ChatPage',
+    });
+    expect(subtree.leaves.map((leaf) => leaf.name)).toEqual(['div#bar']);
+  });
+
+  it('draws nothing when the delivery changed nothing the walk could attribute', () => {
+    const page = buildPage();
+    const subtree = flowSubtree([page.doc.createElement('div')], {
+      regionElement: page.pageEl,
+      ownerName: 'ChatPage',
+    });
+    expect(subtree.root).toBeNull();
+    expect(subtree.components).toHaveLength(0);
+  });
+
+  it('draws the region alone for a replayed delivery, with no leaves', () => {
+    const page = buildPage();
+    const subtree = regionSubtree(page.pageEl, 'ChatPage');
+    expect(subtree.root?.element).toBe(page.pageEl);
+    expect(subtree.root?.name).toBe('ChatPage');
+    expect(subtree.components).toHaveLength(1);
     expect(subtree.leaves).toHaveLength(0);
   });
 

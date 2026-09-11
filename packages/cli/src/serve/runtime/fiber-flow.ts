@@ -28,24 +28,50 @@ export interface FiberLike {
   readonly alternate?: FiberLike | null;
 }
 
-/** One component the page rendered, and the element it owns. */
+/**
+ * What a painted box stands for. A `component` box is a component fiber the
+ * walk named. A `region` box is the element the listener's owner registered,
+ * which the paint is rooted on rather than on the owning component's own host
+ * node. A `host` box is a changed element no component named, badged by the
+ * element itself.
+ */
+export type FlowBoxKind = 'component' | 'region' | 'host';
+
+/** One box the flow painter draws, and the element it covers. */
 export interface FlowComponent {
-  /** `type.displayName`, else `type.name`. */
+  /** `type.displayName`, else `type.name`, else the element's own label. */
   readonly name: string;
-  /** The first host element at or below the component. */
+  /** The first host element at or below the component, or the changed node. */
   readonly element: Element;
-  /** How many collected components sit above this one, root first at 0. */
+  /** How many collected boxes sit above this one, root first at 0. */
   readonly depth: number;
+  /** What this box stands for. */
+  readonly kind: FlowBoxKind;
 }
 
 /** A delivery's rendered subtree, as the flow painter draws it. */
 export interface FlowSubtree {
-  /** The outermost collected component, or `null` when none was found. */
+  /** The box the root badge goes on, or `null` when nothing was found. */
   readonly root: FlowComponent | null;
-  /** Every collected component, outermost first. */
+  /** Every collected box, outermost first, the root included. */
   readonly components: readonly FlowComponent[];
-  /** The collected components nothing else collected sits below. */
+  /** The collected boxes nothing else collected sits below. */
   readonly leaves: readonly FlowComponent[];
+}
+
+/** How the subtree is rooted, and which component the badge already names. */
+export interface FlowSubtreeOptions {
+  /**
+   * The element the listener's owner registered. When the page still holds
+   * one, the paint is rooted on it and the owning component is named in the
+   * badge rather than outlined.
+   */
+  readonly regionElement?: Element | null;
+  /**
+   * The owner the root badge names. A component of this name is never given a
+   * box of its own, because the badge already says it.
+   */
+  readonly ownerName?: string | null;
 }
 
 /**
@@ -73,6 +99,34 @@ function isElement(value: unknown): value is Element {
     && typeof candidate === 'object'
     && candidate.nodeType === 1
     && typeof candidate.getBoundingClientRect === 'function';
+}
+
+/**
+ * What a changed element is called when no component named it: its tag name,
+ * narrowed by its id when it has one and by its first class otherwise.
+ */
+export function elementLabel(element: Element): string {
+  const tag = typeof element.tagName === 'string' && element.tagName.length > 0
+    ? element.tagName.toLowerCase()
+    : 'node';
+  const id = element.getAttribute?.('id');
+  if (typeof id === 'string' && id.length > 0) return `${tag}#${id}`;
+  const className = element.getAttribute?.('class');
+  if (typeof className === 'string') {
+    const first = className.trim().split(/\s+/)[0];
+    if (first !== undefined && first.length > 0) return `${tag}.${first}`;
+  }
+  return tag;
+}
+
+/** The changed node itself as an element, or the element that holds it. */
+function nearestElement(node: unknown, maxAscent = 4): Element | null {
+  let current = node as { parentNode?: unknown } | null;
+  for (let step = 0; step < maxAscent && current !== null && current !== undefined; step += 1) {
+    if (isElement(current)) return current;
+    current = current.parentNode as { parentNode?: unknown } | null;
+  }
+  return null;
 }
 
 /**
@@ -175,53 +229,124 @@ export function componentChain(fiber: FiberLike, maxAscent = MAX_ASCENT): FiberL
 }
 
 /**
- * The subtree of components above the nodes that changed.
+ * A listener's region on its own, with no changed nodes under it.
  *
- * Every node is resolved to its fiber, the `return` chain above it is
- * collected, and the collected components are ordered by how far each sits
- * from the root. Strict Mode renders a component twice into the same fiber and
- * React keeps two alternates of every fiber, so components are deduplicated by
- * the pair of name and host element rather than by fiber identity.
+ * This is what the switch into Flow replays. The fold records when each
+ * listener last delivered but not what the page then changed, so a replayed
+ * delivery can only say which region the listener registered, which is the one
+ * claim the fold supports on its own.
  */
-export function flowSubtree(nodes: Iterable<unknown>): FlowSubtree {
+export function regionSubtree(element: Element, ownerName?: string | null): FlowSubtree {
+  const name = ownerName !== null && ownerName !== undefined && ownerName.length > 0
+    ? ownerName
+    : elementLabel(element);
+  const root: FlowComponent = { name, element, depth: 0, kind: 'region' };
+  return { root, components: [root], leaves: [] };
+}
+
+/**
+ * The subtree of boxes above the nodes that changed.
+ *
+ * Every node is resolved to its fiber and the `return` chain above it is
+ * collected, but the owner the root badge names is never given a box. On a
+ * page whose owning component renders its list, header, and thread as inline
+ * JSX, that component is the only one between the page root and a new list
+ * item, so outlining it outlines the whole page. The root is instead the
+ * element the owner registered, when the page still holds one, and a changed
+ * node no component named becomes a box of its own, badged by the element.
+ *
+ * Strict Mode renders a component twice into the same fiber and React keeps
+ * two alternates of every fiber, so components are deduplicated by the pair of
+ * name and host element rather than by fiber identity.
+ */
+export function flowSubtree(
+  nodes: Iterable<unknown>,
+  options: FlowSubtreeOptions = {},
+): FlowSubtree {
+  const region = options.regionElement ?? null;
+  const ownerName = options.ownerName ?? null;
   const collected: Array<{ name: string; element: Element; distance: number }> = [];
-  const seen = (name: string, element: Element): boolean =>
-    collected.some((entry) => entry.name === name && entry.element === element);
+  const hosts: Element[] = [];
+
+  // The owner is already spelled on the root badge and the region is already
+  // the root box, so neither earns a box of its own.
+  const isAlreadyDrawn = (name: string, element: Element): boolean =>
+    (ownerName !== null && name === ownerName) || (region !== null && element === region);
 
   for (const node of nodes) {
     const fiber = nearestFiber(node);
     if (fiber === null) continue;
     const chain = componentChain(fiber);
+    let named = 0;
     for (let index = 0; index < chain.length; index += 1) {
-      const name = componentName(chain[index]);
+      const name = componentName(chain[index]!);
       if (name === null) continue;
-      const element = hostElementFor(chain[index]);
+      const element = hostElementFor(chain[index]!);
       if (element === null) continue;
-      if (seen(name, element)) continue;
+      if (isAlreadyDrawn(name, element)) continue;
+      named += 1;
+      if (collected.some((entry) => entry.name === name && entry.element === element)) continue;
       collected.push({ name, element, distance: index });
     }
+    // Nothing between the root and this node named it, so the node speaks for
+    // itself.
+    if (named > 0) continue;
+    const host = nearestElement(node);
+    if (host === null || host === region) continue;
+    if (!hosts.includes(host)) hosts.push(host);
   }
 
   collected.sort((a, b) => a.distance - b.distance);
   const distances = [...new Set(collected.map((entry) => entry.distance))].sort((a, b) => a - b);
-  const components: FlowComponent[] = collected.map((entry) => ({
-    name: entry.name,
-    element: entry.element,
-    depth: distances.indexOf(entry.distance),
-  }));
 
-  // A leaf is a collected component with no other collected component under
-  // it. Nesting is read off the page rather than off the fibers, so a
-  // component reached from two mutated nodes at once is still counted once.
-  const leaves = components.filter((component) => !components.some((other) => (
-    other !== component
-    && other.element !== component.element
-    && component.element.contains(other.element)
+  // A changed subtree paints once at its top: a host box inside another host
+  // box says nothing the outer box does not already say.
+  const topHosts = hosts.filter((element) => !hosts.some(
+    (other) => other !== element && other.contains(element),
+  ));
+
+  // Nothing on the page was attributable to this delivery. The region is not
+  // drawn on its own here: a box with no changed element under it would claim
+  // a render the walk never found. {@link regionSubtree} is what draws a region
+  // by itself, for the replay that has no changed nodes to read.
+  if (collected.length === 0 && topHosts.length === 0) {
+    return { root: null, components: [], leaves: [] };
+  }
+
+  const boxes: FlowComponent[] = [];
+  if (region !== null) {
+    boxes.push({
+      name: ownerName !== null && ownerName.length > 0 ? ownerName : elementLabel(region),
+      element: region,
+      depth: 0,
+      kind: 'region',
+    });
+  }
+  const shift = region === null ? 0 : 1;
+  for (const entry of collected) {
+    boxes.push({
+      name: entry.name,
+      element: entry.element,
+      depth: distances.indexOf(entry.distance) + shift,
+      kind: 'component',
+    });
+  }
+  const hostDepth = shift + distances.length;
+  for (const element of topHosts) {
+    boxes.push({ name: elementLabel(element), element, depth: hostDepth, kind: 'host' });
+  }
+
+  const root = boxes.length === 0 ? null : boxes[0]!;
+
+  // A leaf is a box with no other box under it. Nesting is read off the page
+  // rather than off the fibers, so a box reached from two mutated nodes at
+  // once is still counted once.
+  const leaves = boxes.filter((box) => box !== root && !boxes.some((other) => (
+    other !== box
+    && other.element !== box.element
+    && box.element.contains(other.element)
   )));
 
-  return {
-    root: components.length === 0 ? null : components[0],
-    components,
-    leaves: components.length <= 1 ? [] : leaves,
-  };
+  return { root, components: boxes, leaves };
 }
+

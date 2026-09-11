@@ -18,7 +18,7 @@
  * correlation, not data tracing: a state update the application batched into
  * the same commit is attributed to the listener too.
  */
-import { flowSubtree } from './fiber-flow.js';
+import { flowSubtree, regionSubtree } from './fiber-flow.js';
 import { createDeliveryCorrelation, type DeliveryCorrelation } from './delivery-correlation.js';
 import { createFlowPainter, type FlowPainter } from './listener-flow-painter.js';
 import type { ReactCommitSource } from './react-commit-source.js';
@@ -48,8 +48,33 @@ export interface FlowModeOptions {
   changedNodes?: (documentLike: Document, container: HTMLElement) => ChangedNodeSource;
   /** How long a delivery waits for a commit. */
   windowMs?: number;
-  /** How long a delivery's boxes stay on the page. */
+  /** How long a delivery's boxes stay at full strength. */
   fadeMs?: number;
+  /**
+   * The element the listener's owner registered, which the paint is rooted
+   * on. Defaults to the first of the outline's selectors the page still
+   * holds, which is the element Overview outlines.
+   */
+  regionFor?: (outline: ListenerOutline) => Element | null;
+  /**
+   * The deliveries the fold already recorded, newest per listener, so the
+   * switch into Flow shows the latest flow rather than an empty page.
+   */
+  recentDeliveries?: () => readonly RecentDelivery[];
+  /** How old a recorded delivery may be and still be replayed. */
+  replayWindowMs?: number;
+  /** The clock the replay window is measured on. Defaults to `Date.now`. */
+  now?: () => number;
+  /** Called with the outline's listener id after every painted delivery. */
+  onPaint?: (listenerId: string) => void;
+}
+
+/** One delivery the fold recorded, for the replay on the switch into Flow. */
+export interface RecentDelivery {
+  /** The listener id the outline carries. */
+  readonly listenerId: string;
+  /** When the delivery arrived, on the fold's clock. */
+  readonly at: number;
 }
 
 export interface FlowMode {
@@ -115,6 +140,22 @@ function observePageChanges(documentLike: Document, container: HTMLElement): Cha
   };
 }
 
+/** The first element the outline's selectors still name on the page. */
+function regionElement(documentLike: Document, outline: ListenerOutline): Element | null {
+  for (const selector of outline.selectors) {
+    try {
+      const found = documentLike.querySelector(selector);
+      if (found !== null) return found;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+/** How old a recorded delivery may be and still be replayed, in milliseconds. */
+const DEFAULT_REPLAY_WINDOW_MS = 5000;
+
 /** Start painting flows. The caller owns the overlay container. */
 export function startFlowMode(options: FlowModeOptions): FlowMode {
   const painter: FlowPainter = createFlowPainter({
@@ -123,23 +164,56 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
     ...(options.fadeMs === undefined ? {} : { fadeMs: options.fadeMs }),
   });
 
+  const readRegion = options.regionFor
+    ?? ((outline: ListenerOutline) => regionElement(options.document, outline));
+
+  /**
+   * Draw one listener's flow. The paint is keyed by the id the outline
+   * carries rather than by the id the delivery arrived under, because that is
+   * the id the panel's toggles and the mode's clears use; a page-side delivery
+   * names the listener by the client's own subscription id.
+   */
+  const paintFlow = (listenerId: string, nodes: Iterable<unknown> | null): void => {
+    const outline = options.outlineFor(listenerId);
+    if (outline === null) return;
+    if (!options.isVisible(outline.listenerId)) return;
+    const region = readRegion(outline);
+    const ownerName = outline.labelIsOwner ? outline.label : null;
+    // A replay has no changed nodes to read, so it draws the region alone.
+    const subtree = nodes === null
+      ? (region === null ? null : regionSubtree(region, ownerName))
+      : flowSubtree(nodes, { regionElement: region, ownerName });
+    if (subtree === null || subtree.components.length === 0) return;
+    painter.paint({
+      listenerId: outline.listenerId,
+      label: outline.label,
+      target: outline.isQuery ? `${outline.target} (query)` : outline.target,
+      deliveryCount: outline.deliveryCount,
+      subtree,
+    });
+    options.onPaint?.(outline.listenerId);
+  };
+
   const correlation: DeliveryCorrelation = createDeliveryCorrelation({
     ...(options.windowMs === undefined ? {} : { windowMs: options.windowMs }),
     onFlow: (flow) => {
-      if (!options.isVisible(flow.listenerId)) return;
-      const outline = options.outlineFor(flow.listenerId);
-      if (outline === null) return;
-      const subtree = flowSubtree(flow.nodes);
-      if (subtree.components.length === 0) return;
-      painter.paint({
-        listenerId: flow.listenerId,
-        label: outline.label,
-        target: outline.isQuery ? `${outline.target} (query)` : outline.target,
-        deliveryCount: outline.deliveryCount,
-        subtree,
-      });
+      paintFlow(flow.listenerId, flow.nodes);
     },
   });
+
+  // The switch into Flow starts from what the fold already knows. A listener
+  // that delivered moments ago has its region drawn straight away, so the
+  // first thing the mode shows is the latest flow rather than an empty page.
+  const replay = (): void => {
+    const recent = options.recentDeliveries?.() ?? [];
+    if (recent.length === 0) return;
+    const now = (options.now ?? (() => Date.now()))();
+    const windowMs = options.replayWindowMs ?? DEFAULT_REPLAY_WINDOW_MS;
+    for (const delivery of recent) {
+      if (now - delivery.at > windowMs) continue;
+      paintFlow(delivery.listenerId, null);
+    }
+  };
 
   const changes = (options.changedNodes ?? observePageChanges)(options.document, options.container);
   const subscribeDeliveries = options.subscribeDeliveries ?? onListenerDelivery;
@@ -151,6 +225,8 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
     correlation.changed(changes.drain());
     correlation.committed();
   });
+
+  replay();
 
   return {
     clear() {

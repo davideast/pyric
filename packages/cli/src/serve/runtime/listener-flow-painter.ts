@@ -2,9 +2,11 @@
  * The boxes the chip's Flow mode paints, and how they fade.
  *
  * Overview draws one box per listener and leaves it there. Flow draws a box
- * per component that rendered after a delivery and takes them away again over
- * a few seconds, so the page shows where the data went as it arrives rather
- * than what is attached.
+ * per element that changed after a delivery and fades it to a dimmed state
+ * over a few seconds, so the page shows where the data went as it arrives
+ * rather than what is attached. The dimmed subtree stays until that listener
+ * delivers again or is switched off, so the last flow is still readable after
+ * the movement stops.
  *
  * The painter derives nothing. It is handed a listener, the words for its
  * badge, and the subtree {@link FlowSubtree} already named, and it draws that
@@ -53,8 +55,15 @@ export interface FlowPainter {
   dispose(): void;
 }
 
-/** How long a delivery's boxes stay on the page, in milliseconds. */
+/** How long a delivery's boxes stay at full strength, in milliseconds. */
 const DEFAULT_FADE_MS = 3000;
+
+/**
+ * What a faded subtree is left at. The last flow stays readable so a developer
+ * who looks at the page after the delivery still sees where it went, and the
+ * next delivery from the same listener replaces it.
+ */
+const RETAINED_OPACITY = '0.3';
 
 const BOX_STYLE = [
   'position:absolute',
@@ -117,6 +126,8 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
   interface Group {
     boxes: Array<{ box: HTMLElement; element: Element }>;
     cancel: () => void;
+    /** `true` once the fade finished and the boxes are held dimmed. */
+    retained: boolean;
   }
   const groups = new Map<string, Group>();
 
@@ -143,6 +154,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
         box.dataset.listenerId = paint.listenerId;
         box.dataset.component = component.name;
         box.dataset.depth = String(component.depth);
+        box.dataset.flowKind = component.kind;
         box.style.border = `1px solid ${colors.border}`;
         box.style.background = colors.fill;
         // The fade is a style the page carries out; the removal below is what
@@ -151,7 +163,8 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
         box.style.opacity = '1';
 
         const root = paint.subtree.root;
-        const isRoot = root !== null && root.name === component.name && root.element === component.element;
+        const isRoot = root !== null
+          && (root === component || (root.name === component.name && root.element === component.element));
         if (isRoot) {
           const badge = documentLike.createElement('span');
           badge.setAttribute('data-pyric-flow-badge', '');
@@ -169,7 +182,10 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
           badge.style.borderColor = colors.border;
           badge.style.color = colors.accent;
           badge.dataset.listenerId = paint.listenerId;
-          badge.title = `${component.name} rendered after a delivery from ${paint.target}`;
+          badge.dataset.flowKind = component.kind;
+          badge.title = component.kind === 'host'
+            ? `${component.name} changed after a delivery from ${paint.target}`
+            : `${component.name} rendered after a delivery from ${paint.target}`;
           badge.textContent = component.name;
           box.append(badge);
         }
@@ -179,16 +195,27 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
         boxes.push({ box, element: component.element });
       }
 
+      // The fade ends at the dimmed state rather than at nothing: the last
+      // subtree a listener painted stays on the page until that listener
+      // delivers again, so a developer who looks after the delivery still
+      // sees where it went. The timer is what marks the group retained
+      // whether or not transitions run here.
       const cancel = schedule(() => {
-        removeGroup(paint.listenerId);
+        const group = groups.get(paint.listenerId);
+        if (group === undefined) return;
+        group.retained = true;
+        for (const entry of group.boxes) {
+          entry.box.dataset.flowRetained = '';
+          entry.box.style.opacity = RETAINED_OPACITY;
+        }
       }, fadeMs);
-      groups.set(paint.listenerId, { boxes, cancel });
+      groups.set(paint.listenerId, { boxes, cancel, retained: false });
 
       // Hand the fade to the page on the next frame, so the browser has the
       // starting opacity to transition away from.
       const view = documentLike.defaultView;
       const fade = (): void => {
-        for (const entry of boxes) entry.box.style.opacity = '0';
+        for (const entry of boxes) entry.box.style.opacity = RETAINED_OPACITY;
       };
       if (view?.requestAnimationFrame) view.requestAnimationFrame(fade);
       else schedule(fade, 0);

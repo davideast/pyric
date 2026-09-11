@@ -40,12 +40,26 @@ function subtree(doc: Document): FlowSubtree {
   const page = doc.querySelector('#page')!;
   const thread = doc.querySelector('#thread')!;
   return {
-    root: { name: 'ChatPage', element: page, depth: 0 },
+    root: { name: 'ChatPage', element: page, depth: 0, kind: 'region' },
     components: [
-      { name: 'ChatPage', element: page, depth: 0 },
-      { name: 'MessageThread', element: thread, depth: 1 },
+      { name: 'ChatPage', element: page, depth: 0, kind: 'region' },
+      { name: 'MessageThread', element: thread, depth: 1, kind: 'component' },
     ],
-    leaves: [{ name: 'MessageThread', element: thread, depth: 1 }],
+    leaves: [{ name: 'MessageThread', element: thread, depth: 1, kind: 'component' }],
+  };
+}
+
+/** A delivery whose leaf is the changed element itself, named by the element. */
+function hostLeafSubtree(doc: Document): FlowSubtree {
+  const page = doc.querySelector('#page')!;
+  const bubble = doc.querySelector('#bubble')!;
+  return {
+    root: { name: 'ChatPage', element: page, depth: 0, kind: 'region' },
+    components: [
+      { name: 'ChatPage', element: page, depth: 0, kind: 'region' },
+      { name: 'span#bubble', element: bubble, depth: 1, kind: 'host' },
+    ],
+    leaves: [{ name: 'span#bubble', element: bubble, depth: 1, kind: 'host' }],
   };
 }
 
@@ -99,13 +113,47 @@ describe('painting one delivery', () => {
     })).toBe('PresenceBar · status/u1 · 1');
   });
 
-  it('takes the boxes away once the fade is over', () => {
+  it('holds the boxes dimmed once the fade is over, rather than taking them away', () => {
     const page = setup();
     page.painter.paint(paintOf(page.doc));
     expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(2);
 
     page.advance(3000);
+    const held = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
+    expect(held).toHaveLength(2);
+    expect(held.every((box) => box.dataset.flowRetained === '')).toBe(true);
+    expect(held.every((box) => Number(box.style.opacity) > 0 && Number(box.style.opacity) < 1)).toBe(true);
+  });
+
+  it('replaces a retained subtree on the next delivery for that listener', () => {
+    const page = setup();
+    page.painter.paint(paintOf(page.doc));
+    page.advance(3000);
+
+    page.painter.paint(paintOf(page.doc));
+    const drawn = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
+    expect(drawn).toHaveLength(2);
+    expect(drawn.some((box) => box.dataset.flowRetained === '')).toBe(false);
+  });
+
+  it('takes a retained subtree away when its listener is switched off', () => {
+    const page = setup();
+    page.painter.paint(paintOf(page.doc));
+    page.advance(3000);
+
+    page.painter.clearListener('sub-1');
     expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+  });
+
+  it('badges a changed element by its tag and id when no component named it', () => {
+    const page = setup();
+    page.painter.paint({ ...paintOf(page.doc), subtree: hostLeafSubtree(page.doc) });
+    const leaf = page.container.querySelector<HTMLElement>('[data-pyric-flow-leaf-badge]');
+    expect(leaf?.textContent).toBe('span#bubble');
+    expect(leaf?.dataset.flowKind).toBe('host');
+    const kinds = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')]
+      .map((box) => box.dataset.flowKind);
+    expect(kinds).toEqual(['region', 'host']);
   });
 
   it('replaces the same listener rather than stacking on it', () => {
