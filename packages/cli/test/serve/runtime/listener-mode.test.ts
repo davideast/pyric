@@ -295,8 +295,8 @@ describe('the two painting modes', () => {
     page.mode.setEnabled(true);
     page.push([todosAttach, profileAttach]);
     const drawn = boxes(page.doc);
-    expect(drawn[0].style.borderColor).not.toBe('');
-    expect(drawn[0].style.borderColor).not.toBe(drawn[1].style.borderColor);
+    expect(drawn[0].dataset.hue).not.toBe(undefined);
+    expect(drawn[0].dataset.hue).not.toBe(drawn[1].dataset.hue);
     page.mode.dispose();
   });
 

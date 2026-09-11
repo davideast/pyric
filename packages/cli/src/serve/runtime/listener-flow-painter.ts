@@ -8,6 +8,11 @@
  * delivers again or is switched off, so the last flow is still readable after
  * the movement stops.
  *
+ * The painter puts structure in the DOM and nothing else. Each box says what
+ * kind of thing it outlines, which listener it belongs to, which hue that
+ * listener draws in, and how far through its fade it is; the drawing comes
+ * from the stylesheet in `overlay-theme.ts`, which the container carries.
+ *
  * The painter derives nothing. It is handed a listener, the words for its
  * badge, and the subtree {@link FlowSubtree} already named, and it draws that
  * in the listener's own colour into the container the overlay owns. A second
@@ -18,7 +23,8 @@
  * deliveries. Its title says these components rendered after the delivery,
  * which is the only claim the correlation supports.
  */
-import { listenerColors } from './listener-palette.js';
+import { listenerHueIndex } from './listener-palette.js';
+import { ensureOverlayStyleSheet } from './overlay-theme.js';
 import type { FlowSubtree } from './fiber-flow.js';
 
 /** One delivery, ready to draw. */
@@ -37,7 +43,11 @@ export interface FlowPainterOptions {
   document: Document;
   /** The overlay's container. The painter appends to it and never replaces it. */
   container: HTMLElement;
-  /** How long a delivery's boxes stay on the page. */
+  /**
+   * How long a delivery's boxes stay at full strength before the painter
+   * marks them retained. The fade the page runs is the theme's
+   * `--pyric-overlay-fade-duration`, which defaults to the same length.
+   */
   fadeMs?: number;
   /** How the removal is scheduled. Returns the cancel function. */
   schedule?: (run: () => void, delayMs: number) => () => void;
@@ -57,45 +67,6 @@ export interface FlowPainter {
 
 /** How long a delivery's boxes stay at full strength, in milliseconds. */
 const DEFAULT_FADE_MS = 3000;
-
-/**
- * What a faded subtree is left at. The last flow stays readable so a developer
- * who looks at the page after the delivery still sees where it went, and the
- * next delivery from the same listener replaces it.
- */
-const RETAINED_OPACITY = '0.3';
-
-const BOX_STYLE = [
-  'position:absolute',
-  'border-radius:4px',
-  'pointer-events:none',
-].join(';');
-
-const BADGE_STYLE = [
-  'position:absolute',
-  'top:-9px',
-  'left:0',
-  'background:#16161a',
-  'border:1px solid #33333f',
-  'border-radius:4px',
-  'font:10px/1.6 "JetBrains Mono", ui-monospace, monospace',
-  'padding:1px 6px',
-  'pointer-events:none',
-  'white-space:nowrap',
-].join(';');
-
-const LEAF_BADGE_STYLE = [
-  'position:absolute',
-  'bottom:-9px',
-  'right:0',
-  'background:#16161a',
-  'border:1px solid #33333f',
-  'border-radius:4px',
-  'font:9px/1.6 "JetBrains Mono", ui-monospace, monospace',
-  'padding:0 4px',
-  'pointer-events:none',
-  'white-space:nowrap',
-].join(';');
 
 /** What the root badge says: owner, target, deliveries. */
 export function flowBadgeText(paint: FlowPaint): string {
@@ -122,6 +93,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
   const documentLike = options.document;
   const fadeMs = options.fadeMs ?? DEFAULT_FADE_MS;
   const schedule = options.schedule ?? defaultSchedule;
+  ensureOverlayStyleSheet(documentLike, options.container);
 
   interface Group {
     boxes: Array<{ box: HTMLElement; element: Element }>;
@@ -143,24 +115,19 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
     paint(paint) {
       removeGroup(paint.listenerId);
       if (paint.subtree.components.length === 0) return;
-      const colors = listenerColors(paint.listenerId);
+      const hue = String(listenerHueIndex(paint.listenerId));
       const boxes: Array<{ box: HTMLElement; element: Element }> = [];
       const leafElements = new Set(paint.subtree.leaves.map((leaf) => leaf.element));
 
       for (const component of paint.subtree.components) {
         const box = documentLike.createElement('div');
         box.setAttribute('data-pyric-flow-box', '');
-        box.setAttribute('style', BOX_STYLE);
         box.dataset.listenerId = paint.listenerId;
         box.dataset.component = component.name;
         box.dataset.depth = String(component.depth);
         box.dataset.flowKind = component.kind;
-        box.style.border = `1px solid ${colors.border}`;
-        box.style.background = colors.fill;
-        // The fade is a style the page carries out; the removal below is what
-        // takes the box off the page whether or not transitions run here.
-        box.style.transition = `opacity ${fadeMs}ms linear`;
-        box.style.opacity = '1';
+        box.dataset.pyricRole = component.kind;
+        box.dataset.hue = hue;
 
         const root = paint.subtree.root;
         const isRoot = root !== null
@@ -168,9 +135,8 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
         if (isRoot) {
           const badge = documentLike.createElement('span');
           badge.setAttribute('data-pyric-flow-badge', '');
-          badge.setAttribute('style', BADGE_STYLE);
-          badge.style.borderColor = colors.border;
-          badge.style.color = colors.accent;
+          badge.dataset.pyricRole = 'badge';
+          badge.dataset.hue = hue;
           badge.dataset.listenerId = paint.listenerId;
           badge.title = `${component.name} rendered after a delivery from ${paint.target}`;
           badge.textContent = flowBadgeText(paint);
@@ -178,9 +144,8 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
         } else if (leafElements.has(component.element)) {
           const badge = documentLike.createElement('span');
           badge.setAttribute('data-pyric-flow-leaf-badge', '');
-          badge.setAttribute('style', LEAF_BADGE_STYLE);
-          badge.style.borderColor = colors.border;
-          badge.style.color = colors.accent;
+          badge.dataset.pyricRole = 'leaf-badge';
+          badge.dataset.hue = hue;
           badge.dataset.listenerId = paint.listenerId;
           badge.dataset.flowKind = component.kind;
           badge.title = component.kind === 'host'
@@ -204,18 +169,16 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
         const group = groups.get(paint.listenerId);
         if (group === undefined) return;
         group.retained = true;
-        for (const entry of group.boxes) {
-          entry.box.dataset.flowRetained = '';
-          entry.box.style.opacity = RETAINED_OPACITY;
-        }
+        for (const entry of group.boxes) entry.box.dataset.flowRetained = '';
       }, fadeMs);
       groups.set(paint.listenerId, { boxes, cancel, retained: false });
 
       // Hand the fade to the page on the next frame, so the browser has the
-      // starting opacity to transition away from.
+      // starting opacity to transition away from. The attribute is what the
+      // stylesheet reads; the timer above is what marks the fade over.
       const view = documentLike.defaultView;
       const fade = (): void => {
-        for (const entry of boxes) entry.box.style.opacity = RETAINED_OPACITY;
+        for (const entry of boxes) entry.box.dataset.flowFading = '';
       };
       if (view?.requestAnimationFrame) view.requestAnimationFrame(fade);
       else schedule(fade, 0);

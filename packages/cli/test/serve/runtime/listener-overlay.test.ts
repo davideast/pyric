@@ -1,6 +1,8 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
 import { createListenerOverlay } from '../../../src/serve/runtime/listener-overlay.js';
+import { listenerHueIndex } from '../../../src/serve/runtime/listener-palette.js';
+import { OVERLAY_STYLE_ATTRIBUTE } from '../../../src/serve/runtime/overlay-theme.js';
 import type { ListenerOutline } from '../../../src/serve/runtime/listener-outline-model.js';
 
 function outline(overrides: Partial<ListenerOutline>): ListenerOutline {
@@ -91,6 +93,46 @@ describe('createListenerOverlay', () => {
     overlay.update([outline({})]);
     doc.querySelector<HTMLElement>('[data-pyric-listener-badge]')?.click();
     expect(selected).toEqual(['l1']);
+    overlay.dispose();
+  });
+
+  it('says what each box and badge is, and leaves the drawing to the stylesheet', () => {
+    const doc = page();
+    const overlay = createListenerOverlay({ document: doc });
+    overlay.update([outline({ incident: { pattern: 'duplicate-listener', count: 2 } })]);
+
+    const box = boxes(doc)[0]!;
+    expect(box.dataset.pyricRole).toBe('region');
+    expect(box.dataset.listenerId).toBe('l1');
+    expect(box.dataset.listenerTarget).toBe('todos');
+    expect(box.dataset.hue).toBe(String(listenerHueIndex('l1')));
+    expect(box.dataset.incident).toBe('duplicate-listener');
+    // Geometry is measured, so it stays inline. Nothing else does.
+    expect([...box.style]).toEqual(['left', 'top', 'width', 'height']);
+
+    const badge = doc.querySelector<HTMLElement>('[data-pyric-listener-badge]')!;
+    expect(badge.dataset.pyricRole).toBe('badge');
+    expect(badge.dataset.hue).toBe(box.dataset.hue);
+    expect([...badge.style]).toEqual([]);
+    overlay.dispose();
+  });
+
+  it('says which painting mode the container is in', () => {
+    const doc = page();
+    const overlay = createListenerOverlay({ document: doc });
+    const container = doc.querySelector<HTMLElement>('[data-pyric-listener-overlay]')!;
+    expect(container.getAttribute('data-pyric-mode')).toBe('overview');
+    overlay.setMode('flow');
+    expect(container.getAttribute('data-pyric-mode')).toBe('flow');
+    overlay.dispose();
+  });
+
+  it('injects the stylesheet once, however many times it redraws', () => {
+    const doc = page();
+    const overlay = createListenerOverlay({ document: doc });
+    overlay.update([outline({})]);
+    overlay.update([outline({}), outline({ listenerId: 'l2', selectors: ['#profile'] })]);
+    expect(doc.querySelectorAll(`[${OVERLAY_STYLE_ATTRIBUTE}]`)).toHaveLength(1);
     overlay.dispose();
   });
 

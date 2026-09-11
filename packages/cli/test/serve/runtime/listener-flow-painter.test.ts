@@ -1,7 +1,7 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
 import { createFlowPainter, flowBadgeText } from '../../../src/serve/runtime/listener-flow-painter.js';
-import { listenerColors } from '../../../src/serve/runtime/listener-palette.js';
+import { listenerHueIndex } from '../../../src/serve/runtime/listener-palette.js';
 import type { FlowSubtree } from '../../../src/serve/runtime/fiber-flow.js';
 
 function setup() {
@@ -80,15 +80,20 @@ describe('painting one delivery', () => {
     expect(boxes).toHaveLength(2);
     for (const box of boxes) expect(box.dataset.listenerId).toBe('sub-1');
     expect(boxes.map((box) => box.dataset.component)).toEqual(['ChatPage', 'MessageThread']);
-    // The page normalises the hue to rgb, so the colour is checked by the
-    // property it agrees on: one colour across the subtree, another listener's.
-    expect(boxes[0].style.borderColor).toBe(boxes[1].style.borderColor);
-    expect(boxes[0].style.borderColor).not.toBe('');
+    // The colour is the stylesheet's, off the hue the box names: one hue
+    // across the subtree, and a different one for another listener.
+    expect(boxes[0].dataset.hue).toBe(String(listenerHueIndex('sub-1')));
+    expect(boxes[0].dataset.hue).toBe(boxes[1].dataset.hue);
+    expect(boxes.map((box) => box.dataset.pyricRole)).toEqual(['region', 'component']);
+    // Nothing visual is inline: only the measured geometry is.
+    for (const box of boxes) {
+      expect([...box.style]).toEqual(['left', 'top', 'width', 'height']);
+    }
 
     page.painter.paint({ ...paintOf(page.doc), listenerId: 'sub-2' });
     const other = page.container.querySelector<HTMLElement>('[data-pyric-flow-box][data-listener-id="sub-2"]');
-    expect(listenerColors('sub-2').border).not.toBe(listenerColors('sub-1').border);
-    expect(other?.style.borderColor).not.toBe(boxes[0].style.borderColor);
+    expect(listenerHueIndex('sub-2')).not.toBe(listenerHueIndex('sub-1'));
+    expect(other?.dataset.hue).not.toBe(boxes[0].dataset.hue);
   });
 
   it('names the owner and target on the root badge and the component on the leaf', () => {
@@ -122,7 +127,8 @@ describe('painting one delivery', () => {
     const held = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
     expect(held).toHaveLength(2);
     expect(held.every((box) => box.dataset.flowRetained === '')).toBe(true);
-    expect(held.every((box) => Number(box.style.opacity) > 0 && Number(box.style.opacity) < 1)).toBe(true);
+    // The dimming is the stylesheet's, off the retained attribute.
+    expect(held.every((box) => box.style.opacity === '')).toBe(true);
   });
 
   it('replaces a retained subtree on the next delivery for that listener', () => {
