@@ -9,6 +9,12 @@ import {
   DIALOG_STYLES,
   type ChipDialogController,
 } from './chip-dialog.js';
+import {
+  createChipThemeDialog,
+  THEME_DIALOG_STYLES,
+  type ChipThemeDialogController,
+} from './chip-theme-dialog.js';
+import { pageOverlayThemeStorage } from './overlay-theme.js';
 import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
 import type { ListenerMode } from './listener-mode.js';
 import type { ListenerOutline, ListenerOutlineIncident } from './listener-outline-model.js';
@@ -239,6 +245,7 @@ const styles = `
   }
 
   ${DIALOG_STYLES}
+  ${THEME_DIALOG_STYLES}
 `;
 
 const icons = {
@@ -652,6 +659,21 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     return listenerMode;
   };
 
+  /** The Theme dialog, built on the first open: the panel usually never asks. */
+  let themeDialogController: ChipThemeDialogController | null = null;
+  const themeDialog = (): ChipThemeDialogController => {
+    if (themeDialogController !== null) return themeDialogController;
+    themeDialogController = createChipThemeDialog({
+      shadowRoot: root,
+      storage: pageOverlayThemeStorage(documentLike),
+      readTheme: () => ensureListenerMode()?.overlayTheme() ?? {},
+      applyTheme: (theme) => {
+        ensureListenerMode()?.setOverlayTheme(theme);
+      },
+    });
+    return themeDialogController;
+  };
+
   const dialogController: ChipDialogController = createChipDialogController({
     shadowRoot: root,
     identity,
@@ -728,7 +750,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           <div class="segmented" role="group" aria-label="How listeners are painted" data-listener-modes>
             <button type="button" data-listener-mode="overview" aria-pressed="${paintMode === 'overview'}" title="Outline every attached listener">Overview</button>
             <button type="button" data-listener-mode="flow" aria-pressed="${paintMode === 'flow'}"${flowOff ? ` aria-disabled="true" title="${escapeAttribute(flowReason)}"` : ' title="Outline what rendered after each delivery"'}>Flow</button>
-          </div>`;
+          </div>
+          <button class="button" type="button" data-open-overlay-theme title="Edit the overlay's custom properties">Theme</button>`;
       // Flow paints on delivery, so a page that is sitting idle shows nothing
       // and looks broken. The line says what the mode is waiting for, and goes
       // as soon as the first delivery is painted.
@@ -874,6 +897,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         render();
       });
     }
+    root.querySelector('[data-open-overlay-theme]')?.addEventListener('click', (e) => {
+      if (ensureListenerMode() === null) return;
+      themeDialog().open(e.currentTarget as HTMLElement);
+    });
     root.querySelector('[data-open-impersonate]')?.addEventListener('click', (e) => {
       void dialogController.open(e.currentTarget as HTMLElement);
     });
@@ -953,6 +980,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       unsubAuth();
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
       dialogController.dispose();
+      themeDialogController?.dispose();
       listenerMode?.dispose();
       host.remove();
     },

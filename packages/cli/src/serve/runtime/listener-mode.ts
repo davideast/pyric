@@ -30,6 +30,13 @@ import {
   type ReactCommitSource,
 } from './react-commit-source.js';
 import {
+  pageOverlayThemeStorage,
+  OVERLAY_THEME_KEY,
+  readStoredOverlayTheme,
+  type OverlayTheme,
+  type OverlayThemeStorage,
+} from './overlay-theme.js';
+import {
   pagePaintModeStorage,
   readListenerPaintMode,
   writeListenerPaintMode,
@@ -65,6 +72,13 @@ export interface ListenerModeOptions {
   commits?: ReactCommitSource;
   /** Where the painting mode is remembered. Defaults to the page's storage. */
   paintStorage?: PaintModeStorage | null;
+  /**
+   * The served page's overlay theme. The page's own stored overrides win over
+   * it. See `overlay-theme.ts` for the contract.
+   */
+  overlayTheme?: OverlayTheme | null;
+  /** Where the page's overrides are kept. Defaults to the page's storage. */
+  themeStorage?: OverlayThemeStorage | null;
   /** How the Flow mode watches the page. Passed through for tests. */
   flow?: Partial<Pick<Parameters<typeof startFlowMode>[0], 'changedNodes' | 'subscribeDeliveries' | 'windowMs' | 'fadeMs'>>;
 }
@@ -93,6 +107,13 @@ export interface ListenerMode {
   isListenerVisible(listenerId: string): boolean;
   /** Show or hide one listener's paint. Remembered for this page session. */
   setListenerVisible(listenerId: string, visible: boolean): void;
+  /** The overrides in effect, page storage over the served page's option. */
+  overlayTheme(): OverlayTheme;
+  /**
+   * Draw with these overrides from now on. Passing `null` goes back to the
+   * served page's option, and from there to the contract's defaults.
+   */
+  setOverlayTheme(theme: OverlayTheme | null): void;
   dispose(): void;
 }
 
@@ -120,6 +141,16 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   const paintStorage = options.paintStorage === undefined
     ? pagePaintModeStorage(documentLike)
     : options.paintStorage;
+  const themeStorage = options.themeStorage === undefined
+    ? pageOverlayThemeStorage(documentLike)
+    : options.themeStorage;
+  // The served page's option is the floor, the page's own overrides the
+  // ceiling. A theme is resolved on the container, so both layers travel.
+  let storedTheme: OverlayTheme | null = readStoredOverlayTheme(themeStorage);
+  const effectiveTheme = (): OverlayTheme => ({
+    ...(options.overlayTheme ?? {}),
+    ...(storedTheme ?? {}),
+  });
 
   const events: SandboxEvent[] = [];
   let current: readonly ListenerOutline[] = [];
@@ -235,10 +266,25 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   };
 
   const showPainting = (): void => {
-    overlay = createListenerOverlay({ document: documentLike, onSelect: openStudio });
+    overlay = createListenerOverlay({
+      document: documentLike,
+      onSelect: openStudio,
+      theme: effectiveTheme(),
+      mode: paintMode,
+    });
     paint();
     if (paintMode === 'flow') startFlow();
   };
+
+  // Another tab, or this page's own Theme dialog, writes the overrides; the
+  // event is what puts them on a container that is already drawing.
+  const view = documentLike.defaultView;
+  const onStorage = (event: StorageEvent): void => {
+    if (event.key !== null && event.key !== OVERLAY_THEME_KEY) return;
+    storedTheme = readStoredOverlayTheme(themeStorage);
+    overlay?.setTheme(effectiveTheme());
+  };
+  view?.addEventListener('storage', onStorage);
 
   return {
     setEnabled(next) {
@@ -263,6 +309,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       paintMode = next;
       writeListenerPaintMode(paintStorage, next);
       if (overlay === null) return;
+      overlay.setMode(next);
       if (next === 'overview') stopFlow();
       paint();
       if (next === 'flow') startFlow();
@@ -294,7 +341,15 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       // back on leaves the page empty until the next delivery.
       if (!visible) flow?.clearListener(listenerId);
     },
+    overlayTheme() {
+      return effectiveTheme();
+    },
+    setOverlayTheme(theme) {
+      storedTheme = theme;
+      overlay?.setTheme(effectiveTheme());
+    },
     dispose() {
+      view?.removeEventListener('storage', onStorage);
       hidePainting();
       unsubscribe?.();
       unsubscribe = null;

@@ -10,6 +10,7 @@ import { listenerAttributionEnabled } from 'pyric/sandbox/internal';
 import { createListenerMode } from './listener-mode.js';
 import type { SandboxEventSource } from './listener-event-source.js';
 import { installReactCommitSource, type ReactCommitSource } from './react-commit-source.js';
+import type { OverlayTheme } from './overlay-theme.js';
 
 export interface InstallPyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
@@ -25,6 +26,12 @@ export interface InstallPyricRuntimeChipOptions {
    * here, which is in time only when the chip itself mounts that early.
    */
   commits?: ReactCommitSource;
+  /**
+   * Custom property overrides for the painted listener overlay, for a served
+   * page that wants its own look. The page's own stored overrides win over
+   * these, and both win over the contract's defaults. See `overlay-theme.ts`.
+   */
+  overlayTheme?: OverlayTheme;
   mount?: (options: PyricRuntimeChipOptions) => PyricRuntimeChip;
 }
 
@@ -56,6 +63,7 @@ export function installPyricRuntimeChip(
       attributionEnabled: listenerAttributionEnabled,
       studioUrl,
       commits,
+      overlayTheme: options.overlayTheme ?? null,
       onChange,
     });
   }
