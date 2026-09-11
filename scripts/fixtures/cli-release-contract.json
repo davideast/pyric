@@ -92,6 +92,7 @@
     "rules listStdlib",
     "rules set",
     "rules simulate",
+    "sandbox activity",
     "sandbox advanceClock",
     "sandbox apply",
     "sandbox checkpoint",
@@ -104,6 +105,7 @@
     "sandbox inspect",
     "sandbox listBranches",
     "sandbox listCheckpoints",
+    "sandbox listeners",
     "sandbox promote",
     "sandbox reset",
     "sandbox resetClock",
@@ -254,6 +256,7 @@
       "simulate"
     ],
     "sandbox": [
+      "activity",
       "advanceClock",
       "apply",
       "checkpoint",
@@ -266,6 +269,7 @@
       "inspect",
       "listBranches",
       "listCheckpoints",
+      "listeners",
       "promote",
       "reset",
       "resetClock",
