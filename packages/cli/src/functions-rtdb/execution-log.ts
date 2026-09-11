@@ -26,7 +26,7 @@ export interface FunctionExecutionRecord {
   /** Sandbox clock instant the run started, in epoch milliseconds. */
   startedAt: number;
   durationMs: number;
-  status: 'fulfilled' | 'rejected';
+  status: 'fulfilled' | 'rejected' | 'timeout';
   /** What the handler returned, present only when `status` is `fulfilled`. */
   result?: unknown;
   /** The handler's thrown error, present only when `status` is `rejected`. */
