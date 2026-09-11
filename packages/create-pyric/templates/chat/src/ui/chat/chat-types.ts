@@ -55,6 +55,13 @@ export type UiToolCall = {
   summary?: string;
 };
 
+/**
+ * Names the UI region a listener feeds. Under the local sandbox the name is
+ * recorded as the listener's owner, so the runtime chip and Studio group
+ * listeners by region; the production SDK ignores it.
+ */
+export type ListenerOptions = { owner?: string };
+
 export type ChatPageServices = {
   auth: {
     currentUser(): UiUser | null;
@@ -66,14 +73,14 @@ export type ChatPageServices = {
     list(): Promise<UiConversation[]>;
     create(input?: { title?: string }): Promise<string>;
     delete(id: string): Promise<void>;
-    observe(id: string, callback: (conversation: UiConversation) => void): () => void;
-    observeList(callback: (conversations: UiConversation[]) => void): () => void;
+    observe(id: string, callback: (conversation: UiConversation) => void, options?: ListenerOptions): () => void;
+    observeList(callback: (conversations: UiConversation[]) => void, options?: ListenerOptions): () => void;
   };
   messages: {
     list(conversationId: string): Promise<UiMessage[]>;
     appendUserMessage(input: { conversationId: string; text: string; clientMessageId: string }): Promise<string>;
     appendAssistantMessage(input: { conversationId: string; text: string; clientMessageId: string; thoughts?: string; model?: string; finishReason?: UiFinishReason; inputTokenCount?: number | null; outputTokenCount?: number | null }): Promise<string>;
-    observeRecent(conversationId: string, callback: (messages: UiMessage[]) => void): () => void;
+    observeRecent(conversationId: string, callback: (messages: UiMessage[]) => void, options?: ListenerOptions): () => void;
   };
   ai: {
     stream(
@@ -86,7 +93,7 @@ export type ChatPageServices = {
     ): Promise<{ text: string; thoughts?: string; model?: string; finishReason?: UiFinishReason; inputTokenCount?: number | null; outputTokenCount?: number | null; usage?: UiUsage }>;
   };
   presence: {
-    observe(callback: (online: UiPresence[]) => void): () => void;
+    observe(callback: (online: UiPresence[]) => void, options?: ListenerOptions): () => void;
   };
   notifications: {
     enable(onMessage: (message: UiNotification) => void): Promise<boolean>;

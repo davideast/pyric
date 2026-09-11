@@ -1,7 +1,7 @@
-import { onDisconnect, onValue, ref, serverTimestamp, set } from 'firebase/database';
+import { onDisconnect, onValue, ref, serverTimestamp, set, type ListenOptions } from 'firebase/database';
 import { auth, rtdb } from '../firebase/app';
 import { asUserId, type AuthUser, type PresenceEntry, type PresenceRecord, ServiceError } from '../firebase/types';
-import { requireUid } from './firestore-helpers';
+import { listenOptions, requireUid, type ListenerOptions } from './firestore-helpers';
 
 const mapRtdbError = (error: unknown): ServiceError => {
   const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
@@ -50,7 +50,7 @@ export class PresenceService {
   }
 
   /** Observe every presence node; the callback receives the online members. */
-  observe(callback: (online: PresenceEntry[]) => void): () => void {
+  observe(callback: (online: PresenceEntry[]) => void, options?: ListenerOptions): () => void {
     requireUid(auth.currentUser?.uid);
     return onValue(ref(rtdb, 'presence'), (snapshot) => {
       const entries: PresenceEntry[] = [];
@@ -59,6 +59,6 @@ export class PresenceService {
         if (entry && entry.state === 'online') entries.push(entry);
       });
       callback(entries);
-    });
+    }, listenOptions<ListenOptions>(options));
   }
 }

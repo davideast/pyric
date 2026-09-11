@@ -16,6 +16,7 @@ import {
   type Query,
   type QueryDocumentSnapshot,
   type QuerySnapshot,
+  type SnapshotListenOptions,
 } from 'firebase/firestore';
 import { auth, db } from '../firebase/app';
 import {
@@ -28,7 +29,7 @@ import {
   type PageOptions,
   ServiceError,
 } from '../firebase/types';
-import { clampPageSize, mapFirestoreError, requireUid } from './firestore-helpers';
+import { clampPageSize, listenOptions, mapFirestoreError, requireUid, type ListenerOptions } from './firestore-helpers';
 
 const allowedModels = new Set(['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-lite-latest']);
 const cleanTitle = (title: string): string => title.trim().slice(0, 120) || 'New conversation';
@@ -59,10 +60,10 @@ export class ConversationService {
     }
   }
 
-  observeList(callback: (conversations: Conversation[]) => void, options: PageOptions = {}): () => void {
+  observeList(callback: (conversations: Conversation[]) => void, options: PageOptions & ListenerOptions = {}): () => void {
     const uid = requireUid(auth.currentUser?.uid);
     const pageSize = clampPageSize(options.pageSize);
-    return onSnapshot(conversationQuery(uid, pageSize), (snapshot) => callback(snapshot.docs.map(toConversation)));
+    return onSnapshot(conversationQuery(uid, pageSize), listenOptions<SnapshotListenOptions>(options), (snapshot) => callback(snapshot.docs.map(toConversation)));
   }
 
   async create(input: CreateConversationInput = {}): Promise<Conversation['id']> {
@@ -146,9 +147,9 @@ export class ConversationService {
     }
   }
 
-  observe(id: Conversation['id'], callback: (value: Conversation) => void): () => void {
+  observe(id: Conversation['id'], callback: (value: Conversation) => void, options?: ListenerOptions): () => void {
     requireUid(auth.currentUser?.uid);
-    return onSnapshot(doc(db, 'conversations', id), (snapshot) => {
+    return onSnapshot(doc(db, 'conversations', id), listenOptions<SnapshotListenOptions>(options), (snapshot) => {
       if (snapshot.exists()) callback({ id, ...(snapshot.data() as ConversationDocument) });
     });
   }

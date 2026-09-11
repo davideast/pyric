@@ -258,7 +258,7 @@ export function ChatPage({ services }: ChatPageProps) {
       setOnline([]);
       return;
     }
-    const unsubscribe = services.presence.observe(setOnline);
+    const unsubscribe = services.presence.observe(setOnline, { owner: 'presence-bar' });
     let alive = true;
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
       void services.notifications.enable((message) => {
@@ -315,7 +315,7 @@ export function ChatPage({ services }: ChatPageProps) {
     void services.conversations.list().then(applyList).catch((reason: unknown) => {
       if (alive) { setError(errorMessage(reason, 'Could not load conversations')); setConversationLoading(false); }
     });
-    const unsubscribe = services.conversations.observeList(applyList);
+    const unsubscribe = services.conversations.observeList(applyList, { owner: 'conversation-list' });
     return () => { alive = false; unsubscribe(); };
   }, [deletingConversationId, services, user]);
 
@@ -334,10 +334,10 @@ export function ChatPage({ services }: ChatPageProps) {
       if (!alive) return;
       setMessages((current) => reconcileMessages(nextMessages, current));
       setMessageLoading(false);
-    });
+    }, { owner: 'message-thread' });
     const unsubscribeConversation = services.conversations.observe(activeConversationId, (conversation) => {
       setConversations((current) => current.map((item) => item.id === conversation.id ? conversation : item));
-    });
+    }, { owner: 'conversation-header' });
     return () => { alive = false; unsubscribeMessages(); unsubscribeConversation(); };
   }, [activeConversationId, services, user]);
 
