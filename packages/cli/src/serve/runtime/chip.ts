@@ -10,6 +10,8 @@ import {
   type ChipDialogController,
 } from './chip-dialog.js';
 import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
+import type { ListenerMode } from './listener-mode.js';
+import type { ListenerOutline } from './listener-outline-model.js';
 import {
   getLens as defaultGetLens,
   setLens as defaultSetLens,
@@ -31,6 +33,13 @@ export interface PyricRuntimeChipOptions {
   setLens?: (lens: AuthLens | undefined) => void;
   /** Injectable lens subscription (defaults to worker client subscribeLens). */
   subscribeLens?: (listener: (lens: AuthLens | undefined) => void) => () => void;
+  /**
+   * Build the Listeners mode this chip toggles. Called once, on the first
+   * toggle, with the callback the mode reports each recomputation through.
+   * Omitted leaves the toggle out: a page with no sandbox event source has
+   * nothing to outline.
+   */
+  listeners?: (onChange: (outlines: readonly ListenerOutline[]) => void) => ListenerMode;
 }
 
 export interface PyricRuntimeChip {
@@ -140,6 +149,8 @@ const styles = `
   .worker-state-col { border-top: 1px solid var(--pyric-border-soft); color: var(--pyric-muted); font-size: 10px; display: flex; flex-direction: column; min-height: 34px; padding: 7px 12px; }
   .worker-state-row { align-items: center; display: flex; justify-content: space-between; width: 100%; }
   .worker-state-subline { color: #89899f; font: 9px/1.4 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; text-align: right; width: 100%; }
+  .listener-row { color: #d7d7df; display: flex; font: 9px/1.6 ui-monospace, monospace; gap: 8px; justify-content: space-between; margin-top: 4px; overflow-wrap: anywhere; }
+  .button[aria-pressed="true"] { background: rgba(25,204,97,.12); border-color: rgba(25,204,97,.4); color: var(--pyric-accent); }
   .worker-state .available { color: var(--pyric-warning); }
   .worker-state .state-label, .worker-state-col .state-label { align-items: center; display: flex; gap: 7px; white-space: nowrap; }
   .mini-dot { background: var(--pyric-accent); border-radius: 50%; height: 6px; width: 6px; }
@@ -272,6 +283,19 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     subscribeAuth: providedIdentity?.subscribeAuth ?? (() => () => {}),
   };
 
+  let listenerMode: ListenerMode | null = null;
+  let unattributedListeners: readonly ListenerOutline[] = [];
+  const ensureListenerMode = (): ListenerMode | null => {
+    if (listenerMode !== null) return listenerMode;
+    const build = options.listeners;
+    if (build === undefined) return null;
+    listenerMode = build((outlines) => {
+      unattributedListeners = outlines.filter((outline) => outline.selectors.length === 0);
+      render();
+    });
+    return listenerMode;
+  };
+
   const dialogController: ChipDialogController = createChipDialogController({
     shadowRoot: root,
     identity,
@@ -333,6 +357,24 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     const identitySignalHtml = identitySignals.join('');
 
+    const listenersOn = listenerMode?.enabled() === true;
+    let listenersButtonHtml = '';
+    if (options.listeners) {
+      listenersButtonHtml = `<button class="button" type="button" data-toggle-listeners aria-pressed="${listenersOn}">Listeners</button>`;
+    }
+    let listenerPanelHtml = '';
+    if (listenersOn && unattributedListeners.length > 0) {
+      const rows = unattributedListeners.map((outline) => {
+        const target = outline.isQuery ? `${outline.target} (query)` : outline.target;
+        return `<div class="listener-row"><span>${escapeAttribute(outline.label)}</span><span>${escapeAttribute(target)}</span></div>`;
+      }).join('');
+      listenerPanelHtml = `<div class="worker-state-col" data-listener-panel>
+          <div class="worker-state-row"><span class="state-label">Listeners off screen</span><span class="epochs">${unattributedListeners.length}</span></div>
+          ${rows}
+          <div class="worker-state-subline">Nothing on the page could be outlined for these.</div>
+        </div>`;
+    }
+
     view.innerHTML = `${open ? `
       <section class="panel" role="dialog" aria-label="pyric">
         <header class="panel-header">
@@ -352,10 +394,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         </div>
         <div class="worker-state"><span class="state-label">Rules</span><span class="epochs" style="${isAdmin ? 'color: #8f7fe8; font-weight: 500;' : ''}">${isAdmin ? 'bypassed' : 'enforced'}</span></div>
         <div class="worker-state"><span class="state-label">Identity</span>${identityStateHtml}</div>
+        ${listenerPanelHtml}
         <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
         <div class="actions">
           <button class="button update" type="button" data-update-worker ${snapshot.updateAvailable ? '' : 'disabled'} aria-disabled="${snapshot.updateAvailable && !snapshot.updatingWorker ? 'false' : 'true'}">${snapshot.updatingWorker ? 'Updating…' : 'Update worker'}</button>
           <button class="button" type="button" data-open-impersonate>Identity</button>
+          ${listenersButtonHtml}
           ${studioUrl
             ? `<a class="button" data-open-studio href="${escapeAttribute(studioUrl)}" target="_blank" rel="noopener noreferrer">Studio${icons.external}</a>`
             : `<span class="button" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio${icons.external}</span>`}
@@ -403,6 +447,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     root.querySelector('[data-update-worker]')?.addEventListener('click', () => {
       if (!snapshot.updateAvailable || snapshot.updatingWorker) return;
       void options.runtime.updateWorker().catch(() => { /* status records and renders the failure */ });
+    });
+    root.querySelector('[data-toggle-listeners]')?.addEventListener('click', () => {
+      const mode = ensureListenerMode();
+      if (mode === null) return;
+      mode.setEnabled(!mode.enabled());
+      if (!mode.enabled()) unattributedListeners = [];
+      render();
     });
     root.querySelector('[data-open-impersonate]')?.addEventListener('click', (e) => {
       void dialogController.open(e.currentTarget as HTMLElement);
@@ -459,6 +510,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       unsubAuth();
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
       dialogController.dispose();
+      listenerMode?.dispose();
       host.remove();
     },
   };
