@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { componentNameFromStack } from '../../src/primitives/hooks/useListenerOwner.js';
 import { useListenerOwner } from '../../src/primitives/hooks/useListenerOwner.js';
 import { act, renderHook } from '../helpers/render-hook.js';
 import { FakeElement } from '../helpers/fake-element.js';
@@ -54,6 +55,21 @@ describe('useListenerOwner', () => {
     expect(result.current.owner?.kind).toBe('component');
     if (result.current.owner?.kind !== 'component') throw new Error('expected a component owner');
     expect(result.current.owner.element).toBe(element);
+  });
+
+  it('finds the component after the hook frame when every module shares one bundled file', () => {
+    const stack = [
+      'Error',
+      '    at captureComponentOwner (http://localhost:3473/assets/index-abc.js:10:5)',
+      '    at http://localhost:3473/assets/index-abc.js:20:5',
+      '    at mountMemo (http://localhost:3473/assets/index-abc.js:30:5)',
+      '    at Object.useMemo (http://localhost:3473/assets/index-abc.js:40:5)',
+      '    at useListenerOwner (http://localhost:3473/assets/index-abc.js:50:5)',
+      '    at useOrders (http://localhost:3473/assets/index-abc.js:60:5)',
+      '    at ChatPage (http://localhost:3473/assets/index-abc.js:70:5)',
+      '    at renderWithHooks (http://localhost:3473/assets/index-abc.js:80:5)',
+    ].join('\n');
+    expect(componentNameFromStack(stack)).toBe('ChatPage');
   });
 
   it('records no owner at all in a production build', () => {

@@ -140,15 +140,45 @@ function parseRenderFrame(line: string): RenderFrame | undefined {
 
 /** The first non-framework frame in a plain call stack: the component
  *  currently rendering, when this is called directly from its body. */
-function callingComponentName(stack: string | undefined): string | undefined {
+/**
+ * The component that called the hook, read from a render-phase stack.
+ *
+ * The stack below this hook is fixed in shape: this module's frames, then
+ * `useListenerOwner` itself, then any custom hooks the component routed
+ * through, then the component, then React. So the first named frame after
+ * `useListenerOwner` that is not itself a hook is the component, whatever
+ * file it lives in. That is what keeps the answer right in a bundled app,
+ * where every module shares one file and a file-based test would exclude the
+ * component along with this module. When the hook's own frame is absent, the
+ * file-based test is the fallback.
+ */
+export function componentNameFromStack(stack: string | undefined): string | undefined {
   if (typeof stack !== 'string') return undefined;
+  const frames: RenderFrame[] = [];
   for (const line of stack.split('\n')) {
     const frame = parseRenderFrame(line);
-    if (frame === undefined) continue;
+    if (frame !== undefined) frames.push(frame);
+  }
+  const hookIndex = frames.findIndex((frame) => frame.name === 'useListenerOwner');
+  if (hookIndex >= 0) {
+    for (const frame of frames.slice(hookIndex + 1)) {
+      if (isHookName(frame.name)) continue;
+      if (frame.file.includes('/node_modules/')) continue;
+      return frame.name;
+    }
+    return undefined;
+  }
+  for (const frame of frames) {
     if (isFrameworkFile(frame.file)) continue;
     return frame.name;
   }
   return undefined;
+}
+
+/** `true` for a frame name that follows React's hook convention (`useX`). */
+function isHookName(name: string): boolean {
+  const bare = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name;
+  return /^use[A-Z0-9_]/.test(bare);
 }
 
 /** `react`'s own `captureOwnerStack` export, when the installed version has
@@ -169,7 +199,7 @@ function ancestorPathFromOwnerStack(stack: string | undefined): string[] {
   for (const line of stack.split('\n')) {
     const frame = parseRenderFrame(line);
     if (frame === undefined) continue;
-    if (isFrameworkFile(frame.file)) continue;
+    if (frame.file.includes('/node_modules/')) continue;
     names.push(frame.name);
   }
   return names.reverse();
@@ -184,7 +214,7 @@ function captureComponentOwner(
   // stack reading, and this module's pyric types all leave the build. A
   // bundler defines `process.env.NODE_ENV`; under Node it is the real value.
   if (process.env.NODE_ENV === 'production') return undefined;
-  const name = callingComponentName(new Error().stack);
+  const name = componentNameFromStack(new Error().stack);
   if (name === undefined) return undefined;
   const capture = override ?? reactCaptureOwnerStack;
   const path = ancestorPathFromOwnerStack(capture() ?? undefined);
