@@ -1,12 +1,21 @@
 /**
- * Listeners surface (feature: Listeners). Wires the live event stream and
- * the deep link (`?view=listeners&listener=<id>&target=<path>`, read once at
- * startup by the caller) into the presentational `ListenersView`.
+ * Listeners surface (feature: Listeners). The Traffic tab strip renders this
+ * for `?view=listeners`. It wires the live event stream and the runtime
+ * chip's deep link (`?view=listeners&listener=<id>&target=<path>`, read off
+ * the routed query) into the presentational `ListenersView`.
  */
 
+import { useSyncExternalStore } from 'react';
 import { useStudioEvents } from '../../shell/studio-events.js';
+import { currentPath, subscribeToLocation } from '../../shell/router.js';
 import { ListenersView } from './ListenersView.js';
-import type { ListenersDeepLink } from './listeners-deep-link.js';
+import { listenersDeepLinkFromQuery, type ListenersDeepLink } from './listeners-deep-link.js';
+
+const CLOSED: ListenersDeepLink = { open: false };
+
+function routedDeepLink(): ListenersDeepLink {
+  return listenersDeepLinkFromQuery(currentPath().query);
+}
 
 export interface ListenersSurfaceProps {
   deepLink?: ListenersDeepLink;
@@ -14,11 +23,16 @@ export interface ListenersSurfaceProps {
 
 export function ListenersSurface({ deepLink }: ListenersSurfaceProps) {
   const events = useStudioEvents();
-  return (
-    <ListenersView
-      events={events}
-      highlightListenerId={deepLink?.listenerId}
-      initialTargetPrefix={deepLink?.targetPrefix}
-    />
-  );
+  // The link lives in the URL, so back/forward and a chip click that lands on
+  // an already-open Studio both move the selection (N4: the URL is the store).
+  const routed = useSyncExternalStore(subscribeToLocation, routedDeepLink, () => CLOSED);
+  const link = deepLink ?? routed;
+  const props: {
+    events: readonly typeof events[number][];
+    selectedListenerId?: string;
+    initialTargetPrefix?: string;
+  } = { events };
+  if (link.listenerId !== undefined) props.selectedListenerId = link.listenerId;
+  if (link.targetPrefix !== undefined) props.initialTargetPrefix = link.targetPrefix;
+  return <ListenersView {...props} />;
 }

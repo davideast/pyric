@@ -53,14 +53,16 @@ import {
 import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-selection.js';
 import { TrafficRulesInspector } from './TrafficRulesInspector.js';
 import { BillableMetricsView, RulesMetricsView } from './TrafficMetricsViews.js';
+import { ListenersSurface } from '../listeners/index.js';
 import { TRAFFIC_TABS, trafficTabForView, type TrafficTab } from './traffic-tabs.js';
 import { trafficTimeFocus, toggleTimeFocus } from './timeline-focus.js';
 import './traffic.css';
 
 export type { TrafficTab } from './traffic-tabs.js';
 
-/** The Traffic tab strip's three views (Firebase Console "Usage" reference:
- *  Timeline / Billable metrics / Rules), deep-linkable via
+/** The Traffic tab strip's four views (Firebase Console "Usage" reference:
+ *  Timeline / Billable metrics / Rules, plus Listeners — every listener the
+ *  session holds attached, across services), deep-linkable via
  *  `?view=` (omitted for the default `timeline`, matching the `inspect`
  *  param's drop-when-empty precedent in `shell/path.ts`). */
 function deriveTrafficTab(): TrafficTab {
@@ -274,6 +276,8 @@ export function TrafficSurface() {
         <BillableMetricsView events={events} window={window} />
       ) : tab === 'rules' ? (
         <RulesMetricsView events={events} window={window} />
+      ) : tab === 'listeners' ? (
+        <ListenersSurface />
       ) : (
         <>
           <TrafficTimeline
