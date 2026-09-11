@@ -51,6 +51,16 @@ function subscribeWithLiveAuth(
   return stop;
 }
 
+/**
+ * The listen options a recursive `onlyOnce` subscribe should keep: the owner,
+ * never `onlyOnce` itself, which the outer call already honored.
+ */
+function ownerOnlyOptions(options: ListenOptions | undefined): ListenOptions | undefined {
+  const owner = options?.owner;
+  if (owner === undefined) return undefined;
+  return { owner };
+}
+
 function queryScope(r: DatabaseReference | Query): string {
   return queryIdentifier(r._spec);
 }
@@ -109,7 +119,7 @@ function onValueInternal(
       if (unsub) unsub();
       cb(snap);
     };
-    unsub = onValueInternal(r, onceCb, cancelCallback, undefined, registryCallback);
+    unsub = onValueInternal(r, onceCb, cancelCallback, ownerOnlyOptions(listenOptions), registryCallback);
     // Synchronous initial fire: `onceCb` ran before `unsub` was set, so
     // remove the now-stale listener here.
     if (fired) unsub();
@@ -153,6 +163,7 @@ function onValueInternal(
           q._spec,
           cancelCallback,
           onCanceled,
+          listenOptions?.owner,
         ),
         unregister,
       );
@@ -189,6 +200,7 @@ function onValueInternal(
         undefined,
         cancelCallback,
         onCanceled,
+        listenOptions?.owner,
       ),
       unregister,
     );

@@ -1,4 +1,10 @@
 import type { AuthState } from 'pyric/sandbox';
+import type { ListenerOwner } from '../../sandbox/types/events.js';
+import { recordEffectRegions } from '../../sandbox/attribution/effect-regions.js';
+import {
+  listenerAttachOwners,
+  type ListenerOwnerHint,
+} from '../../sandbox/attribution/listener-owners.js';
 import { jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { BackendState } from './backend-state.js';
 import type { ValueListener, ValueListenerSnapshot } from './listener-types.js';
@@ -38,6 +44,7 @@ export class ValueListeners {
     query?: QuerySpec,
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
+    owner?: ListenerOwnerHint,
   ): () => void {
     const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
@@ -80,7 +87,7 @@ export class ValueListeners {
     }
     return this.attach(auth, path, cb, query, {
       origin: 'listener', result: 'allow', evaluation, at,
-    }, cancelCallback, onCanceled);
+    }, cancelCallback, onCanceled, owner);
   }
 
   adminOnValue(path: string, cb: (snap: ValueListenerSnapshot) => void, query?: QuerySpec): () => void {
@@ -102,16 +109,21 @@ export class ValueListeners {
     },
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
+    owner?: ListenerOwnerHint,
   ): () => void {
     const id = this.state.events.nextListenerId();
+    const attachOwners = listenerAttachOwners(owner);
     this.state.events.operation(auth, 'listen', path, provenance.result, provenance.evaluation, {
       at: provenance.at, durationMs: this.state.clock.now() - provenance.at,
       request: query ? { query } : undefined, origin: provenance.origin,
     });
-    const listener: ValueListener = { id, auth, cb, path, query, cancelCallback, onCanceled };
+    const listener: ValueListener = {
+      id, auth, cb, path, query, cancelCallback, onCanceled, owners: attachOwners,
+    };
     this.state.valueListeners.add(listener);
     this.state.events.listener('attach', listener, auth, {
       event: 'value', result: 'allow', detail: query ? { query } : undefined,
+      owners: attachOwners,
     });
     if (query) {
       const rows = executeQuery(this.state.tree.read(path), query, this.state.priorities.forChild(path));
@@ -194,19 +206,32 @@ export class ValueListeners {
     return segments.length === 0 ? null : segments[segments.length - 1]!;
   }
 
+  /**
+   * Deliver to a subscribed listener. The callback runs before the delivery
+   * event is emitted so the event can carry the regions the callback touched;
+   * the callback itself sees the same snapshot, in the same order, at the
+   * same moment it always did.
+   */
   private deliver(listener: ValueListener, snapshot: ValueListenerSnapshot, detail: Record<string, unknown>): void {
+    let thrown: unknown;
+    let caught = false;
+    const regions = recordEffectRegions(() => {
+      try {
+        listener.cb(snapshot);
+      } catch (error) {
+        thrown = error;
+        caught = true;
+      }
+    });
     this.state.events.listener('delivery', listener, listener.auth, {
       event: 'value', size: snapshot.rows?.length ?? (snapshot.exists ? 1 : 0),
-      sample: snapshot.val, detail,
+      sample: snapshot.val, detail, owners: ownersFor(regions),
     });
-    try {
-      listener.cb(snapshot);
-    } catch (error) {
-      this.state.events.listener('errored', listener, listener.auth, {
-        event: 'value', result: 'error',
-        error: { message: error instanceof Error ? error.message : String(error) }, detail,
-      });
-    }
+    if (!caught) return;
+    this.state.events.listener('errored', listener, listener.auth, {
+      event: 'value', result: 'error',
+      error: { message: thrown instanceof Error ? thrown.message : String(thrown) }, detail,
+    });
   }
 
   private deliverInitial(
@@ -214,19 +239,34 @@ export class ValueListeners {
     snapshot: ValueListenerSnapshot,
     detail: Record<string, unknown>,
   ): void {
-    try {
-      listener.cb(snapshot);
+    let thrown: unknown;
+    let caught = false;
+    const regions = recordEffectRegions(() => {
+      try {
+        listener.cb(snapshot);
+      } catch (error) {
+        thrown = error;
+        caught = true;
+      }
+    });
+    if (!caught) {
       this.state.events.listener('delivery', listener, listener.auth, {
         event: 'value', size: snapshot.rows?.length ?? (snapshot.exists ? 1 : 0),
-        sample: snapshot.val, detail,
+        sample: snapshot.val, detail, owners: ownersFor(regions),
       });
-    } catch (error) {
-      this.state.events.listener('errored', listener, listener.auth, {
-        event: 'value', result: 'error',
-        error: { message: error instanceof Error ? error.message : String(error) }, detail,
-      });
+      return;
     }
+    this.state.events.listener('errored', listener, listener.auth, {
+      event: 'value', result: 'error',
+      error: { message: thrown instanceof Error ? thrown.message : String(thrown) }, detail,
+    });
   }
+}
+
+/** Wrap one optional owner as the event's owner array, or omit it. */
+export function ownersFor(owner: ListenerOwner | undefined): ListenerOwner[] | undefined {
+  if (owner === undefined) return undefined;
+  return [owner];
 }
 
 function pathsTouch(listenerPath: string, touchedPath: string): boolean {

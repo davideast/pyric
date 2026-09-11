@@ -1,4 +1,5 @@
 import type { AuthState, Sandbox, SandboxOperationEvent } from 'pyric/sandbox';
+import type { ListenerOwner } from '../../sandbox/types/events.js';
 import { emitSandboxEvent, getClock, makeSandboxCommitEvent, makeSandboxListenerEvent, makeSandboxOperationEvent, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import { joinPath, pathSegments } from './data-tree.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
@@ -143,6 +144,7 @@ export class OperationEvents {
       detail?: Record<string, unknown>;
       reasons?: string[];
       rules?: SandboxOperationEvent['rules'];
+      owners?: ListenerOwner[];
     } = {},
   ): void {
     if (!this.sandbox) return;
@@ -158,6 +160,7 @@ export class OperationEvents {
         auth, result: fields.result, size: fields.size, sample: fields.sample,
         reason: fields.reason, error: fields.error, triggeredBy: fields.triggeredBy,
         detail: fields.detail, reasons: fields.reasons, rules: fields.rules,
+        owners: fields.owners,
       }), { service: 'rtdb' });
     } catch { /* telemetry is observational */ }
   }
