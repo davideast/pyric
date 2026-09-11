@@ -221,13 +221,46 @@ export function tagOwnerFor(hint: ListenerOwnerHint | undefined): ListenerOwner 
 }
 
 /**
+ * The internal listen option that carries owners a caller already recorded.
+ *
+ * It exists for one caller: a client that reaches the sandbox across a port
+ * rather than calling it in the same context. The served page runs the
+ * sandbox in a SharedWorker, so an attach inside the worker sees a
+ * worker-bundle frame, no `owner` hint, and no DOM. That client derives the
+ * owners on the page, where all three are real, and hands them over here.
+ *
+ * The option is reached through `pyric/sandbox/internal` and is not part of
+ * any mirrored Firebase surface. The public `owner` hint is unchanged: a
+ * caller still passes a name, an element, or a component record, and the
+ * sandbox still derives the owners itself when no `owners` arrive.
+ */
+export interface RecordedListenerOwners {
+  readonly owners?: readonly ListenerOwner[];
+}
+
+/**
+ * Both attribution inputs a listen call can carry: the caller's `owner` hint
+ * and, for a caller on the other side of a port, the owners it already
+ * recorded. Backends that take attribution as one argument take this.
+ */
+export interface ListenerAttribution extends RecordedListenerOwners {
+  readonly owner?: ListenerOwnerHint;
+}
+
+/**
  * Every owner known at attach time, in a stable order: frame first, then tag.
  * Returns `undefined` rather than an empty array so an event with no
  * attribution omits the field entirely.
+ *
+ * `recorded` owners replace both: the caller derived them where the calling
+ * frame and the DOM exist, so deriving them again here would only describe
+ * this context.
  */
 export function listenerAttachOwners(
   hint?: ListenerOwnerHint,
+  recorded?: readonly ListenerOwner[],
 ): ListenerOwner[] | undefined {
+  if (recorded !== undefined && recorded.length > 0) return [...recorded];
   const owners: ListenerOwner[] = [];
   const frame = captureCreationFrame();
   if (frame !== undefined) owners.push(frame);

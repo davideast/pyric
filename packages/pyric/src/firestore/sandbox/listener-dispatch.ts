@@ -271,8 +271,10 @@ export class ListenerDispatch {
   ): () => void {
     const id = String(this.nextListenerId++);
     // One `Error` construction per attach, on the caller's own stack, the
-    // only place the application frame is still reachable.
-    const attachOwners = listenerAttachOwners(options.owner);
+    // only place the application frame is still reachable. A caller reaching
+    // the sandbox across a port sends `options.owners` instead: its stack and
+    // its DOM are on the other side, and this one describes neither.
+    const attachOwners = listenerAttachOwners(options.owner, options.owners);
     const record: ListenerRecord = {
       id,
       target,

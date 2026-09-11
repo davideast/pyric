@@ -10,7 +10,10 @@ import { AUTH_SESSION_SCOPE, FOLLOWS_CURRENT_USER } from 'pyric/firestore/intern
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { toFirestoreFirebaseError } from './errors.js';
 import { clientStateFor } from './client-state.js';
-import type { ListenerOwnerHint } from '../sandbox/attribution/listener-owners.js';
+import type {
+  ListenerOwnerHint,
+  RecordedListenerOwners,
+} from '../sandbox/attribution/listener-owners.js';
 
 import {
   targetOf,
@@ -30,7 +33,7 @@ import type {
 
 // ─── Snapshot listeners ───────────────────────────────────────────────
 
-export interface SnapshotListenOptions {
+export interface SnapshotListenOptions extends RecordedListenerOwners {
   includeMetadataChanges?: boolean;
   /**
    * Pyric's own extension, absent from the Firebase Web SDK: who owns this

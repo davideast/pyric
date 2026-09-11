@@ -3,7 +3,7 @@
  * aggregate descriptors, write descriptors, and document data serialization.
  */
 import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
-import type { AuthLens } from 'pyric/sandbox';
+import type { AuthLens, ListenerOwner } from 'pyric/sandbox';
 
 // ─── Ref descriptors (client-side, never cross the port directly) ──────────
 
@@ -162,6 +162,13 @@ export interface FirestoreSubMessage {
    * watches as the app's own session (the unchanged default).
    */
   actAs?: AuthLens;
+  /**
+   * The listener's owners, derived on the page that opened it. The sandbox
+   * attaches inside the worker, where the calling frame belongs to the worker
+   * bundle, the caller's `owner` option never arrived, and there is no DOM, so
+   * the page derives them and the host records these instead.
+   */
+  owners?: ListenerOwner[];
   /** Mechanical op provenance. */
   issuer?: 'studio';
   /** Marks traffic relayed from a remote Node/agent consumer, never page app activity. */

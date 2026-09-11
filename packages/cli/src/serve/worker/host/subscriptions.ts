@@ -176,6 +176,8 @@ export function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMes
       ref as DatabaseReference | RtdbQuery,
       (snap) => post(port, { t: 'snap', subId: msg.subId, value: rtdbSnapToWire(snap) }),
       (err) => post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } }),
+      // Same reason as the Firestore path: the owners belong to the page.
+      { ...(msg.owners ? { owners: msg.owners } : {}) },
     );
 
     if (!msg.actAs || msg.actAs.mode === 'app-session') {
@@ -200,6 +202,10 @@ function registerListener(
 ): () => void {
   return onSnapshot(
     target as DocumentReference | Query,
+    // The page derived the owners where its stack and its DOM are. Handing
+    // them over makes the sandbox record those instead of capturing a frame
+    // out of this worker's own bundle.
+    { ...(msg.owners ? { owners: msg.owners } : {}) },
     (snap) => {
       // Detect doc vs query snapshot by shape.
       const snapAny = snap as {

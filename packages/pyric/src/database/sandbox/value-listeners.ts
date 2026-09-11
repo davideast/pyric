@@ -3,7 +3,7 @@ import type { ListenerOwner } from '../../sandbox/types/events.js';
 import { recordEffectRegions } from '../../sandbox/attribution/effect-regions.js';
 import {
   listenerAttachOwners,
-  type ListenerOwnerHint,
+  type ListenerAttribution,
 } from '../../sandbox/attribution/listener-owners.js';
 import { jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { BackendState } from './backend-state.js';
@@ -44,7 +44,7 @@ export class ValueListeners {
     query?: QuerySpec,
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
-    owner?: ListenerOwnerHint,
+    attribution?: ListenerAttribution,
   ): () => void {
     const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
@@ -87,7 +87,7 @@ export class ValueListeners {
     }
     return this.attach(auth, path, cb, query, {
       origin: 'listener', result: 'allow', evaluation, at,
-    }, cancelCallback, onCanceled, owner);
+    }, cancelCallback, onCanceled, attribution);
   }
 
   adminOnValue(path: string, cb: (snap: ValueListenerSnapshot) => void, query?: QuerySpec): () => void {
@@ -109,10 +109,10 @@ export class ValueListeners {
     },
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
-    owner?: ListenerOwnerHint,
+    attribution?: ListenerAttribution,
   ): () => void {
     const id = this.state.events.nextListenerId();
-    const attachOwners = listenerAttachOwners(owner);
+    const attachOwners = listenerAttachOwners(attribution?.owner, attribution?.owners);
     this.state.events.operation(auth, 'listen', path, provenance.result, provenance.evaluation, {
       at: provenance.at, durationMs: this.state.clock.now() - provenance.at,
       request: query ? { query } : undefined, origin: provenance.origin,

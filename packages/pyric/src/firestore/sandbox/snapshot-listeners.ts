@@ -11,7 +11,10 @@
  * section 4, section 5).
  */
 import type { DocumentData } from './local-state.js';
-import type { ListenerOwnerHint } from '../../sandbox/attribution/listener-owners.js';
+import type {
+  ListenerOwnerHint,
+  RecordedListenerOwners,
+} from '../../sandbox/attribution/listener-owners.js';
 import type { Operation } from './local-environment.js';
 // FS-B10 — translate the listener read path so `snap.data()` exposes the
 // SAME compat-shaped values (`Timestamp` `{seconds, nanoseconds}`, `Bytes`,
@@ -81,7 +84,7 @@ export type SnapshotTarget =
  * `LocalEnvironment.notifyDocListener` / `notifyQueryListener`. `fromCache`
  * remains constant `false` — the sandbox has no offline cache to serve from.
  */
-export interface SnapshotListenerOptions {
+export interface SnapshotListenerOptions extends RecordedListenerOwners {
   includeMetadataChanges?: boolean;
   source?: 'default' | 'cache';
   /**

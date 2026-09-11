@@ -1,9 +1,11 @@
 // Minimal firebase/* app for the served-mode auth repro. Under `pyric dev`
 // these imports are swapped to the pyric sandbox (worker-backed auth).
 import { deleteApp, initializeApp } from 'firebase/app';
+import { doc, getFirestore, onSnapshot } from 'firebase/firestore';
 import {
   getAuth,
   onAuthStateChanged,
+  signInAnonymously,
   signInWithPopup,
   GoogleAuthProvider,
 } from 'firebase/auth';
@@ -54,3 +56,23 @@ document
       window.__authError = { code: error?.code, message: error?.message };
     });
   });
+
+// A page-side Firestore listener with an explicit owner. On a served page the
+// sandbox runs in a SharedWorker, so this call is what proves the owner the
+// caller passed reaches the worker's attach event instead of stopping at the
+// port.
+const db = getFirestore(app);
+window.__noteFires = 0;
+document.getElementById('listen').addEventListener('click', async () => {
+  // The fixture's rules allow reads to signed-in callers only.
+  if (!auth.currentUser) await signInAnonymously(auth);
+  onSnapshot(
+    doc(db, 'notes/astro-host'),
+    { owner: 'notes-panel' },
+    (snap) => {
+      window.__noteFires += 1;
+      const panel = document.getElementById('notes-panel');
+      if (panel) panel.textContent = JSON.stringify(snap.data() ?? null);
+    },
+  );
+});

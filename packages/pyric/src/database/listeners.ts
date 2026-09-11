@@ -5,6 +5,7 @@ import { authFor, targetOf, type Target } from './routing.js';
 import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
 import type { QueryRow } from './sandbox/query.js';
 import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
+import type { ListenerAttribution } from '../sandbox/attribution/listener-owners.js';
 import { child } from './references.js';
 import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
 
@@ -52,13 +53,21 @@ function subscribeWithLiveAuth(
 }
 
 /**
- * The listen options a recursive `onlyOnce` subscribe should keep: the owner,
- * never `onlyOnce` itself, which the outer call already honored.
+ * The attribution a listen call carries, or `undefined` when it carries none.
+ * The backend takes both inputs as one argument.
+ */
+function attributionOf(options: ListenOptions | undefined): ListenerAttribution | undefined {
+  if (options === undefined) return undefined;
+  if (options.owner === undefined && options.owners === undefined) return undefined;
+  return { owner: options.owner, owners: options.owners };
+}
+
+/**
+ * The listen options a recursive `onlyOnce` subscribe should keep: the
+ * attribution, never `onlyOnce` itself, which the outer call already honored.
  */
 function ownerOnlyOptions(options: ListenOptions | undefined): ListenOptions | undefined {
-  const owner = options?.owner;
-  if (owner === undefined) return undefined;
-  return { owner };
+  return attributionOf(options);
 }
 
 function queryScope(r: DatabaseReference | Query): string {
@@ -163,7 +172,7 @@ function onValueInternal(
           q._spec,
           cancelCallback,
           onCanceled,
-          listenOptions?.owner,
+          attributionOf(listenOptions),
         ),
         unregister,
       );
@@ -200,7 +209,7 @@ function onValueInternal(
         undefined,
         cancelCallback,
         onCanceled,
-        listenOptions?.owner,
+        attributionOf(listenOptions),
       ),
       unregister,
     );

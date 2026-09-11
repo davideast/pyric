@@ -12,6 +12,7 @@ import type {
 } from '../protocol.js';
 import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
+import { pageListenerOwners } from './listener-owners.js';
 import { makeDocSnapshot, makeQuerySnapshot } from './snapshots.js';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot } from './snapshots.js';
 
@@ -130,8 +131,8 @@ type SnapshotErrorCallback = (err: unknown) => void;
  * including its options-second form `onSnapshot(target, options, next,
  * error)`: `@pyric/ui`'s hooks pass `{ owner }` there for listener
  * attribution, and a caller injecting this client as the hooks' backend must
- * not lose its callback to that slot. The options are accepted and dropped;
- * the worker protocol carries no listener owner yet.
+ * not lose its callback to that slot. The owners are derived here, on the page
+ * whose stack and DOM they describe, and travel with the subscribe message.
  *
  * Returns an `unsub` function. Sends `{ t:'unsub', subId }` to the worker
  * to deregister the listener on the worker side.
@@ -153,6 +154,10 @@ export function onSnapshot(
   callbackOrError?: SnapshotCallback | SnapshotErrorCallback,
   maybeError?: SnapshotErrorCallback,
 ): Unsubscribe {
+  const listenOptions = typeof optionsOrCallback === 'function' ? undefined : optionsOrCallback;
+  // Derived before the message is built: `captureCreationFrame` reads the
+  // stack this call is still on.
+  const owners = pageListenerOwners(listenOptions);
   const callback = (typeof optionsOrCallback === 'function'
     ? optionsOrCallback
     : callbackOrError) as SnapshotCallback;
@@ -189,8 +194,8 @@ export function onSnapshot(
     subscription,
     stampIssuer(
       (_defaultLens
-        ? { t: 'sub', subId: currentSubId, target: descriptor, actAs: _defaultLens }
-        : { t: 'sub', subId: currentSubId, target: descriptor }) satisfies InboundMessage,
+        ? { t: 'sub', subId: currentSubId, target: descriptor, actAs: _defaultLens, ...(owners ? { owners } : {}) }
+        : { t: 'sub', subId: currentSubId, target: descriptor, ...(owners ? { owners } : {}) }) satisfies InboundMessage,
     ),
   );
   if (!opened && errorCallback) queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
@@ -206,8 +211,8 @@ export function onSnapshot(
       subscription,
       stampIssuer(
         (newLens
-          ? { t: 'sub', subId: currentSubId, target: descriptor, actAs: newLens }
-          : { t: 'sub', subId: currentSubId, target: descriptor }) satisfies InboundMessage,
+          ? { t: 'sub', subId: currentSubId, target: descriptor, actAs: newLens, ...(owners ? { owners } : {}) }
+          : { t: 'sub', subId: currentSubId, target: descriptor, ...(owners ? { owners } : {}) }) satisfies InboundMessage,
       ),
     );
     if (!reopened && errorCallback) {

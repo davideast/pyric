@@ -25,11 +25,14 @@ export {
   type ListenerAttributionMode,
 } from '../attribution/attribution-mode.js';
 export {
+  callerFrameFromStack,
   captureCreationFrame,
   listenerAttachOwners,
   tagOwnerFor,
   type ComponentOwnerInput,
+  type ListenerAttribution,
   type ListenerOwnerHint,
+  type RecordedListenerOwners,
 } from '../attribution/listener-owners.js';
 export { recordEffectRegions } from '../attribution/effect-regions.js';
 export {

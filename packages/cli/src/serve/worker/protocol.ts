@@ -23,7 +23,13 @@ import type {
   ResolvedIdentity,
   AuthSubMessage,
 } from './protocol/auth.js';
-import type { AuthLens, SandboxClockState, SandboxEvent, DenialContext } from 'pyric/sandbox';
+import type {
+  AuthLens,
+  ListenerOwner,
+  SandboxClockState,
+  SandboxEvent,
+  DenialContext,
+} from 'pyric/sandbox';
 import type { Query as RtdbQuery } from 'pyric/database';
 import type {
   BrokerMessage,
@@ -255,6 +261,8 @@ export interface RtdbValueSubMessage {
   subId: string;
   target: { service: 'rtdb'; path: string; query?: RtdbQuerySpec };
   actAs?: AuthLens;
+  /** The listener's owners, derived on the page. See {@link FirestoreSubMessage}. */
+  owners?: ListenerOwner[];
   issuer?: 'studio';
   relaySource?: 'remote';
 }
