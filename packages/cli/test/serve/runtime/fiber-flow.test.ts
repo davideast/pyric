@@ -179,6 +179,27 @@ describe('the subtree a delivery rendered', () => {
     expect(subtree.leaves.map((entry) => entry.name)).toEqual(['MessageThread']);
   });
 
+  it('leaves out the owner and everything above it, such as a page root sharing the host', () => {
+    const dom = new JSDOM('<!doctype html><body><main id="page"><div id="list"><span id="item">one</span></div></main></body>');
+    const doc = dom.window.document;
+    const pageEl = doc.querySelector('#page')!;
+    const listEl = doc.querySelector('#list')!;
+    const itemEl = doc.querySelector('#item')!;
+    const app = component('App');
+    const chatPage = appendChild(app, component('ChatPage'));
+    const pageHost = appendChild(chatPage, host(pageEl));
+    const list = appendChild(pageHost, component('ConversationList'));
+    const listHost = appendChild(list, host(listEl));
+    const itemHost = appendChild(listHost, host(itemEl));
+    link(pageEl, pageHost);
+    link(listEl, listHost);
+    link(itemEl, itemHost);
+
+    const subtree = flowSubtree([itemEl], { ownerName: 'ChatPage' });
+    expect(subtree.components.map((entry) => entry.name)).toEqual(['ConversationList']);
+    expect(subtree.components.some((entry) => entry.element === pageEl)).toBe(false);
+  });
+
   it('joins two mutated branches under one root', () => {
     const page = buildPage();
     const subtree = flowSubtree([page.bubbleEl, page.itemEl]);

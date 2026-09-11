@@ -274,8 +274,15 @@ export function flowSubtree(
     const fiber = nearestFiber(node);
     if (fiber === null) continue;
     const chain = componentChain(fiber);
+    // Data flows down from the owner, so nothing at or above it in the chain
+    // is part of the flow: the owner itself is named in the badge, and a page
+    // root such as `App` above it shares the page's host element.
+    const ownerIndex = ownerName === null
+      ? -1
+      : chain.findIndex((entry) => componentName(entry) === ownerName);
     let named = 0;
     for (let index = 0; index < chain.length; index += 1) {
+      if (index <= ownerIndex) continue;
       const name = componentName(chain[index]!);
       if (name === null) continue;
       const element = hostElementFor(chain[index]!);

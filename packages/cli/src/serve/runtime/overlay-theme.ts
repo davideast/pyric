@@ -88,6 +88,8 @@ export const OVERLAY_THEME_DEFAULTS: OverlayTheme = Object.freeze({
   '--pyric-overlay-leaf-badge-font-size': '9px',
   '--pyric-overlay-leaf-badge-padding': '0 4px',
   '--pyric-overlay-fade-duration': '3000ms',
+  '--pyric-overlay-hold-duration': '1500ms',
+  '--pyric-overlay-flow-outline-width': '2px',
   '--pyric-overlay-retained-opacity': '0.3',
 });
 
@@ -338,10 +340,10 @@ export function flowStyleSheetText(): string {
   ${rootDefaults()}
   ${flowHueRules()}
   [data-pyric-flow] {
-    outline: var(--pyric-overlay-outline-width) var(--pyric-overlay-outline-style) var(--pyric-overlay-hue);
+    outline: var(--pyric-overlay-flow-outline-width) var(--pyric-overlay-outline-style) var(--pyric-overlay-hue);
     outline-offset: 0;
     border-radius: var(--pyric-overlay-radius);
-    transition: outline-color var(--pyric-overlay-fade-duration) linear;
+    transition: outline-color var(--pyric-overlay-fade-duration) linear var(--pyric-overlay-hold-duration);
   }
   [data-pyric-flow][data-pyric-flow-fading],
   [data-pyric-flow][data-pyric-flow-retained] {
@@ -366,7 +368,7 @@ export function flowStyleSheetText(): string {
     pointer-events: none;
     white-space: nowrap;
     opacity: 1;
-    transition: opacity var(--pyric-overlay-fade-duration) linear;
+    transition: opacity var(--pyric-overlay-fade-duration) linear var(--pyric-overlay-hold-duration);
   }
   [data-pyric-flow][data-pyric-flow-fading][data-pyric-flow-label]::after,
   [data-pyric-flow][data-pyric-flow-retained][data-pyric-flow-label]::after {
