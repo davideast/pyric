@@ -23,6 +23,7 @@ import { HomeSurface } from './features/home/HomeSurface.js';
 import { RtdbSurface } from './features/rtdb/RtdbSurface.js';
 import { SettingsSurface } from './features/settings/SettingsSurface.js';
 import { AssuranceSurface } from './features/assurance/index.js';
+import { ListenersSurface, currentListenersDeepLink, type ListenersDeepLink } from './features/listeners/index.js';
 
 function siteHomeHref(): string {
   return appBase();
@@ -141,6 +142,11 @@ function Shell() {
   const navigate = (id: RouteId) => navigateRoute(id);
   const [commandOpen, setCommandOpen] = useState(false);
   const docsAvailable = useDocsAvailable();
+  // The runtime chip's deep link (`?view=listeners&listener=<id>&target=
+  // <path>`) opens the Listeners surface regardless of the routed tab. Read
+  // once at startup: Studio has no router for this query shape, and it isn't
+  // one; `useState`'s lazy initializer runs exactly once, on mount.
+  const [listenersDeepLink] = useState<ListenersDeepLink>(() => currentListenersDeepLink());
 
   // Global ⌘K (Ctrl+K non-mac): on Home it focuses the inline command input;
   // elsewhere it toggles the overlay below the bar. preventDefault ONLY when
@@ -230,7 +236,11 @@ function Shell() {
 
       <main className="studio__content" data-surface={active}>
         <div className="studio__surface-slot" data-active="true">
-          <Surface id={active} />
+          {listenersDeepLink.open ? (
+            <ListenersSurface deepLink={listenersDeepLink} />
+          ) : (
+            <Surface id={active} />
+          )}
         </div>
       </main>
 
