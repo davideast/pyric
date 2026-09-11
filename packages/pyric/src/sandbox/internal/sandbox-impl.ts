@@ -32,6 +32,7 @@ import type {
   SandboxOperationEvent,
   SandboxRuntimeErrorEvent,
   ServiceMutationEvent,
+  ServiceMutationEventFields,
   SessionBoundaryEvent,
 } from '../types/events.js';
 import type { PersistableService, SandboxSnapshot } from '../types/persistence.js';
@@ -796,7 +797,7 @@ export function emitSandboxEvent(
  * site is `emitSandboxEvent(sandbox, makeServiceMutationEvent({ ... }), { service })`.
  */
 export function makeServiceMutationEvent(
-  fields: Omit<ServiceMutationEvent, 'kind' | 'id'>,
+  fields: ServiceMutationEventFields,
 ): ServiceMutationEvent {
   const { at, ...rest } = fields;
   return {

@@ -36,6 +36,7 @@
 import type { Sandbox } from '../../sandbox/types/service.js';
 import type { AuthState } from '../../sandbox/types/auth-state.js';
 import { emitSandboxEvent, makeServiceMutationEvent } from '../../sandbox/internal/sandbox-impl.js';
+import type { MessagingEventOperation } from '../events.js';
 import { getClock } from '../../sandbox/clock.js';
 import { BrokerSendError, unregisteredTokenEnvelope, invalidTopicNameEnvelope } from './envelopes.js';
 import { mintToken } from './tokens.js';
@@ -459,7 +460,7 @@ export class MessagingBroker {
    * Best-effort, storage-precedent: a throw from the emit path must never
    * fail the messaging operation the caller just completed.
    */
-  private emit(op: string, fields: { path?: string; detail?: Record<string, unknown> }): void {
+  private emit(op: MessagingEventOperation, fields: { path?: string; detail?: Record<string, unknown> }): void {
     if (this.sandbox === undefined) return;
     try {
       emitSandboxEvent(

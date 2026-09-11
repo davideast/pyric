@@ -7,11 +7,20 @@ import type { QueryProofDiagnostic } from './query-proof.js';
 
 import type { AuthState } from './auth-state.js';
 import type {
+  MutationEventService,
+  ServiceEventOperation,
+} from './service-event-records.js';
+import type {
   EventProvenance,
   EventService,
   OperationContext,
   RulesDisposition,
 } from './operation.js';
+export type { MutationEventService, ServiceEventOperation } from './service-event-records.js';
+export type {
+  ServiceEventRecord,
+  ServiceEventTarget,
+} from './service-event-record.js';
 export type {
   ActivityEventProvenance,
   AuthLens,
@@ -365,7 +374,7 @@ export interface SessionBoundaryEvent {
  * data grids / Action Center render `service` + `op` + `path` directly and
  * diff `before`→`after` when both are present.
  */
-export interface ServiceMutationEvent {
+export interface ServiceMutationEventOf<Service extends MutationEventService> {
   kind: 'service_mutation';
   id: string;
   at: number;
@@ -375,21 +384,17 @@ export interface ServiceMutationEvent {
    * provenance `service` field on the stamped event mirrors this; it is set
    * redundantly here so a consumer matching purely on `kind` still gets the
    * discriminator without reaching into provenance.)
+   *
+   * Derived from the per-service records in `service-event-records.ts`, so a
+   * service reaches this union by declaring an event record beside its own
+   * code and no other way.
    */
-  service: 'auth' | 'storage' | 'rtdb' | 'messaging' | 'ai';
+  service: Service;
   /**
-   * Service-scoped operation name. Stable, lowercase, snake/kebab-free:
-   *   - auth:    `user_create` | `user_update` | `user_delete` |
-   *              `users_clear` | `sign_in` | `sign_out`
-   *   - storage: `object_put` | `object_delete` | `metadata_update`
-   *   - rtdb:    `set` | `update` | `remove` | `transaction`
-   *   - ai:      `generate_content` | `stream_generate_content` |
-   *              `count_tokens` | `request_rejected` | `response_blocked` |
-   *              `model_substituted`
-   * New ops can be added without a breaking change (consumers switch with a
-   * default branch).
+   * Service-scoped operation name, drawn from the operations that service's
+   * own record declares. A service adds an operation by adding it there.
    */
-  op: string;
+  op: ServiceEventOperation<Service>;
   /**
    * The thing mutated, in the service's own addressing scheme:
    *   - auth:    the user `uid` (or `'*'` for a clear-all). Absent for a
@@ -416,6 +421,24 @@ export interface ServiceMutationEvent {
    *  display hint, not a contract. */
   detail?: Record<string, unknown>;
 }
+
+/**
+ * The cross-service mutation envelope, as the union over every service that
+ * declared an event record. Narrowing on `service` narrows `op` to that
+ * service's own operations.
+ */
+export type ServiceMutationEvent = {
+  [Service in MutationEventService]: ServiceMutationEventOf<Service>;
+}[MutationEventService];
+
+/**
+ * The fields a caller supplies to build a {@link ServiceMutationEvent}; `kind`
+ * and `id` are the emitter's. Distributed per service so `op` stays bound to
+ * the `service` beside it.
+ */
+export type ServiceMutationEventFields = {
+  [Service in MutationEventService]: Omit<ServiceMutationEventOf<Service>, 'kind' | 'id'>;
+}[MutationEventService];
 
 /**
  * Canonical service operation event. This is the service-neutral successor to

@@ -38,6 +38,7 @@
 
 import type { Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
+import type { AiEventOperation } from '../events.js';
 
 import { describeResponseBlock } from '../blocked.js';
 import { AiBrokerError, Synthesizer, badRole, emptyContents, missingThoughtSignature } from './synthesizer.js';
@@ -373,7 +374,7 @@ export class AiBroker {
    * Best-effort, storage-precedent: a throw from the emit path must never
    * fail the AI operation the caller just completed.
    */
-  private emit(op: string, model: string, detail: Record<string, unknown>): void {
+  private emit(op: AiEventOperation, model: string, detail: Record<string, unknown>): void {
     if (this.sandbox === undefined) return;
     try {
       emitSandboxEvent(

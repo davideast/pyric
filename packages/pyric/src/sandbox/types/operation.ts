@@ -1,7 +1,12 @@
 /** Cross-service operation identity and Security Rules disposition. */
 
-/** Which sandbox service emitted an event. */
-export type EventService = 'firestore' | 'auth' | 'storage' | 'rtdb' | 'messaging' | 'ai';
+import type { MutationEventService } from './service-event-records.js';
+
+/** Which sandbox service emitted an event. Firestore is named directly because
+ * it rides its own rule-eval-shaped `request`/`write` path rather than the
+ * cross-service mutation envelope; every other service reaches this union by
+ * declaring an event record beside its own code. */
+export type EventService = 'firestore' | MutationEventService;
 
 /** Who initiated the operation behind an event. Missing source is represented
  * explicitly as `unattributed`; it is never silently promoted to app traffic. */
