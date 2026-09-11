@@ -204,37 +204,36 @@ describe('the subtree a delivery rendered', () => {
     expect(subtree.leaves).toHaveLength(0);
   });
 
-  it('roots on the registered region and leaves the named owner unoutlined', () => {
+  it('marks neither the registered region nor the named owner', () => {
     const page = buildPage();
     const subtree = flowSubtree([page.bubbleEl], {
       regionElement: page.pageEl,
       ownerName: 'ChatPage',
     });
-    expect(subtree.root?.element).toBe(page.pageEl);
-    expect(subtree.root?.kind).toBe('region');
-    expect(subtree.root?.name).toBe('ChatPage');
-    // ChatPage's own host node is the page root; the badge names it instead.
-    expect(subtree.components.filter((box) => box.name === 'ChatPage')).toHaveLength(1);
-    expect(subtree.leaves.map((leaf) => leaf.name)).toEqual(['MessageThread']);
+    // ChatPage's own host node is the page root, which is also the region: the
+    // first label names the owner instead of outlining the whole page.
+    expect(subtree.components.some((entry) => entry.element === page.pageEl)).toBe(false);
+    expect(subtree.components.map((entry) => entry.name)).toEqual(['MessageThread']);
+    expect(subtree.root?.element).toBe(page.threadEl);
+    expect(subtree.root?.kind).toBe('component');
   });
 
-  it('names the region by its element when the owner label is not one the app gave', () => {
+  it('leaves the region unmarked even when the owner label is not one the app gave', () => {
     const page = buildPage();
     const subtree = flowSubtree([page.bubbleEl], { regionElement: page.pageEl });
-    expect(subtree.root?.name).toBe('div#page');
-    expect(subtree.root?.kind).toBe('region');
+    expect(subtree.components.some((entry) => entry.element === page.pageEl)).toBe(false);
   });
 
-  it('makes a changed node its own leaf when only the owner sits above it', () => {
+  it('makes a changed node its own mark when only the owner sits above it', () => {
     const page = buildPage();
     const subtree = flowSubtree([page.barEl], {
       regionElement: page.pageEl,
       ownerName: 'ChatPage',
     });
-    expect(subtree.leaves).toHaveLength(1);
-    expect(subtree.leaves[0]?.kind).toBe('host');
-    expect(subtree.leaves[0]?.name).toBe('div#bar');
-    expect(subtree.leaves[0]?.element).toBe(page.barEl);
+    expect(subtree.components).toHaveLength(1);
+    expect(subtree.components[0]?.kind).toBe('host');
+    expect(subtree.components[0]?.name).toBe('div#bar');
+    expect(subtree.components[0]?.element).toBe(page.barEl);
   });
 
   it('labels a changed element by its first class when it carries no id', () => {
@@ -243,7 +242,7 @@ describe('the subtree a delivery rendered', () => {
       regionElement: page.pageEl,
       ownerName: 'ChatPage',
     });
-    expect(subtree.leaves.map((leaf) => leaf.name)).toEqual(['span.conversation']);
+    expect(subtree.components.map((entry) => entry.name)).toEqual(['span.conversation']);
   });
 
   it('collapses nested changed nodes to the one at the top', () => {
@@ -252,7 +251,7 @@ describe('the subtree a delivery rendered', () => {
       regionElement: page.pageEl,
       ownerName: 'ChatPage',
     });
-    expect(subtree.leaves.map((leaf) => leaf.name)).toEqual(['div#bar']);
+    expect(subtree.components.map((entry) => entry.name)).toEqual(['div#bar']);
   });
 
   it('draws nothing when the delivery changed nothing the walk could attribute', () => {
@@ -265,11 +264,12 @@ describe('the subtree a delivery rendered', () => {
     expect(subtree.components).toHaveLength(0);
   });
 
-  it('draws the region alone for a replayed delivery, with no leaves', () => {
+  it('marks the registered element alone for a replayed delivery, with no leaves', () => {
     const page = buildPage();
     const subtree = regionSubtree(page.pageEl, 'ChatPage');
     expect(subtree.root?.element).toBe(page.pageEl);
     expect(subtree.root?.name).toBe('ChatPage');
+    expect(subtree.root?.kind).toBe('component');
     expect(subtree.components).toHaveLength(1);
     expect(subtree.leaves).toHaveLength(0);
   });

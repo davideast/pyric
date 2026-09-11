@@ -29,47 +29,44 @@ export interface FiberLike {
 }
 
 /**
- * What a painted box stands for. A `component` box is a component fiber the
- * walk named. A `region` box is the element the listener's owner registered,
- * which the paint is rooted on rather than on the owning component's own host
- * node. A `host` box is a changed element no component named, badged by the
- * element itself.
+ * What a painted mark stands for. A `component` mark is a component fiber the
+ * walk named. A `host` mark is a changed element no component named, labelled
+ * by the element itself.
  */
-export type FlowBoxKind = 'component' | 'region' | 'host';
+export type FlowBoxKind = 'component' | 'host';
 
-/** One box the flow painter draws, and the element it covers. */
+/** One element the flow painter marks, and what to call it. */
 export interface FlowComponent {
   /** `type.displayName`, else `type.name`, else the element's own label. */
   readonly name: string;
   /** The first host element at or below the component, or the changed node. */
   readonly element: Element;
-  /** How many collected boxes sit above this one, root first at 0. */
+  /** How many collected marks sit above this one, root first at 0. */
   readonly depth: number;
-  /** What this box stands for. */
+  /** What this mark stands for. */
   readonly kind: FlowBoxKind;
 }
 
 /** A delivery's rendered subtree, as the flow painter draws it. */
 export interface FlowSubtree {
-  /** The box the root badge goes on, or `null` when nothing was found. */
+  /** The mark the full label goes on, or `null` when nothing was found. */
   readonly root: FlowComponent | null;
-  /** Every collected box, outermost first, the root included. */
+  /** Every collected mark, outermost first, the root included. */
   readonly components: readonly FlowComponent[];
-  /** The collected boxes nothing else collected sits below. */
+  /** The collected marks nothing else collected sits below. */
   readonly leaves: readonly FlowComponent[];
 }
 
 /** How the subtree is rooted, and which component the badge already names. */
 export interface FlowSubtreeOptions {
   /**
-   * The element the listener's owner registered. When the page still holds
-   * one, the paint is rooted on it and the owning component is named in the
-   * badge rather than outlined.
+   * The element the listener's owner registered. Flow never marks it: it is
+   * the whole area the listener feeds rather than something that changed.
    */
   readonly regionElement?: Element | null;
   /**
-   * The owner the root badge names. A component of this name is never given a
-   * box of its own, because the badge already says it.
+   * The owner the first label names. A component of this name is never marked,
+   * because the label already says it.
    */
   readonly ownerName?: string | null;
 }
@@ -240,20 +237,20 @@ export function regionSubtree(element: Element, ownerName?: string | null): Flow
   const name = ownerName !== null && ownerName !== undefined && ownerName.length > 0
     ? ownerName
     : elementLabel(element);
-  const root: FlowComponent = { name, element, depth: 0, kind: 'region' };
+  const root: FlowComponent = { name, element, depth: 0, kind: 'component' };
   return { root, components: [root], leaves: [] };
 }
 
 /**
- * The subtree of boxes above the nodes that changed.
+ * The subtree of marks above the nodes that changed.
  *
  * Every node is resolved to its fiber and the `return` chain above it is
- * collected, but the owner the root badge names is never given a box. On a
- * page whose owning component renders its list, header, and thread as inline
- * JSX, that component is the only one between the page root and a new list
- * item, so outlining it outlines the whole page. The root is instead the
- * element the owner registered, when the page still holds one, and a changed
- * node no component named becomes a box of its own, badged by the element.
+ * collected, but the owner is never marked. On a page whose owning component
+ * renders its list, header, and thread as inline JSX, that component is the
+ * only one between the page root and a new list item, so outlining it outlines
+ * the whole page. The registered region is not marked either, for the same
+ * reason; a changed node no component named becomes a mark of its own,
+ * labelled by the element.
  *
  * Strict Mode renders a component twice into the same fiber and React keeps
  * two alternates of every fiber, so components are deduplicated by the pair of
@@ -268,8 +265,8 @@ export function flowSubtree(
   const collected: Array<{ name: string; element: Element; distance: number }> = [];
   const hosts: Element[] = [];
 
-  // The owner is already spelled on the root badge and the region is already
-  // the root box, so neither earns a box of its own.
+  // The owner is already spelled on the first label and the region is the
+  // whole area the listener feeds, so neither earns a mark of its own.
   const isAlreadyDrawn = (name: string, element: Element): boolean =>
     (ownerName !== null && name === ownerName) || (region !== null && element === region);
 
@@ -306,40 +303,31 @@ export function flowSubtree(
   ));
 
   // Nothing on the page was attributable to this delivery. The region is not
-  // drawn on its own here: a box with no changed element under it would claim
-  // a render the walk never found. {@link regionSubtree} is what draws a region
-  // by itself, for the replay that has no changed nodes to read.
+  // marked on its own here: a mark with no changed element under it would
+  // claim a render the walk never found. {@link regionSubtree} is what marks a
+  // region by itself, for the replay that has no changed nodes to read.
   if (collected.length === 0 && topHosts.length === 0) {
     return { root: null, components: [], leaves: [] };
   }
 
   const boxes: FlowComponent[] = [];
-  if (region !== null) {
-    boxes.push({
-      name: ownerName !== null && ownerName.length > 0 ? ownerName : elementLabel(region),
-      element: region,
-      depth: 0,
-      kind: 'region',
-    });
-  }
-  const shift = region === null ? 0 : 1;
   for (const entry of collected) {
     boxes.push({
       name: entry.name,
       element: entry.element,
-      depth: distances.indexOf(entry.distance) + shift,
+      depth: distances.indexOf(entry.distance),
       kind: 'component',
     });
   }
-  const hostDepth = shift + distances.length;
+  const hostDepth = distances.length;
   for (const element of topHosts) {
     boxes.push({ name: elementLabel(element), element, depth: hostDepth, kind: 'host' });
   }
 
   const root = boxes.length === 0 ? null : boxes[0]!;
 
-  // A leaf is a box with no other box under it. Nesting is read off the page
-  // rather than off the fibers, so a box reached from two mutated nodes at
+  // A leaf is a mark with no other mark under it. Nesting is read off the page
+  // rather than off the fibers, so a mark reached from two mutated nodes at
   // once is still counted once.
   const leaves = boxes.filter((box) => box !== root && !boxes.some((other) => (
     other !== box
