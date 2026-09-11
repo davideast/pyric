@@ -80,6 +80,11 @@ export interface ListenerMode {
   flowAvailable(): boolean;
   /** Why Flow is unavailable, or `null` when it is available. */
   flowUnavailableReason(): string | null;
+  /**
+   * `true` while Flow is on and nothing has been painted since the switch, so
+   * the panel can say what it is waiting for.
+   */
+  flowWaiting(): boolean;
   /** Every outlined listener, drawn or not. */
   outlines(): readonly ListenerOutline[];
   /** The listeners nothing on the page could be outlined for. */
@@ -123,6 +128,8 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   let stopFollowing: (() => void) | null = null;
   let unsubscribe: (() => void) | null = null;
   let paintMode: ListenerPaintMode = readListenerPaintMode(paintStorage);
+  /** `true` once Flow painted a delivery since the switch into Flow. */
+  let flowPainted = false;
   /** Listeners the developer switched off. Page session only, never stored. */
   const hidden = new Set<string>();
 
@@ -154,7 +161,15 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   };
 
   const recompute = (): void => {
+    const previous = current;
     current = listenerOutlines(events, readIncidents(events));
+    // A detached listener keeps no paint. Flow holds its last subtree until
+    // the next delivery, and for a listener that is gone there will not be
+    // one.
+    for (const outline of previous) {
+      if (current.some((next) => next.listenerId === outline.listenerId)) continue;
+      flow?.clearListener(outline.listenerId);
+    }
     paint();
     options.onChange?.(current);
   };
@@ -167,6 +182,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   const startFlow = (): void => {
     if (flow !== null || overlay === null) return;
     if (!flowAvailable()) return;
+    flowPainted = false;
     flow = startFlowMode({
       document: documentLike,
       container: overlay.container(),
@@ -175,6 +191,19 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       // the outline knows both ids.
       outlineFor: (listenerId) => current.find((outline) => outline.listenerId === listenerId || outline.clientListenerId === listenerId) ?? null,
       isVisible: (listenerId) => !hidden.has(listenerId),
+      // The switch into Flow replays what the fold already recorded, so the
+      // developer sees the latest flow rather than waiting for the next
+      // delivery on a page that may be idle.
+      recentDeliveries: () => visibleOutlines()
+        .filter((outline) => outline.lastDeliveryAt !== undefined)
+        .map((outline) => ({ listenerId: outline.listenerId, at: outline.lastDeliveryAt! })),
+      onPaint: () => {
+        if (flowPainted) return;
+        flowPainted = true;
+        // The panel's waiting hint is gone as of this paint, and the panel
+        // only rebuilds when the mode says something changed.
+        options.onChange?.(current);
+      },
       ...(options.flow ?? {}),
     });
     const followFlow = flow;
@@ -243,6 +272,9 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       if (flowAvailable()) return null;
       return reactRendered(documentLike) ? LATE_HOOK_REASON : NO_REACT_REASON;
     },
+    flowWaiting() {
+      return flow !== null && !flowPainted;
+    },
     outlines() {
       return current;
     },
@@ -256,6 +288,10 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       if (visible) hidden.delete(listenerId);
       else hidden.add(listenerId);
       paint();
+      // Switching a listener off takes its paint away now rather than only
+      // suppressing the next one: Flow holds its last subtree on the page, so
+      // leaving it there would leave a box no row is checked for. Switching
+      // back on leaves the page empty until the next delivery.
       if (!visible) flow?.clearListener(listenerId);
     },
     dispose() {

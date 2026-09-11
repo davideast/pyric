@@ -1,6 +1,6 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
-import { startFlowMode } from '../../../src/serve/runtime/listener-flow-mode.js';
+import { startFlowMode, type RecentDelivery } from '../../../src/serve/runtime/listener-flow-mode.js';
 import type { ReactCommitSource } from '../../../src/serve/runtime/react-commit-source.js';
 import type { ListenerOutline } from '../../../src/serve/runtime/listener-outline-model.js';
 
@@ -24,12 +24,17 @@ function outline(listenerId: string, label: string, target: string): ListenerOut
  */
 function buildPage() {
   const dom = new JSDOM(`<!doctype html><body>
-    <div id="page"><div id="thread"><span id="bubble">hi</span></div></div>
+    <div id="page">
+      <div id="thread"><span id="bubble">hi</span></div>
+      <div id="presence"><span id="dot">1</span></div>
+    </div>
   </body>`);
   const doc = dom.window.document;
   const pageEl = doc.querySelector('#page')!;
   const threadEl = doc.querySelector('#thread')!;
   const bubbleEl = doc.querySelector('#bubble')!;
+  const presenceEl = doc.querySelector('#presence')!;
+  const dotEl = doc.querySelector('#dot')!;
 
   const chatPage = { tag: 0, type: { displayName: 'ChatPage' }, return: null as unknown, child: null as unknown };
   const pageHost = { tag: 5, type: 'div', stateNode: pageEl, return: chatPage, child: null as unknown };
@@ -40,14 +45,31 @@ function buildPage() {
   pageHost.child = thread;
   thread.child = threadHost;
   (threadHost as { child: unknown }).child = bubbleHost;
+  // The presence bar is inline JSX: its host fibers hang off the page's own
+  // host node with no component of their own in between.
+  const presenceHost = { tag: 5, type: 'div', stateNode: presenceEl, return: pageHost, child: null as unknown };
+  const dotHost = { tag: 5, type: 'span', stateNode: dotEl, return: presenceHost, child: null };
+  presenceHost.child = dotHost;
+  (thread as { sibling?: unknown }).sibling = presenceHost;
+
   (pageEl as unknown as Record<string, unknown>)['__reactFiber$k'] = pageHost;
   (threadEl as unknown as Record<string, unknown>)['__reactFiber$k'] = threadHost;
   (bubbleEl as unknown as Record<string, unknown>)['__reactFiber$k'] = bubbleHost;
+  (presenceEl as unknown as Record<string, unknown>)['__reactFiber$k'] = presenceHost;
+  (dotEl as unknown as Record<string, unknown>)['__reactFiber$k'] = dotHost;
 
-  return { doc, pageEl, threadEl, bubbleEl };
+  return { doc, pageEl, threadEl, bubbleEl, presenceEl, dotEl };
 }
 
-function setup(options: { visible?: (listenerId: string) => boolean } = {}) {
+interface SetupOptions {
+  visible?: (listenerId: string) => boolean;
+  recentDeliveries?: () => readonly RecentDelivery[];
+  replayWindowMs?: number;
+  now?: () => number;
+  onPaint?: (listenerId: string) => void;
+}
+
+function setup(options: SetupOptions = {}) {
   const page = buildPage();
   const container = page.doc.createElement('div');
   page.doc.body.append(container);
@@ -91,6 +113,10 @@ function setup(options: { visible?: (listenerId: string) => boolean } = {}) {
       },
       stop: () => {},
     }),
+    ...(options.recentDeliveries === undefined ? {} : { recentDeliveries: options.recentDeliveries }),
+    ...(options.replayWindowMs === undefined ? {} : { replayWindowMs: options.replayWindowMs }),
+    ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.onPaint === undefined ? {} : { onPaint: options.onPaint }),
   });
 
   return {
@@ -118,6 +144,82 @@ describe('the Flow painting mode', () => {
     expect(page.container.querySelector('[data-pyric-flow-badge]')?.textContent)
       .toBe('ChatPage · conversations/c1/messages (query) · 2');
     page.mode.dispose();
+  });
+
+  it('roots the paint on the region the owner registered, and never on the owner itself', () => {
+    const page = setup();
+    page.deliver('sub-1');
+    page.change([page.bubbleEl]);
+    page.commit();
+
+    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
+    const root = boxes.find((box) => box.dataset.flowKind === 'region');
+    expect(root?.dataset.component).toBe('ChatPage');
+    expect(root?.dataset.depth).toBe('0');
+    // The owner is named on the root badge rather than given a box of its own,
+    // so the page component's host node is never outlined twice.
+    expect(boxes.filter((box) => box.dataset.component === 'ChatPage')).toHaveLength(1);
+    expect(page.container.querySelector('[data-pyric-flow-badge]')?.textContent)
+      .toBe('ChatPage · conversations/c1/messages (query) · 2');
+  });
+
+  it('badges a changed element by itself when no component sits between it and the root', () => {
+    const page = setup();
+    page.deliver('sub-1');
+    page.change([page.presenceEl]);
+    page.commit();
+
+    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
+    const host = boxes.find((box) => box.dataset.flowKind === 'host');
+    expect(host?.dataset.component).toBe('div#presence');
+    expect(page.container.querySelector('[data-pyric-flow-leaf-badge]')?.textContent).toBe('div#presence');
+  });
+
+  it('collapses a changed subtree to the element at its top', () => {
+    const page = setup();
+    page.deliver('sub-1');
+    page.change([page.presenceEl, page.dotEl]);
+    page.commit();
+
+    const hosts = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box][data-flow-kind="host"]')];
+    expect(hosts.map((box) => box.dataset.component)).toEqual(['div#presence']);
+  });
+
+  it('replays the last delivery on the switch when it is inside the window', () => {
+    const page = setup({
+      now: () => 10_000,
+      replayWindowMs: 5000,
+      recentDeliveries: () => [{ listenerId: 'sub-1', at: 8000 }],
+    });
+
+    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]?.dataset.flowKind).toBe('region');
+    expect(page.container.querySelector('[data-pyric-flow-badge]')?.textContent)
+      .toBe('ChatPage · conversations/c1/messages (query) · 2');
+  });
+
+  it('replays nothing for a delivery older than the window', () => {
+    const page = setup({
+      now: () => 10_000,
+      replayWindowMs: 5000,
+      recentDeliveries: () => [{ listenerId: 'sub-1', at: 1000 }],
+    });
+
+    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+  });
+
+  it('reports the outline own listener id when it paints, whatever id the delivery carried', () => {
+    const painted: string[] = [];
+    const page = setup({ onPaint: (listenerId) => painted.push(listenerId) });
+    page.outlines.set('client-9', { ...page.outlines.get('sub-1')!, clientListenerId: 'client-9' });
+    page.deliver('client-9');
+    page.change([page.bubbleEl]);
+    page.commit();
+
+    expect(painted).toEqual(['sub-1']);
+    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
+    expect(boxes.every((box) => box.dataset.listenerId === 'sub-1')).toBe(true);
   });
 
   it('drains the observer before it closes the window, so a commit sees its own changes', () => {

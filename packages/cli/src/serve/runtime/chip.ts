@@ -219,6 +219,7 @@ const styles = `
   .error-meta { color: var(--pyric-muted); font: 9px/1.4 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; }
   .empty { align-items: center; color: var(--pyric-muted); display: flex; font: 11px/1.5 ui-monospace, monospace; min-height: 57px; padding: 12px; }
   .actions { display: grid; gap: 8px; grid-template-columns: repeat(3, 1fr); min-height: 56px; padding: 10px 12px; }
+  .flow-waiting { color: var(--pyric-muted); font: 9px/1.4 ui-monospace, monospace; grid-column: 1 / -1; }
   .button { align-items: center; background: transparent; border: 1px solid var(--pyric-border-soft); border-radius: 4px; color: var(--pyric-muted); display: inline-flex; font-size: 10px; justify-content: center; letter-spacing: .06em; min-height: 34px; padding: 6px 8px; text-decoration: none; text-transform: uppercase; }
   button.button { cursor: pointer; }
   .button:hover:not(:disabled):not([aria-disabled="true"]), a.button:hover { border-color: #3a3a48; color: var(--pyric-text); }
@@ -630,6 +631,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
    * back on its own once its signature moves, which a new attach on its
    * target or a new incident does. */
   const dismissedListenerRows = new Set<string>();
+  /** Whether the last rendered panel carried the Flow waiting line. */
+  let renderedFlowWaiting = false;
   const ensureListenerMode = (): ListenerMode | null => {
     if (listenerMode !== null) return listenerMode;
     const build = options.listeners;
@@ -637,8 +640,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     listenerMode = build((outlines) => {
       everReportedListeners = true;
       // The mode reports on every attach, delivery, and resize; rebuild the
-      // view only when what the Listeners summary shows actually changes.
-      if (sameOutlines(outlines, listenerOutlines)) return;
+      // view only when what the panel shows actually changes. The first
+      // painted flow changes the panel without changing the outlines, because
+      // it is what takes the waiting line away.
+      const waiting = listenerMode?.flowWaiting() === true;
+      if (sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting) return;
+      renderedFlowWaiting = waiting;
       listenerOutlines = outlines;
       render();
     });
@@ -722,6 +729,14 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
             <button type="button" data-listener-mode="overview" aria-pressed="${paintMode === 'overview'}" title="Outline every attached listener">Overview</button>
             <button type="button" data-listener-mode="flow" aria-pressed="${paintMode === 'flow'}"${flowOff ? ` aria-disabled="true" title="${escapeAttribute(flowReason)}"` : ' title="Outline what rendered after each delivery"'}>Flow</button>
           </div>`;
+      // Flow paints on delivery, so a page that is sitting idle shows nothing
+      // and looks broken. The line says what the mode is waiting for, and goes
+      // as soon as the first delivery is painted.
+      renderedFlowWaiting = listenerMode?.flowWaiting() === true;
+      if (renderedFlowWaiting) {
+        listenersButtonHtml += `
+          <div class="flow-waiting" data-flow-waiting>Waiting for a delivery to show its flow.</div>`;
+      }
     }
     let listenerPanelHtml = '';
     if (listenerNotice !== null) {

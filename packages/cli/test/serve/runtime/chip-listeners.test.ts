@@ -53,11 +53,21 @@ function setup(options: {
     },
   };
   const dom = new JSDOM(
-    '<!doctype html><body><div id="todos"></div><div id="profile"></div></body>',
+    '<!doctype html><body><div id="todos"><span id="row">a</span></div><div id="profile"></div></body>',
     { url: 'http://localhost/' },
   );
   const doc = dom.window.document;
+  // A row React rendered inline inside the todos region, so a delivery has
+  // something the fiber walk can attribute.
+  const rowEl = doc.querySelector('#row')!;
+  const regionHost = { tag: 5, type: 'div', stateNode: doc.querySelector('#todos')!, return: null, child: null };
+  (rowEl as unknown as Record<string, unknown>)['__reactFiber$k'] = {
+    tag: 5, type: 'span', stateNode: rowEl, return: regionHost, child: null,
+  };
   let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
+  let delivered: ((listenerId: string) => void) | null = null;
+  let commit: (() => void) | null = null;
+  let changedNodes: unknown[] = [];
   const chip = mountPyricRuntimeChip({
     runtime: createPyricRuntimeStatus(manifest),
     document: doc,
@@ -81,13 +91,30 @@ function setup(options: {
       commits: {
         available: () => options.react ?? false,
         reason: () => ((options.react ?? false) ? null : 'no React'),
-        subscribe: () => () => {},
+        subscribe: (listener) => {
+          commit = listener;
+          return () => {
+            commit = null;
+          };
+        },
         dispose: () => {},
       },
       paintStorage,
       flow: {
-        subscribeDeliveries: () => () => {},
-        changedNodes: () => ({ drain: () => [], stop: () => {} }),
+        subscribeDeliveries: (listener) => {
+          delivered = listener;
+          return () => {
+            delivered = null;
+          };
+        },
+        changedNodes: () => ({
+          drain: () => {
+            const drained = changedNodes;
+            changedNodes = [];
+            return drained;
+          },
+          stop: () => {},
+        }),
       },
       subscribeEvents: (callback) => {
         deliver = callback;
@@ -103,6 +130,12 @@ function setup(options: {
     copied,
     root: chip.element.shadowRoot!,
     push: (events: readonly SandboxEvent[]) => deliver?.(events),
+    /** A delivery the worker client reported, and the render that followed. */
+    flowDelivery: (listenerId: string) => {
+      delivered?.(listenerId);
+      changedNodes = [rowEl];
+      commit?.();
+    },
   };
 }
 
@@ -488,6 +521,44 @@ describe('the chip painting-mode control', () => {
     flow.click();
     expect(modeButton(page.root, 'overview').getAttribute('aria-pressed')).toBe('true');
     expect(page.root.querySelector('[data-listener-notice]')?.textContent).toContain('React');
+    page.chip.dispose();
+  });
+
+  it('says what Flow is waiting for while no delivery has been painted', () => {
+    const page = setup({ react: true });
+    toggle(page.root);
+    page.push([todos]);
+    expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
+
+    modeButton(page.root, 'flow').click();
+    expect(page.root.querySelector('[data-flow-waiting]')?.textContent)
+      .toBe('Waiting for a delivery to show its flow.');
+    page.chip.dispose();
+  });
+
+  it('takes the waiting line away once the first flow is painted', () => {
+    const page = setup({ react: true });
+    toggle(page.root);
+    page.push([todos]);
+    modeButton(page.root, 'flow').click();
+
+    page.flowDelivery('l1');
+    expect(page.doc.querySelectorAll('[data-pyric-flow-box]').length).toBeGreaterThan(0);
+    expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
+    page.chip.dispose();
+  });
+
+  it('says it is waiting again after a turn back into Flow', () => {
+    const page = setup({ react: true });
+    toggle(page.root);
+    page.push([todos]);
+    modeButton(page.root, 'flow').click();
+    page.flowDelivery('l1');
+
+    modeButton(page.root, 'overview').click();
+    expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
+    modeButton(page.root, 'flow').click();
+    expect(page.root.querySelector('[data-flow-waiting]')).not.toBeNull();
     page.chip.dispose();
   });
 });

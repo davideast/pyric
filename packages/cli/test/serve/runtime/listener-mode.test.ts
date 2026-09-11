@@ -58,10 +58,17 @@ function harness(options: {
   paintStorage?: Parameters<typeof createListenerMode>[0]['paintStorage'];
 } = {}) {
   const dom = new JSDOM(
-    '<!doctype html><body><div id="todos"></div><div id="profile"></div></body>',
+    '<!doctype html><body><div id="todos"><span id="row">a</span></div><div id="profile"></div></body>',
     { url: 'http://localhost/' },
   );
   const doc = dom.window.document;
+  // A row inside the todos region, wired the way React wires a host node it
+  // rendered inline: nothing between it and the region is a component.
+  const rowEl = doc.querySelector('#row')!;
+  const regionHost = { tag: 5, type: 'div', stateNode: doc.querySelector('#todos')!, return: null, child: null };
+  const rowHost = { tag: 5, type: 'span', stateNode: rowEl, return: regionHost, child: null };
+  (rowEl as unknown as Record<string, unknown>)['__reactFiber$k'] = rowHost;
+  let changedNodes: unknown[] = [];
   let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
   let subscriptions = 0;
   let delivered: ((listenerId: string) => void) | null = null;
@@ -79,7 +86,14 @@ function harness(options: {
           delivered = null;
         };
       },
-      changedNodes: () => ({ drain: () => [], stop: () => {} }),
+      changedNodes: () => ({
+        drain: () => {
+          const drained = changedNodes;
+          changedNodes = [];
+          return drained;
+        },
+        stop: () => {},
+      }),
     },
     subscribeEvents: (callback) => {
       subscriptions += 1;
@@ -94,10 +108,21 @@ function harness(options: {
     doc,
     mode,
     commits,
+    rowEl,
     push: (events: readonly SandboxEvent[]) => deliver?.(events),
     subscriptions: () => subscriptions,
     flowWatching: () => delivered !== null,
+    /** A delivery the worker client reported, and the render that followed. */
+    flowDelivery: (listenerId: string, nodes: unknown[]) => {
+      delivered?.(listenerId);
+      changedNodes = nodes;
+      commits.fire();
+    },
   };
+}
+
+function flowBoxes(doc: Document): HTMLElement[] {
+  return [...doc.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
 }
 
 function badges(doc: Document): string[] {
@@ -385,5 +410,79 @@ describe('switching one listener off', () => {
     page.mode.setListenerVisible('l1', false);
     page.mode.dispose();
     expect(page.mode.isListenerVisible('l1')).toBe(true);
+  });
+});
+
+describe('what a painted flow is held for', () => {
+  /** A mode in Flow with one delivery painted: the region and the changed row. */
+  function painted() {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.mode.setMode('flow');
+    page.push([todosAttach]);
+    page.flowDelivery('l1', [page.rowEl]);
+    return page;
+  }
+
+  it('paints the region and the changed row, and holds them after the delivery', () => {
+    const page = painted();
+    const drawn = flowBoxes(page.doc);
+    expect(drawn).toHaveLength(2);
+    expect(drawn.map((box) => box.dataset.flowKind)).toEqual(['region', 'host']);
+    expect(drawn.every((box) => box.dataset.listenerId === 'l1')).toBe(true);
+    page.mode.dispose();
+  });
+
+  it('takes the held paint away as soon as the listener is switched off', () => {
+    const page = painted();
+    page.mode.setListenerVisible('l1', false);
+    expect(flowBoxes(page.doc)).toHaveLength(0);
+    page.mode.dispose();
+  });
+
+  it('leaves the page empty after a switch back on, until the next delivery', () => {
+    const page = painted();
+    page.mode.setListenerVisible('l1', false);
+    page.mode.setListenerVisible('l1', true);
+    expect(flowBoxes(page.doc)).toHaveLength(0);
+
+    page.flowDelivery('l1', [page.rowEl]);
+    expect(flowBoxes(page.doc)).toHaveLength(2);
+    page.mode.dispose();
+  });
+
+  it('takes the held paint away when the listener detaches', () => {
+    const page = painted();
+    page.push([detach('e9', 'l1', { kind: 'query', collection: 'todos' })]);
+    expect(flowBoxes(page.doc)).toHaveLength(0);
+    page.mode.dispose();
+  });
+
+  it('says it is waiting for a delivery until one has been painted', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.mode.setMode('flow');
+    page.push([todosAttach]);
+    expect(page.mode.flowWaiting()).toBe(true);
+
+    page.flowDelivery('l1', [page.rowEl]);
+    expect(page.mode.flowWaiting()).toBe(false);
+    page.mode.dispose();
+  });
+
+  it('is not waiting while Overview is the mode', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    expect(page.mode.flowWaiting()).toBe(false);
+    page.mode.dispose();
+  });
+
+  it('waits again after a turn back into Flow', () => {
+    const page = painted();
+    page.mode.setMode('overview');
+    page.mode.setMode('flow');
+    expect(page.mode.flowWaiting()).toBe(true);
+    page.mode.dispose();
   });
 });
