@@ -95,6 +95,22 @@ class RulesDenialListenerTest {
         FirebaseApp.clearInstancesForTest()
     }
 
+    /**
+     * Waits until [denials] reaches at least [expectedSize] entries, up to [timeoutMs]. The
+     * denial listener runs on firestoreScope's background dispatcher, so a fixed sleep after
+     * triggering a denial is either too short (flaky) or wastefully long.
+     */
+    private fun awaitDenialCount(
+        denials: List<*>,
+        expectedSize: Int,
+        timeoutMs: Long = 3000
+    ) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (denials.size < expectedSize && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10)
+        }
+    }
+
     @Test
     fun testRulesDenialListenerReceivesDenialOnGetDoc() {
         val denials = CopyOnWriteArrayList<Pair<FirebaseFirestoreException, Map<String, Any?>>>()
@@ -108,8 +124,8 @@ class RulesDenialListenerTest {
             // Expected PERMISSION_DENIED
         }
 
-        // Wait briefly for firestoreScope to collect denial
-        Thread.sleep(150)
+        // Wait for firestoreScope to collect the denial
+        awaitDenialCount(denials, 1)
 
         assertEquals(1, denials.size)
         val (ex, ctx) = denials[0]
@@ -128,7 +144,7 @@ class RulesDenialListenerTest {
         } catch (_: ExecutionException) {
             // Expected
         }
-        Thread.sleep(150)
+        awaitDenialCount(denials, 1)
 
         // Should still only have 1 denial recorded
         assertEquals(1, denials.size)

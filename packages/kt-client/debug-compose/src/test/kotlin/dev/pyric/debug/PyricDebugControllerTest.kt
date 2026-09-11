@@ -124,7 +124,7 @@ class PyricDebugControllerTest {
             .setProjectId("test-project-id")
             .build()
         app = FirebaseApp.initializeApp("test-debug-app", options)
-        auth = FirebaseAuth.getInstance(app, bridgeClient)
+        auth = FirebaseAuth.getInstance(app, bridgeClient, testDispatcher)
         firestore = FirebaseFirestore(bridgeClient, app, "(default)", credentialsProvider = auth)
         controller = PyricDebugController(auth, firestore, bridgeClient, scope = testScope)
     }
@@ -229,7 +229,6 @@ class PyricDebugControllerTest {
             )
         )
         transport.sendToClient(JsonCodec.encodeToString(remoteLensMsg))
-        Thread.sleep(150)
         advanceUntilIdle()
 
         val lens = controller.activeLens.value
