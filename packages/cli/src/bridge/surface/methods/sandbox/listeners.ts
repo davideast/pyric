@@ -26,7 +26,7 @@ function listenerView(listener: ActiveListener): Record<string, unknown> {
     suppressedCount: listener.suppressedCount,
   };
   if (listener.lastDeliveryAt !== undefined) view.lastDeliveryAt = listener.lastDeliveryAt;
-  if (listener.callSite !== undefined) view.callSite = listener.callSite;
+  if (listener.owners !== undefined) view.owners = listener.owners;
   return view;
 }
 
