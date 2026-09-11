@@ -29,6 +29,7 @@ export type {
   EventService,
   OperationContext,
   ListenerLifecycleEvent,
+  ListenerOwner,
   LocalSandbox,
   MutationEventService,
   PersistableService,

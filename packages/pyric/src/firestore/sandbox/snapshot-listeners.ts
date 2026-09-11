@@ -11,6 +11,7 @@
  * section 4, section 5).
  */
 import type { DocumentData } from './local-state.js';
+import type { ListenerOwnerHint } from '../../sandbox/attribution/listener-owners.js';
 import type { Operation } from './local-environment.js';
 // FS-B10 — translate the listener read path so `snap.data()` exposes the
 // SAME compat-shaped values (`Timestamp` `{seconds, nanoseconds}`, `Bytes`,
@@ -83,6 +84,13 @@ export type SnapshotTarget =
 export interface SnapshotListenerOptions {
   includeMetadataChanges?: boolean;
   source?: 'default' | 'cache';
+  /**
+   * Pyric's own extension, absent from the Firebase Web SDK: who owns this
+   * listener. A name, or the DOM element the listener feeds. Recorded as a
+   * `tag` owner on the `listener_attach` event and nowhere else. It changes
+   * nothing about what the listener delivers.
+   */
+  owner?: ListenerOwnerHint;
 }
 
 /**

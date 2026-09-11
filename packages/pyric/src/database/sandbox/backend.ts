@@ -14,6 +14,7 @@ import { Transactions } from './transactions.js';
 import { ValueListeners } from './value-listeners.js';
 import { WritePlane } from './write-plane.js';
 import type { JsonValue } from './data-tree.js';
+import type { ListenerOwnerHint } from '../../sandbox/attribution/listener-owners.js';
 
 export class RtdbBackend {
   private readonly state: BackendState;
@@ -85,8 +86,9 @@ export class RtdbBackend {
     query?: QuerySpec,
     cancelCallback?: (error: Error) => void,
     onCanceled?: () => void,
+    owner?: ListenerOwnerHint,
   ): () => void {
-    return this.values.onValue(auth, path, cb, query, cancelCallback, onCanceled);
+    return this.values.onValue(auth, path, cb, query, cancelCallback, onCanceled, owner);
   }
 
   adminOnValue(

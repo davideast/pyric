@@ -8,7 +8,9 @@ import {
   type QueryRow, type QuerySpec,
 } from './query.js';
 import { permissionDenied } from './rules-eval.js';
-import { listenerPermissionDenied } from './value-listeners.js';
+import { listenerPermissionDenied, ownersFor } from './value-listeners.js';
+import { listenerAttachOwners } from '../../sandbox/attribution/listener-owners.js';
+import { recordEffectRegions } from '../../sandbox/attribution/effect-regions.js';
 
 type ChildEvent = ChildListener['event'];
 type ChildSnapshot = { key: string; val: JsonValue; previousChildName: string | null };
@@ -46,6 +48,7 @@ export class ChildListeners {
   ): () => void {
     const at = this.state.clock.now();
     const id = this.state.events.nextListenerId();
+    const attachOwners = listenerAttachOwners();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
       auth,
       mockData: this.state.tree.snapshot() as Record<string, unknown>,
@@ -87,6 +90,7 @@ export class ChildListeners {
     this.state.childListeners.add(listener);
     this.state.events.listener('attach', listener, auth, {
       event, result: 'allow', detail: spec ? { query: spec } : undefined,
+      owners: attachOwners,
     });
     if (spec) {
       const rows = executeQuery(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
@@ -238,18 +242,30 @@ export class ChildListeners {
     for (const snapshot of events) this.deliver(listener, snapshot, { query: true });
   }
 
+  /**
+   * Deliver one child event. The callback runs before the delivery event is
+   * emitted so the event can carry the regions the callback touched; what the
+   * callback receives, and when, is unchanged.
+   */
   private deliver(listener: ChildListener, snapshot: ChildSnapshot, detail: Record<string, unknown>): void {
+    let thrown: unknown;
+    let caught = false;
+    const regions = recordEffectRegions(() => {
+      try {
+        listener.cb(snapshot);
+      } catch (error) {
+        thrown = error;
+        caught = true;
+      }
+    });
     this.state.events.listener('delivery', listener, listener.auth, {
       event: listener.event, size: 1, sample: detail.query ? { key: snapshot.key, val: snapshot.val } : snapshot,
-      detail,
+      detail, owners: ownersFor(regions),
     });
-    try {
-      listener.cb(snapshot);
-    } catch (error) {
-      this.state.events.listener('errored', listener, listener.auth, {
-        event: listener.event, result: 'error',
-        error: { message: error instanceof Error ? error.message : String(error) }, detail,
-      });
-    }
+    if (!caught) return;
+    this.state.events.listener('errored', listener, listener.auth, {
+      event: listener.event, result: 'error',
+      error: { message: thrown instanceof Error ? thrown.message : String(thrown) }, detail,
+    });
   }
 }

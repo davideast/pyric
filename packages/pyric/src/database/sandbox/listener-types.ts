@@ -1,4 +1,5 @@
 import type { AuthState } from 'pyric/sandbox';
+import type { ListenerOwner } from '../../sandbox/types/events.js';
 import type { JsonValue } from './data-tree.js';
 import type { QueryRow, QuerySpec } from './query.js';
 
@@ -20,6 +21,8 @@ export interface ValueListener {
   lastWindow?: QueryRow[];
   lastValue?: JsonValue;
   lastPriorityState?: string;
+  /** Owners recorded on this listener's `attach` event. */
+  owners?: ListenerOwner[];
 }
 
 export interface ChildListener {

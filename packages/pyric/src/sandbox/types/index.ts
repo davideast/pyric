@@ -33,6 +33,7 @@ export {
 export type {
   DenialEvent,
   ListenerLifecycleEvent,
+  ListenerOwner,
   MutationEventService,
   RequestEvent,
   SandboxCommitEvent,
