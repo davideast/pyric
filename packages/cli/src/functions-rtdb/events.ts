@@ -25,7 +25,7 @@ export interface FunctionExecutionOutcome {
   params: Record<string, string>;
   startedAt: number;
   durationMs: number;
-  status: 'fulfilled' | 'rejected';
+  status: 'fulfilled' | 'rejected' | 'timeout';
   result?: unknown;
   error?: string;
 }

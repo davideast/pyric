@@ -26,13 +26,39 @@ import {
   type FunctionExecutionRecord,
 } from '../../../../functions-rtdb/execution-log.js';
 import { matchRtdbReference, normalizeRtdbReference } from '../../../../functions-rtdb/reference-pattern.js';
-import { pathArgument, triggerArgument, valueArgument } from '../../arguments/functions.js';
+import { pathArgument, timeoutMsArgument, triggerArgument, valueArgument } from '../../arguments/functions.js';
 import { operationFailure } from '../../context.js';
 import { discoverFunctionsTriggers } from '../../functions-runtime.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { SurfaceContext } from '../../types.js';
 
 const DEFAULT_LOCATION = 'us-central1';
+
+/** The bound `fire` applies when the caller does not name a `timeoutMs`. */
+const DEFAULT_TIMEOUT_MS = 10_000;
+
+/** A value distinct from any `CreatedExecutionResult`, returned when the timer wins the race. */
+const TIMED_OUT = Symbol('functions-fire-timed-out');
+
+/**
+ * Race a handler's execution against a timer. `executeOnValueCreated` never
+ * rejects, its own try/catch turns a thrown handler into a `rejected` result,
+ * so the only two outcomes here are the execution settling or the timer
+ * winning first. The handler keeps running after a timeout; there is no way
+ * to cancel in-process code, so its eventual result is only ever discarded.
+ */
+function raceAgainstTimeout(
+  execution: Promise<CreatedExecutionResult>,
+  timeoutMs: number,
+): Promise<CreatedExecutionResult | typeof TIMED_OUT> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs);
+    execution.then((result) => {
+      clearTimeout(timer);
+      resolve(result);
+    });
+  });
+}
 
 /** The trigger error a thrown handler value reads as. */
 function describeError(error: unknown): string {
@@ -54,6 +80,35 @@ function eventOptionsFor(
     location: trigger.location ?? DEFAULT_LOCATION,
     databaseHost: resolveChildDatabaseHost(),
   };
+}
+
+/** Report a run that never settled onto the stream, and read back its record. */
+function reportTimeout(
+  ctx: SurfaceContext,
+  triggerName: string,
+  ref: string,
+  params: Record<string, string>,
+  startedAt: number,
+  durationMs: number,
+): FunctionExecutionRecord {
+  const id = executionIdFor(ctx.sandbox);
+  const record: FunctionExecutionRecord = {
+    id,
+    trigger: triggerName,
+    cause: { ref, params },
+    startedAt,
+    durationMs,
+    status: 'timeout',
+  };
+  emitExecutionFinished(ctx.sandbox, {
+    trigger: triggerName,
+    ref,
+    params,
+    startedAt,
+    durationMs,
+    status: 'timeout',
+  });
+  return record;
 }
 
 /** Report one finished run onto the stream, and read back the record it became. */
@@ -95,10 +150,15 @@ export default {
   method: 'fire',
   sdkOrigin: 'pyric',
   effect: 'write',
-  signature: 'fire(trigger, path, value)',
+  signature: 'fire(trigger, path, value, timeoutMs?)',
   description:
-    'Run a discovered trigger on a synthetic event built from path and value. Does not write value at path.',
-  args: z.object({ trigger: triggerArgument, path: pathArgument, value: valueArgument }),
+    'Run a discovered trigger on a synthetic event built from path and value. Does not write value at path. Refuses if the handler does not settle within timeoutMs (default 10000, max 60000).',
+  args: z.object({
+    trigger: triggerArgument,
+    path: pathArgument,
+    value: valueArgument,
+    timeoutMs: timeoutMsArgument,
+  }),
   operation: 'fire_functions_trigger',
   example: { trigger: 'makeUppercase', path: 'messages/abc123/original', value: 'hello' },
   async handler(args, ctx) {
@@ -119,15 +179,23 @@ export default {
     }
     emitTriggerDiscovered(ctx.sandbox, trigger);
     const ref = normalizeRtdbReference(path);
+    const timeoutMs = (args.timeoutMs as number | undefined) ?? DEFAULT_TIMEOUT_MS;
     emitHandlerFired(ctx.sandbox, { trigger: triggerName, ref, params });
     const startedAt = getClock(ctx.sandbox).now();
     const startedMonotonic = performance.now();
-    const result = await executeOnValueCreated(
-      trigger,
-      { ref, params, value: args.value },
-      eventOptionsFor(ctx, trigger),
+    const raced = await raceAgainstTimeout(
+      executeOnValueCreated(trigger, { ref, params, value: args.value }, eventOptionsFor(ctx, trigger)),
+      timeoutMs,
     );
     const durationMs = performance.now() - startedMonotonic;
+    if (raced === TIMED_OUT) {
+      const record = reportTimeout(ctx, triggerName, ref, params, startedAt, durationMs);
+      return operationFailure(
+        `functions.fire: ${triggerName} did not settle within ${timeoutMs}ms and was refused as timed out.`,
+        { executionId: record.id },
+      );
+    }
+    const result = raced;
     const record = reportExecution(ctx, triggerName, ref, params, startedAt, durationMs, result);
     if (result.status === 'rejected') {
       return operationFailure(`functions.fire: ${triggerName} threw: ${record.error}`, {

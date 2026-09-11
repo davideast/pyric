@@ -85,6 +85,20 @@ export const sandbox = {
     return requireSandbox(auth).backend.restoreSession(uid);
   },
 
+  /** Read `Auth.tenantId` without going through the handle's own property,
+   *  for a host capturing the tenant scope alongside a signed-in uid (a
+   *  process boundary has no live `Auth` object to read it from later). */
+  getTenantId(auth: Auth): string | null {
+    return requireSandbox(auth).backend.getTenantId();
+  },
+
+  /** Write `Auth.tenantId` without a sign-in, the seam a host uses to put
+   *  a captured tenant scope back once {@link restoreSession} has restored
+   *  the uid it was captured alongside. */
+  setTenantId(auth: Auth, tenantId: string | null): void {
+    requireSandbox(auth).backend.setTenantId(tenantId);
+  },
+
   mintSession(auth: Auth, request: MintSessionRequest): MintedSession {
     return requireSandbox(auth).backend.mintDetachedSession(request);
   },

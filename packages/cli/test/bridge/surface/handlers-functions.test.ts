@@ -37,6 +37,7 @@ exports.alwaysThrows = onValueCreated('/failures/{id}', () => {
   throw new Error('PYRIC_EXPECTED_FIRE_FAILURE');
 });
 exports.turnedOff = onValueCreated({ ref: '/messages/{id}', omit: true }, () => undefined);
+exports.neverSettles = onValueCreated('/stuck/{id}', () => new Promise(() => {}));
 `,
   );
   symlinkSync(firebaseFunctionsPath, `${projectDir}/functions/node_modules/firebase-functions`);
@@ -157,4 +158,22 @@ it('refuses an unknown trigger, naming listTriggers', async () => {
   });
   expect(refused.ok).toBe(false);
   expect(refused.summary).toContain('listTriggers');
+});
+
+it('refuses a handler that never settles once timeoutMs elapses, logging it as timed out', async () => {
+  const fired = await run('functions.fire', {
+    trigger: 'neverSettles',
+    path: 'stuck/one',
+    value: true,
+    timeoutMs: 50,
+  });
+  expect(fired.ok).toBe(false);
+  expect(fired.summary).toContain('timed out');
+
+  const executions = await run('functions.executions');
+  const { executions: recorded } = executions.data as {
+    executions: Array<{ trigger: string; status: string }>;
+  };
+  const last = recorded.find((entry) => entry.trigger === 'neverSettles')!;
+  expect(last.status).toBe('timeout');
 });

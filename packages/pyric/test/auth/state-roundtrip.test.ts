@@ -92,7 +92,7 @@ describe('sandbox.exportUsers', () => {
     expect('disabled' in seed!).toBe(false);
   });
 
-  it('passwordless provider identities export with the sentinel; anonymous are skipped', async () => {
+  it('passwordless provider identities export with the sentinel; anonymous export too', async () => {
     const a = wire();
     authSandbox.setAuthProviderConfig(a, 'google.com', true);
     // provider-flow identity without a password (createSignInCredential spec path)
@@ -104,16 +104,31 @@ describe('sandbox.exportUsers', () => {
       }),
     );
     await signInWithPopup(a, new GoogleAuthProvider());
-    await signInAnonymously(a);
+    const anon = await signInAnonymously(a);
 
     const exported = authSandbox.exportUsers(a);
     const popup = exported.find((u) => u.email === 'popup@x.com');
     expect(popup?.password).toBe(NO_PASSWORD_SENTINEL);
     expect(popup?.providerId).toBe('google.com');
-    // the anonymous identity exists in the DB but is not exported
+    // the anonymous identity is exported alongside every other account, the
+    // way real Firebase keeps anonymous accounts in its user pool.
     expect(authSandbox.listIdentities(a).some((i) => i.isAnonymous)).toBe(true);
-    expect(exported.some((u) => u.uid.startsWith('anon'))).toBe(false);
-    expect(exported).toHaveLength(1);
+    const anonymousSeed = exported.find((u) => u.uid === anon.user.uid);
+    expect(anonymousSeed).toEqual({ uid: anon.user.uid, providerId: 'anonymous' });
+    expect(exported).toHaveLength(2);
+  });
+
+  it('re-imports an exported anonymous account with its uid, and no email or password', async () => {
+    const a = wire();
+    const anon = await signInAnonymously(a);
+    const exported = authSandbox.exportUsers(a);
+
+    const b = wire();
+    authSandbox.seedUsers(b, exported);
+    const restored = authSandbox.listUsers(b).find((u) => u.uid === anon.user.uid);
+    expect(restored).toBeDefined();
+    expect(restored?.email).toBeNull();
+    expect(authSandbox.exportUsers(b)).toEqual(exported);
   });
 });
 

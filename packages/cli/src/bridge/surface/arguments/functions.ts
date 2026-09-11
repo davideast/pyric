@@ -19,3 +19,11 @@ export const pathArgument = z
 export const valueArgument = z
   .unknown()
   .describe('The value the synthetic event carries at path. Never written to the database.');
+
+export const timeoutMsArgument = z
+  .number()
+  .int()
+  .positive()
+  .max(60_000)
+  .optional()
+  .describe('Milliseconds to wait for the handler to settle before refusing the run. Defaults to 10000, max 60000.');

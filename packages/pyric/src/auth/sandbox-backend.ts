@@ -795,23 +795,26 @@ export class SandboxBackend {
       // in (AUTH-B9) — otherwise both emails would resolve, the old one
       // to a now-orphaned record.
       const prior = this.usersByUid.get(u.uid);
-      if (prior?.email && prior.email.toLowerCase() !== u.email.toLowerCase()) {
+      if (prior?.email && prior.email.toLowerCase() !== u.email?.toLowerCase()) {
         this.usersByEmail.delete(prior.email.toLowerCase());
       }
+      const isAnonymousSeed = u.providerId === 'anonymous';
+      const providerUserInfo = isAnonymousSeed ? [] : [{ providerId: u.providerId ?? 'password' }];
       const record = this.makeStored({
         uid: u.uid,
-        email: u.email,
-        password: u.password,
+        email: isAnonymousSeed ? null : (u.email ?? null),
+        password: isAnonymousSeed ? null : (u.password ?? null),
         displayName: u.displayName ?? null,
         phoneNumber: u.phoneNumber ?? null,
         photoUrl: u.photoUrl ?? null,
         customClaims: u.customClaims ?? {},
         emailVerified: u.emailVerified ?? false,
         disabled: u.disabled ?? false,
-        providerUserInfo: [{ providerId: u.providerId ?? 'password' }],
+        isAnonymous: isAnonymousSeed,
+        providerUserInfo,
         tenantId: u.tenantId ?? null,
       });
-      this.usersByEmail.set(u.email.toLowerCase(), record);
+      if (!isAnonymousSeed && u.email !== undefined) this.usersByEmail.set(u.email.toLowerCase(), record);
       this.usersByUid.set(u.uid, record);
     }
     if (users.length > 0) this.notifyUsersChanged();
@@ -824,14 +827,25 @@ export class SandboxBackend {
    * password (provider-flow users created via `createSignInCredential`)
    * export with {@link NO_PASSWORD_SENTINEL} so they survive the
    * round-trip (same trick hosts already use when seeding popup
-   * identities). Anonymous users (no email) are NOT exported — they are
-   * ephemeral by design; documented divergence from prod's persisted
-   * anonymous sessions.
+   * identities). Anonymous users (no email) export with
+   * `providerId: 'anonymous'` and no email or password, so a checkpoint,
+   * a branch, and a restart keep them, matching real Firebase, which
+   * keeps anonymous accounts in its user pool rather than discarding them.
    */
   exportUsers(): SeedUser[] {
     const out: SeedUser[] = [];
     for (const u of this.usersByUid.values()) {
-      if (u.email === null) continue; // anonymous — not round-trippable
+      if (u.isAnonymous) {
+        const seed: SeedUser = { uid: u.uid, providerId: 'anonymous' };
+        if (u.displayName !== null) seed.displayName = u.displayName;
+        if (u.photoUrl !== null) seed.photoUrl = u.photoUrl;
+        if (Object.keys(u.customClaims).length > 0) seed.customClaims = u.customClaims;
+        if (u.disabled) seed.disabled = true;
+        if (u.tenantId !== null) seed.tenantId = u.tenantId;
+        out.push(seed);
+        continue;
+      }
+      if (u.email === null) continue; // credential-less, non-anonymous: not round-trippable
       const seed: SeedUser = {
         uid: u.uid,
         email: u.email,

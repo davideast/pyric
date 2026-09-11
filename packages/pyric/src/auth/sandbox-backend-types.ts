@@ -28,8 +28,13 @@ export const NO_PASSWORD_SENTINEL = '__pyric_no_password__';
 
 export interface SeedUser {
   uid: string;
-  email: string;
-  password: string;
+  /** Absent for an anonymous account (`providerId: 'anonymous'`), which has
+   *  no address to sign in with. Required for every other provider. */
+  email?: string;
+  /** Absent for an anonymous account. Required for every other provider;
+   *  a provider-flow identity with no password uses
+   *  {@link NO_PASSWORD_SENTINEL} instead of omitting it. */
+  password?: string;
   displayName?: string;
   customClaims?: Record<string, unknown>;
   /** Profile photo URL, mirroring the stored record's `photoUrl`.
