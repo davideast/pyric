@@ -35,10 +35,13 @@ import { nextRequestEventId } from './request-events.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import type { TriggerScope } from './trigger-scope.js';
 import type {
+  ListenerOwner,
   SnapshotDeliveryEvent,
   SnapshotSuppressedEvent,
   ListenerLifecycleEvent,
 } from '../../sandbox/types/events.js';
+import { listenerAttachOwners } from '../../sandbox/attribution/listener-owners.js';
+import { recordEffectRegions } from '../../sandbox/attribution/effect-regions.js';
 import { SandboxClock } from '../../sandbox/clock.js';
 
 /**
@@ -97,6 +100,16 @@ export class ListenerDispatch {
   private deliveryQueue: Array<() => void> = [];
   private deliveryScheduled = false;
 
+  /**
+   * Effect attribution for the delivery currently being emitted, keyed by
+   * listener id. The instrumented callback writes the entry while the user
+   * callback runs; the delivery event that follows on the same synchronous
+   * stack takes it back out. One entry per listener at most, cleared on
+   * every invocation and on detach, so a suppressed or errored re-eval can
+   * never publish a previous delivery's regions.
+   */
+  private deliveryOwners: Map<string, ListenerOwner[]> = new Map();
+
   constructor(
     private readonly events: FirestoreEventBus,
     private readonly triggerScope: TriggerScope,
@@ -107,6 +120,28 @@ export class ListenerDispatch {
   ) {}
 
   // ═══ Listener-owned event payloads ═══
+
+  /**
+   * Wrap a user callback so each invocation's DOM effects are observed and
+   * staged for the delivery event that follows it. The wrapper adds no
+   * asynchrony and swallows nothing: whatever the callback throws still
+   * propagates to the existing try/catch at the call site.
+   */
+  private instrumentCallback(id: string, callback: SnapshotCallback): SnapshotCallback {
+    return (snapshot: unknown) => {
+      this.deliveryOwners.delete(id);
+      const regions = recordEffectRegions(() => callback(snapshot));
+      if (regions === undefined) return;
+      this.deliveryOwners.set(id, [regions]);
+    };
+  }
+
+  /** Take the staged effect attribution for `listenerId`, clearing it. */
+  private takeDeliveryOwners(listenerId: string): ListenerOwner[] | undefined {
+    const owners = this.deliveryOwners.get(listenerId);
+    this.deliveryOwners.delete(listenerId);
+    return owners;
+  }
 
   private emitSnapshotDelivery(input: {
     listenerId: string;
@@ -119,6 +154,7 @@ export class ListenerDispatch {
     sample?: { docs: Array<{ path: string; data: Record<string, unknown> | null }> };
     triggeredBy?: { method: string; path: string };
   }): void {
+    const owners = this.takeDeliveryOwners(input.listenerId);
     if (!this.events.delivery.hasSubscribers) return;
     const event: SnapshotDeliveryEvent = {
       kind: 'snapshot_delivery',
@@ -136,6 +172,9 @@ export class ListenerDispatch {
       ...(input.sample ? { sample: input.sample } : {}),
       ...(input.triggeredBy ? { triggeredBy: input.triggeredBy } : {}),
     };
+    if (owners !== undefined) {
+      event.owners = owners;
+    }
     this.events.delivery.emit(event);
   }
 
@@ -166,6 +205,7 @@ export class ListenerDispatch {
     listenerId: string;
     target: ListenerLifecycleEvent['target'];
     auth: ListenerAuth;
+    owners?: ListenerOwner[];
   }): void {
     if (!this.events.lifecycle.hasSubscribers) return;
     const event: ListenerLifecycleEvent = {
@@ -178,6 +218,9 @@ export class ListenerDispatch {
         ? { uid: input.auth.uid, ...(input.auth.token ? { token: input.auth.token } : {}) }
         : null,
     };
+    if (input.owners !== undefined) {
+      event.owners = input.owners;
+    }
     this.events.lifecycle.emit(event);
   }
 
@@ -227,10 +270,13 @@ export class ListenerDispatch {
     authScope?: object,
   ): () => void {
     const id = String(this.nextListenerId++);
+    // One `Error` construction per attach, on the caller's own stack, the
+    // only place the application frame is still reachable.
+    const attachOwners = listenerAttachOwners(options.owner);
     const record: ListenerRecord = {
       id,
       target,
-      callback,
+      callback: this.instrumentCallback(id, callback),
       auth,
       bypassRules,
       followsCurrentUser,
@@ -257,6 +303,7 @@ export class ListenerDispatch {
               : {}),
           },
       auth,
+      owners: attachOwners,
     });
 
     // Items 3 + 5 — the initial snapshot is delivered off-stack through the
@@ -277,6 +324,7 @@ export class ListenerDispatch {
     return () => {
       const stillRegistered = this.snapshotListeners.has(id);
       this.snapshotListeners.delete(id);
+      this.deliveryOwners.delete(id);
       // Only emit detach if the listener was actually registered when
       // the unsubscribe was called. Idempotent calls and listeners
       // dropped by `reset()` don't double-emit.
@@ -937,6 +985,7 @@ export class ListenerDispatch {
    */
   dispose(): void {
     this.snapshotListeners.clear();
+    this.deliveryOwners.clear();
     this.deliveryQueue.length = 0;
     this.deliveryScheduled = false;
   }

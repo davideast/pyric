@@ -10,6 +10,7 @@ import { AUTH_SESSION_SCOPE, FOLLOWS_CURRENT_USER } from 'pyric/firestore/intern
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { toFirestoreFirebaseError } from './errors.js';
 import { clientStateFor } from './client-state.js';
+import type { ListenerOwnerHint } from '../sandbox/attribution/listener-owners.js';
 
 import {
   targetOf,
@@ -31,6 +32,14 @@ import type {
 
 export interface SnapshotListenOptions {
   includeMetadataChanges?: boolean;
+  /**
+   * Pyric's own extension, absent from the Firebase Web SDK: who owns this
+   * listener. A name, or the DOM element the listener feeds. It is recorded
+   * as a `tag` owner on the sandbox's `listener_attach` event so a listener
+   * can be traced back to the part of the app that wanted it. It has no
+   * effect on delivery, and a production Firestore target ignores it.
+   */
+  owner?: ListenerOwnerHint;
 }
 
 export interface SnapshotObserver<T> {
