@@ -83,6 +83,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'verifyCases',
   ],
   sandbox: [
+    'activity',
     'advanceClock',
     'apply',
     'checkpoint',
@@ -95,6 +96,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'inspect',
     'listBranches',
     'listCheckpoints',
+    'listeners',
     'promote',
     'reset',
     'resetClock',

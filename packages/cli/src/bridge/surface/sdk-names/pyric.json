@@ -1,6 +1,7 @@
 [
   "actAsAdmin",
   "actAsAnonymous",
+  "activity",
   "advanceClock",
   "apply",
   "attach",
@@ -31,6 +32,7 @@
   "listCheckpoints",
   "listStdlib",
   "listTriggers",
+  "listeners",
   "map",
   "minimize",
   "promote",

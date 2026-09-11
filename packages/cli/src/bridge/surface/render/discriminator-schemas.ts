@@ -349,6 +349,8 @@ export const controlSandboxEnvironmentSchema = z.object({
       'list_checkpoints',
       'delete_checkpoint',
       'events',
+      'listeners',
+      'activity',
       'export_fixture',
       'seed_fixture',
     ])
@@ -379,6 +381,18 @@ export const controlSandboxEnvironmentSchema = z.object({
     .enum(['all', 'denials', 'writes'])
     .optional()
     .describe("Event filter (when action is 'events')."),
+  service: z
+    .enum(['firestore', 'database'])
+    .optional()
+    .describe("Narrow to one service's listeners (when action is 'listeners')."),
+  target: z
+    .string()
+    .optional()
+    .describe("Keep only listeners whose target starts with this (when action is 'listeners')."),
+  pattern: z
+    .enum(['repeated-read', 'duplicate-listener', 'listener-churn'])
+    .optional()
+    .describe("Incident pattern filter (when action is 'activity')."),
   advanceMs: z
     .number()
     .optional()
