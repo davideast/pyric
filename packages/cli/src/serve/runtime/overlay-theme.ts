@@ -60,6 +60,8 @@ function hueDefaults(): Record<string, string> {
   listenerPalette().forEach((hue, index) => {
     defaults[`--pyric-hue-${index}`] = `hsl(${hue} 72% 52%)`;
     defaults[`--pyric-hue-${index}-text`] = `hsl(${hue} 72% 66%)`;
+    // The colour a mark settles on once retained: the same hue, mostly clear.
+    defaults[`--pyric-hue-${index}-retained`] = `hsl(${hue} 72% 52% / 0.35)`;
   });
   return defaults;
 }
@@ -225,6 +227,7 @@ function hueRules(): string {
     .map((_hue, index) => `[data-pyric-listener-overlay] [data-hue="${index}"] {
     --pyric-overlay-hue: var(--pyric-hue-${index});
     --pyric-overlay-hue-text: var(--pyric-hue-${index}-text);
+    --pyric-overlay-hue-retained: var(--pyric-hue-${index}-retained);
   }`)
     .join('\n  ');
 }
@@ -339,22 +342,30 @@ export function flowStyleSheetText(): string {
   return `
   ${rootDefaults()}
   ${flowHueRules()}
+  @keyframes pyric-flow-mark {
+    from { outline-color: var(--pyric-overlay-hue); }
+    to { outline-color: var(--pyric-overlay-hue-retained); }
+  }
+  @keyframes pyric-flow-badge {
+    from { opacity: 1; }
+    to { opacity: var(--pyric-overlay-retained-opacity); }
+  }
   [data-pyric-flow] {
     outline: var(--pyric-overlay-flow-outline-width) var(--pyric-overlay-outline-style) var(--pyric-overlay-hue);
     outline-offset: 0;
     border-radius: var(--pyric-overlay-radius);
-    transition: outline-color var(--pyric-overlay-fade-duration) linear var(--pyric-overlay-hold-duration);
   }
-  [data-pyric-flow][data-pyric-flow-fading],
+  [data-pyric-flow][data-pyric-flow-fading] {
+    animation: pyric-flow-mark var(--pyric-overlay-fade-duration) linear var(--pyric-overlay-hold-duration) forwards;
+  }
   [data-pyric-flow][data-pyric-flow-retained] {
-    outline-color: color-mix(in srgb, var(--pyric-overlay-hue) calc(var(--pyric-overlay-retained-opacity) * 100%), transparent);
+    outline-color: var(--pyric-overlay-hue-retained);
   }
   [data-pyric-flow][data-pyric-flow-label]::after {
     content: attr(data-pyric-flow-label);
     position: absolute;
-    top: 0;
-    right: 0;
-    transform: translateY(-100%);
+    top: 2px;
+    right: 2px;
     z-index: 2147483000;
     background: var(--pyric-overlay-badge-bg);
     border: var(--pyric-overlay-outline-width) var(--pyric-overlay-outline-style) var(--pyric-overlay-hue);
@@ -368,9 +379,10 @@ export function flowStyleSheetText(): string {
     pointer-events: none;
     white-space: nowrap;
     opacity: 1;
-    transition: opacity var(--pyric-overlay-fade-duration) linear var(--pyric-overlay-hold-duration);
   }
-  [data-pyric-flow][data-pyric-flow-fading][data-pyric-flow-label]::after,
+  [data-pyric-flow][data-pyric-flow-fading][data-pyric-flow-label]::after {
+    animation: pyric-flow-badge var(--pyric-overlay-fade-duration) linear var(--pyric-overlay-hold-duration) forwards;
+  }
   [data-pyric-flow][data-pyric-flow-retained][data-pyric-flow-label]::after {
     opacity: var(--pyric-overlay-retained-opacity);
   }
