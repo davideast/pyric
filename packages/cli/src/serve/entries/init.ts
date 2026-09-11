@@ -29,6 +29,7 @@ import { ServeAuthHelper, customClaimsFromTokenClaims } from './auth-helper-core
 import { installServeAuthResolver } from './auth-helper-runtime.js';
 import { mountAuthHelperDialog } from './auth-helper-dom.js';
 import { installPyricRuntimeChip } from '../runtime/chip-install.js';
+import { sandboxEventSource } from '../runtime/listener-event-source.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 import { projectRuntimeIdentity } from '../runtime/identity.js';
 
@@ -89,6 +90,7 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   installPyricRuntimeChip({
     runtime: getPyricRuntimeStatus(),
     document,
+    listenerEvents: sandboxEventSource({ workerDb, sandbox }),
     identity: {
       listUsers: async () => {
         if (workerAuth) {

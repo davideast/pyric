@@ -6,11 +6,16 @@ import {
 import { readPyricRuntimeChipConfig } from './chip-config.js';
 import type { PyricRuntimeStatus } from './status.js';
 import type { RuntimeIdentityBindings } from './identity.js';
+import { listenerAttributionEnabled } from 'pyric/sandbox/internal';
+import { createListenerMode } from './listener-mode.js';
+import type { SandboxEventSource } from './listener-event-source.js';
 
 export interface InstallPyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
   document: Document;
   identity?: Partial<RuntimeIdentityBindings>;
+  /** The page's sandbox event source. Omitted leaves the Listeners mode out. */
+  listenerEvents?: SandboxEventSource | null;
   mount?: (options: PyricRuntimeChipOptions) => PyricRuntimeChip;
 }
 
@@ -28,6 +33,19 @@ export function installPyricRuntimeChip(
     identity: options.identity,
   };
   if (!config.studioEnabled) chipOptions.studioUrl = null;
+  const events = options.listenerEvents;
+  if (events !== null && events !== undefined) {
+    const studioUrl = config.studioEnabled
+      ? options.runtime.getSnapshot().manifest.studioUrl
+      : null;
+    chipOptions.listeners = (onChange) => createListenerMode({
+      document: options.document,
+      subscribeEvents: events,
+      attributionEnabled: listenerAttributionEnabled,
+      studioUrl,
+      onChange,
+    });
+  }
   const mount = options.mount ?? mountPyricRuntimeChip;
   return mount(chipOptions);
 }
