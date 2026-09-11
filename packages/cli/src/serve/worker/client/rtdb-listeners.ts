@@ -12,6 +12,7 @@ import {
 } from './core.js';
 import type { ClientPort, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
+import { reportListenerDelivery } from './listener-delivery.js';
 import {
   isRtdbQuery,
   rtdbChild,
@@ -99,6 +100,9 @@ function openValueSubscription(
     next: (wire: unknown) => {
       if (listenOptions?.onlyOnce && fired) return;
       fired = true;
+      // Reported on the subscription id the sandbox also records as the
+      // listener id, immediately before the application's callback runs.
+      reportListenerDelivery(currentSubId);
       if (listenOptions?.onlyOnce) {
         unsubLens();
         closeSubscription(ref.port, currentSubId);
