@@ -2,11 +2,16 @@ import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
 import { createFlowPainter, flowBadgeText } from '../../../src/serve/runtime/listener-flow-painter.js';
 import { listenerHueIndex } from '../../../src/serve/runtime/listener-palette.js';
-import type { FlowSubtree } from '../../../src/serve/runtime/fiber-flow.js';
+import { FLOW_STYLE_ATTRIBUTE } from '../../../src/serve/runtime/overlay-theme.js';
+import type { FlowComponent, FlowSubtree } from '../../../src/serve/runtime/fiber-flow.js';
 
 function setup() {
   const dom = new JSDOM(`<!doctype html><body>
-    <div id="page"><div id="thread"><span id="bubble">hi</span></div></div>
+    <div id="page">
+      <div id="thread"><span id="bubble">hi</span></div>
+      <div id="presence">1</div>
+      <img id="avatar" />
+    </div>
   </body>`);
   const doc = dom.window.document;
   const container = doc.createElement('div');
@@ -33,82 +38,73 @@ function setup() {
       timer.run();
     }
   };
-  return { doc, container, painter, advance, timers };
+  const el = (selector: string): HTMLElement => doc.querySelector<HTMLElement>(selector)!;
+  const marked = (): HTMLElement[] => [...doc.querySelectorAll<HTMLElement>('[data-pyric-flow]')];
+  return { doc, container, painter, advance, timers, el, marked };
 }
 
-function subtree(doc: Document): FlowSubtree {
-  const page = doc.querySelector('#page')!;
-  const thread = doc.querySelector('#thread')!;
-  return {
-    root: { name: 'ChatPage', element: page, depth: 0, kind: 'region' },
-    components: [
-      { name: 'ChatPage', element: page, depth: 0, kind: 'region' },
-      { name: 'MessageThread', element: thread, depth: 1, kind: 'component' },
-    ],
-    leaves: [{ name: 'MessageThread', element: thread, depth: 1, kind: 'component' }],
-  };
+function component(element: Element, name: string, depth = 0): FlowComponent {
+  return { name, element, depth, kind: 'component' };
 }
 
-/** A delivery whose leaf is the changed element itself, named by the element. */
-function hostLeafSubtree(doc: Document): FlowSubtree {
-  const page = doc.querySelector('#page')!;
-  const bubble = doc.querySelector('#bubble')!;
-  return {
-    root: { name: 'ChatPage', element: page, depth: 0, kind: 'region' },
-    components: [
-      { name: 'ChatPage', element: page, depth: 0, kind: 'region' },
-      { name: 'span#bubble', element: bubble, depth: 1, kind: 'host' },
-    ],
-    leaves: [{ name: 'span#bubble', element: bubble, depth: 1, kind: 'host' }],
-  };
+function subtreeOf(components: FlowComponent[]): FlowSubtree {
+  return { root: components[0] ?? null, components, leaves: components.slice(1) };
 }
 
-const paintOf = (doc: Document) => ({
+const paintOf = (page: ReturnType<typeof setup>, over?: Partial<{ listenerId: string; subtree: FlowSubtree }>) => ({
   listenerId: 'sub-1',
   label: 'ChatPage',
   target: 'conversations/c1/messages (query)',
   deliveryCount: 3,
-  subtree: subtree(doc),
+  subtree: subtreeOf([
+    component(page.el('#thread'), 'MessageThread'),
+    component(page.el('#bubble'), 'MessageBubble', 1),
+  ]),
+  ...over,
 });
 
-describe('painting one delivery', () => {
-  it('draws a box for every component in the listener colour', () => {
+describe('marking one delivery', () => {
+  it('marks the elements themselves in the listener colour', () => {
     const page = setup();
-    page.painter.paint(paintOf(page.doc));
+    page.painter.paint(paintOf(page));
 
-    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    expect(boxes).toHaveLength(2);
-    for (const box of boxes) expect(box.dataset.listenerId).toBe('sub-1');
-    expect(boxes.map((box) => box.dataset.component)).toEqual(['ChatPage', 'MessageThread']);
-    // The colour is the stylesheet's, off the hue the box names: one hue
-    // across the subtree, and a different one for another listener.
-    expect(boxes[0].dataset.hue).toBe(String(listenerHueIndex('sub-1')));
-    expect(boxes[0].dataset.hue).toBe(boxes[1].dataset.hue);
-    expect(boxes.map((box) => box.dataset.pyricRole)).toEqual(['region', 'component']);
-    // Nothing visual is inline: only the measured geometry is.
-    for (const box of boxes) {
-      expect([...box.style]).toEqual(['left', 'top', 'width', 'height']);
+    expect(page.marked()).toEqual([page.el('#thread'), page.el('#bubble')]);
+    for (const element of page.marked()) {
+      expect(element.getAttribute('data-pyric-flow-listener')).toBe('sub-1');
+      expect(element.getAttribute('data-pyric-flow-role')).toBe('component');
+      expect(element.getAttribute('data-pyric-flow')).toBe(String(listenerHueIndex('sub-1')));
     }
+    // Nothing is measured into the overlay: the container holds its stylesheet
+    // and nothing else.
+    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
 
-    page.painter.paint({ ...paintOf(page.doc), listenerId: 'sub-2' });
-    const other = page.container.querySelector<HTMLElement>('[data-pyric-flow-box][data-listener-id="sub-2"]');
+    page.painter.paint(paintOf(page, {
+      listenerId: 'sub-2',
+      subtree: subtreeOf([component(page.el('#presence'), 'PresenceBar')]),
+    }));
     expect(listenerHueIndex('sub-2')).not.toBe(listenerHueIndex('sub-1'));
-    expect(other?.dataset.hue).not.toBe(boxes[0].dataset.hue);
+    expect(page.el('#presence').getAttribute('data-pyric-flow'))
+      .toBe(String(listenerHueIndex('sub-2')));
   });
 
-  it('names the owner and target on the root badge and the component on the leaf', () => {
+  it('marks a changed element no component named as a host', () => {
     const page = setup();
-    page.painter.paint(paintOf(page.doc));
-
-    const badge = page.container.querySelector('[data-pyric-flow-badge]');
-    expect(badge?.textContent).toBe('ChatPage · conversations/c1/messages (query) · 3');
-    expect(badge?.getAttribute('title')).toContain('rendered after a delivery');
-
-    const leaf = page.container.querySelector('[data-pyric-flow-leaf-badge]');
-    expect(leaf?.textContent).toBe('MessageThread');
+    page.painter.paint(paintOf(page, {
+      subtree: subtreeOf([{ name: 'div#presence', element: page.el('#presence'), depth: 0, kind: 'host' }]),
+    }));
+    expect(page.el('#presence').getAttribute('data-pyric-flow-role')).toBe('host');
   });
 
-  it('spells the root badge the way the Overview badge does', () => {
+  it('names the listener on the first element and the rest by themselves', () => {
+    const page = setup();
+    page.painter.paint(paintOf(page));
+
+    expect(page.el('#thread').getAttribute('data-pyric-flow-label'))
+      .toBe('ChatPage · conversations/c1/messages (query) · 3');
+    expect(page.el('#bubble').getAttribute('data-pyric-flow-label')).toBe('MessageBubble');
+  });
+
+  it('spells the first label the way the Overview badge does', () => {
     expect(flowBadgeText({
       listenerId: 'sub-1',
       label: 'PresenceBar',
@@ -118,83 +114,161 @@ describe('painting one delivery', () => {
     })).toBe('PresenceBar · status/u1 · 1');
   });
 
-  it('holds the boxes dimmed once the fade is over, rather than taking them away', () => {
+  it('falls back to a measured badge for an element that carries no pseudo one', () => {
     const page = setup();
-    page.painter.paint(paintOf(page.doc));
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(2);
+    page.painter.paint(paintOf(page, {
+      subtree: subtreeOf([component(page.el('#avatar'), 'img#avatar')]),
+    }));
 
-    page.advance(3000);
-    const held = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    expect(held).toHaveLength(2);
-    expect(held.every((box) => box.dataset.flowRetained === '')).toBe(true);
-    // The dimming is the stylesheet's, off the retained attribute.
-    expect(held.every((box) => box.style.opacity === '')).toBe(true);
+    // The outline is still on the element itself; only the words are measured.
+    expect(page.el('#avatar').getAttribute('data-pyric-flow')).toBe(String(listenerHueIndex('sub-1')));
+    expect(page.el('#avatar').hasAttribute('data-pyric-flow-label')).toBe(false);
+    const badge = page.container.querySelector<HTMLElement>('[data-pyric-flow-badge]');
+    expect(badge?.textContent).toBe('ChatPage · conversations/c1/messages (query) · 3');
+    expect(badge?.dataset.listenerId).toBe('sub-1');
+    expect(badge?.dataset.hue).toBe(String(listenerHueIndex('sub-1')));
+
+    page.painter.clearListener('sub-1');
+    expect(page.container.querySelectorAll('[data-pyric-flow-badge]')).toHaveLength(0);
   });
 
-  it('replaces a retained subtree on the next delivery for that listener', () => {
+  it('puts the stylesheet in the document head, once', () => {
     const page = setup();
-    page.painter.paint(paintOf(page.doc));
-    page.advance(3000);
-
-    page.painter.paint(paintOf(page.doc));
-    const drawn = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    expect(drawn).toHaveLength(2);
-    expect(drawn.some((box) => box.dataset.flowRetained === '')).toBe(false);
+    expect(page.doc.head.querySelectorAll(`[${FLOW_STYLE_ATTRIBUTE}]`)).toHaveLength(1);
+    createFlowPainter({ document: page.doc, container: page.container });
+    expect(page.doc.querySelectorAll(`[${FLOW_STYLE_ATTRIBUTE}]`)).toHaveLength(1);
   });
 
-  it('takes a retained subtree away when its listener is switched off', () => {
+  it('holds the marks dimmed once the fade is over, rather than taking them away', () => {
     const page = setup();
-    page.painter.paint(paintOf(page.doc));
+    page.painter.paint(paintOf(page));
+    page.advance(3000);
+
+    expect(page.marked()).toHaveLength(2);
+    expect(page.marked().every((element) => element.hasAttribute('data-pyric-flow-retained')))
+      .toBe(true);
+  });
+
+  it('takes a retained mark away when its listener is switched off', () => {
+    const page = setup();
+    page.painter.paint(paintOf(page));
     page.advance(3000);
 
     page.painter.clearListener('sub-1');
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
-  });
-
-  it('badges a changed element by its tag and id when no component named it', () => {
-    const page = setup();
-    page.painter.paint({ ...paintOf(page.doc), subtree: hostLeafSubtree(page.doc) });
-    const leaf = page.container.querySelector<HTMLElement>('[data-pyric-flow-leaf-badge]');
-    expect(leaf?.textContent).toBe('span#bubble');
-    expect(leaf?.dataset.flowKind).toBe('host');
-    const kinds = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')]
-      .map((box) => box.dataset.flowKind);
-    expect(kinds).toEqual(['region', 'host']);
-  });
-
-  it('replaces the same listener rather than stacking on it', () => {
-    const page = setup();
-    page.painter.paint(paintOf(page.doc));
-    page.painter.paint(paintOf(page.doc));
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(2);
-  });
-
-  it('keeps two listeners apart by colour and clears one at a time', () => {
-    const page = setup();
-    page.painter.paint(paintOf(page.doc));
-    page.painter.paint({ ...paintOf(page.doc), listenerId: 'sub-2', label: 'PresenceBar' });
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(4);
-
-    page.painter.clearListener('sub-1');
-    const left = page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]');
-    expect(left).toHaveLength(2);
-    expect([...left].every((box) => box.dataset.listenerId === 'sub-2')).toBe(true);
+    expect(page.marked()).toHaveLength(0);
   });
 
   it('draws nothing for a delivery that rendered nothing', () => {
     const page = setup();
-    page.painter.paint({
-      ...paintOf(page.doc),
-      subtree: { root: null, components: [], leaves: [] },
-    });
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    page.painter.paint(paintOf(page, { subtree: { root: null, components: [], leaves: [] } }));
+    expect(page.marked()).toHaveLength(0);
   });
 
-  it('clears everything and cancels its timers on dispose', () => {
+  it('keeps two listeners apart and clears one at a time', () => {
     const page = setup();
-    page.painter.paint(paintOf(page.doc));
+    page.painter.paint(paintOf(page));
+    page.painter.paint(paintOf(page, {
+      listenerId: 'sub-2',
+      subtree: subtreeOf([component(page.el('#presence'), 'PresenceBar')]),
+    }));
+    expect(page.marked()).toHaveLength(3);
+
+    page.painter.clearListener('sub-1');
+    expect(page.marked()).toEqual([page.el('#presence')]);
+  });
+});
+
+describe('a burst of deliveries', () => {
+  it('adds to what is on the page rather than replacing it', () => {
+    const page = setup();
+    page.painter.paint(paintOf(page, {
+      subtree: subtreeOf([component(page.el('#thread'), 'MessageThread')]),
+    }));
+    page.advance(500);
+    page.painter.paint(paintOf(page, {
+      subtree: subtreeOf([component(page.el('#presence'), 'PresenceBar')]),
+    }));
+    page.advance(500);
+    page.painter.paint(paintOf(page, {
+      subtree: subtreeOf([component(page.el('#bubble'), 'MessageBubble')]),
+    }));
+
+    expect(page.marked()).toEqual([page.el('#thread'), page.el('#bubble'), page.el('#presence')]);
+  });
+
+  it('fades every mark on its own clock and keeps only the last delivery', () => {
+    const page = setup();
+    page.painter.paint(paintOf(page, {
+      subtree: subtreeOf([component(page.el('#thread'), 'MessageThread')]),
+    }));
+    page.advance(1000);
+    page.painter.paint(paintOf(page, {
+      subtree: subtreeOf([component(page.el('#presence'), 'PresenceBar')]),
+    }));
+
+    // The first mark is three seconds old before the second one is.
+    page.advance(2000);
+    expect(page.marked()).toEqual([page.el('#presence')]);
+    expect(page.el('#presence').hasAttribute('data-pyric-flow-retained')).toBe(false);
+
+    page.advance(1000);
+    // The newest delivery is what stays, dimmed.
+    expect(page.marked()).toEqual([page.el('#presence')]);
+    expect(page.el('#presence').hasAttribute('data-pyric-flow-retained')).toBe(true);
+  });
+
+  it('restarts the fade of an element that is marked again', () => {
+    const page = setup();
+    const one = paintOf(page, { subtree: subtreeOf([component(page.el('#thread'), 'MessageThread')]) });
+    page.painter.paint(one);
+    page.advance(2500);
+    page.painter.paint(one);
+
+    page.advance(1000);
+    // The first clock would have ended by now; the restart is what keeps the
+    // mark at full strength.
+    expect(page.el('#thread').hasAttribute('data-pyric-flow-retained')).toBe(false);
+    page.advance(2000);
+    expect(page.el('#thread').hasAttribute('data-pyric-flow-retained')).toBe(true);
+  });
+
+  it('takes a whole burst away when its listener is switched off', () => {
+    const page = setup();
+    for (const selector of ['#thread', '#presence', '#bubble']) {
+      page.painter.paint(paintOf(page, {
+        subtree: subtreeOf([component(page.el(selector), selector)]),
+      }));
+      page.advance(100);
+    }
+    expect(page.marked()).toHaveLength(3);
+
+    page.painter.clearListener('sub-1');
+    expect(page.marked()).toHaveLength(0);
+  });
+});
+
+describe('taking the marks off', () => {
+  it('leaves no flow attributes behind on clear', () => {
+    const page = setup();
+    page.painter.paint(paintOf(page));
+    page.painter.paint(paintOf(page, {
+      listenerId: 'sub-2',
+      subtree: subtreeOf([component(page.el('#avatar'), 'img#avatar')]),
+    }));
+    page.painter.clear();
+
+    expect(page.doc.querySelectorAll('[data-pyric-flow], [data-pyric-flow-listener], [data-pyric-flow-role], [data-pyric-flow-label], [data-pyric-flow-fading], [data-pyric-flow-retained]'))
+      .toHaveLength(0);
+    expect(page.container.querySelectorAll('[data-pyric-flow-badge]')).toHaveLength(0);
+  });
+
+  it('leaves no flow attributes behind and cancels its timers on dispose', () => {
+    const page = setup();
+    page.painter.paint(paintOf(page));
     page.painter.dispose();
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+
+    expect(page.doc.querySelectorAll('[data-pyric-flow], [data-pyric-flow-label], [data-pyric-flow-listener], [data-pyric-flow-role]'))
+      .toHaveLength(0);
     expect(page.timers.filter((timer) => timer.at > 0)).toHaveLength(0);
   });
 });

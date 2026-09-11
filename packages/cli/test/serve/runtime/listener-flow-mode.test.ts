@@ -61,6 +61,16 @@ function buildPage() {
   return { doc, pageEl, threadEl, bubbleEl, presenceEl, dotEl };
 }
 
+/** Every element Flow has marked, in document order. */
+function marked(doc: Document): HTMLElement[] {
+  return [...doc.querySelectorAll<HTMLElement>('[data-pyric-flow]')];
+}
+
+/** What each marked element says it is. */
+function labels(doc: Document): (string | null)[] {
+  return marked(doc).map((element) => element.getAttribute('data-pyric-flow-label'));
+}
+
 interface SetupOptions {
   visible?: (listenerId: string) => boolean;
   recentDeliveries?: () => readonly RecentDelivery[];
@@ -139,40 +149,33 @@ describe('the Flow painting mode', () => {
     page.change([page.bubbleEl]);
     page.commit();
 
-    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    expect(boxes.map((box) => box.dataset.component)).toEqual(['ChatPage', 'MessageThread']);
-    expect(page.container.querySelector('[data-pyric-flow-badge]')?.textContent)
-      .toBe('ChatPage · conversations/c1/messages (query) · 2');
+    expect(marked(page.doc)).toEqual([page.threadEl as HTMLElement]);
+    expect(labels(page.doc)).toEqual(['ChatPage · conversations/c1/messages (query) · 2']);
     page.mode.dispose();
   });
 
-  it('roots the paint on the region the owner registered, and never on the owner itself', () => {
+  it('never marks the registered region or the owner that registered it', () => {
     const page = setup();
     page.deliver('sub-1');
     page.change([page.bubbleEl]);
     page.commit();
 
-    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    const root = boxes.find((box) => box.dataset.flowKind === 'region');
-    expect(root?.dataset.component).toBe('ChatPage');
-    expect(root?.dataset.depth).toBe('0');
-    // The owner is named on the root badge rather than given a box of its own,
-    // so the page component's host node is never outlined twice.
-    expect(boxes.filter((box) => box.dataset.component === 'ChatPage')).toHaveLength(1);
-    expect(page.container.querySelector('[data-pyric-flow-badge]')?.textContent)
-      .toBe('ChatPage · conversations/c1/messages (query) · 2');
+    // The owner is named in the label rather than outlined, and the region it
+    // registered is the whole area the listener feeds rather than something
+    // that changed, so neither carries a mark.
+    expect(page.pageEl.hasAttribute('data-pyric-flow')).toBe(false);
+    expect(page.threadEl.getAttribute('data-pyric-flow-role')).toBe('component');
+    expect(page.container.children).toHaveLength(1);
   });
 
-  it('badges a changed element by itself when no component sits between it and the root', () => {
+  it('marks a changed element by itself when no component sits between it and the root', () => {
     const page = setup();
     page.deliver('sub-1');
     page.change([page.presenceEl]);
     page.commit();
 
-    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    const host = boxes.find((box) => box.dataset.flowKind === 'host');
-    expect(host?.dataset.component).toBe('div#presence');
-    expect(page.container.querySelector('[data-pyric-flow-leaf-badge]')?.textContent).toBe('div#presence');
+    expect(page.presenceEl.getAttribute('data-pyric-flow-role')).toBe('host');
+    expect(labels(page.doc)).toEqual(['ChatPage · conversations/c1/messages (query) · 2']);
   });
 
   it('collapses a changed subtree to the element at its top', () => {
@@ -181,8 +184,7 @@ describe('the Flow painting mode', () => {
     page.change([page.presenceEl, page.dotEl]);
     page.commit();
 
-    const hosts = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box][data-flow-kind="host"]')];
-    expect(hosts.map((box) => box.dataset.component)).toEqual(['div#presence']);
+    expect(marked(page.doc)).toEqual([page.presenceEl as HTMLElement]);
   });
 
   it('replays the last delivery on the switch when it is inside the window', () => {
@@ -192,11 +194,10 @@ describe('the Flow painting mode', () => {
       recentDeliveries: () => [{ listenerId: 'sub-1', at: 8000 }],
     });
 
-    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    expect(boxes).toHaveLength(1);
-    expect(boxes[0]?.dataset.flowKind).toBe('region');
-    expect(page.container.querySelector('[data-pyric-flow-badge]')?.textContent)
-      .toBe('ChatPage · conversations/c1/messages (query) · 2');
+    // A replay has no changed nodes to read, so the registered element is the
+    // one claim the fold supports, and it carries the full label.
+    expect(marked(page.doc)).toEqual([page.pageEl as HTMLElement]);
+    expect(labels(page.doc)).toEqual(['ChatPage · conversations/c1/messages (query) · 2']);
   });
 
   it('replays nothing for a delivery older than the window', () => {
@@ -206,7 +207,7 @@ describe('the Flow painting mode', () => {
       recentDeliveries: () => [{ listenerId: 'sub-1', at: 1000 }],
     });
 
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(marked(page.doc)).toHaveLength(0);
   });
 
   it('reports the outline own listener id when it paints, whatever id the delivery carried', () => {
@@ -218,8 +219,9 @@ describe('the Flow painting mode', () => {
     page.commit();
 
     expect(painted).toEqual(['sub-1']);
-    const boxes = [...page.container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    expect(boxes.every((box) => box.dataset.listenerId === 'sub-1')).toBe(true);
+    expect(marked(page.doc).every((element) => (
+      element.getAttribute('data-pyric-flow-listener') === 'sub-1'
+    ))).toBe(true);
   });
 
   it('drains the observer before it closes the window, so a commit sees its own changes', () => {
@@ -229,7 +231,7 @@ describe('the Flow painting mode', () => {
     // to a drain, never pushed at the mode.
     page.change([page.bubbleEl]);
     page.commit();
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]').length).toBeGreaterThan(0);
+    expect(marked(page.doc).length).toBeGreaterThan(0);
     page.mode.dispose();
   });
 
@@ -237,7 +239,7 @@ describe('the Flow painting mode', () => {
     const page = setup();
     page.change([page.bubbleEl]);
     page.commit();
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(marked(page.doc)).toHaveLength(0);
     page.mode.dispose();
   });
 
@@ -246,7 +248,7 @@ describe('the Flow painting mode', () => {
     page.deliver('sub-1');
     page.change([page.bubbleEl]);
     page.commit();
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(marked(page.doc)).toHaveLength(0);
     page.mode.dispose();
   });
 
@@ -255,7 +257,7 @@ describe('the Flow painting mode', () => {
     page.deliver('sub-unknown');
     page.change([page.bubbleEl]);
     page.commit();
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(marked(page.doc)).toHaveLength(0);
     page.mode.dispose();
   });
 
@@ -264,23 +266,25 @@ describe('the Flow painting mode', () => {
     page.deliver('sub-1');
     page.change([page.doc.createElement('div')]);
     page.commit();
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(marked(page.doc)).toHaveLength(0);
     page.mode.dispose();
   });
 
-  it('takes one listener boxes away on request and everything on dispose', () => {
+  it('takes one listener marks away on request and everything on dispose', () => {
     const page = setup();
     page.deliver('sub-1');
     page.change([page.bubbleEl]);
     page.commit();
     page.mode.clearListener('sub-1');
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(marked(page.doc)).toHaveLength(0);
+    expect(page.doc.querySelectorAll('[data-pyric-flow-label]')).toHaveLength(0);
 
     page.deliver('sub-1');
     page.change([page.bubbleEl]);
     page.commit();
     page.mode.dispose();
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(marked(page.doc)).toHaveLength(0);
+    expect(page.doc.querySelectorAll('[data-pyric-flow-label]')).toHaveLength(0);
   });
 
   it('reads the page own changes through a MutationObserver by default', () => {
@@ -313,8 +317,7 @@ describe('the Flow painting mode', () => {
     page.bubbleEl.textContent = 'two';
     commit!();
 
-    const boxes = [...container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    expect(boxes.map((box) => box.dataset.component)).toEqual(['ChatPage', 'MessageThread']);
+    expect(marked(page.doc)).toEqual([page.threadEl as HTMLElement]);
     mode.dispose();
   });
 
@@ -352,7 +355,7 @@ describe('the Flow painting mode', () => {
     container.append(page.doc.createElement('span'));
     commit!();
 
-    expect(container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(marked(page.doc)).toHaveLength(0);
     mode.dispose();
   });
 
@@ -362,6 +365,6 @@ describe('the Flow painting mode', () => {
     page.deliver('sub-1');
     page.change([page.bubbleEl]);
     page.commit();
-    expect(page.container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(marked(page.doc)).toHaveLength(0);
   });
 });

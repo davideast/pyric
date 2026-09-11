@@ -543,7 +543,7 @@ describe('the chip painting-mode control', () => {
     modeButton(page.root, 'flow').click();
 
     page.flowDelivery('l1');
-    expect(page.doc.querySelectorAll('[data-pyric-flow-box]').length).toBeGreaterThan(0);
+    expect(page.doc.querySelectorAll('[data-pyric-flow]').length).toBeGreaterThan(0);
     expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
     page.chip.dispose();
   });

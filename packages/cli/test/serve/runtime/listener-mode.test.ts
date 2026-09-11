@@ -121,8 +121,8 @@ function harness(options: {
   };
 }
 
-function flowBoxes(doc: Document): HTMLElement[] {
-  return [...doc.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
+function flowMarks(doc: Document): HTMLElement[] {
+  return [...doc.querySelectorAll<HTMLElement>('[data-pyric-flow]')];
 }
 
 function badges(doc: Document): string[] {
@@ -414,7 +414,7 @@ describe('switching one listener off', () => {
 });
 
 describe('what a painted flow is held for', () => {
-  /** A mode in Flow with one delivery painted: the region and the changed row. */
+  /** A mode in Flow with one delivery painted: the changed row. */
   function painted() {
     const page = harness();
     page.mode.setEnabled(true);
@@ -424,19 +424,19 @@ describe('what a painted flow is held for', () => {
     return page;
   }
 
-  it('paints the region and the changed row, and holds them after the delivery', () => {
+  it('marks the changed row itself, and holds it after the delivery', () => {
     const page = painted();
-    const drawn = flowBoxes(page.doc);
-    expect(drawn).toHaveLength(2);
-    expect(drawn.map((box) => box.dataset.flowKind)).toEqual(['region', 'host']);
-    expect(drawn.every((box) => box.dataset.listenerId === 'l1')).toBe(true);
+    const drawn = flowMarks(page.doc);
+    expect(drawn).toEqual([page.rowEl as HTMLElement]);
+    expect(drawn[0]?.getAttribute('data-pyric-flow-role')).toBe('host');
+    expect(drawn.every((mark) => mark.getAttribute('data-pyric-flow-listener') === 'l1')).toBe(true);
     page.mode.dispose();
   });
 
   it('takes the held paint away as soon as the listener is switched off', () => {
     const page = painted();
     page.mode.setListenerVisible('l1', false);
-    expect(flowBoxes(page.doc)).toHaveLength(0);
+    expect(flowMarks(page.doc)).toHaveLength(0);
     page.mode.dispose();
   });
 
@@ -444,17 +444,17 @@ describe('what a painted flow is held for', () => {
     const page = painted();
     page.mode.setListenerVisible('l1', false);
     page.mode.setListenerVisible('l1', true);
-    expect(flowBoxes(page.doc)).toHaveLength(0);
+    expect(flowMarks(page.doc)).toHaveLength(0);
 
     page.flowDelivery('l1', [page.rowEl]);
-    expect(flowBoxes(page.doc)).toHaveLength(2);
+    expect(flowMarks(page.doc)).toHaveLength(1);
     page.mode.dispose();
   });
 
   it('takes the held paint away when the listener detaches', () => {
     const page = painted();
     page.push([detach('e9', 'l1', { kind: 'query', collection: 'todos' })]);
-    expect(flowBoxes(page.doc)).toHaveLength(0);
+    expect(flowMarks(page.doc)).toHaveLength(0);
     page.mode.dispose();
   });
 

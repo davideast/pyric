@@ -10,6 +10,13 @@
  * that container. Geometry stays inline on each box, because it is measured
  * from the page rather than chosen.
  *
+ * There are two stylesheets, because there are two things to draw. Overview's
+ * measured boxes live inside the overlay container and read the properties off
+ * it. Flow marks the page's own elements, which inherit nothing from that
+ * container, so its rules go in the document head and read the properties off
+ * `:root`; {@link applyOverlayTheme} writes a resolved theme to both places so
+ * one theme stands behind both.
+ *
  * Three layers set those properties, later layers winning:
  *
  * 1. the defaults in {@link OVERLAY_THEME_DEFAULTS}, which reproduce what the
@@ -111,19 +118,34 @@ export function resolveOverlayTheme(
 }
 
 /**
- * Put a resolved theme on the container. A property resolved to the empty
- * string is removed rather than set, so the stylesheet's own fallback applies
- * and a Reset takes an override away instead of pinning it.
+ * Put a resolved theme on the container, and mirror it onto the document root.
+ *
+ * A property resolved to the empty string is removed rather than set, so the
+ * stylesheet's own fallback applies and a Reset takes an override away instead
+ * of pinning it.
+ *
+ * The mirror is what keeps the theme over Flow. Flow marks the page's own
+ * elements, which are not inside the overlay container and so inherit nothing
+ * from it; the rules that draw those marks live in a stylesheet in the
+ * document head and read the properties off `:root`. Writing the same resolved
+ * values onto the root element puts one theme behind both, so the Theme dialog
+ * still repaints the marked elements.
  */
 export function applyOverlayTheme(
   container: HTMLElement,
   ...layers: readonly (OverlayTheme | null | undefined)[]
 ): void {
   const resolved = resolveOverlayTheme(...layers);
+  const root = container.ownerDocument?.documentElement ?? null;
   for (const name of OVERLAY_THEME_VARIABLES) {
     const value = resolved[name] ?? '';
-    if (value === '') container.style.removeProperty(name);
-    else container.style.setProperty(name, value);
+    if (value === '') {
+      container.style.removeProperty(name);
+      root?.style.removeProperty(name);
+    } else {
+      container.style.setProperty(name, value);
+      root?.style.setProperty(name, value);
+    }
   }
 }
 
@@ -216,25 +238,15 @@ function hueRules(): string {
 export function overlayStyleSheetText(): string {
   return `
   ${hueRules()}
-  [data-pyric-listener-overlay] [data-pyric-listener-box],
-  [data-pyric-listener-overlay] [data-pyric-flow-box] {
+  [data-pyric-listener-overlay] [data-pyric-listener-box] {
     position: absolute;
     pointer-events: none;
     border: var(--pyric-overlay-outline-width) var(--pyric-overlay-outline-style) var(--pyric-overlay-hue);
     border-radius: var(--pyric-overlay-radius);
     background: color-mix(in srgb, var(--pyric-overlay-hue) var(--pyric-overlay-fill-opacity), transparent);
   }
-  [data-pyric-listener-overlay] [data-pyric-listener-box][data-incident],
-  [data-pyric-listener-overlay] [data-pyric-flow-box][data-incident] {
+  [data-pyric-listener-overlay] [data-pyric-listener-box][data-incident] {
     border-color: var(--pyric-overlay-incident);
-  }
-  [data-pyric-listener-overlay] [data-pyric-flow-box] {
-    opacity: 1;
-    transition: opacity var(--pyric-overlay-fade-duration) linear;
-  }
-  [data-pyric-listener-overlay] [data-pyric-flow-box][data-flow-fading],
-  [data-pyric-listener-overlay] [data-pyric-flow-box][data-flow-retained] {
-    opacity: var(--pyric-overlay-retained-opacity);
   }
   [data-pyric-listener-overlay] [data-pyric-role="badge"],
   [data-pyric-listener-overlay] [data-pyric-role="leaf-badge"] {
@@ -260,6 +272,18 @@ export function overlayStyleSheetText(): string {
     font-size: var(--pyric-overlay-leaf-badge-font-size);
     padding: var(--pyric-overlay-leaf-badge-padding);
   }
+  [data-pyric-listener-overlay] [data-pyric-flow-badge] {
+    position: absolute;
+    right: auto;
+    bottom: auto;
+    transform: translateY(-100%);
+    opacity: 1;
+    transition: opacity var(--pyric-overlay-fade-duration) linear;
+  }
+  [data-pyric-listener-overlay] [data-pyric-flow-badge][data-pyric-flow-fading],
+  [data-pyric-listener-overlay] [data-pyric-flow-badge][data-pyric-flow-retained] {
+    opacity: var(--pyric-overlay-retained-opacity);
+  }
   [data-pyric-listener-overlay] [data-pyric-listener-badge] {
     cursor: pointer;
     pointer-events: auto;
@@ -269,6 +293,105 @@ export function overlayStyleSheetText(): string {
     border-color: var(--pyric-overlay-incident);
   }
 `;
+}
+
+/** The attribute the head stylesheet carries, so it is injected once. */
+export const FLOW_STYLE_ATTRIBUTE = 'data-pyric-flow-style';
+
+/** The contract's defaults as one `:root` block, for the head stylesheet. */
+function rootDefaults(): string {
+  const body = OVERLAY_THEME_VARIABLES
+    .map((name) => {
+      const value = OVERLAY_THEME_DEFAULTS[name] ?? '';
+      return value === '' ? null : `    ${name}: ${value};`;
+    })
+    .filter((line): line is string => line !== null)
+    .join('\n');
+  return `:root {\n${body}\n  }`;
+}
+
+function flowHueRules(): string {
+  return listenerPalette()
+    .map((_hue, index) => `[data-pyric-flow="${index}"] {
+    --pyric-overlay-hue: var(--pyric-hue-${index});
+    --pyric-overlay-hue-text: var(--pyric-hue-${index}-text);
+  }`)
+    .join('\n  ');
+}
+
+/**
+ * Everything Flow draws on the page's own elements.
+ *
+ * Flow marks the element that changed rather than measuring a box over it, so
+ * these rules have to reach elements outside the overlay container. They carry
+ * the contract's defaults on `:root` themselves, and {@link applyOverlayTheme}
+ * writes a resolved theme onto the same root element, so an override still
+ * wins over the defaults here.
+ *
+ * The outline is what draws the mark, because it takes no space and so moves
+ * nothing on the page. The fade runs on the outline's colour rather than on
+ * the element's opacity, which would fade the application's own content, and
+ * ends at the retained colour rather than at nothing.
+ */
+export function flowStyleSheetText(): string {
+  return `
+  ${rootDefaults()}
+  ${flowHueRules()}
+  [data-pyric-flow] {
+    outline: var(--pyric-overlay-outline-width) var(--pyric-overlay-outline-style) var(--pyric-overlay-hue);
+    outline-offset: 0;
+    border-radius: var(--pyric-overlay-radius);
+    transition: outline-color var(--pyric-overlay-fade-duration) linear;
+  }
+  [data-pyric-flow][data-pyric-flow-fading],
+  [data-pyric-flow][data-pyric-flow-retained] {
+    outline-color: color-mix(in srgb, var(--pyric-overlay-hue) calc(var(--pyric-overlay-retained-opacity) * 100%), transparent);
+  }
+  [data-pyric-flow][data-pyric-flow-label]::after {
+    content: attr(data-pyric-flow-label);
+    position: absolute;
+    top: 0;
+    right: 0;
+    transform: translateY(-100%);
+    z-index: 2147483000;
+    background: var(--pyric-overlay-badge-bg);
+    border: var(--pyric-overlay-outline-width) var(--pyric-overlay-outline-style) var(--pyric-overlay-hue);
+    border-radius: var(--pyric-overlay-radius);
+    color: var(--pyric-overlay-badge-fg, var(--pyric-overlay-hue-text));
+    font-family: var(--pyric-overlay-badge-font-family);
+    font-size: var(--pyric-overlay-leaf-badge-font-size);
+    font-weight: 400;
+    line-height: 1.6;
+    padding: var(--pyric-overlay-leaf-badge-padding);
+    pointer-events: none;
+    white-space: nowrap;
+    opacity: 1;
+    transition: opacity var(--pyric-overlay-fade-duration) linear;
+  }
+  [data-pyric-flow][data-pyric-flow-fading][data-pyric-flow-label]::after,
+  [data-pyric-flow][data-pyric-flow-retained][data-pyric-flow-label]::after {
+    opacity: var(--pyric-overlay-retained-opacity);
+  }
+`;
+}
+
+/**
+ * Put the flow stylesheet in the document head, once.
+ *
+ * The head rather than the overlay container, because Flow's marks are on the
+ * application's own elements and a stylesheet inside the container reaches
+ * only what is inside it.
+ */
+export function ensureFlowStyleSheet(documentLike: Document): HTMLStyleElement | null {
+  const head = documentLike.head ?? documentLike.documentElement ?? null;
+  if (head === null) return null;
+  const existing = documentLike.querySelector<HTMLStyleElement>(`[${FLOW_STYLE_ATTRIBUTE}]`);
+  if (existing !== null) return existing;
+  const style = documentLike.createElement('style');
+  style.setAttribute(FLOW_STYLE_ATTRIBUTE, '');
+  style.textContent = flowStyleSheetText();
+  head.append(style);
+  return style;
 }
 
 /**

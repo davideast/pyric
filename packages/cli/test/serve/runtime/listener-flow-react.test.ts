@@ -131,23 +131,26 @@ describe.if(reactInstalled)('the Flow path against a real React', () => {
       announce!('2 online');
     });
 
-    const boxes = [...container.querySelectorAll<HTMLElement>('[data-pyric-flow-box]')];
-    const names = boxes.map((box) => box.dataset.component);
-    // The root is the region the owner registered, not the owner's own host,
-    // and the badge is where the owner is named.
-    const rootBox = boxes.find((box) => box.dataset.flowKind === 'region');
-    expect(rootBox?.dataset.component).toBe('ChatPage');
-    expect(names).toContain('MessageThread');
-    // Nothing in the branch that did not re-render is named.
-    expect(names).not.toContain('Sidebar');
+    const marked = [...doc.querySelectorAll<HTMLElement>('[data-pyric-flow]')];
+    const labels = marked.map((element) => element.getAttribute('data-pyric-flow-label'));
+    // The marks are on the page's own elements, not on measured boxes in the
+    // overlay, and the region the owner registered is not one of them.
+    expect(container.querySelectorAll('[data-pyric-flow-box]')).toHaveLength(0);
+    expect(doc.querySelector('#page')?.hasAttribute('data-pyric-flow')).toBe(false);
+    expect(doc.querySelector('#thread')?.getAttribute('data-pyric-flow-role')).toBe('component');
+    // Nothing in the branch that did not re-render is marked.
+    expect(doc.querySelector('#sidebar')?.hasAttribute('data-pyric-flow')).toBe(false);
     // The presence bar is inline JSX, so the changed element speaks for itself.
-    expect(names).toContain('div#presence');
-    expect(boxes.find((box) => box.dataset.component === 'div#presence')?.dataset.flowKind).toBe('host');
-    expect(container.querySelector('[data-pyric-flow-badge]')?.textContent)
-      .toBe('ChatPage · conversations/c1/messages (query) · 1');
-    expect(boxes.every((box) => box.dataset.listenerId === 'sub-1')).toBe(true);
+    expect(doc.querySelector('#presence')?.getAttribute('data-pyric-flow-role')).toBe('host');
+    // The listener is named once, on the first element the delivery marked.
+    expect(labels).toContain('ChatPage · conversations/c1/messages (query) · 1');
+    expect(labels.filter((label) => label?.includes(' · ')).length).toBe(1);
+    expect(marked.every((element) => (
+      element.getAttribute('data-pyric-flow-listener') === 'sub-1'
+    ))).toBe(true);
 
     flow.dispose();
+    expect(doc.querySelectorAll('[data-pyric-flow], [data-pyric-flow-label]')).toHaveLength(0);
     commits.dispose();
     restoreGlobals();
   });
