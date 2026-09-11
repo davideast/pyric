@@ -17,8 +17,12 @@ import {
 } from '../../../../functions-rtdb/event.js';
 import type { DiscoveredOnValueCreated } from '../../../../functions-rtdb/discovery.js';
 import {
-  executionLogFor,
-  type FunctionExecutionEntry,
+  emitExecutionFinished,
+  emitHandlerFired,
+  emitTriggerDiscovered,
+} from '../../../../functions-rtdb/events.js';
+import {
+  executionIdFor,
   type FunctionExecutionRecord,
 } from '../../../../functions-rtdb/execution-log.js';
 import { matchRtdbReference, normalizeRtdbReference } from '../../../../functions-rtdb/reference-pattern.js';
@@ -52,8 +56,8 @@ function eventOptionsFor(
   };
 }
 
-/** Record one finished run, folding in the result or the error the handler produced. */
-function logExecution(
+/** Report one finished run onto the stream, and read back the record it became. */
+function reportExecution(
   ctx: SurfaceContext,
   triggerName: string,
   ref: string,
@@ -62,16 +66,28 @@ function logExecution(
   durationMs: number,
   result: CreatedExecutionResult,
 ): FunctionExecutionRecord {
-  const entry: FunctionExecutionEntry = {
+  const id = executionIdFor(ctx.sandbox);
+  const record: FunctionExecutionRecord = {
+    id,
     trigger: triggerName,
     cause: { ref, params },
     startedAt,
     durationMs,
     status: result.status,
   };
-  if (result.status === 'fulfilled') entry.result = result.result;
-  if (result.status === 'rejected') entry.error = describeError(result.error);
-  return executionLogFor(ctx.sandbox).record(entry);
+  if (result.status === 'fulfilled') record.result = result.result;
+  if (result.status === 'rejected') record.error = describeError(result.error);
+  emitExecutionFinished(ctx.sandbox, {
+    trigger: triggerName,
+    ref,
+    params,
+    startedAt,
+    durationMs,
+    status: record.status,
+    result: record.result,
+    error: record.error,
+  });
+  return record;
 }
 
 export default {
@@ -101,7 +117,9 @@ export default {
         `functions.fire: '${path}' does not match ${triggerName}'s reference pattern '${trigger.reference}'.`,
       );
     }
+    emitTriggerDiscovered(ctx.sandbox, trigger);
     const ref = normalizeRtdbReference(path);
+    emitHandlerFired(ctx.sandbox, { trigger: triggerName, ref, params });
     const startedAt = getClock(ctx.sandbox).now();
     const startedMonotonic = performance.now();
     const result = await executeOnValueCreated(
@@ -110,7 +128,7 @@ export default {
       eventOptionsFor(ctx, trigger),
     );
     const durationMs = performance.now() - startedMonotonic;
-    const record = logExecution(ctx, triggerName, ref, params, startedAt, durationMs, result);
+    const record = reportExecution(ctx, triggerName, ref, params, startedAt, durationMs, result);
     if (result.status === 'rejected') {
       return operationFailure(`functions.fire: ${triggerName} threw: ${record.error}`, {
         executionId: record.id,
