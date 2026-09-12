@@ -1181,37 +1181,22 @@
 }
 
 /* ── The listener inspector ─────────────────────────────────────────────
-   The stream's inspector block at the log's full width: the incident first
-   when there is one, the facts under it, three numbers with the delivery
-   sparkline, then the delivery the listener last made. */
+   The stream's inspector block at the log's full width: the target as a link
+   to its page, the facts under it, the query it watches, the incident when
+   there is one, the totals, then the delivery it last made. */
 .traffic__listener-inspector-target {
   min-width: 0;
+  margin-right: auto;
   overflow: hidden;
   color: var(--ink);
   font-family: var(--font-mono);
   font-size: var(--fs-caption);
+  text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.traffic__listener-open {
-  appearance: none;
-  flex-shrink: 0;
-  margin-left: auto;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 1px 10px;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: var(--fs-caption);
-  cursor: pointer;
-}
-.traffic__listener-open:hover {
-  border-color: var(--line-2);
-  color: var(--ink);
-}
-.traffic__inspector .traffic__inspector-close {
-  margin-left: 0;
+.traffic__listener-inspector-target:hover {
+  text-decoration: underline;
 }
 .traffic__listener-facts {
   margin: 0;
@@ -1245,13 +1230,6 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
-.traffic__listener-sparkline {
-  width: 120px;
-  height: 24px;
-  margin-left: auto;
-  color: var(--accent);
-}
-
 /* The incident: the deny tint the timeline and the stream already spend on a
    denial, over the attach lines that caused it. */
 .traffic__listener-incident {
@@ -1287,40 +1265,65 @@
 }
 
 /* ── One delivery ───────────────────────────────────────────────────────
-   A row group in the log's language: the time and the figures on the first
-   line, then one line per path that changed. The path carries the line, its
-   collection prefix dimmed, and the change label sits in its own right-hand
-   column so the labels read as a column. */
-.traffic__delivery {
+   A row in the log's language: when the callback ran, what moved, and how
+   much it then held, on one line in three tracks. Clicking the row opens the
+   paths it changed under it: the path carries the line with its collection
+   prefix dimmed, and the change label sits in the adjacent column, so the
+   labels read as a column without a gap across the page. */
+.traffic__delivery-entry + .traffic__delivery-entry {
+  border-top: 1px solid var(--line);
+}
+.traffic__delivery-row {
   display: grid;
-  gap: 2px;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  appearance: none;
+  border: none;
   padding: 8px 14px;
+  background: none;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.traffic__delivery-row:disabled {
+  cursor: default;
+}
+.traffic__delivery-row:not(:disabled):hover,
+.traffic__delivery-row[data-pyric-selected] {
+  background: var(--panel);
+}
+.traffic__delivery-row [data-pyric-delivery-time] {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.traffic__delivery-row [data-pyric-delivery-figures] {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.traffic__delivery-row [data-pyric-delivery-snapshot] {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.traffic__delivery-changes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 2px;
+  max-width: 34rem;
+  padding: 0 14px 10px calc(88px + 26px);
   font-family: var(--font-mono);
   font-size: 12px;
 }
-.traffic__log .traffic__delivery + .traffic__delivery {
-  border-top: 1px solid var(--line);
-}
-.traffic__delivery-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.traffic__delivery-head [data-pyric-delivery-time] {
-  color: var(--faint);
-}
-.traffic__delivery-head [data-pyric-delivery-figures] {
-  margin-left: auto;
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
 .traffic__delivery-path {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px;
-  align-items: baseline;
-  gap: 12px;
-  padding-left: var(--space-3);
+  display: contents;
 }
+
 .traffic__listener-path-link {
   min-width: 0;
   overflow: hidden;
@@ -1355,9 +1358,9 @@
 }
 
 /* ── One listener's page ────────────────────────────────────────────────
-   The same journal as the tab, narrowed to one listener: the back link, then
-   the five sections. Four totals rather than the tab's three, and the
-   deliveries and the documents each head their own run. */
+   The same journal as the tab, narrowed to one listener: the back link, the
+   target and its facts, the query, the totals, then the deliveries under
+   their own histogram. */
 .traffic__listener-back {
   align-self: flex-start;
   color: var(--muted);
@@ -1367,50 +1370,71 @@
 .traffic__listener-back:hover {
   color: var(--ink);
 }
-[data-pyric-ui='traffic-listener-page'] .traffic__metric-cards--journal {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
 .traffic__listener-section {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
-.traffic__listener-documents-head {
+.traffic__listener-interval {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: var(--space-3);
-}
-.traffic__listener-documents-head span {
-  color: var(--faint);
+  margin: 0;
+  color: var(--muted);
   font-family: var(--font-mono);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
 }
-.traffic__listener-documents {
+
+/* ── The query one listener watches ─────────────────────────────────────
+   Source text, so it reads as the call the developer wrote: the block keeps
+   the line breaks the formatter chose and the copy control hands the whole
+   call, every operand in full, to the clipboard. */
+.traffic__listener-query {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.traffic__listener-document {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 160px 88px;
-  align-items: baseline;
-  gap: 12px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--line);
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-.traffic__listener-document:last-child {
-  border-bottom: none;
-}
-.traffic__listener-document:hover {
+  border-radius: 8px;
+  padding: 8px 10px;
   background: var(--panel);
 }
-.traffic__listener-document-time {
-  color: var(--faint);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+.traffic__listener-query-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.traffic__listener-query-copy {
+  appearance: none;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.traffic__listener-query-copy:hover:not(:disabled) {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+.traffic__listener-query-copy:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.traffic__listener-query-copy[data-pyric-copy-failed] {
+  color: var(--deny, var(--muted));
+}
+.traffic__listener-query-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
 }
 
 @media (max-width: 620px) {

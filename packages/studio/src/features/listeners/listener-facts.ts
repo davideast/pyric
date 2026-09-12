@@ -103,20 +103,3 @@ export function incidentLine(
   const attached = `Attached ${attachedTimes(incident.count)}${by}`;
   return when === '' ? attached : `${attached} · ${when}`;
 }
-
-/** One delivery's figures: what moved, and how much the callback then held. */
-export function deliveryFigures(delivery: {
-  readonly initial: boolean;
-  readonly addedCount: number;
-  readonly modifiedCount: number;
-  readonly removedCount: number;
-  readonly size: number;
-}): string {
-  const snapshot = `${delivery.size} in snapshot`;
-  if (delivery.initial) return `initial · ${snapshot}`;
-  const moved: string[] = [];
-  if (delivery.addedCount > 0) moved.push(`+${delivery.addedCount}`);
-  if (delivery.modifiedCount > 0) moved.push(`~${delivery.modifiedCount}`);
-  if (delivery.removedCount > 0) moved.push(`−${delivery.removedCount}`);
-  return moved.length === 0 ? snapshot : `${moved.join(' ')} · ${snapshot}`;
-}

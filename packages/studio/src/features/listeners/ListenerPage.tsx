@@ -2,68 +2,70 @@
  * One listener's page (feature: Listeners), at `/traffic/listeners/<id>`.
  *
  * The Listeners tab answers what is attached; this page answers what one
- * listener has been handing the app. It keeps the tab's journal shape so the
- * drill in is the same document read closer, in five sections and no others:
- * the header names the target and its facts, the cards state the totals, the
- * chart is supporting evidence, the deliveries are the detail, and the
- * documents are what the deliveries add up to.
+ * listener watches and what it has been handing the app. It reads top to
+ * bottom as one document: the target and its facts, the query the app wrote,
+ * the incident when there is one, the three totals, then the deliveries over
+ * time and the deliveries themselves.
  *
- * Nothing on the page opens: a delivery is a time, its figures, and the paths
- * that changed, all of which fit on the line. Long histories page twenty
- * deliveries at a time through the stream's `traffic__show-more`, so the block
- * count stays bounded.
+ * The deliveries reuse the Traffic timeline: the histogram buckets them, one
+ * bar brushes an interval, and the rows under it narrow to that interval. A row
+ * opens the paths it changed, one row at a time, and nothing opens inside it.
  *
  * Presentational: it takes the event snapshot, the window, and the clock as
  * props, so the page renders in a test without Studio's environment wiring.
  */
 
 import { useMemo, useState } from 'react';
-import { TrafficLineChart, type TimeWindow } from '@pyric/ui/traffic';
+import {
+  TrafficMetricCards,
+  TrafficTimeline,
+  defaultFormatTime,
+  type TimeWindow,
+} from '@pyric/ui/traffic';
 import { activeListeners, type ActiveListener, type SandboxEvent } from 'pyric/sandbox';
 import { pushPath } from '../../shell/router.js';
-import { deliveryMetrics } from './listener-metrics.js';
+import { toggleTimeFocus } from '../traffic/timeline-focus.js';
+import { listenerDeliveryHistory } from './listener-delivery-docs.js';
 import {
-  changedDocuments,
-  deliveredDocumentReads,
-  distinctDeliveredPaths,
-  listenerDeliveryHistory,
-} from './listener-delivery-docs.js';
-import { DeliveryBlock, PathLink, deliveryTimeFormatter } from './DeliveryBlock.js';
+  deliveriesInInterval,
+  deliveryTimelineEvents,
+  intervalFacts,
+} from './listener-delivery-timeline.js';
+import { estimatedDocumentReads } from './listener-reads.js';
+import {
+  cardValueFormatter,
+  listenerPageCards,
+  listenerPageSeries,
+  readsFootnote,
+} from './listener-page-cards.js';
+import { DeliveryRow } from './DeliveryRow.js';
 import { IncidentBlock } from './IncidentBlock.js';
-import type { ChangedDocument } from './listener-delivery-docs.js';
-
-/** The last change kind, with how many changes the document had when more than one. */
-function documentChangeLabel(document: ChangedDocument): string {
-  const count = document.changes.length;
-  return count > 1 ? `${document.last.change} ${count}×` : document.last.change;
-}
+import { ListenerQueryBlock } from './ListenerQueryBlock.js';
 import { elementLabel } from './listener-element.js';
 import { formatListenerTarget, groupIdentityFor } from './listener-groups.js';
 import { listenerFactLine } from './listener-facts.js';
 import { listenerIncidents, incidentsForTarget } from './listener-incidents.js';
 import { listenersTabHref, listenersTabTarget } from './listener-links.js';
 
-/** Deliveries revealed per press of the disclosure, matching the request
- *  stream's page size: enough to scan, bounded enough to stay a list. */
-export const DELIVERY_PAGE = 20;
-
 const countFormatter = new Intl.NumberFormat();
-const rangeFormatter = new Intl.DateTimeFormat(undefined, {
-  hour: 'numeric',
-  minute: '2-digit',
-});
 
 function formatCount(value: number): string {
   return countFormatter.format(value);
 }
 
-/** The four totals, in the order the cards render. */
-const CARDS: ReadonlyArray<{ metric: string; label: string }> = [
-  { metric: 'deliveries', label: 'Deliveries' },
-  { metric: 'documents', label: 'Documents' },
-  { metric: 'reads', label: 'Document reads' },
-  { metric: 'suppressed', label: 'Suppressed' },
-];
+/** One interval as the range it covers. */
+function rangeLabel(window: TimeWindow): string {
+  return `${defaultFormatTime(window.start)}–${defaultFormatTime(window.end)}`;
+}
+
+/** How long ago, in the words the Traffic timeline's axis uses. */
+function relAgo(at: number, now: number): string {
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  return `${Math.round(minutes / 60)}h ago`;
+}
 
 /** The link back to the tab this page drilled out of, above the headline. */
 function BackToListeners() {
@@ -86,14 +88,15 @@ function BackToListeners() {
 export interface ListenerPageProps {
   events: readonly SandboxEvent[];
   listenerId: string;
-  /** The window the Traffic surface computed; the chart is drawn over it. */
+  /** The window the Traffic surface computed; the histogram spans it. */
   window: TimeWindow;
   /** The clock the attach age is read against; defaults to now. */
   now?: number;
 }
 
 export function ListenerPage({ events, listenerId, window, now }: ListenerPageProps) {
-  const [shown, setShown] = useState(DELIVERY_PAGE);
+  const [focus, setFocus] = useState<TimeWindow | null>(null);
+  const [openDelivery, setOpenDelivery] = useState<number | null>(null);
 
   const listener = useMemo(
     () => activeListeners(events).find((candidate) => candidate.id === listenerId),
@@ -102,10 +105,6 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
   const history = useMemo(
     () => listenerDeliveryHistory(events, listenerId),
     [events, listenerId],
-  );
-  const chart = useMemo(
-    () => deliveryMetrics(events, listener ? [listener] : [], window),
-    [events, listener, window],
   );
   const incident = useMemo(() => {
     if (listener === undefined) return undefined;
@@ -134,129 +133,105 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
   facts.owner = groupIdentityFor(listener).label;
   if (element !== undefined) facts.element = element;
 
-  const totals: Record<string, number> = {
+  const target = formatListenerTarget(listener.target);
+  const cards = listenerPageCards({
     deliveries: history.length,
-    documents: distinctDeliveredPaths(history),
-    reads: deliveredDocumentReads(history),
-    suppressed: listener.suppressedCount,
-  };
-  const documents = changedDocuments(history);
-  const snapshotSize = history.length === 0 ? 0 : history[history.length - 1]!.size;
-  // Keyed by the delivery's position in the history rather than its
-  // timestamp: two deliveries of one listener can land in the same
-  // millisecond, and a key has to stay unique when they do.
-  const newestFirst = history.map((delivery, index) => ({ delivery, index })).reverse();
-  const visible = newestFirst.slice(0, shown);
-  const hidden = newestFirst.length - visible.length;
+    snapshot: history.length === 0 ? 0 : history[history.length - 1]!.size,
+    reads: estimatedDocumentReads(history),
+    service: listener.service,
+    single: typeof listener.target === 'string' && listener.service === 'firestore',
+  });
+  const footnote = readsFootnote(listener.service);
+
+  const timelineEvents = deliveryTimelineEvents(history, target);
+  const shown = focus === null ? history : deliveriesInInterval(history, focus);
+  // Keyed by the delivery's position in the history rather than its timestamp:
+  // two deliveries of one listener can land in the same millisecond.
+  const rows = history
+    .map((delivery, index) => ({ delivery, index }))
+    .filter(({ delivery }) => focus === null
+      || (delivery.at >= focus.start && delivery.at < focus.end))
+    .reverse();
 
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-listener-page">
       <BackToListeners />
       <div className="traffic__metric-panel traffic__metric-panel--journal">
         <section className="traffic__metric-story" data-pyric-section="header">
-          <h3 className="traffic__metric-headline">{formatListenerTarget(listener.target)}</h3>
-          {incident === undefined ? null : (
-            <IncidentBlock
-              incident={incident}
-              listener={listener}
-              events={events}
-              now={clock}
-            />
-          )}
+          <h3 className="traffic__metric-headline" data-pyric-page-title="">{target}</h3>
           <p className="traffic__listener-facts" data-pyric-page-facts="">
             {listenerFactLine(facts, clock)}
           </p>
         </section>
 
-        <section
-          className="traffic__metric-cards traffic__metric-cards--journal"
-          data-pyric-section="cards"
-        >
-          {CARDS.map((card) => (
-            <span key={card.metric} data-pyric-metric-card="" data-metric={card.metric}>
-              <span data-pyric-metric-label="">{card.label}</span>
-              <span data-pyric-metric-value="">{formatCount(totals[card.metric] ?? 0)}</span>
-            </span>
-          ))}
-        </section>
+        <ListenerQueryBlock listener={listener} />
 
-        <section className="traffic__metric-evidence" data-pyric-section="evidence">
-          <div className="traffic__metric-evidence-header">
-            <h4>When this listener delivered</h4>
-            <span>
-              {rangeFormatter.format(window.start)}–{rangeFormatter.format(window.end)}
-            </span>
-          </div>
-          {chart.total === 0 ? (
-            <p className="traffic__empty">No deliveries in this window.</p>
-          ) : (
-            <>
-              <TrafficLineChart
-                points={chart.points}
-                series={chart.series}
-                omitZeroSeries
-                formatValue={formatCount}
-                formatTime={(value) => rangeFormatter.format(value)}
-                className="traffic__chart traffic__chart--journal"
-              />
-              <div className="traffic__metric-axis" aria-hidden="true">
-                <span>{rangeFormatter.format(window.start)}</span>
-                <span>{rangeFormatter.format(window.end)}</span>
-              </div>
-            </>
+        {incident === undefined ? null : (
+          <IncidentBlock incident={incident} listener={listener} events={events} now={clock} />
+        )}
+
+        <section data-pyric-section="cards">
+          <TrafficMetricCards
+            series={listenerPageSeries(cards)}
+            formatValue={cardValueFormatter(cards, formatCount)}
+            className="traffic__metric-cards traffic__metric-cards--journal"
+          />
+          {footnote === undefined ? null : (
+            <p className="traffic__metric-source" data-pyric-metric-footnote="">{footnote}</p>
           )}
         </section>
 
-        {newestFirst.length === 0 ? null : (
+        {history.length === 0 ? null : (
           <section className="traffic__listener-section" data-pyric-section="deliveries">
-            <p className="traffic__metric-eyebrow">Deliveries</p>
-            <div className="traffic__log" data-pyric-delivery-log="">
-              {visible.map((entry) => (
-                <DeliveryBlock
-                  key={entry.index}
-                  delivery={entry.delivery}
-                  service={listener.service}
-                />
-              ))}
-              {hidden > 0 ? (
-                <button
-                  type="button"
-                  className="traffic__show-more"
-                  data-pyric-show-more=""
-                  onClick={() => setShown((current) => current + DELIVERY_PAGE)}
-                >
-                  Show {formatCount(Math.min(hidden, DELIVERY_PAGE))} more
-                </button>
-              ) : null}
-            </div>
-          </section>
-        )}
-
-        {documents.length === 0 ? null : (
-          <section className="traffic__listener-section" data-pyric-section="documents">
-            <div className="traffic__listener-documents-head">
-              <p className="traffic__metric-eyebrow">Documents</p>
-              <span data-pyric-documents-figures="">
-                {formatCount(snapshotSize)} in snapshot · {formatCount(documents.length)} changed
-              </span>
-            </div>
-            <div className="traffic__listener-documents" data-pyric-document-list="">
-              {documents.map((document) => (
-                <div
-                  className="traffic__listener-document"
-                  key={document.path}
-                  data-pyric-document={document.path}
-                >
-                  <PathLink path={document.path} service={listener.service} />
-                  <span className="traffic__delivery-change" data-pyric-change={document.last.change}>
-                    {documentChangeLabel(document)}
-                  </span>
-                  <span className="traffic__listener-document-time" data-pyric-document-time="">
-                    {deliveryTimeFormatter.format(document.last.at)}
-                  </span>
+            <TrafficTimeline
+              events={timelineEvents}
+              window={window}
+              brush={focus ?? undefined}
+              onBrush={(bucket) => {
+                setFocus((current) => toggleTimeFocus(current, bucket));
+                setOpenDelivery(null);
+              }}
+              liveAt={window.end}
+              bucketCount={36}
+              className="traffic__timeline"
+              axis={(spanned) => (
+                <div className="traffic__tl-axis">
+                  <span>{relAgo(spanned.start, clock)}</span>
+                  <span>now</span>
                 </div>
-              ))}
-            </div>
+              )}
+              renderBucketSummary={(bucket) => (
+                <div className="traffic__bucket-summary">
+                  <span>{rangeLabel(bucket)}</span>
+                  <strong>{intervalFacts(deliveriesInInterval(history, bucket))[0]}</strong>
+                </div>
+              )}
+            />
+
+            {focus === null ? null : (
+              <p className="traffic__listener-interval" data-pyric-interval="">
+                <span className="traffic__time-focus-eyebrow">Selected interval</span>
+                <span data-pyric-interval-facts="">
+                  {[rangeLabel(focus), ...intervalFacts(shown)].join(' · ')}
+                </span>
+              </p>
+            )}
+
+            {rows.length === 0 ? null : (
+              <div className="traffic__log" data-pyric-delivery-log="">
+                {rows.map((entry) => (
+                  <DeliveryRow
+                    key={entry.index}
+                    delivery={entry.delivery}
+                    service={listener.service}
+                    expanded={openDelivery === entry.index}
+                    onToggle={() => setOpenDelivery(
+                      openDelivery === entry.index ? null : entry.index,
+                    )}
+                  />
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -281,11 +256,14 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
                 <code>modified</code> when it did and the data differs, and <code>removed</code>{' '}
                 when the previous delivery carried it and this one does not. A path whose data is
                 identical is not listed. The first delivery is <code>initial</code>: every path in
-                it arrived, so it lists none. <code>Documents</code> counts distinct paths across
-                the session, and <code>Document reads</code> sums every snapshot's size, so a path
-                delivered ten times is one document and ten reads. <code>Suppressed</code> counts
-                re-evals the sandbox resolved to no observable change, which never reached the
-                callback.
+                it arrived, so it lists none.
+              </p>
+              <p>
+                Firestore charges a listener for the documents in its first snapshot, then for
+                each document a later delivery adds or changes; a delivery that only drops
+                documents costs nothing, and an empty first snapshot still costs one read. The
+                estimate covers this session's deliveries, so a reconnect that re-read the result
+                set and a second listener on the same query are not in it.
               </p>
             </div>
           </details>

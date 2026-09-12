@@ -2,9 +2,6 @@
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
 import {
-  deliveredDocumentReads,
-  changedDocuments,
-  distinctDeliveredPaths,
   latestListenerDelivery,
   listenerDeliveryHistory,
 } from './listener-delivery-docs.js';
@@ -187,94 +184,5 @@ describe('latestListenerDelivery', () => {
 
   it('is nothing for a listener that has never delivered', () => {
     expect(latestListenerDelivery([snapshot('a', 10, [])], 'b')).toBeUndefined();
-  });
-});
-
-describe('distinctDeliveredPaths', () => {
-  it('counts a path once however many deliveries carried it', () => {
-    const events = [
-      snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
-      snapshot('a', 20, [
-        { path: 'notes/one', data: { n: 2 } },
-        { path: 'notes/two', data: { n: 2 } },
-      ]),
-    ];
-    expect(distinctDeliveredPaths(listenerDeliveryHistory(events, 'a'))).toBe(2);
-  });
-
-  it('is zero without deliveries', () => {
-    expect(distinctDeliveredPaths([])).toBe(0);
-  });
-});
-
-describe('the first delivery', () => {
-  it('is the only one marked initial', () => {
-    const events = [
-      snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
-      snapshot('a', 20, [{ path: 'notes/one', data: { n: 2 } }]),
-    ];
-    expect(listenerDeliveryHistory(events, 'a').map((d) => d.initial)).toEqual([true, false]);
-  });
-});
-
-describe('deliveredDocumentReads', () => {
-  it('sums every snapshot’s size, so a path in two snapshots is two reads', () => {
-    const events = [
-      snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
-      snapshot('a', 20, [
-        { path: 'notes/one', data: { n: 2 } },
-        { path: 'notes/two', data: { n: 2 } },
-      ]),
-    ];
-    expect(deliveredDocumentReads(listenerDeliveryHistory(events, 'a'))).toBe(3);
-    expect(deliveredDocumentReads([])).toBe(0);
-  });
-});
-
-describe('changedDocuments', () => {
-  it('lists the documents later deliveries changed, most recent change first, with every change', () => {
-    const events = [
-      snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
-      snapshot('a', 20, [
-        { path: 'notes/one', data: { n: 2 } },
-        { path: 'notes/two', data: { n: 2 } },
-      ]),
-      snapshot('a', 30, [
-        { path: 'notes/one', data: { n: 3 } },
-        { path: 'notes/two', data: { n: 2 } },
-      ]),
-    ];
-    expect(changedDocuments(listenerDeliveryHistory(events, 'a'))).toEqual([
-      {
-        path: 'notes/one',
-        changes: [{ at: 20, change: 'modified' }, { at: 30, change: 'modified' }],
-        last: { at: 30, change: 'modified' },
-      },
-      { path: 'notes/two', changes: [{ at: 20, change: 'added' }], last: { at: 20, change: 'added' } },
-    ]);
-  });
-
-  it('leaves out the initial snapshot and unchanged paths', () => {
-    const events = [
-      snapshot('a', 10, [
-        { path: 'notes/b', data: { n: 1 } },
-        { path: 'notes/a', data: { n: 1 } },
-      ]),
-      snapshot('a', 20, [
-        { path: 'notes/b', data: { n: 1 } },
-        { path: 'notes/a', data: { n: 1 } },
-      ]),
-    ];
-    expect(changedDocuments(listenerDeliveryHistory(events, 'a'))).toEqual([]);
-  });
-
-  it('records a removal as the last change', () => {
-    const events = [
-      snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
-      snapshot('a', 20, []),
-    ];
-    expect(changedDocuments(listenerDeliveryHistory(events, 'a'))).toEqual([
-      { path: 'notes/one', changes: [{ at: 20, change: 'removed' }], last: { at: 20, change: 'removed' } },
-    ]);
   });
 });

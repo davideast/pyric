@@ -47,15 +47,14 @@ import {
   deliveryMetrics,
   listenerCardSeries,
 } from './listener-metrics.js';
-import { deliverySparkline, deliveryTimestamps } from './listener-deliveries.js';
-import {
-  distinctDeliveredPaths,
-  listenerDeliveryHistory,
-} from './listener-delivery-docs.js';
-import { DeliveryBlock } from './DeliveryBlock.js';
+import { listenerDeliveryHistory } from './listener-delivery-docs.js';
+import { estimatedDocumentReads } from './listener-reads.js';
+import { listenerPageCards } from './listener-page-cards.js';
+import { DeliveryRow } from './DeliveryRow.js';
 import { IncidentBlock } from './IncidentBlock.js';
+import { ListenerQueryBlock } from './ListenerQueryBlock.js';
 import { elementLabel } from './listener-element.js';
-import { listenerDrillTarget } from './listener-links.js';
+import { listenerDrillHref, listenerDrillTarget } from './listener-links.js';
 import {
   listenerFactLine,
   listenerHeadline,
@@ -107,48 +106,32 @@ function ariaSortFor(sort: ListenerSort | undefined, column: ListenerSortColumn)
   return sort.direction === 'asc' ? ('ascending' as const) : ('descending' as const);
 }
 
-/** The delivery history of one listener, as a small inline polyline. No chart
- *  library: the shape is a handful of numbers the pure module already built. */
-function DeliverySparkline({
-  events,
-  listenerId,
+/** One of the inspector's numbers, with the unit its value needs. */
+function InspectorFigure({
+  metric,
+  label,
+  value,
+  unit,
 }: {
-  events: readonly SandboxEvent[];
-  listenerId: string;
+  metric: string;
+  label: string;
+  value: number;
+  unit?: string;
 }) {
-  const shape = useMemo(
-    () => deliverySparkline(deliveryTimestamps(events, listenerId)),
-    [events, listenerId],
-  );
-  if (shape.points === '') return null;
-  return (
-    <svg
-      className="traffic__listener-sparkline"
-      viewBox="0 0 120 24"
-      preserveAspectRatio="none"
-      role="img"
-      aria-label={`Delivery history, peak ${shape.peak} per interval`}
-      data-pyric-listener-sparkline=""
-    >
-      <polyline points={shape.points} fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-/** One of the inspector's three numbers. */
-function InspectorFigure({ metric, label, value }: { metric: string; label: string; value: number }) {
   return (
     <span className="traffic__listener-figure" data-pyric-inspector-figure={metric}>
       <span className="traffic__listener-figure-label">{label}</span>
-      <span className="traffic__listener-figure-value">{formatCount(value)}</span>
+      <span className="traffic__listener-figure-value">
+        {unit === undefined ? formatCount(value) : `${formatCount(value)} ${unit}`}
+      </span>
     </span>
   );
 }
 
 /**
- * The inspector under a selected row, at the log's full width: the incident
- * first when there is one, then the listener's facts, its three numbers, and
- * the delivery it last made.
+ * The inspector under a selected row, at the log's full width: the target as a
+ * link to its page, its facts, the query it watches, the incident when there is
+ * one, the totals, and the delivery it last made.
  */
 function ListenerInspector({
   listener,
@@ -163,6 +146,7 @@ function ListenerInspector({
   now: number;
   onClose: () => void;
 }) {
+  const [openLatest, setOpenLatest] = useState(false);
   const history = useMemo(
     () => listenerDeliveryHistory(events, listener.id),
     [events, listener.id],
@@ -178,20 +162,28 @@ function ListenerInspector({
   facts.owner = groupIdentityFor(listener).label;
   if (element !== undefined) facts.element = element;
   const incident = row.incidents[0];
+  const cards = listenerPageCards({
+    deliveries: history.length,
+    snapshot: latest === undefined ? 0 : latest.size,
+    reads: estimatedDocumentReads(history),
+    service: listener.service,
+    single: typeof listener.target === 'string' && listener.service === 'firestore',
+  });
   return (
     <div className="traffic__inspector" data-pyric-listener-inspector="">
       <div className="traffic__inspector-bar">
-        <span className="traffic__listener-inspector-target" data-pyric-inspector-title="">
-          {row.target}
-        </span>
-        <button
-          type="button"
-          className="traffic__listener-open"
-          data-pyric-inspector-open=""
-          onClick={() => pushPath(listenerDrillTarget(listener.id))}
+        <a
+          className="traffic__listener-inspector-target"
+          data-pyric-inspector-title=""
+          href={listenerDrillHref(listener.id)}
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+            event.preventDefault();
+            pushPath(listenerDrillTarget(listener.id));
+          }}
         >
-          Open ↗
-        </button>
+          {row.target}
+        </a>
         <button
           type="button"
           className="traffic__inspector-close"
@@ -202,28 +194,31 @@ function ListenerInspector({
           ✕
         </button>
       </div>
-      {incident === undefined ? null : (
-        <IncidentBlock incident={incident} listener={listener} events={events} now={now} />
-      )}
       <p className="traffic__listener-facts" data-pyric-inspector-facts="">
         {listenerFactLine(facts, now)}
       </p>
+      <ListenerQueryBlock listener={listener} />
+      {incident === undefined ? null : (
+        <IncidentBlock incident={incident} listener={listener} events={events} now={now} />
+      )}
       <div className="traffic__listener-figures">
-        <InspectorFigure metric="deliveries" label="Deliveries" value={history.length} />
-        <InspectorFigure
-          metric="documents"
-          label="Documents"
-          value={distinctDeliveredPaths(history)}
-        />
-        <InspectorFigure
-          metric="suppressed"
-          label="Suppressed"
-          value={listener.suppressedCount}
-        />
-        <DeliverySparkline events={events} listenerId={listener.id} />
+        {cards.map((card) => (
+          <InspectorFigure
+            key={card.key}
+            metric={card.key}
+            label={card.label}
+            value={card.total}
+            unit={card.unit}
+          />
+        ))}
       </div>
       {latest === undefined ? null : (
-        <DeliveryBlock delivery={latest} service={listener.service} />
+        <DeliveryRow
+          delivery={latest}
+          service={listener.service}
+          expanded={openLatest}
+          onToggle={() => setOpenLatest((open) => !open)}
+        />
       )}
     </div>
   );

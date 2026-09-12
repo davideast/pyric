@@ -3,7 +3,6 @@ import { describe, expect, it } from 'bun:test';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import {
   attachAgesLine,
-  deliveryFigures,
   incidentLine,
   listenerFactLine,
   listenerHeadline,
@@ -124,26 +123,5 @@ describe('the incident line', () => {
     expect(attachAgesLine([])).toBe('');
     expect(attachAgesLine(['20s ago'])).toBe('20s ago');
     expect(attachAgesLine(['24m ago', '20s ago'])).toBe('24m ago and 20s ago');
-  });
-});
-
-describe('a delivery’s figures', () => {
-  const base = { initial: false, addedCount: 0, modifiedCount: 0, removedCount: 0, size: 36 };
-
-  it('states what moved, then the snapshot size', () => {
-    expect(deliveryFigures({ ...base, addedCount: 1 })).toBe('+1 · 36 in snapshot');
-    expect(
-      deliveryFigures({ ...base, addedCount: 1, modifiedCount: 2, removedCount: 1 }),
-    ).toBe('+1 ~2 −1 · 36 in snapshot');
-  });
-
-  it('calls the first delivery initial', () => {
-    expect(deliveryFigures({ ...base, initial: true, addedCount: 34, size: 34 })).toBe(
-      'initial · 34 in snapshot',
-    );
-  });
-
-  it('states the snapshot alone when nothing moved', () => {
-    expect(deliveryFigures(base)).toBe('36 in snapshot');
   });
 });

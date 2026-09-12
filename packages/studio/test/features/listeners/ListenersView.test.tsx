@@ -320,7 +320,7 @@ describe('the grid', () => {
 });
 
 describe('the inspector', () => {
-  it('opens under the row with the target, its facts, and three numbers', () => {
+  it('opens under the row with the target, its facts, and its totals', () => {
     const inspector = openRow(view({ now: 24_000 }).container, 'l-tag');
     expect(inspector.querySelector('[data-pyric-inspector-title]')!.textContent).toBe(
       'notes/l-tag',
@@ -331,8 +331,38 @@ describe('the inspector', () => {
     const figure = (metric: string) =>
       inspector.querySelector(`[data-pyric-inspector-figure="${metric}"]`)!.textContent;
     expect(figure('deliveries')).toBe('Deliveries0');
-    expect(figure('documents')).toBe('Documents0');
-    expect(figure('suppressed')).toBe('Suppressed0');
+    expect(figure('snapshot')).toBe('Snapshot0 document');
+    expect(figure('reads')).toBe('Estimated reads0');
+  });
+
+  it('prints no query block for a listener on one document', () => {
+    const inspector = openRow(view().container, 'l-tag');
+    expect(inspector.querySelector('[data-pyric-query-block]')).toBeNull();
+  });
+
+  it('prints the query a listener on a query watches', () => {
+    const events = [
+      attach('e1', 'l-q', 0, [{ kind: 'tag', name: 'sidebar' }], {
+        kind: 'query',
+        collection: 'notes',
+        query: {
+          scope: { kind: 'collection' },
+          filters: [{
+            kind: 'where',
+            field: 'owner',
+            op: '==',
+            display: { type: 'string', value: 'u_8f2a' },
+          }],
+          orderBy: [],
+          limit: null,
+        },
+      }),
+    ];
+    const inspector = openRow(view({ events, now: 1000 }).container, 'l-q');
+    expect(inspector.querySelector('[data-pyric-query-text]')!.textContent).toBe([
+      "query(collection(db, 'notes'),",
+      "  where('owner', '==', 'u_8f2a'))",
+    ].join('\n'));
   });
 
   it('names the element the owners identified in the fact line', () => {
@@ -358,23 +388,24 @@ describe('the inspector', () => {
     expect(container.querySelector('[data-pyric-listener-inspector]')).toBeNull();
   });
 
-  it('opens the listener page from a button', () => {
+  it('makes the title the link to the listener page', () => {
     const inspector = openRow(view().container, 'l-tag');
-    const open = inspector.querySelector('[data-pyric-inspector-open]')!;
-    expect(open.tagName).toBe('BUTTON');
-    expect(open.textContent).toBe('Open ↗');
+    const title = inspector.querySelector('[data-pyric-inspector-title]')!;
+    expect(title.tagName).toBe('A');
+    expect(title.getAttribute('href')).toBe('/traffic/listeners/l-tag');
+    expect(inspector.querySelector('[data-pyric-inspector-open]')).toBeNull();
   });
 
-  it('states the incident first, with a line per attach', () => {
+  it('states the incident over the totals, with a line per attach', () => {
     const owners = [
       { kind: 'component', name: 'ChatPage', element: '#conversations' },
       { kind: 'tag', name: 'nav' },
       { kind: 'frame', file: 'src/ui/chat/chat-page.tsx', line: 318 },
     ];
     const inspector = openRow(view({ events: duplicateAttaches(owners), now: 20 }).container, 'a');
-    const blocks = [...inspector.children];
-    expect(blocks[1]!.getAttribute('data-pyric-incident-block')).toBe('');
-    expect(blocks[1]!.querySelector('p')!.textContent).toBe(
+    const block = inspector.querySelector('[data-pyric-incident-block]')!;
+    expect(block.nextElementSibling!.className).toBe('traffic__listener-figures');
+    expect(block.querySelector('p')!.textContent).toBe(
       '⚠ Attached 3 times by ChatPage · 0s ago, 0s ago and 0s ago',
     );
     const attaches = [...inspector.querySelectorAll('[data-pyric-incident-attach]')];
@@ -401,12 +432,14 @@ describe('the inspector', () => {
       ),
     ];
     const inspector = openRow(view({ events }).container, 'l-tag');
-    const blocks = [...inspector.querySelectorAll('[data-pyric-delivery]')];
-    expect(blocks).toHaveLength(1);
-    expect(blocks[0]!.querySelector('[data-pyric-delivery-figures]')!.textContent).toBe(
-      '+1 · 2 in snapshot',
+    const listed = [...inspector.querySelectorAll('[data-pyric-delivery-entry]')];
+    expect(listed).toHaveLength(1);
+    expect(listed[0]!.querySelector('[data-pyric-delivery-figures]')!.textContent).toBe('+1');
+    expect(listed[0]!.querySelector('[data-pyric-delivery-snapshot]')!.textContent).toBe(
+      '2 in snapshot',
     );
-    const paths = [...blocks[0]!.querySelectorAll('[data-pyric-delivery-path]')];
+    fireEvent.click(listed[0]!.querySelector('[data-pyric-delivery-row]')!);
+    const paths = [...inspector.querySelectorAll('[data-pyric-delivery-path]')];
     expect(paths.map((line) => line.getAttribute('data-pyric-delivery-path'))).toEqual([
       'notes/two',
     ]);
@@ -420,6 +453,7 @@ describe('the inspector', () => {
       queryDelivery('v2', 'l-tag', 1600, [{ path: 'notes/one', data: { n: 2 } }]),
     ];
     const inspector = openRow(view({ events }).container, 'l-tag');
+    fireEvent.click(inspector.querySelector('[data-pyric-delivery-row]')!);
     const path = inspector.querySelector('[data-pyric-path="notes/one"]')!;
     expect(path.querySelector('[data-pyric-path-prefix]')!.textContent).toBe('notes/');
     expect(path.querySelector('[data-pyric-path-id]')!.textContent).toBe('one');
@@ -432,9 +466,11 @@ describe('the inspector', () => {
       queryDelivery('v1', 'l-tag', 1500, [{ path: 'notes/one', data: { n: 1 } }]),
     ];
     const inspector = openRow(view({ events }).container, 'l-tag');
-    expect(inspector.querySelector('[data-pyric-delivery-figures]')!.textContent).toBe(
-      'initial · 1 in snapshot',
+    expect(inspector.querySelector('[data-pyric-delivery-figures]')!.textContent).toBe('initial');
+    expect(inspector.querySelector('[data-pyric-delivery-snapshot]')!.textContent).toBe(
+      '1 in snapshot',
     );
+    fireEvent.click(inspector.querySelector('[data-pyric-delivery-row]')!);
     expect(inspector.querySelector('[data-pyric-delivery-path]')).toBeNull();
   });
 
@@ -447,12 +483,12 @@ describe('the inspector', () => {
     expect(container.querySelector('[data-pyric-listener-inspector]')).not.toBeNull();
   });
 
-  it('draws the listener’s delivery history when it has one', () => {
+  it('shows the deep-linked listener’s last delivery', () => {
     const events = [...threeListenerEvents, delivery('v1', 'l-tag', 1500, 'notes/l-tag')];
     const { container } = view({ events, selectedListenerId: 'l-tag' });
     const row = container.querySelector('[data-pyric-listener-id="l-tag"]')!;
     expect(row.hasAttribute('data-pyric-selected')).toBe(true);
-    expect(container.querySelector('[data-pyric-listener-sparkline]')).not.toBeNull();
+    expect(container.querySelector('[data-pyric-delivery-row]')).not.toBeNull();
   });
 
   it('writes nothing for what was never recorded', () => {
@@ -465,6 +501,9 @@ describe('the inspector', () => {
       'and 3 more',
       'Held by',
       'unattributed',
+      'Suppressed',
+      'Document reads',
+      'Open',
     ]) {
       expect(inspector.textContent).not.toContain(banned);
     }
