@@ -73,6 +73,35 @@ function delivery(id: string, listenerId: string, at: number, path: string): San
   } as unknown as SandboxEvent;
 }
 
+/** A Firestore delivery carrying the result set the callback received. */
+function queryDelivery(
+  id: string,
+  listenerId: string,
+  at: number,
+  docs: Array<{ path: string; data: Record<string, unknown> | null }>,
+): SandboxEvent {
+  return {
+    kind: 'snapshot_delivery',
+    id,
+    at,
+    listenerId,
+    target: { kind: 'query', collection: 'notes' },
+    auth: null,
+    addedCount: docs.length,
+    modifiedCount: 0,
+    removedCount: 0,
+    size: docs.length,
+    sample: { docs },
+    operationContext: CONTEXT,
+  } as unknown as SandboxEvent;
+}
+
+function docsIn(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('[data-pyric-listener-doc]')].map(
+    (link) => link.getAttribute('data-pyric-listener-doc')!,
+  );
+}
+
 function detach(id: string, listenerId: string, at: number): SandboxEvent {
   return {
     kind: 'listener_detach',
@@ -316,6 +345,83 @@ describe('the inspector', () => {
     // Only the deep-linked listener's target matches the pre-filled prefix.
     expect(rowIds(container)).toEqual(['l-tag']);
     expect(container.querySelector('[data-pyric-listener-sparkline]')).not.toBeNull();
+  });
+});
+
+describe("the inspector's Delivered block", () => {
+  function openTag(events: SandboxEvent[]) {
+    const rendered = view({ events });
+    fireEvent.click(rendered.container.querySelector('[data-pyric-listener-id="l-tag"]')!);
+    return rendered;
+  }
+
+  it('lists the latest delivery as links to the documents, with change badges', () => {
+    const { container } = openTag([
+      ...threeListenerEvents,
+      queryDelivery('v1', 'l-tag', 1500, [{ path: 'notes/one', data: { n: 1 } }]),
+      queryDelivery('v2', 'l-tag', 1600, [
+        { path: 'notes/one', data: { n: 1 } },
+        { path: 'notes/two', data: { n: 2 } },
+      ]),
+    ]);
+    const inspector = container.querySelector('[data-pyric-listener-inspector]') as HTMLElement;
+    expect(inspector.textContent).toContain('Delivered');
+    expect(docsIn(inspector)).toEqual(['notes/one', 'notes/two']);
+    const [unchanged, added] = [...inspector.querySelectorAll('[data-pyric-listener-doc]')];
+    expect(unchanged!.getAttribute('data-pyric-listener-change')).toBe('unchanged');
+    expect(unchanged!.querySelector('.traffic__listener-change')).toBeNull();
+    expect(added!.getAttribute('data-pyric-listener-change')).toBe('added');
+    expect(added!.querySelector('.traffic__listener-change')!.textContent).toBe('added');
+  });
+
+  it('links a Firestore path to the document route and a database path to rtdb', () => {
+    const { container } = openTag([
+      ...threeListenerEvents,
+      queryDelivery('v1', 'l-tag', 1500, [{ path: 'notes/one', data: { n: 1 } }]),
+    ]);
+    expect(
+      container.querySelector('[data-pyric-listener-doc="notes/one"]')!.getAttribute('href'),
+    ).toBe('/firestore/notes/one');
+  });
+
+  it('caps the list at six lines and defers the rest to the listener page', () => {
+    const docs = Array.from({ length: 9 }, (_unused, index) => ({
+      path: `notes/n${index}`,
+      data: { n: index },
+    }));
+    const { container } = openTag([
+      ...threeListenerEvents,
+      queryDelivery('v1', 'l-tag', 1500, docs),
+    ]);
+    const inspector = container.querySelector('[data-pyric-listener-inspector]') as HTMLElement;
+    expect(docsIn(inspector)).toHaveLength(6);
+    const more = inspector.querySelector('[data-pyric-listener-doc-more]')!;
+    expect(more.textContent).toBe('and 3 more');
+    expect(more.getAttribute('href')).toBe('/traffic/listeners/l-tag');
+  });
+
+  it('says the latest delivery listed nothing', () => {
+    const { container } = openTag([
+      ...threeListenerEvents,
+      queryDelivery('v1', 'l-tag', 1500, []),
+    ]);
+    expect(
+      container.querySelector('[data-pyric-listener-delivered-empty]')!.textContent,
+    ).toBe('Delivered an empty result.');
+  });
+
+  it('says there has been no delivery', () => {
+    const { container } = openTag([...threeListenerEvents]);
+    expect(
+      container.querySelector('[data-pyric-listener-delivered-empty]')!.textContent,
+    ).toBe('No deliveries yet.');
+  });
+
+  it('links its title to the listener page', () => {
+    const { container } = openTag([...threeListenerEvents]);
+    expect(container.querySelector('[data-pyric-listener-drill]')!.getAttribute('href')).toBe(
+      '/traffic/listeners/l-tag',
+    );
   });
 });
 

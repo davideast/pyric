@@ -1288,3 +1288,68 @@
     width: 140px;
   }
 }
+
+/* ── What a listener delivered ───────────────────────────────────────────
+   The delivered result set is a column of paths, one per line, in the log's
+   mono row language. The path carries the line; the change badge is the
+   verdict pill's box, sized down, because a delivery's labels answer the
+   same kind of question a verdict does. `unchanged` renders no badge at all,
+   so the eye lands on what moved. */
+.traffic__listener-field--wide {
+  grid-column: 1 / -1;
+}
+.traffic__listener-field--wide > div {
+  display: block;
+}
+.traffic__listener-docs {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.traffic__listener-doc {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.traffic__listener-doc:hover .traffic__listener-mono {
+  text-decoration: underline;
+}
+.traffic__listener-change {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.traffic__listener-change[data-change='added'] {
+  background: var(--accent-tint);
+  color: var(--accent);
+}
+.traffic__listener-change[data-change='modified'] {
+  background: var(--elevated);
+  color: var(--muted);
+}
+.traffic__listener-change[data-change='removed'] {
+  background: var(--elevated);
+  color: var(--faint);
+}
+.traffic__listener-doc-more,
+.traffic__listener-drill-back {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+.traffic__listener-doc-more:hover,
+.traffic__listener-drill-back:hover {
+  color: var(--ink);
+}

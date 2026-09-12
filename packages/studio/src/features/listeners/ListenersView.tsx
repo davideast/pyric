@@ -29,6 +29,7 @@ import {
   type TimeWindow,
 } from '@pyric/ui/traffic';
 import { activeListeners, type ActiveListener, type SandboxEvent } from 'pyric/sandbox';
+import { pushPath } from '../../shell/router.js';
 import {
   componentOwnerOf,
   elementOf,
@@ -57,6 +58,9 @@ import {
   listenerCardSeries,
 } from './listener-metrics.js';
 import { deliverySparkline, deliveryTimestamps } from './listener-deliveries.js';
+import { latestListenerDelivery } from './listener-delivery-docs.js';
+import { DeliveredPathLine } from './DeliveredPaths.js';
+import { listenerDrillHref, listenerDrillTarget } from './listener-links.js';
 import { formatAgo, formatIncident } from './listener-vocabulary.js';
 import { listenerIncidents, repeatedReadIncidents } from './listener-incidents.js';
 import { listenerStory } from './listener-story.js';
@@ -132,6 +136,63 @@ function DeliverySparkline({
   );
 }
 
+/** How many delivered paths the inspector lists before it defers to the
+ *  drill-in page. Six lines is the most that reads as a glance. */
+const DELIVERED_LINE_CAP = 6;
+
+/** The newest delivery's paths, linked to the records the callback received.
+ *  Past the cap the block says how many it is not showing and hands the
+ *  reader the page that shows them all. */
+function DeliveredBlock({
+  listener,
+  events,
+}: {
+  listener: ActiveListener;
+  events: readonly SandboxEvent[];
+}) {
+  const delivery = useMemo(
+    () => latestListenerDelivery(events, listener.id),
+    [events, listener.id],
+  );
+  if (delivery === undefined) {
+    return (
+      <p className="traffic__inspector-missing" data-pyric-listener-delivered-empty="">
+        No deliveries yet.
+      </p>
+    );
+  }
+  if (delivery.docs.length === 0) {
+    return (
+      <p className="traffic__inspector-missing" data-pyric-listener-delivered-empty="">
+        Delivered an empty result.
+      </p>
+    );
+  }
+  const shown = delivery.docs.slice(0, DELIVERED_LINE_CAP);
+  const hidden = delivery.docs.length - shown.length;
+  return (
+    <div className="traffic__listener-docs" data-pyric-listener-docs="">
+      {shown.map((doc) => (
+        <DeliveredPathLine key={doc.path} doc={doc} service={listener.service} />
+      ))}
+      {hidden > 0 ? (
+        <a
+          className="traffic__listener-doc-more"
+          href={listenerDrillHref(listener.id)}
+          data-pyric-listener-doc-more=""
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+            event.preventDefault();
+            pushPath(listenerDrillTarget(listener.id));
+          }}
+        >
+          and {formatCount(hidden)} more
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 /** One labelled field in the inspector grid. */
 function InspectorField({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -160,7 +221,18 @@ function ListenerInspector({
   return (
     <div className="traffic__inspector" data-pyric-listener-inspector="">
       <div className="traffic__inspector-bar">
-        <span className="traffic__inspector-title">Listener</span>
+        <a
+          className="traffic__inspector-title"
+          href={listenerDrillHref(listener.id)}
+          data-pyric-listener-drill=""
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+            event.preventDefault();
+            pushPath(listenerDrillTarget(listener.id));
+          }}
+        >
+          Listener
+        </a>
         <span className="traffic__listener-mono">{formatListenerTarget(listener.target)}</span>
         <button
           type="button"
@@ -191,6 +263,12 @@ function ListenerInspector({
             <span className="traffic__listener-mono">{`${frame.file}:${frame.line}`}</span>
           </InspectorField>
         ) : null}
+        <div className="traffic__listener-field traffic__listener-field--wide">
+          <span className="traffic__inspector-title">Delivered</span>
+          <div>
+            <DeliveredBlock listener={listener} events={events} />
+          </div>
+        </div>
         <InspectorField label="Target">
           <span className="traffic__listener-mono">{formatListenerTarget(listener.target)}</span>
         </InspectorField>
