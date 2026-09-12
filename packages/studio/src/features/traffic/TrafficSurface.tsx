@@ -53,7 +53,11 @@ import {
 import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-selection.js';
 import { TrafficRulesInspector } from './TrafficRulesInspector.js';
 import { BillableMetricsView, RulesMetricsView } from './TrafficMetricsViews.js';
-import { ListenersSurface } from '../listeners/index.js';
+import {
+  ListenerPageSurface,
+  ListenersSurface,
+  drilledListenerId,
+} from '../listeners/index.js';
 import { TRAFFIC_TABS, trafficTabForView, type TrafficTab } from './traffic-tabs.js';
 import { trafficTimeFocus, toggleTimeFocus } from './timeline-focus.js';
 import './traffic.css';
@@ -65,10 +69,35 @@ export type { TrafficTab } from './traffic-tabs.js';
  *  session holds attached, across services), deep-linkable via
  *  `?view=` (omitted for the default `timeline`, matching the `inspect`
  *  param's drop-when-empty precedent in `shell/path.ts`). */
+export function trafficTabForLocation(location: {
+  readonly tab: string;
+  readonly rest: readonly string[];
+  readonly query: Record<string, string | undefined>;
+}): TrafficTab {
+  if (location.tab !== 'traffic') return 'timeline';
+  // `/traffic/listeners/<id>` is a Listeners drill-in, so the Listeners tab
+  // stays selected while the page is open.
+  if (drilledListenerId(location) !== undefined) return 'listeners';
+  return trafficTabForView(location.query.view);
+}
+
 function deriveTrafficTab(): TrafficTab {
-  const { tab, query } = currentPath();
-  if (tab !== 'traffic') return 'timeline';
-  return trafficTabForView(query.view);
+  return trafficTabForLocation(currentPath());
+}
+
+/** The listener the path drills into, when it names one. */
+function deriveDrilledListener(): string | undefined {
+  const { tab, rest } = currentPath();
+  return drilledListenerId({ tab, rest });
+}
+
+/** Two-way read of the drilled listener; the page IS the URL (N4). */
+function useDrilledListener(): string | undefined {
+  return useSyncExternalStore<string | undefined>(
+    subscribeToLocation,
+    deriveDrilledListener,
+    () => undefined,
+  );
 }
 
 /** Two-way bind the active Traffic tab to `?view=`, mirroring `useDataNav`'s
@@ -152,6 +181,7 @@ const PAGE_SIZE = 100;
 export function TrafficSurface() {
   const allEvents = useStudioTraffic();
   const [tab, setTab] = useTrafficTab();
+  const drilledListener = useDrilledListener();
   const [hideStudio, toggleHideStudio] = useHideStudio();
   // The Studio filter applies UPSTREAM of everything — timeline buckets,
   // counts, verdict filtering, AND the metrics tabs' aggregations — so
@@ -272,7 +302,9 @@ export function TrafficSurface() {
         </button>
       </div>
 
-      {tab === 'billable' ? (
+      {drilledListener !== undefined ? (
+        <ListenerPageSurface listenerId={drilledListener} window={window} />
+      ) : tab === 'billable' ? (
         <BillableMetricsView events={events} window={window} />
       ) : tab === 'rules' ? (
         <RulesMetricsView events={events} window={window} />

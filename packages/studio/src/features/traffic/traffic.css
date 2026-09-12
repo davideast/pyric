@@ -1353,3 +1353,50 @@
 .traffic__listener-drill-back:hover {
   color: var(--ink);
 }
+
+/* ── One listener's page ────────────────────────────────────────────────
+   The same journal as the tab, narrowed to one listener. The back link sits
+   above the story in the inspector's label voice, so leaving the page is the
+   first thing in reading order rather than a hunt. A delivery row is the
+   stream's mono row with three cells: when it fired, what changed, and how
+   much it handed over. */
+.traffic__listener-drill-bar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+.traffic__log [data-pyric-listener-delivery-row] {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 14px;
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  text-align: left;
+  cursor: pointer;
+}
+.traffic__log [data-pyric-listener-delivery-row]:hover {
+  background: var(--elevated);
+}
+.traffic__log [data-pyric-listener-delivery-counts] {
+  color: var(--muted);
+}
+.traffic__log [data-pyric-listener-delivery-size] {
+  margin-left: auto;
+  color: var(--faint);
+}
+.traffic__listener-delivery-detail {
+  display: grid;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--line);
+  padding: 8px 14px 12px 32px;
+  background: var(--elevated);
+}
