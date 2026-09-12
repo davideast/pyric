@@ -80,7 +80,7 @@ export const createFirebaseChatGateway = (): ChatPageServices => {
       },
     },
     presence: {
-      observe: (callback) => presence.observe((entries) => callback(entries.map(toUiPresence))),
+      observe: (callback, options) => presence.observe((entries) => callback(entries.map(toUiPresence)), options),
     },
     notifications: {
       enable: async (onMessage) => (await notifications.enable((message) => onMessage({ title: message.title, body: message.body }))) !== null,
@@ -90,14 +90,14 @@ export const createFirebaseChatGateway = (): ChatPageServices => {
       list: async () => (await conversations.list()).items.map(toUiConversation),
       create: (input) => conversations.create(input),
       delete: (id) => conversations.delete(id as Conversation['id']),
-      observe: (id, callback) => conversations.observe(id as Conversation['id'], (value) => callback(toUiConversation(value))),
-      observeList: (callback) => conversations.observeList((values) => callback(values.map(toUiConversation))),
+      observe: (id, callback, options) => conversations.observe(id as Conversation['id'], (value) => callback(toUiConversation(value)), options),
+      observeList: (callback, options) => conversations.observeList((values) => callback(values.map(toUiConversation)), options),
     },
     messages: {
       list: async (conversationId) => (await messages.list(conversationId)).items.map(toUiMessage),
       appendUserMessage: (input) => messages.appendUserMessage({ ...input, conversationId: asConversationId(input.conversationId) }),
       appendAssistantMessage: (input) => messages.appendAssistantMessage({ ...input, conversationId: asConversationId(input.conversationId) }),
-      observeRecent: (conversationId, callback) => messages.observeRecent(conversationId, (value) => callback(value.map(toUiMessage))),
+      observeRecent: (conversationId, callback, options) => messages.observeRecent(conversationId, (value) => callback(value.map(toUiMessage)), options),
     },
     ai: {
       stream: async (input, onChunk, onThought, onTool, onUsage, onWorkspaceChanged) => {

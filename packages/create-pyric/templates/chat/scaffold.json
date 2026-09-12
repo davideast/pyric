@@ -1,5 +1,6 @@
 {
   "include": [
+    ".env.development",
     ".env.example",
     "README.md",
     "components.json",

@@ -11,11 +11,12 @@ import {
   serverTimestamp,
   startAfter,
   where,
+  type SnapshotListenOptions,
 } from 'firebase/firestore';
 import { push, ref, serverTimestamp as rtdbServerTimestamp } from 'firebase/database';
 import { auth, db, rtdb } from '../firebase/app';
 import { asMessageId, type AppendAssistantMessageInput, type AppendUserMessageInput, type Message, type MessageDocument, type Page, type PageOptions, ServiceError } from '../firebase/types';
-import { clampPageSize, mapFirestoreError, requireUid } from './firestore-helpers';
+import { clampPageSize, mapFirestoreError, requireUid, listenOptions, type ListenerOptions } from './firestore-helpers';
 
 const toMessage = (snapshot: { id: string; data: () => unknown }): Message => ({
   id: asMessageId(snapshot.id),
@@ -144,9 +145,9 @@ export class MessageService {
     }
   }
 
-  observeRecent(conversationId: string, callback: (messages: Message[]) => void): () => void {
+  observeRecent(conversationId: string, callback: (messages: Message[]) => void, options?: ListenerOptions): () => void {
     const uid = requireUid(auth.currentUser?.uid);
     const messageQuery = query(messageCollection(conversationId), where('ownerUid', '==', uid), orderBy('createdAt', 'desc'), limit(50));
-    return onSnapshot(messageQuery, (snapshot) => callback(snapshot.docs.map(toMessage).reverse()));
+    return onSnapshot(messageQuery, listenOptions<SnapshotListenOptions>(options), (snapshot) => callback(snapshot.docs.map(toMessage).reverse()));
   }
 }

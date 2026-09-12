@@ -11,11 +11,15 @@ import path from 'node:path';
 // self-contained sandbox preview you can serve under `pyric sandbox`, build with a
 // non-production mode: `vite build --mode development` (see the `build:sandbox`
 // script). That output is marked and can never be deployed.
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), pyric()],
+  // The sandbox build keeps function names: pyric's listener attribution reads
+  // the owning React component's name from the render stack, and minification
+  // would replace it with a mangled one. The production build is unaffected.
+  build: mode === 'production' ? {} : { minify: false },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
-});
+}));

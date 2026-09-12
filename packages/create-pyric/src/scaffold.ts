@@ -19,16 +19,16 @@ import type { FlagValue } from './parse-args.js';
 export type { ScaffoldTemplate, TemplateName };
 export { TEMPLATES, TEMPLATE_NAMES, isTemplateName } from './templates.js';
 
-/** Where the scaffold's `pyric` / `@pyric/cli` deps come from. */
+/** Where the scaffold's `pyric` / `@pyric/cli` / `@pyric/ui` deps come from. */
 export type DepsMode = 'vendor' | 'npm';
 
-/** Return a copy of `t` with `pyric` / `@pyric/cli` deps rewritten for `mode`. */
+/** Return a copy of `t` with `pyric` / `@pyric/cli` / `@pyric/ui` deps rewritten for `mode`. */
 export function applyDepsMode(
   t: ScaffoldTemplate,
   mode: DepsMode,
   opts: { vendorSpecs?: Record<string, string>; version?: string | null },
 ): ScaffoldTemplate {
-  const WORKSPACE_PKGS = ['pyric', '@pyric/cli'];
+  const WORKSPACE_PKGS = ['pyric', '@pyric/cli', '@pyric/ui'];
   const rewrite = (section: Record<string, string>): Record<string, string> => {
     const next = { ...section };
     for (const pkg of WORKSPACE_PKGS) {
@@ -202,7 +202,7 @@ export interface ScaffoldRequest {
   depsMode?: DepsMode;
   /** Already-rewritten template; defaults to TEMPLATES[template] (+ npm pin). */
   effectiveTemplate?: ScaffoldTemplate;
-  /** Version pin for npm-mode `@pyric/cli` / `pyric` ranges. */
+  /** Version pin for npm-mode `@pyric/cli` / `pyric` / `@pyric/ui` ranges. */
   pinVersion?: string | null;
   /** Label used in human report lines (`create-pyric` or `pyric init`). */
   commandLabel?: string;
