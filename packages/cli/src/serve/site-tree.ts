@@ -49,6 +49,25 @@ function rawRequestPathname(request: RequestWithOriginalUrl, parsedUrl: URL): st
   return requestTarget.slice(0, queryStringStart);
 }
 
+/** The raw query string (with its `?`), or `''`. A redirect has to carry it:
+ *  Studio reads its deep link out of the query, and dropping it on the way to
+ *  the trailing-slash form loses the tab the link named. */
+function rawRequestSearch(request: RequestWithOriginalUrl, parsedUrl: URL): string {
+  const requestTarget = request.originalUrl ?? request.url;
+
+  if (requestTarget === undefined) {
+    return parsedUrl.search;
+  }
+
+  const queryStringStart = requestTarget.indexOf('?');
+
+  if (queryStringStart === -1) {
+    return '';
+  }
+
+  return requestTarget.slice(queryStringStart);
+}
+
 function isSiteTreePath(pathname: string): boolean {
   if (pathname === SITE_TREE_MOUNT_PATH) {
     return true;
@@ -87,8 +106,9 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
     if (!isSiteTreePath(rawPathname)) {
       return false;
     }
+    const rawSearch = rawRequestSearch(req, url);
     if (rawPathname === SITE_TREE_MOUNT_PATH) {
-      res.writeHead(301, { location: SITE_TREE_DESCENDANT_PREFIX }).end();
+      res.writeHead(301, { location: `${SITE_TREE_DESCENDANT_PREFIX}${rawSearch}` }).end();
       return true;
     }
 
@@ -111,7 +131,7 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
     if (!relativePath.endsWith('/') && !extname(relativePath)) {
       const dir = resolveStaticPath(root, relativePath);
       if (dir && existsSync(dir) && statSync(dir).isDirectory()) {
-        res.writeHead(301, { location: `${rawPathname}/` }).end();
+        res.writeHead(301, { location: `${rawPathname}/${rawSearch}` }).end();
         return true;
       }
     }

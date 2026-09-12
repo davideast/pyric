@@ -146,3 +146,49 @@ test('the Listeners tab renders from the routed query and from the chip deep lin
   expect(consoleErrors).toEqual([]);
   await context.close();
 });
+
+test('the runtime chip link reaches the Listeners tab without losing its query', async ({ browser }) => {
+  const context = await browser.newContext();
+
+  // The served host answers the extension-less Studio path with a redirect to
+  // the trailing-slash form. The query has to survive it.
+  const redirect = await context.request.get('/__pyric/ui/studio?view=listeners', {
+    maxRedirects: 0,
+  });
+  if (redirect.status() === 301) {
+    expect(redirect.headers()['location']).toBe('/__pyric/ui/studio/?view=listeners');
+  }
+
+  const app = await context.newPage();
+  await app.goto('/');
+  await expect(app.locator('#status')).not.toHaveText('loading');
+  await app.locator('#listen').click();
+
+  const chipHost = app.locator('[data-pyric-runtime-chip-host]');
+  await expect(chipHost).toBeAttached();
+  const expand = chipHost.locator('[data-expand]');
+  if (await expand.isVisible()) await expand.click();
+  await chipHost.locator('[data-toggle-listeners]').click();
+
+  const link = chipHost.locator('[data-open-listeners-studio]');
+  await expect(link).toBeAttached();
+  const href = await link.getAttribute('href');
+  expect(href).toBeTruthy();
+
+  const studio = await context.newPage();
+  const consoleErrors: string[] = [];
+  studio.on('console', (message) => {
+    // The fixture app mounts no `/__pyric/state` endpoint, so Studio's probe
+    // for it logs a resource 404 on every page. Ignore load failures and keep
+    // the assertion on script errors, which is what a render loop reports.
+    if (message.type() === 'error' && !message.text().includes('Failed to load resource')) {
+      consoleErrors.push(message.text());
+    }
+  });
+  studio.on('pageerror', (error) => consoleErrors.push(error.message));
+  await studio.goto(href as string);
+  await expect(studio.getByRole('heading', { name: 'Listeners', level: 2 })).toBeVisible();
+  expect(new URL(studio.url()).searchParams.get('view')).toBe('listeners');
+  expect(consoleErrors).toEqual([]);
+  await context.close();
+});

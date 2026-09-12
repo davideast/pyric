@@ -16,7 +16,7 @@ import {
 } from './chip-theme-dialog.js';
 import { pageOverlayThemeStorage } from './overlay-theme.js';
 import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
-import type { ListenerMode } from './listener-mode.js';
+import { studioListenersUrl, type ListenerMode } from './listener-mode.js';
 import type { ListenerOutline, ListenerOutlineIncident } from './listener-outline-model.js';
 import { listenerColors } from './listener-palette.js';
 import {
@@ -382,12 +382,6 @@ function listenerOwnerGroups(outlines: readonly ListenerOutline[]): ListenerOwne
     }
   }
   return [...groups.values()].sort((a, b) => b.deliveries - a.deliveries || a.key.localeCompare(b.key));
-}
-
-/** `?view=listeners`, appended to whatever query string Studio's URL already carries. */
-function studioListenersUrl(studioUrl: string): string {
-  const separator = studioUrl.includes('?') ? '&' : '?';
-  return `${studioUrl}${separator}view=listeners`;
 }
 
 /** One body row of the Listeners table. The columns line up across incident
