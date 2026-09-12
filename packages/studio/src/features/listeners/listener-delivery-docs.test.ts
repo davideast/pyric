@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
 import {
+  deliveredDocumentReads,
+  deliveredPathCounts,
   distinctDeliveredPaths,
   latestListenerDelivery,
   listenerDeliveryHistory,
@@ -202,5 +204,62 @@ describe('distinctDeliveredPaths', () => {
 
   it('is zero without deliveries', () => {
     expect(distinctDeliveredPaths([])).toBe(0);
+  });
+});
+
+describe('the first delivery', () => {
+  it('is the only one marked initial', () => {
+    const events = [
+      snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
+      snapshot('a', 20, [{ path: 'notes/one', data: { n: 2 } }]),
+    ];
+    expect(listenerDeliveryHistory(events, 'a').map((d) => d.initial)).toEqual([true, false]);
+  });
+});
+
+describe('deliveredDocumentReads', () => {
+  it('sums every snapshot’s size, so a path in two snapshots is two reads', () => {
+    const events = [
+      snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
+      snapshot('a', 20, [
+        { path: 'notes/one', data: { n: 2 } },
+        { path: 'notes/two', data: { n: 2 } },
+      ]),
+    ];
+    expect(deliveredDocumentReads(listenerDeliveryHistory(events, 'a'))).toBe(3);
+    expect(deliveredDocumentReads([])).toBe(0);
+  });
+});
+
+describe('deliveredPathCounts', () => {
+  it('counts the deliveries that changed each path, most-changed first', () => {
+    const events = [
+      snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
+      snapshot('a', 20, [
+        { path: 'notes/one', data: { n: 2 } },
+        { path: 'notes/two', data: { n: 2 } },
+      ]),
+      snapshot('a', 30, [
+        { path: 'notes/one', data: { n: 3 } },
+        { path: 'notes/two', data: { n: 2 } },
+      ]),
+    ];
+    expect(deliveredPathCounts(listenerDeliveryHistory(events, 'a'))).toEqual([
+      { path: 'notes/one', changes: 3 },
+      { path: 'notes/two', changes: 1 },
+    ]);
+  });
+
+  it('orders equal counts by path', () => {
+    const events = [
+      snapshot('a', 10, [
+        { path: 'notes/b', data: { n: 1 } },
+        { path: 'notes/a', data: { n: 1 } },
+      ]),
+    ];
+    expect(deliveredPathCounts(listenerDeliveryHistory(events, 'a')).map((c) => c.path)).toEqual([
+      'notes/a',
+      'notes/b',
+    ]);
   });
 });

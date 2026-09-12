@@ -1,54 +1,46 @@
 /**
  * One listener's page (feature: Listeners), at `/traffic/listeners/<id>`.
  *
- * The Listeners tab answers "what is attached"; this page answers "what has
- * this one been handing my app". It keeps the tab's journal shape so the drill
- * in is the same document read closer: the story leads, the cards state the
- * totals, the chart is supporting evidence, the deliveries are the detail, and
- * the source boundary sits in the footer with the methodology on demand.
+ * The Listeners tab answers what is attached; this page answers what one
+ * listener has been handing the app. It keeps the tab's journal shape so the
+ * drill in is the same document read closer, in five sections and no others:
+ * the header names the target and its facts, the cards state the totals, the
+ * chart is supporting evidence, the deliveries are the detail, and the
+ * documents are what the deliveries add up to.
  *
- * The log is one row per delivery, newest first, each row expanding in place
- * into the paths that delivery handed the callback. Long histories page twenty
- * rows at a time through the stream's `traffic__show-more` disclosure, so the
- * row count stays bounded.
+ * Nothing on the page opens: a delivery is a time, its figures, and the paths
+ * that changed, all of which fit on the line. Long histories page twenty
+ * deliveries at a time through the stream's `traffic__show-more`, so the block
+ * count stays bounded.
  *
  * Presentational: it takes the event snapshot, the window, and the clock as
  * props, so the page renders in a test without Studio's environment wiring.
  */
 
 import { useMemo, useState } from 'react';
-import {
-  TrafficLineChart,
-  TrafficMetricCards,
-  type TimeWindow,
-} from '@pyric/ui/traffic';
-import { activeListeners, type SandboxEvent } from 'pyric/sandbox';
+import { TrafficLineChart, type TimeWindow } from '@pyric/ui/traffic';
+import { activeListeners, type ActiveListener, type SandboxEvent } from 'pyric/sandbox';
 import { pushPath } from '../../shell/router.js';
 import { deliveryMetrics } from './listener-metrics.js';
 import {
+  deliveredDocumentReads,
+  deliveredPathCounts,
   distinctDeliveredPaths,
   listenerDeliveryHistory,
-  type ListenerDelivery,
 } from './listener-delivery-docs.js';
-import { DeliveredPathList } from './DeliveredPaths.js';
+import { DeliveryBlock, PathLink } from './DeliveryBlock.js';
+import { IncidentBlock } from './IncidentBlock.js';
+import { elementLabel } from './listener-element.js';
+import { formatListenerTarget, groupIdentityFor } from './listener-groups.js';
+import { listenerFactLine } from './listener-facts.js';
+import { listenerIncidents, incidentsForTarget } from './listener-incidents.js';
 import { listenersTabHref, listenersTabTarget } from './listener-links.js';
-import {
-  formatDeliveryCounts,
-  formatDocumentCount,
-  listenerPageCards,
-  listenerPageHeader,
-} from './listener-page.js';
 
 /** Deliveries revealed per press of the disclosure, matching the request
  *  stream's page size: enough to scan, bounded enough to stay a list. */
 export const DELIVERY_PAGE = 20;
 
 const countFormatter = new Intl.NumberFormat();
-const timeFormatter = new Intl.DateTimeFormat(undefined, {
-  hour: 'numeric',
-  minute: '2-digit',
-  second: '2-digit',
-});
 const rangeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: 'numeric',
   minute: '2-digit',
@@ -58,68 +50,29 @@ function formatCount(value: number): string {
   return countFormatter.format(value);
 }
 
-/** The link back to the tab this page drilled out of. */
+/** The four totals, in the order the cards render. */
+const CARDS: ReadonlyArray<{ metric: string; label: string }> = [
+  { metric: 'deliveries', label: 'Deliveries' },
+  { metric: 'documents', label: 'Documents' },
+  { metric: 'reads', label: 'Document reads' },
+  { metric: 'suppressed', label: 'Suppressed' },
+];
+
+/** The link back to the tab this page drilled out of, above the headline. */
 function BackToListeners() {
   return (
-    <div className="traffic__listener-drill-bar">
-      <a
-        className="traffic__inspector-title traffic__listener-drill-back"
-        href={listenersTabHref()}
-        data-pyric-listener-back=""
-        onClick={(event) => {
-          if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-          event.preventDefault();
-          pushPath(listenersTabTarget());
-        }}
-      >
-        Listeners
-      </a>
-    </div>
-  );
-}
-
-/** One delivery: the row, and the result set it expands into. */
-function DeliveryRow({
-  delivery,
-  service,
-  expanded,
-  onToggle,
-}: {
-  delivery: ListenerDelivery;
-  service: 'firestore' | 'database';
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <li data-pyric-listener-delivery="" data-pyric-listener-delivery-at={delivery.at}>
-      <button
-        type="button"
-        data-pyric-listener-delivery-row=""
-        aria-expanded={expanded}
-        onClick={onToggle}
-      >
-        <span data-pyric-listener-delivery-time="">{timeFormatter.format(delivery.at)}</span>
-        <span data-pyric-listener-delivery-counts="">{formatDeliveryCounts(delivery)}</span>
-        <span data-pyric-listener-delivery-size="">{formatDocumentCount(delivery.size)}</span>
-      </button>
-      {expanded ? (
-        <div className="traffic__listener-delivery-detail">
-          {delivery.docs.length === 0 ? (
-            <p className="traffic__inspector-missing">Delivered an empty result.</p>
-          ) : (
-            <DeliveredPathList docs={delivery.docs} service={service} />
-          )}
-          <div className="traffic__listener-field">
-            <span className="traffic__inspector-title">Rendered after each delivery</span>
-            <div>
-              <p className="traffic__inspector-missing" data-pyric-listener-rendered="">
-                Not recorded yet.
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </li>
+    <a
+      className="traffic__listener-back"
+      href={listenersTabHref()}
+      data-pyric-page-back=""
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+        event.preventDefault();
+        pushPath(listenersTabTarget());
+      }}
+    >
+      ← Listeners
+    </a>
   );
 }
 
@@ -134,7 +87,6 @@ export interface ListenerPageProps {
 
 export function ListenerPage({ events, listenerId, window, now }: ListenerPageProps) {
   const [shown, setShown] = useState(DELIVERY_PAGE);
-  const [expanded, setExpanded] = useState<readonly number[]>([]);
 
   const listener = useMemo(
     () => activeListeners(events).find((candidate) => candidate.id === listenerId),
@@ -148,6 +100,10 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
     () => deliveryMetrics(events, listener ? [listener] : [], window),
     [events, listener, window],
   );
+  const incident = useMemo(() => {
+    if (listener === undefined) return undefined;
+    return incidentsForTarget(listenerIncidents(events), listener.target)[0];
+  }, [events, listener]);
 
   if (listener === undefined) {
     return (
@@ -160,12 +116,24 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
     );
   }
 
-  const header = listenerPageHeader(listener, now ?? Date.now());
-  const cards = listenerPageCards({
+  const clock = now ?? Date.now();
+  const element = elementLabel(listener.owners);
+  const facts: {
+    owner?: string;
+    element?: string;
+    service: ActiveListener['service'];
+    attachedAt: number;
+  } = { service: listener.service, attachedAt: listener.attachedAt };
+  facts.owner = groupIdentityFor(listener).label;
+  if (element !== undefined) facts.element = element;
+
+  const totals: Record<string, number> = {
     deliveries: history.length,
     documents: distinctDeliveredPaths(history),
+    reads: deliveredDocumentReads(history),
     suppressed: listener.suppressedCount,
-  });
+  };
+  const documents = deliveredPathCounts(history);
   // Keyed by the delivery's position in the history rather than its
   // timestamp: two deliveries of one listener can land in the same
   // millisecond, and a key has to stay unique when they do.
@@ -176,20 +144,35 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-listener-page">
       <BackToListeners />
-      <section className="traffic__metric-panel traffic__metric-panel--journal">
-        <header className="traffic__metric-story">
-          <p className="traffic__metric-eyebrow">{header.eyebrow}</p>
-          <h3 className="traffic__metric-headline">{header.headline}</h3>
-          <p className="traffic__metric-finding">{header.finding}</p>
-        </header>
+      <div className="traffic__metric-panel traffic__metric-panel--journal">
+        <section className="traffic__metric-story" data-pyric-section="header">
+          <h3 className="traffic__metric-headline">{formatListenerTarget(listener.target)}</h3>
+          {incident === undefined ? null : (
+            <IncidentBlock
+              incident={incident}
+              listener={listener}
+              events={events}
+              now={clock}
+            />
+          )}
+          <p className="traffic__listener-facts" data-pyric-page-facts="">
+            {listenerFactLine(facts, clock)}
+          </p>
+        </section>
 
-        <TrafficMetricCards
-          series={cards}
-          formatValue={formatCount}
-          className="traffic__metric-cards traffic__metric-cards--journal traffic__metric-cards--3"
-        />
+        <section
+          className="traffic__metric-cards traffic__metric-cards--journal"
+          data-pyric-section="cards"
+        >
+          {CARDS.map((card) => (
+            <span key={card.metric} data-pyric-metric-card="" data-metric={card.metric}>
+              <span data-pyric-metric-label="">{card.label}</span>
+              <span data-pyric-metric-value="">{formatCount(totals[card.metric] ?? 0)}</span>
+            </span>
+          ))}
+        </section>
 
-        <div className="traffic__metric-evidence">
+        <section className="traffic__metric-evidence" data-pyric-section="evidence">
           <div className="traffic__metric-evidence-header">
             <h4>When this listener delivered</h4>
             <span>
@@ -214,42 +197,54 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
               </div>
             </>
           )}
-        </div>
+        </section>
 
-        {newestFirst.length === 0 ? (
-          <p className="traffic__empty" data-pyric-listener-empty="">
-            No deliveries yet.
-          </p>
-        ) : (
-          <div className="traffic__log" data-pyric-ui="traffic-listener-deliveries">
-            <ul className="traffic__listener-group">
+        {newestFirst.length === 0 ? null : (
+          <section className="traffic__listener-section" data-pyric-section="deliveries">
+            <p className="traffic__metric-eyebrow">Deliveries</p>
+            <div className="traffic__log" data-pyric-delivery-log="">
               {visible.map((entry) => (
-                <DeliveryRow
+                <DeliveryBlock
                   key={entry.index}
                   delivery={entry.delivery}
                   service={listener.service}
-                  expanded={expanded.includes(entry.index)}
-                  onToggle={() =>
-                    setExpanded((current) =>
-                      current.includes(entry.index)
-                        ? current.filter((index) => index !== entry.index)
-                        : [...current, entry.index],
-                    )
-                  }
                 />
               ))}
-            </ul>
-            {hidden > 0 ? (
-              <button
-                type="button"
-                className="traffic__show-more"
-                data-pyric-listener-show-more=""
-                onClick={() => setShown((current) => current + DELIVERY_PAGE)}
-              >
-                Show {formatCount(Math.min(hidden, DELIVERY_PAGE))} more
-              </button>
-            ) : null}
-          </div>
+              {hidden > 0 ? (
+                <button
+                  type="button"
+                  className="traffic__show-more"
+                  data-pyric-show-more=""
+                  onClick={() => setShown((current) => current + DELIVERY_PAGE)}
+                >
+                  Show {formatCount(Math.min(hidden, DELIVERY_PAGE))} more
+                </button>
+              ) : null}
+            </div>
+          </section>
+        )}
+
+        {documents.length === 0 ? null : (
+          <section className="traffic__listener-section" data-pyric-section="documents">
+            <p className="traffic__metric-eyebrow">Documents</p>
+            <div className="traffic__listener-documents" data-pyric-document-grid="">
+              {documents.map((document) => (
+                <div
+                  className="traffic__listener-document"
+                  key={document.path}
+                  data-pyric-document={document.path}
+                >
+                  <PathLink path={document.path} service={listener.service} />
+                  <span
+                    className="traffic__listener-document-changes"
+                    data-pyric-document-changes=""
+                  >
+                    {formatCount(document.changes)}×
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
         )}
 
         <footer className="traffic__metric-footer">
@@ -264,23 +259,25 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
                 Every delivery event carries the result set the callback received: a Firestore
                 delivery carries the documents in callback order, and a database delivery carries
                 the value at the target path, whose keys are child paths when that value is an
-                object. The paths listed under a delivery are that result set, not a re-read of
-                the store.
+                object. The paths under a delivery are that result set, not a re-read of the
+                store.
               </p>
               <p>
                 <strong>The labels come from the previous delivery.</strong> A path is{' '}
                 <code>added</code> when the previous delivery did not carry it,{' '}
                 <code>modified</code> when it did and the data differs, and <code>removed</code>{' '}
                 when the previous delivery carried it and this one does not. A path whose data is
-                identical carries no label. <code>Documents</code> counts distinct paths across
-                the session, so a path delivered many times counts once.{' '}
-                <code>Suppressed</code> counts re-evals the sandbox resolved to no observable
-                change, which never reached the callback.
+                identical is not listed. The first delivery is <code>initial</code>: every path in
+                it arrived, so it lists none. <code>Documents</code> counts distinct paths across
+                the session, and <code>Document reads</code> sums every snapshot's size, so a path
+                delivered ten times is one document and ten reads. <code>Suppressed</code> counts
+                re-evals the sandbox resolved to no observable change, which never reached the
+                callback.
               </p>
             </div>
           </details>
         </footer>
-      </section>
+      </div>
     </div>
   );
 }

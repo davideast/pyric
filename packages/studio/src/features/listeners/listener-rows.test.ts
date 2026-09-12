@@ -156,9 +156,8 @@ describe('the fold behind the journal header', () => {
     );
     const fold = listenerFold(groups, [incident({ pattern: 'listener-churn' })]);
     expect(fold.listeners).toBe(4);
-    expect(fold.idle).toBe(3);
     expect(fold.churn).toBe(1);
-    expect(fold.duplicates).toEqual([{ target: 'notes/one', count: 2 }]);
+    expect(fold.duplicates).toEqual([2]);
     expect(fold.busiest).toEqual({ label: 'ChatPage', count: 3 });
   });
 });

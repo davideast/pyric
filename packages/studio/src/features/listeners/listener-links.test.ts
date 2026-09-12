@@ -3,9 +3,10 @@ import { describe, expect, it } from 'bun:test';
 import {
   documentHref,
   drilledListenerId,
-  listenerDrillHref,
+  listenerDrillTarget,
   listenersTabHref,
 } from './listener-links.js';
+import { hrefFor } from '../../shell/router.js';
 import { parsePath } from '../../shell/path.js';
 import { rtdbPathForLocation } from '../rtdb/routed-path.js';
 
@@ -48,7 +49,7 @@ describe('the database link the RTDB viewer honours', () => {
 
 describe('the drill-in route', () => {
   it('is the listener id under the Traffic tab', () => {
-    expect(listenerDrillHref('l-7')).toBe('/traffic/listeners/l-7');
+    expect(hrefFor(listenerDrillTarget('l-7'))).toBe('/traffic/listeners/l-7');
   });
 
   it('goes back to the Listeners tab by its view parameter', () => {

@@ -1,12 +1,10 @@
 /**
- * The words the Listeners journal uses (feature: Listeners).
+ * The durations the Listeners surfaces write (feature: Listeners).
  *
- * PURE. Everything a reader sees in a cell is phrased in terms of what the
- * app did: `24m ago`, `duplicate ×2`, `reattached 40 times in 10s`. No
- * internal pattern names reach the screen.
+ * PURE. A time on screen is always how long ago something happened, in the
+ * shortest unit that reads: `12s`, `4m`, `2h`. No internal pattern name and no
+ * timestamp format reaches a cell.
  */
-
-import type { ActivityIncident } from 'pyric/firestore/internal';
 
 /** A duration as the shortest readable unit: `12s`, `4m`, `2h`. */
 export function formatDuration(ms: number): string {
@@ -20,13 +18,4 @@ export function formatDuration(ms: number): string {
 /** How long ago something happened, relative to `now`: the `attached` cell. */
 export function formatAgo(at: number, now: number): string {
   return `${formatDuration(now - at)} ago`;
-}
-
-/** One incident, in the reader's terms. */
-export function formatIncident(incident: ActivityIncident): string {
-  if (incident.pattern === 'duplicate-listener') return `duplicate ×${incident.count}`;
-  if (incident.pattern === 'listener-churn') {
-    return `reattached ${incident.count} times in ${formatDuration(incident.windowMs)}`;
-  }
-  return `read ${incident.count} times in ${formatDuration(incident.windowMs)}`;
 }

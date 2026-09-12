@@ -42,6 +42,9 @@ export interface DeliveredDoc {
 /** One run of a listener's callback and the result set it received. */
 export interface ListenerDelivery {
   readonly at: number;
+  /** The listener's first delivery: every path in it is news, so the labels
+   *  say nothing the snapshot size does not already say. */
+  readonly initial: boolean;
   readonly addedCount: number;
   readonly modifiedCount: number;
   readonly removedCount: number;
@@ -156,6 +159,7 @@ export function listenerDeliveryHistory(
     const stated = statedCounts(event);
     history.push({
       at: event.at,
+      initial: history.length === 0,
       addedCount: stated?.added ?? added,
       modifiedCount: stated?.modified ?? modified,
       removedCount: stated?.removed ?? removed,
@@ -184,4 +188,41 @@ export function distinctDeliveredPaths(history: readonly ListenerDelivery[]): nu
     for (const doc of delivery.docs) paths.add(doc.path);
   }
   return paths.size;
+}
+
+/** How many documents the listener's deliveries handed the callback in total:
+ *  every snapshot's size summed, so a document in ten snapshots is ten. */
+export function deliveredDocumentReads(history: readonly ListenerDelivery[]): number {
+  let reads = 0;
+  for (const delivery of history) reads += delivery.size;
+  return reads;
+}
+
+/** One path and how many deliveries changed it. */
+export interface DeliveredPathCount {
+  readonly path: string;
+  readonly changes: number;
+}
+
+/**
+ * Every path the listener delivered, with the number of deliveries that
+ * changed it, most-changed first and ties in path order. An unchanged path in
+ * a delivery is the same data again, so it does not count; the initial
+ * delivery's paths count once, since arriving is the first change.
+ */
+export function deliveredPathCounts(
+  history: readonly ListenerDelivery[],
+): readonly DeliveredPathCount[] {
+  const changes = new Map<string, number>();
+  for (const delivery of history) {
+    for (const doc of delivery.docs) {
+      const current = changes.get(doc.path) ?? 0;
+      changes.set(doc.path, doc.change === 'unchanged' ? current : current + 1);
+    }
+  }
+  return Object.freeze(
+    [...changes.entries()]
+      .map(([path, count]) => Object.freeze({ path, changes: count }))
+      .sort((a, b) => (b.changes - a.changes) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+  );
 }

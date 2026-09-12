@@ -2,18 +2,17 @@
  * Listeners view (feature: Listeners), the Traffic tab strip's fourth view.
  *
  * Built as a Traffic data journal, the same shape the Billable metrics and
- * Rules tabs use (`traffic/TrafficMetricsViews.tsx`): the finding leads, the
+ * Rules tabs use (`traffic/TrafficMetricsViews.tsx`): the headline leads, the
  * card strip states the direct totals and doubles as the row filter, the
  * delivery chart is supporting evidence, the list is the detail, and the
  * source boundary sits in the footer with the methodology on demand. It is
  * styled by `traffic/traffic.css`, not a stylesheet of its own.
  *
- * The list deviates from the Timeline's log in exactly one way: a listener is
- * a standing thing rather than an event, so the columns are owner, target,
- * service, attach age, deliveries, and incident, and the rows group under the
- * owner holding them. The row markup, its data attributes, and the inspector
- * follow the Timeline's conventions so the same CSS and the same test hooks
- * apply.
+ * The list is one grid: the header, each owner's row, and each listener's row
+ * share one track list, so a column label sits over its own numbers. An owner
+ * heads the run of rows it holds and states its count at the right edge; a
+ * target attached more than once is one row carrying `×N`. The inspector opens
+ * under the clicked row at the log's full width.
  *
  * Presentational: takes the event snapshot, the window, and the deep-link
  * inputs as props so it renders without Studio's environment wiring in tests.
@@ -21,7 +20,7 @@
  * the routed query.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   TrafficLineChart,
   TrafficMetricCards,
@@ -30,17 +29,8 @@ import {
 } from '@pyric/ui/traffic';
 import { activeListeners, type ActiveListener, type SandboxEvent } from 'pyric/sandbox';
 import { pushPath } from '../../shell/router.js';
+import { groupListeners, groupIdentityFor, type ListenerFilters } from './listener-groups.js';
 import {
-  componentOwnerOf,
-  elementOf,
-  formatListenerTarget,
-  frameOwnerOf,
-  groupListeners,
-  tagOwnerOf,
-  type ListenerFilters,
-} from './listener-groups.js';
-import {
-  COLLAPSE_GROUPS_ABOVE,
   cardKeysForRow,
   listenerCardTotals,
   listenerFold,
@@ -58,12 +48,22 @@ import {
   listenerCardSeries,
 } from './listener-metrics.js';
 import { deliverySparkline, deliveryTimestamps } from './listener-deliveries.js';
-import { latestListenerDelivery } from './listener-delivery-docs.js';
-import { DeliveredPathLine } from './DeliveredPaths.js';
-import { listenerDrillHref, listenerDrillTarget } from './listener-links.js';
-import { formatAgo, formatIncident } from './listener-vocabulary.js';
-import { listenerIncidents, repeatedReadIncidents } from './listener-incidents.js';
-import { listenerStory } from './listener-story.js';
+import {
+  distinctDeliveredPaths,
+  listenerDeliveryHistory,
+} from './listener-delivery-docs.js';
+import { DeliveryBlock } from './DeliveryBlock.js';
+import { IncidentBlock } from './IncidentBlock.js';
+import { elementLabel } from './listener-element.js';
+import { listenerDrillTarget } from './listener-links.js';
+import {
+  listenerFactLine,
+  listenerHeadline,
+  listenerOwnerFact,
+  serviceWord,
+} from './listener-facts.js';
+import { formatAgo } from './listener-vocabulary.js';
+import { listenerIncidents } from './listener-incidents.js';
 
 const countFormatter = new Intl.NumberFormat();
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -79,13 +79,14 @@ function formatTime(value: number): string {
   return timeFormatter.format(value);
 }
 
-const COLUMNS: ReadonlyArray<{ id: ListenerSortColumn; label: string }> = [
-  { id: 'owner', label: 'Owner' },
-  { id: 'target', label: 'Target' },
-  { id: 'service', label: 'Service' },
-  { id: 'attached', label: 'Attached' },
-  { id: 'deliveries', label: 'Deliveries' },
-  { id: 'incident', label: 'Incident' },
+/** The grid's columns, in order. The incident mark heads an unlabelled
+ *  column: a `⚠` needs no word over it, and it still sorts. */
+const COLUMNS: ReadonlyArray<{ id: ListenerSortColumn; label: string; name: string }> = [
+  { id: 'incident', label: '', name: 'Incidents' },
+  { id: 'target', label: 'Target', name: 'Target' },
+  { id: 'deliveries', label: 'Deliveries', name: 'Deliveries' },
+  { id: 'attached', label: 'Attached', name: 'Attached' },
+  { id: 'service', label: 'Service', name: 'Service' },
 ];
 
 /** Assemble the group filters from the two filter controls' current values.
@@ -119,9 +120,7 @@ function DeliverySparkline({
     () => deliverySparkline(deliveryTimestamps(events, listenerId)),
     [events, listenerId],
   );
-  if (shape.points === '') {
-    return <p className="traffic__inspector-missing">No deliveries in this session yet.</p>;
-  }
+  if (shape.points === '') return null;
   return (
     <svg
       className="traffic__listener-sparkline"
@@ -136,151 +135,96 @@ function DeliverySparkline({
   );
 }
 
-/** How many delivered paths the inspector lists before it defers to the
- *  drill-in page. Six lines is the most that reads as a glance. */
-const DELIVERED_LINE_CAP = 6;
-
-/** The newest delivery's paths, linked to the records the callback received.
- *  Past the cap the block says how many it is not showing and hands the
- *  reader the page that shows them all. */
-function DeliveredBlock({
-  listener,
-  events,
-}: {
-  listener: ActiveListener;
-  events: readonly SandboxEvent[];
-}) {
-  const delivery = useMemo(
-    () => latestListenerDelivery(events, listener.id),
-    [events, listener.id],
-  );
-  if (delivery === undefined) {
-    return (
-      <p className="traffic__inspector-missing" data-pyric-listener-delivered-empty="">
-        No deliveries yet.
-      </p>
-    );
-  }
-  if (delivery.docs.length === 0) {
-    return (
-      <p className="traffic__inspector-missing" data-pyric-listener-delivered-empty="">
-        Delivered an empty result.
-      </p>
-    );
-  }
-  const shown = delivery.docs.slice(0, DELIVERED_LINE_CAP);
-  const hidden = delivery.docs.length - shown.length;
+/** One of the inspector's three numbers. */
+function InspectorFigure({ metric, label, value }: { metric: string; label: string; value: number }) {
   return (
-    <div className="traffic__listener-docs" data-pyric-listener-docs="">
-      {shown.map((doc) => (
-        <DeliveredPathLine key={doc.path} doc={doc} service={listener.service} />
-      ))}
-      {hidden > 0 ? (
-        <a
-          className="traffic__listener-doc-more"
-          href={listenerDrillHref(listener.id)}
-          data-pyric-listener-doc-more=""
-          onClick={(event) => {
-            if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-            event.preventDefault();
-            pushPath(listenerDrillTarget(listener.id));
-          }}
-        >
-          and {formatCount(hidden)} more
-        </a>
-      ) : null}
-    </div>
+    <span className="traffic__listener-figure" data-pyric-inspector-figure={metric}>
+      <span className="traffic__listener-figure-label">{label}</span>
+      <span className="traffic__listener-figure-value">{formatCount(value)}</span>
+    </span>
   );
 }
 
-/** One labelled field in the inspector grid. */
-function InspectorField({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="traffic__listener-field">
-      <span className="traffic__inspector-title">{label}</span>
-      <div>{children}</div>
-    </div>
-  );
-}
-
-/** The inspector beneath a selected row: who owns the listener in full, where
- *  it was opened, the target as written, and its delivery history. */
+/**
+ * The inspector under a selected row, at the log's full width: the incident
+ * first when there is one, then the listener's facts, its three numbers, and
+ * the delivery it last made.
+ */
 function ListenerInspector({
   listener,
+  row,
   events,
+  now,
   onClose,
 }: {
   listener: ActiveListener;
+  row: ListenerRow;
   events: readonly SandboxEvent[];
+  now: number;
   onClose: () => void;
 }) {
-  const component = componentOwnerOf(listener.owners);
-  const tag = tagOwnerOf(listener.owners);
-  const frame = frameOwnerOf(listener.owners);
-  const element = elementOf(listener.owners);
+  const history = useMemo(
+    () => listenerDeliveryHistory(events, listener.id),
+    [events, listener.id],
+  );
+  const latest = history[history.length - 1];
+  const element = elementLabel(listener.owners);
+  const facts: {
+    owner?: string;
+    element?: string;
+    service: ActiveListener['service'];
+    attachedAt: number;
+  } = { service: listener.service, attachedAt: listener.attachedAt };
+  facts.owner = groupIdentityFor(listener).label;
+  if (element !== undefined) facts.element = element;
+  const incident = row.incidents[0];
   return (
     <div className="traffic__inspector" data-pyric-listener-inspector="">
       <div className="traffic__inspector-bar">
-        <a
-          className="traffic__inspector-title"
-          href={listenerDrillHref(listener.id)}
-          data-pyric-listener-drill=""
-          onClick={(event) => {
-            if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-            event.preventDefault();
-            pushPath(listenerDrillTarget(listener.id));
-          }}
+        <span className="traffic__listener-inspector-target" data-pyric-inspector-title="">
+          {row.target}
+        </span>
+        <button
+          type="button"
+          className="traffic__listener-open"
+          data-pyric-inspector-open=""
+          onClick={() => pushPath(listenerDrillTarget(listener.id))}
         >
-          Listener
-        </a>
-        <span className="traffic__listener-mono">{formatListenerTarget(listener.target)}</span>
+          Open ↗
+        </button>
         <button
           type="button"
           className="traffic__inspector-close"
+          data-pyric-inspector-close=""
           onClick={onClose}
           aria-label="Close the listener inspector"
         >
-          close
+          ✕
         </button>
       </div>
-      <div className="traffic__listener-fields">
-        {component ? (
-          <InspectorField label="Component">
-            {component.name}
-            {component.path && component.path.length > 0 ? (
-              <span className="traffic__listener-path">{component.path.join(' › ')}</span>
-            ) : null}
-          </InspectorField>
-        ) : null}
-        {tag ? <InspectorField label="Tag">{tag.name}</InspectorField> : null}
-        {element !== undefined ? (
-          <InspectorField label="Element">
-            <span className="traffic__listener-mono">{element}</span>
-          </InspectorField>
-        ) : null}
-        {frame ? (
-          <InspectorField label="Opened at">
-            <span className="traffic__listener-mono">{`${frame.file}:${frame.line}`}</span>
-          </InspectorField>
-        ) : null}
-        <div className="traffic__listener-field traffic__listener-field--wide">
-          <span className="traffic__inspector-title">Delivered</span>
-          <div>
-            <DeliveredBlock listener={listener} events={events} />
-          </div>
-        </div>
-        <InspectorField label="Target">
-          <span className="traffic__listener-mono">{formatListenerTarget(listener.target)}</span>
-        </InspectorField>
-        <InspectorField label="Deliveries">
-          <DeliverySparkline events={events} listenerId={listener.id} />
-        </InspectorField>
-        <InspectorField label="Rendered after each delivery">
-          <p className="traffic__inspector-missing" data-pyric-listener-rendered="">
-            Not recorded yet.
-          </p>
-        </InspectorField>
+      {incident === undefined ? null : (
+        <IncidentBlock incident={incident} listener={listener} events={events} now={now} />
+      )}
+      <p className="traffic__listener-facts" data-pyric-inspector-facts="">
+        {listenerFactLine(facts, now)}
+      </p>
+      <div className="traffic__listener-figures">
+        <InspectorFigure metric="deliveries" label="Deliveries" value={history.length} />
+        <InspectorFigure
+          metric="documents"
+          label="Documents"
+          value={distinctDeliveredPaths(history)}
+        />
+        <InspectorFigure
+          metric="suppressed"
+          label="Suppressed"
+          value={listener.suppressedCount}
+        />
+        <DeliverySparkline events={events} listenerId={listener.id} />
       </div>
+      {latest === undefined ? null : (
+        <DeliveryBlock delivery={latest} service={listener.service} />
+      )}
     </div>
   );
 }
@@ -311,8 +255,6 @@ export function ListenersView({
   const [targetPrefix, setTargetPrefix] = useState(initialTargetPrefix ?? '');
   const [sort, setSort] = useState<ListenerSort | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | undefined>(selectedListenerId);
-  const [expandedRows, setExpandedRows] = useState<readonly string[]>([]);
-  const [collapsedGroups, setCollapsedGroups] = useState<readonly string[] | null>(null);
   const [hiddenCards, setHiddenCards] = useState<readonly string[]>([]);
   const selectedRef = useRef<HTMLButtonElement | null>(null);
 
@@ -321,7 +263,6 @@ export function ListenersView({
     return hideStudio ? attached.filter((l) => l.actor.kind !== 'studio') : attached;
   }, [events, hideStudio]);
   const incidents = useMemo(() => listenerIncidents(events), [events]);
-  const repeatedReads = useMemo(() => repeatedReadIncidents(incidents), [incidents]);
   const deliveriesInWindow = useMemo(
     () => deliveryCountsInWindow(events, window),
     [events, window],
@@ -338,10 +279,7 @@ export function ListenersView({
     [listeners, service, targetPrefix, incidents, sort, deliveriesInWindow],
   );
 
-  const story = useMemo(() => listenerStory(listenerFold(rowGroups, incidents)), [
-    rowGroups,
-    incidents,
-  ]);
+  const fold = useMemo(() => listenerFold(rowGroups, incidents), [rowGroups, incidents]);
   const cardSeries = useMemo<MetricSeries[]>(
     () => listenerCardSeries(listenerCardTotals(rowGroups)),
     [rowGroups],
@@ -365,54 +303,14 @@ export function ListenersView({
 
   const clock = now ?? Date.now();
 
-  // Past the threshold the group labels carry the list, so groups arrive
-  // closed; a reader who opens one keeps it open (the explicit set below
-  // takes over from the default the moment they touch anything).
-  const startsCollapsed = rowGroups.length > COLLAPSE_GROUPS_ABOVE;
-  const isCollapsed = (key: string) =>
-    collapsedGroups === null ? startsCollapsed : collapsedGroups.includes(key);
-  const toggleGroup = (key: string) => {
-    const current =
-      collapsedGroups ?? (startsCollapsed ? rowGroups.map((group) => group.identity.key) : []);
-    setCollapsedGroups(
-      current.includes(key) ? current.filter((k) => k !== key) : [...current, key],
-    );
-  };
-  const toggleRowExpanded = (key: string) =>
-    setExpandedRows((current) =>
-      current.includes(key) ? current.filter((k) => k !== key) : [...current, key],
-    );
-
-  // The deep link selects the row, expands its duplicates, opens the group it
-  // sits in, and scrolls to it. It runs on the id, so back/forward and a
-  // second chip click both move the selection.
-  const selectedRowKey = useMemo(() => {
-    if (selectedListenerId === undefined) return undefined;
-    for (const group of rowGroups) {
-      for (const row of group.rows) {
-        if (row.listeners.some((listener) => listener.id === selectedListenerId)) {
-          return { group: group.identity.key, row: row.key };
-        }
-      }
-    }
-    return undefined;
-  }, [selectedListenerId, rowGroups]);
-
+  // The deep link selects the row and scrolls to it. It runs on the id, so
+  // back/forward and a second chip click both move the selection.
   useEffect(() => {
     if (selectedListenerId === undefined) return;
     setSelectedId(selectedListenerId);
-    if (selectedRowKey !== undefined) {
-      setExpandedRows((current) =>
-        current.includes(selectedRowKey.row) ? current : [...current, selectedRowKey.row],
-      );
-      setCollapsedGroups((current) =>
-        current === null ? null : current.filter((key) => key !== selectedRowKey.group),
-      );
-    }
     selectedRef.current?.scrollIntoView({ block: 'center' });
-  }, [selectedListenerId, selectedRowKey]);
+  }, [selectedListenerId]);
 
-  const selected = listeners.find((listener) => listener.id === selectedId);
   const visibleGroups = useMemo<readonly ListenerRowGroup[]>(
     () =>
       rowGroups
@@ -426,73 +324,62 @@ export function ListenersView({
     [rowGroups, visibleCards],
   );
 
-  function renderRow(row: ListenerRow, listener: ActiveListener, nested: boolean) {
+  function renderRow(row: ListenerRow) {
+    const listener = row.listener;
     const isSelected = listener.id === selectedId;
-    const deliveryCount = nested ? deliveriesInWindow.get(listener.id) ?? 0 : row.deliveryCount;
     return (
-      <li
-        key={nested ? `${row.key}|${listener.id}` : row.key}
-        data-pyric-listener-entry=""
-        data-pyric-listener-nested={nested ? '' : undefined}
-      >
-        <div className="traffic__listener-line">
-          <button
-            type="button"
-            className="traffic__listener-row"
-            ref={isSelected ? selectedRef : undefined}
-            data-pyric-listener-row=""
-            data-pyric-listener-id={listener.id}
-            data-pyric-selected={isSelected ? '' : undefined}
-            data-pyric-incident={row.incidents.length > 0 && !nested ? '' : undefined}
-            onClick={() => setSelectedId(isSelected ? undefined : listener.id)}
-          >
-            <span data-pyric-listener-owner="">{nested ? '' : row.ownerLabel}</span>
-            <span data-pyric-listener-target="" title={row.target}>
-              {row.target}
-            </span>
-            <span data-pyric-traffic-service={listener.service}>{listener.service}</span>
-            <span data-pyric-listener-attached="">{formatAgo(listener.attachedAt, clock)}</span>
-            <span data-pyric-listener-deliveries="">{formatCount(deliveryCount)}</span>
-            <span data-pyric-listener-incident="">
-              {nested
-                ? null
-                : row.incidents.map((incident) => (
-                    <span key={incident.fingerprint} className="traffic__listener-badge">
-                      {formatIncident(incident)}
-                    </span>
-                  ))}
-            </span>
-          </button>
-          {!nested && row.count > 1 ? (
-            <button
-              type="button"
-              className="traffic__listener-duplicate"
-              data-pyric-listener-duplicate={row.key}
-              aria-expanded={expandedRows.includes(row.key)}
-              onClick={() => toggleRowExpanded(row.key)}
-            >
-              ×{row.count}
-            </button>
-          ) : null}
-        </div>
+      <div className="traffic__listener-entry" key={row.key} data-pyric-listener-entry="">
+        <button
+          type="button"
+          className="traffic__listener-row"
+          ref={isSelected ? selectedRef : undefined}
+          data-pyric-listener-row=""
+          data-pyric-listener-id={listener.id}
+          data-pyric-selected={isSelected ? '' : undefined}
+          data-pyric-incident={row.incidents.length > 0 ? '' : undefined}
+          onClick={() => setSelectedId(isSelected ? undefined : listener.id)}
+        >
+          <span data-col="incident" aria-hidden="true">
+            {row.incidents.length > 0 ? '⚠' : ''}
+          </span>
+          <span data-col="target" title={row.target}>
+            <span className="traffic__listener-target-text">{row.target}</span>
+            {row.count > 1 ? (
+              <span className="traffic__listener-duplicate" data-pyric-listener-duplicate="">
+                ×{row.count}
+              </span>
+            ) : null}
+          </span>
+          <span data-col="deliveries">{formatCount(row.deliveryCount)}</span>
+          <span data-col="attached">{formatAgo(listener.attachedAt, clock)}</span>
+          <span data-col="service">{serviceWord(listener.service)}</span>
+        </button>
         {isSelected ? (
           <ListenerInspector
             listener={listener}
+            row={row}
             events={events}
+            now={clock}
             onClose={() => setSelectedId(undefined)}
           />
         ) : null}
-      </li>
+      </div>
     );
   }
+
+  const ownerFact = listenerOwnerFact(fold);
 
   return (
     <div className="traffic__metrics" data-pyric-ui="traffic-listeners-view">
       <section className="traffic__metric-panel traffic__metric-panel--journal">
         <header className="traffic__metric-story">
           <p className="traffic__metric-eyebrow">Listener activity</p>
-          <h3 className="traffic__metric-headline">{story.headline}</h3>
-          <p className="traffic__metric-finding">{story.finding}</p>
+          <h3 className="traffic__metric-headline">{listenerHeadline(fold)}</h3>
+          {ownerFact === undefined ? null : (
+            <p className="traffic__metric-finding" data-pyric-listener-owner-fact="">
+              {ownerFact}
+            </p>
+          )}
         </header>
 
         <TrafficMetricCards
@@ -530,19 +417,13 @@ export function ListenersView({
           )}
         </div>
 
-        {repeatedReads.length > 0 ? (
-          <p className="traffic__listener-note" data-pyric-listener-repeated-read="">
-            {repeatedReads.map((incident) => formatIncident(incident)).join(' · ')}
-          </p>
-        ) : null}
-
         <div
           className="traffic__filters traffic__filters--listeners"
           role="group"
           aria-label="Listener filters"
         >
           <label className="traffic__filter-field">
-            <span className="traffic__filters-label">service</span>
+            <span className="traffic__filters-label">Service</span>
             <select
               className="traffic__filter-select"
               value={service}
@@ -556,35 +437,35 @@ export function ListenersView({
             </select>
           </label>
           <label className="traffic__filter-field">
-            <span className="traffic__filters-label">target</span>
+            <span className="traffic__filters-label">Target</span>
             <input
               className="traffic__filter-input"
               type="text"
               value={targetPrefix}
               onChange={(event) => setTargetPrefix(event.target.value)}
-              placeholder="collection or path"
             />
           </label>
         </div>
 
-        {listeners.length === 0 ? (
+        {listeners.length === 0 ? null : visibleGroups.length === 0 ? (
           <p className="traffic__empty" data-pyric-listener-empty="">
-            No listeners attached.
-          </p>
-        ) : visibleGroups.length === 0 ? (
-          <p className="traffic__empty" data-pyric-listener-empty="">
-            No listeners match these filters.
+            No listeners match these filters
           </p>
         ) : (
-          <div className="traffic__log" data-pyric-ui="traffic-listeners-log">
-            <div className="traffic__listener-head" data-pyric-listener-head="" role="row">
+          <div
+            className="traffic__log traffic__listener-grid"
+            data-pyric-listener-grid=""
+            data-pyric-ui="traffic-listeners-log"
+          >
+            <div className="traffic__listener-header" data-pyric-listener-header="" role="row">
               {COLUMNS.map((column) => (
                 <button
                   key={column.id}
                   type="button"
                   role="columnheader"
                   className="traffic__listener-column"
-                  data-pyric-listener-column={column.id}
+                  data-col={column.id}
+                  aria-label={column.label === '' ? column.name : undefined}
                   aria-sort={ariaSortFor(sort, column.id)}
                   onClick={() => setSort((current) => nextListenerSort(current, column.id))}
                 >
@@ -596,39 +477,16 @@ export function ListenersView({
               ))}
             </div>
             {visibleGroups.map((group) => (
-              <ul
-                key={group.identity.key}
-                className="traffic__listener-group"
-                data-pyric-listener-group={group.identity.key}
-              >
-                <li data-pyric-listener-group-entry="">
-                  <button
-                    type="button"
-                    className="traffic__listener-group-header"
-                    data-pyric-listener-group-header=""
-                    aria-expanded={!isCollapsed(group.identity.key)}
-                    onClick={() => toggleGroup(group.identity.key)}
-                  >
-                    <span className="traffic__listener-group-label">{group.identity.label}</span>
-                    <span aria-hidden="true">·</span>
-                    <span>{group.listenerCount}</span>
-                    {group.identity.subtitle !== undefined ? (
-                      <span className="traffic__listener-path">{group.identity.subtitle}</span>
-                    ) : null}
-                  </button>
-                </li>
-                {isCollapsed(group.identity.key)
-                  ? null
-                  : group.rows.flatMap((row) => {
-                      const rendered = [renderRow(row, row.listener, false)];
-                      if (row.count > 1 && expandedRows.includes(row.key)) {
-                        for (const listener of row.listeners) {
-                          rendered.push(renderRow(row, listener, true));
-                        }
-                      }
-                      return rendered;
-                    })}
-              </ul>
+              <div key={group.identity.key} className="traffic__listener-run">
+                <div
+                  className="traffic__listener-group"
+                  data-pyric-listener-group={group.identity.key}
+                >
+                  <span data-col="owner">{group.identity.label}</span>
+                  <span data-col="count">{formatCount(group.listenerCount)}</span>
+                </div>
+                {group.rows.map((row) => renderRow(row))}
+              </div>
             ))}
           </div>
         )}
@@ -641,16 +499,17 @@ export function ListenersView({
             <summary>How this is counted</summary>
             <div>
               <p>
-                A listener is attached when the sandbox recorded its{' '}
-                <code>attach</code> and has not recorded a <code>detach</code> or an error for
-                it since. The count is that fold, not the number of attach events.
+                A listener is attached when the sandbox recorded its <code>attach</code> and has
+                not recorded a <code>detach</code> or an error for it since. The count is that
+                fold, not the number of attach events.
               </p>
               <p>
                 <strong>Owners come from the attach, deliveries from the window.</strong> The
                 owner is the React component the listener was opened in, else the tag the app
                 gave it, else the target itself. Two listeners on the same target under the same
-                owner are one thing attached twice, so they collapse into one row. Delivery
-                counts cover the displayed window only; a listener with none is idle, not gone.
+                owner are one thing attached twice, so they collapse into one row carrying{' '}
+                <code>×N</code>. Delivery counts cover the displayed window only; a listener with
+                none is idle, not gone.
               </p>
             </div>
           </details>

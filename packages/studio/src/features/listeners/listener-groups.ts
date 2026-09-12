@@ -67,14 +67,6 @@ export function frameOwnerOf(owners: readonly ListenerOwner[] | undefined): Fram
   return null;
 }
 
-/** The DOM selectors a listener's callback painted, or an empty list. */
-export function regionsOf(owners: readonly ListenerOwner[] | undefined): readonly string[] {
-  for (const owner of owners ?? []) {
-    if (owner.kind === 'regions') return owner.selectors;
-  }
-  return [];
-}
-
 /** The element selector a listener's owners re-identify, when one was
  *  recorded. A listener with nothing to outline simply has none. */
 export function elementOf(owners: readonly ListenerOwner[] | undefined): string | undefined {
@@ -96,22 +88,27 @@ export function formatListenerTarget(target: ActiveListenerTarget): string {
 export interface ListenerGroupIdentity {
   readonly key: string;
   readonly label: string;
-  readonly subtitle?: string;
+}
+
+/** The owner one set of owners names, over one target: the component's name,
+ *  else the tag's name, else the target itself. Read off the owners rather
+ *  than off a folded listener so an attach event answers it too. */
+export function ownerLabelFor(
+  owners: readonly ListenerOwner[] | undefined,
+  target: ActiveListenerTarget,
+): string {
+  const component = componentOwnerOf(owners);
+  if (component) return component.name;
+  const tag = tagOwnerOf(owners);
+  if (tag) return tag.name;
+  return formatListenerTarget(target);
 }
 
 /** The group a listener belongs to: its component owner, else its tag owner,
  *  else its target alone. */
 export function groupIdentityFor(listener: ActiveListener): ListenerGroupIdentity {
   const component = componentOwnerOf(listener.owners);
-  if (component) {
-    const path = component.path?.join(' › ');
-    const identity: { key: string; label: string; subtitle?: string } = {
-      key: `component:${component.name}`,
-      label: component.name,
-    };
-    if (path !== undefined && path !== '') identity.subtitle = path;
-    return identity;
-  }
+  if (component) return { key: `component:${component.name}`, label: component.name };
   const tag = tagOwnerOf(listener.owners);
   if (tag) return { key: `tag:${tag.name}`, label: tag.name };
   const target = formatListenerTarget(listener.target);

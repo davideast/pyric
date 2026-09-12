@@ -50,11 +50,6 @@ export function listenerDrillTarget(listenerId: string): RoutedTarget {
   return { tab: 'traffic', rest: [LISTENER_DRILL_SEGMENT, listenerId] };
 }
 
-/** The drill-in href for one listener. */
-export function listenerDrillHref(listenerId: string): string {
-  return hrefFor(listenerDrillTarget(listenerId));
-}
-
 /** The route back to the Listeners tab from the drill-in page. */
 export function listenersTabTarget(): RoutedTarget {
   return { tab: 'traffic', query: { view: 'listeners' } };

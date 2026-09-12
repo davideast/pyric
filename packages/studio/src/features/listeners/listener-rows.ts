@@ -3,8 +3,8 @@
  *
  * PURE. A row is one target within one owner group. Listeners that share a
  * target and an owner label are the same thing attached more than once, so
- * they collapse into a single row carrying `×N`; expanding the row shows the
- * individual listeners again.
+ * they collapse into a single row carrying `×N`; the inspector on that row
+ * lists the individual attaches.
  *
  * Delivery counts are supplied, not read off the listener: the journal counts
  * deliveries inside the displayed window, while `ActiveListener.deliveryCount`
@@ -22,7 +22,7 @@ import type { ActiveListener } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { formatListenerTarget, type ListenerGroup, type ListenerGroupIdentity } from './listener-groups.js';
 import { incidentsForTarget } from './listener-incidents.js';
-import type { ListenerFold } from './listener-story.js';
+import type { ListenerFold } from './listener-facts.js';
 
 export interface ListenerRow {
   readonly key: string;
@@ -49,7 +49,6 @@ export interface ListenerRowGroup {
 }
 
 export type ListenerSortColumn =
-  | 'owner'
   | 'target'
   | 'service'
   | 'attached'
@@ -121,7 +120,6 @@ function incidentRank(row: ListenerRow): number {
 }
 
 function compareColumn(a: ListenerRow, b: ListenerRow, column: ListenerSortColumn): number {
-  if (column === 'owner') return compareText(a.ownerLabel, b.ownerLabel);
   if (column === 'target') return compareText(a.target, b.target);
   if (column === 'service') return compareText(a.listener.service, b.listener.service);
   if (column === 'attached') return a.listener.attachedAt - b.listener.attachedAt;
@@ -170,15 +168,14 @@ export function listenerRowGroups(
 }
 
 /** The facts the journal header states, folded from the rows on screen: how
- *  many listeners, how many delivered nothing, the duplicate and churn
- *  incidents, and the owner holding the most. */
+ *  many listeners, how many times each duplicated target was attached, the
+ *  churn incidents, and the owner holding the most. */
 export function listenerFold(
   rowGroups: readonly ListenerRowGroup[],
   incidents: readonly ActivityIncident[],
 ): ListenerFold {
   let listeners = 0;
-  let idle = 0;
-  const duplicates: Array<{ target: string; count: number }> = [];
+  const duplicates: number[] = [];
   let busiest: { label: string; count: number } | undefined;
   for (const group of rowGroups) {
     listeners += group.listenerCount;
@@ -186,18 +183,16 @@ export function listenerFold(
       busiest = { label: group.identity.label, count: group.listenerCount };
     }
     for (const row of group.rows) {
-      if (row.deliveryCount === 0) idle += row.count;
-      if (row.count > 1) duplicates.push({ target: row.target, count: row.count });
+      if (row.count > 1) duplicates.push(row.count);
     }
   }
   const churn = incidents.filter((incident) => incident.pattern === 'listener-churn').length;
   const fold: {
     listeners: number;
-    idle: number;
-    duplicates: readonly { target: string; count: number }[];
+    duplicates: readonly number[];
     churn: number;
     busiest?: { label: string; count: number };
-  } = { listeners, idle, duplicates, churn };
+  } = { listeners, duplicates, churn };
   if (busiest !== undefined) fold.busiest = busiest;
   return fold;
 }
@@ -229,7 +224,3 @@ export function cardKeysForRow(row: ListenerRow): readonly string[] {
   if (row.incidents.length > 0) keys.push('incidents');
   return keys;
 }
-
-/** Groups start collapsed once the list has more than this many of them:
- *  past this point the group labels are the list, and the rows are detail. */
-export const COLLAPSE_GROUPS_ABOVE = 20;

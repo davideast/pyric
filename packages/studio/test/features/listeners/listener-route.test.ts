@@ -7,8 +7,9 @@ import { describe, expect, it } from 'bun:test';
 import { parsePath } from '../../../src/shell/path.js';
 import {
   drilledListenerId,
-  listenerDrillHref,
+  listenerDrillTarget,
 } from '../../../src/features/listeners/listener-links.js';
+import { hrefFor } from '../../../src/shell/router.js';
 import { trafficTabForLocation } from '../../../src/features/traffic/TrafficSurface.js';
 
 function locationFor(url: string) {
@@ -22,13 +23,13 @@ function locationFor(url: string) {
 
 describe('the drill-in route', () => {
   it('round-trips the listener the inspector linked to', () => {
-    const href = listenerDrillHref('l-7');
+    const href = hrefFor(listenerDrillTarget('l-7'));
     expect(href).toBe('/traffic/listeners/l-7');
     expect(drilledListenerId(locationFor(href))).toBe('l-7');
   });
 
   it('round-trips an id that needs encoding', () => {
-    const href = listenerDrillHref('listener 7/8');
+    const href = hrefFor(listenerDrillTarget('listener 7/8'));
     expect(drilledListenerId(locationFor(href))).toBe('listener 7/8');
   });
 

@@ -21,15 +21,11 @@ function owned(id: string, owners: readonly ListenerOwner[]): ActiveListener {
 }
 
 describe('groupIdentityFor', () => {
-  it('prefers a component owner, subtitled by its render path', () => {
+  it('prefers a component owner', () => {
     const identity = groupIdentityFor(
       owned('l1', [{ kind: 'component', name: 'NotesList', path: ['App', 'NotesList'] }]),
     );
-    expect(identity).toEqual({
-      key: 'component:NotesList',
-      label: 'NotesList',
-      subtitle: 'App › NotesList',
-    });
+    expect(identity).toEqual({ key: 'component:NotesList', label: 'NotesList' });
   });
 
   it('falls back to a tag owner', () => {

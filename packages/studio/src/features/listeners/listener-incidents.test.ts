@@ -1,7 +1,7 @@
 /** Listener incidents, the activity monitor run over a Studio event snapshot. */
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
-import { incidentsForTarget, listenerIncidents, repeatedReadIncidents } from './listener-incidents.js';
+import { incidentsForTarget, listenerIncidents } from './listener-incidents.js';
 
 const CONTEXT = { source: { kind: 'app' as const }, authLens: { mode: 'app-session' as const } };
 
@@ -42,6 +42,5 @@ describe('listenerIncidents', () => {
 
   it('finds no incidents in a quiet stream', () => {
     expect(listenerIncidents([attach('e1', 'l1', 0)])).toEqual([]);
-    expect(repeatedReadIncidents([])).toEqual([]);
   });
 });
