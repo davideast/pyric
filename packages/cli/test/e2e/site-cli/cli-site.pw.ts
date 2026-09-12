@@ -131,18 +131,21 @@ test('the Listeners tab renders from the routed query and from the chip deep lin
   });
   studio.on('pageerror', (error) => consoleErrors.push(error.message));
 
+  // The tab is a Traffic journal panel: its eyebrow names the view, and the
+  // headline states a finding that moves with the data, so the panel itself is
+  // what a render assertion can hold on to.
   await studio.goto('/__pyric/ui/traffic/?view=listeners');
-  await expect(studio.getByRole('heading', { name: 'Listeners', level: 2 })).toBeVisible();
+  await expect(studio.locator('[data-pyric-ui="traffic-listeners-view"]')).toBeVisible();
   expect(consoleErrors).toEqual([]);
 
   // The chip's deep-link shape: the Listeners tab selects a row off the URL.
   await studio.goto('/__pyric/ui/traffic/?view=listeners&listener=l-1&target=notes');
-  await expect(studio.getByRole('heading', { name: 'Listeners', level: 2 })).toBeVisible();
+  await expect(studio.locator('[data-pyric-ui="traffic-listeners-view"]')).toBeVisible();
   expect(consoleErrors).toEqual([]);
 
   // The hub path carries the same query: Studio replays it onto Traffic.
   await studio.goto('/__pyric/ui/studio?view=listeners&listener=l-1&target=notes');
-  await expect(studio.getByRole('heading', { name: 'Listeners', level: 2 })).toBeVisible();
+  await expect(studio.locator('[data-pyric-ui="traffic-listeners-view"]')).toBeVisible();
   expect(consoleErrors).toEqual([]);
   await context.close();
 });
@@ -187,7 +190,7 @@ test('the runtime chip link reaches the Listeners tab without losing its query',
   });
   studio.on('pageerror', (error) => consoleErrors.push(error.message));
   await studio.goto(href as string);
-  await expect(studio.getByRole('heading', { name: 'Listeners', level: 2 })).toBeVisible();
+  await expect(studio.locator('[data-pyric-ui="traffic-listeners-view"]')).toBeVisible();
   expect(new URL(studio.url()).searchParams.get('view')).toBe('listeners');
   expect(consoleErrors).toEqual([]);
   await context.close();
