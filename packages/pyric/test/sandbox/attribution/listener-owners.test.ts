@@ -116,6 +116,7 @@ describe('tagOwnerFor', () => {
       kind: 'component',
       name: 'OrdersTable',
       element: '#orders',
+      tag: 'section',
     });
   });
 

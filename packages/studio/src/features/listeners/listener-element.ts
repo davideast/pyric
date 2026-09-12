@@ -34,7 +34,8 @@ interface ElementParts {
 /** The tag the owners state on their own: a tag owner names an element by its
  *  lower-case tag name. A component owner's name is a component, not a tag. */
 function statedTag(owners: readonly ListenerOwner[] | undefined): string | undefined {
-  const name = tagOwnerOf(owners)?.name;
+  const component = owners?.find((owner) => owner.kind === 'component' && typeof owner.tag === 'string');
+  const name = (component as { tag?: string } | undefined)?.tag ?? tagOwnerOf(owners)?.name;
   if (name === undefined || !TAG_NAME.test(name)) return undefined;
   return name;
 }

@@ -325,6 +325,9 @@ export type ListenerOwner =
       /** Selector that re-identifies the component's root DOM element, once
        *  the consumer has attached the returned `ref` to it. */
       element?: string;
+      /** The root element's tag name, lower case, so a consumer can show the
+       *  element as `nav#conversations` when the selector is id-only. */
+      tag?: string;
     };
 
 /**

@@ -11,6 +11,12 @@ describe('elementLabel', () => {
     expect(elementLabel(owners)).toBe('nav#conversations');
   });
 
+  it('reads the tag a component owner recorded beside an id-only selector', () => {
+    expect(elementLabel([
+      { kind: 'component', name: 'ChatPage', element: '#presence-bar', tag: 'div' },
+    ])).toBe('div#presence-bar');
+  });
+
   it('keeps a tag and its first class', () => {
     const owners: ListenerOwner[] = [
       { kind: 'component', name: 'ChatPage', element: 'div.conversation.active' },
