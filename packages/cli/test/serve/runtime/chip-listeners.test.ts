@@ -169,321 +169,85 @@ function setup(options: {
   };
 }
 
-function control(root: ShadowRoot, which: 'off' | ListenerPaintMode): HTMLButtonElement {
+function bar(root: ShadowRoot, which: ListenerPaintMode): HTMLButtonElement {
   return root.querySelector<HTMLButtonElement>(`[data-listener-mode="${which}"]`)!;
 }
 
-function rows(root: ShadowRoot): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>('[data-listener-row]')];
-}
-
-const todos = attach('e1', 'l1', { kind: 'query', collection: 'todos' }, [{ kind: 'tag', name: 'TodoList', element: '#todos' }]);
-const profile = attach('e2', 'l2', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard', element: '#profile' }]);
+const owner = { kind: 'component', name: 'TodoList', element: '#todos' };
 
 describe('the Listeners view', () => {
-  it('gives every listener one row: the owner, its target, and its deliveries', () => {
+  it('gives every listener one row: the owner over its target in the listener hue, and its deliveries in the slot', () => {
     const page = setup();
-    page.push([todos, profile]);
-    page.push([delivery('d1', 'l1', { kind: 'query', collection: 'todos' })]);
-
-    const listed = rows(page.root);
-    expect(listed).toHaveLength(2);
-    expect(listed[0].querySelector('.row-primary')?.textContent).toBe('TodoList todos (query)');
-    expect(listed[0].querySelector('.row-secondary')?.textContent).toBe('todos (query)');
-    expect(listed[0].querySelector('.row-fact')?.textContent).toBe('1');
-    expect(listed[1].querySelector('.row-fact')?.textContent).toBe('0');
-    page.chip.dispose();
+    page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner]), delivery('d1', 'L1', { kind: 'query', collection: 'todos' })]);
+    const row = page.root.querySelector('[data-listener-row="L1"]')!;
+    expect(row.querySelector('.c1')!.textContent).toBe('TodoList');
+    expect(row.querySelector('.s1')!.textContent).toBe('todos (query)');
+    expect(row.querySelector<HTMLElement>('.s1 .mono')!.style.color).not.toBe('');
+    expect(row.querySelector('.slot')!.textContent).toBe('1');
+    expect(row.querySelector('.slot .btn')).toBeNull();
+    expect(row.tagName).toBe('BUTTON');
   });
 
-  it('falls back to the target when the only label is a frame function name', () => {
-    const page = setup();
-    page.push([attach('e1', 'l1', { kind: 'doc', path: 'users/u1' }, [{ kind: 'frame', file: '/src/a.ts', line: 2, function: 'useProfile' }])]);
-
-    const row = rows(page.root)[0];
-    expect(row.textContent).not.toContain('useProfile');
-    expect(row.textContent).not.toContain('l1');
-    expect(row.textContent).toContain('users/u1');
-    page.chip.dispose();
-  });
-
-  it('gives every row its own swatch in the listener hue', () => {
-    const page = setup();
-    page.push([todos, profile]);
-
-    const swatches = page.root.querySelectorAll<HTMLElement>('[data-listener-swatch]');
-    expect(swatches).toHaveLength(2);
-    expect(swatches[0].getAttribute('style')).toContain('background');
-    expect(swatches[0].getAttribute('style')).not.toBe(swatches[1].getAttribute('style'));
-    page.chip.dispose();
-  });
-
-  it('puts a duplicate first and draws its row in the error colour', () => {
-    const page = setup({
-      incidents: (events) => duplicateIncidents(events, ['dup-a']),
-    });
-    page.push([
-      attach('quiet', 'quiet-l', { kind: 'doc', path: 'users/u9' }, [{ kind: 'tag', name: 'Quiet' }]),
-    ]);
-    page.push([delivery('d1', 'quiet-l', { kind: 'doc', path: 'users/u9' })]);
-    page.push([
-      attach('dup-a', 'dup-l1', { kind: 'query', collection: 'conversations' }, [{ kind: 'tag', name: 'ChatPage' }]),
-    ]);
-
-    const listed = rows(page.root);
-    expect(listed[0].getAttribute('data-listener-row')).toBe('dup-l1');
-    expect(listed[0].classList.contains('problem')).toBe(true);
-    expect(listed[0].getAttribute('title')).toContain('attached twice');
-    expect(listed[1].classList.contains('problem')).toBe(false);
-    page.chip.dispose();
-  });
-
-  it('orders the rest by deliveries and never draws more than the rows zone holds', () => {
-    const page = setup();
-    const events: SandboxEvent[] = [];
-    for (let index = 0; index < 12; index += 1) {
-      events.push(attach(`a${index}`, `l${index}`, { kind: 'doc', path: `conversations/c${index}` }, [{ kind: 'tag', name: `Row${index}` }]));
-    }
-    page.push(events);
-    page.push([delivery('d1', 'l9', { kind: 'doc', path: 'conversations/c9' })]);
-
-    const listed = rows(page.root);
-    expect(listed).toHaveLength(7);
-    expect(listed[0].getAttribute('data-listener-row')).toBe('l9');
-    page.chip.dispose();
-  });
-
-  it('opens the listener it stands for in Studio, and stays a plain row when Studio is off', () => {
-    const withStudio = setup();
-    withStudio.push([todos]);
-    const row = rows(withStudio.root)[0];
-    expect(row.tagName).toBe('A');
-    expect(row.getAttribute('href')).toContain('/__pyric/ui/traffic/?view=listeners&listener=l1');
-    withStudio.chip.dispose();
-
-    const withoutStudio = setup({ studioUrl: null });
-    withoutStudio.push([todos]);
-    expect(rows(withoutStudio.root)[0].tagName).toBe('DIV');
-    withoutStudio.chip.dispose();
-  });
-
-  it('lists nothing at all when nothing is attached', () => {
-    const page = setup();
-    expect(rows(page.root)).toHaveLength(0);
-    expect(page.root.querySelector('[data-listener-rows]')?.textContent).toBe('');
-    page.chip.dispose();
-  });
-
-  it('colours the Listeners tab while a duplicate is attached', () => {
+  it('puts a duplicate subscription first as its own row in the error colour', () => {
     const page = setup({ incidents: duplicateIncidents });
-    expect(page.root.querySelector('[data-chip-tab="listeners"]')?.classList.contains('problem')).toBe(false);
-
-    page.push([todos, profile]);
-    expect(page.root.querySelector('[data-chip-tab="listeners"]')?.classList.contains('problem')).toBe(true);
-    page.chip.dispose();
+    page.push([
+      attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner]),
+      attach('a2', 'L2', { kind: 'query', collection: 'todos' }, [owner]),
+    ]);
+    const first = page.root.querySelector('[data-listener-rows] .row')!;
+    expect(first.getAttribute('data-listener-incident')).not.toBeNull();
+    expect(first.classList.contains('problem')).toBe(true);
+    expect(first.querySelector('.c1')!.textContent).toBe('Duplicate subscription');
+    expect(first.querySelector('.s1')!.textContent).toBe('todos (query)');
+    expect(first.querySelector('.slot')!.textContent).toBe('2');
+    expect(page.root.querySelector('[data-chip-tab="listeners"]')!.classList.contains('problem')).toBe(true);
   });
 
-  it('draws the collapsed count slot empty when the mode has reported nothing to count', () => {
-    const page = setup();
-    // The mode has reported, and counts no listener; a zero says nothing. The
-    // slot stays, so the count arriving cannot resize the pill.
-    page.push([delivery('e1', 'l1', { kind: 'doc', path: 'users/u1' })]);
-    page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    const slot = page.root.querySelector('[data-listener-count]')!;
-    expect(slot).not.toBeNull();
-    expect(slot.textContent).toBe('');
-    expect(slot.getAttribute('title')).toBeNull();
-
-    page.root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
-    page.push([attach('e2', 'l1', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard' }])]);
-    page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(page.root.querySelector('[data-listener-count]')?.textContent).toBe('1');
-    page.chip.dispose();
-  });
-
-  it('caps the collapsed count at three characters so the pill cannot grow', () => {
-    const page = setup();
-    const events: SandboxEvent[] = [];
-    for (let index = 0; index < 120; index += 1) {
-      events.push(attach(`a${index}`, `l${index}`, { kind: 'doc', path: `users/u${index}` }, [{ kind: 'tag', name: `Row${index}` }]));
-    }
-    page.push(events);
-    page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-
-    const slot = page.root.querySelector('[data-listener-count]')!;
-    expect(slot.textContent).toBe('99+');
-    // The title still carries the count the cap stands for.
-    expect(slot.getAttribute('title')).toBe('120 listeners');
-    page.chip.dispose();
-  });
-
-  it('shows the collapsed count as it stands at ninety-nine', () => {
-    const page = setup();
-    const events: SandboxEvent[] = [];
-    for (let index = 0; index < 99; index += 1) {
-      events.push(attach(`a${index}`, `l${index}`, { kind: 'doc', path: `users/u${index}` }, [{ kind: 'tag', name: `Row${index}` }]));
-    }
-    page.push(events);
-    page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(page.root.querySelector('[data-listener-count]')?.textContent).toBe('99');
-    page.chip.dispose();
-  });
-
-  it('shows the collapsed chip a bare listener count, red when a listener has an incident', () => {
-    const page = setup({ incidents: duplicateIncidents });
-    page.push([todos, profile]);
-    page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-
-    const count = page.root.querySelector('[data-listener-count]')!;
-    expect(count.textContent).toBe('2');
-    expect(count.classList.contains('error')).toBe(true);
-    expect(page.root.querySelector('.chip')?.textContent).toBe('pyric2');
-    page.chip.dispose();
-  });
-
-  it('opens the theme dialog from the bar rather than from a row', () => {
-    const page = setup();
-    page.push([todos]);
-    const theme = page.root.querySelector<HTMLButtonElement>('[data-open-overlay-theme]')!;
-    expect(theme.closest('[data-bar-slot]')?.getAttribute('data-bar-slot')).toBe('primary');
-    theme.click();
-    expect(page.root.querySelector('dialog[data-overlay-theme-dialog]')).not.toBeNull();
-    page.chip.dispose();
-  });
-
-  it('removes the overlay on dispose', () => {
-    const page = setup();
-    control(page.root, 'overview').click();
-    page.push([todos]);
-    expect(page.doc.querySelector('[data-pyric-listener-overlay]')).not.toBeNull();
-
-    page.chip.dispose();
-    expect(page.doc.querySelector('[data-pyric-listener-overlay]')).toBeNull();
-  });
-});
-
-describe('the outlines control', () => {
-  it('offers off, Overview, and Flow, with off pressed on a page that has painted nothing', () => {
-    const page = setup({ react: true });
-    const group = page.root.querySelector('[data-listener-modes]');
-    expect(group?.getAttribute('role')).toBe('group');
-    expect([...group!.querySelectorAll('button')].map((button) => button.textContent))
-      .toEqual(['off', 'Overview', 'Flow']);
-    expect(control(page.root, 'off').getAttribute('aria-pressed')).toBe('true');
-    expect(control(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
-    expect(control(page.root, 'flow').getAttribute('aria-pressed')).toBe('false');
-    page.chip.dispose();
-  });
-
-  it('shows off pressed and Flow unpressed when Flow is remembered but the outlines are off', () => {
-    const page = setup({ react: true, rememberedPaintMode: 'flow' });
-    expect(control(page.root, 'off').getAttribute('aria-pressed')).toBe('true');
-    expect(control(page.root, 'flow').getAttribute('aria-pressed')).toBe('false');
-    expect(control(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
-    expect(page.doc.querySelector('[data-pyric-listener-overlay]')).toBeNull();
-    page.chip.dispose();
-  });
-
-  it('paints every attached listener on Overview', () => {
-    const page = setup();
-    control(page.root, 'overview').click();
-    page.push([todos]);
-
-    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
-    expect(control(page.root, 'overview').getAttribute('aria-pressed')).toBe('true');
-    expect(control(page.root, 'off').getAttribute('aria-pressed')).toBe('false');
-    page.chip.dispose();
-  });
-
-  it('paints deliveries on Flow, remembers the choice, and takes the Overview boxes down', () => {
-    const page = setup({ react: true });
-    control(page.root, 'overview').click();
-    page.push([todos]);
-    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
-
-    control(page.root, 'flow').click();
-    expect(control(page.root, 'flow').getAttribute('aria-pressed')).toBe('true');
-    expect(control(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
+  it('offers Overview, Flow, and Theme in the bar, with nothing pressed while the outlines are off', () => {
+    const page = setup({ rememberedPaintMode: 'flow', react: true });
+    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.textContent)).toEqual(['Overview', 'Flow', 'Theme']);
+    expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
+    expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('false');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
-    expect(page.paintStore.get(LISTENER_PAINT_MODE_KEY)).toBe('flow');
-    page.chip.dispose();
   });
 
-  it('clears the painting on off and leaves the remembered mode where it was', () => {
-    const page = setup({ react: true });
-    control(page.root, 'flow').click();
-    page.push([todos]);
-
-    control(page.root, 'off').click();
-    expect(control(page.root, 'off').getAttribute('aria-pressed')).toBe('true');
-    expect(page.doc.querySelector('[data-pyric-listener-overlay]')).toBeNull();
-    expect(page.paintStore.get(LISTENER_PAINT_MODE_KEY)).toBe('flow');
-    page.chip.dispose();
-  });
-
-  it('goes back to Overview and paints the listeners again', () => {
-    const page = setup({ react: true });
-    control(page.root, 'overview').click();
-    page.push([todos]);
-    control(page.root, 'flow').click();
-    control(page.root, 'overview').click();
-    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
-    page.chip.dispose();
-  });
-
-  it('disables Flow with a reason when the page has no React', () => {
+  it('paints on Overview, and pressing it again turns the outlines off', () => {
     const page = setup();
-    control(page.root, 'overview').click();
-    page.push([todos]);
-
-    const flow = control(page.root, 'flow');
-    expect(flow.getAttribute('aria-disabled')).toBe('true');
-    expect(flow.getAttribute('title')).toContain('React');
-
-    flow.click();
-    expect(control(page.root, 'overview').getAttribute('aria-pressed')).toBe('true');
-    expect(control(page.root, 'flow').getAttribute('title')).toContain('React');
-    page.chip.dispose();
+    page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner])]);
+    bar(page.root, 'overview').click();
+    expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('true');
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
+    bar(page.root, 'overview').click();
+    expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
 
-  it('says what Flow is waiting for, and stops saying it once a flow is painted', () => {
-    const page = setup({ react: true });
-    control(page.root, 'overview').click();
-    page.push([todos]);
-    // The fact's slot is reserved either way, so the control beside it cannot
-    // move when Flow starts waiting; only the words in it change.
-    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toBe('');
-
-    control(page.root, 'flow').click();
-    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toContain('waiting for a delivery');
-
-    page.flowDelivery('l1');
-    expect(page.doc.querySelectorAll('[data-pyric-flow]').length).toBeGreaterThan(0);
-    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toBe('');
-    page.chip.dispose();
+  it('disables Flow with the reason on a page whose renders it cannot read', () => {
+    const page = setup({ react: false });
+    expect(bar(page.root, 'flow').getAttribute('aria-disabled')).toBe('true');
+    expect(bar(page.root, 'flow').getAttribute('title')).toContain('React');
   });
 
-  it('says it is waiting again after a turn back into Flow', () => {
-    const page = setup({ react: true });
-    control(page.root, 'flow').click();
-    page.push([todos]);
-    page.flowDelivery('l1');
-
-    control(page.root, 'overview').click();
-    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toBe('');
-    control(page.root, 'flow').click();
-    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toContain('waiting for a delivery');
-    page.chip.dispose();
+  it('singles a listener out on the page from its row, and clears it on the second press', () => {
+    const page = setup();
+    page.push([
+      attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner]),
+      attach('a2', 'L2', { kind: 'doc', path: 'profiles/p1' }, [{ kind: 'component', name: 'Profile', element: '#profile' }]),
+    ]);
+    page.root.querySelector<HTMLButtonElement>('[data-listener-row="L1"]')!.click();
+    expect(page.root.querySelector('[data-listener-row="L1"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(page.root.querySelector('[data-listener-row="L2"]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
+    page.root.querySelector<HTMLButtonElement>('[data-listener-row="L1"]')!.click();
+    expect(page.root.querySelector('[data-listener-row="L1"]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
   });
 
-  it('paints nothing and says why while listener attribution is off', () => {
+  it('says why nothing paints while listener attribution is off', () => {
     const page = setup({ attributionEnabled: false });
-    control(page.root, 'overview').click();
-    page.push([todos]);
-
-    expect(page.doc.querySelector('[data-pyric-listener-overlay]')).toBeNull();
-    expect(control(page.root, 'off').getAttribute('aria-pressed')).toBe('true');
-    expect(control(page.root, 'overview').getAttribute('aria-disabled')).toBe('true');
-    expect(control(page.root, 'overview').getAttribute('title')).toContain('attribution is off');
-    page.chip.dispose();
+    bar(page.root, 'overview').click();
+    expect(bar(page.root, 'overview').getAttribute('aria-disabled')).toBe('true');
+    expect(bar(page.root, 'overview').getAttribute('title')).toContain('attribution');
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
 });

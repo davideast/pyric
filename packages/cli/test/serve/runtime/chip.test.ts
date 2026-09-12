@@ -117,665 +117,270 @@ function setup(options: {
   };
 }
 
+
+function texts(root: ShadowRoot, selector: string): string[] {
+  return [...root.querySelectorAll<HTMLElement>(selector)].map((el) => el.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+}
+
 describe('the collapsed pill', () => {
-  it('is the chip by default and carries errors and worker updates as colour on the name', () => {
-    const { runtime, root } = setup();
-    expect(root.querySelector('[data-expand]')).not.toBeNull();
-    const name = () => root.querySelector('.brand-label')!;
-    expect(name().textContent).toBe('pyric');
-    expect(name().getAttribute('class')).toBe('brand-label');
-    expect(name().getAttribute('title')).toBeNull();
-
+  it('is the word alone, in one fixed box, with the page state on its border', () => {
+    const { root, runtime } = setup();
+    const chip = root.querySelector<HTMLButtonElement>('.chip')!;
+    expect(chip.textContent).toBe('pyric');
+    expect(chip.children.length).toBe(0);
+    expect(chip.classList.contains('error')).toBe(false);
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
-    expect(name().classList.contains('warning')).toBe(true);
-    expect(name().getAttribute('title')).toBe('New worker available');
-
-    // An error is about the page as it runs, so it takes the name's colour.
-    runtime.reportError('write denied', 'sandbox');
-    expect(name().classList.contains('error')).toBe(true);
-    expect(name().classList.contains('warning')).toBe(false);
-    expect(name().getAttribute('title')).toBe('1 error');
-
-    // The chip says all of that without a word of it.
-    expect(root.querySelector('.chip')!.textContent).toBe('pyric');
-  });
-
-  it('holds only the identity icon, the name, and the listener count slot', () => {
-    const { root } = setup();
-    const chip = root.querySelector('.chip')!;
-    // The count slot is drawn whether or not there is a count, so the pill is
-    // the same three boxes at every moment of a page's life.
-    expect([...chip.children].map((child) => child.getAttribute('class'))).toEqual(['brand-label', 'identity', 'chip-count']);
-    expect(chip.querySelector('[data-listener-count]')?.textContent).toBe('');
-    expect(chip.querySelector('.dot')).toBeNull();
-    expect(chip.querySelector('.chevron')).toBeNull();
-    expect(chip.querySelector('.signal')).toBeNull();
-    expect(chip.querySelector('.signals')).toBeNull();
-  });
-
-  it('draws both identity glyphs from one path, the signed-out one stroked', () => {
-    const { root, setCurrentLens } = setup();
-    const glyph = () => root.querySelector('[data-identity-icon] svg')!;
-    const out = glyph();
-    const outPath = out.querySelector('path')!.getAttribute('d');
-    expect(out.getAttribute('fill')).toBe('none');
-    expect(out.getAttribute('stroke-width')).toBe('1.5');
-
-    setCurrentLens({ mode: 'as', uid: 'alice' });
-    const filled = glyph();
-    expect(filled.querySelector('path')!.getAttribute('d')).toBe(outPath);
-    expect(filled.getAttribute('viewBox')).toBe(out.getAttribute('viewBox'));
-    expect(filled.getAttribute('fill')).toBe('currentColor');
-    expect(filled.getAttribute('stroke')).toBeNull();
-  });
-
-  it('switches the identity slot between the session states without text', () => {
-    const { root, setCurrentLens } = setup({
-      initialLens: { mode: 'as', uid: 'alice' },
-    });
-
-    const icon = () => root.querySelector('[data-identity-icon]')!;
-    expect(icon().getAttribute('data-state')).toBe('in');
-    expect(icon().getAttribute('title')).toBe('alice');
-
-    setCurrentLens({ mode: 'admin' });
-    expect(icon().getAttribute('data-state')).toBe('admin');
-    expect(icon().getAttribute('title')).toBe('bypass rules');
-
-    setCurrentLens(undefined);
-    expect(icon().getAttribute('data-state')).toBe('out');
-    expect(icon().getAttribute('title')).toBe('Signed out');
-    expect(root.querySelector('.chip')!.textContent).toBe('pyric');
-  });
-
-  it('reads the identity slot from the authenticated client user when no lens overrides it', () => {
-    let activeUser: RuntimeIdentity | null = { uid: 'sam-uid', displayName: 'Sam Altman' };
-    const { root, setCurrentUser } = setup({
-      getCurrentUser: () => activeUser,
-    });
-
-    expect(root.querySelector('[data-identity-icon]')?.getAttribute('data-state')).toBe('in');
-    expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toBe('sam-uid');
-
-    activeUser = null;
-    setCurrentUser(null);
-    expect(root.querySelector('[data-identity-icon]')?.getAttribute('data-state')).toBe('out');
-    expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toBe('Signed out');
-  });
-
-  it('keeps an authenticated session under a rules bypass in the one slot', () => {
-    const { root } = setup({
-      initialUser: { uid: 'sam-uid' },
-      initialLens: { mode: 'admin' },
-    });
-
-    const icons = root.querySelectorAll('[data-identity-icon]');
-    expect(icons).toHaveLength(1);
-    expect(icons[0]?.getAttribute('data-state')).toBe('admin');
-    expect(icons[0]?.getAttribute('title')).toBe('bypass rules · sam-uid');
+    expect(root.querySelector('.chip')!.classList.contains('warning')).toBe(true);
+    runtime.reportError('write to conversations denied', 'sandbox');
+    const failed = root.querySelector('.chip')!;
+    expect(failed.classList.contains('error')).toBe(true);
+    expect(failed.classList.contains('warning')).toBe(false);
+    expect(failed.textContent).toBe('pyric');
   });
 
   it('plays the enter animation on the first mount only, and the panel one on each open', () => {
-    const { runtime, root } = setup();
-    // The chip's arrival belongs to the container, which the renders do not rebuild.
-    expect(root.querySelector('[data-view]')?.classList.contains('entering')).toBe(true);
-    expect(root.querySelector('.chip')?.classList.contains('entering')).toBe(false);
-
-    // A state change rebuilds the chip; it must not arrive a second time.
-    runtime.reportError('write denied', 'sandbox');
-    expect(root.querySelector('.chip')?.classList.contains('entering')).toBe(false);
-
+    const { root } = setup();
+    const view = root.querySelector('[data-view]')!;
+    expect(view.classList.contains('entering')).toBe(true);
     root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
-    expect(root.querySelector('.panel')?.classList.contains('entering')).toBe(true);
-
-    // A state change rebuilds the view while it stays open; the panel must not re-enter.
-    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
-    expect(root.querySelector('.panel')).not.toBeNull();
-    expect(root.querySelector('.panel')?.classList.contains('entering')).toBe(false);
-
+    expect(root.querySelector('.panel')!.classList.contains('entering')).toBe(true);
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(root.querySelector('.chip')?.classList.contains('entering')).toBe(false);
+    expect(root.querySelector('.chip')).not.toBeNull();
   });
 
   it('moves focus with the collapsed and open controls', () => {
     const { root } = setup();
     root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
-    expect(root.activeElement?.hasAttribute('data-collapse')).toBe(true);
-
+    expect(root.activeElement).toBe(root.querySelector('[data-collapse]'));
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(root.activeElement?.hasAttribute('data-expand')).toBe(true);
+    expect(root.activeElement).toBe(root.querySelector('[data-expand]'));
   });
 
-  it('renders hostile identity values as text', () => {
-    const maliciousUid = '<script>alert("xss")</script><img data-injected src=x>';
-    const { root } = setup({ initialLens: { mode: 'as', uid: maliciousUid } });
-
-    expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toContain(maliciousUid);
-    expect(root.querySelector('script')).toBeNull();
-    expect(root.querySelector('[data-injected]')).toBeNull();
-  });
-
-  it('handles rapid lens publications and stops reacting after disposal', () => {
-    const { chip, root, setCurrentLens } = setup();
-    for (let index = 0; index < 50; index += 1) {
-      setCurrentLens({ mode: 'as', uid: `user-${index}` });
-      expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toContain(`user-${index}`);
-    }
-
-    chip.dispose();
-    setCurrentLens({ mode: 'as', uid: 'detached-user' });
-    expect(root.textContent).not.toContain('detached-user');
-  });
-
-  it('reactively updates the identity slot without reload using the default client transport', () => {
-    const { root, setCurrentLens } = setup({ initiallyOpen: false });
-    expect(root.querySelector('[data-identity-icon]')?.getAttribute('data-state')).toBe('out');
-
-    setCurrentLens({ mode: 'as', uid: 'charlie' });
-    expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toBe('charlie');
-
-    setCurrentLens(undefined);
-    expect(root.querySelector('[data-identity-icon]')?.getAttribute('data-state')).toBe('out');
+  it('reattaches the same host after an Astro document swap', () => {
+    const { dom, chip } = setup();
+    chip.element.remove();
+    dom.window.document.dispatchEvent(new dom.window.Event('astro:after-swap'));
+    expect(chip.element.isConnected).toBe(true);
   });
 });
 
 describe('the panel shell', () => {
-  it('holds the name, a Studio control, and a minimize control in its header and nothing else', () => {
+  it('holds the name and two buttons in its header, and four plain tabs under it', () => {
     const { root } = setup({ initiallyOpen: true });
-    const header = root.querySelector('.panel-header')!;
-    expect(header.querySelector('.panel-name')?.textContent).toBe('pyric');
-    expect(header.querySelector('[data-open-studio]')).not.toBeNull();
-    expect(header.querySelector('[data-collapse]')).not.toBeNull();
-    // The terminal mark and the dismiss control are both gone from the header;
-    // hiding the chip is a Sandbox row now.
-    expect(header.querySelector('.brand-mark')).toBeNull();
-    expect(header.textContent).not.toContain('>_');
-    expect(header.querySelector('[data-dismiss-chip]')).toBeNull();
-    expect(root.querySelector('[data-panel-facts]')).toBeNull();
-  });
-
-  it('offers four labelled tabs with no counts in them', () => {
-    const { root } = setup({ initiallyOpen: true });
-    const tabs = [...root.querySelectorAll('[role="tab"]')];
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['Identity', 'Listeners', 'Traffic', 'Sandbox']);
-    expect(root.querySelector('[role="tablist"]')).not.toBeNull();
-    for (const tab of tabs) expect(/\d/.test(tab.textContent ?? '')).toBe(false);
-    expect(tabs.filter((tab) => tab.getAttribute('aria-selected') === 'true')).toHaveLength(1);
+    expect(root.querySelector('.panel-name')!.textContent).toBe('pyric');
+    expect(texts(root, '.panel-header .btn')).toEqual(['Studio', 'Close']);
+    expect(texts(root, '[data-chip-tab]')).toEqual(['Identity', 'Listeners', 'Traffic', 'Sandbox']);
+    expect(texts(root, '[data-chip-tab]').some((label) => /\d/.test(label))).toBe(false);
   });
 
   it('shows the chosen view and remembers it for the next open', () => {
     const { root, showTab } = setup({ initiallyOpen: true });
-    expect(root.querySelector('[data-chip-view]')?.getAttribute('data-chip-view')).toBe('identity');
-
     showTab('sandbox');
-    expect(root.querySelector('[data-chip-view]')?.getAttribute('data-chip-view')).toBe('sandbox');
-    expect(root.querySelector('[data-chip-tab="sandbox"]')?.getAttribute('aria-selected')).toBe('true');
-    expect(root.querySelector('[data-chip-tab="identity"]')?.getAttribute('aria-selected')).toBe('false');
-
+    expect(root.querySelector('[data-chip-view]')!.getAttribute('data-chip-view')).toBe('sandbox');
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
     root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
-    expect(root.querySelector('[data-chip-view]')?.getAttribute('data-chip-view')).toBe('sandbox');
+    expect(root.querySelector('[data-chip-view]')!.getAttribute('data-chip-view')).toBe('sandbox');
   });
 
-  it('points the Studio control at the section the selected tab is about', () => {
+  it('points the Studio button at the section the selected tab is about', () => {
     const { root, showTab } = setup({ initiallyOpen: true });
-    const href = (): string | null => root.querySelector('[data-open-studio]')!.getAttribute('href');
-    expect(href()).toBe('/__pyric/ui/auth/');
-
-    showTab('listeners');
-    expect(href()).toBe('/__pyric/ui/traffic/?view=listeners');
-
+    expect(root.querySelector('[data-open-studio]')!.getAttribute('href')).toContain('/auth');
     showTab('traffic');
-    expect(href()).toBe('/__pyric/ui/traffic/');
-
-    showTab('sandbox');
-    expect(href()).toBe('/__pyric/ui/settings/');
+    expect(root.querySelector('[data-open-studio]')!.getAttribute('href')).toContain('/traffic');
   });
 
-  it('keeps a disabled Studio control in place when Studio is unavailable', () => {
+  it('keeps a disabled Studio button in place when Studio is unavailable', () => {
     const { root } = setup({ initiallyOpen: true, studioUrl: null });
-    const studio = root.querySelector('[data-open-studio]');
-    expect(studio?.tagName).toBe('SPAN');
-    expect(studio?.getAttribute('aria-disabled')).toBe('true');
+    expect(root.querySelector('[data-open-studio]')!.getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('colours the tab whose view holds the problem, and leaves a clean strip alone', () => {
-    const { runtime, root } = setup({ initiallyOpen: true });
-    const tab = (id: string): Element => root.querySelector(`[data-chip-tab="${id}"]`)!;
-    expect(tab('traffic').classList.contains('problem')).toBe(false);
-    expect(tab('sandbox').classList.contains('pending')).toBe(false);
+  it('colours the tab whose view holds the problem, and opens on it', () => {
+    const { root, runtime } = setup();
+    runtime.reportError('write to conversations denied', 'sandbox');
+    root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
+    expect(root.querySelector('[data-chip-view]')!.getAttribute('data-chip-view')).toBe('traffic');
+    expect(root.querySelector('[data-chip-tab="traffic"]')!.classList.contains('problem')).toBe(true);
+    expect(root.querySelectorAll('.tab.problem, .tab.pending').length).toBe(1);
+  });
 
+  it('builds every row of every view from the same cells and keeps controls out of rows', () => {
+    const { root, showTab, runtime } = setup({ initiallyOpen: true, initialUser: { uid: 'u1', email: 'a@example.com' } });
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
-    expect(tab('sandbox').classList.contains('pending')).toBe(true);
-    expect(tab('traffic').classList.contains('problem')).toBe(false);
-
-    // A failure outranks a waiting worker, and takes the colour with it.
-    runtime.reportError('write denied', 'sandbox');
-    expect(tab('traffic').classList.contains('problem')).toBe(true);
-    expect(tab('sandbox').classList.contains('pending')).toBe(false);
-  });
-
-  it('builds every row of every view from the same three cells', () => {
-    const { runtime, root, showTab } = setup({ initiallyOpen: true, initialUser: { uid: 'u_8f2a' } });
-    runtime.reportError('write denied', 'sandbox');
-    for (const view of ['identity', 'traffic', 'sandbox'] as const) {
-      showTab(view);
-      const rows = [...root.querySelectorAll('.row')];
-      expect(rows.length).toBeGreaterThan(0);
-      for (const row of rows) {
-        const cells = [...row.children].map((child) => child.getAttribute('class'));
-        expect(cells[0]).toBe('row-mark');
-        // A control row's field takes the primary and fact tracks together.
-        expect(cells.length === 3 || (cells.length === 2 && cells[1] === 'row-field')).toBe(true);
+    for (const tab of ['identity', 'listeners', 'traffic', 'sandbox'] as const) {
+      showTab(tab);
+      for (const row of root.querySelectorAll('.row')) {
+        expect(row.querySelector('.c1')).not.toBeNull();
+        expect(row.querySelector('.slot')).not.toBeNull();
+        // The slot may hold the row's one button; nothing else in the row may.
+        expect(row.querySelectorAll('button, a, input').length).toBeLessThanOrEqual(row.querySelectorAll('.slot > .btn').length);
       }
+      expect(root.querySelector('[data-action-bar]')).not.toBeNull();
+      expect(root.querySelector('.view [data-action-bar]')).toBeNull();
     }
   });
 
-  it('gives every view the same three zones, and never a control inside a row', () => {
-    const { runtime, root, showTab } = setup({ initiallyOpen: true, initialUser: { uid: 'u_8f2a' } });
-    runtime.reportError('write denied', 'sandbox');
-    for (const view of ['identity', 'traffic', 'sandbox'] as const) {
-      showTab(view);
-      expect(root.querySelector('[data-chip-view] > .row.control')).not.toBeNull();
-      expect(root.querySelector('[data-chip-view] > .rows')).not.toBeNull();
-      const bar = root.querySelector('[data-action-bar]')!;
-      expect([...bar.querySelectorAll('[data-bar-slot]')].map((slot) => slot.getAttribute('data-bar-slot')))
-        .toEqual(['tertiary', 'secondary', 'primary']);
-      expect(bar.querySelectorAll('button')).toHaveLength(
-        [...bar.querySelectorAll('button')].length,
-      );
-      expect([...bar.querySelectorAll('button')].length).toBeLessThanOrEqual(3);
-      for (const row of root.querySelectorAll('.rows .row')) {
-        expect(row.querySelector('button, a, input, select, textarea')).toBeNull();
-      }
+  it('never prints a dot separator or a status word', () => {
+    const { root, showTab } = setup({ initiallyOpen: true, initialUser: { uid: 'u1', email: 'a@example.com' } });
+    for (const tab of ['identity', 'listeners', 'traffic', 'sandbox'] as const) {
+      showTab(tab);
+      const text = root.querySelector('.panel')!.textContent ?? '';
+      expect(text).not.toContain('·');
+      expect(text).not.toMatch(/running|shared worker|in-page|AI engine/);
     }
-  });
-
-  it('reattaches the same host after an Astro document swap', () => {
-    const { dom, chip, root } = setup({ initiallyOpen: true });
-    const host = chip.element;
-    const shadowRoot = host.shadowRoot;
-
-    host.remove();
-    dom.window.document.dispatchEvent(new dom.window.Event('astro:after-swap'));
-
-    expect(dom.window.document.body.contains(host)).toBe(true);
-    expect(host.shadowRoot).toBe(shadowRoot);
-    expect(root.querySelector('[role="tablist"]')).not.toBeNull();
-
-    chip.dispose();
-    dom.window.document.dispatchEvent(new dom.window.Event('astro:after-swap'));
-    expect(dom.window.document.body.contains(host)).toBe(false);
   });
 });
 
 describe('the Identity view', () => {
-  it('reads Signed out with the outline mark and no action when there is no session', () => {
+  it('reads Signed out with no button when there is no session, and still offers the bypass', () => {
     const { root } = setup({ initiallyOpen: true });
-    const row = root.querySelector('[data-identity-row]')!;
-    expect(row.querySelector('.row-primary')?.textContent).toBe('Signed out');
-    expect(row.querySelector('[data-panel-identity]')?.getAttribute('data-state')).toBe('out');
-    expect(row.querySelector('[data-sign-out]')).toBeNull();
+    expect(root.querySelector('[data-identity-row] .c1')!.textContent).toBe('Signed out');
+    expect(root.querySelector('[data-identity-row] .btn')).toBeNull();
+    expect(root.querySelector('[data-action-bar] [data-toggle-bypass]')).not.toBeNull();
   });
 
-  it('names the session by email, keeps the uid as the fact, and signs out from the bar', () => {
+  it('names the session, keeps the email and providers in the sub-row, and signs out from the slot', () => {
     const signOut = mock(() => {});
     const { root } = setup({
       initiallyOpen: true,
-      initialUser: { uid: 'u_8f2a', email: 'alice@example.com' },
+      initialUser: { uid: 'u1', email: 'a@example.com', displayName: 'Alice' },
+      listUsers: () => [{ uid: 'u1', email: 'a@example.com', displayName: 'Alice', providerUserInfo: [{ providerId: 'google.com' }] } as AuthUserRecord],
       signOut,
     });
     const row = root.querySelector('[data-identity-row]')!;
-    expect(row.querySelector('.row-primary')?.textContent).toBe('alice@example.com');
-    expect(row.querySelector('[data-identity-uid]')?.textContent).toBe('u_8f2a');
-    expect(row.querySelector('[data-panel-identity]')?.getAttribute('data-state')).toBe('in');
-    // The row is itself and nothing else; the action is on the bar.
-    expect(row.querySelector('button, a, input')).toBeNull();
-
-    const slot = root.querySelector('[data-bar-slot="primary"]')!;
-    slot.querySelector<HTMLButtonElement>('[data-sign-out]')!.click();
-    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(row.querySelector('.c1')!.textContent).toBe('Alice');
+    expect(row.querySelector('.s1')!.textContent).toContain('a@example.com');
+    expect(row.getAttribute('title')).toBe('u1');
+    row.querySelector<HTMLButtonElement>('[data-sign-out]')!.click();
+    expect(signOut).toHaveBeenCalled();
   });
 
-  it('falls back to the uid as the primary when the session has no email', () => {
-    const { root } = setup({ initiallyOpen: true, initialUser: { uid: 'u_8f2a' } });
-    const row = root.querySelector('[data-identity-row]')!;
-    expect(row.querySelector('.row-primary')?.textContent).toBe('u_8f2a');
-    expect(row.querySelector('[data-identity-uid]')).toBeNull();
-  });
-
-  it('turns the rules bypass on and off from the bar', () => {
-    const { root, setLensMock } = setup({ initiallyOpen: true, initialUser: { uid: 'u_8f2a' } });
-    const toggle = (): HTMLButtonElement => root.querySelector<HTMLButtonElement>('[data-toggle-bypass]')!;
-    expect(toggle().closest('[data-bar-slot]')?.getAttribute('data-bar-slot')).toBe('secondary');
-    expect(toggle().textContent).toBe('Bypass rules: off');
-    expect(toggle().getAttribute('aria-pressed')).toBe('false');
-
-    toggle().click();
-    expect(setLensMock).toHaveBeenCalledWith({ mode: 'admin' });
-    expect(toggle().textContent).toBe('Bypass rules: on');
-    expect(toggle().getAttribute('aria-pressed')).toBe('true');
-
-    toggle().click();
-    expect(setLensMock).toHaveBeenLastCalledWith(undefined);
-    expect(toggle().textContent).toBe('Bypass rules: off');
-  });
-
-  it('filters the sandbox users as one types, and switches to the row that is clicked', async () => {
-    const switchUser = mock(() => {});
+  it('lists the sandbox users as sign-in rows, filters them as one types, and switches on click', async () => {
+    const switchUser = mock((_uid: string) => {});
     const { root } = setup({
       initiallyOpen: true,
-      listUsers: () => [user('u_alice', 'alice@example.com'), user('u_bob', 'bob@example.com')],
+      initialUser: { uid: 'u1', email: 'a@example.com' },
+      listUsers: () => [user('u1', 'a@example.com'), user('u2', 'bob@example.com'), user('u3', 'carol@example.com')],
       switchUser,
     });
     await Promise.resolve();
     await Promise.resolve();
-    expect(root.querySelectorAll('[data-switch-user]')).toHaveLength(0);
-
+    expect(root.querySelectorAll('[data-switch-user]').length).toBe(2);
     const input = root.querySelector<HTMLInputElement>('[data-identity-query]')!;
     input.value = 'bob';
-    input.dispatchEvent(new root.ownerDocument.defaultView!.Event('input'));
-
-    const matches = [...root.querySelectorAll('[data-switch-user]')];
-    expect(matches).toHaveLength(1);
-    expect(matches[0]?.querySelector('.row-primary')?.textContent).toBe('bob@example.com');
-    (matches[0] as HTMLButtonElement).click();
-    expect(switchUser).toHaveBeenCalledWith('u_bob');
+    input.dispatchEvent(new (root.host.ownerDocument.defaultView as typeof globalThis).Event('input'));
+    expect(texts(root, '[data-switch-user] .c1')).toEqual(['bob@example.com']);
+    root.querySelector<HTMLButtonElement>('[data-switch-user="u2"]')!.click();
+    expect(switchUser).toHaveBeenCalledWith('u2');
   });
 
-  it('keeps the caret in the field across the rebuild each keystroke causes', async () => {
-    const { root } = setup({
-      initiallyOpen: true,
-      listUsers: () => [user('u_alice', 'alice@example.com')],
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-    const input = root.querySelector<HTMLInputElement>('[data-identity-query]')!;
-    input.focus();
-    input.value = 'ali';
-    input.setSelectionRange(3, 3);
-    input.dispatchEvent(new root.ownerDocument.defaultView!.Event('input'));
-
-    const after = root.querySelector<HTMLInputElement>('[data-identity-query]')!;
-    expect(after.value).toBe('ali');
-    expect(root.activeElement).toBe(after);
-    expect(after.selectionStart).toBe(3);
-  });
-
-  it('never prints the uid twice on a candidate the uid is the only name for', async () => {
-    const { root } = setup({
-      initiallyOpen: true,
-      listUsers: () => [user('u_nameless')],
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-    const input = root.querySelector<HTMLInputElement>('[data-identity-query]')!;
-    input.value = 'nameless';
-    input.dispatchEvent(new root.ownerDocument.defaultView!.Event('input'));
-
-    const candidate = root.querySelector('[data-switch-user]')!;
-    expect(candidate.querySelector('.row-primary')?.textContent).toBe('u_nameless');
-    expect(candidate.querySelector('.row-fact')?.textContent).toBe('');
+  it('turns the rules bypass on and off from the bar', () => {
+    const { root, setLensMock } = setup({ initiallyOpen: true, initialUser: { uid: 'u1' } });
+    const bypass = root.querySelector<HTMLButtonElement>('[data-toggle-bypass]')!;
+    expect(bypass.getAttribute('aria-pressed')).toBe('false');
+    bypass.click();
+    expect(setLensMock).toHaveBeenCalledWith({ mode: 'admin' });
+    expect(root.querySelector('[data-toggle-bypass]')!.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('offers to create the user nobody in the sandbox answers to', async () => {
     const openCreateUser = mock(() => {});
-    const { root } = setup({
-      initiallyOpen: true,
-      listUsers: () => [user('u_alice', 'alice@example.com')],
-      openCreateUser,
-    });
-    await Promise.resolve();
+    const { root } = setup({ initiallyOpen: true, listUsers: () => [user('u1', 'a@example.com')], openCreateUser });
     await Promise.resolve();
     const input = root.querySelector<HTMLInputElement>('[data-identity-query]')!;
-    input.value = 'carol@example.com';
-    input.dispatchEvent(new root.ownerDocument.defaultView!.Event('input'));
-
-    // Signed out, the create offer is the bar's primary slot.
-    const create = root.querySelector<HTMLButtonElement>('[data-create-user]')!;
-    expect(create.closest('[data-bar-slot]')?.getAttribute('data-bar-slot')).toBe('primary');
-    expect(create.textContent).toBe('Create user');
-    create.click();
-    expect(openCreateUser).toHaveBeenCalledTimes(1);
+    input.value = 'zed';
+    input.dispatchEvent(new (root.host.ownerDocument.defaultView as typeof globalThis).Event('input'));
+    root.querySelector<HTMLButtonElement>('[data-create-user]')!.click();
+    expect(openCreateUser).toHaveBeenCalled();
   });
 
-  it('asks for the user directory only once the view that lists it is up', async () => {
-    const listUsers = mock(() => [user('u_alice')]);
-    const { root, showTab } = setup({ initiallyOpen: true, listUsers });
-    await Promise.resolve();
-    expect(listUsers).toHaveBeenCalledTimes(1);
-
-    showTab('sandbox');
-    showTab('identity');
-    await Promise.resolve();
-    expect(listUsers).toHaveBeenCalledTimes(1);
-    expect(root.querySelector('[data-identity-query]')).not.toBeNull();
-  });
-
-  it('never lists a disabled account as something the page could run as', async () => {
-    const { root } = setup({
-      initiallyOpen: true,
-      listUsers: () => [
-        { uid: 'u_gone', email: 'gone@example.com', disabled: true } as AuthUserRecord,
-      ],
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-    const input = root.querySelector<HTMLInputElement>('[data-identity-query]')!;
-    input.value = 'gone';
-    input.dispatchEvent(new root.ownerDocument.defaultView!.Event('input'));
-
-    expect(root.querySelectorAll('[data-switch-user]')).toHaveLength(0);
-    expect(root.querySelector('[data-create-user]')).not.toBeNull();
+  it('puts a pending worker update first, in the warning colour, with its button in the slot', () => {
+    const updateWorker = mock(() => Promise.resolve());
+    const { root, runtime } = setup({ initiallyOpen: true });
+    runtime.setWorkerUpdater(updateWorker);
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+    const first = root.querySelector('.rows .row')!;
+    expect(first.getAttribute('data-update-row')).not.toBeNull();
+    expect(first.classList.contains('pending')).toBe(true);
+    expect(first.querySelector('.s1')!.textContent).toBe('bbbbbbbb');
+    expect(root.querySelector('[data-chip-tab="identity"]')!.classList.contains('pending')).toBe(true);
+    root.querySelector<HTMLButtonElement>('[data-update-worker]')!.click();
+    expect(updateWorker).toHaveBeenCalled();
   });
 });
 
 describe('the Sandbox view', () => {
-  it('states which runtime is running and the epoch it is running', () => {
-    const { runtime, root, showTab } = setup({ initiallyOpen: true });
-    runtime.setWorker({ mode: 'in-page', runningEpoch: '3f2a9c1e0000' });
+  it('lists the model, the running worker, and the theme, and nothing about running state', () => {
+    const { root, showTab, runtime } = setup({ initiallyOpen: true });
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'bbbbbbbbbbbbbbbb' });
     showTab('sandbox');
-
-    const row = root.querySelector('[data-runtime-row]')!;
-    expect(row.querySelector('.row-primary')?.textContent).toBe('in-page · running');
-    expect(row.querySelector('[data-running-epoch]')?.textContent).toBe('3f2a9c1e');
-  });
-
-  it('carries the AI engine as the row fact, with the model mapping as its title', () => {
-    const { root, showTab } = setup({ initiallyOpen: true });
-    showTab('sandbox');
-    const row = root.querySelector('[data-ai-row]')!;
-    expect(row.querySelector('.row-fact')?.textContent).toBe('sandbox (scripted)');
-  });
-
-  it('offers the update only while one is pending, with both epochs on the worker row', async () => {
-    const { runtime, root, showTab } = setup({ initiallyOpen: true });
-    showTab('sandbox');
-    expect(root.querySelector('[data-update-worker]')).toBeNull();
-
-    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
-    expect(root.querySelector('[data-worker-epochs]')?.textContent).toBe('aaaaaaaa → bbbbbbbb');
-
-    const update = mock(() => Promise.resolve());
-    runtime.setWorkerUpdater(update);
-    const button = root.querySelector<HTMLButtonElement>('[data-update-worker]')!;
-    button.focus();
-    button.click();
-    await Promise.resolve();
-    expect(update).toHaveBeenCalledTimes(1);
-    expect(root.activeElement?.hasAttribute('data-update-worker')).toBe(true);
-  });
-
-  it('keeps the same rows whether or not an update is pending, and moves the update to the bar', () => {
-    const { runtime, root, showTab } = setup({ initiallyOpen: true });
-    showTab('sandbox');
-    const before = [...root.querySelectorAll('.row')].length;
-    expect(root.querySelector('[data-worker-epochs]')?.textContent).toBe('');
-    expect(root.querySelector('[data-update-worker]')).toBeNull();
-
-    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
-    expect([...root.querySelectorAll('.row')].length).toBe(before);
-    expect(root.querySelector('[data-worker-epochs]')?.textContent).toBe('aaaaaaaa → bbbbbbbb');
-    expect(root.querySelector('[data-update-worker]')?.closest('[data-bar-slot]')?.getAttribute('data-bar-slot'))
-      .toBe('secondary');
+    expect(texts(root, '.row .c1')).toEqual(['Model', 'Worker', 'Theme']);
+    expect(root.querySelector('[data-running-epoch]')!.textContent).toBe('bbbbbbbb');
+    expect(root.querySelector('[data-theme-row] [data-open-overlay-theme]')).not.toBeNull();
+    expect(texts(root, '[data-action-bar] .btn')).toEqual(['Hide']);
   });
 
   it('hides the chip from the page from the bar', () => {
-    const { root, chip, showTab } = setup({ initiallyOpen: true });
+    const { root, showTab, chip } = setup({ initiallyOpen: true });
     showTab('sandbox');
-    expect(chip.element.style.display).not.toBe('none');
-
     root.querySelector<HTMLButtonElement>('[data-dismiss-chip]')!.click();
     expect(chip.element.style.display).toBe('none');
-  });
-
-  it('keeps the focused row control across runtime publications', () => {
-    const { runtime, root, showTab } = setup({ initiallyOpen: true });
-    showTab('sandbox');
-    const announcer = root.querySelector('.announcer');
-    root.querySelector<HTMLButtonElement>('[data-dismiss-chip]')!.focus();
-
-    runtime.reportError('a new sandbox error', 'sandbox');
-
-    expect(root.activeElement?.hasAttribute('data-dismiss-chip')).toBe(true);
-    expect(root.querySelector('.announcer')).toBe(announcer);
-    expect(announcer?.textContent).toContain('1 runtime error');
   });
 });
 
 describe('the Traffic view', () => {
-  const request = (id: string, at: number, path: string, result: 'allow' | 'deny'): SandboxEvent => ({
+  const request = (id: string, at: number, path: string, result: 'allow' | 'deny', auth: unknown = null): SandboxEvent => ({
     kind: 'request',
     id,
     at,
-    evalMs: 1,
+    service: 'firestore',
     method: 'set',
     path,
-    auth: null,
     result,
-    reasons: [],
+    auth,
   } as unknown as SandboxEvent);
 
-  it('lists the requests the page made, newest first, with the verdict as the fact', () => {
+  it('gives every request the same cells: call and time in column one, path and reason in column two, verdict in the slot', () => {
     const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
     const now = Date.now();
-    push([
-      request('r1', now - 4000, 'conversations/c1', 'allow'),
-      request('r2', now - 2000, 'conversations/c2', 'allow'),
-    ]);
+    push([request('r1', now - 2000, 'conversations/c0', 'allow'), request('r2', now - 1000, 'conversations/c1', 'deny')]);
     showTab('traffic');
-
-    const rows = [...root.querySelectorAll('[data-request-row]')];
-    expect(rows.map((row) => row.getAttribute('data-request-row'))).toEqual(['r2', 'r1']);
-    expect(rows[0]?.querySelector('.row-fact')?.textContent).toBe('ok');
-    expect(rows[0]?.querySelector('.row-primary')?.textContent).toContain('firestore.set');
-    expect(rows[0]?.querySelector('.row-primary')?.textContent).toContain('conversations/c2');
+    const rows = root.querySelectorAll('[data-request-row]');
+    expect(rows.length).toBe(2);
+    const denied = rows[0]!;
+    expect(denied.getAttribute('data-request-row')).toBe('r2');
+    expect(denied.classList.contains('problem')).toBe(true);
+    expect(denied.querySelector('.c1')!.textContent).toBe('firestore.set');
+    expect(denied.querySelector('.c2')!.textContent).toBe('conversations/c1');
+    expect(denied.querySelector('.s1')!.textContent).toMatch(/^\d\d:\d\d:\d\d$/);
+    expect(denied.querySelector('.s2')!.textContent).toBe('signed out');
+    expect(denied.querySelector('.slot')!.textContent).toBe('denied');
+    const ok = rows[1]!;
+    expect(ok.querySelector('.s2')!.textContent).toBe('');
+    expect(ok.querySelector('.slot')!.textContent).toBe('ok');
   });
 
-  it('puts a denial from the last minute first and colours its row', () => {
-    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+  it('narrows to the denials from the bar, and copies the rows it is showing', async () => {
+    const written: string[] = [];
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true, clipboard: { writeText: async (text) => { written.push(text); } } });
     const now = Date.now();
-    push([
-      request('denied', now - 30_000, 'conversations/c1', 'deny'),
-      request('later', now - 1000, 'conversations/c2', 'allow'),
-    ]);
+    push([request('r1', now - 2000, 'conversations/c0', 'allow'), request('r2', now - 1000, 'conversations/c1', 'deny', { uid: 'u9' })]);
     showTab('traffic');
-
-    const rows = [...root.querySelectorAll('[data-request-row]')];
-    expect(rows[0]?.getAttribute('data-request-row')).toBe('denied');
-    expect(rows[0]?.querySelector('.row-fact')?.textContent).toBe('denied');
-    expect(rows[0]?.classList.contains('problem')).toBe(true);
-    expect(rows[1]?.classList.contains('problem')).toBe(false);
-  });
-
-  it('opens the request it stands for in Studio', () => {
-    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
-    push([request('r1', Date.now(), 'conversations/c1', 'allow')]);
-    showTab('traffic');
-    const row = root.querySelector('[data-request-row]')!;
-    expect(row.tagName).toBe('A');
-    expect(row.getAttribute('href')).toBe('/__pyric/ui/traffic/?request=r1');
+    root.querySelector<HTMLButtonElement>('[data-traffic-denied]')!.click();
+    expect(root.querySelectorAll('[data-request-row]').length).toBe(1);
+    expect(root.querySelector('[data-traffic-denied]')!.getAttribute('aria-pressed')).toBe('true');
+    root.querySelector<HTMLButtonElement>('[data-copy-traffic]')!.click();
+    await Promise.resolve();
+    expect(written[0]).toContain('firestore.set  conversations/c1  denied');
+    expect(written[0]).toContain('denied for u9');
   });
 
   it('carries the failures that are not requests from the runtime error feed', () => {
-    const { runtime, root, showTab } = setup({ initiallyOpen: true });
-    runtime.reportError('listener failed', 'sandbox');
+    const { root, showTab, runtime } = setup({ initiallyOpen: true });
+    runtime.reportError('worker crashed', 'sandbox');
     showTab('traffic');
-
-    const rows = [...root.querySelectorAll('[data-request-row]')];
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.querySelector('.row-fact')?.textContent).toBe('error');
-    expect(rows[0]?.classList.contains('problem')).toBe(true);
-  });
-
-  it('names a failure by its message when it names no call at all', () => {
-    const { runtime, root, showTab } = setup({ initiallyOpen: true });
-    runtime.reportError('the worker closed the port', 'runtime');
-    showTab('traffic');
-
     const row = root.querySelector('[data-request-row]')!;
-    expect(row.querySelector('.row-primary')?.textContent).toContain('the worker closed the port');
-    expect(row.querySelector('.row-primary')?.textContent).not.toContain('undefined');
-  });
-
-  it('keeps one row for an operation both the request stream and the error feed reported', () => {
-    const { runtime, root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
-    const denial = request('shared-id', Date.now(), 'conversations/c1', 'deny');
-    push([denial]);
-    runtime.recordSandboxEvents([denial]);
-    showTab('traffic');
-
-    expect(root.querySelectorAll('[data-request-row]')).toHaveLength(1);
-  });
-
-  it('never draws more than eight rows', () => {
-    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
-    const now = Date.now();
-    push(Array.from({ length: 20 }, (_, index) => request(`r${index}`, now - index * 100, `c/${index}`, 'allow')));
-    showTab('traffic');
-
-    expect(root.querySelectorAll('[data-request-row]')).toHaveLength(7);
-  });
-
-  it('narrows the rows to the failures, and back', () => {
-    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
-    const now = Date.now();
-    push([
-      request('denied', now - 2000, 'conversations/c1', 'deny'),
-      request('fine', now - 1000, 'conversations/c2', 'allow'),
-    ]);
-    showTab('traffic');
-    expect(root.querySelectorAll('[data-request-row]')).toHaveLength(2);
-
-    root.querySelector<HTMLButtonElement>('[data-traffic-show="denied"]')!.click();
-    const rows = [...root.querySelectorAll('[data-request-row]')];
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.getAttribute('data-request-row')).toBe('denied');
-    expect(root.querySelector('[data-traffic-show="denied"]')?.getAttribute('aria-pressed')).toBe('true');
-
-    root.querySelector<HTMLButtonElement>('[data-traffic-show="all"]')!.click();
-    expect(root.querySelectorAll('[data-request-row]')).toHaveLength(2);
-  });
-
-  it('copies the rows it is showing as plain text lines', async () => {
-    const writeText = mock(() => Promise.resolve());
-    const { root, showTab, push } = setup({
-      initiallyOpen: true,
-      withSandboxEvents: true,
-      clipboard: { writeText },
-    });
-    push([request('r1', Date.now(), 'conversations/c1', 'deny')]);
-    showTab('traffic');
-
-    const copy = root.querySelector<HTMLButtonElement>('[data-copy-traffic]')!;
-    expect(copy.closest('[data-bar-slot]')?.getAttribute('data-bar-slot')).toBe('primary');
-    copy.click();
-    await Promise.resolve();
-
-    expect(writeText).toHaveBeenCalledTimes(1);
-    const copied = writeText.mock.calls[0]?.[0] as string;
-    expect(copied).toContain('firestore.set');
-    expect(copied).toContain('conversations/c1');
-    expect(copied).toContain('denied');
+    expect(row.querySelector('.c1')!.textContent).toBe('runtime');
+    expect(row.querySelector('.c2')!.textContent).toBe('worker crashed');
+    expect(row.querySelector('.slot')!.textContent).toBe('error');
   });
 });

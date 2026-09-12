@@ -80,13 +80,12 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
 
   // The session row names Alice by email and keeps her uid as the row's fact
   await openIdentityView();
-  await expect(chipHost.locator('[data-identity-row] .row-primary')).toHaveText('alice@example.com');
-  await expect(chipHost.locator('[data-identity-uid]')).toHaveText(aliceUid!);
+  await expect(chipHost.locator('[data-identity-row] .c1')).toHaveText('alice@example.com');
+  await expect(chipHost.locator('[data-identity-row]')).toHaveAttribute('title', aliceUid!);
 
-  // The collapsed pill carries the same uid as the title of its one slot
+  // The collapsed pill is the word alone
   await minimize();
-  await expect(chipHost.locator('[data-identity-icon]')).toHaveAttribute('title', aliceUid!);
-  await expect(chipHost.locator('[data-identity-icon]')).toHaveAttribute('data-state', 'in');
+  await expect(chipHost.locator('.chip')).toHaveText('pyric');
 
   // Create User 2: Bob
   await openIdentityView();
@@ -113,7 +112,7 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
   await identityQuery.fill('Alice');
   const aliceRow = chipHost.locator(`[data-switch-user="${aliceUid}"]`);
   await expect(aliceRow).toBeVisible();
-  await expect(aliceRow.locator('.row-primary')).toHaveText('Alice Developer');
+  await expect(aliceRow.locator('.c1')).toHaveText('Alice Developer');
   // The session already showing is never offered as somewhere to switch to.
   await expect(chipHost.locator(`[data-switch-user="${bobUid}"]`)).toHaveCount(0);
   await aliceRow.click();
@@ -133,14 +132,14 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
   expect(namedLogAfterSwitch.slice(namedBobIndex + 1)).not.toContain(null);
   expect(namedLogAfterSwitch.at(-1)).toBe(aliceUid);
 
-  // The switch clears the query, so the view is back to the session and the bypass
+  // The switch clears the query, and the session is never offered as a switch
   await expect(identityQuery).toHaveValue('');
-  await expect(chipHost.locator('[data-switch-user]')).toHaveCount(0);
+  await expect(chipHost.locator(`[data-switch-user="${aliceUid}"]`)).toHaveCount(0);
 
   // 4. Sign out from the session row itself
   await chipHost.locator('[data-sign-out]').click();
   await expect(page.locator('#status')).toHaveText('signed-out', { timeout: 10_000 });
-  await expect(chipHost.locator('[data-identity-row] .row-primary')).toHaveText('Signed out');
+  await expect(chipHost.locator('[data-identity-row] .c1')).toHaveText('Signed out');
   await expect(chipHost.locator('[data-sign-out]')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __namedAuthLog: (string | null)[] }
@@ -148,14 +147,11 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
 
   // 5. Toggle the rules bypass from its own row
   const bypass = chipHost.locator('[data-toggle-bypass]');
-  await expect(bypass).toHaveText('off');
+  await expect(bypass).toHaveAttribute('aria-pressed', 'false');
   await bypass.click();
-  await expect(bypass).toHaveText('on');
   await expect(bypass).toHaveAttribute('aria-pressed', 'true');
 
-  // Minimize to check the collapsed slot carries the bypass as colour and title
+  // Minimize: the pill is still the word alone
   await minimize();
-  await expect(chipHost.locator('[data-identity-icon]')).toHaveAttribute('data-state', 'admin');
-  await expect(chipHost.locator('[data-identity-icon]')).toHaveAttribute('title', 'bypass rules');
   await expect(chipHost.locator('.chip')).toHaveText('pyric');
 });

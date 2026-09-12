@@ -35,7 +35,7 @@ import { studioListenerUrl, type ListenerMode } from './listener-mode.js';
 import { studioSectionUrl } from './studio-links.js';
 import type { ListenerOutline } from './listener-outline-model.js';
 import { listenerColors } from './listener-palette.js';
-import { filterUsers, userDisplayLabel } from './chip-user-search.js';
+import { filterUsers, getUserProviders, userDisplayLabel } from './chip-user-search.js';
 import {
   CHIP_TABS,
   CHIP_TAB_LABELS,
@@ -132,34 +132,31 @@ function aiEngineState(): AiEngineDisplay {
 const styles = `
   :host {
     --pyric-bg: #1e1e24;
-    --pyric-content: #16161a;
     --pyric-border: #33333f;
     --pyric-border-soft: #2a2a35;
     --pyric-text: #fbfbfe;
     --pyric-muted: #89899f;
-    --pyric-accent: #19cc61;
     --pyric-warning: #e6c79c;
     --pyric-error: #f0a0a0;
     all: initial;
     position: fixed;
-    right: max(20px, env(safe-area-inset-right));
-    bottom: max(20px, env(safe-area-inset-bottom));
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom));
     z-index: 2147483000;
     color: var(--pyric-text);
     font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     font-synthesis: none;
   }
-  *, *::before, *::after { box-sizing: border-box; }
-  .announcer { height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; width: 1px; clip: rect(0 0 0 0); white-space: nowrap; }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  .announcer { height: 1px; overflow: hidden; position: absolute; width: 1px; clip: rect(0 0 0 0); white-space: nowrap; }
   button, a, input { font: inherit; }
-  button { margin: 0; }
   :focus-visible { outline: 1px solid var(--pyric-muted); outline-offset: 2px; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
 
   /*
-   * The pill is one box, always. Its three slots are each a fixed width, so a
-   * session signing in, a rules bypass, a count arriving, and a count reaching
-   * three digits all change colour and glyph inside boxes that never move. Only
-   * the colour ever differs between states: no weight, no size, no border.
+   * The pill is the word and nothing else, one fixed box. Its border carries
+   * the page's state: the error colour for a denial or a duplicate listener,
+   * the warning colour for a pending worker update. Nothing inside it changes.
    */
   .chip {
     align-items: center;
@@ -170,66 +167,42 @@ const styles = `
     color: var(--pyric-text);
     cursor: pointer;
     display: flex;
-    gap: 8px;
-    height: 36px;
-    padding: 0 12px;
-    width: 118px;
-  }
-  .chip:hover { border-color: #4a4a58; }
-  .brand-label {
-    flex: 1 1 auto;
     font-family: "JetBrains Mono", ui-monospace, monospace;
     font-size: 11px;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
+    height: 32px;
+    justify-content: center;
+    width: 72px;
   }
-  .brand-label.error { color: var(--pyric-error); }
-  .brand-label.warning { color: var(--pyric-warning); }
-  .identity { align-items: center; color: var(--pyric-muted); display: inline-flex; flex: 0 0 16px; justify-content: center; width: 16px; }
-  .identity[data-state="in"] { color: var(--pyric-text); }
-  .identity[data-state="admin"] { color: var(--pyric-warning); }
-  .identity-icon { height: 14px; width: 14px; }
-  /* Three monospace characters, reserved whether or not there is a count. */
-  .chip-count {
-    color: var(--pyric-muted);
-    flex: 0 0 22px;
-    font: 11px/11px "JetBrains Mono", ui-monospace, monospace;
-    height: 11px;
-    text-align: right;
-    width: 22px;
-  }
-  .chip-count.error { color: var(--pyric-error); }
+  .chip:hover { border-color: #4a4a58; }
+  .chip.error { border-color: var(--pyric-error); }
+  .chip.warning { border-color: var(--pyric-warning); }
 
   /*
-   * One size for every view, summed from the zones every view shares: a 48
-   * header, a 40 strip, a 44 control zone, seven 44 rows, and a 44 action bar —
-   * 484 in all. A view with fewer rows leaves the rest empty rather than
-   * shrinking, and a list that would run past the bottom scrolls inside itself.
+   * The panel is a grid whose outer tracks are the 16px insets, so every
+   * child's left edge is line L and every right edge is line R without a single
+   * padding or margin. Inside, the column stacks header, strip, view, and bar
+   * with one 20px section gap. Height is fixed: 16 + 40 + 20 + 32 + 20 + 300 +
+   * 20 + 32 + 16.
    */
   .panel {
     background: var(--pyric-bg);
     border: 1px solid var(--pyric-border);
     border-radius: 10px;
     box-shadow: 0 18px 60px rgba(0, 0, 0, .48);
-    display: flex;
-    flex-direction: column;
-    height: 484px;
-    max-width: calc(100vw - 40px);
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) 16px;
+    grid-template-rows: 16px minmax(0, 1fr) 16px;
+    height: 496px;
+    max-width: calc(100vw - 32px);
     overflow: hidden;
     width: 384px;
   }
-  .panel-header { align-items: center; display: flex; flex: 0 0 48px; height: 48px; justify-content: space-between; padding: 0 16px; }
+  .panel-column { display: flex; flex-direction: column; gap: 20px; grid-column: 2; grid-row: 2; min-height: 0; }
+  .panel-header { align-items: center; display: flex; flex: 0 0 40px; justify-content: space-between; }
   .panel-name { font-size: 13px; font-weight: 500; line-height: 20px; }
-  .header-controls { align-items: center; display: inline-flex; gap: 12px; }
-  .header-studio { color: var(--pyric-muted); font-size: 12px; line-height: 20px; text-decoration: none; white-space: nowrap; }
-  a.header-studio:hover { color: var(--pyric-text); }
-  .header-studio[aria-disabled="true"] { cursor: not-allowed; opacity: .5; }
-  .icon-button { align-items: center; background: transparent; border: 0; border-radius: 4px; color: var(--pyric-muted); cursor: pointer; display: inline-flex; height: 24px; justify-content: center; padding: 0; width: 24px; }
-  .icon-button:hover { background: rgba(255,255,255,.05); color: var(--pyric-text); }
-  .icon { height: 15px; width: 15px; }
+  .actions { align-items: center; display: flex; gap: 8px; justify-content: flex-end; }
 
-  .tabs { align-items: stretch; border-bottom: 1px solid var(--pyric-border-soft); display: flex; flex: 0 0 40px; gap: 20px; height: 40px; padding: 0 16px; }
+  .tabs { border-bottom: 1px solid var(--pyric-border-soft); display: flex; flex: 0 0 32px; gap: 20px; }
   .tab {
     background: transparent;
     border: 0;
@@ -238,7 +211,6 @@ const styles = `
     cursor: pointer;
     font-size: 13px;
     line-height: 20px;
-    padding: 0;
   }
   .tab:hover { color: var(--pyric-text); }
   .tab[aria-selected="true"] { border-bottom-color: var(--pyric-text); color: var(--pyric-text); }
@@ -247,105 +219,79 @@ const styles = `
   .tab.pending { color: var(--pyric-warning); }
   .tab.pending[aria-selected="true"] { border-bottom-color: var(--pyric-warning); }
 
-  .view { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
-  .rows { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow-y: auto; }
-  .rows::-webkit-scrollbar { width: 8px; }
-  .rows::-webkit-scrollbar-thumb { background: var(--pyric-border); border-radius: 4px; }
-  .control { border-bottom: 1px solid var(--pyric-border-soft); flex: 0 0 44px; }
-  /*
-   * The bar sits on the panel's bottom edge on every tab. It is right-aligned
-   * with the primary action rightmost, so a secondary action arriving or going
-   * moves nothing, and the primary slot is a fixed width, so it is in the same
-   * place on every tab whatever word it carries.
-   */
-  .action-bar {
+  /* The view is the one section that scrolls; its sections are 20 apart and its
+     rows 8 apart. */
+  .view { display: flex; flex: 0 0 300px; flex-direction: column; gap: 20px; min-height: 0; overflow-y: auto; }
+  .view::-webkit-scrollbar { width: 8px; }
+  .view::-webkit-scrollbar-thumb { background: var(--pyric-border); border-radius: 4px; }
+  .rows { display: flex; flex-direction: column; gap: 8px; }
+  .field {
     align-items: center;
-    border-top: 1px solid var(--pyric-border-soft);
-    display: flex;
-    flex: 0 0 44px;
-    gap: 12px;
-    height: 44px;
-    justify-content: flex-end;
-    padding: 0 16px;
-  }
-  /* A slot keeps its box when it carries nothing, so the slot beside it cannot
-     move when an action arrives or goes. */
-  .bar-slot { align-items: center; display: inline-flex; flex: 0 0 auto; height: 28px; justify-content: flex-end; }
-  .bar-slot.primary { flex: 0 0 96px; width: 96px; }
-  .bar-slot.primary .row-action { width: 100%; }
-  .row { flex: 0 0 44px; }
-  .row {
-    align-items: center;
-    column-gap: 12px;
+    background: rgba(0,0,0,.22);
+    border: 1px solid var(--pyric-border-soft);
+    border-radius: 6px;
     display: grid;
-    grid-template-columns: 16px minmax(0, 1fr) minmax(0, auto);
-    height: 44px;
-    padding: 0 16px;
+    flex: 0 0 32px;
+    grid-template-columns: 8px minmax(0, 1fr) 8px;
+  }
+  .field:focus-within { border-color: #4a4a58; }
+  .field input { background: transparent; border: 0; color: var(--pyric-text); font-size: 13px; grid-column: 2; line-height: 20px; outline: none; width: 100%; }
+
+  /*
+   * One row, every tab: three columns and two lines. Column one starts at L,
+   * column two at L2 (112 from L), and the slot ends at R. A tab without a
+   * fixed first column spans its text across one and two. The slot holds the
+   * row's fact or its one button, never both.
+   */
+  .row {
+    column-gap: 8px;
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr) 84px;
+    grid-template-rows: 20px;
+    row-gap: 4px;
+    text-align: left;
     width: 100%;
   }
-  a.row, button.row { background: transparent; border: 0; color: inherit; cursor: pointer; text-align: left; text-decoration: none; }
-  a.row:hover, button.row:hover { background: rgba(255,255,255,.05); }
-  .row-mark { align-items: center; display: inline-flex; height: 16px; justify-content: center; width: 16px; }
-  .row-glyph { height: 16px; width: 16px; }
-  .row-mark .identity { color: inherit; }
-  .row-dot { background: var(--pyric-accent); border-radius: 50%; height: 8px; width: 8px; }
-  .row-dot.pending { background: var(--pyric-warning); }
-  .row-swatch { border-radius: 2px; height: 10px; width: 10px; }
-  .row-primary { font-size: 13px; line-height: 20px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .row-secondary { color: var(--pyric-muted); font-size: 12px; }
-  .row-fact { align-items: center; color: var(--pyric-muted); display: inline-flex; font-size: 12px; gap: 12px; justify-content: flex-end; line-height: 20px; min-width: 0; white-space: nowrap; }
-  /* A uid or an epoch pair is bounded so it can never squeeze the primary out
-     of its own row. */
-  .row-fact > .mono { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
-  /* A sandbox uid runs to forty characters. It is the row's fact, not its
-     subject, so it yields to the name beside it. */
-  .row-fact > [data-identity-uid] { max-width: 88px; }
-  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
-  .row.problem .row-primary, .row.problem .row-fact, .row.problem .row-secondary { color: var(--pyric-error); }
-  .row-action {
+  .row.sub { grid-template-rows: 20px 16px; }
+  button.row { background: transparent; border: 0; border-radius: 4px; color: inherit; cursor: pointer; }
+  button.row:hover { background: rgba(255,255,255,.05); }
+  button.row[aria-pressed="true"] { background: rgba(255,255,255,.09); }
+  .c1, .c2 { font-size: 13px; line-height: 20px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c1.wide { grid-column: 1 / 3; }
+  .s1, .s2 { color: var(--pyric-muted); font-size: 12px; grid-row: 2; line-height: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .s1 { grid-column: 1; }
+  .s1.wide { grid-column: 1 / 3; }
+  .s2 { grid-column: 2; }
+  .s1.split { display: flex; gap: 8px; justify-content: space-between; }
+  .s1.split .right { display: flex; gap: 8px; }
+  .slot { align-items: center; color: var(--pyric-muted); display: flex; font-size: 12px; grid-column: 3; grid-row: 1; justify-content: flex-end; line-height: 20px; min-width: 0; overflow: hidden; white-space: nowrap; }
+  .row.problem .c1, .row.problem .c2, .row.problem .slot { color: var(--pyric-error); }
+  .row.pending .c1, .row.pending .slot { color: var(--pyric-warning); }
+  .slot.ok { color: var(--pyric-muted); }
+
+  /* The one button. */
+  .btn {
+    align-items: center;
     background: transparent;
     border: 1px solid var(--pyric-border-soft);
     border-radius: 4px;
     color: var(--pyric-muted);
     cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 84px;
     font-size: 12px;
-    height: 28px;
-    line-height: 20px;
-    padding: 0 10px;
-  }
-  .row-action:hover:not(:disabled) { border-color: #3a3a48; color: var(--pyric-text); }
-  .row-action:disabled, .row-action[aria-disabled="true"] { cursor: not-allowed; opacity: .42; }
-  .row-action[aria-pressed="true"] { border-color: rgba(230,199,156,.45); color: var(--pyric-warning); }
-  .row-field {
-    align-items: center;
-    background: rgba(0,0,0,.22);
-    border: 1px solid var(--pyric-border-soft);
-    border-radius: 6px;
-    display: flex;
-    grid-column: 2 / -1;
     height: 32px;
-    padding: 0 10px;
-  }
-  .row-field:focus-within { border-color: #4a4a58; }
-  .row-field input { background: transparent; border: 0; color: var(--pyric-text); font-size: 13px; line-height: 20px; outline: none; width: 100%; }
-  .segmented { border: 1px solid var(--pyric-border-soft); border-radius: 999px; display: inline-flex; flex: none; overflow: hidden; }
-  .segmented button {
-    background: transparent;
-    border: 0;
-    color: var(--pyric-muted);
-    cursor: pointer;
-    font-size: 11px;
+    justify-content: center;
     line-height: 20px;
-    padding: 3px 6px;
+    text-decoration: none;
+    width: 84px;
   }
-  .segmented button:hover { color: var(--pyric-text); }
-  .segmented button[aria-pressed="true"] { background: rgba(255,255,255,.09); color: var(--pyric-text); }
-  .segmented button[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
+  .btn:hover:not(:disabled) { border-color: #3a3a48; color: var(--pyric-text); }
+  .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; opacity: .42; }
+  .btn[aria-pressed="true"] { background: rgba(255,255,255,.09); border-color: #3a3a48; color: var(--pyric-text); }
+  .slot .btn { height: 20px; }
+  .bar { flex: 0 0 32px; }
 
-  @media (max-width: 460px) {
-    :host { bottom: max(12px, env(safe-area-inset-bottom)); right: 12px; }
-    .panel { max-width: calc(100vw - 24px); }
-  }
   @media (prefers-reduced-motion: no-preference) {
     [data-view], .panel { transform-origin: bottom right; }
     .entering { animation: pyric-enter 120ms ease-out; }
@@ -354,25 +300,6 @@ const styles = `
 
   ${THEME_DIALOG_STYLES}
 `;
-
-const icons = {
-  minimize: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14"/></svg>',
-};
-
-/** The head-and-shoulders outline both identity glyphs are drawn from. */
-const IDENTITY_PATH = 'M12 4.2a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z M5 19.8a7 7 0 0 1 14 0Z';
-
-/**
- * One drawing, two states. A signed-in session fills the silhouette; a signed
- * out page strokes the same path, so the eye reads one slot rather than two
- * icons.
- */
-function identityGlyph(state: 'in' | 'out', className: string): string {
-  if (state === 'out') {
-    return `<svg class="${className}" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="${IDENTITY_PATH}"/></svg>`;
-  }
-  return `<svg class="${className}" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><path d="${IDENTITY_PATH}"/></svg>`;
-}
 
 function escapeAttribute(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
@@ -405,40 +332,60 @@ function displayTarget(outline: ListenerOutline): string {
   return outline.isQuery ? `${outline.target} (query)` : outline.target;
 }
 
-/** How many rows the rows zone holds. Past this the answer is Studio's. */
+/** A view: what the scrolling area holds, and its action bar. */
+interface ChipView { body: string; bar: string }
+
+/** How many rows a view lists. Past this the answer is Studio's. */
 const MAX_ROWS = 7;
 
-/** One row's three cells, as markup. */
-function rowHtml(input: {
-  mark: string;
-  primary: string;
-  fact: string;
+/** One cell's text, escaped, or nothing. */
+interface RowCells {
+  /** Column one, or the whole text width when `c2` is absent. */
+  c1: string;
+  /** Column two, at L2. Present only on a tab with a fixed first column. */
+  c2?: string;
+  /** The sub-row under column one; with `c2`, under the first column only. */
+  s1?: string;
+  /** The sub-row under column two. */
+  s2?: string;
+  /** The sub-row's right-aligned cell, ending at R. Only without `c2`. */
+  s1Right?: string;
+  /** The slot at R: a fact or one button, already escaped or built. */
+  slot: string;
   className?: string;
   attributes?: string;
-  href?: string | null;
   title?: string | null;
-}): string {
-  const classes = `row${input.className ? ` ${input.className}` : ''}`;
-  const title = input.title ? ` title="${escapeAttribute(input.title)}"` : '';
-  const attributes = input.attributes ? ` ${input.attributes}` : '';
-  const cells = `<span class="row-mark">${input.mark}</span><span class="row-primary">${input.primary}</span><span class="row-fact">${input.fact}</span>`;
-  if (input.href) {
-    return `<a class="${classes}" href="${escapeAttribute(input.href)}" target="_blank" rel="noopener noreferrer"${title}${attributes}>${cells}</a>`;
-  }
-  return `<div class="${classes}"${title}${attributes}>${cells}</div>`;
 }
 
-/** A row whose own click is its action. */
-function buttonRowHtml(input: {
-  mark: string;
-  primary: string;
-  fact: string;
-  className?: string;
-  attributes: string;
-  label: string;
-}): string {
-  const classes = `row${input.className ? ` ${input.className}` : ''}`;
-  return `<button class="${classes}" type="button" aria-label="${escapeAttribute(input.label)}" ${input.attributes}><span class="row-mark">${input.mark}</span><span class="row-primary">${input.primary}</span><span class="row-fact">${input.fact}</span></button>`;
+/** A row: two lines, three columns, the same cells on every tab. */
+function rowHtml(cells: RowCells): string {
+  const hasSub = cells.s1 !== undefined || cells.s2 !== undefined || cells.s1Right !== undefined;
+  const wide = cells.c2 === undefined;
+  const classes = `row${hasSub ? ' sub' : ''}${cells.className ? ` ${cells.className}` : ''}`;
+  const title = cells.title ? ` title="${escapeAttribute(cells.title)}"` : '';
+  const attributes = cells.attributes ? ` ${cells.attributes}` : '';
+  let html = `<span class="c1${wide ? ' wide' : ''}">${cells.c1}</span>`;
+  if (!wide) html += `<span class="c2">${cells.c2}</span>`;
+  html += `<span class="slot">${cells.slot}</span>`;
+  if (hasSub) {
+    if (wide && cells.s1Right !== undefined) {
+      html += `<span class="s1 wide split"><span>${cells.s1 ?? ''}</span><span class="right">${cells.s1Right}</span></span>`;
+    } else {
+      html += `<span class="s1${wide ? ' wide' : ''}">${cells.s1 ?? ''}</span>`;
+      if (!wide) html += `<span class="s2">${cells.s2 ?? ''}</span>`;
+    }
+  }
+  return `<div class="${classes}"${title}${attributes}>${html}</div>`;
+}
+
+/** A row whose own click is its action; `pressed` marks it active. */
+function buttonRowHtml(cells: RowCells & { label: string; pressed?: boolean }): string {
+  const inner = rowHtml(cells);
+  const body = inner.slice(inner.indexOf('>') + 1, -'</div>'.length);
+  const hasSub = cells.s1 !== undefined || cells.s2 !== undefined || cells.s1Right !== undefined;
+  const classes = `row${hasSub ? ' sub' : ''}${cells.className ? ` ${cells.className}` : ''}`;
+  const title = cells.title ? ` title="${escapeAttribute(cells.title)}"` : '';
+  return `<button class="${classes}" type="button" aria-label="${escapeAttribute(cells.label)}"${cells.pressed === undefined ? '' : ` aria-pressed="${cells.pressed}"`}${title} ${cells.attributes ?? ''}>${body}</button>`;
 }
 
 /** `true` for an element with a text caret to preserve across a rebuild. */
@@ -446,19 +393,14 @@ function isTextField(element: Element | null | undefined): element is HTMLInputE
   return element !== null && element !== undefined && element.tagName === 'INPUT';
 }
 
-/** One action bar: up to three text buttons, the primary one rightmost, and
- * every slot drawn whether or not it carries anything. */
-function actionBarHtml(slots: { tertiary?: string; secondary?: string; primary?: string }): string {
-  return `<div class="action-bar" data-action-bar>`
-    + `<span class="bar-slot tertiary" data-bar-slot="tertiary">${slots.tertiary ?? ''}</span>`
-    + `<span class="bar-slot secondary" data-bar-slot="secondary">${slots.secondary ?? ''}</span>`
-    + `<span class="bar-slot primary" data-bar-slot="primary">${slots.primary ?? ''}</span>`
-    + `</div>`;
+/** The one button, wherever it sits. */
+function buttonHtml(attributes: string, label: string, title?: string): string {
+  return `<button class="btn" type="button" ${attributes}${title ? ` title="${escapeAttribute(title)}"` : ''}>${escapeAttribute(label)}</button>`;
 }
 
-/** One text button, the only kind the bar carries. */
-function barButtonHtml(attributes: string, label: string, title?: string): string {
-  return `<button class="row-action" type="button" ${attributes}${title ? ` title="${escapeAttribute(title)}"` : ''}>${escapeAttribute(label)}</button>`;
+/** The action bar: up to three buttons against R, the primary one rightmost. */
+function barHtml(buttons: readonly string[]): string {
+  return `<div class="actions bar" data-action-bar>${buttons.join('')}</div>`;
 }
 
 /** `12:50:43` in the page's own clock, which is the one the developer reads. */
@@ -551,7 +493,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const paintModeBeforeBuild = readListenerPaintMode(pagePaintModeStorage(documentLike));
   /** `true` once the Listeners mode has reported at least once. The collapsed
    * chip's listener count stays hidden until then. */
-  let everReportedListeners = false;
   /** Why the outlines refused to come on, for the control's own title. */
   let outlinesRefused: string | null = null;
   /** Whether the last rendered panel carried the Flow waiting fact. */
@@ -561,7 +502,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const build = options.listeners;
     if (build === undefined) return null;
     listenerMode = build((outlines) => {
-      everReportedListeners = true;
       // The mode reports on every attach, delivery, and resize; rebuild the
       // view only when what the panel shows actually changes. The first
       // painted flow changes the panel without changing the outlines, because
@@ -611,6 +551,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         // nor method, the message is the only true thing to print.
         label: error.message,
         verdict: isPermissionDeniedCode(error.code) ? 'denied' : 'error',
+        reason: null,
       });
     }
     const ordered = orderChipRequests([...byId.values()], Date.now());
@@ -662,204 +603,154 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   // ── The four views ─────────────────────────────────────────────────────────
 
-  const identityViewHtml = (activeUid: string | null, isAdmin: boolean): string => {
-    const user = readCurrentUser();
-    const control = `<div class="row control"><span class="row-mark"></span><span class="row-field"><input type="text" data-identity-query placeholder="Switch user: uid or email" autocomplete="off" aria-label="Switch user by uid or email" value="${escapeAttribute(identityQuery)}"></span></div>`;
+  /** The listener a row click singled out on the page, if any. */
+  let activeListenerId: string | null = null;
 
-    const rows: string[] = [];
+  /** The pending worker update as the first tab's first row, while it lasts. */
+  const updateRowHtml = (): string => {
+    if (!snapshot.updateAvailable) return '';
+    return rowHtml({
+      c1: 'Worker update available',
+      s1: `<span class="mono">${escapeAttribute(snapshot.servedEpoch?.slice(0, 8) ?? '')}</span>`,
+      slot: buttonHtml(`data-update-worker aria-disabled="${snapshot.updatingWorker}"`, snapshot.updatingWorker ? 'Updating' : 'Update'),
+      className: 'pending',
+      attributes: 'data-update-row',
+    });
+  };
+
+  const providersHtml = (record: AuthUserRecord | undefined): string =>
+    record === undefined ? '' : getUserProviders(record).map((provider) => `<span>${escapeAttribute(provider)}</span>`).join('');
+
+  const identityViewHtml = (activeUid: string | null, isAdmin: boolean): ChipView => {
+    const user = readCurrentUser();
+    const rows: string[] = [updateRowHtml()];
+    const matched: string[] = [];
     if (activeUid === null) {
-      rows.push(rowHtml({
-        mark: `<span class="identity" data-panel-identity data-state="out">${identityGlyph('out', 'row-glyph')}</span>`,
-        primary: 'Signed out',
-        fact: '',
-        attributes: 'data-identity-row',
-      }));
+      rows.push(rowHtml({ c1: 'Signed out', slot: '', attributes: 'data-identity-row' }));
     } else {
-      const email = user?.email ?? null;
-      const primary = email ?? activeUid;
+      const record = knownUsers.find((candidate) => candidate.uid === activeUid);
+      const name = user?.displayName ?? record?.displayName ?? null;
+      const email = user?.email ?? record?.email ?? null;
+      const sub = name === null ? '' : escapeAttribute(email ?? '');
+      const providers = providersHtml(record);
       rows.push(rowHtml({
-        mark: `<span class="identity" data-panel-identity data-state="in">${identityGlyph('in', 'row-glyph')}</span>`,
-        primary: escapeAttribute(primary),
-        fact: email === null ? '' : `<span class="mono" data-identity-uid>${escapeAttribute(activeUid)}</span>`,
+        c1: escapeAttribute(name ?? email ?? activeUid),
+        ...(sub === '' && providers === '' ? {} : { s1: sub, s1Right: providers }),
+        slot: buttonHtml('data-sign-out', 'Sign out'),
         attributes: 'data-identity-row',
         title: activeUid,
       }));
     }
 
     const query = identityQuery.trim();
-    let matched = 0;
-    if (query !== '') {
-      const matches = filterUsers(knownUsers, identityQuery)
-        .filter((candidate) => candidate.uid !== activeUid)
-        .slice(0, MAX_ROWS - rows.length);
-      matched = matches.length;
-      for (const candidate of matches) {
-        const label = userDisplayLabel(candidate);
-        rows.push(buttonRowHtml({
-          mark: `<span class="identity" data-state="out">${identityGlyph('out', 'row-glyph')}</span>`,
-          primary: escapeAttribute(label),
-          // The uid is the fact only when the row is not already named by it.
-          fact: label === candidate.uid ? '' : `<span class="mono">${escapeAttribute(candidate.uid)}</span>`,
-          attributes: `data-switch-user="${escapeAttribute(candidate.uid)}"`,
-          label: `Switch to ${label}`,
-        }));
-      }
+    const matches = filterUsers(knownUsers, identityQuery)
+      .filter((candidate) => candidate.uid !== activeUid)
+      .slice(0, MAX_ROWS);
+    for (const candidate of matches) {
+      const label = userDisplayLabel(candidate);
+      const email = candidate.email ?? '';
+      const sub = label === email ? '' : escapeAttribute(email);
+      const providers = providersHtml(candidate);
+      matched.push(buttonRowHtml({
+        c1: escapeAttribute(label),
+        ...(sub === '' && providers === '' ? {} : { s1: sub, s1Right: providers }),
+        slot: '<span class="btn" aria-hidden="true">Sign in</span>',
+        attributes: `data-switch-user="${escapeAttribute(candidate.uid)}"`,
+        label: `Sign in as ${label}`,
+        title: candidate.uid,
+      }));
     }
 
-    // Signed in, the bar switches the lens and ends the session. Signed out,
-    // there is no session to end, and the only offer worth making is to create
-    // the user a typed query found nobody for.
-    const bar = activeUid === null
-      ? actionBarHtml({
-          primary: query !== '' && matched === 0
-            ? barButtonHtml('data-create-user', 'Create user', `Create a user for ${query}`)
-            : '',
-        })
-      : actionBarHtml({
-          secondary: barButtonHtml(`data-toggle-bypass aria-pressed="${isAdmin}"`, `Bypass rules: ${isAdmin ? 'on' : 'off'}`),
-          primary: barButtonHtml('data-sign-out', 'Sign out'),
-        });
-    return `${control}<div class="rows">${rows.slice(0, MAX_ROWS).join('')}</div>${bar}`;
+    const buttons: string[] = [];
+    if (query !== '' && matches.length === 0) {
+      buttons.push(buttonHtml('data-create-user', 'Create user', `Create a user for ${query}`));
+    }
+    buttons.push(buttonHtml(`data-toggle-bypass aria-pressed="${isAdmin}"`, 'Bypass rules', isAdmin ? 'Rules are bypassed' : 'Evaluate rules as the session'));
+    const search = `<div class="field"><input type="text" data-identity-query placeholder="Search users" autocomplete="off" aria-label="Search users" value="${escapeAttribute(identityQuery)}"></div>`;
+    return { body: `<div class="rows">${rows.join('')}</div>${search}<div class="rows" data-user-rows>${matched.join('')}</div>`, bar: barHtml(buttons) };
   };
 
-  const listenersViewHtml = (): string => {
+  const listenersViewHtml = (): ChipView => {
     const outlinesOn = listenerMode?.enabled() === true;
-    // The remembered mode says how the painting would go, not that it is going:
-    // a page that remembers Flow and has the outlines off shows `off` pressed.
     const paintMode: ListenerPaintMode = listenerMode?.mode() ?? paintModeBeforeBuild;
     const flowReason = listenerMode === null ? null : listenerMode.flowUnavailableReason();
-    const pressed = (candidate: 'off' | ListenerPaintMode): boolean =>
-      candidate === 'off' ? !outlinesOn : outlinesOn && paintMode === candidate;
-    const offTitle = outlinesRefused === null ? 'Paint nothing' : outlinesRefused;
-    const flowBlocked = flowReason ?? outlinesRefused;
-    const overviewBlocked = outlinesRefused;
-    renderedFlowWaiting = listenerMode?.flowWaiting() === true;
-    // Flow paints on delivery, so an idle page shows nothing and reads as
-    // broken. The fact says what the mode is waiting for, and it sits beside the
-    // label rather than beside the control, because the control's own place must
-    // not move when the waiting starts or stops.
-    const waiting = `<span class="row-secondary" data-flow-waiting>${renderedFlowWaiting ? ' · waiting for a delivery' : ''}</span>`;
-    const control = `<div class="row control">
-        <span class="row-mark"></span>
-        <span class="row-primary">Outlines${waiting}</span>
-        <span class="row-fact"><span class="segmented" role="group" aria-label="How listeners are painted" data-listener-modes><button type="button" data-listener-mode="off" aria-pressed="${pressed('off')}" title="${escapeAttribute(offTitle)}">off</button><button type="button" data-listener-mode="overview" aria-pressed="${pressed('overview')}"${overviewBlocked === null ? ' title="Outline every attached listener"' : ` aria-disabled="true" title="${escapeAttribute(overviewBlocked)}"`}>Overview</button><button type="button" data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowBlocked === null ? ' title="Outline what rendered after each delivery"' : ` aria-disabled="true" title="${escapeAttribute(flowBlocked)}"`}>Flow</button></span></span>
-      </div>`;
+    const pressed = (candidate: ListenerPaintMode): boolean => outlinesOn && paintMode === candidate;
 
-    const ordered = [...listenerOutlines].sort((a, b) => {
-      const duplicate = (outline: ListenerOutline): number =>
-        outline.incident?.pattern === 'duplicate-listener' ? 0 : 1;
-      return duplicate(a) - duplicate(b)
-        || b.deliveryCount - a.deliveryCount
-        || a.label.localeCompare(b.label);
-    }).slice(0, MAX_ROWS);
+    const incidents = listenerOutlines.filter((outline) => outline.incident?.pattern === 'duplicate-listener');
+    const ordered = [...listenerOutlines]
+      .sort((a, b) => b.deliveryCount - a.deliveryCount || a.label.localeCompare(b.label))
+      .slice(0, MAX_ROWS);
 
-    const rows = ordered.map((outline) => {
-      const target = displayTarget(outline);
-      const isDuplicate = outline.incident?.pattern === 'duplicate-listener';
-      const title = isDuplicate
-        ? `${target} attached ${outline.incident!.count === 2 ? 'twice' : `${outline.incident!.count} times`}`
-        : outline.labelIsOwner ? `${outline.label} · ${target}` : target;
-      // An owner names the row and the target reads as its secondary. With
-      // nothing on the page to name it, the target is all there is, so it
-      // becomes the primary rather than being printed twice.
-      const primary = outline.labelIsOwner
-        ? `${escapeAttribute(outline.label)} <span class="row-secondary mono">${escapeAttribute(target)}</span>`
-        : `<span class="mono">${escapeAttribute(target)}</span>`;
-      return rowHtml({
-        mark: `<span class="row-swatch" data-listener-swatch style="background:${escapeAttribute(listenerColors(outline.listenerId).swatch)}"></span>`,
-        primary,
-        fact: `<span class="mono">${outline.deliveryCount}</span>`,
-        className: isDuplicate ? 'problem' : '',
-        attributes: `data-listener-row="${escapeAttribute(outline.listenerId)}"`,
-        href: studioUrl ? studioListenerUrl(studioUrl, outline) : null,
-        title,
-      });
-    });
-    const bar = actionBarHtml({
-      primary: barButtonHtml('data-open-overlay-theme', 'Theme', "Edit the overlay's custom properties"),
-    });
-    return `${control}<div class="rows" data-listener-rows>${rows.join('')}</div>${bar}`;
-  };
-
-  const trafficViewHtml = (): string => {
-    const shown = trafficRows();
-    const control = `<div class="row control">
-        <span class="row-mark"></span>
-        <span class="row-primary">Show</span>
-        <span class="row-fact"><span class="segmented" role="group" aria-label="Which requests to show" data-traffic-filter><button type="button" data-traffic-show="all" aria-pressed="${trafficFilter === 'all'}" title="Every request the page made">all</button><button type="button" data-traffic-show="denied" aria-pressed="${trafficFilter === 'denied'}" title="Only the requests that failed">denied</button></span></span>
-      </div>`;
-    const rows = shown.map((request) => {
-      const call = request.service !== null && request.method !== null
-        ? `${request.service}.${request.method}`
-        : request.label ?? request.service ?? request.method ?? '';
-      const path = request.path === null ? '' : ` <span class="mono row-secondary">${escapeAttribute(request.path)}</span>`;
-      return rowHtml({
-        mark: '',
-        primary: `<span class="mono row-secondary">${clockTime(request.at)}</span> ${escapeAttribute(call)}${path}`,
-        fact: request.verdict,
-        className: request.verdict === 'ok' ? '' : 'problem',
-        attributes: `data-request-row="${escapeAttribute(request.id)}"`,
-        href: studioUrl ? studioSectionUrl(studioUrl, 'traffic', `request=${encodeURIComponent(request.id)}`) : null,
-        title: `${call}${request.path === null ? '' : ` ${request.path}`} · ${request.verdict}`,
-      });
-    });
-    const bar = actionBarHtml({
-      primary: barButtonHtml(
-        `data-copy-traffic${clipboard ? '' : ' disabled'}`,
-        'Copy',
-        clipboard ? 'Copy these rows as plain text' : 'Clipboard unavailable',
-      ),
-    });
-    return `${control}<div class="rows" data-traffic-rows>${rows.join('')}</div>${bar}`;
-  };
-
-  const sandboxViewHtml = (): string => {
-    const aiState = aiEngineState();
-    const modeLabel = snapshot.mode === 'in-page'
-      ? 'in-page'
-      : snapshot.mode === 'shared-worker' ? 'shared worker' : 'starting';
-    const runtimePrimary = snapshot.mode === 'starting' ? modeLabel : `${modeLabel} · running`;
-    const runningEpoch = snapshot.runningEpoch?.slice(0, 8) ?? '';
-    // Sandbox has nothing to set in its control zone, so the zone states which
-    // runtime is running instead. It is the same three tracks either way.
-    const control = `<div class="row control" data-runtime-row>`
-      + `<span class="row-mark"><span class="row-dot${snapshot.updateAvailable ? ' pending' : ''}"></span></span>`
-      + `<span class="row-primary">${escapeAttribute(runtimePrimary)}</span>`
-      + `<span class="row-fact">${runningEpoch === '' ? '' : `<span class="mono" data-running-epoch>${escapeAttribute(runningEpoch)}</span>`}</span>`
-      + `</div>`;
-
-    const epochs = snapshot.updateAvailable
-      ? `${snapshot.runningEpoch?.slice(0, 8) ?? 'unknown'} → ${snapshot.servedEpoch?.slice(0, 8) ?? 'unknown'}`
-      : '';
-    const rows: string[] = [
-      rowHtml({
-        mark: '',
-        primary: 'AI engine',
-        fact: escapeAttribute(aiState.primary),
-        attributes: 'data-ai-row',
-        title: aiState.detail,
-      }),
-      // The worker's row is always here and its fact is always reserved; the
-      // epochs arrive in it when there is an update to describe.
-      rowHtml({
-        mark: '',
-        primary: 'Worker',
-        fact: `<span class="mono" data-worker-epochs>${escapeAttribute(epochs)}</span>`,
-        attributes: 'data-worker-row',
+    const rows = [
+      ...incidents.map((outline) => buttonRowHtml({
+        c1: 'Duplicate subscription',
+        s1: `<span class="mono">${escapeAttribute(displayTarget(outline))}</span>`,
+        slot: `<span class="mono">${outline.incident!.count}</span>`,
+        className: 'problem',
+        attributes: `data-listener-incident="${escapeAttribute(outline.listenerId)}" data-activate-listener="${escapeAttribute(outline.listenerId)}"`,
+        label: `Outline the ${outline.incident!.count} subscriptions to ${displayTarget(outline)}`,
+        pressed: activeListenerId === outline.listenerId,
+      })),
+      ...ordered.map((outline) => {
+        const target = displayTarget(outline);
+        const hue = listenerColors(outline.listenerId).swatch;
+        return buttonRowHtml({
+          c1: escapeAttribute(outline.labelIsOwner ? outline.label : target),
+          s1: `<span class="mono" style="color:${escapeAttribute(hue)}">${escapeAttribute(outline.labelIsOwner ? target : '')}</span>`,
+          slot: `<span class="mono">${outline.deliveryCount}</span>`,
+          attributes: `data-listener-row="${escapeAttribute(outline.listenerId)}" data-activate-listener="${escapeAttribute(outline.listenerId)}"`,
+          label: `Outline ${outline.labelIsOwner ? outline.label : target} on the page`,
+          pressed: activeListenerId === outline.listenerId,
+        });
       }),
     ];
-    const bar = actionBarHtml({
-      secondary: snapshot.updateAvailable
-        ? barButtonHtml(`data-update-worker aria-disabled="${snapshot.updatingWorker}"`, snapshot.updatingWorker ? 'Updating' : 'Update')
-        : '',
-      primary: barButtonHtml('data-dismiss-chip', 'Hide', 'Hide pyric on this page'),
-    });
-    return `${control}<div class="rows">${rows.join('')}</div>${bar}`;
+    const blocked = outlinesRefused;
+    const bar = barHtml([
+      buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"${blocked === null ? '' : ' aria-disabled="true"'}`, 'Overview', blocked ?? 'Outline every attached listener'),
+      buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${(flowReason ?? blocked) === null ? '' : ' aria-disabled="true"'}`, 'Flow', flowReason ?? blocked ?? 'Outline what rendered after each delivery'),
+      buttonHtml('data-open-overlay-theme', 'Theme', "Edit the overlay's custom properties"),
+    ]);
+    return { body: `<div class="rows" data-listener-rows>${rows.join('')}</div>`, bar };
   };
 
-  const viewHtml = (activeUid: string | null, isAdmin: boolean): string => {
+  const trafficViewHtml = (): ChipView => {
+    const rows = trafficRows().map((request) => {
+      // A failure that names no call sits in the path column, under a
+      // `runtime` call, so column one stays the call column on every row.
+      const named = request.service !== null && request.method !== null;
+      const call = named ? `${request.service}.${request.method}` : 'runtime';
+      const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
+      return rowHtml({
+        c1: escapeAttribute(call),
+        c2: named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
+        s1: `<span class="mono">${clockTime(request.at)}</span>`,
+        s2: escapeAttribute(request.reason ?? ''),
+        slot: `<span class="${request.verdict === 'ok' ? 'ok' : ''}">${request.verdict}</span>`,
+        className: request.verdict === 'ok' ? '' : 'problem',
+        attributes: `data-request-row="${escapeAttribute(request.id)}"`,
+      });
+    });
+    const bar = barHtml([
+      buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only'),
+      buttonHtml(`data-copy-traffic${clipboard ? '' : ' disabled'}`, 'Copy', clipboard ? 'Copy these rows as plain text' : 'Clipboard unavailable'),
+    ]);
+    return { body: `<div class="rows" data-traffic-rows>${rows.join('')}</div>`, bar };
+  };
+
+  const sandboxViewHtml = (): ChipView => {
+    const aiState = aiEngineState();
+    const rows = [
+      // The model is the fact a user knows; the sandbox engine reads as `scripted`.
+      rowHtml({ c1: 'Model', slot: escapeAttribute(aiState.primary.replace(/^sandbox \((.*)\)$/, '$1')), attributes: 'data-ai-row', title: aiState.detail }),
+      rowHtml({ c1: 'Worker', slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? '')}</span>`, attributes: 'data-worker-row' }),
+      rowHtml({ c1: 'Theme', slot: buttonHtml('data-open-overlay-theme', 'Edit', "Edit the overlay's custom properties"), attributes: 'data-theme-row' }),
+    ];
+    return { body: `<div class="rows">${rows.join('')}</div>`, bar: barHtml([buttonHtml('data-dismiss-chip', 'Hide', 'Hide pyric on this page')]) };
+  };
+
+  const viewHtml = (activeUid: string | null, isAdmin: boolean): ChipView => {
     if (tab === 'identity') return identityViewHtml(activeUid, isAdmin);
-    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : `<div class="row control"></div><div class="rows"></div>${actionBarHtml({})}`;
+    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : { body: '<div class="rows"></div>', bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
     return sandboxViewHtml();
   };
@@ -877,7 +768,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-switch-user',
       'data-create-user',
       'data-listener-mode',
-      'data-traffic-show',
+      'data-activate-listener',
+      'data-traffic-denied',
       'data-copy-traffic',
       'data-open-overlay-theme',
       'data-update-worker',
@@ -896,39 +788,20 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const user = readCurrentUser();
     const isAdmin = lens?.mode === 'admin';
     const activeUid = (lens?.mode === 'as' ? lens.uid : user?.uid) ?? null;
-
-    // The collapsed chip carries identity in one slot: which glyph says whether
-    // there is a session, its colour says whether rules are bypassed, and the
-    // title carries the uid. No text.
-    const identityState = isAdmin ? 'admin' : activeUid ? 'in' : 'out';
-    const identityTitle = isAdmin
-      ? activeUid ? `bypass rules · ${activeUid}` : 'bypass rules'
-      : activeUid ?? 'Signed out';
-    const identityIconHtml = `<span class="identity" data-identity-icon data-state="${identityState}" title="${escapeAttribute(identityTitle)}">${identityGlyph(identityState === 'out' ? 'out' : 'in', 'identity-icon')}</span>`;
-
-    // The name carries the two page-wide problems as colour. Errors outrank an
-    // available worker, because an error is about the page as it is running.
     const errorCount = snapshot.errors.length;
-    const brandTone = errorCount > 0 ? ' error' : snapshot.updateAvailable ? ' warning' : '';
-    const brandTitle = errorCount > 0
-      ? pluralize(errorCount, 'error')
-      : snapshot.updateAvailable ? 'New worker available' : '';
-    const brandHtml = `<span class="brand-label${brandTone}"${brandTitle ? ` title="${escapeAttribute(brandTitle)}"` : ''}>pyric</span>`;
 
-    const hasListenerIncident = listenerOutlines.some((outline) => outline.incident !== null);
-    // A bare number, and only once the mode has something to count: a zero on a
-    // page that has not reported yet says nothing. The slot is drawn either way,
-    // so the count arriving cannot resize the pill.
-    const counted = everReportedListeners ? listenerOutlines.length : 0;
-    const countText = counted === 0 ? '' : counted > 99 ? '99+' : String(counted);
-    const countTitle = counted === 0 ? '' : pluralize(counted, 'listener');
-    const listenerCountHtml = `<span class="chip-count${hasListenerIncident ? ' error' : ''}" data-listener-count${countTitle === '' ? '' : ` title="${escapeAttribute(countTitle)}"`}>${countText}</span>`;
-
-    const problem = problemTab(signals());
+    const current = signals();
+    const problem = problemTab(current);
+    // The pill's border is the page's state: the error colour outranks the
+    // warning colour because a failure is about the page as it is running.
+    const chipTone = current.failedRecently || current.duplicateListener ? ' error' : current.updatePending ? ' warning' : '';
+    const chipTitle = current.failedRecently
+      ? 'A request failed in the last minute'
+      : current.duplicateListener ? 'A listener is attached twice' : current.updatePending ? 'New worker available' : '';
     const tabsHtml = CHIP_TABS.map((candidate) => {
       const tone = candidate !== problem
         ? ''
-        : candidate === 'sandbox' ? ' pending' : ' problem';
+        : current.failedRecently || current.duplicateListener ? ' problem' : ' pending';
       return `<button class="tab${tone}" type="button" role="tab" id="pyric-tab-${candidate}" data-chip-tab="${candidate}" aria-selected="${candidate === tab}" aria-controls="pyric-view">${CHIP_TAB_LABELS[candidate]}</button>`;
     }).join('');
 
@@ -943,19 +816,21 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       ? null
       : studioSectionUrl(studioUrl, studioSection.section, studioSection.query);
     const studioHtml = studioHref === null
-      ? '<span class="header-studio" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio ↗</span>'
-      : `<a class="header-studio" data-open-studio href="${escapeAttribute(studioHref)}" target="_blank" rel="noopener noreferrer">Studio ↗</a>`;
+      ? '<span class="btn" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio</span>'
+      : `<a class="btn" data-open-studio href="${escapeAttribute(studioHref)}" target="_blank" rel="noopener noreferrer" title="Open this view in Studio">Studio</a>`;
 
+    const built = open ? viewHtml(activeUid, isAdmin) : { body: '', bar: '' };
     view.innerHTML = open
-      ? `<section class="panel" role="dialog" aria-label="pyric">
+      ? `<section class="panel" role="dialog" aria-label="pyric"><div class="panel-column">
         <header class="panel-header">
           <span class="panel-name">pyric</span>
-          <span class="header-controls">${studioHtml}<button class="icon-button" type="button" data-collapse aria-label="Minimize pyric">${icons.minimize}</button></span>
+          <span class="actions">${studioHtml}${buttonHtml('data-collapse', 'Close', 'Close pyric')}</span>
         </header>
         <div class="tabs" role="tablist" aria-label="pyric views">${tabsHtml}</div>
-        <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}">${viewHtml(activeUid, isAdmin)}</div>
-      </section>`
-      : `<button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">${brandHtml}${identityIconHtml}${listenerCountHtml}</button>`;
+        <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}">${built.body}</div>
+        ${built.bar}
+      </div></section>`
+      : `<button class="chip${chipTone}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric</button>`;
 
     const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
@@ -1011,17 +886,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       button.addEventListener('click', () => {
         const mode = ensureListenerMode();
         if (mode === null) return;
-        const wanted = button.dataset.listenerMode;
-        if (wanted === 'off') {
+        const paint: ListenerPaintMode = button.dataset.listenerMode === 'flow' ? 'flow' : 'overview';
+        // A pressed mode pressed again is the outlines going off; anything
+        // else is that mode going on.
+        if (mode.enabled() && mode.mode() === paint) {
           mode.setEnabled(false);
           outlinesRefused = null;
         } else {
-          const paint: ListenerPaintMode = wanted === 'flow' ? 'flow' : 'overview';
           mode.setMode(paint);
           mode.setEnabled(true);
-          // The mode refuses Flow on a page whose renders it cannot read, and
-          // refuses either mode when listener attribution is off. Say which,
-          // on the control, rather than leaving it still.
           outlinesRefused = mode.enabled()
             ? mode.mode() === paint ? null : mode.flowUnavailableReason()
             : 'Listener attribution is off in this build, so there are no owners to outline.';
@@ -1030,20 +903,37 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         render();
       });
     }
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-traffic-show]')) {
+    // A listener row singles its listener out on the page: the outlines come
+    // on if they were off, and only that listener is painted until the row is
+    // pressed again.
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-activate-listener]')) {
       button.addEventListener('click', () => {
-        trafficFilter = button.dataset.trafficShow === 'denied' ? 'denied' : 'all';
+        const mode = ensureListenerMode();
+        const listenerId = button.dataset.activateListener;
+        if (mode === null || listenerId === undefined) return;
+        activeListenerId = activeListenerId === listenerId ? null : listenerId;
+        for (const outline of mode.outlines()) {
+          mode.setListenerVisible(outline.listenerId, activeListenerId === null || outline.listenerId === activeListenerId);
+        }
+        if (activeListenerId !== null && !mode.enabled()) {
+          mode.setMode('overview');
+          mode.setEnabled(true);
+        }
+        listenerOutlines = mode.outlines();
         render();
       });
     }
+    root.querySelector('[data-traffic-denied]')?.addEventListener('click', () => {
+      trafficFilter = trafficFilter === 'denied' ? 'all' : 'denied';
+      render();
+    });
     root.querySelector('[data-copy-traffic]')?.addEventListener('click', (event) => {
       if (!clipboard) return;
       const button = event.currentTarget as HTMLButtonElement;
       const lines = [...root.querySelectorAll<HTMLElement>('[data-request-row]')]
         .map((row) => {
-          const primary = row.querySelector('.row-primary')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
-          const fact = row.querySelector('.row-fact')?.textContent?.trim() ?? '';
-          return `${primary}  ${fact}`.trim();
+          const cell = (selector: string): string => row.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+          return [cell('.c1'), cell('.c2'), cell('.slot'), cell('.s1'), cell('.s2')].filter((part) => part !== '').join('  ');
         });
       if (lines.length === 0) return;
       void clipboard.writeText(lines.join('\n')).catch(() => {

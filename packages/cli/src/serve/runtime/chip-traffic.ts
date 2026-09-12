@@ -35,6 +35,17 @@ export interface ChipRequest {
    * against the same call, `ok` everything that went through.
    */
   verdict: 'ok' | 'denied' | 'error';
+  /** Plain words for a denial: who the request ran as. `null` when it went through. */
+  reason: string | null;
+}
+
+/** The denial's reason in the words a developer acts on: the identity that was denied. */
+function denialReason(event: SandboxEvent, verdict: 'ok' | 'denied' | 'error'): string | null {
+  if (verdict !== 'denied') return null;
+  const auth = (event as { auth?: unknown }).auth;
+  if (auth === null || auth === undefined) return 'signed out';
+  const uid = (auth as { uid?: unknown }).uid;
+  return typeof uid === 'string' ? `denied for ${uid}` : 'denied for this user';
 }
 
 /** How many rows the tail keeps. The view shows eight of them. */
@@ -71,6 +82,7 @@ export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
       method: record.eventKind === 'listener' ? 'listen' : record.method,
       path: record.path ?? null,
       verdict: record.rules.kind === 'evaluated' && record.rules.verdict === 'deny' ? 'denied' : 'ok',
+      reason: denialReason(event, record.rules.kind === 'evaluated' && record.rules.verdict === 'deny' ? 'denied' : 'ok'),
     };
   }
   if (event.kind === 'listener' && event.phase === 'attach') {
@@ -81,6 +93,7 @@ export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
       method: 'listen',
       path: event.target.path ?? null,
       verdict: event.result === 'deny' ? 'denied' : 'ok',
+      reason: denialReason(event, event.result === 'deny' ? 'denied' : 'ok'),
     };
   }
   if (event.kind === 'listener_attach' || event.kind === 'listener_errored') {
@@ -94,6 +107,7 @@ export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
       verdict: failed
         ? isPermissionDeniedCode(event.error?.code) ? 'denied' : 'error'
         : 'ok',
+      reason: denialReason(event, failed && isPermissionDeniedCode(event.error?.code) ? 'denied' : 'ok'),
     };
   }
   return null;

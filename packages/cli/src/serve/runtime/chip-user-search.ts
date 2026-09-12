@@ -29,7 +29,7 @@ function extractTenantFromUser(user: AuthUserRecord): string {
   return '';
 }
 
-function getUserProviders(user: AuthUserRecord): string[] {
+export function getUserProviders(user: AuthUserRecord): string[] {
   const providers = (user.providerUserInfo ?? [])
     .map((p) => p.providerId)
     .filter((id): id is string => typeof id === 'string' && id.length > 0);

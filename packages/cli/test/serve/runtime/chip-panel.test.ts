@@ -106,7 +106,7 @@ describe('the opening rule', () => {
     expect(openingChipTab({ ...clean, failedRecently: true, duplicateListener: true, updatePending: true }, 'sandbox'))
       .toBe('traffic');
     expect(openingChipTab({ ...clean, duplicateListener: true, updatePending: true }, 'sandbox')).toBe('listeners');
-    expect(openingChipTab({ ...clean, updatePending: true }, 'identity')).toBe('sandbox');
+    expect(openingChipTab({ ...clean, updatePending: true }, 'sandbox')).toBe('identity');
     expect(openingChipTab(clean, 'listeners')).toBe('listeners');
     expect(openingChipTab(clean, null)).toBe('identity');
   });
@@ -114,7 +114,7 @@ describe('the opening rule', () => {
   it('colours the same tab the opening rule would land on, and nothing on a clean page', () => {
     expect(problemTab({ ...clean, failedRecently: true })).toBe('traffic');
     expect(problemTab({ ...clean, duplicateListener: true })).toBe('listeners');
-    expect(problemTab({ ...clean, updatePending: true })).toBe('sandbox');
+    expect(problemTab({ ...clean, updatePending: true })).toBe('identity');
     expect(problemTab(clean)).toBeNull();
   });
 
@@ -138,10 +138,10 @@ describe('the opening rule', () => {
     page.chip.dispose();
   });
 
-  it('opens on Sandbox when a worker update is pending', () => {
-    const page = setup();
+  it('opens on the first tab when a worker update is pending, since the update row is there', () => {
+    const page = setup({ rememberedTab: 'sandbox' });
     page.runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
-    expect(page.open()).toBe('sandbox');
+    expect(page.open()).toBe('identity');
     page.chip.dispose();
   });
 

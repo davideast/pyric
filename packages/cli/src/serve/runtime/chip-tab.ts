@@ -67,7 +67,7 @@ export function openingChipTab(
 ): ChipTab {
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
-  if (signals.updatePending) return 'sandbox';
+  if (signals.updatePending) return 'identity';
   return remembered ?? DEFAULT_CHIP_TAB;
 }
 
@@ -75,7 +75,7 @@ export function openingChipTab(
 export function problemTab(signals: ChipTabSignals): ChipTab | null {
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
-  if (signals.updatePending) return 'sandbox';
+  if (signals.updatePending) return 'identity';
   return null;
 }
 
