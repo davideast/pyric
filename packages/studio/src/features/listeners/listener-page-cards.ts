@@ -37,7 +37,9 @@ export function listenerPageCards(totals: ListenerTotals): readonly ListenerPage
       key: 'snapshot',
       label: 'Snapshot',
       total: totals.snapshot,
-      unit: totals.single ? 'document' : 'documents',
+      // One record, or one document in the result set: the word follows what
+      // the number counts.
+      unit: totals.single || totals.snapshot === 1 ? 'document' : 'documents',
     },
   ];
   if (totals.service === 'firestore') {

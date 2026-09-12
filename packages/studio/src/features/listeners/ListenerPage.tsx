@@ -16,12 +16,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import {
-  TrafficMetricCards,
-  TrafficTimeline,
-  defaultFormatTime,
-  type TimeWindow,
-} from '@pyric/ui/traffic';
+import { TrafficMetricCards, TrafficTimeline, type TimeWindow } from '@pyric/ui/traffic';
 import { activeListeners, type ActiveListener, type SandboxEvent } from 'pyric/sandbox';
 import { pushPath } from '../../shell/router.js';
 import { toggleTimeFocus } from '../traffic/timeline-focus.js';
@@ -38,7 +33,7 @@ import {
   listenerPageSeries,
   readsFootnote,
 } from './listener-page-cards.js';
-import { DeliveryRow } from './DeliveryRow.js';
+import { DeliveryRow, clockLabel } from './DeliveryRow.js';
 import { IncidentBlock } from './IncidentBlock.js';
 import { ListenerQueryBlock } from './ListenerQueryBlock.js';
 import { elementLabel } from './listener-element.js';
@@ -53,9 +48,9 @@ function formatCount(value: number): string {
   return countFormatter.format(value);
 }
 
-/** One interval as the range it covers. */
+/** One interval as the range it covers, on the clock the rows print. */
 function rangeLabel(window: TimeWindow): string {
-  return `${defaultFormatTime(window.start)}–${defaultFormatTime(window.end)}`;
+  return `${clockLabel(window.start)}–${clockLabel(window.end)}`;
 }
 
 /** How long ago, in the words the Traffic timeline's axis uses. */
@@ -174,7 +169,9 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
           <TrafficMetricCards
             series={listenerPageSeries(cards)}
             formatValue={cardValueFormatter(cards, formatCount)}
-            className="traffic__metric-cards traffic__metric-cards--journal"
+            className={`traffic__metric-cards traffic__metric-cards--journal${
+              cards.length === 2 ? ' traffic__metric-cards--2' : ''
+            }`}
           />
           {footnote === undefined ? null : (
             <p className="traffic__metric-source" data-pyric-metric-footnote="">{footnote}</p>

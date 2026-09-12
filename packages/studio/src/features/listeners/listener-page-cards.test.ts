@@ -24,8 +24,13 @@ describe('listenerPageCards', () => {
   });
 
   it('names one document for a listener on one document', () => {
-    expect(listenerPageCards({ ...totals, snapshot: 1, single: true })[1]!.unit)
+    expect(listenerPageCards({ ...totals, snapshot: 0, single: true })[1]!.unit)
       .toBe('document');
+  });
+
+  it('names one document for a result set holding one', () => {
+    expect(listenerPageCards({ ...totals, snapshot: 1 })[1]!.unit).toBe('document');
+    expect(listenerPageCards({ ...totals, snapshot: 0 })[1]!.unit).toBe('documents');
   });
 
   it('leaves out the read estimate for the Realtime Database', () => {

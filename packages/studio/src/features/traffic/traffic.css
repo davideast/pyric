@@ -1315,7 +1315,8 @@
   align-items: baseline;
   column-gap: 12px;
   row-gap: 2px;
-  max-width: 34rem;
+  width: max-content;
+  max-width: 100%;
   padding: 0 14px 10px calc(88px + 26px);
   font-family: var(--font-mono);
   font-size: 12px;

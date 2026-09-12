@@ -23,6 +23,17 @@ export const deliveryTimeFormatter = new Intl.DateTimeFormat(undefined, {
   second: '2-digit',
 });
 
+/** The same clock without the day period, for a range whose two ends share
+ *  one morning or afternoon. */
+export function clockLabel(at: number): string {
+  return deliveryTimeFormatter
+    .formatToParts(at)
+    .filter((part) => part.type !== 'dayPeriod')
+    .map((part) => part.value)
+    .join('')
+    .trim();
+}
+
 /** The path split at its last separator: everything up to the identifier,
  *  then the identifier. */
 export function splitPath(path: string): { prefix: string; id: string } {

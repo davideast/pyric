@@ -263,7 +263,7 @@ describe('the timeline', () => {
     expect(rows(container)).toHaveLength(1);
     expect(figures(rows(container)[0]!)[0]).toBe('12:00:14 AM');
     expect(container.querySelector('[data-pyric-interval-facts]')!.textContent).toBe(
-      '00:00:13–00:00:15 · 1 delivery · 1 added · 1 modified',
+      '12:00:13–12:00:15 · 1 delivery · 1 added · 1 modified',
     );
   });
 
