@@ -3,7 +3,10 @@ import { QUERY_SYMBOL } from './brands.js';
 import type { Database } from './database-handle.js';
 import type { DataSnapshot } from './data-snapshot.js';
 import type { JsonValue } from './sandbox/data-tree.js';
-import type { ListenerOwnerHint } from '../sandbox/attribution/listener-owners.js';
+import type {
+  ListenerOwnerHint,
+  RecordedListenerOwners,
+} from '../sandbox/attribution/listener-owners.js';
 import type { QuerySpec } from './sandbox/query.js';
 
 export { CONSTRAINT_SYMBOL, QUERY_SYMBOL } from './brands.js';
@@ -80,7 +83,7 @@ export type EventType =
   | 'child_moved'
   | 'child_removed';
 
-export interface ListenOptions {
+export interface ListenOptions extends RecordedListenerOwners {
   readonly onlyOnce?: boolean;
   /**
    * Pyric's own extension, absent from the Firebase Web SDK: who owns this

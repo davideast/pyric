@@ -11,6 +11,7 @@ import {
   subscribeLens,
 } from './core.js';
 import type { ClientPort, RtdbDataSnapshot, Unsubscribe } from './handles.js';
+import { pageListenerOwners } from './listener-owners.js';
 import {
   isRtdbQuery,
   rtdbChild,
@@ -54,6 +55,13 @@ function targetScope(target: RtdbTarget): string {
   return queryIdentifier(target._spec);
 }
 
+/**
+ * The listen options a value subscription reads. `owner` is pyric's own listen
+ * option: the page names who owns the listener, and the owners derived from it
+ * travel with the subscribe message.
+ */
+type ValueListenOptions = { readonly onlyOnce?: boolean; readonly owner?: unknown };
+
 function removeRegistration(registration: ListenerRegistration): void {
   const index = registrations.indexOf(registration);
   if (index >= 0) registrations.splice(index, 1);
@@ -62,8 +70,8 @@ function removeRegistration(registration: ListenerRegistration): void {
 function openValueSubscription(
   target: RtdbTarget,
   next: (snap: RtdbDataSnapshot) => void,
-  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
-  options?: { readonly onlyOnce?: boolean },
+  cancelCallbackOrOptions?: ((err: unknown) => void) | ValueListenOptions,
+  options?: ValueListenOptions,
 ): Unsubscribe {
   const { ref, query } = targetParts(target);
   const error = typeof cancelCallbackOrOptions === 'function' ? cancelCallbackOrOptions : undefined;
@@ -74,10 +82,15 @@ function openValueSubscription(
   let fired = false;
   let unsubscribed = false;
 
+  // Derived here, on the stack the caller is still on and against the page's
+  // own document. The worker's attach can read neither.
+  const owners = pageListenerOwners(listenOptions);
+  const ownerFields = owners ? { owners } : {};
+
   const makeSubMsg = (subId: string, lens: typeof _defaultLens): InboundMessage =>
     lens
-      ? { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, actAs: lens }
-      : { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) } };
+      ? { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, actAs: lens, ...ownerFields }
+      : { t: 'sub', subId, target: { service: 'rtdb', path: ref.path, ...(query ? { query } : {}) }, ...ownerFields };
 
   let unsubLens: () => void = () => {};
 
@@ -153,8 +166,8 @@ function registerListener(
 export function rtdbOnValue(
   target: RtdbTarget,
   next: (snap: RtdbDataSnapshot) => void,
-  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
-  options?: { readonly onlyOnce?: boolean },
+  cancelCallbackOrOptions?: ((err: unknown) => void) | ValueListenOptions,
+  options?: ValueListenOptions,
   registryCallback: object = next,
 ): Unsubscribe {
   const listenOptions = typeof cancelCallbackOrOptions === 'function'
@@ -297,8 +310,8 @@ function subscribeChild(
   target: RtdbTarget,
   kind: ChildEventKind,
   next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
-  cancelCallbackOrOptions?: ((err: unknown) => void) | { readonly onlyOnce?: boolean },
-  options?: { readonly onlyOnce?: boolean },
+  cancelCallbackOrOptions?: ((err: unknown) => void) | ValueListenOptions,
+  options?: ValueListenOptions,
   registryCallback: object = next,
 ): Unsubscribe {
   const error = typeof cancelCallbackOrOptions === 'function' ? cancelCallbackOrOptions : undefined;

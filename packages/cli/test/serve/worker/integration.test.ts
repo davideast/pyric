@@ -9,8 +9,11 @@ import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/
 import { getFirestore as ipGetFirestore } from 'pyric/firestore';
 import { monitorFirebaseActivity, type ActivityIncident } from 'pyric/firestore/internal';
 import * as client from '../../../src/serve/worker/client.js';
+import { rtdbGetDatabase, rtdbRef } from '../../../src/serve/worker/client/rtdb-references.js';
+import { rtdbOnValue } from '../../../src/serve/worker/client/rtdb-listeners.js';
 import {
   connectClient,
+  connectClientToHost,
   makeHostCtx,
   portPair,
   sleep,
@@ -130,6 +133,54 @@ describe('client↔host round-trip (gate repro)', () => {
 
     expect(errors).toEqual([]);
     expect((seen.at(-1) as { marker?: string }).marker).toBe('shared');
+  });
+
+  it('records the page-side owners on the worker attach, for both services', async () => {
+    const ctx = await makeHostCtx();
+    const { db } = connectClientToHost(ctx, 'worker://owners');
+    const auth = client.getAuth(db);
+    await client.createUserWithEmailAndPassword(auth, 'owner@example.com', 'pw123456');
+
+    const firestoreUnsub = client.onSnapshot(
+      client.doc(db, 'notes/owned'),
+      { owner: 'notes-panel' },
+      () => {},
+      () => {},
+    );
+    const databaseUnsub = rtdbOnValue(
+      rtdbRef(rtdbGetDatabase(db), 'rooms/owned'),
+      () => {},
+      () => {},
+      { owner: 'rooms-panel' },
+    );
+    await sleep();
+    firestoreUnsub();
+    databaseUnsub();
+
+    const attaches = ctx.sandbox.history().filter((event) => {
+      const candidate = event as { kind: string; phase?: string };
+      return candidate.kind === 'listener_attach'
+        || (candidate.kind === 'listener' && candidate.phase === 'attach');
+    }) as Array<{ kind: string; owners?: Array<Record<string, unknown>> }>;
+
+    const ownersFor = (name: string): Array<Record<string, unknown>> => {
+      const match = attaches.find((event) => (event.owners ?? []).some(
+        (owner) => owner.kind === 'tag' && owner.name === name,
+      ));
+      expect(match).toBeDefined();
+      return match!.owners!;
+    };
+
+    for (const name of ['notes-panel', 'rooms-panel']) {
+      const owners = ownersFor(name);
+      // The frame is the test's own call, not a function inside the worker
+      // client or the sandbox the worker holds.
+      const frame = owners.find((owner) => owner.kind === 'frame') as
+        { file: string; function?: string } | undefined;
+      expect(frame).toBeDefined();
+      expect(frame!.file).toContain('integration.test.ts');
+      expect(owners.map((owner) => owner.kind)).toEqual(['frame', 'tag']);
+    }
   });
 
   it('excludes split transaction reads from activity warnings', async () => {

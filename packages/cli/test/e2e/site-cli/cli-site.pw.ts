@@ -88,3 +88,31 @@ test('an app-triggered worker replacement moves an open Studio page to the annou
   expect(await studio.evaluate(() => localStorage.getItem('pyric:worker-generation'))).toBe(nextGeneration);
   await context.close();
 });
+
+test('a served page attributes a listener to the owner the page passed', async ({ browser }) => {
+  const context = await browser.newContext();
+  const app = await context.newPage();
+  await app.goto('/');
+  await expect(app.locator('#status')).not.toHaveText('loading');
+
+  // The listener is opened from the page with an owner the page named. The
+  // sandbox that records the attach runs in the SharedWorker.
+  await app.locator('#listen').click();
+  await expect.poll(() => app.evaluate(() => (
+    window as unknown as { __noteFires: number }
+  ).__noteFires)).toBeGreaterThan(0);
+
+  const chipHost = app.locator('[data-pyric-runtime-chip-host]');
+  await expect(chipHost).toBeAttached();
+  const expand = chipHost.locator('[data-expand]');
+  if (await expand.isVisible()) await expand.click();
+  await chipHost.locator('[data-toggle-listeners]').click();
+
+  // Nothing on the page can be outlined for a name-only owner, so the listener
+  // lands in the chip's own list. Its label is the name the page passed, not a
+  // function out of the worker bundle.
+  const rows = chipHost.locator('[data-listener-panel] .listener-row');
+  await expect(rows.filter({ hasText: 'notes-panel' })).toHaveCount(1, { timeout: 10_000 });
+  await expect(rows.filter({ hasText: 'notes/astro-host' })).toHaveCount(1);
+  await context.close();
+});

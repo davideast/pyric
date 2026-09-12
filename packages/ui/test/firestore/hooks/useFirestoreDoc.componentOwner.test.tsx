@@ -20,7 +20,6 @@ import { describe, expect, it } from 'bun:test';
 import { doc, getFirestore } from 'pyric/firestore';
 import { initializeSandbox } from 'pyric/sandbox';
 import type { SandboxEvent } from 'pyric/sandbox';
-import { configureListenerAttribution } from 'pyric/sandbox/internal';
 import { seedDocuments } from 'pyric/sandbox/firestore';
 import { useFirestoreDoc } from '../../../src/firestore/hooks/useFirestoreDoc.js';
 
@@ -66,8 +65,9 @@ describe('component owner attribution through useFirestoreDoc', () => {
     expect(component.name).toBe('OrdersTable');
   });
 
-  it('records no component owner when attribution is off', async () => {
-    configureListenerAttribution('off');
+  it('records no component owner in a production build', async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
     try {
       const { db, events } = setupSandbox();
       const ref = doc(db, 'orders/o1');
@@ -84,7 +84,7 @@ describe('component owner attribution through useFirestoreDoc', () => {
       const owners = attachEvents(events)[0]?.owners;
       expect(owners?.some((owner) => owner.kind === 'component')).toBeFalsy();
     } finally {
-      configureListenerAttribution('auto');
+      process.env.NODE_ENV = previous;
     }
   });
 });

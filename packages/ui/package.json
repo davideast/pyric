@@ -26,6 +26,10 @@
       "types": "./dist/primitives/index.d.ts",
       "import": "./dist/primitives/index.js"
     },
+    "./listener-owner": {
+      "types": "./dist/listener-owner/index.d.ts",
+      "import": "./dist/listener-owner/index.js"
+    },
     "./firestore": {
       "types": "./dist/firestore/index.d.ts",
       "import": "./dist/firestore/index.js"
@@ -75,6 +79,7 @@
       "import": "./dist/rules/hooks/index.js"
     }
   },
+  "sideEffects": false,
   "files": [
     "dist",
     "src",
