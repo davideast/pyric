@@ -438,6 +438,15 @@ describe('the inspector', () => {
     expect(inspector.querySelector('[data-pyric-delivery-path]')).toBeNull();
   });
 
+  it('selects the row that holds a deep-linked duplicate', () => {
+    const owners = [{ kind: 'tag', name: 'sidebar' }];
+    const { container } = view({ events: duplicateAttaches(owners), selectedListenerId: 'c' });
+    const row = container.querySelector('[data-pyric-listener-row]')!;
+    expect(row.getAttribute('data-pyric-listener-id')).toBe('a');
+    expect(row.hasAttribute('data-pyric-selected')).toBe(true);
+    expect(container.querySelector('[data-pyric-listener-inspector]')).not.toBeNull();
+  });
+
   it('draws the listener’s delivery history when it has one', () => {
     const events = [...threeListenerEvents, delivery('v1', 'l-tag', 1500, 'notes/l-tag')];
     const { container } = view({ events, selectedListenerId: 'l-tag' });

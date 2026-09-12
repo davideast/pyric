@@ -303,13 +303,27 @@ export function ListenersView({
 
   const clock = now ?? Date.now();
 
+  // A row stands for every listener collapsed into it, so a deep link to a
+  // duplicate's second listener selects the row that holds it.
+  const linkedRowListenerId = useMemo(() => {
+    if (selectedListenerId === undefined) return undefined;
+    for (const group of rowGroups) {
+      for (const row of group.rows) {
+        if (row.listeners.some((listener) => listener.id === selectedListenerId)) {
+          return row.listener.id;
+        }
+      }
+    }
+    return selectedListenerId;
+  }, [selectedListenerId, rowGroups]);
+
   // The deep link selects the row and scrolls to it. It runs on the id, so
   // back/forward and a second chip click both move the selection.
   useEffect(() => {
-    if (selectedListenerId === undefined) return;
-    setSelectedId(selectedListenerId);
+    if (linkedRowListenerId === undefined) return;
+    setSelectedId(linkedRowListenerId);
     selectedRef.current?.scrollIntoView({ block: 'center' });
-  }, [selectedListenerId]);
+  }, [linkedRowListenerId]);
 
   const visibleGroups = useMemo<readonly ListenerRowGroup[]>(
     () =>
