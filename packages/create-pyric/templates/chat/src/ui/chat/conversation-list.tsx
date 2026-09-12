@@ -33,6 +33,6 @@ type ConversationListProps = {
  *  conversation-list listener feeds, so the page passes a ref for it. */
 export function ConversationList({ ref, conversations, activeConversationId, deletingConversationId, loading, onSelect, onDelete }: ConversationListProps) {
   return (
-    <nav ref={ref} aria-label="Conversations" className="flex-1 space-y-1 overflow-y-auto px-2">{conversations.map((conversation) => <ConversationItem key={conversation.id} conversation={conversation} active={conversation.id === activeConversationId} deleteDisabled={deletingConversationId !== null} onSelect={onSelect} onDelete={onDelete} />)}{!conversations.length && !loading && <p className="px-3 py-8 text-center text-xs text-muted-foreground">No conversations yet. Start one to develop an idea.</p>}</nav>
+    <nav ref={ref} id="conversations" aria-label="Conversations" className="flex-1 space-y-1 overflow-y-auto px-2">{conversations.map((conversation) => <ConversationItem key={conversation.id} conversation={conversation} active={conversation.id === activeConversationId} deleteDisabled={deletingConversationId !== null} onSelect={onSelect} onDelete={onDelete} />)}{!conversations.length && !loading && <p className="px-3 py-8 text-center text-xs text-muted-foreground">No conversations yet. Start one to develop an idea.</p>}</nav>
   );
 }
