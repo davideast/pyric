@@ -5,9 +5,9 @@
  * the routed query) into the presentational `ListenersView`.
  */
 
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import { useStudioEvents } from '../../shell/studio-events.js';
-import { currentPath, subscribeToLocation } from '../../shell/router.js';
+import { currentPath, locationKey, subscribeToLocation } from '../../shell/router.js';
 import { ListenersView } from './ListenersView.js';
 import { listenersDeepLinkFromQuery, type ListenersDeepLink } from './listeners-deep-link.js';
 
@@ -25,7 +25,11 @@ export function ListenersSurface({ deepLink }: ListenersSurfaceProps) {
   const events = useStudioEvents();
   // The link lives in the URL, so back/forward and a chip click that lands on
   // an already-open Studio both move the selection (N4: the URL is the store).
-  const routed = useSyncExternalStore(subscribeToLocation, routedDeepLink, () => CLOSED);
+  // The subscribed snapshot is the location string, not the parsed link:
+  // `getSnapshot` has to be referentially stable between changes, and parsing
+  // allocates a fresh object every call. Parse once per location instead.
+  const key = useSyncExternalStore(subscribeToLocation, locationKey, () => '');
+  const routed = useMemo(() => (key === '' ? CLOSED : routedDeepLink()), [key]);
   const link = deepLink ?? routed;
   const props: {
     events: readonly typeof events[number][];
