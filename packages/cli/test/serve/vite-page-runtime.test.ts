@@ -57,6 +57,25 @@ describe('Vite page runtime', () => {
     expect(page.transformIndexHtml(html)).toBe(html);
   });
 
+  it('puts the sandbox init script ahead of the page own scripts', () => {
+    const page = runtime();
+    page.config({}, { command: 'build', mode: 'development' } as never);
+    page.buildStart(() => 'chunk-ref');
+    page.generateBundle(() => 'assets/init.js');
+    const html = page.transformIndexHtml(
+      '<html><head><script type="module" crossorigin src="/assets/app.js"></script></head><body></body></html>',
+    );
+    expect(html.indexOf('/assets/init.js')).toBeLessThan(html.indexOf('/assets/app.js'));
+  });
+
+  it('puts the development bootstrap ahead of a script the page has in its head', () => {
+    const page = runtime();
+    const html = page.transformIndexHtml(
+      '<html><head><script type="module" src="/src/main.tsx"></script></head><body></body></html>',
+    );
+    expect(html.indexOf(defaultSdkEntries().init)).toBeLessThan(html.indexOf('/src/main.tsx'));
+  });
+
   it('loads mode-specific AI environment during Vite config', () => {
     const page = runtime();
     page.config({}, { command: 'serve', mode: 'development' } as never);

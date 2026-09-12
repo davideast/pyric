@@ -41,14 +41,33 @@ function setup(options: {
   attributionEnabled?: boolean;
   studioUrl?: string | null;
   incidents?: (events: readonly SandboxEvent[]) => readonly ActivityIncident[];
+  /** Whether the page has a React whose commits the chip can read. */
+  react?: boolean;
 } = {}) {
   const copied: string[] = [];
+  const paintStore = new Map<string, string>();
+  const paintStorage = {
+    getItem: (key: string) => paintStore.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      paintStore.set(key, value);
+    },
+  };
   const dom = new JSDOM(
-    '<!doctype html><body><div id="todos"></div><div id="profile"></div></body>',
+    '<!doctype html><body><div id="todos"><span id="row">a</span></div><div id="profile"></div></body>',
     { url: 'http://localhost/' },
   );
   const doc = dom.window.document;
+  // A row React rendered inline inside the todos region, so a delivery has
+  // something the fiber walk can attribute.
+  const rowEl = doc.querySelector('#row')!;
+  const regionHost = { tag: 5, type: 'div', stateNode: doc.querySelector('#todos')!, return: null, child: null };
+  (rowEl as unknown as Record<string, unknown>)['__reactFiber$k'] = {
+    tag: 5, type: 'span', stateNode: rowEl, return: regionHost, child: null,
+  };
   let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
+  let delivered: ((listenerId: string) => void) | null = null;
+  let commit: (() => void) | null = null;
+  let changedNodes: unknown[] = [];
   const chip = mountPyricRuntimeChip({
     runtime: createPyricRuntimeStatus(manifest),
     document: doc,
@@ -69,6 +88,34 @@ function setup(options: {
       onChange,
       attributionEnabled: () => options.attributionEnabled ?? true,
       incidents: options.incidents ?? (() => []),
+      commits: {
+        available: () => options.react ?? false,
+        reason: () => ((options.react ?? false) ? null : 'no React'),
+        subscribe: (listener) => {
+          commit = listener;
+          return () => {
+            commit = null;
+          };
+        },
+        dispose: () => {},
+      },
+      paintStorage,
+      flow: {
+        subscribeDeliveries: (listener) => {
+          delivered = listener;
+          return () => {
+            delivered = null;
+          };
+        },
+        changedNodes: () => ({
+          drain: () => {
+            const drained = changedNodes;
+            changedNodes = [];
+            return drained;
+          },
+          stop: () => {},
+        }),
+      },
       subscribeEvents: (callback) => {
         deliver = callback;
         return () => {
@@ -83,6 +130,12 @@ function setup(options: {
     copied,
     root: chip.element.shadowRoot!,
     push: (events: readonly SandboxEvent[]) => deliver?.(events),
+    /** A delivery the worker client reported, and the render that followed. */
+    flowDelivery: (listenerId: string) => {
+      delivered?.(listenerId);
+      changedNodes = [rowEl];
+      commit?.();
+    },
   };
 }
 
@@ -231,12 +284,11 @@ describe('the chip Listeners mode', () => {
     const panel = page.root.querySelector('[data-listener-panel]')!;
     const rows = [...panel.querySelectorAll('.listener-row')];
     expect(rows.length).toBeLessThanOrEqual(4);
-    const cells = [...rows[0].children].map((cell) => cell.textContent);
-    expect(cells[0]).toBe('01');
-    expect(cells[1]).toBe('ChatPage');
-    expect(cells[2]).toBe('4 targets');
-    expect(cells[3]).toBe('4');
-    expect(cells[4]).toBe('3');
+    expect(rows[0].querySelector('.listener-number')?.textContent).toBe('01');
+    expect(rows[0].querySelector('.listener-label')?.textContent).toBe('ChatPage');
+    expect(rows[0].querySelector('.listener-target')?.textContent).toBe('4 targets');
+    expect([...rows[0].querySelectorAll('.listener-count')].map((cell) => cell.textContent))
+      .toEqual(['4', '3']);
     const counts = [...rows[0].querySelectorAll('.listener-count')]
       .map((cell) => cell.getAttribute('title'));
     expect(counts).toEqual(['4 listeners', '3 deliveries']);
@@ -409,5 +461,204 @@ describe('the chip Listeners mode', () => {
     page.push([attach('e1', 'l1', { kind: 'query', collection: 'todos' }, [{ kind: 'tag', name: 'TodoList', element: '#todos' }])]);
     page.chip.dispose();
     expect(page.doc.querySelector('[data-pyric-listener-overlay]')).toBeNull();
+  });
+});
+
+function modeButton(root: ShadowRoot, mode: 'overview' | 'flow'): HTMLButtonElement {
+  return root.querySelector<HTMLButtonElement>(`[data-listener-mode="${mode}"]`)!;
+}
+
+function paintBoxes(root: ShadowRoot): HTMLInputElement[] {
+  return [...root.querySelectorAll<HTMLInputElement>('[data-toggle-listener-paint]')];
+}
+
+const todos = attach('e1', 'l1', { kind: 'query', collection: 'todos' }, [{ kind: 'tag', name: 'TodoList', element: '#todos' }]);
+const profile = attach('e2', 'l2', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard', element: '#profile' }]);
+
+describe('the chip painting-mode control', () => {
+  it('offers Overview and Flow beside the Listeners button, Overview first', () => {
+    const page = setup({ react: true });
+    const group = page.root.querySelector('[data-listener-modes]');
+    expect(group?.getAttribute('role')).toBe('group');
+    expect([...group!.querySelectorAll('button')].map((button) => button.textContent))
+      .toEqual(['Overview', 'Flow']);
+    expect(modeButton(page.root, 'overview').getAttribute('aria-pressed')).toBe('true');
+    page.chip.dispose();
+  });
+
+  it('switches to Flow and takes the Overview outlines down', () => {
+    const page = setup({ react: true });
+    toggle(page.root);
+    page.push([todos]);
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
+
+    modeButton(page.root, 'flow').click();
+    expect(modeButton(page.root, 'flow').getAttribute('aria-pressed')).toBe('true');
+    expect(modeButton(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
+    page.chip.dispose();
+  });
+
+  it('switches back to Overview and paints the listeners again', () => {
+    const page = setup({ react: true });
+    toggle(page.root);
+    page.push([todos]);
+    modeButton(page.root, 'flow').click();
+    modeButton(page.root, 'overview').click();
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
+    page.chip.dispose();
+  });
+
+  it('disables Flow with a reason when the page has no React', () => {
+    const page = setup();
+    toggle(page.root);
+    page.push([todos]);
+
+    const flow = modeButton(page.root, 'flow');
+    expect(flow.getAttribute('aria-disabled')).toBe('true');
+    expect(flow.getAttribute('title')).toContain('React');
+
+    flow.click();
+    expect(modeButton(page.root, 'overview').getAttribute('aria-pressed')).toBe('true');
+    expect(page.root.querySelector('[data-listener-notice]')?.textContent).toContain('React');
+    page.chip.dispose();
+  });
+
+  it('says what Flow is waiting for while no delivery has been painted', () => {
+    const page = setup({ react: true });
+    toggle(page.root);
+    page.push([todos]);
+    expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
+
+    modeButton(page.root, 'flow').click();
+    expect(page.root.querySelector('[data-flow-waiting]')?.textContent)
+      .toBe('Waiting for a delivery to show its flow.');
+    page.chip.dispose();
+  });
+
+  it('takes the waiting line away once the first flow is painted', () => {
+    const page = setup({ react: true });
+    toggle(page.root);
+    page.push([todos]);
+    modeButton(page.root, 'flow').click();
+
+    page.flowDelivery('l1');
+    expect(page.doc.querySelectorAll('[data-pyric-flow]').length).toBeGreaterThan(0);
+    expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
+    page.chip.dispose();
+  });
+
+  it('says it is waiting again after a turn back into Flow', () => {
+    const page = setup({ react: true });
+    toggle(page.root);
+    page.push([todos]);
+    modeButton(page.root, 'flow').click();
+    page.flowDelivery('l1');
+
+    modeButton(page.root, 'overview').click();
+    expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
+    modeButton(page.root, 'flow').click();
+    expect(page.root.querySelector('[data-flow-waiting]')).not.toBeNull();
+    page.chip.dispose();
+  });
+});
+
+describe('the chip per-listener toggles', () => {
+  it('shows a swatch and a paint checkbox on every owner row', () => {
+    const page = setup();
+    toggle(page.root);
+    page.push([todos, profile]);
+
+    const swatches = page.root.querySelectorAll<HTMLElement>('[data-listener-swatch]');
+    expect(swatches).toHaveLength(2);
+    expect(swatches[0].getAttribute('style')).toContain('background');
+    expect(swatches[0].getAttribute('style')).not.toBe(swatches[1].getAttribute('style'));
+
+    const boxes = paintBoxes(page.root);
+    expect(boxes).toHaveLength(2);
+    expect(boxes.every((box) => box.checked)).toBe(true);
+    page.chip.dispose();
+  });
+
+  it('stops painting the listener whose box is cleared', () => {
+    const page = setup();
+    toggle(page.root);
+    page.push([todos, profile]);
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
+
+    const box = paintBoxes(page.root)[0];
+    box.checked = false;
+    box.dispatchEvent(new page.doc.defaultView!.Event('change'));
+
+    const drawn = [...page.doc.querySelectorAll<HTMLElement>('[data-pyric-listener-box]')];
+    expect(drawn).toHaveLength(1);
+    expect(paintBoxes(page.root)[0].checked).toBe(false);
+    page.chip.dispose();
+  });
+
+  it('paints the listener again when its box is set', () => {
+    const page = setup();
+    toggle(page.root);
+    page.push([todos, profile]);
+    const off = paintBoxes(page.root)[0];
+    off.checked = false;
+    off.dispatchEvent(new page.doc.defaultView!.Event('change'));
+
+    const on = paintBoxes(page.root)[0];
+    on.checked = true;
+    on.dispatchEvent(new page.doc.defaultView!.Event('change'));
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
+    page.chip.dispose();
+  });
+
+  it('switches every listener a collapsed owner row stands for', () => {
+    const page = setup();
+    toggle(page.root);
+    page.push([
+      attach('c1', 'chat-1', { kind: 'doc', path: 'conversations/c1' }, [{ kind: 'tag', name: 'ChatPage', element: '#todos' }]),
+      attach('c2', 'chat-2', { kind: 'doc', path: 'conversations/c2' }, [{ kind: 'tag', name: 'ChatPage', element: '#profile' }]),
+    ]);
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
+
+    const box = paintBoxes(page.root)[0];
+    expect(box.getAttribute('aria-label')).toContain('2 listeners');
+    box.checked = false;
+    box.dispatchEvent(new page.doc.defaultView!.Event('change'));
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
+    page.chip.dispose();
+  });
+
+  it('leaves an incident row without a listener to switch', () => {
+    const page = setup({
+      incidents: (events) => {
+        const attachIds = events
+          .filter((event) => (event as { kind: string }).kind === 'listener_attach')
+          .map((event) => (event as { id: string }).id);
+        return [{
+          fingerprint: 'fp1',
+          pattern: 'duplicate-listener',
+          confidence: 'high',
+          severity: 'warning',
+          service: 'firestore',
+          method: 'listen',
+          targetFingerprint: 'conversations',
+          actor: { kind: 'unknown' },
+          authLens: 'app',
+          authUid: null,
+          count: 2,
+          windowMs: 5000,
+          evidenceEventIds: attachIds,
+        } as unknown as ActivityIncident];
+      },
+    });
+    toggle(page.root);
+    page.push([
+      attach('e1', 'l1', { kind: 'query', collection: 'conversations' }, [{ kind: 'tag', name: 'ChatPage' }]),
+      attach('e2', 'l2', { kind: 'query', collection: 'conversations' }, [{ kind: 'tag', name: 'ChatPage' }]),
+    ]);
+
+    const incidentRow = page.root.querySelector('.listener-row.incident')!;
+    expect(incidentRow.querySelector('[data-toggle-listener-paint]')).toBeNull();
+    page.chip.dispose();
   });
 });

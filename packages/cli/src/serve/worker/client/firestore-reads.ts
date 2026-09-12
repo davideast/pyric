@@ -13,6 +13,7 @@ import type {
 import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
+import { reportListenerDelivery } from './listener-delivery.js';
 import { makeDocSnapshot, makeQuerySnapshot } from './snapshots.js';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot } from './snapshots.js';
 
@@ -171,6 +172,9 @@ export function onSnapshot(
     port,
     service: 'firestore' as const,
     next: (raw: unknown) => {
+      // Reported on the subscription id the sandbox also records as the
+      // listener id, immediately before the application's callback runs.
+      reportListenerDelivery(currentSubId);
       const r = raw as Record<string, unknown>;
       if ('docs' in r) {
         callback(makeQuerySnapshot(r as unknown as RawQueryResult, port));

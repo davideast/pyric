@@ -32,8 +32,21 @@ function swapsInBuild(env: ConfigEnv, override: boolean | undefined): boolean {
   return override ?? env.mode !== 'production';
 }
 
+/**
+ * Put pyric's tags ahead of the page's own scripts.
+ *
+ * The sandbox init script has to run before the application's module script.
+ * It configures listener attribution and installs the React commit hook the
+ * chip's Flow painting reads, and React reads that hook global once, while its
+ * own module first evaluates. A build puts the application's script in the
+ * head, so appending at the end of the head would be too late.
+ */
 function injectIntoHead(html: string, tags: string): string {
-  if (html.includes('</head>')) return html.replace('</head>', `${tags}</head>`);
+  const headEnd = html.indexOf('</head>');
+  const scanEnd = headEnd === -1 ? html.length : headEnd;
+  const firstScript = html.slice(0, scanEnd).search(/<script[\s>]/i);
+  if (firstScript >= 0) return html.slice(0, firstScript) + tags + html.slice(firstScript);
+  if (headEnd >= 0) return html.slice(0, headEnd) + tags + html.slice(headEnd);
   return tags + html;
 }
 

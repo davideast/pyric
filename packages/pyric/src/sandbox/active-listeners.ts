@@ -39,6 +39,13 @@ export interface ActiveListener {
    * callback changed). Absent when the emitter recorded nothing.
    */
   readonly owners?: readonly ListenerOwner[];
+  /**
+   * The id the page's own client gave this subscription, when the host
+   * stamped it on the attach as the activity listener id. A page that
+   * observes a delivery knows only this id, so it is how a page-side
+   * observation finds the listener the sandbox recorded.
+   */
+  readonly clientListenerId?: string;
 }
 
 type ListenerPhase = 'attach' | 'detach' | 'delivery' | 'suppressed' | 'errored';
@@ -120,6 +127,7 @@ interface ActiveListenerDraft {
   suppressedCount: number;
   lastDeliveryAt?: number;
   owners?: ListenerOwner[];
+  clientListenerId?: string;
 }
 
 /**
@@ -144,6 +152,8 @@ export function activeListeners(events: readonly SandboxEvent[]): readonly Activ
         suppressedCount: 0,
       };
       if (info.owners !== undefined) draft.owners = [...info.owners];
+      const clientListenerId = (event as { activity?: { listenerId?: unknown } }).activity?.listenerId;
+      if (typeof clientListenerId === 'string') draft.clientListenerId = clientListenerId;
       active.set(info.listenerId, draft);
       continue;
     }

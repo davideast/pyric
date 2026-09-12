@@ -32,18 +32,69 @@ function delivery(id: string, listenerId: string, target: Target, owners?: unkno
   return event as unknown as SandboxEvent;
 }
 
-function harness(options: { attributionEnabled?: boolean } = {}) {
+/** A commit source that reports a React the test drives. */
+function fakeCommits(available: boolean) {
+  let commit: (() => void) | null = null;
+  return {
+    source: {
+      available: () => available,
+      reason: () => (available ? null : 'no React'),
+      subscribe: (listener: () => void) => {
+        commit = listener;
+        return () => {
+          commit = null;
+        };
+      },
+      dispose: () => {},
+    },
+    fire: () => commit?.(),
+    subscribed: () => commit !== null,
+  };
+}
+
+function harness(options: {
+  attributionEnabled?: boolean;
+  react?: boolean;
+  paintStorage?: Parameters<typeof createListenerMode>[0]['paintStorage'];
+} = {}) {
   const dom = new JSDOM(
-    '<!doctype html><body><div id="todos"></div><div id="profile"></div></body>',
+    '<!doctype html><body><div id="todos"><span id="row">a</span></div><div id="profile"></div></body>',
     { url: 'http://localhost/' },
   );
   const doc = dom.window.document;
+  // A row inside the todos region, wired the way React wires a host node it
+  // rendered inline: nothing between it and the region is a component.
+  const rowEl = doc.querySelector('#row')!;
+  const regionHost = { tag: 5, type: 'div', stateNode: doc.querySelector('#todos')!, return: null, child: null };
+  const rowHost = { tag: 5, type: 'span', stateNode: rowEl, return: regionHost, child: null };
+  (rowEl as unknown as Record<string, unknown>)['__reactFiber$k'] = rowHost;
+  let changedNodes: unknown[] = [];
   let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
   let subscriptions = 0;
+  let delivered: ((listenerId: string) => void) | null = null;
+  const commits = fakeCommits(options.react ?? true);
   const mode = createListenerMode({
     document: doc,
     attributionEnabled: () => options.attributionEnabled ?? true,
     incidents: () => [],
+    commits: commits.source,
+    paintStorage: options.paintStorage ?? null,
+    flow: {
+      subscribeDeliveries: (listener) => {
+        delivered = listener;
+        return () => {
+          delivered = null;
+        };
+      },
+      changedNodes: () => ({
+        drain: () => {
+          const drained = changedNodes;
+          changedNodes = [];
+          return drained;
+        },
+        stop: () => {},
+      }),
+    },
     subscribeEvents: (callback) => {
       subscriptions += 1;
       deliver = callback;
@@ -56,9 +107,22 @@ function harness(options: { attributionEnabled?: boolean } = {}) {
   return {
     doc,
     mode,
+    commits,
+    rowEl,
     push: (events: readonly SandboxEvent[]) => deliver?.(events),
     subscriptions: () => subscriptions,
+    flowWatching: () => delivered !== null,
+    /** A delivery the worker client reported, and the render that followed. */
+    flowDelivery: (listenerId: string, nodes: unknown[]) => {
+      delivered?.(listenerId);
+      changedNodes = nodes;
+      commits.fire();
+    },
   };
+}
+
+function flowMarks(doc: Document): HTMLElement[] {
+  return [...doc.querySelectorAll<HTMLElement>('[data-pyric-flow]')];
 }
 
 function badges(doc: Document): string[] {
@@ -196,5 +260,229 @@ describe('studio hand-off', () => {
 
     expect(opened).toEqual(['/__pyric/ui/studio?view=listeners&listener=l1&target=todos']);
     mode.dispose();
+  });
+});
+
+const todosAttach = attach(
+  'e1',
+  'l1',
+  { kind: 'query', collection: 'todos' },
+  [{ kind: 'tag', name: 'TodoList', element: '#todos' }],
+);
+const profileAttach = attach(
+  'e3',
+  'l2',
+  { kind: 'doc', path: 'users/u1' },
+  [{ kind: 'tag', name: 'ProfileCard', element: '#profile' }],
+);
+
+function boxes(doc: Document): HTMLElement[] {
+  return [...doc.querySelectorAll<HTMLElement>('[data-pyric-listener-box]')];
+}
+
+describe('the two painting modes', () => {
+  it('starts in Overview and paints one box per listener', () => {
+    const page = harness();
+    expect(page.mode.mode()).toBe('overview');
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+    expect(boxes(page.doc)).toHaveLength(2);
+    page.mode.dispose();
+  });
+
+  it('gives each listener its own colour', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+    const drawn = boxes(page.doc);
+    expect(drawn[0].dataset.hue).not.toBe(undefined);
+    expect(drawn[0].dataset.hue).not.toBe(drawn[1].dataset.hue);
+    page.mode.dispose();
+  });
+
+  it('takes the Overview boxes down when it switches to Flow, and watches for deliveries', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    expect(boxes(page.doc)).toHaveLength(1);
+
+    page.mode.setMode('flow');
+    expect(page.mode.mode()).toBe('flow');
+    expect(boxes(page.doc)).toHaveLength(0);
+    expect(page.flowWatching()).toBe(true);
+    page.mode.dispose();
+  });
+
+  it('brings the Overview boxes back and stops watching when it switches back', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    page.mode.setMode('flow');
+    page.mode.setMode('overview');
+
+    expect(boxes(page.doc)).toHaveLength(1);
+    expect(page.flowWatching()).toBe(false);
+    page.mode.dispose();
+  });
+
+  it('keeps the mode across a turn of the painting off and on', () => {
+    const page = harness();
+    page.mode.setMode('flow');
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    expect(boxes(page.doc)).toHaveLength(0);
+    expect(page.flowWatching()).toBe(true);
+
+    page.mode.setEnabled(false);
+    expect(page.flowWatching()).toBe(false);
+    page.mode.setEnabled(true);
+    expect(page.mode.mode()).toBe('flow');
+    expect(page.flowWatching()).toBe(true);
+    page.mode.dispose();
+  });
+
+  it('refuses Flow and says why when the page has no React', () => {
+    const page = harness({ react: false });
+    expect(page.mode.flowAvailable()).toBe(false);
+    expect(page.mode.flowUnavailableReason()).toContain('React');
+
+    page.mode.setMode('flow');
+    expect(page.mode.mode()).toBe('overview');
+    page.mode.dispose();
+  });
+
+  it('remembers the mode where the page keeps it', () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+    };
+    const first = harness({ paintStorage: storage });
+    first.mode.setMode('flow');
+    first.mode.dispose();
+
+    const second = harness({ paintStorage: storage });
+    expect(second.mode.mode()).toBe('flow');
+    second.mode.dispose();
+  });
+});
+
+describe('switching one listener off', () => {
+  it('stops painting that listener and leaves the others', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+
+    page.mode.setListenerVisible('l1', false);
+    const drawn = boxes(page.doc);
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].dataset.listenerId).toBe('l2');
+    expect(page.mode.isListenerVisible('l1')).toBe(false);
+    expect(page.mode.isListenerVisible('l2')).toBe(true);
+    page.mode.dispose();
+  });
+
+  it('paints it again when it is switched back on', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+    page.mode.setListenerVisible('l1', false);
+    page.mode.setListenerVisible('l1', true);
+    expect(boxes(page.doc)).toHaveLength(2);
+    page.mode.dispose();
+  });
+
+  it('keeps the listener in the panel summary while its paint is off', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach, profileAttach]);
+    page.mode.setListenerVisible('l1', false);
+    expect(page.mode.outlines()).toHaveLength(2);
+    page.mode.dispose();
+  });
+
+  it('forgets which listeners were off once the mode is disposed', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    page.mode.setListenerVisible('l1', false);
+    page.mode.dispose();
+    expect(page.mode.isListenerVisible('l1')).toBe(true);
+  });
+});
+
+describe('what a painted flow is held for', () => {
+  /** A mode in Flow with one delivery painted: the changed row. */
+  function painted() {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.mode.setMode('flow');
+    page.push([todosAttach]);
+    page.flowDelivery('l1', [page.rowEl]);
+    return page;
+  }
+
+  it('marks the changed row itself, and holds it after the delivery', () => {
+    const page = painted();
+    const drawn = flowMarks(page.doc);
+    expect(drawn).toEqual([page.rowEl as HTMLElement]);
+    expect(drawn[0]?.getAttribute('data-pyric-flow-role')).toBe('host');
+    expect(drawn.every((mark) => mark.getAttribute('data-pyric-flow-listener') === 'l1')).toBe(true);
+    page.mode.dispose();
+  });
+
+  it('takes the held paint away as soon as the listener is switched off', () => {
+    const page = painted();
+    page.mode.setListenerVisible('l1', false);
+    expect(flowMarks(page.doc)).toHaveLength(0);
+    page.mode.dispose();
+  });
+
+  it('leaves the page empty after a switch back on, until the next delivery', () => {
+    const page = painted();
+    page.mode.setListenerVisible('l1', false);
+    page.mode.setListenerVisible('l1', true);
+    expect(flowMarks(page.doc)).toHaveLength(0);
+
+    page.flowDelivery('l1', [page.rowEl]);
+    expect(flowMarks(page.doc)).toHaveLength(1);
+    page.mode.dispose();
+  });
+
+  it('takes the held paint away when the listener detaches', () => {
+    const page = painted();
+    page.push([detach('e9', 'l1', { kind: 'query', collection: 'todos' })]);
+    expect(flowMarks(page.doc)).toHaveLength(0);
+    page.mode.dispose();
+  });
+
+  it('says it is waiting for a delivery until one has been painted', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.mode.setMode('flow');
+    page.push([todosAttach]);
+    expect(page.mode.flowWaiting()).toBe(true);
+
+    page.flowDelivery('l1', [page.rowEl]);
+    expect(page.mode.flowWaiting()).toBe(false);
+    page.mode.dispose();
+  });
+
+  it('is not waiting while Overview is the mode', () => {
+    const page = harness();
+    page.mode.setEnabled(true);
+    page.push([todosAttach]);
+    expect(page.mode.flowWaiting()).toBe(false);
+    page.mode.dispose();
+  });
+
+  it('waits again after a turn back into Flow', () => {
+    const page = painted();
+    page.mode.setMode('overview');
+    page.mode.setMode('flow');
+    expect(page.mode.flowWaiting()).toBe(true);
+    page.mode.dispose();
   });
 });

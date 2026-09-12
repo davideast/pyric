@@ -362,11 +362,15 @@ export function opProvenance(
     ?? ((msg as { clientSessionId?: string }).clientSessionId ? 'remote' : undefined);
   const actAs = (msg as { actAs?: AuthLens }).actAs;
   const target = msg.t === 'sub' ? msg.target : undefined;
-  const isAppFirestoreSubscription = issuer !== 'studio'
+  // A page's own subscription, on either service, carries its client
+  // subscription id as the activity listener id, so the page can match a
+  // delivery it observes to the listener the sandbox recorded.
+  const isAppSubscription = issuer !== 'studio'
     && relaySource !== 'remote'
     && target !== null
     && typeof target === 'object'
-    && '__ref' in target;
+    && ('__ref' in target || (target as { service?: string }).service === 'rtdb');
+  const isAppFirestoreSubscription = isAppSubscription;
   if (
     issuer !== 'studio'
     && relaySource !== 'remote'

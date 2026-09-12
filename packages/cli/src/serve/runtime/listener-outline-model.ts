@@ -55,6 +55,9 @@ export interface ListenerOutlineIncident {
 /** One listener as the overlay draws it. */
 export interface ListenerOutline {
   readonly listenerId: string;
+  /** The page client's own subscription id, when the attach carried it; a
+   * delivery observed on the page names the listener by this id. */
+  readonly clientListenerId?: string;
   /** Component name, else owner tag name, else creating function or file. */
   readonly label: string;
   /**
@@ -68,6 +71,8 @@ export interface ListenerOutline {
   readonly isQuery: boolean;
   readonly service: 'firestore' | 'database';
   readonly deliveryCount: number;
+  /** When this listener last handed the application a snapshot, when it has. */
+  readonly lastDeliveryAt?: number;
   /** Selectors to outline. Empty when nothing on the page could be found. */
   readonly selectors: readonly string[];
   readonly incident: ListenerOutlineIncident | null;
@@ -185,12 +190,14 @@ function outlineFor(
   const owners = listener.owners ?? [];
   return {
     listenerId: listener.id,
+    ...(listener.clientListenerId === undefined ? {} : { clientListenerId: listener.clientListenerId }),
     label: outlineLabel(owners, listener.id),
     labelIsOwner: labelIsOwner(owners),
     target: targetPath(listener.target),
     isQuery: targetIsQuery(listener.target),
     service: listener.service,
     deliveryCount: listener.deliveryCount,
+    ...(listener.lastDeliveryAt === undefined ? {} : { lastDeliveryAt: listener.lastDeliveryAt }),
     selectors: outlineSelectors(owners),
     incident: incidentMark(incidents, attachEventIds.get(listener.id)),
   };
