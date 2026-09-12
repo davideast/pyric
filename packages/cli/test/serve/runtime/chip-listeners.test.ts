@@ -282,17 +282,49 @@ describe('the Listeners view', () => {
     page.chip.dispose();
   });
 
-  it('leaves the collapsed count out when the mode has reported nothing to count', () => {
+  it('draws the collapsed count slot empty when the mode has reported nothing to count', () => {
     const page = setup();
-    // The mode has reported, and counts no listener; a zero is not worth a slot.
+    // The mode has reported, and counts no listener; a zero says nothing. The
+    // slot stays, so the count arriving cannot resize the pill.
     page.push([delivery('e1', 'l1', { kind: 'doc', path: 'users/u1' })]);
     page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(page.root.querySelector('[data-listener-count]')).toBeNull();
+    const slot = page.root.querySelector('[data-listener-count]')!;
+    expect(slot).not.toBeNull();
+    expect(slot.textContent).toBe('');
+    expect(slot.getAttribute('title')).toBeNull();
 
     page.root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
     page.push([attach('e2', 'l1', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard' }])]);
     page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
     expect(page.root.querySelector('[data-listener-count]')?.textContent).toBe('1');
+    page.chip.dispose();
+  });
+
+  it('caps the collapsed count at three characters so the pill cannot grow', () => {
+    const page = setup();
+    const events: SandboxEvent[] = [];
+    for (let index = 0; index < 120; index += 1) {
+      events.push(attach(`a${index}`, `l${index}`, { kind: 'doc', path: `users/u${index}` }, [{ kind: 'tag', name: `Row${index}` }]));
+    }
+    page.push(events);
+    page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+
+    const slot = page.root.querySelector('[data-listener-count]')!;
+    expect(slot.textContent).toBe('99+');
+    // The title still carries the count the cap stands for.
+    expect(slot.getAttribute('title')).toBe('120 listeners');
+    page.chip.dispose();
+  });
+
+  it('shows the collapsed count as it stands at ninety-nine', () => {
+    const page = setup();
+    const events: SandboxEvent[] = [];
+    for (let index = 0; index < 99; index += 1) {
+      events.push(attach(`a${index}`, `l${index}`, { kind: 'doc', path: `users/u${index}` }, [{ kind: 'tag', name: `Row${index}` }]));
+    }
+    page.push(events);
+    page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+    expect(page.root.querySelector('[data-listener-count]')?.textContent).toBe('99');
     page.chip.dispose();
   });
 
@@ -407,14 +439,16 @@ describe('the outlines control', () => {
     const page = setup({ react: true });
     control(page.root, 'overview').click();
     page.push([todos]);
-    expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
+    // The fact's slot is reserved either way, so the control beside it cannot
+    // move when Flow starts waiting; only the words in it change.
+    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toBe('');
 
     control(page.root, 'flow').click();
-    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toBe('waiting for a delivery');
+    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toContain('waiting for a delivery');
 
     page.flowDelivery('l1');
     expect(page.doc.querySelectorAll('[data-pyric-flow]').length).toBeGreaterThan(0);
-    expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
+    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toBe('');
     page.chip.dispose();
   });
 
@@ -425,9 +459,9 @@ describe('the outlines control', () => {
     page.flowDelivery('l1');
 
     control(page.root, 'overview').click();
-    expect(page.root.querySelector('[data-flow-waiting]')).toBeNull();
+    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toBe('');
     control(page.root, 'flow').click();
-    expect(page.root.querySelector('[data-flow-waiting]')).not.toBeNull();
+    expect(page.root.querySelector('[data-flow-waiting]')?.textContent).toContain('waiting for a delivery');
     page.chip.dispose();
   });
 

@@ -136,10 +136,13 @@ describe('the collapsed pill', () => {
     expect(root.querySelector('.chip')!.textContent).toBe('pyric');
   });
 
-  it('holds only the identity icon, the name, and the listener count', () => {
+  it('holds only the identity icon, the name, and the listener count slot', () => {
     const { root } = setup();
     const chip = root.querySelector('.chip')!;
-    expect([...chip.children].map((child) => child.getAttribute('class'))).toEqual(['identity', 'brand-label']);
+    // The count slot is drawn whether or not there is a count, so the pill is
+    // the same three boxes at every moment of a page's life.
+    expect([...chip.children].map((child) => child.getAttribute('class'))).toEqual(['identity', 'brand-label', 'chip-count']);
+    expect(chip.querySelector('[data-listener-count]')?.textContent).toBe('');
     expect(chip.querySelector('.dot')).toBeNull();
     expect(chip.querySelector('.chevron')).toBeNull();
     expect(chip.querySelector('.signal')).toBeNull();
@@ -571,6 +574,19 @@ describe('the Sandbox view', () => {
     await Promise.resolve();
     expect(update).toHaveBeenCalledTimes(1);
     expect(root.activeElement?.hasAttribute('data-update-worker')).toBe(true);
+  });
+
+  it('keeps the same rows whether or not an update is pending', () => {
+    const { runtime, root, showTab } = setup({ initiallyOpen: true });
+    showTab('sandbox');
+    const before = [...root.querySelectorAll('.row')].length;
+    expect(root.querySelector('[data-update-slot]')).not.toBeNull();
+    expect(root.querySelector('[data-update-slot]')?.textContent).toBe('');
+
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+    expect([...root.querySelectorAll('.row')].length).toBe(before);
+    expect(root.querySelector('[data-update-slot]')).toBeNull();
+    expect(root.querySelector('[data-update-worker]')).not.toBeNull();
   });
 
   it('hides the chip from the page from its own row', () => {

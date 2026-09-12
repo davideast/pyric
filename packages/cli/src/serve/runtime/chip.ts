@@ -151,6 +151,12 @@ const styles = `
   button { margin: 0; }
   :focus-visible { outline: 1px solid var(--pyric-muted); outline-offset: 2px; }
 
+  /*
+   * The pill is one box, always. Its three slots are each a fixed width, so a
+   * session signing in, a rules bypass, a count arriving, and a count reaching
+   * three digits all change colour and glyph inside boxes that never move. Only
+   * the colour ever differs between states: no weight, no size, no border.
+   */
   .chip {
     align-items: center;
     background: var(--pyric-bg);
@@ -163,28 +169,54 @@ const styles = `
     gap: 8px;
     height: 36px;
     padding: 0 12px;
+    width: 118px;
   }
   .chip:hover { border-color: #4a4a58; }
-  .brand-label { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }
+  .brand-label {
+    flex: 1 1 auto;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
   .brand-label.error { color: var(--pyric-error); }
   .brand-label.warning { color: var(--pyric-warning); }
-  .identity { align-items: center; color: var(--pyric-muted); display: inline-flex; }
+  .identity { align-items: center; color: var(--pyric-muted); display: inline-flex; flex: 0 0 16px; justify-content: center; width: 16px; }
   .identity[data-state="in"] { color: var(--pyric-text); }
   .identity[data-state="admin"] { color: var(--pyric-warning); }
   .identity-icon { height: 14px; width: 14px; }
-  .chip-count { color: var(--pyric-muted); font: 11px/1 "JetBrains Mono", ui-monospace, monospace; }
+  /* Three monospace characters, reserved whether or not there is a count. */
+  .chip-count {
+    color: var(--pyric-muted);
+    flex: 0 0 22px;
+    font: 11px/11px "JetBrains Mono", ui-monospace, monospace;
+    height: 11px;
+    text-align: right;
+    width: 22px;
+  }
   .chip-count.error { color: var(--pyric-error); }
 
+  /*
+   * One size for every view. The height is the tallest view the design admits:
+   * the 48 header, the 40 strip, and a view of 12 padding, a 44 control row, a
+   * 12 gap, eight 44 rows, and 12 padding — 520 in all. A view with fewer rows
+   * leaves the rest empty rather than shrinking, and a list that would run past
+   * the bottom scrolls inside itself.
+   */
   .panel {
     background: var(--pyric-bg);
     border: 1px solid var(--pyric-border);
     border-radius: 10px;
     box-shadow: 0 18px 60px rgba(0, 0, 0, .48);
+    display: flex;
+    flex-direction: column;
+    height: 520px;
     max-width: calc(100vw - 40px);
     overflow: hidden;
     width: 384px;
   }
-  .panel-header { align-items: center; display: flex; height: 48px; justify-content: space-between; padding: 0 16px; }
+  .panel-header { align-items: center; display: flex; flex: 0 0 48px; height: 48px; justify-content: space-between; padding: 0 16px; }
   .panel-name { font-size: 13px; font-weight: 500; line-height: 20px; }
   .header-controls { align-items: center; display: inline-flex; gap: 12px; }
   .header-studio { color: var(--pyric-muted); font-size: 12px; line-height: 20px; text-decoration: none; white-space: nowrap; }
@@ -194,7 +226,7 @@ const styles = `
   .icon-button:hover { background: rgba(255,255,255,.05); color: var(--pyric-text); }
   .icon { height: 15px; width: 15px; }
 
-  .tabs { align-items: stretch; border-bottom: 1px solid var(--pyric-border-soft); display: flex; gap: 20px; height: 40px; padding: 0 16px; }
+  .tabs { align-items: stretch; border-bottom: 1px solid var(--pyric-border-soft); display: flex; flex: 0 0 40px; gap: 20px; height: 40px; padding: 0 16px; }
   .tab {
     background: transparent;
     border: 0;
@@ -212,9 +244,13 @@ const styles = `
   .tab.pending { color: var(--pyric-warning); }
   .tab.pending[aria-selected="true"] { border-bottom-color: var(--pyric-warning); }
 
-  .view { display: flex; flex-direction: column; min-height: 68px; padding: 12px 0; }
-  .rows { display: flex; flex-direction: column; }
+  .view { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; padding: 12px 0; }
+  .rows { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow-y: auto; }
+  .rows::-webkit-scrollbar { width: 8px; }
+  .rows::-webkit-scrollbar-thumb { background: var(--pyric-border); border-radius: 4px; }
+  .control { flex: 0 0 44px; }
   .control + .rows { margin-top: 12px; }
+  .row { flex: 0 0 44px; }
   .row {
     align-items: center;
     column-gap: 12px;
@@ -269,15 +305,15 @@ const styles = `
   }
   .row-field:focus-within { border-color: #4a4a58; }
   .row-field input { background: transparent; border: 0; color: var(--pyric-text); font-size: 13px; line-height: 20px; outline: none; width: 100%; }
-  .segmented { border: 1px solid var(--pyric-border-soft); border-radius: 999px; display: inline-flex; overflow: hidden; }
+  .segmented { border: 1px solid var(--pyric-border-soft); border-radius: 999px; display: inline-flex; flex: none; overflow: hidden; }
   .segmented button {
     background: transparent;
     border: 0;
     color: var(--pyric-muted);
     cursor: pointer;
-    font-size: 12px;
+    font-size: 11px;
     line-height: 20px;
-    padding: 3px 7px;
+    padding: 3px 6px;
   }
   .segmented button:hover { color: var(--pyric-text); }
   .segmented button[aria-pressed="true"] { background: rgba(255,255,255,.09); color: var(--pyric-text); }
@@ -655,13 +691,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const flowBlocked = flowReason ?? outlinesRefused;
     const overviewBlocked = outlinesRefused;
     renderedFlowWaiting = listenerMode?.flowWaiting() === true;
-    const waiting = renderedFlowWaiting
-      ? '<span data-flow-waiting>waiting for a delivery</span>'
-      : '';
+    // Flow paints on delivery, so an idle page shows nothing and reads as
+    // broken. The fact says what the mode is waiting for, and it sits beside the
+    // label rather than beside the control, because the control's own place must
+    // not move when the waiting starts or stops.
+    const waiting = `<span class="row-secondary" data-flow-waiting>${renderedFlowWaiting ? ' · waiting for a delivery' : ''}</span>`;
     const control = `<div class="row control">
         <span class="row-mark"></span>
-        <span class="row-primary">Outlines</span>
-        <span class="row-fact">${waiting}<span class="segmented" role="group" aria-label="How listeners are painted" data-listener-modes><button type="button" data-listener-mode="off" aria-pressed="${pressed('off')}" title="${escapeAttribute(offTitle)}">off</button><button type="button" data-listener-mode="overview" aria-pressed="${pressed('overview')}"${overviewBlocked === null ? ' title="Outline every attached listener"' : ` aria-disabled="true" title="${escapeAttribute(overviewBlocked)}"`}>Overview</button><button type="button" data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowBlocked === null ? ' title="Outline what rendered after each delivery"' : ` aria-disabled="true" title="${escapeAttribute(flowBlocked)}"`}>Flow</button></span></span>
+        <span class="row-primary">Outlines${waiting}</span>
+        <span class="row-fact"><span class="segmented" role="group" aria-label="How listeners are painted" data-listener-modes><button type="button" data-listener-mode="off" aria-pressed="${pressed('off')}" title="${escapeAttribute(offTitle)}">off</button><button type="button" data-listener-mode="overview" aria-pressed="${pressed('overview')}"${overviewBlocked === null ? ' title="Outline every attached listener"' : ` aria-disabled="true" title="${escapeAttribute(overviewBlocked)}"`}>Overview</button><button type="button" data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowBlocked === null ? ' title="Outline what rendered after each delivery"' : ` aria-disabled="true" title="${escapeAttribute(flowBlocked)}"`}>Flow</button></span></span>
       </div>`;
 
     const ordered = [...listenerOutlines].sort((a, b) => {
@@ -750,6 +788,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         primary: 'Update worker',
         fact: `<span class="mono" data-worker-epochs>${escapeAttribute(epochs)}</span><button class="row-action" type="button" data-update-worker aria-disabled="${snapshot.updatingWorker}">${snapshot.updatingWorker ? 'Updating' : 'Update'}</button>`,
       }));
+    } else {
+      // The row's place is held, so an update arriving moves nothing under it.
+      // It keeps the three cells and says nothing in them, because there is
+      // nothing to say.
+      rows.push(rowHtml({ mark: '', primary: '', fact: '', attributes: 'data-update-slot' }));
     }
     rows.push(rowHtml({
       mark: '',
@@ -817,10 +860,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
     const hasListenerIncident = listenerOutlines.some((outline) => outline.incident !== null);
     // A bare number, and only once the mode has something to count: a zero on a
-    // page that has not reported yet says nothing.
-    const listenerCountHtml = everReportedListeners && listenerOutlines.length > 0
-      ? `<span class="chip-count${hasListenerIncident ? ' error' : ''}" data-listener-count title="${pluralize(listenerOutlines.length, 'listener')}">${listenerOutlines.length}</span>`
-      : '';
+    // page that has not reported yet says nothing. The slot is drawn either way,
+    // so the count arriving cannot resize the pill.
+    const counted = everReportedListeners ? listenerOutlines.length : 0;
+    const countText = counted === 0 ? '' : counted > 99 ? '99+' : String(counted);
+    const countTitle = counted === 0 ? '' : pluralize(counted, 'listener');
+    const listenerCountHtml = `<span class="chip-count${hasListenerIncident ? ' error' : ''}" data-listener-count${countTitle === '' ? '' : ` title="${escapeAttribute(countTitle)}"`}>${countText}</span>`;
 
     const problem = problemTab(signals());
     const tabsHtml = CHIP_TABS.map((candidate) => {
