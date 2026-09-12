@@ -11,7 +11,7 @@ import {
 } from './chip-dialog.js';
 import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
 import type { ListenerMode } from './listener-mode.js';
-import type { ListenerOutline } from './listener-outline-model.js';
+import type { ListenerOutline, ListenerOutlineIncident } from './listener-outline-model.js';
 import {
   getLens as defaultGetLens,
   setLens as defaultSetLens,
@@ -149,7 +149,33 @@ const styles = `
   .worker-state-col { border-top: 1px solid var(--pyric-border-soft); color: var(--pyric-muted); font-size: 10px; display: flex; flex-direction: column; min-height: 34px; padding: 7px 12px; }
   .worker-state-row { align-items: center; display: flex; justify-content: space-between; width: 100%; }
   .worker-state-subline { color: #89899f; font: 9px/1.4 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; text-align: right; width: 100%; }
-  .listener-row { color: #d7d7df; display: flex; font: 9px/1.6 ui-monospace, monospace; gap: 8px; justify-content: space-between; margin-top: 4px; overflow-wrap: anywhere; }
+  .listener-header { border: 1px solid var(--pyric-border-soft); border-radius: 999px; color: var(--pyric-text); font: 9px/1 ui-monospace, monospace; padding: 4px 6px; }
+  .listener-header.has-incident { background: rgba(58,50,42,.3); border-color: #3a322a; color: var(--pyric-warning); }
+  .listener-rows { margin-top: 6px; }
+  .listener-row {
+    align-items: center;
+    border-bottom: 1px solid rgba(42,42,53,.7);
+    color: #d7d7df;
+    display: grid;
+    gap: 6px;
+    grid-template-columns: 16px minmax(0,1fr) minmax(0,1.2fr) 30px 34px 10px 24px 24px;
+    padding: 4px 0 4px 2px;
+  }
+  .listener-row:last-child { border-bottom: 0; }
+  .listener-row:hover { background: rgba(255,255,255,.05); }
+  .listener-number { color: var(--pyric-muted); font: 10px/18px ui-monospace, monospace; }
+  .listener-row.incident .listener-number, .listener-row.incident .listener-mark { color: var(--pyric-warning); }
+  .listener-label { font-size: 10px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .listener-target, .listener-count { font: 10px/18px ui-monospace, monospace; }
+  .listener-target { color: var(--pyric-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .listener-count { text-align: right; }
+  .listener-mark { font: 10px/18px ui-monospace, monospace; text-align: center; }
+  .listener-row .icon-button { height: 20px; width: 24px; }
+  .listener-row .icon-button .icon { height: 13px; width: 13px; }
+  .listener-link { align-self: flex-end; color: var(--pyric-muted); font-size: 11px; margin-top: 4px; text-decoration: none; }
+  a.listener-link:hover { color: var(--pyric-text); }
+  .listener-link[aria-disabled="true"] { cursor: not-allowed; opacity: .6; }
+  .signal.error { color: var(--pyric-error); }
   .button[aria-pressed="true"] { background: rgba(25,204,97,.12); border-color: rgba(25,204,97,.4); color: var(--pyric-accent); }
   .worker-state .available { color: var(--pyric-warning); }
   .worker-state .state-label, .worker-state-col .state-label { align-items: center; display: flex; gap: 7px; white-space: nowrap; }
@@ -183,7 +209,8 @@ const styles = `
     .worker-state { align-items: flex-start; flex-direction: column; gap: 4px; }
   }
   @media (prefers-reduced-motion: no-preference) {
-    .chip, .panel { animation: pyric-enter 120ms ease-out; transform-origin: bottom right; }
+    .chip, .panel { transform-origin: bottom right; }
+    .entering { animation: pyric-enter 120ms ease-out; }
     @keyframes pyric-enter { from { opacity: 0; transform: translateY(4px) scale(.98); } }
   }
 
@@ -210,6 +237,246 @@ export function formatPyricRuntimeError(error: PyricRuntimeError): string {
     error.code,
   ].filter(Boolean).join(' · ');
   return `${error.message}${context ? `\n${context}` : ''}${error.stack ? `\n${error.stack}` : ''}`;
+}
+
+/** `true` when two listener lists would render the same Listeners summary. */
+function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((outline, i) => {
+    const other = b[i];
+    return outline.listenerId === other.listenerId
+      && outline.label === other.label
+      && outline.labelIsOwner === other.labelIsOwner
+      && outline.target === other.target
+      && outline.isQuery === other.isQuery
+      && outline.deliveryCount === other.deliveryCount
+      && outline.incident?.pattern === other.incident?.pattern
+      && outline.incident?.count === other.incident?.count
+      && outline.incident?.windowMs === other.incident?.windowMs;
+  });
+}
+
+/** `12 listeners`, `1 listener`, `2 duplicates`, etc. */
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+/** The target the way the app wrote it: `conversations (query)`, `users/u1`. */
+function displayTarget(outline: ListenerOutline): string {
+  return outline.isQuery ? `${outline.target} (query)` : outline.target;
+}
+
+/** The group a listener's owner row belongs under: its owner label, or its
+ * target when nothing on the page named it. */
+function groupKey(outline: ListenerOutline): string {
+  return outline.labelIsOwner ? outline.label : displayTarget(outline);
+}
+
+interface ListenerIncidentGroup {
+  pattern: 'duplicate-listener' | 'listener-churn';
+  target: string;
+  label: string | null;
+  count: number;
+  windowMs: number;
+}
+
+/** One incident line per distinct (pattern, target, count) triple, so a
+ * duplicate or churn incident shared by several listeners reads once. */
+function listenerIncidentGroups(outlines: readonly ListenerOutline[]): ListenerIncidentGroup[] {
+  const groups = new Map<string, ListenerIncidentGroup>();
+  for (const outline of outlines) {
+    const incident = outline.incident;
+    if (incident === null) continue;
+    const target = displayTarget(outline);
+    const key = `${incident.pattern}:${target}:${incident.count}:${incident.windowMs}`;
+    if (groups.has(key)) continue;
+    groups.set(key, {
+      pattern: incident.pattern,
+      target,
+      label: outline.labelIsOwner ? outline.label : null,
+      count: incident.count,
+      windowMs: incident.windowMs,
+    });
+  }
+  return [...groups.values()];
+}
+
+function listenerIncidentLine(group: ListenerIncidentGroup): string {
+  if (group.pattern === 'duplicate-listener') {
+    const times = group.count === 2 ? 'twice' : `${group.count} times`;
+    const by = group.label !== null ? ` by ${group.label}` : '';
+    return `${group.target} attached ${times}${by}`;
+  }
+  const seconds = Math.round(group.windowMs / 1000);
+  const duration = seconds > 0 ? `${seconds}s` : `${group.windowMs}ms`;
+  return `${group.target} reattached ${group.count} times in ${duration}`;
+}
+
+interface ListenerOwnerGroup {
+  key: string;
+  listeners: number;
+  deliveries: number;
+  targets: Set<string>;
+  incident: ListenerOutlineIncident | null;
+}
+
+/** The owner groups a Listeners panel lists, busiest by total deliveries
+ * first. */
+function listenerOwnerGroups(outlines: readonly ListenerOutline[]): ListenerOwnerGroup[] {
+  const groups = new Map<string, ListenerOwnerGroup>();
+  for (const outline of outlines) {
+    const key = groupKey(outline);
+    const target = displayTarget(outline);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.listeners += 1;
+      existing.deliveries += outline.deliveryCount;
+      existing.targets.add(target);
+      existing.incident ??= outline.incident;
+    } else {
+      groups.set(key, {
+        key,
+        listeners: 1,
+        deliveries: outline.deliveryCount,
+        targets: new Set([target]),
+        incident: outline.incident,
+      });
+    }
+  }
+  return [...groups.values()].sort((a, b) => b.deliveries - a.deliveries || a.key.localeCompare(b.key));
+}
+
+/** `?view=listeners`, appended to whatever query string Studio's URL already carries. */
+function studioListenersUrl(studioUrl: string): string {
+  const separator = studioUrl.includes('?') ? '&' : '?';
+  return `${studioUrl}${separator}view=listeners`;
+}
+
+/** One body row of the Listeners table. The columns line up across incident
+ * and owner rows, so the two read as one table. */
+interface ListenerTableRow {
+  /**
+   * Identifies the row across renders. It changes when the row's listener set
+   * changes, which is what brings a dismissed row back: a new attach moves an
+   * owner row's listener count, and a new incident moves the incident part.
+   */
+  signature: string;
+  isIncident: boolean;
+  label: string;
+  target: string;
+  /** The first count column: listeners for an owner row, attaches for an incident. */
+  first: string;
+  firstTitle: string;
+  /** The second count column: deliveries, empty on an incident row. */
+  second: string;
+  secondTitle: string;
+  mark: string;
+  markTitle: string;
+  copyText: string;
+}
+
+/** `duplicate ×2`, `churn ×40`: what an incident mark stands for. */
+function incidentMarkTitle(incident: ListenerOutlineIncident): string {
+  const word = incident.pattern === 'duplicate-listener' ? 'duplicate' : 'churn';
+  return `${word} ×${incident.count}`;
+}
+
+function incidentTableRow(group: ListenerIncidentGroup): ListenerTableRow {
+  const prose = listenerIncidentLine(group);
+  return {
+    signature: `incident:${group.pattern}:${group.target}:${group.count}:${group.windowMs}`,
+    isIncident: true,
+    label: group.pattern === 'duplicate-listener' ? 'duplicate' : 'churn',
+    target: group.target,
+    first: String(group.count),
+    firstTitle: prose,
+    second: '',
+    secondTitle: '',
+    mark: '!',
+    markTitle: prose,
+    copyText: prose,
+  };
+}
+
+function ownerTableRow(group: ListenerOwnerGroup): ListenerTableRow {
+  const target = group.targets.size === 1 ? [...group.targets][0] : `${group.targets.size} targets`;
+  const incidentSuffix = group.incident === null ? '' : ` · ${incidentMarkTitle(group.incident)}`;
+  const counts = `${pluralize(group.listeners, 'listener')} · ${pluralize(group.deliveries, 'delivery', 'deliveries')}`;
+  const incidentPart = group.incident === null
+    ? 'none'
+    : `${group.incident.pattern}:${group.incident.count}:${group.incident.windowMs}`;
+  return {
+    signature: `owner:${group.key}:${group.listeners}:${incidentPart}`,
+    isIncident: false,
+    label: group.key,
+    target,
+    first: String(group.listeners),
+    firstTitle: pluralize(group.listeners, 'listener'),
+    second: String(group.deliveries),
+    secondTitle: pluralize(group.deliveries, 'delivery', 'deliveries'),
+    mark: group.incident === null ? '' : '!',
+    markTitle: group.incident === null ? '' : incidentMarkTitle(group.incident),
+    copyText: `${group.key} · ${target} · ${counts}${incidentSuffix}`,
+  };
+}
+
+/**
+ * The rows a Listeners panel shows, incidents first and then the busiest
+ * owners, minus the rows dismissed at their current signature. Four rows at
+ * most: the header and the Studio link take the other two of the six lines.
+ */
+function listenerTableRows(
+  outlines: readonly ListenerOutline[],
+  dismissed: ReadonlySet<string>,
+): ListenerTableRow[] {
+  const incidents = listenerIncidentGroups(outlines).slice(0, 2)
+    .map(incidentTableRow)
+    .filter((row) => !dismissed.has(row.signature));
+  const owners = listenerOwnerGroups(outlines)
+    .map(ownerTableRow)
+    .filter((row) => !dismissed.has(row.signature))
+    .slice(0, Math.max(0, 4 - incidents.length));
+  return [...incidents, ...owners];
+}
+
+function listenerRowHtml(row: ListenerTableRow, index: number, canCopy: boolean): string {
+  const ordinal = String(index + 1).padStart(2, '0');
+  const name = escapeAttribute(`${row.label} ${row.target}`);
+  return `<div class="listener-row${row.isIncident ? ' incident' : ''}" data-listener-row="${escapeAttribute(row.signature)}">
+      <span class="listener-number">${ordinal}</span>
+      <span class="listener-label" title="${escapeAttribute(row.label)}">${escapeAttribute(row.label)}</span>
+      <span class="listener-target" title="${escapeAttribute(row.target)}">${escapeAttribute(row.target)}</span>
+      <span class="listener-count" title="${escapeAttribute(row.firstTitle)}">${escapeAttribute(row.first)}</span>
+      <span class="listener-count" title="${escapeAttribute(row.secondTitle)}">${escapeAttribute(row.second)}</span>
+      <span class="listener-mark" title="${escapeAttribute(row.markTitle)}" aria-hidden="${row.mark === '' ? 'true' : 'false'}">${escapeAttribute(row.mark)}</span>
+      <button class="icon-button" type="button" data-copy-listener="${escapeAttribute(row.signature)}" aria-label="${canCopy ? `Copy ${name}` : 'Copy unavailable'}" title="${canCopy ? 'Copy listener row' : 'Clipboard unavailable'}" ${canCopy ? '' : 'disabled'}>${icons.copy}</button>
+      <button class="icon-button" type="button" data-dismiss-listener="${escapeAttribute(row.signature)}" aria-label="Dismiss ${name}" title="Dismiss listener row">${icons.close}</button>
+    </div>`;
+}
+
+/**
+ * The Listeners panel section: a header line, up to two incident rows, the
+ * busiest owners filling what is left, and a link to Studio, six lines at
+ * most. The rows share one grid so their columns line up.
+ */
+function listenerSectionHtml(
+  outlines: readonly ListenerOutline[],
+  studioUrl: string | null,
+  canCopy: boolean,
+  dismissed: ReadonlySet<string>,
+): string {
+  const incidentGroups = listenerIncidentGroups(outlines);
+  const duplicateCount = incidentGroups.filter((group) => group.pattern === 'duplicate-listener').length;
+  const header = `${pluralize(outlines.length, 'listener')}${duplicateCount > 0 ? ` · ${pluralize(duplicateCount, 'duplicate')}` : ''}`;
+  const rows = listenerTableRows(outlines, dismissed);
+  const linkHtml = studioUrl
+    ? `<a class="listener-link" data-open-listeners-studio href="${escapeAttribute(studioListenersUrl(studioUrl))}" target="_blank" rel="noopener noreferrer">All listeners in Studio</a>`
+    : `<span class="listener-link" data-open-listeners-studio aria-disabled="true" title="Pyric Studio is disabled">All listeners in Studio</span>`;
+  return `<div class="worker-state-col" data-listener-panel>
+      <div class="worker-state-row"><span class="state-label listener-header${incidentGroups.length > 0 ? ' has-incident' : ''}">${escapeAttribute(header)}</span></div>
+      <div class="listener-rows">${rows.map((row, index) => listenerRowHtml(row, index, canCopy)).join('')}</div>
+      ${linkHtml}
+    </div>`;
 }
 
 function renderErrors(snapshot: PyricRuntimeSnapshot, canCopy: boolean): string {
@@ -251,6 +518,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ? options.studioUrl
     : options.runtime.getSnapshot().manifest.studioUrl;
   let open = options.initiallyOpen ?? false;
+  /** The `open` value the view was last built for; the enter animation plays only when it changes. */
+  let renderedOpen: boolean | null = null;
   let snapshot = options.runtime.getSnapshot();
 
   const getLensFn = options.getLens ?? defaultGetLens;
@@ -284,13 +553,26 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   let listenerMode: ListenerMode | null = null;
-  let unattributedListeners: readonly ListenerOutline[] = [];
+  let listenerOutlines: readonly ListenerOutline[] = [];
+  /** `true` once the Listeners mode has reported at least once. The collapsed
+   * chip's listener count stays hidden until then. */
+  let everReportedListeners = false;
+  /** Why the last Listeners toggle did nothing, shown until the next toggle. */
+  let listenerNotice: string | null = null;
+  /** Signatures of the listener rows dismissed from the panel. A row comes
+   * back on its own once its signature moves, which a new attach on its
+   * target or a new incident does. */
+  const dismissedListenerRows = new Set<string>();
   const ensureListenerMode = (): ListenerMode | null => {
     if (listenerMode !== null) return listenerMode;
     const build = options.listeners;
     if (build === undefined) return null;
     listenerMode = build((outlines) => {
-      unattributedListeners = outlines.filter((outline) => outline.selectors.length === 0);
+      everReportedListeners = true;
+      // The mode reports on every attach, delivery, and resize; rebuild the
+      // view only when what the Listeners summary shows actually changes.
+      if (sameOutlines(outlines, listenerOutlines)) return;
+      listenerOutlines = outlines;
       render();
     });
     return listenerMode;
@@ -320,10 +602,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         }
       : null;
     const activeCopyId = active?.getAttribute('data-copy-error');
+    const activeCopyListener = active?.getAttribute('data-copy-listener');
     const activeControl = ['data-expand', 'data-collapse', 'data-update-worker', 'data-open-studio', 'data-open-impersonate']
       .find((attribute) => active?.hasAttribute(attribute));
     const focusToken = activeCopyId !== null && activeCopyId !== undefined
       ? { attribute: 'data-copy-error', value: activeCopyId }
+      : activeCopyListener !== null && activeCopyListener !== undefined
+      ? { attribute: 'data-copy-listener', value: activeCopyListener }
       : activeControl
         ? { attribute: activeControl, value: null }
         : null;
@@ -363,17 +648,17 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       listenersButtonHtml = `<button class="button" type="button" data-toggle-listeners aria-pressed="${listenersOn}">Listeners</button>`;
     }
     let listenerPanelHtml = '';
-    if (listenersOn && unattributedListeners.length > 0) {
-      const rows = unattributedListeners.map((outline) => {
-        const target = outline.isQuery ? `${outline.target} (query)` : outline.target;
-        return `<div class="listener-row"><span>${escapeAttribute(outline.label)}</span><span>${escapeAttribute(target)}</span></div>`;
-      }).join('');
-      listenerPanelHtml = `<div class="worker-state-col" data-listener-panel>
-          <div class="worker-state-row"><span class="state-label">Listeners off screen</span><span class="epochs">${unattributedListeners.length}</span></div>
-          ${rows}
-          <div class="worker-state-subline">Nothing on the page could be outlined for these.</div>
-        </div>`;
+    if (listenerNotice !== null) {
+      listenerPanelHtml = `<div class="worker-state-col" data-listener-notice><div class="worker-state-row"><span class="state-label">${escapeAttribute(listenerNotice)}</span></div></div>`;
+    } else if (listenerMode !== null) {
+      listenerPanelHtml = listenerOutlines.length === 0
+        ? `<div class="worker-state-col" data-listener-panel><div class="worker-state-row"><span class="state-label">No listeners</span></div></div>`
+        : listenerSectionHtml(listenerOutlines, studioUrl ?? null, Boolean(clipboard), dismissedListenerRows);
     }
+    const hasListenerIncident = listenerOutlines.some((outline) => outline.incident !== null);
+    const listenerCountHtml = everReportedListeners
+      ? `<span class="signal${hasListenerIncident ? ' error' : ''}" data-listener-count>${pluralize(listenerOutlines.length, 'listener')}</span>`
+      : '';
 
     view.innerHTML = `${open ? `
       <section class="panel" role="dialog" aria-label="pyric">
@@ -408,11 +693,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ` : `
       <button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">
         <span class="brand"><span class="dot${errorCount > 0 ? ' error' : ''}"></span><span class="brand-label">pyric</span></span>
-        <span class="signals">${identitySignalHtml}${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : ''}${icons.chevron}</span>
+        <span class="signals">${identitySignalHtml}${listenerCountHtml}${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : ''}${icons.chevron}</span>
       </button>
     `}`;
 
-    const announcement = `${workerLabel}. ${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.`;
+    const announcement = `${workerLabel}. ${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${listenerNotice === null ? '' : ` ${listenerNotice}`}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
     const newViewport = view.querySelector<HTMLElement>('[data-error-viewport]');
     if (oldScroll && newViewport) {
@@ -426,6 +711,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const meta = row?.querySelector('.error-meta');
       if (code) code.textContent = error.message;
       if (meta) meta.textContent = [error.source, error.service && error.method ? `${error.service}.${error.method}` : error.service ?? error.method, error.path, error.code].filter(Boolean).join(' · ');
+    }
+
+    if (renderedOpen !== open) {
+      view.querySelector(open ? '.panel' : '.chip')?.classList.add('entering');
+      renderedOpen = open;
     }
 
     root.querySelector('[data-expand]')?.addEventListener('click', () => {
@@ -451,8 +741,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     root.querySelector('[data-toggle-listeners]')?.addEventListener('click', () => {
       const mode = ensureListenerMode();
       if (mode === null) return;
-      mode.setEnabled(!mode.enabled());
-      if (!mode.enabled()) unattributedListeners = [];
+      const wanted = !mode.enabled();
+      mode.setEnabled(wanted);
+      // The mode refuses to start when attribution is off; say so rather than
+      // rebuilding the panel with nothing changed.
+      listenerNotice = wanted && !mode.enabled()
+        ? 'Listener attribution is off in this build, so there are no owners to outline.'
+        : null;
+      // The summary reads the fold whether the outlines are on or off; the
+      // mode only reports on change, so take its current answer here.
+      listenerOutlines = mode.outlines();
       render();
     });
     root.querySelector('[data-open-impersonate]')?.addEventListener('click', (e) => {
@@ -467,6 +765,26 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           button.setAttribute('aria-label', 'Copy failed');
           button.title = 'Copy failed';
         });
+      });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-copy-listener]')) {
+      button.addEventListener('click', () => {
+        const signature = button.dataset.copyListener;
+        const row = listenerTableRows(listenerOutlines, dismissedListenerRows)
+          .find((candidate) => candidate.signature === signature);
+        if (!row || !clipboard) return;
+        void clipboard.writeText(row.copyText).catch(() => {
+          button.setAttribute('data-copy-failed', '');
+          button.setAttribute('aria-label', 'Copy failed');
+          button.title = 'Copy failed';
+        });
+      });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-dismiss-listener]')) {
+      button.addEventListener('click', () => {
+        if (!button.dataset.dismissListener) return;
+        dismissedListenerRows.add(button.dataset.dismissListener);
+        render();
       });
     }
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-dismiss-error]')) {
@@ -494,6 +812,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const unsubLens = subscribeLensFn(() => {
     render();
   });
+
+  // The Listeners summary and the collapsed count read the mode's fold, so the
+  // mode exists from the start; the button only toggles the outlines.
+  ensureListenerMode();
 
   const unsubAuth = identity.subscribeAuth((user) => {
     clientUser = user;

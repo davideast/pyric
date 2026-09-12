@@ -28,6 +28,7 @@ import { useWorker, workerDb } from './worker-runtime.js';
 import { ServeAuthHelper, customClaimsFromTokenClaims } from './auth-helper-core.js';
 import { installServeAuthResolver } from './auth-helper-runtime.js';
 import { mountAuthHelperDialog } from './auth-helper-dom.js';
+import { configureListenerAttribution } from 'pyric/sandbox/internal';
 import { installPyricRuntimeChip } from '../runtime/chip-install.js';
 import { sandboxEventSource } from '../runtime/listener-event-source.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
@@ -87,6 +88,10 @@ if (typeof document !== 'undefined' && typeof window !== 'undefined') {
   void initPayload.then((payload) => {
     installAvatarUpgrades(payload?.avatarUpgrades === true);
   });
+  // A served page is a development host whatever the app's bundle says: the
+  // template's served build is a Vite production build, which folds the
+  // bundled-production check to true and would leave listener attribution off.
+  configureListenerAttribution('on');
   installPyricRuntimeChip({
     runtime: getPyricRuntimeStatus(),
     document,

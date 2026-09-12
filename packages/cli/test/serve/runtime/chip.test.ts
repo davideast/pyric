@@ -130,6 +130,20 @@ describe('PyricRuntimeChip', () => {
     expect(studio?.getAttribute('aria-disabled')).toBe('true');
   });
 
+  it('plays the enter animation only when the panel opens or closes, not on every render', () => {
+    const { runtime, root } = setup();
+    root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
+    expect(root.querySelector('.panel')?.classList.contains('entering')).toBe(true);
+
+    // A state change rebuilds the view while it stays open; the panel must not re-enter.
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+    expect(root.querySelector('.panel')).not.toBeNull();
+    expect(root.querySelector('.panel')?.classList.contains('entering')).toBe(false);
+
+    root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+    expect(root.querySelector('.chip')?.classList.contains('entering')).toBe(true);
+  });
+
   it('moves focus with the compact and expanded controls', () => {
     const { root } = setup();
     root.querySelector<HTMLButtonElement>('[data-expand]')!.click();

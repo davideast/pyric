@@ -48,6 +48,8 @@ interface RegionsOwner {
 export interface ListenerOutlineIncident {
   readonly pattern: 'duplicate-listener' | 'listener-churn';
   readonly count: number;
+  /** The window the count was measured over, in milliseconds. */
+  readonly windowMs: number;
 }
 
 /** One listener as the overlay draws it. */
@@ -55,6 +57,12 @@ export interface ListenerOutline {
   readonly listenerId: string;
   /** Component name, else owner tag name, else creating function or file. */
   readonly label: string;
+  /**
+   * `true` when `label` names an owner the app itself gave (a component or a
+   * tag). `false` means the label fell back to a frame's function or file
+   * name, or to the listener id, none of which the app wrote.
+   */
+  readonly labelIsOwner: boolean;
   /** Collection path for a query, document or node path otherwise. */
   readonly target: string;
   readonly isQuery: boolean;
@@ -109,6 +117,16 @@ function outlineLabel(owners: readonly unknown[], listenerId: string): string {
   return frame.file;
 }
 
+/**
+ * `true` when the label the app would see names an owner it gave itself (a
+ * component or a tag), rather than a frame's function or file name, or the
+ * listener id, both of which describe the sandbox's own bundle rather than
+ * anything the app wrote.
+ */
+function labelIsOwner(owners: readonly unknown[]): boolean {
+  return componentOwner(owners) !== null || tagOwner(owners) !== null;
+}
+
 /** The geometry, most specific owner first, then the latest delivery's regions. */
 function outlineSelectors(owners: readonly unknown[]): readonly string[] {
   const component = componentOwner(owners);
@@ -154,7 +172,7 @@ function incidentMark(
     const isListenerPattern = incident.pattern === 'duplicate-listener' || incident.pattern === 'listener-churn';
     if (!isListenerPattern) continue;
     if (!incident.evidenceEventIds.includes(attachEventId)) continue;
-    return { pattern: incident.pattern, count: incident.count };
+    return { pattern: incident.pattern, count: incident.count, windowMs: incident.windowMs };
   }
   return null;
 }
@@ -168,6 +186,7 @@ function outlineFor(
   return {
     listenerId: listener.id,
     label: outlineLabel(owners, listener.id),
+    labelIsOwner: labelIsOwner(owners),
     target: targetPath(listener.target),
     isQuery: targetIsQuery(listener.target),
     service: listener.service,
