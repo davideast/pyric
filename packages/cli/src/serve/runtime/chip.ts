@@ -898,7 +898,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         <div class="tabs" role="tablist" aria-label="pyric views">${tabsHtml}</div>
         <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}">${viewHtml(activeUid, isAdmin)}</div>
       </section>`
-      : `<button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">${identityIconHtml}${brandHtml}${listenerCountHtml}</button>`;
+      : `<button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">${brandHtml}${identityIconHtml}${listenerCountHtml}</button>`;
 
     const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;

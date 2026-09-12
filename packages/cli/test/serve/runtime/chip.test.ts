@@ -141,7 +141,7 @@ describe('the collapsed pill', () => {
     const chip = root.querySelector('.chip')!;
     // The count slot is drawn whether or not there is a count, so the pill is
     // the same three boxes at every moment of a page's life.
-    expect([...chip.children].map((child) => child.getAttribute('class'))).toEqual(['identity', 'brand-label', 'chip-count']);
+    expect([...chip.children].map((child) => child.getAttribute('class'))).toEqual(['brand-label', 'identity', 'chip-count']);
     expect(chip.querySelector('[data-listener-count]')?.textContent).toBe('');
     expect(chip.querySelector('.dot')).toBeNull();
     expect(chip.querySelector('.chevron')).toBeNull();
