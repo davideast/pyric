@@ -100,16 +100,52 @@ function setup(options: {
 }
 
 describe('PyricRuntimeChip', () => {
-  it('is collapsed by default and surfaces errors and worker updates compactly', () => {
+  it('is collapsed by default and carries errors and worker updates as colour on the name', () => {
     const { runtime, root } = setup();
     expect(root.querySelector('[data-expand]')).not.toBeNull();
-    expect(root.textContent).toContain('pyric');
+    const name = () => root.querySelector('.brand-label')!;
+    expect(name().textContent).toBe('pyric');
+    expect(name().getAttribute('class')).toBe('brand-label');
+    expect(name().getAttribute('title')).toBeNull();
 
-    runtime.reportError('write denied', 'sandbox');
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+    expect(name().classList.contains('warning')).toBe(true);
+    expect(name().getAttribute('title')).toBe('New worker available');
 
-    expect(root.textContent).toContain('update');
-    expect(root.textContent).toContain('1 error');
+    // An error is about the page as it runs, so it takes the name's colour.
+    runtime.reportError('write denied', 'sandbox');
+    expect(name().classList.contains('error')).toBe(true);
+    expect(name().classList.contains('warning')).toBe(false);
+    expect(name().getAttribute('title')).toBe('1 error');
+
+    // The chip says all of that without a word of it.
+    expect(root.querySelector('.chip')!.textContent).toBe('pyric');
+  });
+
+  it('holds only the identity icon, the name, and the listener count when collapsed', () => {
+    const { root } = setup();
+    const chip = root.querySelector('.chip')!;
+    expect([...chip.children].map((child) => child.getAttribute('class'))).toEqual(['identity', 'brand-label']);
+    expect(chip.querySelector('.dot')).toBeNull();
+    expect(chip.querySelector('.chevron')).toBeNull();
+    expect(chip.querySelector('.signal')).toBeNull();
+    expect(chip.querySelector('.signals')).toBeNull();
+  });
+
+  it('draws both identity glyphs from one path, the signed-out one stroked', () => {
+    const { root, setCurrentLens } = setup();
+    const glyph = () => root.querySelector('[data-identity-icon] svg')!;
+    const out = glyph();
+    const outPath = out.querySelector('path')!.getAttribute('d');
+    expect(out.getAttribute('fill')).toBe('none');
+    expect(out.getAttribute('stroke-width')).toBe('1.5');
+
+    setCurrentLens({ mode: 'as', uid: 'alice' });
+    const filled = glyph();
+    expect(filled.querySelector('path')!.getAttribute('d')).toBe(outPath);
+    expect(filled.getAttribute('viewBox')).toBe(out.getAttribute('viewBox'));
+    expect(filled.getAttribute('fill')).toBe('currentColor');
+    expect(filled.getAttribute('stroke')).toBeNull();
   });
 
   it('keeps worker and Studio controls stable while update availability changes', () => {
@@ -130,8 +166,16 @@ describe('PyricRuntimeChip', () => {
     expect(studio?.getAttribute('aria-disabled')).toBe('true');
   });
 
-  it('plays the enter animation only when the panel opens or closes, not on every render', () => {
+  it('plays the chip enter animation on the first mount only, and the panel one on each open', () => {
     const { runtime, root } = setup();
+    // The chip's arrival belongs to the container, which the renders do not rebuild.
+    expect(root.querySelector('[data-view]')?.classList.contains('entering')).toBe(true);
+    expect(root.querySelector('.chip')?.classList.contains('entering')).toBe(false);
+
+    // A state change rebuilds the chip; it must not arrive a second time.
+    runtime.reportError('write denied', 'sandbox');
+    expect(root.querySelector('.chip')?.classList.contains('entering')).toBe(false);
+
     root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
     expect(root.querySelector('.panel')?.classList.contains('entering')).toBe(true);
 
@@ -141,7 +185,7 @@ describe('PyricRuntimeChip', () => {
     expect(root.querySelector('.panel')?.classList.contains('entering')).toBe(false);
 
     root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    expect(root.querySelector('.chip')?.classList.contains('entering')).toBe(true);
+    expect(root.querySelector('.chip')?.classList.contains('entering')).toBe(false);
   });
 
   it('moves focus with the compact and expanded controls', () => {
@@ -266,46 +310,69 @@ describe('PyricRuntimeChip', () => {
     expect(chip.element.style.display).toBe('none');
   });
 
-  it('displays identity badge in collapsed bar when lens is active and omits it when unauthenticated', () => {
+  it('switches the collapsed identity slot between the session states without text', () => {
     const { root, setCurrentLens } = setup({
       initialLens: { mode: 'as', uid: 'alice' },
     });
 
-    const badge = root.querySelector('[data-identity-badge]');
-    expect(badge).not.toBeNull();
-    expect(badge?.textContent).toBe('as: alice');
+    const icon = () => root.querySelector('[data-identity-icon]')!;
+    expect(icon().getAttribute('data-state')).toBe('in');
+    expect(icon().getAttribute('title')).toBe('alice');
 
     setCurrentLens({ mode: 'admin' });
-    expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('bypass rules');
+    expect(icon().getAttribute('data-state')).toBe('admin');
+    expect(icon().getAttribute('title')).toBe('bypass rules');
 
     setCurrentLens(undefined);
-    expect(root.querySelector('[data-identity-badge]')).toBeNull();
+    expect(icon().getAttribute('data-state')).toBe('out');
+    expect(icon().getAttribute('title')).toBe('Signed out');
+    expect(root.querySelector('.chip')!.textContent).toBe('pyric');
   });
 
-  it('displays identity badge from authenticated client user when no lens override is active', () => {
+  it('reads the collapsed identity slot from the authenticated client user when no lens overrides it', () => {
     let activeUser: RuntimeIdentity | null = { uid: 'sam-uid', displayName: 'Sam Altman' };
     const { root, setCurrentUser } = setup({
       getCurrentUser: () => activeUser,
     });
 
-    const badge = root.querySelector('[data-identity-badge]');
-    expect(badge).not.toBeNull();
-    expect(badge?.textContent).toBe('as: sam-uid');
+    expect(root.querySelector('[data-identity-icon]')?.getAttribute('data-state')).toBe('in');
+    expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toBe('sam-uid');
 
     activeUser = null;
     setCurrentUser(null);
-    expect(root.querySelector('[data-identity-badge]')).toBeNull();
+    expect(root.querySelector('[data-identity-icon]')?.getAttribute('data-state')).toBe('out');
+    expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toBe('Signed out');
   });
 
-  it('shows authenticated identity and rules bypass as independent collapsed signals', () => {
+  it('keeps an authenticated session under a rules bypass in the one collapsed slot', () => {
     const { root } = setup({
       initialUser: { uid: 'sam-uid' },
       initialLens: { mode: 'admin' },
     });
 
-    const signals = [...root.querySelectorAll('[data-identity-badge]')]
-      .map((element) => element.textContent);
-    expect(signals).toEqual(['as: sam-uid', 'bypass rules']);
+    const icons = root.querySelectorAll('[data-identity-icon]');
+    expect(icons).toHaveLength(1);
+    expect(icons[0]?.getAttribute('data-state')).toBe('admin');
+    expect(icons[0]?.getAttribute('title')).toBe('bypass rules · sam-uid');
+  });
+
+  it('carries the signals the collapsed chip dropped as one panel fact line', () => {
+    const { runtime, root } = setup({
+      initiallyOpen: true,
+      initialUser: { uid: 'u_8f2a' },
+      initialLens: { mode: 'admin' },
+    });
+    runtime.reportError('write denied', 'sandbox');
+    runtime.reportError('read denied', 'sandbox');
+    runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
+
+    expect(root.querySelector('[data-panel-facts]')?.textContent)
+      .toBe('as: u_8f2a · bypass rules · 2 errors · New worker available');
+  });
+
+  it('leaves the panel fact line out when there is nothing to say', () => {
+    const { root } = setup({ initiallyOpen: true });
+    expect(root.querySelector('[data-panel-facts]')).toBeNull();
   });
 
   it('keeps a dedicated Identity row mounted across authentication changes', () => {
@@ -348,22 +415,22 @@ describe('PyricRuntimeChip', () => {
     expect(dialog).not.toBeNull();
   });
 
-  it('reactively updates badge without reload using default client transport', () => {
+  it('reactively updates the collapsed identity slot without reload using default client transport', () => {
     const { root, setCurrentLens } = setup({ initiallyOpen: false });
-    expect(root.querySelector('[data-identity-badge]')).toBeNull();
+    expect(root.querySelector('[data-identity-icon]')?.getAttribute('data-state')).toBe('out');
 
     setCurrentLens({ mode: 'as', uid: 'charlie' });
-    expect(root.querySelector('[data-identity-badge]')?.textContent).toBe('as: charlie');
+    expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toBe('charlie');
 
     setCurrentLens(undefined);
-    expect(root.querySelector('[data-identity-badge]')).toBeNull();
+    expect(root.querySelector('[data-identity-icon]')?.getAttribute('data-state')).toBe('out');
   });
 
   it('renders hostile identity values as text', () => {
     const maliciousUid = '<script>alert("xss")</script><img data-injected src=x>';
     const { root } = setup({ initialLens: { mode: 'as', uid: maliciousUid } });
 
-    expect(root.querySelector('[data-identity-badge]')?.textContent).toContain(maliciousUid);
+    expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toContain(maliciousUid);
     expect(root.querySelector('script')).toBeNull();
     expect(root.querySelector('[data-injected]')).toBeNull();
   });
@@ -372,7 +439,7 @@ describe('PyricRuntimeChip', () => {
     const { chip, root, setCurrentLens } = setup();
     for (let index = 0; index < 50; index += 1) {
       setCurrentLens({ mode: 'as', uid: `user-${index}` });
-      expect(root.querySelector('[data-identity-badge]')?.textContent).toContain(`user-${index}`);
+      expect(root.querySelector('[data-identity-icon]')?.getAttribute('title')).toContain(`user-${index}`);
     }
 
     chip.dispose();

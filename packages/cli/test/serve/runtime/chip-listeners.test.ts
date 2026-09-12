@@ -298,7 +298,22 @@ describe('the chip Listeners mode', () => {
     page.chip.dispose();
   });
 
-  it('shows the collapsed chip a listener count signal, red when a listener has an incident', () => {
+  it('leaves the collapsed count out when the mode has reported nothing to count', () => {
+    const page = setup();
+    toggle(page.root);
+    // The mode has reported, and counts no listener; a zero is not worth a slot.
+    page.push([delivery('e1', 'l1', { kind: 'doc', path: 'users/u1' })]);
+    page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+    expect(page.root.querySelector('[data-listener-count]')).toBeNull();
+
+    page.root.querySelector<HTMLButtonElement>('[data-expand]')!.click();
+    page.push([attach('e2', 'l1', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard' }])]);
+    page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
+    expect(page.root.querySelector('[data-listener-count]')?.textContent).toBe('1');
+    page.chip.dispose();
+  });
+
+  it('shows the collapsed chip a bare listener count, red when a listener has an incident', () => {
     const page = setup({
       incidents: (events) => {
         const attachIds = events
@@ -329,11 +344,12 @@ describe('the chip Listeners mode', () => {
       attach('e2', 'l2', { kind: 'query', collection: 'conversations' }, [{ kind: 'tag', name: 'ChatPage' }]),
     ]);
 
-    // Collapse to see the chip's own signal strip.
+    // Collapse to see the chip's own count.
     page.root.querySelector<HTMLButtonElement>('[data-collapse]')!.click();
-    const signal = page.root.querySelector('[data-listener-count]');
-    expect(signal?.textContent).toBe('2 listeners');
-    expect(signal?.classList.contains('error')).toBe(true);
+    const count = page.root.querySelector('[data-listener-count]');
+    expect(count?.textContent).toBe('2');
+    expect(count?.getAttribute('title')).toBe('2 listeners');
+    expect(count?.classList.contains('error')).toBe(true);
     page.chip.dispose();
   });
 

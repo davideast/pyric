@@ -118,27 +118,23 @@ const styles = `
     color: var(--pyric-text);
     cursor: pointer;
     display: flex;
-    gap: 10px;
+    gap: 8px;
     height: 36px;
     padding: 0 12px;
   }
   .chip:hover { border-color: #4a4a58; }
-  .brand, .signals, .signal, .panel-title, .worker-state { align-items: center; display: flex; }
-  .brand { gap: 8px; }
+  .panel-title, .worker-state { align-items: center; display: flex; }
   .brand-mark { color: rgba(251, 251, 254, .78); font: 600 11px/1 ui-monospace, monospace; }
-  .brand-label, .signals, .worker-state, code, .button { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .brand-label, .worker-state, code, .button { font-family: "JetBrains Mono", ui-monospace, monospace; }
   .brand-label { font-size: 11px; }
-  .signals { color: var(--pyric-muted); font-size: 10px; gap: 8px; }
-  .signal { gap: 4px; white-space: nowrap; }
-  .signal[data-identity-badge] {
-    max-width: 140px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .dot { background: var(--pyric-accent); border-radius: 50%; height: 8px; width: 8px; }
-  .signal.update { color: var(--pyric-warning); }
-  .signal.bypass { color: #8f7fe8; font-weight: 500; }
-  .chevron { color: var(--pyric-muted); height: 14px; width: 14px; }
+  .brand-label.error { color: var(--pyric-error); }
+  .brand-label.warning { color: var(--pyric-warning); }
+  .identity { align-items: center; color: var(--pyric-muted); display: inline-flex; }
+  .identity[data-state="in"] { color: var(--pyric-text); }
+  .identity[data-state="admin"] { color: var(--pyric-warning); }
+  .identity-icon { height: 14px; width: 14px; }
+  .chip-count { color: var(--pyric-muted); font: 11px/1 "JetBrains Mono", ui-monospace, monospace; }
+  .chip-count.error { color: var(--pyric-error); }
   .panel {
     background: var(--pyric-bg);
     border: 1px solid var(--pyric-border);
@@ -151,6 +147,7 @@ const styles = `
   .panel-header { align-items: center; display: flex; height: 44px; justify-content: space-between; padding: 0 12px; }
   .panel-title { gap: 8px; min-width: 0; }
   .panel-title strong { font: 500 12px/1 ui-monospace, monospace; }
+  .panel-facts { color: var(--pyric-muted); font: 10px/1.4 "JetBrains Mono", ui-monospace, monospace; overflow-wrap: anywhere; padding: 0 12px 9px; }
   .count { background: rgba(58,42,42,.3); border: 1px solid #3a2a2a; border-radius: 999px; color: var(--pyric-error); font: 9px/1 ui-monospace, monospace; padding: 4px 6px; }
   .icon-button { align-items: center; background: transparent; border: 0; border-radius: 4px; color: var(--pyric-muted); cursor: pointer; display: inline-flex; height: 28px; justify-content: center; padding: 0; width: 28px; }
   .icon-button:hover { background: rgba(255,255,255,.05); color: var(--pyric-text); }
@@ -204,7 +201,6 @@ const styles = `
   .listener-link { align-self: flex-end; color: var(--pyric-muted); font-size: 11px; margin-top: 4px; text-decoration: none; }
   a.listener-link:hover { color: var(--pyric-text); }
   .listener-link[aria-disabled="true"] { cursor: not-allowed; opacity: .6; }
-  .signal.error { color: var(--pyric-error); }
   .button[aria-pressed="true"] { background: rgba(25,204,97,.12); border-color: rgba(25,204,97,.4); color: var(--pyric-accent); }
   .worker-state .available { color: var(--pyric-warning); }
   .worker-state .state-label, .worker-state-col .state-label { align-items: center; display: flex; gap: 7px; white-space: nowrap; }
@@ -239,7 +235,7 @@ const styles = `
     .worker-state { align-items: flex-start; flex-direction: column; gap: 4px; }
   }
   @media (prefers-reduced-motion: no-preference) {
-    .chip, .panel { transform-origin: bottom right; }
+    [data-view], .panel { transform-origin: bottom right; }
     .entering { animation: pyric-enter 120ms ease-out; }
     @keyframes pyric-enter { from { opacity: 0; transform: translateY(4px) scale(.98); } }
   }
@@ -252,8 +248,20 @@ const icons = {
   close: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 6 12 12M18 6 6 18"/></svg>',
   minimize: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14"/></svg>',
   copy: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="11" height="11" rx="1"/><path d="M16 8V5H5v11h3"/></svg>',
-  chevron: '<svg class="chevron" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 15 6-6 6 6"/></svg>',
   external: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 5h5v5M19 5l-8 8"/><path d="M19 13v6H5V5h6"/></svg>',
+};
+
+/** The head-and-shoulders outline both identity glyphs are drawn from. */
+const IDENTITY_PATH = 'M12 4.2a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z M5 19.8a7 7 0 0 1 14 0Z';
+
+/**
+ * One drawing, two states. A signed-in session fills the silhouette; a signed
+ * out page strokes the same path, so the eye reads one slot rather than two
+ * icons.
+ */
+const identityGlyphs = {
+  in: `<svg class="identity-icon" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><path d="${IDENTITY_PATH}"/></svg>`,
+  out: `<svg class="identity-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="${IDENTITY_PATH}"/></svg>`,
 };
 
 function escapeAttribute(value: string): string {
@@ -584,7 +592,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     ? options.studioUrl
     : options.runtime.getSnapshot().manifest.studioUrl;
   let open = options.initiallyOpen ?? false;
-  /** The `open` value the view was last built for; the enter animation plays only when it changes. */
+  /** The `open` value the view was last built for; the panel's enter animation plays only when it changes. */
   let renderedOpen: boolean | null = null;
   let snapshot = options.runtime.getSnapshot();
 
@@ -721,16 +729,36 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const isAdmin = lens?.mode === 'admin';
     const activeUid = lens?.mode === 'as' ? lens.uid : user?.uid;
 
-    const identitySignals: string[] = [];
     let identityStateHtml = '<span class="epochs" data-identity-state>App session</span>';
     if (activeUid) {
-      identitySignals.push(`<span class="signal" data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`);
       identityStateHtml = `<span class="epochs" data-identity-state data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`;
     }
-    if (isAdmin) {
-      identitySignals.push('<span class="signal bypass" data-identity-badge>bypass rules</span>');
-    }
-    const identitySignalHtml = identitySignals.join('');
+
+    // The collapsed chip carries identity in one slot: which glyph says whether
+    // there is a session, its colour says whether rules are bypassed, and the
+    // title carries the uid. No text.
+    const identityState = isAdmin ? 'admin' : activeUid ? 'in' : 'out';
+    const identityTitle = isAdmin
+      ? activeUid ? `bypass rules · ${activeUid}` : 'bypass rules'
+      : activeUid ?? 'Signed out';
+    const identityIconHtml = `<span class="identity" data-identity-icon data-state="${identityState}" title="${escapeAttribute(identityTitle)}">${identityState === 'out' ? identityGlyphs.out : identityGlyphs.in}</span>`;
+
+    // The name carries the two page-wide problems as colour. Errors outrank an
+    // available worker, because an error is about the page as it is running.
+    const brandTone = errorCount > 0 ? ' error' : snapshot.updateAvailable ? ' warning' : '';
+    const brandTitle = errorCount > 0
+      ? pluralize(errorCount, 'error')
+      : snapshot.updateAvailable ? 'New worker available' : '';
+    const brandHtml = `<span class="brand-label${brandTone}"${brandTitle ? ` title="${escapeAttribute(brandTitle)}"` : ''}>pyric</span>`;
+
+    // The facts the collapsed chip no longer spells out, on one line under the
+    // panel title.
+    const panelFacts = [
+      activeUid ? `as: ${escapeAttribute(activeUid)}` : '',
+      isAdmin ? 'bypass rules' : '',
+      errorCount > 0 ? pluralize(errorCount, 'error') : '',
+      snapshot.updateAvailable ? 'New worker available' : '',
+    ].filter((fact) => fact !== '').join(' · ');
 
     const listenersOn = listenerMode?.enabled() === true;
     let listenersButtonHtml = '';
@@ -770,8 +798,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         );
     }
     const hasListenerIncident = listenerOutlines.some((outline) => outline.incident !== null);
-    const listenerCountHtml = everReportedListeners
-      ? `<span class="signal${hasListenerIncident ? ' error' : ''}" data-listener-count>${pluralize(listenerOutlines.length, 'listener')}</span>`
+    // A bare number, and only once the mode has something to count: a zero on a
+    // page that has not reported yet says nothing.
+    const listenerCountHtml = everReportedListeners && listenerOutlines.length > 0
+      ? `<span class="chip-count${hasListenerIncident ? ' error' : ''}" data-listener-count title="${pluralize(listenerOutlines.length, 'listener')}">${listenerOutlines.length}</span>`
       : '';
 
     view.innerHTML = `${open ? `
@@ -783,6 +813,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
             <button class="icon-button" type="button" data-dismiss-chip aria-label="Dismiss pyric from page">${icons.close}</button>
           </div>
         </header>
+        ${panelFacts ? `<div class="panel-facts" data-panel-facts>${panelFacts}</div>` : ''}
         <div class="worker-state"><span class="state-label${snapshot.updateAvailable ? ' available' : ''}">${workerLabel}</span><span class="epochs">${epochs}</span></div>
         <div class="worker-state-col" data-ai-status>
           <div class="worker-state-row">
@@ -805,10 +836,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         </div>
       </section>
     ` : `
-      <button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">
-        <span class="brand"><span class="dot${errorCount > 0 ? ' error' : ''}"></span><span class="brand-label">pyric</span></span>
-        <span class="signals">${identitySignalHtml}${listenerCountHtml}${snapshot.updateAvailable ? '<span class="signal update">update</span>' : ''}${errorCount > 0 ? `<span class="signal">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span>` : ''}${icons.chevron}</span>
-      </button>
+      <button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">${identityIconHtml}${brandHtml}${listenerCountHtml}</button>
     `}`;
 
     const announcement = `${workerLabel}. ${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${listenerNotice === null ? '' : ` ${listenerNotice}`}`;
@@ -828,7 +856,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
 
     if (renderedOpen !== open) {
-      view.querySelector(open ? '.panel' : '.chip')?.classList.add('entering');
+      // The panel is a new surface on every open, so it fades in each time. The
+      // chip fades in once, when the page first gets it; coming back from the
+      // panel is a return, not an arrival.
+      if (open) view.querySelector('.panel')?.classList.add('entering');
       renderedOpen = open;
     }
 
@@ -965,6 +996,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   });
 
   render();
+  // The chip fades in once, when the page first gets it. The class sits on the
+  // stable container rather than on the chip, so a render right behind the
+  // mount can neither replay the animation nor cut it short.
+  view.classList.add('entering');
 
   return {
     element: host,
