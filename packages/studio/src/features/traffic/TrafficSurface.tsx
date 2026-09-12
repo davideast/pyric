@@ -277,7 +277,7 @@ export function TrafficSurface() {
       ) : tab === 'rules' ? (
         <RulesMetricsView events={events} window={window} />
       ) : tab === 'listeners' ? (
-        <ListenersSurface />
+        <ListenersSurface window={window} hideStudio={hideStudio} />
       ) : (
         <>
           <TrafficTimeline

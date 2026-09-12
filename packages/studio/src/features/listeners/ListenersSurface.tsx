@@ -6,6 +6,7 @@
  */
 
 import { useMemo, useSyncExternalStore } from 'react';
+import type { TimeWindow } from '@pyric/ui/traffic';
 import { useStudioEvents } from '../../shell/studio-events.js';
 import { currentPath, locationKey, subscribeToLocation } from '../../shell/router.js';
 import { ListenersView } from './ListenersView.js';
@@ -18,10 +19,15 @@ function routedDeepLink(): ListenersDeepLink {
 }
 
 export interface ListenersSurfaceProps {
+  /** The window the Traffic surface computed, shared with the metrics tabs so
+   *  every view counts over the same span. */
+  window: TimeWindow;
+  /** The Traffic surface's `Hide Studio traffic` toggle. */
+  hideStudio?: boolean;
   deepLink?: ListenersDeepLink;
 }
 
-export function ListenersSurface({ deepLink }: ListenersSurfaceProps) {
+export function ListenersSurface({ window, hideStudio, deepLink }: ListenersSurfaceProps) {
   const events = useStudioEvents();
   // The link lives in the URL, so back/forward and a chip click that lands on
   // an already-open Studio both move the selection (N4: the URL is the store).
@@ -33,9 +39,12 @@ export function ListenersSurface({ deepLink }: ListenersSurfaceProps) {
   const link = deepLink ?? routed;
   const props: {
     events: readonly typeof events[number][];
+    window: TimeWindow;
+    hideStudio?: boolean;
     selectedListenerId?: string;
     initialTargetPrefix?: string;
-  } = { events };
+  } = { events, window };
+  if (hideStudio !== undefined) props.hideStudio = hideStudio;
   if (link.listenerId !== undefined) props.selectedListenerId = link.listenerId;
   if (link.targetPrefix !== undefined) props.initialTargetPrefix = link.targetPrefix;
   return <ListenersView {...props} />;

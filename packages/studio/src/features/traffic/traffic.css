@@ -1017,3 +1017,274 @@
   background: var(--elevated);
   color: var(--ink);
 }
+
+/* ── Listeners ──────────────────────────────────────────────────────────
+   The Listeners tab is a journal panel (traffic__metric-*) whose evidence
+   list is the request stream's log. Only the parts a listener needs and an
+   event does not live here: a six-column grid instead of the stream's
+   baseline flex, an owner heading over each run of rows, and the incident
+   badge. Token roles only, the same set the blocks above use. */
+
+/* The stream's rows are one flex line; a listener's columns have to line up
+   across groups, so the column header and every row share one track list.
+   The duplicate control rides beside the row, outside those tracks, and the
+   header reserves its width as trailing padding. */
+.traffic__log .traffic__listener-head,
+.traffic__log .traffic__listener-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 2fr) 74px 72px 64px minmax(0, 0.9fr);
+  align-items: baseline;
+  gap: 12px;
+}
+.traffic__log .traffic__listener-head {
+  padding: 8px 58px 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.traffic__log .traffic__listener-line {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+}
+.traffic__listener-column {
+  appearance: none;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  border: none;
+  padding: 0;
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.traffic__listener-column:hover {
+  color: var(--ink);
+}
+.traffic__listener-column[data-pyric-listener-column='deliveries'] {
+  justify-content: flex-end;
+}
+
+.traffic__listener-row {
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  border: none;
+  padding: 8px 0 8px 14px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.traffic__listener-row:hover {
+  background: var(--panel);
+}
+.traffic__listener-row[data-pyric-selected] {
+  background: var(--panel);
+}
+.traffic__listener-row [data-pyric-listener-owner] {
+  overflow: hidden;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.traffic__listener-row [data-pyric-listener-target] {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.traffic__listener-row [data-pyric-listener-attached] {
+  color: var(--faint);
+}
+.traffic__listener-row [data-pyric-listener-deliveries] {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* The duplicate control sits outside the row button (a control inside a
+   control is not a control), in the grid's last track. */
+.traffic__listener-duplicate {
+  appearance: none;
+  flex-shrink: 0;
+  align-self: center;
+  margin-right: 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.traffic__listener-duplicate:hover {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+
+/* The incident badge: the verdict pill's box, in the one hue the palette
+   does not already spend on allow, deny, or bypass. */
+.traffic__listener-badge {
+  --traffic-incident: #b26a00;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  padding: 1px 6px;
+  background: color-mix(in srgb, var(--traffic-incident) 18%, transparent);
+  color: var(--traffic-incident);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+@media (prefers-color-scheme: dark) {
+  .traffic__listener-badge {
+    --traffic-incident: #e0a030;
+  }
+}
+.traffic__log
+  .traffic__listener-line:has(.traffic__listener-row[data-pyric-incident]) {
+  background: color-mix(in srgb, var(--deny-tint) 60%, transparent);
+}
+
+/* Owner headings: the run of rows below each one is what the heading counts. */
+.traffic__listener-group {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.traffic__listener-group-header {
+  appearance: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 14px;
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-label);
+  text-align: left;
+  cursor: pointer;
+}
+.traffic__listener-group-header::before {
+  content: '▾';
+  color: var(--faint);
+}
+.traffic__listener-group-header[aria-expanded='false']::before {
+  content: '▸';
+}
+.traffic__listener-group-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+.traffic__listener-path {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+}
+[data-pyric-listener-nested] .traffic__listener-row {
+  padding-left: 32px;
+}
+
+/* The inspector reuses the stream's block; only its field grid is new. */
+.traffic__listener-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-2) var(--space-4);
+}
+.traffic__listener-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}
+.traffic__listener-field > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.traffic__listener-mono {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+.traffic__listener-sparkline {
+  width: 120px;
+  height: 24px;
+  color: var(--accent);
+}
+.traffic__listener-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-caption);
+}
+
+/* The two listener filters are one compact caption-sized line above the log,
+   trailing edge, not a toolbar. */
+.traffic__filters--listeners {
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+.traffic__filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.traffic__filter-select,
+.traffic__filter-input {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-caption);
+}
+.traffic__filter-input {
+  width: 180px;
+}
+.traffic__filter-select:hover,
+.traffic__filter-input:hover {
+  border-color: var(--line-2);
+}
+
+@media (max-width: 620px) {
+  .traffic__log .traffic__listener-head,
+  .traffic__log .traffic__listener-row {
+    grid-template-columns: minmax(0, 1fr) 64px minmax(0, 0.8fr);
+  }
+  .traffic__listener-column[data-pyric-listener-column='owner'],
+  .traffic__listener-column[data-pyric-listener-column='service'],
+  .traffic__listener-column[data-pyric-listener-column='attached'],
+  .traffic__listener-row [data-pyric-listener-owner],
+  .traffic__listener-row [data-pyric-traffic-service],
+  .traffic__listener-row [data-pyric-listener-attached] {
+    display: none;
+  }
+  .traffic__filters--listeners {
+    justify-content: flex-start;
+  }
+  .traffic__filter-input {
+    width: 140px;
+  }
+}
