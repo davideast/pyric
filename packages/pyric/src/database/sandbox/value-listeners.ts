@@ -123,6 +123,7 @@ export class ValueListeners {
     this.state.valueListeners.add(listener);
     this.state.events.listener('attach', listener, auth, {
       event: 'value', result: 'allow', detail: query ? { query } : undefined,
+      ...(query ? { query } : {}),
       owners: attachOwners,
     });
     if (query) {

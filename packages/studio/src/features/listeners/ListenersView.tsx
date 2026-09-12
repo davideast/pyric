@@ -1,44 +1,92 @@
 /**
- * Listeners view (feature: Listeners). Presentational: takes the event
- * snapshot and the deep-link inputs as props so it can be rendered without
- * Studio's environment/dev-seed wiring in tests. `ListenersSurface.tsx` is
- * the thin wrapper that reads the live stream and the deep link and renders
- * this.
+ * Listeners view (feature: Listeners), the Traffic tab strip's fourth view.
+ *
+ * Built as a Traffic data journal, the same shape the Billable metrics and
+ * Rules tabs use (`traffic/TrafficMetricsViews.tsx`): the headline leads, the
+ * card strip states the direct totals and doubles as the row filter, the
+ * delivery chart is supporting evidence, the list is the detail, and the
+ * source boundary sits in the footer with the methodology on demand. It is
+ * styled by `traffic/traffic.css`, not a stylesheet of its own.
+ *
+ * The list is one grid: the header, each owner's row, and each listener's row
+ * share one track list, so a column label sits over its own numbers. An owner
+ * heads the run of rows it holds and states its count at the right edge; a
+ * target attached more than once is one row carrying `×N`. The inspector opens
+ * under the clicked row at the log's full width.
+ *
+ * Presentational: takes the event snapshot, the window, and the deep-link
+ * inputs as props so it renders without Studio's environment wiring in tests.
+ * `ListenersSurface.tsx` is the thin wrapper that reads the live stream and
+ * the routed query.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  TrafficLineChart,
+  TrafficMetricCards,
+  type MetricSeries,
+  type TimeWindow,
+} from '@pyric/ui/traffic';
 import { activeListeners, type ActiveListener, type SandboxEvent } from 'pyric/sandbox';
+import { pushPath } from '../../shell/router.js';
+import { groupListeners, groupIdentityFor, type ListenerFilters } from './listener-groups.js';
 import {
-  formatListenerTarget,
-  groupListeners,
-  type ListenerFilters,
-} from './listener-groups.js';
+  cardKeysForRow,
+  listenerCardTotals,
+  listenerFold,
+  listenerRowGroups,
+  nextListenerSort,
+  type ListenerRow,
+  type ListenerRowGroup,
+  type ListenerSort,
+  type ListenerSortColumn,
+} from './listener-rows.js';
 import {
-  incidentsForTarget,
-  listenerIncidents,
-  repeatedReadIncidents,
-} from './listener-incidents.js';
-import { formatAuthLens } from './listener-identity.js';
-import './listeners.css';
+  LISTENER_CARD_DEFS,
+  deliveryCountsInWindow,
+  deliveryMetrics,
+  listenerCardSeries,
+} from './listener-metrics.js';
+import { listenerDeliveryHistory } from './listener-delivery-docs.js';
+import { estimatedDocumentReads } from './listener-reads.js';
+import { listenerPageCards } from './listener-page-cards.js';
+import { DeliveryRow } from './DeliveryRow.js';
+import { IncidentBlock } from './IncidentBlock.js';
+import { ListenerQueryBlock } from './ListenerQueryBlock.js';
+import { elementLabel } from './listener-element.js';
+import { listenerDrillHref, listenerDrillTarget } from './listener-links.js';
+import {
+  listenerFactLine,
+  listenerHeadline,
+  listenerOwnerFact,
+  serviceWord,
+} from './listener-facts.js';
+import { formatAgo } from './listener-vocabulary.js';
+import { listenerIncidents } from './listener-incidents.js';
 
-function formatWhen(at: number): string {
-  return new Date(at).toLocaleTimeString();
+const countFormatter = new Intl.NumberFormat();
+const timeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+function formatCount(value: number): string {
+  return countFormatter.format(value);
 }
 
-function regionsFor(listener: ActiveListener): string[] {
-  for (const owner of listener.owners ?? []) {
-    if (owner.kind === 'regions') return owner.selectors;
-  }
-  return [];
+function formatTime(value: number): string {
+  return timeFormatter.format(value);
 }
 
-/** `incidentsForTarget` only ever returns these two patterns; the third
- *  (`repeated-read`) still types here since it shares `ActivityIncident`. */
-function incidentLabel(pattern: 'duplicate-listener' | 'listener-churn' | 'repeated-read'): string {
-  if (pattern === 'duplicate-listener') return 'duplicate listener';
-  if (pattern === 'listener-churn') return 'listener churn';
-  return 'repeated read';
-}
+/** The grid's columns, in order. The incident mark heads an unlabelled
+ *  column: a `⚠` needs no word over it, and it still sorts. */
+const COLUMNS: ReadonlyArray<{ id: ListenerSortColumn; label: string; name: string }> = [
+  { id: 'incident', label: '', name: 'Incidents' },
+  { id: 'target', label: 'Target', name: 'Target' },
+  { id: 'deliveries', label: 'Deliveries', name: 'Deliveries' },
+  { id: 'attached', label: 'Attached', name: 'Attached' },
+  { id: 'service', label: 'Service', name: 'Service' },
+];
 
 /** Assemble the group filters from the two filter controls' current values.
  *  Built explicitly (no conditional spread) so presence is a plain
@@ -53,135 +101,429 @@ function listenerFiltersFor(
   return filters;
 }
 
+function ariaSortFor(sort: ListenerSort | undefined, column: ListenerSortColumn) {
+  if (sort?.column !== column) return 'none' as const;
+  return sort.direction === 'asc' ? ('ascending' as const) : ('descending' as const);
+}
+
+/** One of the inspector's numbers, with the unit its value needs. */
+function InspectorFigure({
+  metric,
+  label,
+  value,
+  unit,
+}: {
+  metric: string;
+  label: string;
+  value: number;
+  unit?: string;
+}) {
+  return (
+    <span className="traffic__listener-figure" data-pyric-inspector-figure={metric}>
+      <span className="traffic__listener-figure-label">{label}</span>
+      <span className="traffic__listener-figure-value">
+        {unit === undefined ? formatCount(value) : `${formatCount(value)} ${unit}`}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The inspector under a selected row, at the log's full width: the target as a
+ * link to its page, its facts, the query it watches, the incident when there is
+ * one, the totals, and the delivery it last made.
+ */
+function ListenerInspector({
+  listener,
+  row,
+  events,
+  now,
+  onClose,
+}: {
+  listener: ActiveListener;
+  row: ListenerRow;
+  events: readonly SandboxEvent[];
+  now: number;
+  onClose: () => void;
+}) {
+  const [openLatest, setOpenLatest] = useState(false);
+  const history = useMemo(
+    () => listenerDeliveryHistory(events, listener.id),
+    [events, listener.id],
+  );
+  const latest = history[history.length - 1];
+  const element = elementLabel(listener.owners);
+  const facts: {
+    owner?: string;
+    element?: string;
+    service: ActiveListener['service'];
+    attachedAt: number;
+  } = { service: listener.service, attachedAt: listener.attachedAt };
+  facts.owner = groupIdentityFor(listener).label;
+  if (element !== undefined) facts.element = element;
+  const incident = row.incidents[0];
+  const cards = listenerPageCards({
+    deliveries: history.length,
+    snapshot: latest === undefined ? 0 : latest.size,
+    reads: estimatedDocumentReads(history),
+    service: listener.service,
+    single: typeof listener.target === 'string' && listener.service === 'firestore',
+  });
+  return (
+    <div className="traffic__inspector" data-pyric-listener-inspector="">
+      <div className="traffic__inspector-bar">
+        <a
+          className="traffic__listener-inspector-target"
+          data-pyric-inspector-title=""
+          href={listenerDrillHref(listener.id)}
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+            event.preventDefault();
+            pushPath(listenerDrillTarget(listener.id));
+          }}
+        >
+          {row.target}
+        </a>
+        <button
+          type="button"
+          className="traffic__inspector-close"
+          data-pyric-inspector-close=""
+          onClick={onClose}
+          aria-label="Close the listener inspector"
+        >
+          ✕
+        </button>
+      </div>
+      <p className="traffic__listener-facts" data-pyric-inspector-facts="">
+        {listenerFactLine(facts, now)}
+      </p>
+      <ListenerQueryBlock listener={listener} />
+      {incident === undefined ? null : (
+        <IncidentBlock incident={incident} listener={listener} events={events} now={now} />
+      )}
+      <div className="traffic__listener-figures">
+        {cards.map((card) => (
+          <InspectorFigure
+            key={card.key}
+            metric={card.key}
+            label={card.label}
+            value={card.total}
+            unit={card.unit}
+          />
+        ))}
+      </div>
+      {latest === undefined ? null : (
+        <DeliveryRow
+          delivery={latest}
+          service={listener.service}
+          expanded={openLatest}
+          onToggle={() => setOpenLatest((open) => !open)}
+        />
+      )}
+    </div>
+  );
+}
+
 export interface ListenersViewProps {
   events: readonly SandboxEvent[];
-  highlightListenerId?: string;
+  /** The window the Traffic surface computed; deliveries are counted in it. */
+  window: TimeWindow;
+  selectedListenerId?: string;
   initialTargetPrefix?: string;
+  /** The Traffic surface's `Hide Studio traffic` toggle, applied to listeners
+   *  Studio itself opened. */
+  hideStudio?: boolean;
+  /** The clock the relative times are read against; defaults to now. Tests
+   *  pass a fixed value so `24m ago` is a fact, not a race. */
+  now?: number;
 }
 
 export function ListenersView({
   events,
-  highlightListenerId,
+  window,
+  selectedListenerId,
   initialTargetPrefix,
+  hideStudio = false,
+  now,
 }: ListenersViewProps) {
   const [service, setService] = useState<ActiveListener['service'] | ''>('');
   const [targetPrefix, setTargetPrefix] = useState(initialTargetPrefix ?? '');
-  const highlightRef = useRef<HTMLLIElement | null>(null);
+  const [sort, setSort] = useState<ListenerSort | undefined>(undefined);
+  const [selectedId, setSelectedId] = useState<string | undefined>(selectedListenerId);
+  const [hiddenCards, setHiddenCards] = useState<readonly string[]>([]);
+  const selectedRef = useRef<HTMLButtonElement | null>(null);
 
+  const listeners = useMemo(() => {
+    const attached = activeListeners(events);
+    return hideStudio ? attached.filter((l) => l.actor.kind !== 'studio') : attached;
+  }, [events, hideStudio]);
+  const incidents = useMemo(() => listenerIncidents(events), [events]);
+  const deliveriesInWindow = useMemo(
+    () => deliveryCountsInWindow(events, window),
+    [events, window],
+  );
+
+  const rowGroups = useMemo(
+    () =>
+      listenerRowGroups(
+        groupListeners(listeners, listenerFiltersFor(service, targetPrefix)),
+        incidents,
+        sort,
+        (listener) => deliveriesInWindow.get(listener.id) ?? 0,
+      ),
+    [listeners, service, targetPrefix, incidents, sort, deliveriesInWindow],
+  );
+
+  const fold = useMemo(() => listenerFold(rowGroups, incidents), [rowGroups, incidents]);
+  const cardSeries = useMemo<MetricSeries[]>(
+    () => listenerCardSeries(listenerCardTotals(rowGroups)),
+    [rowGroups],
+  );
+  const deliveries = useMemo(
+    () => deliveryMetrics(events, listeners, window),
+    [events, listeners, window],
+  );
+
+  const visibleCards = useMemo(
+    () =>
+      new Set<string>(
+        LISTENER_CARD_DEFS.map((def) => def.key).filter((key) => !hiddenCards.includes(key)),
+      ),
+    [hiddenCards],
+  );
+  const toggleCard = (key: string) =>
+    setHiddenCards((current) =>
+      current.includes(key) ? current.filter((k) => k !== key) : [...current, key],
+    );
+
+  const clock = now ?? Date.now();
+
+  // A row stands for every listener collapsed into it, so a deep link to a
+  // duplicate's second listener selects the row that holds it.
+  const linkedRowListenerId = useMemo(() => {
+    if (selectedListenerId === undefined) return undefined;
+    for (const group of rowGroups) {
+      for (const row of group.rows) {
+        if (row.listeners.some((listener) => listener.id === selectedListenerId)) {
+          return row.listener.id;
+        }
+      }
+    }
+    return selectedListenerId;
+  }, [selectedListenerId, rowGroups]);
+
+  // The deep link selects the row and scrolls to it. It runs on the id, so
+  // back/forward and a second chip click both move the selection.
   useEffect(() => {
-    if (highlightListenerId) highlightRef.current?.scrollIntoView({ block: 'center' });
-  }, [highlightListenerId]);
+    if (linkedRowListenerId === undefined) return;
+    setSelectedId(linkedRowListenerId);
+    selectedRef.current?.scrollIntoView({ block: 'center' });
+  }, [linkedRowListenerId]);
 
-  const listeners = activeListeners(events);
-  const incidents = listenerIncidents(events);
-  const repeatedReads = repeatedReadIncidents(incidents);
+  const visibleGroups = useMemo<readonly ListenerRowGroup[]>(
+    () =>
+      rowGroups
+        .map((group) => ({
+          ...group,
+          rows: group.rows.filter((row) =>
+            cardKeysForRow(row).some((key) => visibleCards.has(key)),
+          ),
+        }))
+        .filter((group) => group.rows.length > 0),
+    [rowGroups, visibleCards],
+  );
 
-  const groups = groupListeners(listeners, listenerFiltersFor(service, targetPrefix));
+  function renderRow(row: ListenerRow) {
+    const listener = row.listener;
+    const isSelected = listener.id === selectedId;
+    return (
+      <div className="traffic__listener-entry" key={row.key} data-pyric-listener-entry="">
+        <button
+          type="button"
+          className="traffic__listener-row"
+          ref={isSelected ? selectedRef : undefined}
+          data-pyric-listener-row=""
+          data-pyric-listener-id={listener.id}
+          data-pyric-selected={isSelected ? '' : undefined}
+          data-pyric-incident={row.incidents.length > 0 ? '' : undefined}
+          onClick={() => setSelectedId(isSelected ? undefined : listener.id)}
+        >
+          <span data-col="incident" aria-hidden="true">
+            {row.incidents.length > 0 ? '⚠' : ''}
+          </span>
+          <span data-col="target" title={row.target}>
+            <span className="traffic__listener-target-text">{row.target}</span>
+            {row.count > 1 ? (
+              <span className="traffic__listener-duplicate" data-pyric-listener-duplicate="">
+                ×{row.count}
+              </span>
+            ) : null}
+          </span>
+          <span data-col="deliveries">{formatCount(row.deliveryCount)}</span>
+          <span data-col="attached">{formatAgo(listener.attachedAt, clock)}</span>
+          <span data-col="service">{serviceWord(listener.service)}</span>
+        </button>
+        {isSelected ? (
+          <ListenerInspector
+            listener={listener}
+            row={row}
+            events={events}
+            now={clock}
+            onClose={() => setSelectedId(undefined)}
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  const ownerFact = listenerOwnerFact(fold);
 
   return (
-    <section className="listeners" aria-labelledby="listeners-title">
-      <header className="listeners__head">
-        <h2 id="listeners-title" className="listeners__title">
-          Listeners
-        </h2>
-        <span className="listeners__count">{listeners.length}</span>
-      </header>
+    <div className="traffic__metrics" data-pyric-ui="traffic-listeners-view">
+      <section className="traffic__metric-panel traffic__metric-panel--journal">
+        <header className="traffic__metric-story">
+          <p className="traffic__metric-eyebrow">Listener activity</p>
+          <h3 className="traffic__metric-headline">{listenerHeadline(fold)}</h3>
+          {ownerFact === undefined ? null : (
+            <p className="traffic__metric-finding" data-pyric-listener-owner-fact="">
+              {ownerFact}
+            </p>
+          )}
+        </header>
 
-      {repeatedReads.length > 0 ? (
-        <div className="listeners__incident listeners__incident--repeated-read" data-testid="repeated-read-incident">
-          {`repeated read ×${repeatedReads.reduce((sum, incident) => sum + incident.count, 0)}`}
+        <TrafficMetricCards
+          series={cardSeries}
+          visible={visibleCards}
+          onToggle={toggleCard}
+          formatValue={formatCount}
+          className="traffic__metric-cards traffic__metric-cards--journal traffic__metric-cards--3"
+        />
+
+        <div className="traffic__metric-evidence">
+          <div className="traffic__metric-evidence-header">
+            <h4>When deliveries happened</h4>
+            <span>
+              {formatTime(window.start)}–{formatTime(window.end)}
+            </span>
+          </div>
+          {deliveries.total === 0 ? (
+            <p className="traffic__empty">No deliveries in this window.</p>
+          ) : (
+            <>
+              <TrafficLineChart
+                points={deliveries.points}
+                series={deliveries.series}
+                omitZeroSeries
+                formatValue={formatCount}
+                formatTime={formatTime}
+                className="traffic__chart traffic__chart--journal"
+              />
+              <div className="traffic__metric-axis" aria-hidden="true">
+                <span>{formatTime(window.start)}</span>
+                <span>{formatTime(window.end)}</span>
+              </div>
+            </>
+          )}
         </div>
-      ) : null}
 
-      <div className="listeners__filters">
-        <label className="listeners__filter">
-          Service
-          <select
-            value={service}
-            onChange={(event) => setService(event.target.value as ActiveListener['service'] | '')}
+        <div
+          className="traffic__filters traffic__filters--listeners"
+          role="group"
+          aria-label="Listener filters"
+        >
+          <label className="traffic__filter-field">
+            <span className="traffic__filters-label">Service</span>
+            <select
+              className="traffic__filter-select"
+              value={service}
+              onChange={(event) =>
+                setService(event.target.value as ActiveListener['service'] | '')
+              }
+            >
+              <option value="">All</option>
+              <option value="firestore">Firestore</option>
+              <option value="database">Database</option>
+            </select>
+          </label>
+          <label className="traffic__filter-field">
+            <span className="traffic__filters-label">Target</span>
+            <input
+              className="traffic__filter-input"
+              type="text"
+              value={targetPrefix}
+              onChange={(event) => setTargetPrefix(event.target.value)}
+            />
+          </label>
+        </div>
+
+        {listeners.length === 0 ? null : visibleGroups.length === 0 ? (
+          <p className="traffic__empty" data-pyric-listener-empty="">
+            No listeners match these filters
+          </p>
+        ) : (
+          <div
+            className="traffic__log traffic__listener-grid"
+            data-pyric-listener-grid=""
+            data-pyric-ui="traffic-listeners-log"
           >
-            <option value="">All</option>
-            <option value="firestore">Firestore</option>
-            <option value="database">Database</option>
-          </select>
-        </label>
-        <label className="listeners__filter">
-          Target prefix
-          <input
-            type="text"
-            value={targetPrefix}
-            onChange={(event) => setTargetPrefix(event.target.value)}
-            placeholder="collection or path"
-          />
-        </label>
-      </div>
+            <div className="traffic__listener-header" data-pyric-listener-header="" role="row">
+              {COLUMNS.map((column) => (
+                <button
+                  key={column.id}
+                  type="button"
+                  role="columnheader"
+                  className="traffic__listener-column"
+                  data-col={column.id}
+                  aria-label={column.label === '' ? column.name : undefined}
+                  aria-sort={ariaSortFor(sort, column.id)}
+                  onClick={() => setSort((current) => nextListenerSort(current, column.id))}
+                >
+                  {column.label}
+                  {sort?.column === column.id ? (
+                    <span aria-hidden="true">{sort.direction === 'asc' ? '↑' : '↓'}</span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+            {visibleGroups.map((group) => (
+              <div key={group.identity.key} className="traffic__listener-run">
+                <div
+                  className="traffic__listener-group"
+                  data-pyric-listener-group={group.identity.key}
+                >
+                  <span data-col="owner">{group.identity.label}</span>
+                  <span data-col="count">{formatCount(group.listenerCount)}</span>
+                </div>
+                {group.rows.map((row) => renderRow(row))}
+              </div>
+            ))}
+          </div>
+        )}
 
-      {groups.length === 0 ? (
-        <p className="listeners__empty">No active listeners match this filter.</p>
-      ) : (
-        groups.map((group) => (
-          <section key={group.identity.key} className="listeners__group">
-            <header className="listeners__group-head">
-              <span className="listeners__group-label">{group.identity.label}</span>
-              {group.identity.subtitle ? (
-                <span className="listeners__group-subtitle">{group.identity.subtitle}</span>
-              ) : null}
-              <span className="listeners__group-count">{group.listeners.length}</span>
-            </header>
-            <ul className="listeners__rows">
-              {group.listeners.map((listener) => {
-                const rowIncidents = incidentsForTarget(incidents, listener.target);
-                const highlighted = listener.id === highlightListenerId;
-                return (
-                  <li
-                    key={listener.id}
-                    ref={highlighted ? highlightRef : undefined}
-                    className={
-                      highlighted ? 'listeners__row listeners__row--highlight' : 'listeners__row'
-                    }
-                    data-testid={`listener-row-${listener.id}`}
-                  >
-                    <span className="listeners__cell listeners__cell--service">{listener.service}</span>
-                    <span className="listeners__cell listeners__cell--target">
-                      {formatListenerTarget(listener.target)}
-                    </span>
-                    <span className="listeners__cell listeners__cell--identity">
-                      {formatAuthLens(listener.authLens)}
-                    </span>
-                    <span className="listeners__cell listeners__cell--attached">
-                      {formatWhen(listener.attachedAt)}
-                    </span>
-                    <span className="listeners__cell listeners__cell--deliveries">
-                      {listener.deliveryCount} deliveries
-                    </span>
-                    <span className="listeners__cell listeners__cell--suppressed">
-                      {listener.suppressedCount} suppressed
-                    </span>
-                    {listener.lastDeliveryAt !== undefined ? (
-                      <span className="listeners__cell listeners__cell--last-delivery">
-                        last {formatWhen(listener.lastDeliveryAt)}
-                      </span>
-                    ) : null}
-                    {regionsFor(listener).length > 0 ? (
-                      <span className="listeners__cell listeners__cell--regions">
-                        paints {regionsFor(listener).join(', ')}
-                      </span>
-                    ) : null}
-                    {rowIncidents.map((incident) => (
-                      <span
-                        key={incident.fingerprint}
-                        className="listeners__incident listeners__incident--inline"
-                      >
-                        {`${incidentLabel(incident.pattern)} ×${incident.count}`}
-                      </span>
-                    ))}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))
-      )}
-    </section>
+        <footer className="traffic__metric-footer">
+          <p className="traffic__metric-source">
+            Source: sandbox listener events · listeners attached now, deliveries in this window
+          </p>
+          <details className="traffic__metric-methodology">
+            <summary>How this is counted</summary>
+            <div>
+              <p>
+                A listener is attached when the sandbox recorded its <code>attach</code> and has
+                not recorded a <code>detach</code> or an error for it since. The count is that
+                fold, not the number of attach events.
+              </p>
+              <p>
+                <strong>Owners come from the attach, deliveries from the window.</strong> The
+                owner is the React component the listener was opened in, else the tag the app
+                gave it, else the target itself. Two listeners on the same target under the same
+                owner are one thing attached twice, so they collapse into one row carrying{' '}
+                <code>×N</code>. Delivery counts cover the displayed window only; a listener with
+                none is idle, not gone.
+              </p>
+            </div>
+          </details>
+        </footer>
+      </section>
+    </div>
   );
 }

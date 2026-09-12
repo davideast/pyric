@@ -114,3 +114,28 @@ describe('Astro site tree', () => {
     expect((await fetch(h.url + '/__pyric/ui/not-a-service')).status).toBe(404);
   });
 });
+
+describe('Astro site tree redirects', () => {
+  it('carries the query string through the trailing-slash redirects', () => {
+    const { siteRoot } = siteFixture();
+    const handler = createSiteTreeHandler(siteRoot);
+
+    // The mount path itself.
+    expect(invokeRawPath(handler, '/__pyric/ui?view=listeners')).toEqual({
+      status: 301,
+      location: '/__pyric/ui/?view=listeners',
+    });
+
+    // A directory under the mount, which is how the Studio hub is served.
+    expect(invokeRawPath(handler, '/__pyric/ui/studio?view=listeners&listener=l-1')).toEqual({
+      status: 301,
+      location: '/__pyric/ui/studio/?view=listeners&listener=l-1',
+    });
+
+    // No query, no trailing `?`.
+    expect(invokeRawPath(handler, '/__pyric/ui/studio')).toEqual({
+      status: 301,
+      location: '/__pyric/ui/studio/',
+    });
+  });
+});

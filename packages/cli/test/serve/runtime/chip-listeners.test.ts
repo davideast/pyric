@@ -342,7 +342,7 @@ describe('the chip Listeners mode', () => {
     toggle(page.root);
     page.push([attach('e1', 'l1', { kind: 'doc', path: 'users/u1' }, [{ kind: 'tag', name: 'ProfileCard' }])]);
     const link = page.root.querySelector<HTMLAnchorElement>('[data-listener-panel] [data-open-listeners-studio]');
-    expect(link?.getAttribute('href')).toBe('https://studio.example/app?view=listeners');
+    expect(link?.getAttribute('href')).toBe('https://studio.example/app/traffic/?view=listeners');
     expect(link?.getAttribute('target')).toBe('_blank');
     page.chip.dispose();
 

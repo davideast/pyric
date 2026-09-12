@@ -121,16 +121,33 @@ const NO_REACT_REASON = 'Flow needs a React renderer on this page.';
 const LATE_HOOK_REASON = 'React loaded before pyric could watch its renders, so Flow has nothing to follow.';
 
 /**
- * Studio's listeners view, filtered to one listener. Studio has no listeners
- * view yet, so the filter travels in the query string for the view that will
- * read it; a Studio that does not know these parameters ignores them and
+ * The Listeners tab's address, with `?view=listeners` already on it.
+ *
+ * The tab is a Traffic view, so the link names the sibling `traffic` route
+ * rather than the Studio hub, and it keeps the trailing slash. Both avoid the
+ * served host's redirect to the trailing-slash form, so no hop can drop the
+ * query the link carries.
+ */
+export function studioListenersUrl(studioUrl: string): string {
+  const queryStart = studioUrl.indexOf('?');
+  const base = queryStart === -1 ? studioUrl : studioUrl.slice(0, queryStart);
+  const existing = queryStart === -1 ? '' : studioUrl.slice(queryStart + 1);
+  const segments = base.replace(/\/+$/, '').split('/');
+  if (segments[segments.length - 1] === 'studio') segments.pop();
+  segments.push('traffic');
+  const query = existing === '' ? 'view=listeners' : `${existing}&view=listeners`;
+  return `${segments.join('/')}/?${query}`;
+}
+
+/**
+ * Studio's Listeners tab, filtered to one listener. The filter travels in the
+ * query string; a Studio that does not know these parameters ignores them and
  * opens its default view.
  */
 export function studioListenerUrl(studioUrl: string, outline: ListenerOutline): string {
-  const separator = studioUrl.includes('?') ? '&' : '?';
   const listener = encodeURIComponent(outline.listenerId);
   const target = encodeURIComponent(outline.target);
-  return `${studioUrl}${separator}view=listeners&listener=${listener}&target=${target}`;
+  return `${studioListenersUrl(studioUrl)}&listener=${listener}&target=${target}`;
 }
 
 /** Build the chip's Listeners mode. It starts off and draws nothing. */

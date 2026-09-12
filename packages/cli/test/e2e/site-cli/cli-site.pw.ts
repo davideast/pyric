@@ -116,3 +116,82 @@ test('a served page attributes a listener to the owner the page passed', async (
   await expect(rows.filter({ hasText: 'notes/astro-host' })).toHaveCount(1);
   await context.close();
 });
+
+test('the Listeners tab renders from the routed query and from the chip deep link', async ({ browser }) => {
+  const context = await browser.newContext();
+  const studio = await context.newPage();
+  const consoleErrors: string[] = [];
+  studio.on('console', (message) => {
+    // The fixture app mounts no `/__pyric/state` endpoint, so Studio's probe
+    // for it logs a resource 404 on every page. Ignore load failures and keep
+    // the assertion on script errors, which is what a render loop reports.
+    if (message.type() === 'error' && !message.text().includes('Failed to load resource')) {
+      consoleErrors.push(message.text());
+    }
+  });
+  studio.on('pageerror', (error) => consoleErrors.push(error.message));
+
+  // The tab is a Traffic journal panel: its eyebrow names the view, and the
+  // headline states a finding that moves with the data, so the panel itself is
+  // what a render assertion can hold on to.
+  await studio.goto('/__pyric/ui/traffic/?view=listeners');
+  await expect(studio.locator('[data-pyric-ui="traffic-listeners-view"]')).toBeVisible();
+  expect(consoleErrors).toEqual([]);
+
+  // The chip's deep-link shape: the Listeners tab selects a row off the URL.
+  await studio.goto('/__pyric/ui/traffic/?view=listeners&listener=l-1&target=notes');
+  await expect(studio.locator('[data-pyric-ui="traffic-listeners-view"]')).toBeVisible();
+  expect(consoleErrors).toEqual([]);
+
+  // The hub path carries the same query: Studio replays it onto Traffic.
+  await studio.goto('/__pyric/ui/studio?view=listeners&listener=l-1&target=notes');
+  await expect(studio.locator('[data-pyric-ui="traffic-listeners-view"]')).toBeVisible();
+  expect(consoleErrors).toEqual([]);
+  await context.close();
+});
+
+test('the runtime chip link reaches the Listeners tab without losing its query', async ({ browser }) => {
+  const context = await browser.newContext();
+
+  // The served host answers the extension-less Studio path with a redirect to
+  // the trailing-slash form. The query has to survive it.
+  const redirect = await context.request.get('/__pyric/ui/studio?view=listeners', {
+    maxRedirects: 0,
+  });
+  if (redirect.status() === 301) {
+    expect(redirect.headers()['location']).toBe('/__pyric/ui/studio/?view=listeners');
+  }
+
+  const app = await context.newPage();
+  await app.goto('/');
+  await expect(app.locator('#status')).not.toHaveText('loading');
+  await app.locator('#listen').click();
+
+  const chipHost = app.locator('[data-pyric-runtime-chip-host]');
+  await expect(chipHost).toBeAttached();
+  const expand = chipHost.locator('[data-expand]');
+  if (await expand.isVisible()) await expand.click();
+  await chipHost.locator('[data-toggle-listeners]').click();
+
+  const link = chipHost.locator('[data-open-listeners-studio]');
+  await expect(link).toBeAttached();
+  const href = await link.getAttribute('href');
+  expect(href).toBeTruthy();
+
+  const studio = await context.newPage();
+  const consoleErrors: string[] = [];
+  studio.on('console', (message) => {
+    // The fixture app mounts no `/__pyric/state` endpoint, so Studio's probe
+    // for it logs a resource 404 on every page. Ignore load failures and keep
+    // the assertion on script errors, which is what a render loop reports.
+    if (message.type() === 'error' && !message.text().includes('Failed to load resource')) {
+      consoleErrors.push(message.text());
+    }
+  });
+  studio.on('pageerror', (error) => consoleErrors.push(error.message));
+  await studio.goto(href as string);
+  await expect(studio.locator('[data-pyric-ui="traffic-listeners-view"]')).toBeVisible();
+  expect(new URL(studio.url()).searchParams.get('view')).toBe('listeners');
+  expect(consoleErrors).toEqual([]);
+  await context.close();
+});

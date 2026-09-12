@@ -86,6 +86,7 @@ function recordedOwner(value: ListenerOwner | ComponentOwnerInput): ListenerOwne
     owner.element = element;
   } else if (element !== undefined && isSelectableElement(element)) {
     owner.element = ownerSelectorFor(element);
+    owner.tag = tagNameOf(element);
   }
   return owner;
 }

@@ -1017,3 +1017,447 @@
   background: var(--elevated);
   color: var(--ink);
 }
+
+/* ── Listeners ──────────────────────────────────────────────────────────
+   The Listeners tab is a journal panel (traffic__metric-*) whose evidence
+   list is the request stream's log. Only the parts a listener needs and an
+   event does not live here: one shared column grid, an owner heading over
+   each run of rows, the incident mark, and the delivery block the inspector
+   and the listener page both render. Token roles only, the same set the
+   blocks above use. */
+
+/* One track list for the header, the owner rows, and the listener rows, so a
+   column label sits over its own values. The cells sit inside a button on a
+   listener row and inside a div elsewhere, so each of the three is its own
+   grid over the same tracks rather than one grid over all of them. */
+.traffic__listener-grid {
+  --listener-columns: 18px minmax(0, 1fr) 88px 76px 78px;
+}
+.traffic__listener-header,
+.traffic__listener-group,
+.traffic__listener-row {
+  display: grid;
+  grid-template-columns: var(--listener-columns);
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.traffic__listener-header {
+  background: var(--panel);
+}
+.traffic__listener-header [data-col='deliveries'],
+.traffic__listener-row [data-col='deliveries'],
+.traffic__listener-group [data-col='count'] {
+  justify-content: flex-end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.traffic__listener-column {
+  appearance: none;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  border: none;
+  padding: 0;
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.traffic__listener-column:hover {
+  color: var(--ink);
+}
+
+/* An owner heads the run of rows it holds; its count sits in the last track,
+   at the grid's right edge. */
+.traffic__listener-group {
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+.traffic__listener-group [data-col='owner'] {
+  grid-column: 1 / 5;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.traffic__listener-group [data-col='count'] {
+  grid-column: 5;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+}
+
+.traffic__listener-row {
+  appearance: none;
+  width: 100%;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.traffic__listener-row:hover,
+.traffic__listener-row[data-pyric-selected] {
+  background: var(--panel);
+}
+.traffic__listener-row [data-col='incident'] {
+  --traffic-incident: #b26a00;
+  color: var(--traffic-incident);
+}
+.traffic__listener-row[data-pyric-incident] {
+  background: color-mix(in srgb, var(--deny-tint) 60%, transparent);
+}
+.traffic__listener-row [data-col='target'] {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ink);
+}
+.traffic__listener-target-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.traffic__listener-duplicate {
+  flex-shrink: 0;
+  color: var(--faint);
+}
+.traffic__listener-row [data-col='deliveries'] {
+  color: var(--ink);
+}
+.traffic__listener-row [data-col='attached'],
+.traffic__listener-row [data-col='service'] {
+  overflow: hidden;
+  color: var(--faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The two listener filters are one compact caption-sized line above the log,
+   trailing edge, not a toolbar. */
+.traffic__filters--listeners {
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+.traffic__filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.traffic__filter-select,
+.traffic__filter-input {
+  appearance: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 8px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-caption);
+}
+.traffic__filter-input {
+  width: 180px;
+}
+.traffic__filter-select:hover,
+.traffic__filter-input:hover {
+  border-color: var(--line-2);
+}
+
+/* ── The listener inspector ─────────────────────────────────────────────
+   The stream's inspector block at the log's full width: the target as a link
+   to its page, the facts under it, the query it watches, the incident when
+   there is one, the totals, then the delivery it last made. */
+.traffic__listener-inspector-target {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.traffic__listener-inspector-target:hover {
+  text-decoration: underline;
+}
+.traffic__listener-facts {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  overflow-wrap: anywhere;
+}
+.traffic__listener-figures {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+.traffic__listener-figure {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.traffic__listener-figure-label {
+  color: var(--faint);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+}
+.traffic__listener-figure-value {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+/* The incident: the deny tint the timeline and the stream already spend on a
+   denial, over the attach lines that caused it. */
+.traffic__listener-incident {
+  display: grid;
+  gap: 2px;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--deny-tint);
+}
+.traffic__listener-incident-line {
+  --traffic-incident: #b26a00;
+  margin: 0;
+  color: var(--traffic-incident);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+}
+.traffic__listener-incident-attach {
+  margin: 0;
+  padding-left: var(--space-3);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  overflow-wrap: anywhere;
+}
+.traffic__listener-incident-attach [data-pyric-element] {
+  color: var(--ink);
+}
+@media (prefers-color-scheme: dark) {
+  .traffic__listener-row [data-col='incident'],
+  .traffic__listener-incident-line {
+    --traffic-incident: #e0a030;
+  }
+}
+
+/* ── One delivery ───────────────────────────────────────────────────────
+   A row in the log's language: when the callback ran, what moved, and how
+   much it then held, on one line in three tracks. Clicking the row opens the
+   paths it changed under it: the path carries the line with its collection
+   prefix dimmed, and the change label sits in the adjacent column, so the
+   labels read as a column without a gap across the page. */
+.traffic__delivery-entry + .traffic__delivery-entry {
+  border-top: 1px solid var(--line);
+}
+.traffic__delivery-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 12px;
+  width: 100%;
+  appearance: none;
+  border: none;
+  padding: 8px 14px;
+  background: none;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.traffic__delivery-row:disabled {
+  cursor: default;
+}
+.traffic__delivery-row:not(:disabled):hover,
+.traffic__delivery-row[data-pyric-selected] {
+  background: var(--panel);
+}
+.traffic__delivery-row [data-pyric-delivery-time] {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.traffic__delivery-row [data-pyric-delivery-figures] {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.traffic__delivery-row [data-pyric-delivery-snapshot] {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.traffic__delivery-changes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 2px;
+  width: max-content;
+  max-width: 100%;
+  padding: 0 14px 10px calc(88px + 26px);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.traffic__delivery-path {
+  display: contents;
+}
+
+.traffic__listener-path-link {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.traffic__listener-path-link:hover [data-pyric-path-id] {
+  text-decoration: underline;
+}
+[data-pyric-path-prefix] {
+  color: var(--faint);
+}
+[data-pyric-path-id] {
+  color: var(--ink);
+}
+.traffic__delivery-change {
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: right;
+  text-transform: uppercase;
+}
+.traffic__delivery-change[data-pyric-change='added'] {
+  color: var(--accent);
+}
+.traffic__delivery-change[data-pyric-change='removed'] {
+  color: var(--faint);
+}
+
+/* ── One listener's page ────────────────────────────────────────────────
+   The same journal as the tab, narrowed to one listener: the back link, the
+   target and its facts, the query, the totals, then the deliveries under
+   their own histogram. */
+.traffic__listener-back {
+  align-self: flex-start;
+  color: var(--muted);
+  font-size: var(--fs-caption);
+  text-decoration: none;
+}
+.traffic__listener-back:hover {
+  color: var(--ink);
+}
+.traffic__listener-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.traffic__listener-interval {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The query one listener watches ─────────────────────────────────────
+   Source text, so it reads as the call the developer wrote: the block keeps
+   the line breaks the formatter chose and the copy control hands the whole
+   call, every operand in full, to the clipboard. */
+.traffic__listener-query {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--panel);
+}
+.traffic__listener-query-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-x: auto;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.traffic__listener-query-copy {
+  appearance: none;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.traffic__listener-query-copy:hover:not(:disabled) {
+  border-color: var(--line-2);
+  color: var(--ink);
+}
+.traffic__listener-query-copy:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.traffic__listener-query-copy[data-pyric-copy-failed] {
+  color: var(--deny, var(--muted));
+}
+.traffic__listener-query-icon {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+@media (max-width: 620px) {
+  .traffic__listener-grid {
+    --listener-columns: 18px minmax(0, 1fr) 72px;
+  }
+  .traffic__listener-header [data-col='attached'],
+  .traffic__listener-header [data-col='service'],
+  .traffic__listener-row [data-col='attached'],
+  .traffic__listener-row [data-col='service'] {
+    display: none;
+  }
+  .traffic__listener-group [data-col='owner'] {
+    grid-column: 1 / 3;
+  }
+  .traffic__listener-group [data-col='count'] {
+    grid-column: 3;
+  }
+  .traffic__filters--listeners {
+    justify-content: flex-start;
+  }
+  .traffic__filter-input {
+    width: 140px;
+  }
+}

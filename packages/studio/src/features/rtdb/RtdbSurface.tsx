@@ -15,17 +15,32 @@
  *     for the loading-strategy decision — the worker has no shallow reads, so
  *     rendering is lazy instead of fetching).
  *
+ * The focused path lives in the URL, not in component state: `/rtdb/a/b/c`
+ * focuses `/a/b/c` and `/rtdb` alone focuses the root, so a listener link, a
+ * command-palette result, a pasted URL, and browser back/forward all land the
+ * viewer on the same node. See {@link useRoutedRtdbPath} in `routed-path.ts`,
+ * the RTDB counterpart of the Data feature's `navigation.tsx`.
+ *
  * The backend is the live SharedWorker plane's admin RTDB ops (data views are
  * always admin — PRINCIPLES M3). All styling lives in the token-only
  * `rtdb.css`, targeting the `data-rtdb-*` contract the library emits.
  */
 
-import { useMemo, useState } from 'react';
-import { RtdbPathBar, RtdbTree, useRtdbTree, type RtdbApi } from '@pyric/ui/rtdb';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  parentRtdbPath,
+  relativeRtdbPath,
+  RtdbPathBar,
+  rtdbPathSegments,
+  RtdbTree,
+  useRtdbTree,
+  type RtdbApi,
+} from '@pyric/ui/rtdb';
 import { useEnvironment } from '../../shell/environment.js';
 import { useSandboxInstanceId } from '../../shell/studio-saved-states.js';
 import { instanceSlug } from '../../shell/instance-slug.js';
 import type { WorkerLivePlane } from '../../clients/worker-live.js';
+import { useRoutedRtdbPath } from './routed-path.js';
 import './rtdb.css';
 
 export function RtdbSurface() {
@@ -61,12 +76,9 @@ function RtdbPending() {
 }
 
 function LiveRtdbViewer({ live }: { live: WorkerLivePlane }) {
-  const [path, setPath] = useState('/');
-
   // The sandbox instance identity for the root crumb — the SAME slug the
-  // session surface shows, so "which database is this" matches everywhere.
+  // session surface renders, so "which database is this" matches everywhere.
   const slug = instanceSlug(useSandboxInstanceId());
-  const instanceLabel = slug ? `${slug}-sandbox` : 'sandbox';
 
   // The viewer's backend: the live plane's admin RTDB ops (M3), memoized so
   // the tree's subscription effect keys on the plane, not on each render.
@@ -79,24 +91,99 @@ function LiveRtdbViewer({ live }: { live: WorkerLivePlane }) {
     [live],
   );
 
-  const tree = useRtdbTree(api, path);
+  return (
+    <RoutedRtdbViewer api={api} instanceLabel={slug ? `${slug}-sandbox` : 'sandbox'} />
+  );
+}
+
+export interface RoutedRtdbViewerProps {
+  /** Read/write backend for the tree (the admin lens in Studio). */
+  api: RtdbApi;
+  /** The database identity shown on the root crumb and the root row. */
+  instanceLabel: string;
+}
+
+/**
+ * The path bar and tree, focused on whatever path the URL names. Split from
+ * {@link LiveRtdbViewer} so the route binding is exercised over any
+ * {@link RtdbApi}, not only the shared worker's.
+ */
+export function RoutedRtdbViewer({ api, instanceLabel }: RoutedRtdbViewerProps) {
+  // The focused path comes from the URL, not from component state: a listener
+  // link or a pasted URL lands on the node it names, and clicking a node in
+  // the tree writes the path back so the address bar keeps up. Back/forward
+  // move the viewer because the route is the only source of truth.
+  const [routedPath, navigate] = useRoutedRtdbPath();
+  const { viewRoot, missingTail, tree } = useNearestExistingRoot(api, routedPath);
+
+  // Arriving from a link outside the viewer: bring the focused node on screen.
+  const viewerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (viewRoot === '/') return;
+    const node = viewerRef.current;
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({ block: 'nearest' });
+    }
+  }, [viewRoot]);
 
   return (
-    <div className="rtdb">
+    <div className="rtdb" ref={viewerRef}>
       <RtdbPathBar
         className="rtdb__pathbar"
-        path={path}
-        onNavigate={setPath}
+        path={routedPath}
+        onNavigate={navigate}
         rootLabel={instanceLabel}
         inputPrefix={instanceLabel}
       />
+      {missingTail ? (
+        <p className="rtdb__missing" data-rtdb-missing="">
+          This path does not exist. Showing <code>{viewRoot}</code>, the nearest
+          path that does; <code>{missingTail}</code> is not in the database.
+        </p>
+      ) : null}
       <RtdbTree
         className="rtdb__tree"
         tree={tree}
         api={api}
-        onNavigate={setPath}
+        onNavigate={navigate}
         rootLabel={instanceLabel}
       />
     </div>
   );
+}
+
+/**
+ * Resolve a routed path that is not in the data to its nearest existing
+ * ancestor, the way the Firestore pane falls back for a document that does not
+ * exist. In RTDB an absent path and a null path are the same thing, so a
+ * `null` value at a live view root means the path is not there: walk one
+ * segment up and subscribe again, until a subtree turns up or the root is
+ * reached. The route itself is left alone — the URL still names what was
+ * asked for, and the note above the tree says which tail is missing.
+ */
+function useNearestExistingRoot(api: RtdbApi, requested: string) {
+  const [fallback, setFallback] = useState({ requested, root: requested });
+  // Re-resolve from the requested path whenever the route names another one.
+  const resolving =
+    fallback.requested === requested ? fallback : { requested, root: requested };
+  if (resolving !== fallback) setFallback(resolving);
+
+  const viewRoot = resolving.root;
+  const tree = useRtdbTree(api, viewRoot);
+  const { path: loadedPath, status, value } = tree.state;
+
+  useEffect(() => {
+    if (loadedPath !== viewRoot) return;
+    if (status !== 'live') return;
+    if (value != null) return;
+    if (viewRoot === '/') return;
+    setFallback({ requested, root: parentRtdbPath(viewRoot) });
+  }, [loadedPath, status, value, viewRoot, requested]);
+
+  const tail = viewRoot === requested ? null : relativeRtdbPath(viewRoot, requested);
+  return {
+    viewRoot,
+    missingTail: tail && rtdbPathSegments(tail).length > 0 ? tail : null,
+    tree,
+  };
 }

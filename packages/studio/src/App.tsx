@@ -10,7 +10,7 @@ import { useEffect, useState, type MouseEvent } from 'react';
 import { DevSeedProvider, useDevSeed } from './dev/DevSeedProvider.js';
 import { EnvironmentProvider } from './shell/environment.js';
 import { ThemeProvider } from './shell/theme.js';
-import { hrefFor, useRoute } from './shell/router.js';
+import { hrefFor, replacePath, useRoute } from './shell/router.js';
 import { appBase } from './shell/path.js';
 import { focusInlineCommand, isCommandK } from './shell/command-k.js';
 import { CommandOverlay } from './shell/CommandOverlay.js';
@@ -23,7 +23,7 @@ import { HomeSurface } from './features/home/HomeSurface.js';
 import { RtdbSurface } from './features/rtdb/RtdbSurface.js';
 import { SettingsSurface } from './features/settings/SettingsSurface.js';
 import { AssuranceSurface } from './features/assurance/index.js';
-import { ListenersSurface, currentListenersDeepLink, type ListenersDeepLink } from './features/listeners/index.js';
+import { currentListenersDeepLink, type ListenersDeepLink } from './features/listeners/index.js';
 
 function siteHomeHref(): string {
   return appBase();
@@ -143,10 +143,21 @@ function Shell() {
   const [commandOpen, setCommandOpen] = useState(false);
   const docsAvailable = useDocsAvailable();
   // The runtime chip's deep link (`?view=listeners&listener=<id>&target=
-  // <path>`) opens the Listeners surface regardless of the routed tab. Read
-  // once at startup: Studio has no router for this query shape, and it isn't
-  // one; `useState`'s lazy initializer runs exactly once, on mount.
+  // <path>`) names a Traffic view, so it routes like one: the link is read
+  // once at startup, before `useRoute`'s normalising effect rewrites an
+  // unrouted path and drops the query with it, then replayed onto the
+  // Traffic tab below. From there the Listeners tab owns it as an ordinary
+  // `?view=` (N4: the URL is the store).
   const [listenersDeepLink] = useState<ListenersDeepLink>(() => currentListenersDeepLink());
+  useEffect(() => {
+    if (!listenersDeepLink.open) return;
+    const query: Record<string, string> = { view: 'listeners' };
+    if (listenersDeepLink.listenerId !== undefined) query.listener = listenersDeepLink.listenerId;
+    if (listenersDeepLink.targetPrefix !== undefined) query.target = listenersDeepLink.targetPrefix;
+    replacePath({ tab: 'traffic', query });
+    // Replayed once, on mount: after this the URL is the only state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Global ⌘K (Ctrl+K non-mac): on Home it focuses the inline command input;
   // elsewhere it toggles the overlay below the bar. preventDefault ONLY when
@@ -236,11 +247,7 @@ function Shell() {
 
       <main className="studio__content" data-surface={active}>
         <div className="studio__surface-slot" data-active="true">
-          {listenersDeepLink.open ? (
-            <ListenersSurface deepLink={listenersDeepLink} />
-          ) : (
-            <Surface id={active} />
-          )}
+          <Surface id={active} />
         </div>
       </main>
 

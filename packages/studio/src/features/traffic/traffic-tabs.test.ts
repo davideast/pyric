@@ -7,12 +7,14 @@ describe('Traffic metric tabs', () => {
       { id: 'timeline', label: 'Timeline' },
       { id: 'billable', label: 'Billable metrics' },
       { id: 'rules', label: 'Rules' },
+      { id: 'listeners', label: 'Listeners' },
     ]);
   });
 
   it('routes the observed metric views', () => {
     expect(trafficTabForView('billable')).toBe('billable');
     expect(trafficTabForView('rules')).toBe('rules');
+    expect(trafficTabForView('listeners')).toBe('listeners');
   });
 
   it('redirects legacy subscription links to the remaining Rules view', () => {

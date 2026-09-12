@@ -30,6 +30,20 @@ export function parseListenersDeepLink(search: string): ListenersDeepLink {
   return link;
 }
 
+/** Parse the routed query (`shell/path.ts`'s parsed shape) into the deep
+ *  link. Once `App` has replayed the chip's link onto the Traffic tab, this
+ *  is how the Listeners tab reads it back: the URL, not a captured prop, is
+ *  what selects the row. */
+export function listenersDeepLinkFromQuery(
+  query: Record<string, string | undefined>,
+): ListenersDeepLink {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined) params.set(key, value);
+  }
+  return parseListenersDeepLink(params.toString());
+}
+
 /** The deep link read from the current page load. `location.search` is read
  *  once, at call time; callers that need it at startup call this during
  *  their initial render, not inside an effect. */

@@ -10,8 +10,11 @@
  */
 
 .rtdb {
-  display: grid;
-  grid-template-rows: auto 1fr;
+  /* A column rather than fixed grid rows: the missing-path note sits between
+     the path bar and the tree only when the routed path is absent, and the
+     tree still takes whatever height is left. */
+  display: flex;
+  flex-direction: column;
   min-height: 480px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -120,7 +123,24 @@
 
 /* ── Tree ─────────────────────────────────────────────────────────────── */
 
+.rtdb__missing {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+}
+
+.rtdb__missing code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-data);
+  color: var(--ink);
+}
+
 .rtdb__tree {
+  flex: 1;
+  min-height: 0;
   overflow: auto; /* the panel's single scroll owner (L5) */
   padding: var(--space-2) var(--space-3) var(--space-4);
   font-family: var(--font-mono);

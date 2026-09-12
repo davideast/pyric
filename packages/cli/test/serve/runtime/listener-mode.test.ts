@@ -1,7 +1,11 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
-import { createListenerMode } from '../../../src/serve/runtime/listener-mode.js';
+import {
+  createListenerMode,
+  studioListenerUrl,
+  studioListenersUrl,
+} from '../../../src/serve/runtime/listener-mode.js';
 
 type Target = { kind: 'doc'; path: string } | { kind: 'query'; collection: string };
 
@@ -258,7 +262,7 @@ describe('studio hand-off', () => {
     deliver?.([attach('e1', 'l1', { kind: 'query', collection: 'todos' }, [{ kind: 'tag', name: 'TodoList', element: '#todos' }])]);
     doc.querySelector<HTMLElement>('[data-pyric-listener-badge]')?.click();
 
-    expect(opened).toEqual(['/__pyric/ui/studio?view=listeners&listener=l1&target=todos']);
+    expect(opened).toEqual(['/__pyric/ui/traffic/?view=listeners&listener=l1&target=todos']);
     mode.dispose();
   });
 });
@@ -484,5 +488,27 @@ describe('what a painted flow is held for', () => {
     page.mode.setMode('flow');
     expect(page.mode.flowWaiting()).toBe(true);
     page.mode.dispose();
+  });
+});
+
+describe('the chip\'s Studio Listeners link', () => {
+  it('names the Traffic route with a trailing slash so no redirect drops the query', () => {
+    expect(studioListenersUrl('/__pyric/ui/studio')).toBe('/__pyric/ui/traffic/?view=listeners');
+    expect(studioListenersUrl('/__pyric/ui/studio/')).toBe('/__pyric/ui/traffic/?view=listeners');
+  });
+
+  it('keeps a query the Studio URL already carries', () => {
+    expect(studioListenersUrl('/__pyric/ui/studio?theme=dark')).toBe(
+      '/__pyric/ui/traffic/?theme=dark&view=listeners',
+    );
+  });
+
+  it('filters to one listener off the same base', () => {
+    expect(
+      studioListenerUrl('/__pyric/ui/studio', {
+        listenerId: 'l 1',
+        target: 'notes/astro-host',
+      } as Parameters<typeof studioListenerUrl>[1]),
+    ).toBe('/__pyric/ui/traffic/?view=listeners&listener=l%201&target=notes%2Fastro-host');
   });
 });

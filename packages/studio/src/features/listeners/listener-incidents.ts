@@ -3,8 +3,8 @@
  *
  * Runs the same activity monitor the sandbox tool's `activity` method uses
  * (`pyric/firestore/internal`), over the event history Studio already holds,
- * to surface `duplicate-listener` and `listener-churn` incidents inline on
- * the group they belong to, and `repeated-read` at the top of the surface.
+ * to surface the `duplicate-listener` and `listener-churn` incidents that
+ * belong to a listener on screen.
  * The monitor is a pure fold over a fixed feed; Studio recomputes it whenever
  * its event snapshot changes rather than keeping a live subscription, since
  * `useStudioEvents` already re-renders on every new event.
@@ -70,10 +70,3 @@ export function incidentsForTarget(
   });
 }
 
-/** The repeated-read incidents, shown once at the top of the surface rather
- *  than per group (a read incident has no listener to attach to). */
-export function repeatedReadIncidents(
-  incidents: readonly ActivityIncident[],
-): readonly ActivityIncident[] {
-  return incidents.filter((incident) => incident.pattern === 'repeated-read');
-}
