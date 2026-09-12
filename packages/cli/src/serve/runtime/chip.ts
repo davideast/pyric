@@ -14,10 +14,12 @@
  * the view the strongest current signal names, which is usually the view the
  * colour on the pill came from.
  *
- * Every view is built from one row: a 16px mark, a primary column, and a
- * right-aligned fact. A row's own click is its only action unless its fact is a
- * single control. That one shape is what lets four unrelated subjects read as
- * one panel.
+ * Every view has the same macro: a control zone, a list of rows, and an action
+ * bar on the panel's bottom edge. Every row is the same three tracks — a 16px
+ * mark, a primary column, a right-aligned fact — and a row is never anything
+ * but itself: no button, toggle, or link lives inside one. Whatever a view can
+ * do lives in its control zone or its bar, in the same place on every tab, so
+ * four unrelated subjects read as one panel and nothing moves between them.
  */
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
@@ -68,6 +70,8 @@ import {
 export interface PyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
   document?: Document;
+  /** Where Traffic's Copy writes. Defaults to the page's own clipboard. */
+  clipboard?: Pick<Clipboard, 'writeText'>;
   initiallyOpen?: boolean;
   /** Override Studio availability. Omitted uses the runtime manifest URL. */
   studioUrl?: string | null;
@@ -198,11 +202,10 @@ const styles = `
   .chip-count.error { color: var(--pyric-error); }
 
   /*
-   * One size for every view. The height is the tallest view the design admits:
-   * the 48 header, the 40 strip, and a view of 12 padding, a 44 control row, a
-   * 12 gap, eight 44 rows, and 12 padding — 520 in all. A view with fewer rows
-   * leaves the rest empty rather than shrinking, and a list that would run past
-   * the bottom scrolls inside itself.
+   * One size for every view, summed from the zones every view shares: a 48
+   * header, a 40 strip, a 44 control zone, seven 44 rows, and a 44 action bar —
+   * 484 in all. A view with fewer rows leaves the rest empty rather than
+   * shrinking, and a list that would run past the bottom scrolls inside itself.
    */
   .panel {
     background: var(--pyric-bg);
@@ -211,7 +214,7 @@ const styles = `
     box-shadow: 0 18px 60px rgba(0, 0, 0, .48);
     display: flex;
     flex-direction: column;
-    height: 520px;
+    height: 484px;
     max-width: calc(100vw - 40px);
     overflow: hidden;
     width: 384px;
@@ -244,12 +247,32 @@ const styles = `
   .tab.pending { color: var(--pyric-warning); }
   .tab.pending[aria-selected="true"] { border-bottom-color: var(--pyric-warning); }
 
-  .view { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; padding: 12px 0; }
+  .view { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow: hidden; }
   .rows { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; overflow-y: auto; }
   .rows::-webkit-scrollbar { width: 8px; }
   .rows::-webkit-scrollbar-thumb { background: var(--pyric-border); border-radius: 4px; }
-  .control { flex: 0 0 44px; }
-  .control + .rows { margin-top: 12px; }
+  .control { border-bottom: 1px solid var(--pyric-border-soft); flex: 0 0 44px; }
+  /*
+   * The bar sits on the panel's bottom edge on every tab. It is right-aligned
+   * with the primary action rightmost, so a secondary action arriving or going
+   * moves nothing, and the primary slot is a fixed width, so it is in the same
+   * place on every tab whatever word it carries.
+   */
+  .action-bar {
+    align-items: center;
+    border-top: 1px solid var(--pyric-border-soft);
+    display: flex;
+    flex: 0 0 44px;
+    gap: 12px;
+    height: 44px;
+    justify-content: flex-end;
+    padding: 0 16px;
+  }
+  /* A slot keeps its box when it carries nothing, so the slot beside it cannot
+     move when an action arrives or goes. */
+  .bar-slot { align-items: center; display: inline-flex; flex: 0 0 auto; height: 28px; justify-content: flex-end; }
+  .bar-slot.primary { flex: 0 0 96px; width: 96px; }
+  .bar-slot.primary .row-action { width: 100%; }
   .row { flex: 0 0 44px; }
   .row {
     align-items: center;
@@ -382,8 +405,8 @@ function displayTarget(outline: ListenerOutline): string {
   return outline.isQuery ? `${outline.target} (query)` : outline.target;
 }
 
-/** How many rows any one view draws. Past this the answer is Studio's. */
-const MAX_ROWS = 8;
+/** How many rows the rows zone holds. Past this the answer is Studio's. */
+const MAX_ROWS = 7;
 
 /** One row's three cells, as markup. */
 function rowHtml(input: {
@@ -423,6 +446,21 @@ function isTextField(element: Element | null | undefined): element is HTMLInputE
   return element !== null && element !== undefined && element.tagName === 'INPUT';
 }
 
+/** One action bar: up to three text buttons, the primary one rightmost, and
+ * every slot drawn whether or not it carries anything. */
+function actionBarHtml(slots: { tertiary?: string; secondary?: string; primary?: string }): string {
+  return `<div class="action-bar" data-action-bar>`
+    + `<span class="bar-slot tertiary" data-bar-slot="tertiary">${slots.tertiary ?? ''}</span>`
+    + `<span class="bar-slot secondary" data-bar-slot="secondary">${slots.secondary ?? ''}</span>`
+    + `<span class="bar-slot primary" data-bar-slot="primary">${slots.primary ?? ''}</span>`
+    + `</div>`;
+}
+
+/** One text button, the only kind the bar carries. */
+function barButtonHtml(attributes: string, label: string, title?: string): string {
+  return `<button class="row-action" type="button" ${attributes}${title ? ` title="${escapeAttribute(title)}"` : ''}>${escapeAttribute(label)}</button>`;
+}
+
 /** `12:50:43` in the page's own clock, which is the one the developer reads. */
 function clockTime(at: number): string {
   const time = new Date(at);
@@ -451,6 +489,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   root.innerHTML = `<style>${styles}</style><div class="announcer" role="status" aria-live="polite" aria-atomic="true"></div><div data-view></div>`;
   const view = root.querySelector<HTMLElement>('[data-view]')!;
   const announcer = root.querySelector<HTMLElement>('.announcer')!;
+  const clipboard = options.clipboard ?? documentLike.defaultView?.navigator.clipboard;
   const studioUrl = 'studioUrl' in options
     ? options.studioUrl
     : options.runtime.getSnapshot().manifest.studioUrl;
@@ -537,6 +576,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   // ── Traffic view state ─────────────────────────────────────────────────────
+  /** Which requests Traffic lists. A page session remembers nothing here: the
+   * filter is a way of reading the last minute, not a preference. */
+  let trafficFilter: 'all' | 'denied' = 'all';
   /** `false` until the first render. The fold's history batch arrives while this
    * function is still running, before there is a view for it to rebuild. */
   let mounted = false;
@@ -571,7 +613,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         verdict: isPermissionDeniedCode(error.code) ? 'denied' : 'error',
       });
     }
-    return orderChipRequests([...byId.values()], Date.now()).slice(0, MAX_ROWS);
+    const ordered = orderChipRequests([...byId.values()], Date.now());
+    const kept = trafficFilter === 'denied' ? ordered.filter((request) => request.verdict !== 'ok') : ordered;
+    return kept.slice(0, MAX_ROWS);
   };
 
   // ── Which view is showing ──────────────────────────────────────────────────
@@ -636,22 +680,19 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       rows.push(rowHtml({
         mark: `<span class="identity" data-panel-identity data-state="in">${identityGlyph('in', 'row-glyph')}</span>`,
         primary: escapeAttribute(primary),
-        fact: `${email === null ? '' : `<span class="mono" data-identity-uid>${escapeAttribute(activeUid)}</span>`}<button class="row-action" type="button" data-sign-out>Sign out</button>`,
+        fact: email === null ? '' : `<span class="mono" data-identity-uid>${escapeAttribute(activeUid)}</span>`,
         attributes: 'data-identity-row',
         title: activeUid,
       }));
     }
-    rows.push(rowHtml({
-      mark: '',
-      primary: 'Bypass rules',
-      fact: `<button class="row-action" type="button" data-toggle-bypass aria-pressed="${isAdmin}">${isAdmin ? 'on' : 'off'}</button>`,
-    }));
 
     const query = identityQuery.trim();
+    let matched = 0;
     if (query !== '') {
       const matches = filterUsers(knownUsers, identityQuery)
         .filter((candidate) => candidate.uid !== activeUid)
         .slice(0, MAX_ROWS - rows.length);
+      matched = matches.length;
       for (const candidate of matches) {
         const label = userDisplayLabel(candidate);
         rows.push(buttonRowHtml({
@@ -663,20 +704,22 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           label: `Switch to ${label}`,
         }));
       }
-      // Nothing in the sandbox answers to what was typed, so the row that is
-      // left offers to make it. The address is the query, which is why this row
-      // exists only while one is typed.
-      if (matches.length === 0) {
-        rows.push(buttonRowHtml({
-          mark: `<span class="identity" data-state="out">${identityGlyph('out', 'row-glyph')}</span>`,
-          primary: escapeAttribute(query),
-          fact: 'Create user',
-          attributes: 'data-create-user',
-          label: `Create a user for ${query}`,
-        }));
-      }
     }
-    return `${control}<div class="rows">${rows.slice(0, MAX_ROWS).join('')}</div>`;
+
+    // Signed in, the bar switches the lens and ends the session. Signed out,
+    // there is no session to end, and the only offer worth making is to create
+    // the user a typed query found nobody for.
+    const bar = activeUid === null
+      ? actionBarHtml({
+          primary: query !== '' && matched === 0
+            ? barButtonHtml('data-create-user', 'Create user', `Create a user for ${query}`)
+            : '',
+        })
+      : actionBarHtml({
+          secondary: barButtonHtml(`data-toggle-bypass aria-pressed="${isAdmin}"`, `Bypass rules: ${isAdmin ? 'on' : 'off'}`),
+          primary: barButtonHtml('data-sign-out', 'Sign out'),
+        });
+    return `${control}<div class="rows">${rows.slice(0, MAX_ROWS).join('')}</div>${bar}`;
   };
 
   const listenersViewHtml = (): string => {
@@ -732,11 +775,20 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         title,
       });
     });
-    return `${control}<div class="rows" data-listener-rows>${rows.join('')}</div>`;
+    const bar = actionBarHtml({
+      primary: barButtonHtml('data-open-overlay-theme', 'Theme', "Edit the overlay's custom properties"),
+    });
+    return `${control}<div class="rows" data-listener-rows>${rows.join('')}</div>${bar}`;
   };
 
   const trafficViewHtml = (): string => {
-    const rows = trafficRows().map((request) => {
+    const shown = trafficRows();
+    const control = `<div class="row control">
+        <span class="row-mark"></span>
+        <span class="row-primary">Show</span>
+        <span class="row-fact"><span class="segmented" role="group" aria-label="Which requests to show" data-traffic-filter><button type="button" data-traffic-show="all" aria-pressed="${trafficFilter === 'all'}" title="Every request the page made">all</button><button type="button" data-traffic-show="denied" aria-pressed="${trafficFilter === 'denied'}" title="Only the requests that failed">denied</button></span></span>
+      </div>`;
+    const rows = shown.map((request) => {
       const call = request.service !== null && request.method !== null
         ? `${request.service}.${request.method}`
         : request.label ?? request.service ?? request.method ?? '';
@@ -751,7 +803,14 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         title: `${call}${request.path === null ? '' : ` ${request.path}`} · ${request.verdict}`,
       });
     });
-    return `<div class="rows" data-traffic-rows>${rows.join('')}</div>`;
+    const bar = actionBarHtml({
+      primary: barButtonHtml(
+        `data-copy-traffic${clipboard ? '' : ' disabled'}`,
+        'Copy',
+        clipboard ? 'Copy these rows as plain text' : 'Clipboard unavailable',
+      ),
+    });
+    return `${control}<div class="rows" data-traffic-rows>${rows.join('')}</div>${bar}`;
   };
 
   const sandboxViewHtml = (): string => {
@@ -761,13 +820,18 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       : snapshot.mode === 'shared-worker' ? 'shared worker' : 'starting';
     const runtimePrimary = snapshot.mode === 'starting' ? modeLabel : `${modeLabel} · running`;
     const runningEpoch = snapshot.runningEpoch?.slice(0, 8) ?? '';
+    // Sandbox has nothing to set in its control zone, so the zone states which
+    // runtime is running instead. It is the same three tracks either way.
+    const control = `<div class="row control" data-runtime-row>`
+      + `<span class="row-mark"><span class="row-dot${snapshot.updateAvailable ? ' pending' : ''}"></span></span>`
+      + `<span class="row-primary">${escapeAttribute(runtimePrimary)}</span>`
+      + `<span class="row-fact">${runningEpoch === '' ? '' : `<span class="mono" data-running-epoch>${escapeAttribute(runningEpoch)}</span>`}</span>`
+      + `</div>`;
+
+    const epochs = snapshot.updateAvailable
+      ? `${snapshot.runningEpoch?.slice(0, 8) ?? 'unknown'} → ${snapshot.servedEpoch?.slice(0, 8) ?? 'unknown'}`
+      : '';
     const rows: string[] = [
-      rowHtml({
-        mark: `<span class="row-dot${snapshot.updateAvailable ? ' pending' : ''}"></span>`,
-        primary: escapeAttribute(runtimePrimary),
-        fact: runningEpoch === '' ? '' : `<span class="mono" data-running-epoch>${escapeAttribute(runningEpoch)}</span>`,
-        attributes: 'data-runtime-row',
-      }),
       rowHtml({
         mark: '',
         primary: 'AI engine',
@@ -775,36 +839,27 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         attributes: 'data-ai-row',
         title: aiState.detail,
       }),
+      // The worker's row is always here and its fact is always reserved; the
+      // epochs arrive in it when there is an update to describe.
       rowHtml({
         mark: '',
-        primary: 'Overlay theme',
-        fact: '<button class="row-action" type="button" data-open-overlay-theme>Edit</button>',
+        primary: 'Worker',
+        fact: `<span class="mono" data-worker-epochs>${escapeAttribute(epochs)}</span>`,
+        attributes: 'data-worker-row',
       }),
     ];
-    if (snapshot.updateAvailable) {
-      const epochs = `${snapshot.runningEpoch?.slice(0, 8) ?? 'unknown'} → ${snapshot.servedEpoch?.slice(0, 8) ?? 'unknown'}`;
-      rows.push(rowHtml({
-        mark: '',
-        primary: 'Update worker',
-        fact: `<span class="mono" data-worker-epochs>${escapeAttribute(epochs)}</span><button class="row-action" type="button" data-update-worker aria-disabled="${snapshot.updatingWorker}">${snapshot.updatingWorker ? 'Updating' : 'Update'}</button>`,
-      }));
-    } else {
-      // The row's place is held, so an update arriving moves nothing under it.
-      // It keeps the three cells and says nothing in them, because there is
-      // nothing to say.
-      rows.push(rowHtml({ mark: '', primary: '', fact: '', attributes: 'data-update-slot' }));
-    }
-    rows.push(rowHtml({
-      mark: '',
-      primary: 'Hide pyric on this page',
-      fact: '<button class="row-action" type="button" data-dismiss-chip>Hide</button>',
-    }));
-    return `<div class="rows">${rows.join('')}</div>`;
+    const bar = actionBarHtml({
+      secondary: snapshot.updateAvailable
+        ? barButtonHtml(`data-update-worker aria-disabled="${snapshot.updatingWorker}"`, snapshot.updatingWorker ? 'Updating' : 'Update')
+        : '',
+      primary: barButtonHtml('data-dismiss-chip', 'Hide', 'Hide pyric on this page'),
+    });
+    return `${control}<div class="rows">${rows.join('')}</div>${bar}`;
   };
 
   const viewHtml = (activeUid: string | null, isAdmin: boolean): string => {
     if (tab === 'identity') return identityViewHtml(activeUid, isAdmin);
-    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : '<div class="rows"></div>';
+    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : `<div class="row control"></div><div class="rows"></div>${actionBarHtml({})}`;
     if (tab === 'traffic') return trafficViewHtml();
     return sandboxViewHtml();
   };
@@ -822,6 +877,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-switch-user',
       'data-create-user',
       'data-listener-mode',
+      'data-traffic-show',
+      'data-copy-traffic',
       'data-open-overlay-theme',
       'data-update-worker',
       'data-dismiss-chip',
@@ -973,6 +1030,27 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         render();
       });
     }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-traffic-show]')) {
+      button.addEventListener('click', () => {
+        trafficFilter = button.dataset.trafficShow === 'denied' ? 'denied' : 'all';
+        render();
+      });
+    }
+    root.querySelector('[data-copy-traffic]')?.addEventListener('click', (event) => {
+      if (!clipboard) return;
+      const button = event.currentTarget as HTMLButtonElement;
+      const lines = [...root.querySelectorAll<HTMLElement>('[data-request-row]')]
+        .map((row) => {
+          const primary = row.querySelector('.row-primary')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+          const fact = row.querySelector('.row-fact')?.textContent?.trim() ?? '';
+          return `${primary}  ${fact}`.trim();
+        });
+      if (lines.length === 0) return;
+      void clipboard.writeText(lines.join('\n')).catch(() => {
+        button.setAttribute('data-copy-failed', '');
+        button.title = 'Copy failed';
+      });
+    });
     root.querySelector('[data-open-overlay-theme]')?.addEventListener('click', (event) => {
       if (ensureListenerMode() === null) return;
       themeDialog().open(event.currentTarget as HTMLElement);

@@ -32,6 +32,7 @@ function setup(options: {
   setLens?: (lens: AuthLens | undefined) => void;
   subscribeLens?: (listener: (lens: AuthLens | undefined) => void) => () => void;
   withSandboxEvents?: boolean;
+  clipboard?: Pick<Clipboard, 'writeText'>;
   useRealClient?: boolean;
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
@@ -79,6 +80,9 @@ function setup(options: {
   }
   if ('studioUrl' in options) {
     chipOptions.studioUrl = options.studioUrl;
+  }
+  if (options.clipboard) {
+    chipOptions.clipboard = options.clipboard;
   }
   let pushEvents: ((events: readonly SandboxEvent[]) => void) | null = null;
   if (options.withSandboxEvents) {
@@ -367,6 +371,26 @@ describe('the panel shell', () => {
     }
   });
 
+  it('gives every view the same three zones, and never a control inside a row', () => {
+    const { runtime, root, showTab } = setup({ initiallyOpen: true, initialUser: { uid: 'u_8f2a' } });
+    runtime.reportError('write denied', 'sandbox');
+    for (const view of ['identity', 'traffic', 'sandbox'] as const) {
+      showTab(view);
+      expect(root.querySelector('[data-chip-view] > .row.control')).not.toBeNull();
+      expect(root.querySelector('[data-chip-view] > .rows')).not.toBeNull();
+      const bar = root.querySelector('[data-action-bar]')!;
+      expect([...bar.querySelectorAll('[data-bar-slot]')].map((slot) => slot.getAttribute('data-bar-slot')))
+        .toEqual(['tertiary', 'secondary', 'primary']);
+      expect(bar.querySelectorAll('button')).toHaveLength(
+        [...bar.querySelectorAll('button')].length,
+      );
+      expect([...bar.querySelectorAll('button')].length).toBeLessThanOrEqual(3);
+      for (const row of root.querySelectorAll('.rows .row')) {
+        expect(row.querySelector('button, a, input, select, textarea')).toBeNull();
+      }
+    }
+  });
+
   it('reattaches the same host after an Astro document swap', () => {
     const { dom, chip, root } = setup({ initiallyOpen: true });
     const host = chip.element;
@@ -394,7 +418,7 @@ describe('the Identity view', () => {
     expect(row.querySelector('[data-sign-out]')).toBeNull();
   });
 
-  it('names the session by email, keeps the uid as the fact, and signs out from the row', () => {
+  it('names the session by email, keeps the uid as the fact, and signs out from the bar', () => {
     const signOut = mock(() => {});
     const { root } = setup({
       initiallyOpen: true,
@@ -405,8 +429,11 @@ describe('the Identity view', () => {
     expect(row.querySelector('.row-primary')?.textContent).toBe('alice@example.com');
     expect(row.querySelector('[data-identity-uid]')?.textContent).toBe('u_8f2a');
     expect(row.querySelector('[data-panel-identity]')?.getAttribute('data-state')).toBe('in');
+    // The row is itself and nothing else; the action is on the bar.
+    expect(row.querySelector('button, a, input')).toBeNull();
 
-    row.querySelector<HTMLButtonElement>('[data-sign-out]')!.click();
+    const slot = root.querySelector('[data-bar-slot="primary"]')!;
+    slot.querySelector<HTMLButtonElement>('[data-sign-out]')!.click();
     expect(signOut).toHaveBeenCalledTimes(1);
   });
 
@@ -417,20 +444,21 @@ describe('the Identity view', () => {
     expect(row.querySelector('[data-identity-uid]')).toBeNull();
   });
 
-  it('turns the rules bypass on and off from its own row', () => {
-    const { root, setLensMock } = setup({ initiallyOpen: true });
+  it('turns the rules bypass on and off from the bar', () => {
+    const { root, setLensMock } = setup({ initiallyOpen: true, initialUser: { uid: 'u_8f2a' } });
     const toggle = (): HTMLButtonElement => root.querySelector<HTMLButtonElement>('[data-toggle-bypass]')!;
-    expect(toggle().textContent).toBe('off');
+    expect(toggle().closest('[data-bar-slot]')?.getAttribute('data-bar-slot')).toBe('secondary');
+    expect(toggle().textContent).toBe('Bypass rules: off');
     expect(toggle().getAttribute('aria-pressed')).toBe('false');
 
     toggle().click();
     expect(setLensMock).toHaveBeenCalledWith({ mode: 'admin' });
-    expect(toggle().textContent).toBe('on');
+    expect(toggle().textContent).toBe('Bypass rules: on');
     expect(toggle().getAttribute('aria-pressed')).toBe('true');
 
     toggle().click();
     expect(setLensMock).toHaveBeenLastCalledWith(undefined);
-    expect(toggle().textContent).toBe('off');
+    expect(toggle().textContent).toBe('Bypass rules: off');
   });
 
   it('filters the sandbox users as one types, and switches to the row that is clicked', async () => {
@@ -503,8 +531,10 @@ describe('the Identity view', () => {
     input.value = 'carol@example.com';
     input.dispatchEvent(new root.ownerDocument.defaultView!.Event('input'));
 
+    // Signed out, the create offer is the bar's primary slot.
     const create = root.querySelector<HTMLButtonElement>('[data-create-user]')!;
-    expect(create.querySelector('.row-primary')?.textContent).toBe('carol@example.com');
+    expect(create.closest('[data-bar-slot]')?.getAttribute('data-bar-slot')).toBe('primary');
+    expect(create.textContent).toBe('Create user');
     create.click();
     expect(openCreateUser).toHaveBeenCalledTimes(1);
   });
@@ -558,7 +588,7 @@ describe('the Sandbox view', () => {
     expect(row.querySelector('.row-fact')?.textContent).toBe('sandbox (scripted)');
   });
 
-  it('shows the update row only while an update is pending, with both epochs before the action', async () => {
+  it('offers the update only while one is pending, with both epochs on the worker row', async () => {
     const { runtime, root, showTab } = setup({ initiallyOpen: true });
     showTab('sandbox');
     expect(root.querySelector('[data-update-worker]')).toBeNull();
@@ -576,20 +606,21 @@ describe('the Sandbox view', () => {
     expect(root.activeElement?.hasAttribute('data-update-worker')).toBe(true);
   });
 
-  it('keeps the same rows whether or not an update is pending', () => {
+  it('keeps the same rows whether or not an update is pending, and moves the update to the bar', () => {
     const { runtime, root, showTab } = setup({ initiallyOpen: true });
     showTab('sandbox');
     const before = [...root.querySelectorAll('.row')].length;
-    expect(root.querySelector('[data-update-slot]')).not.toBeNull();
-    expect(root.querySelector('[data-update-slot]')?.textContent).toBe('');
+    expect(root.querySelector('[data-worker-epochs]')?.textContent).toBe('');
+    expect(root.querySelector('[data-update-worker]')).toBeNull();
 
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
     expect([...root.querySelectorAll('.row')].length).toBe(before);
-    expect(root.querySelector('[data-update-slot]')).toBeNull();
-    expect(root.querySelector('[data-update-worker]')).not.toBeNull();
+    expect(root.querySelector('[data-worker-epochs]')?.textContent).toBe('aaaaaaaa → bbbbbbbb');
+    expect(root.querySelector('[data-update-worker]')?.closest('[data-bar-slot]')?.getAttribute('data-bar-slot'))
+      .toBe('secondary');
   });
 
-  it('hides the chip from the page from its own row', () => {
+  it('hides the chip from the page from the bar', () => {
     const { root, chip, showTab } = setup({ initiallyOpen: true });
     showTab('sandbox');
     expect(chip.element.style.display).not.toBe('none');
@@ -602,11 +633,11 @@ describe('the Sandbox view', () => {
     const { runtime, root, showTab } = setup({ initiallyOpen: true });
     showTab('sandbox');
     const announcer = root.querySelector('.announcer');
-    root.querySelector<HTMLButtonElement>('[data-open-overlay-theme]')!.focus();
+    root.querySelector<HTMLButtonElement>('[data-dismiss-chip]')!.focus();
 
     runtime.reportError('a new sandbox error', 'sandbox');
 
-    expect(root.activeElement?.hasAttribute('data-open-overlay-theme')).toBe(true);
+    expect(root.activeElement?.hasAttribute('data-dismiss-chip')).toBe(true);
     expect(root.querySelector('.announcer')).toBe(announcer);
     expect(announcer?.textContent).toContain('1 runtime error');
   });
@@ -703,6 +734,48 @@ describe('the Traffic view', () => {
     push(Array.from({ length: 20 }, (_, index) => request(`r${index}`, now - index * 100, `c/${index}`, 'allow')));
     showTab('traffic');
 
-    expect(root.querySelectorAll('[data-request-row]')).toHaveLength(8);
+    expect(root.querySelectorAll('[data-request-row]')).toHaveLength(7);
+  });
+
+  it('narrows the rows to the failures, and back', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const now = Date.now();
+    push([
+      request('denied', now - 2000, 'conversations/c1', 'deny'),
+      request('fine', now - 1000, 'conversations/c2', 'allow'),
+    ]);
+    showTab('traffic');
+    expect(root.querySelectorAll('[data-request-row]')).toHaveLength(2);
+
+    root.querySelector<HTMLButtonElement>('[data-traffic-show="denied"]')!.click();
+    const rows = [...root.querySelectorAll('[data-request-row]')];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.getAttribute('data-request-row')).toBe('denied');
+    expect(root.querySelector('[data-traffic-show="denied"]')?.getAttribute('aria-pressed')).toBe('true');
+
+    root.querySelector<HTMLButtonElement>('[data-traffic-show="all"]')!.click();
+    expect(root.querySelectorAll('[data-request-row]')).toHaveLength(2);
+  });
+
+  it('copies the rows it is showing as plain text lines', async () => {
+    const writeText = mock(() => Promise.resolve());
+    const { root, showTab, push } = setup({
+      initiallyOpen: true,
+      withSandboxEvents: true,
+      clipboard: { writeText },
+    });
+    push([request('r1', Date.now(), 'conversations/c1', 'deny')]);
+    showTab('traffic');
+
+    const copy = root.querySelector<HTMLButtonElement>('[data-copy-traffic]')!;
+    expect(copy.closest('[data-bar-slot]')?.getAttribute('data-bar-slot')).toBe('primary');
+    copy.click();
+    await Promise.resolve();
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copied = writeText.mock.calls[0]?.[0] as string;
+    expect(copied).toContain('firestore.set');
+    expect(copied).toContain('conversations/c1');
+    expect(copied).toContain('denied');
   });
 });

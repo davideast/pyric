@@ -237,7 +237,7 @@ describe('the Listeners view', () => {
     page.chip.dispose();
   });
 
-  it('orders the rest by deliveries and never draws more than eight', () => {
+  it('orders the rest by deliveries and never draws more than the rows zone holds', () => {
     const page = setup();
     const events: SandboxEvent[] = [];
     for (let index = 0; index < 12; index += 1) {
@@ -247,7 +247,7 @@ describe('the Listeners view', () => {
     page.push([delivery('d1', 'l9', { kind: 'doc', path: 'conversations/c9' })]);
 
     const listed = rows(page.root);
-    expect(listed).toHaveLength(8);
+    expect(listed).toHaveLength(7);
     expect(listed[0].getAttribute('data-listener-row')).toBe('l9');
     page.chip.dispose();
   });
@@ -337,6 +337,16 @@ describe('the Listeners view', () => {
     expect(count.textContent).toBe('2');
     expect(count.classList.contains('error')).toBe(true);
     expect(page.root.querySelector('.chip')?.textContent).toBe('pyric2');
+    page.chip.dispose();
+  });
+
+  it('opens the theme dialog from the bar rather than from a row', () => {
+    const page = setup();
+    page.push([todos]);
+    const theme = page.root.querySelector<HTMLButtonElement>('[data-open-overlay-theme]')!;
+    expect(theme.closest('[data-bar-slot]')?.getAttribute('data-bar-slot')).toBe('primary');
+    theme.click();
+    expect(page.root.querySelector('dialog[data-overlay-theme-dialog]')).not.toBeNull();
     page.chip.dispose();
   });
 
