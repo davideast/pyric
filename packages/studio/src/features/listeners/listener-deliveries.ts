@@ -11,7 +11,7 @@
 import type { SandboxEvent } from 'pyric/sandbox';
 
 /** Every delivery event kind the sandbox emits, across both services. */
-function isDelivery(event: SandboxEvent): boolean {
+export function isDeliveryEvent(event: SandboxEvent): boolean {
   if (event.kind === 'snapshot_delivery') return true;
   return event.kind === 'listener' && (event as { phase?: string }).phase === 'delivery';
 }
@@ -23,7 +23,7 @@ export function deliveryTimestamps(
 ): readonly number[] {
   const at: number[] = [];
   for (const event of events) {
-    if (!isDelivery(event)) continue;
+    if (!isDeliveryEvent(event)) continue;
     if ((event as { listenerId?: string }).listenerId !== listenerId) continue;
     at.push(event.at);
   }
