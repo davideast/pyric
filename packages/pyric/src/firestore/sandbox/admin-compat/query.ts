@@ -7,6 +7,7 @@ import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import { translateReadData } from './snapshots.js';
 import { getSnapshotField } from './field-path.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
+import { activityDisplayValue } from '../../../firestore/sandbox/activity-query-display.js';
 import {
   executionCursor,
   executionFilter,
@@ -25,8 +26,6 @@ import {
 import type { QueryConstraintPlan } from '../snapshot-listeners.js';
 import {
   normalizedQueryOrders,
-  type QueryFilter,
-  type QueryCursor,
   type QueryExecutionSpec,
   type QueryOrderClause,
   type QueryScope,
@@ -126,13 +125,6 @@ function cursorValuesFromSnapshot(
 // ─────────────────────────────────────────────────────────────────────────
 // Public surface — QueryImpl.
 // ─────────────────────────────────────────────────────────────────────────
-
-/**
- * Cursor position along the orderBy fields. `values` is positional —
- * `values[i]` compares against `orders[i].field`. `inclusive`
- * distinguishes startAt/endAt (true) from startAfter/endBefore (false).
- */
-type Cursor = QueryCursor;
 
 export class QueryImpl implements Query {
   protected readonly env: LocalEnvironment;
@@ -305,13 +297,25 @@ export class QueryImpl implements Query {
    * Full executable identity for activity monitoring. The rules-proof
    * projection intentionally drops OR branches, rich operands, cursor
    * detail, and most ordering, so it cannot safely identify repeated reads.
+   *
+   * `value` is the digest identity that comparison uses; `display` is the
+   * bounded projection of the same operand's construction-time snapshot, for
+   * a surface that prints the query back to the developer. Both derive from
+   * one captured operand, so equal queries still produce equal identities.
    */
   protected activityQuery(): unknown {
-    const filter = (value: QueryFilter): unknown => value.kind === 'where'
-      ? { kind: 'where', field: value.field, op: value.op, value: activityValue(value.value) }
+    const filter = (value: ComparableQueryFilter): unknown => value.kind === 'where'
+      ? {
+        kind: 'where',
+        field: value.field,
+        op: value.op,
+        value: activityValue(value.value),
+        display: activityDisplayValue(value.comparisonValue.value),
+      }
       : { kind: value.kind, filters: value.filters.map(filter) };
-    const cursor = (value: Cursor | undefined): unknown => value === undefined ? null : {
+    const cursor = (value: ComparableCursor | undefined): unknown => value === undefined ? null : {
       values: value.values.map((item) => activityValue(item)),
+      display: value.comparisonValues.map((item) => activityDisplayValue(item.value)),
       inclusive: value.inclusive,
       fromSnapshot: value.fromSnapshot,
     };

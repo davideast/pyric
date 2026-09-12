@@ -90,6 +90,7 @@ export class ChildListeners {
     this.state.childListeners.add(listener);
     this.state.events.listener('attach', listener, auth, {
       event, result: 'allow', detail: spec ? { query: spec } : undefined,
+      ...(spec ? { query: spec } : {}),
       owners: attachOwners,
     });
     if (spec) {

@@ -46,6 +46,12 @@ export interface ActiveListener {
    * observation finds the listener the sandbox recorded.
    */
   readonly clientListenerId?: string;
+  /**
+   * The query the attach recorded, when the listener watches a query rather
+   * than one record: Firestore's constraint projection, or the Realtime
+   * Database's query spec. Absent for a document or a bare path.
+   */
+  readonly query?: unknown;
 }
 
 type ListenerPhase = 'attach' | 'detach' | 'delivery' | 'suppressed' | 'errored';
@@ -59,6 +65,7 @@ interface ListenerEventInfo {
   readonly actor: EventActor;
   readonly authLens: AuthLens;
   readonly owners?: readonly ListenerOwner[];
+  readonly query?: unknown;
 }
 
 /** The internal service token 'rtdb' translated to the word this module's
@@ -82,6 +89,13 @@ function canonicalTarget(target: { kind: string; path?: string; query?: unknown 
   return { collection: '', query: target.query };
 }
 
+/** The query a lifecycle target carries, as a spreadable field. Both services
+ * put it on the target, so one reader serves them. */
+function targetQuery(target: object): { query?: unknown } {
+  const query = (target as { query?: unknown }).query;
+  return query === undefined ? {} : { query };
+}
+
 /** The fields this module needs off one event, or `null` when it is not
  * listener lifecycle. */
 function listenerEventInfo(event: SandboxEvent): ListenerEventInfo | null {
@@ -90,7 +104,14 @@ function listenerEventInfo(event: SandboxEvent): ListenerEventInfo | null {
   const identity = { actor: context.source, authLens: context.authLens, owners };
 
   if (event.kind === 'listener_attach') {
-    return { phase: 'attach', listenerId: event.listenerId, service: 'firestore', target: firestoreTarget(event.target), ...identity };
+    return {
+      phase: 'attach',
+      listenerId: event.listenerId,
+      service: 'firestore',
+      target: firestoreTarget(event.target),
+      ...identity,
+      ...targetQuery(event.target),
+    };
   }
   if (event.kind === 'listener_detach') {
     return { phase: 'detach', listenerId: event.listenerId, service: 'firestore', target: firestoreTarget(event.target), ...identity };
@@ -111,6 +132,7 @@ function listenerEventInfo(event: SandboxEvent): ListenerEventInfo | null {
       service: externalService(event.service),
       target: canonicalTarget(event.target),
       ...identity,
+      ...targetQuery(event.target),
     };
   }
   return null;
@@ -128,6 +150,7 @@ interface ActiveListenerDraft {
   lastDeliveryAt?: number;
   owners?: ListenerOwner[];
   clientListenerId?: string;
+  query?: unknown;
 }
 
 /**
@@ -152,6 +175,7 @@ export function activeListeners(events: readonly SandboxEvent[]): readonly Activ
         suppressedCount: 0,
       };
       if (info.owners !== undefined) draft.owners = [...info.owners];
+      if (info.query !== undefined) draft.query = info.query;
       const clientListenerId = (event as { activity?: { listenerId?: unknown } }).activity?.listenerId;
       if (typeof clientListenerId === 'string') draft.clientListenerId = clientListenerId;
       active.set(info.listenerId, draft);

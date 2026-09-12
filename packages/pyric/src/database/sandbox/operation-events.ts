@@ -135,6 +135,9 @@ export class OperationEvents {
     auth: AuthState,
     fields: {
       event?: ChildListener['event'] | 'value';
+      /** The query the ref carried, for a listener attached to a query.
+       *  Diagnostic only: no verdict or delivery reads it. */
+      query?: unknown;
       result?: 'allow' | 'deny' | 'unsupported' | 'error';
       size?: number;
       sample?: unknown;
@@ -156,7 +159,11 @@ export class OperationEvents {
       emitSandboxEvent(this.sandbox, makeSandboxListenerEvent({
         at: getClock(this.sandbox).now(),
         service: 'rtdb', phase, listenerId: listener.id,
-        target: { kind: kindVal, path: canonicalPath(listener.path) },
+        target: {
+          kind: kindVal,
+          path: canonicalPath(listener.path),
+          ...(fields.query === undefined ? {} : { query: fields.query }),
+        },
         auth, result: fields.result, size: fields.size, sample: fields.sample,
         reason: fields.reason, error: fields.error, triggeredBy: fields.triggeredBy,
         detail: fields.detail, reasons: fields.reasons, rules: fields.rules,
