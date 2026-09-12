@@ -91,22 +91,20 @@ test('email/password creation leaves photoURL null (Firebase-null fidelity)', as
   await page.goto('/');
   await expect(page.locator('#status')).toHaveText('signed-out', { timeout: 15_000 });
 
-  // The chip's "+ Create New User" action mints a `password`-provider
-  // identity (ServeAuthHelper.promptCreateUser's default), the same
-  // non-federated path createUserWithEmailAndPassword takes in production —
-  // it must NOT get a default avatar (see mintsDefaultPhoto in
-  // sandbox-backend.ts: only a provider id containing "." qualifies).
+  // The Identity view's create row mints a `password`-provider identity
+  // (ServeAuthHelper.promptCreateUser's default), the same non-federated path
+  // createUserWithEmailAndPassword takes in production — it must NOT get a
+  // default avatar (see mintsDefaultPhoto in sandbox-backend.ts: only a
+  // provider id containing "." qualifies).
   const chipHost = page.locator('[data-pyric-runtime-chip-host]');
   await expect(chipHost).toBeAttached();
   const openBar = chipHost.locator('[data-expand]');
   if (await openBar.isVisible()) {
     await openBar.click();
   }
-  await chipHost.locator('[data-open-impersonate]').click();
-  const chipDialog = chipHost.locator('dialog[data-impersonate-dialog]');
-  await expect(chipDialog).toBeVisible();
-  await chipDialog.locator('[data-action-create-user]').click();
-  await expect(chipDialog).not.toBeVisible();
+  await chipHost.locator('[data-chip-tab="identity"]').click();
+  await chipHost.locator('[data-identity-query]').fill('frank@example.com');
+  await chipHost.locator('[data-create-user]').click();
 
   const authHelperDialog = page.locator('dialog[data-pyric-auth]');
   await expect(authHelperDialog).toBeVisible();

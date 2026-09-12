@@ -23,6 +23,7 @@ import type { ActivityIncident } from 'pyric/firestore/internal';
 import { listenerOutlines, type ListenerOutline } from './listener-outline-model.js';
 import { createListenerOverlay, type ListenerOverlay } from './listener-overlay.js';
 import { incidentsFromEvents } from './listener-incidents.js';
+import { studioSectionUrl } from './studio-links.js';
 import { startFlowMode, type FlowMode } from './listener-flow-mode.js';
 import {
   installReactCommitSource,
@@ -129,14 +130,7 @@ const LATE_HOOK_REASON = 'React loaded before pyric could watch its renders, so 
  * query the link carries.
  */
 export function studioListenersUrl(studioUrl: string): string {
-  const queryStart = studioUrl.indexOf('?');
-  const base = queryStart === -1 ? studioUrl : studioUrl.slice(0, queryStart);
-  const existing = queryStart === -1 ? '' : studioUrl.slice(queryStart + 1);
-  const segments = base.replace(/\/+$/, '').split('/');
-  if (segments[segments.length - 1] === 'studio') segments.pop();
-  segments.push('traffic');
-  const query = existing === '' ? 'view=listeners' : `${existing}&view=listeners`;
-  return `${segments.join('/')}/?${query}`;
+  return studioSectionUrl(studioUrl, 'traffic', 'view=listeners');
 }
 
 /**

@@ -106,12 +106,12 @@ test('a served page attributes a listener to the owner the page passed', async (
   await expect(chipHost).toBeAttached();
   const expand = chipHost.locator('[data-expand]');
   if (await expand.isVisible()) await expand.click();
-  await chipHost.locator('[data-toggle-listeners]').click();
+  await chipHost.locator('[data-chip-tab="listeners"]').click();
 
   // Nothing on the page can be outlined for a name-only owner, so the listener
   // lands in the chip's own list. Its label is the name the page passed, not a
   // function out of the worker bundle.
-  const rows = chipHost.locator('[data-listener-panel] .listener-row');
+  const rows = chipHost.locator('[data-listener-rows] [data-listener-row]');
   await expect(rows.filter({ hasText: 'notes-panel' })).toHaveCount(1, { timeout: 10_000 });
   await expect(rows.filter({ hasText: 'notes/astro-host' })).toHaveCount(1);
   await context.close();
@@ -171,12 +171,15 @@ test('the runtime chip link reaches the Listeners tab without losing its query',
   await expect(chipHost).toBeAttached();
   const expand = chipHost.locator('[data-expand]');
   if (await expand.isVisible()) await expand.click();
-  await chipHost.locator('[data-toggle-listeners]').click();
+  // On the Listeners view the header's Studio control is the deep link to the
+  // Listeners tab, so the panel carries no second link of its own.
+  await chipHost.locator('[data-chip-tab="listeners"]').click();
 
-  const link = chipHost.locator('[data-open-listeners-studio]');
+  const link = chipHost.locator('[data-open-studio]');
   await expect(link).toBeAttached();
   const href = await link.getAttribute('href');
   expect(href).toBeTruthy();
+  expect(href).toContain('view=listeners');
 
   const studio = await context.newPage();
   const consoleErrors: string[] = [];
