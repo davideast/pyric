@@ -78,9 +78,10 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
     window as unknown as { __namedAuthLog: (string | null)[] }
   ).__namedAuthLog.at(-1))).toBe(aliceUid);
 
-  // The session row names Alice by email and keeps her uid as the row's fact
+  // The session row names Alice by display name, with her email in the sub-row and her uid as its title
   await openIdentityView();
-  await expect(chipHost.locator('[data-identity-row] .c1')).toHaveText('alice@example.com');
+  await expect(chipHost.locator('[data-identity-row] .c1')).toHaveText('Alice Developer');
+  await expect(chipHost.locator('[data-identity-row] .s1')).toContainText('alice@example.com');
   await expect(chipHost.locator('[data-identity-row]')).toHaveAttribute('title', aliceUid!);
 
   // The collapsed pill is the word alone
