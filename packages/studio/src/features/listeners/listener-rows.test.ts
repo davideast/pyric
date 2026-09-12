@@ -1,11 +1,12 @@
-/** Listener rows: duplicate collapse, sorting, and the counts header. */
+/** Listener rows: duplicate collapse, sorting, the fold, and the card totals. */
 import { describe, expect, it } from 'bun:test';
 import type { ActiveListener } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { groupListeners } from './listener-groups.js';
 import {
-  formatListenerCounts,
-  listenerCounts,
+  cardKeysForRow,
+  listenerCardTotals,
+  listenerFold,
   listenerRowGroups,
   nextListenerSort,
 } from './listener-rows.js';
@@ -74,13 +75,18 @@ describe('duplicate collapse', () => {
     expect(groups[0]!.rows.every((r) => r.count === 1)).toBe(true);
   });
 
-  it('carries the latest delivery across the collapsed listeners', () => {
+  it('counts deliveries with the supplied lookup, not the session total', () => {
     const owners = [{ kind: 'tag' as const, name: 'sidebar' }];
-    const groups = rowsOf([
-      listener({ id: 'a', owners, lastDeliveryAt: 100 }),
-      listener({ id: 'b', owners, lastDeliveryAt: 400 }),
-    ]);
-    expect(groups[0]!.rows[0]!.lastDeliveryAt).toBe(400);
+    const groups = listenerRowGroups(
+      groupListeners([
+        listener({ id: 'a', owners, deliveryCount: 99 }),
+        listener({ id: 'b', owners, deliveryCount: 99 }),
+      ]),
+      [],
+      undefined,
+      (l) => (l.id === 'a' ? 2 : 0),
+    );
+    expect(groups[0]!.rows[0]!.deliveryCount).toBe(2);
   });
 });
 
@@ -134,19 +140,48 @@ describe('sorting', () => {
   });
 });
 
-describe('the counts header', () => {
-  it('counts listeners, duplicates, and churn', () => {
-    const incidents = [
-      incident({ fingerprint: 'd1' }),
-      incident({ fingerprint: 'd2' }),
-      incident({ fingerprint: 'c1', pattern: 'listener-churn' }),
-    ];
-    const counts = listenerCounts([listener({ id: 'a' }), listener({ id: 'b' })], incidents);
-    expect(counts).toEqual({ listeners: 2, duplicates: 2, churn: 1 });
-    expect(formatListenerCounts(counts)).toBe('2 listeners · 2 duplicates · 1 churn');
+describe('the fold behind the journal header', () => {
+  it('counts listeners, idle listeners, duplicates, churn, and the busiest owner', () => {
+    const owners = [{ kind: 'component' as const, name: 'ChatPage' }];
+    const groups = listenerRowGroups(
+      groupListeners([
+        listener({ id: 'a', owners, target: 'notes/one' }),
+        listener({ id: 'b', owners, target: 'notes/one' }),
+        listener({ id: 'c', owners, target: 'notes/two' }),
+        listener({ id: 'd', target: 'other/one' }),
+      ]),
+      [],
+      undefined,
+      (l) => (l.id === 'c' ? 4 : 0),
+    );
+    const fold = listenerFold(groups, [incident({ pattern: 'listener-churn' })]);
+    expect(fold.listeners).toBe(4);
+    expect(fold.idle).toBe(3);
+    expect(fold.churn).toBe(1);
+    expect(fold.duplicates).toEqual([{ target: 'notes/one', count: 2 }]);
+    expect(fold.busiest).toEqual({ label: 'ChatPage', count: 3 });
+  });
+});
+
+describe('the card totals and the row filter', () => {
+  it('splits listeners into delivering, idle, and those with an incident', () => {
+    const groups = listenerRowGroups(
+      groupListeners([
+        listener({ id: 'a', target: 'notes/one' }),
+        listener({ id: 'b', target: 'busy/one' }),
+      ]),
+      [incident({})],
+      undefined,
+      (l) => (l.id === 'b' ? 3 : 0),
+    );
+    expect(listenerCardTotals(groups)).toEqual({ delivering: 1, idle: 1, incidents: 1 });
   });
 
-  it('leaves out what did not happen', () => {
-    expect(formatListenerCounts({ listeners: 1, duplicates: 0, churn: 0 })).toBe('1 listener');
+  it('claims a flagged row for both its delivery state and the incident card', () => {
+    const groups = listenerRowGroups(
+      groupListeners([listener({ id: 'a', target: 'notes/one' })]),
+      [incident({})],
+    );
+    expect(cardKeysForRow(groups[0]!.rows[0]!)).toEqual(['idle', 'incidents']);
   });
 });
