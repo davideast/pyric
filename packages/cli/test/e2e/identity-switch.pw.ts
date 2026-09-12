@@ -29,22 +29,27 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
   // Verify no unauthorized button-primary styling exists
   await expect(chipHost.locator('.button-primary')).toHaveCount(0);
 
-  const openImpersonateDialog = async () => {
+  const identityQuery = chipHost.locator('[data-identity-query]');
+  /** Open the panel on Identity, whichever view the opening rule chose. */
+  const openIdentityView = async () => {
     const openBar = chipHost.locator('[data-expand]');
     if (await openBar.isVisible()) {
       await openBar.click();
     }
-    await chipHost.locator('[data-open-impersonate]').click();
+    await chipHost.locator('[data-chip-tab="identity"]').click();
+    await expect(identityQuery).toBeVisible();
+  };
+  const minimize = async () => {
+    const collapseBtn = chipHost.locator('[data-collapse]');
+    if (await collapseBtn.isVisible()) {
+      await collapseBtn.click();
+    }
   };
 
-  // 2. Open Chip and click [+ Create New User] to verify existing Auth Helper opens
-  await openImpersonateDialog();
-
-  const chipDialog = chipHost.locator('dialog[data-impersonate-dialog]');
-  await expect(chipDialog).toBeVisible();
-
-  await chipDialog.locator('[data-action-create-user]').click();
-  await expect(chipDialog).not.toBeVisible();
+  // 2. Type an address nobody answers to, and take the create row the view offers
+  await openIdentityView();
+  await identityQuery.fill('alice@example.com');
+  await chipHost.locator('[data-create-user]').click();
 
   // The existing Auth Helper dialog opens
   const authHelperDialog = page.locator('dialog[data-pyric-auth]');
@@ -73,16 +78,20 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
     window as unknown as { __namedAuthLog: (string | null)[] }
   ).__namedAuthLog.at(-1))).toBe(aliceUid);
 
-  // Collapsed bar badge displays Alice's identity
-  const collapseBtn = chipHost.locator('[data-collapse]');
-  if (await collapseBtn.isVisible()) {
-    await collapseBtn.click();
-  }
-  await expect(chipHost.locator('[data-identity-badge]')).toHaveText(`as: ${aliceUid}`);
+  // The session row names Alice by email and keeps her uid as the row's fact
+  await openIdentityView();
+  await expect(chipHost.locator('[data-identity-row] .row-primary')).toHaveText('alice@example.com');
+  await expect(chipHost.locator('[data-identity-uid]')).toHaveText(aliceUid!);
+
+  // The collapsed pill carries the same uid as the title of its one slot
+  await minimize();
+  await expect(chipHost.locator('[data-identity-icon]')).toHaveAttribute('title', aliceUid!);
+  await expect(chipHost.locator('[data-identity-icon]')).toHaveAttribute('data-state', 'in');
 
   // Create User 2: Bob
-  await openImpersonateDialog();
-  await chipHost.locator('dialog[data-impersonate-dialog] [data-action-create-user]').click();
+  await openIdentityView();
+  await identityQuery.fill('bob@example.com');
+  await chipHost.locator('[data-create-user]').click();
 
   await expect(authHelperDialog).toBeVisible();
   await authHelperDialog.locator('input[type="email"]').fill('bob@example.com');
@@ -99,67 +108,15 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
     window as unknown as { __namedAuthLog: (string | null)[] }
   ).__namedAuthLog.at(-1))).toBe(bobUid);
 
-  // 3. Switch back to Alice via User Search Combobox
-  await openImpersonateDialog();
-  await expect(chipDialog).toBeVisible();
-
-  // Verify listbox is visible and both users are listed by default under "All" without typing
-  const listbox = chipDialog.locator('[data-user-search-listbox]');
-  await expect(listbox).toBeVisible();
-  await expect(chipDialog.locator('.user-search-item:has-text("Alice Developer")')).toBeVisible();
-  await expect(chipDialog.locator('.user-search-item:has-text("Bob Hacker")')).toBeVisible();
-
-  // Loading a directory with many provider categories must not grow the
-  // permanently mounted filter row or shift the fixed-height dialog.
-  const filterRow = chipDialog.locator('.filter-chips');
-  const filterHeightBefore = await filterRow.evaluate((element) => element.getBoundingClientRect().height);
-  await chipDialog.locator('[data-close-impersonate]').click();
-  await page.evaluate(async (providerIds) => {
-    const generation = localStorage.getItem('pyric:worker-generation');
-    const worker = new SharedWorker('/__pyric/sdk/worker.js', {
-      type: 'classic',
-      name: generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker',
-    });
-    worker.port.start();
-    for (const [index, providerId] of providerIds.entries()) {
-      await new Promise<void>((resolve, reject) => {
-        const id = `seed-provider-${index}-${Date.now()}`;
-        const onMessage = (event: MessageEvent) => {
-          if (event.data?.t !== 'res' || event.data.id !== id) return;
-          worker.port.removeEventListener('message', onMessage);
-          if (event.data.ok) resolve();
-          else reject(new Error(event.data.error.message));
-        };
-        worker.port.addEventListener('message', onMessage);
-        worker.port.postMessage({
-          t: 'op',
-          id,
-          method: 'auth.adminCreateUser',
-          request: {
-            email: `provider-${index}@example.com`,
-            providerUserInfo: [{ providerId }],
-          },
-        });
-      });
-    }
-    worker.port.close();
-  }, ['google.com', 'github.com', 'facebook.com', 'apple.com', 'microsoft.com', 'twitter.com']);
-  await openImpersonateDialog();
-  await expect(chipDialog.locator('.filter-chip:has-text("twitter.com")')).toBeVisible();
-  const filterGeometryAfter = await filterRow.evaluate((element) => ({
-    height: element.getBoundingClientRect().height,
-    clientWidth: element.clientWidth,
-    scrollWidth: element.scrollWidth,
-  }));
-  expect(filterGeometryAfter.height).toBe(filterHeightBefore);
-  expect(filterGeometryAfter.scrollWidth).toBeGreaterThan(filterGeometryAfter.clientWidth);
-
-  const searchInput = chipDialog.locator('[data-user-search-input]');
-  await searchInput.fill('Alice');
-
-  const aliceCandidate = chipDialog.locator('.user-search-item:has-text("Alice Developer")');
-  await expect(aliceCandidate).toBeVisible();
-  await aliceCandidate.click();
+  // 3. Switch back to Alice from the row the typed query selects
+  await openIdentityView();
+  await identityQuery.fill('Alice');
+  const aliceRow = chipHost.locator(`[data-switch-user="${aliceUid}"]`);
+  await expect(aliceRow).toBeVisible();
+  await expect(aliceRow.locator('.row-primary')).toHaveText('Alice Developer');
+  // The session already showing is never offered as somewhere to switch to.
+  await expect(chipHost.locator(`[data-switch-user="${bobUid}"]`)).toHaveCount(0);
+  await aliceRow.click();
 
   // Client onAuthStateChanged MUST fire directly with Alice (A -> B direct transition)
   await expect(page.locator('#status')).toHaveText(`signed-in:${aliceUid}`, { timeout: 10_000 });
@@ -176,28 +133,29 @@ test('Pyric runtime chip authentic identity switching, creation, and forced onAu
   expect(namedLogAfterSwitch.slice(namedBobIndex + 1)).not.toContain(null);
   expect(namedLogAfterSwitch.at(-1)).toBe(aliceUid);
 
-  // 4. Sign Out via chip modal
-  await openImpersonateDialog();
-  await expect(chipDialog).toBeVisible();
+  // The switch clears the query, so the view is back to the session and the bypass
+  await expect(identityQuery).toHaveValue('');
+  await expect(chipHost.locator('[data-switch-user]')).toHaveCount(0);
 
-  await chipDialog.locator('[data-action-signout]').click();
+  // 4. Sign out from the session row itself
+  await chipHost.locator('[data-sign-out]').click();
   await expect(page.locator('#status')).toHaveText('signed-out', { timeout: 10_000 });
-  await expect(chipHost.locator('[data-identity-badge]')).toHaveCount(0);
+  await expect(chipHost.locator('[data-identity-row] .row-primary')).toHaveText('Signed out');
+  await expect(chipHost.locator('[data-sign-out]')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __namedAuthLog: (string | null)[] }
   ).__namedAuthLog.at(-1))).toBeNull();
 
-  // 5. Toggle Rules Bypass (Admin)
-  await openImpersonateDialog();
-  await expect(chipDialog).toBeVisible();
+  // 5. Toggle the rules bypass from its own row
+  const bypass = chipHost.locator('[data-toggle-bypass]');
+  await expect(bypass).toHaveText('off');
+  await bypass.click();
+  await expect(bypass).toHaveText('on');
+  await expect(bypass).toHaveAttribute('aria-pressed', 'true');
 
-  await chipDialog.locator('[data-action-toggle-admin]').click();
-  await chipDialog.locator('[data-close-impersonate]').click();
-
-  // Minimize panel to check collapsed bar
-  const closeBtn = chipHost.locator('[data-collapse]');
-  if (await closeBtn.isVisible()) {
-    await closeBtn.click();
-  }
-  await expect(chipHost.locator('[data-identity-badge]')).toHaveText('bypass rules');
+  // Minimize to check the collapsed slot carries the bypass as colour and title
+  await minimize();
+  await expect(chipHost.locator('[data-identity-icon]')).toHaveAttribute('data-state', 'admin');
+  await expect(chipHost.locator('[data-identity-icon]')).toHaveAttribute('title', 'bypass rules');
+  await expect(chipHost.locator('.chip')).toHaveText('pyric');
 });

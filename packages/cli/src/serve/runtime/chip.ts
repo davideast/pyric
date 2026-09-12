@@ -1,14 +1,27 @@
+/**
+ * The runtime chip: a collapsed pill on a served page, and an open panel of
+ * four views behind it.
+ *
+ * The pill carries three things and no words for them: which identity the page
+ * is running as, the name, and how many listeners are attached. Problems reach
+ * it as colour on the part they are about.
+ *
+ * The panel answers the three reasons a developer clicks that pill. Something
+ * went red, so Traffic holds the last requests and what Rules said about them.
+ * They want to be someone else, so Identity switches the user and bypasses the
+ * rules. They want to see what the page is doing, so Listeners lists what is
+ * attached and Sandbox states which runtime is running it. The panel opens on
+ * the view the strongest current signal names, which is usually the view the
+ * colour on the pill came from.
+ *
+ * Every view is built from one row: a 16px mark, a primary column, and a
+ * right-aligned fact. A row's own click is its only action unless its fact is a
+ * single control. That one shape is what lets four unrelated subjects read as
+ * one panel.
+ */
 import type { AuthLens } from 'pyric/sandbox';
-import type {
-  PyricRuntimeError,
-  PyricRuntimeSnapshot,
-  PyricRuntimeStatus,
-} from './status.js';
-import {
-  createChipDialogController,
-  DIALOG_STYLES,
-  type ChipDialogController,
-} from './chip-dialog.js';
+import type { AuthUserRecord } from 'pyric/auth';
+import type { PyricRuntimeStatus } from './status.js';
 import {
   createChipThemeDialog,
   THEME_DIALOG_STYLES,
@@ -16,14 +29,36 @@ import {
 } from './chip-theme-dialog.js';
 import { pageOverlayThemeStorage } from './overlay-theme.js';
 import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
-import { studioListenersUrl, type ListenerMode } from './listener-mode.js';
-import type { ListenerOutline, ListenerOutlineIncident } from './listener-outline-model.js';
+import { studioListenerUrl, type ListenerMode } from './listener-mode.js';
+import { studioSectionUrl } from './studio-links.js';
+import type { ListenerOutline } from './listener-outline-model.js';
 import { listenerColors } from './listener-palette.js';
+import { filterUsers, userDisplayLabel } from './chip-user-search.js';
+import {
+  CHIP_TABS,
+  CHIP_TAB_LABELS,
+  openingChipTab,
+  pageChipTabStorage,
+  problemTab,
+  readRememberedChipTab,
+  writeRememberedChipTab,
+  type ChipTab,
+  type ChipTabSignals,
+} from './chip-tab.js';
+import {
+  createTrafficFeed,
+  isPermissionDeniedCode,
+  orderChipRequests,
+  RECENT_FAILURE_MS,
+  type ChipRequest,
+  type TrafficFeed,
+} from './chip-traffic.js';
 import {
   pagePaintModeStorage,
   readListenerPaintMode,
   type ListenerPaintMode,
 } from './listener-paint-mode.js';
+import type { SandboxEventSource } from './listener-event-source.js';
 import {
   getLens as defaultGetLens,
   setLens as defaultSetLens,
@@ -33,7 +68,6 @@ import {
 export interface PyricRuntimeChipOptions {
   runtime: PyricRuntimeStatus;
   document?: Document;
-  clipboard?: Pick<Clipboard, 'writeText'>;
   initiallyOpen?: boolean;
   /** Override Studio availability. Omitted uses the runtime manifest URL. */
   studioUrl?: string | null;
@@ -46,10 +80,16 @@ export interface PyricRuntimeChipOptions {
   /** Injectable lens subscription (defaults to worker client subscribeLens). */
   subscribeLens?: (listener: (lens: AuthLens | undefined) => void) => () => void;
   /**
+   * The page's sandbox event stream, which Traffic folds into its rows. Omitted
+   * leaves Traffic with the runtime's own error feed, which is what a page
+   * without an event source has.
+   */
+  sandboxEvents?: SandboxEventSource | null;
+  /**
    * Build the Listeners mode this chip toggles. Called once, on the first
    * toggle, with the callback the mode reports each recomputation through.
-   * Omitted leaves the toggle out: a page with no sandbox event source has
-   * nothing to outline.
+   * Omitted leaves the outlines control out: a page with no sandbox event
+   * source has nothing to outline.
    */
   listeners?: (onChange: (outlines: readonly ListenerOutline[]) => void) => ListenerMode;
 }
@@ -61,7 +101,7 @@ export interface PyricRuntimeChip {
 
 interface AiEngineDisplay {
   primary: string;
-  subline: string | null;
+  detail: string | null;
 }
 
 function aiEngineState(): AiEngineDisplay {
@@ -69,19 +109,19 @@ function aiEngineState(): AiEngineDisplay {
   if (engine?.kind === 'gemini') {
     return {
       primary: 'gemini (production)',
-      subline: 'gemini-3.5-flash-lite → gemini-flash-lite-latest',
+      detail: 'gemini-3.5-flash-lite → gemini-flash-lite-latest',
     };
   }
   if (engine?.kind === 'openai') {
     const modelLabel = engine.model ? ` (${engine.model})` : '';
     return {
       primary: `openai (proxy${modelLabel})`,
-      subline: null,
+      detail: null,
     };
   }
   return {
     primary: 'sandbox (scripted)',
-    subline: null,
+    detail: null,
   };
 }
 
@@ -107,8 +147,10 @@ const styles = `
   }
   *, *::before, *::after { box-sizing: border-box; }
   .announcer { height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; width: 1px; clip: rect(0 0 0 0); white-space: nowrap; }
-  button, a { font: inherit; }
+  button, a, input { font: inherit; }
   button { margin: 0; }
+  :focus-visible { outline: 1px solid var(--pyric-muted); outline-offset: 2px; }
+
   .chip {
     align-items: center;
     background: var(--pyric-bg);
@@ -123,10 +165,7 @@ const styles = `
     padding: 0 12px;
   }
   .chip:hover { border-color: #4a4a58; }
-  .panel-title, .worker-state { align-items: center; display: flex; }
-  .brand-mark { color: rgba(251, 251, 254, .78); font: 600 11px/1 ui-monospace, monospace; }
-  .brand-label, .worker-state, code, .button { font-family: "JetBrains Mono", ui-monospace, monospace; }
-  .brand-label { font-size: 11px; }
+  .brand-label { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }
   .brand-label.error { color: var(--pyric-error); }
   .brand-label.warning { color: var(--pyric-warning); }
   .identity { align-items: center; color: var(--pyric-muted); display: inline-flex; }
@@ -135,104 +174,118 @@ const styles = `
   .identity-icon { height: 14px; width: 14px; }
   .chip-count { color: var(--pyric-muted); font: 11px/1 "JetBrains Mono", ui-monospace, monospace; }
   .chip-count.error { color: var(--pyric-error); }
+
   .panel {
     background: var(--pyric-bg);
     border: 1px solid var(--pyric-border);
-    border-radius: 8px;
+    border-radius: 10px;
     box-shadow: 0 18px 60px rgba(0, 0, 0, .48);
     max-width: calc(100vw - 40px);
     overflow: hidden;
-    width: 380px;
+    width: 384px;
   }
-  .panel-header { align-items: center; display: flex; height: 44px; justify-content: space-between; padding: 0 12px; }
-  .panel-title { gap: 8px; min-width: 0; }
-  .panel-title strong { font: 500 12px/1 ui-monospace, monospace; }
-  .panel-facts { color: var(--pyric-muted); font: 10px/1.4 "JetBrains Mono", ui-monospace, monospace; overflow-wrap: anywhere; padding: 0 12px 9px; }
-  .count { background: rgba(58,42,42,.3); border: 1px solid #3a2a2a; border-radius: 999px; color: var(--pyric-error); font: 9px/1 ui-monospace, monospace; padding: 4px 6px; }
-  .icon-button { align-items: center; background: transparent; border: 0; border-radius: 4px; color: var(--pyric-muted); cursor: pointer; display: inline-flex; height: 28px; justify-content: center; padding: 0; width: 28px; }
+  .panel-header { align-items: center; display: flex; height: 48px; justify-content: space-between; padding: 0 16px; }
+  .panel-name { font-size: 13px; font-weight: 500; line-height: 20px; }
+  .header-controls { align-items: center; display: inline-flex; gap: 12px; }
+  .header-studio { color: var(--pyric-muted); font-size: 12px; line-height: 20px; text-decoration: none; white-space: nowrap; }
+  a.header-studio:hover { color: var(--pyric-text); }
+  .header-studio[aria-disabled="true"] { cursor: not-allowed; opacity: .5; }
+  .icon-button { align-items: center; background: transparent; border: 0; border-radius: 4px; color: var(--pyric-muted); cursor: pointer; display: inline-flex; height: 24px; justify-content: center; padding: 0; width: 24px; }
   .icon-button:hover { background: rgba(255,255,255,.05); color: var(--pyric-text); }
-  .icon-button:disabled { cursor: not-allowed; opacity: .42; }
-  .icon-button[data-copy-failed] { color: var(--pyric-error); }
   .icon { height: 15px; width: 15px; }
-  .worker-state { border-top: 1px solid var(--pyric-border-soft); color: var(--pyric-muted); font-size: 10px; justify-content: space-between; min-height: 34px; padding: 7px 12px; }
-  .worker-state-col { border-top: 1px solid var(--pyric-border-soft); color: var(--pyric-muted); font-size: 10px; display: flex; flex-direction: column; min-height: 34px; padding: 7px 12px; }
-  .worker-state-row { align-items: center; display: flex; justify-content: space-between; width: 100%; }
-  .worker-state-subline { color: #89899f; font: 9px/1.4 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; text-align: right; width: 100%; }
-  .listener-header { border: 1px solid var(--pyric-border-soft); border-radius: 999px; color: var(--pyric-text); font: 9px/1 ui-monospace, monospace; padding: 4px 6px; }
-  .listener-header.has-incident { background: rgba(58,50,42,.3); border-color: #3a322a; color: var(--pyric-warning); }
-  .listener-rows { margin-top: 6px; }
-  .listener-row {
-    align-items: center;
-    border-bottom: 1px solid rgba(42,42,53,.7);
-    color: #d7d7df;
-    display: grid;
-    gap: 6px;
-    grid-template-columns: 14px 8px minmax(0,1fr) minmax(0,1.1fr) 28px 32px 10px 16px 22px 22px;
-    padding: 4px 0 4px 2px;
+
+  .tabs { align-items: stretch; border-bottom: 1px solid var(--pyric-border-soft); display: flex; gap: 20px; height: 40px; padding: 0 16px; }
+  .tab {
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--pyric-muted);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 20px;
+    padding: 0;
   }
-  .listener-swatch { border-radius: 2px; height: 8px; width: 8px; }
-  .listener-swatch.empty { background: transparent; }
-  .listener-paint { accent-color: var(--pyric-accent); cursor: pointer; height: 11px; margin: 0; width: 11px; }
-  .listener-paint:disabled { cursor: not-allowed; opacity: .3; }
-  .listener-row.hidden-paint .listener-label, .listener-row.hidden-paint .listener-target { opacity: .5; }
+  .tab:hover { color: var(--pyric-text); }
+  .tab[aria-selected="true"] { border-bottom-color: var(--pyric-text); color: var(--pyric-text); }
+  .tab.problem { color: var(--pyric-error); }
+  .tab.problem[aria-selected="true"] { border-bottom-color: var(--pyric-error); }
+  .tab.pending { color: var(--pyric-warning); }
+  .tab.pending[aria-selected="true"] { border-bottom-color: var(--pyric-warning); }
+
+  .view { display: flex; flex-direction: column; min-height: 68px; padding: 12px 0; }
+  .rows { display: flex; flex-direction: column; }
+  .control + .rows { margin-top: 12px; }
+  .row {
+    align-items: center;
+    column-gap: 12px;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) minmax(0, auto);
+    height: 44px;
+    padding: 0 16px;
+    width: 100%;
+  }
+  a.row, button.row { background: transparent; border: 0; color: inherit; cursor: pointer; text-align: left; text-decoration: none; }
+  a.row:hover, button.row:hover { background: rgba(255,255,255,.05); }
+  .row-mark { align-items: center; display: inline-flex; height: 16px; justify-content: center; width: 16px; }
+  .row-glyph { height: 16px; width: 16px; }
+  .row-mark .identity { color: inherit; }
+  .row-dot { background: var(--pyric-accent); border-radius: 50%; height: 8px; width: 8px; }
+  .row-dot.pending { background: var(--pyric-warning); }
+  .row-swatch { border-radius: 2px; height: 10px; width: 10px; }
+  .row-primary { font-size: 13px; line-height: 20px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row-secondary { color: var(--pyric-muted); font-size: 12px; }
+  .row-fact { align-items: center; color: var(--pyric-muted); display: inline-flex; font-size: 12px; gap: 12px; justify-content: flex-end; line-height: 20px; min-width: 0; white-space: nowrap; }
+  /* A uid or an epoch pair is bounded so it can never squeeze the primary out
+     of its own row. */
+  .row-fact > .mono { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+  /* A sandbox uid runs to forty characters. It is the row's fact, not its
+     subject, so it yields to the name beside it. */
+  .row-fact > [data-identity-uid] { max-width: 88px; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .row.problem .row-primary, .row.problem .row-fact, .row.problem .row-secondary { color: var(--pyric-error); }
+  .row-action {
+    background: transparent;
+    border: 1px solid var(--pyric-border-soft);
+    border-radius: 4px;
+    color: var(--pyric-muted);
+    cursor: pointer;
+    font-size: 12px;
+    height: 28px;
+    line-height: 20px;
+    padding: 0 10px;
+  }
+  .row-action:hover:not(:disabled) { border-color: #3a3a48; color: var(--pyric-text); }
+  .row-action:disabled, .row-action[aria-disabled="true"] { cursor: not-allowed; opacity: .42; }
+  .row-action[aria-pressed="true"] { border-color: rgba(230,199,156,.45); color: var(--pyric-warning); }
+  .row-field {
+    align-items: center;
+    background: rgba(0,0,0,.22);
+    border: 1px solid var(--pyric-border-soft);
+    border-radius: 6px;
+    display: flex;
+    grid-column: 2 / -1;
+    height: 32px;
+    padding: 0 10px;
+  }
+  .row-field:focus-within { border-color: #4a4a58; }
+  .row-field input { background: transparent; border: 0; color: var(--pyric-text); font-size: 13px; line-height: 20px; outline: none; width: 100%; }
   .segmented { border: 1px solid var(--pyric-border-soft); border-radius: 999px; display: inline-flex; overflow: hidden; }
   .segmented button {
     background: transparent;
     border: 0;
     color: var(--pyric-muted);
     cursor: pointer;
-    font: 10px/1 ui-monospace, monospace;
-    padding: 5px 9px;
+    font-size: 12px;
+    line-height: 20px;
+    padding: 3px 7px;
   }
   .segmented button:hover { color: var(--pyric-text); }
-  .segmented button[aria-pressed="true"] { background: rgba(25,204,97,.12); color: var(--pyric-accent); }
+  .segmented button[aria-pressed="true"] { background: rgba(255,255,255,.09); color: var(--pyric-text); }
   .segmented button[aria-disabled="true"] { cursor: not-allowed; opacity: .45; }
-  .listener-row:last-child { border-bottom: 0; }
-  .listener-row:hover { background: rgba(255,255,255,.05); }
-  .listener-number { color: var(--pyric-muted); font: 10px/18px ui-monospace, monospace; }
-  .listener-row.incident .listener-number, .listener-row.incident .listener-mark { color: var(--pyric-warning); }
-  .listener-label { font-size: 10px; line-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .listener-target, .listener-count { font: 10px/18px ui-monospace, monospace; }
-  .listener-target { color: var(--pyric-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .listener-count { text-align: right; }
-  .listener-mark { font: 10px/18px ui-monospace, monospace; text-align: center; }
-  .listener-row .icon-button { height: 20px; width: 24px; }
-  .listener-row .icon-button .icon { height: 13px; width: 13px; }
-  .listener-link { align-self: flex-end; color: var(--pyric-muted); font-size: 11px; margin-top: 4px; text-decoration: none; }
-  a.listener-link:hover { color: var(--pyric-text); }
-  .listener-link[aria-disabled="true"] { cursor: not-allowed; opacity: .6; }
-  .button[aria-pressed="true"] { background: rgba(25,204,97,.12); border-color: rgba(25,204,97,.4); color: var(--pyric-accent); }
-  .worker-state .available { color: var(--pyric-warning); }
-  .worker-state .state-label, .worker-state-col .state-label { align-items: center; display: flex; gap: 7px; white-space: nowrap; }
-  .mini-dot { background: var(--pyric-accent); border-radius: 50%; height: 6px; width: 6px; }
-  .available .mini-dot { background: var(--pyric-warning); }
-  .epochs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .errors { background: var(--pyric-content); border-bottom: 1px solid var(--pyric-border-soft); border-top: 1px solid var(--pyric-border-soft); max-height: 184px; min-height: 58px; overflow-y: auto; }
-  .errors::-webkit-scrollbar { width: 8px; }
-  .errors::-webkit-scrollbar-thumb { background: #33333f; border-radius: 4px; }
-  .error-row { align-items: flex-start; border-bottom: 1px solid rgba(42,42,53,.7); display: grid; gap: 8px; grid-template-columns: 18px minmax(0,1fr) 28px 28px; padding: 10px 8px 10px 12px; }
-  .error-row:last-child { border-bottom: 0; }
-  .error-number { color: var(--pyric-error); font: 10px/20px ui-monospace, monospace; }
-  .panel-controls { align-items: center; display: inline-flex; gap: 4px; }
-  .clear-button { background: transparent; border: 0; color: var(--pyric-muted); cursor: pointer; font-size: 11px; margin-left: 8px; padding: 2px 6px; }
-  .clear-button:hover { color: var(--pyric-text); }
-  .error-body { min-width: 0; }
-  .error-body code { color: #d7d7df; display: block; font-size: 11px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
-  .error-meta { color: var(--pyric-muted); font: 9px/1.4 ui-monospace, monospace; margin-top: 4px; overflow-wrap: anywhere; }
-  .empty { align-items: center; color: var(--pyric-muted); display: flex; font: 11px/1.5 ui-monospace, monospace; min-height: 57px; padding: 12px; }
-  .actions { display: grid; gap: 8px; grid-template-columns: repeat(3, 1fr); min-height: 56px; padding: 10px 12px; }
-  .flow-waiting { color: var(--pyric-muted); font: 9px/1.4 ui-monospace, monospace; grid-column: 1 / -1; }
-  .button { align-items: center; background: transparent; border: 1px solid var(--pyric-border-soft); border-radius: 4px; color: var(--pyric-muted); display: inline-flex; font-size: 10px; justify-content: center; letter-spacing: .06em; min-height: 34px; padding: 6px 8px; text-decoration: none; text-transform: uppercase; }
-  button.button { cursor: pointer; }
-  .button:hover:not(:disabled):not([aria-disabled="true"]), a.button:hover { border-color: #3a3a48; color: var(--pyric-text); }
-  .button.update:not(:disabled):not([aria-disabled="true"]) { background: rgba(230,199,156,.1); border-color: rgba(230,199,156,.4); color: var(--pyric-warning); }
-  .button.update:not(:disabled):not([aria-disabled="true"]):hover { background: rgba(230,199,156,.15); }
-  .button:disabled, .button[aria-disabled="true"] { cursor: not-allowed; opacity: .42; }
-  .button svg { height: 14px; margin-left: 6px; width: 14px; }
+
   @media (max-width: 460px) {
     :host { bottom: max(12px, env(safe-area-inset-bottom)); right: 12px; }
     .panel { max-width: calc(100vw - 24px); }
-    .worker-state { align-items: flex-start; flex-direction: column; gap: 4px; }
   }
   @media (prefers-reduced-motion: no-preference) {
     [data-view], .panel { transform-origin: bottom right; }
@@ -240,15 +293,11 @@ const styles = `
     @keyframes pyric-enter { from { opacity: 0; transform: translateY(4px) scale(.98); } }
   }
 
-  ${DIALOG_STYLES}
   ${THEME_DIALOG_STYLES}
 `;
 
 const icons = {
-  close: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 6 12 12M18 6 6 18"/></svg>',
   minimize: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14"/></svg>',
-  copy: '<svg class="icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="11" height="11" rx="1"/><path d="M16 8V5H5v11h3"/></svg>',
-  external: '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 5h5v5M19 5l-8 8"/><path d="M19 13v6H5V5h6"/></svg>',
 };
 
 /** The head-and-shoulders outline both identity glyphs are drawn from. */
@@ -259,26 +308,18 @@ const IDENTITY_PATH = 'M12 4.2a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z M5 19.8a7 7 
  * out page strokes the same path, so the eye reads one slot rather than two
  * icons.
  */
-const identityGlyphs = {
-  in: `<svg class="identity-icon" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><path d="${IDENTITY_PATH}"/></svg>`,
-  out: `<svg class="identity-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="${IDENTITY_PATH}"/></svg>`,
-};
+function identityGlyph(state: 'in' | 'out', className: string): string {
+  if (state === 'out') {
+    return `<svg class="${className}" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="${IDENTITY_PATH}"/></svg>`;
+  }
+  return `<svg class="${className}" aria-hidden="true" viewBox="0 0 24 24" fill="currentColor"><path d="${IDENTITY_PATH}"/></svg>`;
+}
 
 function escapeAttribute(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-export function formatPyricRuntimeError(error: PyricRuntimeError): string {
-  const context = [
-    error.source,
-    error.service && error.method ? `${error.service}.${error.method}` : error.service ?? error.method,
-    error.path,
-    error.code,
-  ].filter(Boolean).join(' · ');
-  return `${error.message}${context ? `\n${context}` : ''}${error.stack ? `\n${error.stack}` : ''}`;
-}
-
-/** `true` when two listener lists would render the same Listeners summary. */
+/** `true` when two listener lists would render the same Listeners view. */
 function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline[]): boolean {
   if (a.length !== b.length) return false;
   return a.every((outline, i) => {
@@ -295,7 +336,7 @@ function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline
   });
 }
 
-/** `12 listeners`, `1 listener`, `2 duplicates`, etc. */
+/** `12 listeners`, `1 listener`, etc. */
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -305,264 +346,52 @@ function displayTarget(outline: ListenerOutline): string {
   return outline.isQuery ? `${outline.target} (query)` : outline.target;
 }
 
-/** The group a listener's owner row belongs under: its owner label, or its
- * target when nothing on the page named it. */
-function groupKey(outline: ListenerOutline): string {
-  return outline.labelIsOwner ? outline.label : displayTarget(outline);
-}
+/** How many rows any one view draws. Past this the answer is Studio's. */
+const MAX_ROWS = 8;
 
-interface ListenerIncidentGroup {
-  pattern: 'duplicate-listener' | 'listener-churn';
-  target: string;
-  label: string | null;
-  count: number;
-  windowMs: number;
-}
-
-/** One incident line per distinct (pattern, target, count) triple, so a
- * duplicate or churn incident shared by several listeners reads once. */
-function listenerIncidentGroups(outlines: readonly ListenerOutline[]): ListenerIncidentGroup[] {
-  const groups = new Map<string, ListenerIncidentGroup>();
-  for (const outline of outlines) {
-    const incident = outline.incident;
-    if (incident === null) continue;
-    const target = displayTarget(outline);
-    const key = `${incident.pattern}:${target}:${incident.count}:${incident.windowMs}`;
-    if (groups.has(key)) continue;
-    groups.set(key, {
-      pattern: incident.pattern,
-      target,
-      label: outline.labelIsOwner ? outline.label : null,
-      count: incident.count,
-      windowMs: incident.windowMs,
-    });
-  }
-  return [...groups.values()];
-}
-
-function listenerIncidentLine(group: ListenerIncidentGroup): string {
-  if (group.pattern === 'duplicate-listener') {
-    const times = group.count === 2 ? 'twice' : `${group.count} times`;
-    const by = group.label !== null ? ` by ${group.label}` : '';
-    return `${group.target} attached ${times}${by}`;
-  }
-  const seconds = Math.round(group.windowMs / 1000);
-  const duration = seconds > 0 ? `${seconds}s` : `${group.windowMs}ms`;
-  return `${group.target} reattached ${group.count} times in ${duration}`;
-}
-
-interface ListenerOwnerGroup {
-  key: string;
-  listeners: number;
-  deliveries: number;
-  targets: Set<string>;
-  incident: ListenerOutlineIncident | null;
-  /**
-   * The listeners the row stands for. A row collapsed from several listeners
-   * under one owner switches all of them at once.
-   */
-  listenerIds: string[];
-}
-
-/** The owner groups a Listeners panel lists, busiest by total deliveries
- * first. */
-function listenerOwnerGroups(outlines: readonly ListenerOutline[]): ListenerOwnerGroup[] {
-  const groups = new Map<string, ListenerOwnerGroup>();
-  for (const outline of outlines) {
-    const key = groupKey(outline);
-    const target = displayTarget(outline);
-    const existing = groups.get(key);
-    if (existing) {
-      existing.listeners += 1;
-      existing.deliveries += outline.deliveryCount;
-      existing.targets.add(target);
-      existing.incident ??= outline.incident;
-      existing.listenerIds.push(outline.listenerId);
-    } else {
-      groups.set(key, {
-        key,
-        listeners: 1,
-        deliveries: outline.deliveryCount,
-        targets: new Set([target]),
-        incident: outline.incident,
-        listenerIds: [outline.listenerId],
-      });
-    }
-  }
-  return [...groups.values()].sort((a, b) => b.deliveries - a.deliveries || a.key.localeCompare(b.key));
-}
-
-/** One body row of the Listeners table. The columns line up across incident
- * and owner rows, so the two read as one table. */
-interface ListenerTableRow {
-  /**
-   * Identifies the row across renders. It changes when the row's listener set
-   * changes, which is what brings a dismissed row back: a new attach moves an
-   * owner row's listener count, and a new incident moves the incident part.
-   */
-  signature: string;
-  isIncident: boolean;
-  label: string;
-  target: string;
-  /** The first count column: listeners for an owner row, attaches for an incident. */
-  first: string;
-  firstTitle: string;
-  /** The second count column: deliveries, empty on an incident row. */
-  second: string;
-  secondTitle: string;
+/** One row's three cells, as markup. */
+function rowHtml(input: {
   mark: string;
-  markTitle: string;
-  copyText: string;
-  /** The listeners this row paints, empty on an incident row. */
-  listenerIds: readonly string[];
+  primary: string;
+  fact: string;
+  className?: string;
+  attributes?: string;
+  href?: string | null;
+  title?: string | null;
+}): string {
+  const classes = `row${input.className ? ` ${input.className}` : ''}`;
+  const title = input.title ? ` title="${escapeAttribute(input.title)}"` : '';
+  const attributes = input.attributes ? ` ${input.attributes}` : '';
+  const cells = `<span class="row-mark">${input.mark}</span><span class="row-primary">${input.primary}</span><span class="row-fact">${input.fact}</span>`;
+  if (input.href) {
+    return `<a class="${classes}" href="${escapeAttribute(input.href)}" target="_blank" rel="noopener noreferrer"${title}${attributes}>${cells}</a>`;
+  }
+  return `<div class="${classes}"${title}${attributes}>${cells}</div>`;
 }
 
-/** `duplicate ×2`, `churn ×40`: what an incident mark stands for. */
-function incidentMarkTitle(incident: ListenerOutlineIncident): string {
-  const word = incident.pattern === 'duplicate-listener' ? 'duplicate' : 'churn';
-  return `${word} ×${incident.count}`;
+/** A row whose own click is its action. */
+function buttonRowHtml(input: {
+  mark: string;
+  primary: string;
+  fact: string;
+  className?: string;
+  attributes: string;
+  label: string;
+}): string {
+  const classes = `row${input.className ? ` ${input.className}` : ''}`;
+  return `<button class="${classes}" type="button" aria-label="${escapeAttribute(input.label)}" ${input.attributes}><span class="row-mark">${input.mark}</span><span class="row-primary">${input.primary}</span><span class="row-fact">${input.fact}</span></button>`;
 }
 
-function incidentTableRow(group: ListenerIncidentGroup): ListenerTableRow {
-  const prose = listenerIncidentLine(group);
-  return {
-    signature: `incident:${group.pattern}:${group.target}:${group.count}:${group.windowMs}`,
-    isIncident: true,
-    label: group.pattern === 'duplicate-listener' ? 'duplicate' : 'churn',
-    target: group.target,
-    first: String(group.count),
-    firstTitle: prose,
-    second: '',
-    secondTitle: '',
-    mark: '!',
-    markTitle: prose,
-    copyText: prose,
-    listenerIds: [],
-  };
+/** `true` for an element with a text caret to preserve across a rebuild. */
+function isTextField(element: Element | null | undefined): element is HTMLInputElement {
+  return element !== null && element !== undefined && element.tagName === 'INPUT';
 }
 
-function ownerTableRow(group: ListenerOwnerGroup): ListenerTableRow {
-  const target = group.targets.size === 1 ? [...group.targets][0] : `${group.targets.size} targets`;
-  const incidentSuffix = group.incident === null ? '' : ` · ${incidentMarkTitle(group.incident)}`;
-  const counts = `${pluralize(group.listeners, 'listener')} · ${pluralize(group.deliveries, 'delivery', 'deliveries')}`;
-  const incidentPart = group.incident === null
-    ? 'none'
-    : `${group.incident.pattern}:${group.incident.count}:${group.incident.windowMs}`;
-  return {
-    signature: `owner:${group.key}:${group.listeners}:${incidentPart}`,
-    isIncident: false,
-    label: group.key,
-    target,
-    first: String(group.listeners),
-    firstTitle: pluralize(group.listeners, 'listener'),
-    second: String(group.deliveries),
-    secondTitle: pluralize(group.deliveries, 'delivery', 'deliveries'),
-    mark: group.incident === null ? '' : '!',
-    markTitle: group.incident === null ? '' : incidentMarkTitle(group.incident),
-    copyText: `${group.key} · ${target} · ${counts}${incidentSuffix}`,
-    listenerIds: group.listenerIds,
-  };
-}
-
-/**
- * The rows a Listeners panel shows, incidents first and then the busiest
- * owners, minus the rows dismissed at their current signature. Four rows at
- * most: the header and the Studio link take the other two of the six lines.
- */
-function listenerTableRows(
-  outlines: readonly ListenerOutline[],
-  dismissed: ReadonlySet<string>,
-): ListenerTableRow[] {
-  const incidents = listenerIncidentGroups(outlines).slice(0, 2)
-    .map(incidentTableRow)
-    .filter((row) => !dismissed.has(row.signature));
-  const owners = listenerOwnerGroups(outlines)
-    .map(ownerTableRow)
-    .filter((row) => !dismissed.has(row.signature))
-    .slice(0, Math.max(0, 4 - incidents.length));
-  return [...incidents, ...owners];
-}
-
-/**
- * The swatch a row shows: the listener's own colour, or a band across the
- * colours of the listeners an owner row collapsed together.
- */
-function listenerSwatchStyle(listenerIds: readonly string[]): string {
-  const colors = listenerIds.map((listenerId) => listenerColors(listenerId).swatch);
-  if (colors.length === 0) return '';
-  if (colors.length === 1) return `background:${colors[0]}`;
-  const stops = colors
-    .slice(0, 4)
-    .map((color, index, all) => `${color} ${Math.round((index / all.length) * 100)}% ${Math.round(((index + 1) / all.length) * 100)}%`)
-    .join(',');
-  return `background:linear-gradient(180deg,${stops})`;
-}
-
-function listenerRowHtml(
-  row: ListenerTableRow,
-  index: number,
-  canCopy: boolean,
-  isPainted: (listenerId: string) => boolean,
-): string {
-  const ordinal = String(index + 1).padStart(2, '0');
-  const name = escapeAttribute(`${row.label} ${row.target}`);
-  const painted = row.listenerIds.length > 0 && row.listenerIds.some(isPainted);
-  const paintLabel = row.listenerIds.length > 1
-    ? `Paint the ${row.listenerIds.length} listeners under ${row.label}`
-    : `Paint ${row.label} ${row.target}`;
-  const paintHtml = row.listenerIds.length === 0
-    ? '<span class="listener-paint" aria-hidden="true"></span>'
-    : `<input class="listener-paint" type="checkbox" data-toggle-listener-paint="${escapeAttribute(row.signature)}" ${painted ? 'checked' : ''} aria-label="${escapeAttribute(paintLabel)}" title="${escapeAttribute(paintLabel)}">`;
-  return `<div class="listener-row${row.isIncident ? ' incident' : ''}${row.listenerIds.length > 0 && !painted ? ' hidden-paint' : ''}" data-listener-row="${escapeAttribute(row.signature)}">
-      <span class="listener-number">${ordinal}</span>
-      <span class="listener-swatch${row.listenerIds.length === 0 ? ' empty' : ''}" data-listener-swatch style="${escapeAttribute(listenerSwatchStyle(row.listenerIds))}" aria-hidden="true"></span>
-      <span class="listener-label" title="${escapeAttribute(row.label)}">${escapeAttribute(row.label)}</span>
-      <span class="listener-target" title="${escapeAttribute(row.target)}">${escapeAttribute(row.target)}</span>
-      <span class="listener-count" title="${escapeAttribute(row.firstTitle)}">${escapeAttribute(row.first)}</span>
-      <span class="listener-count" title="${escapeAttribute(row.secondTitle)}">${escapeAttribute(row.second)}</span>
-      <span class="listener-mark" title="${escapeAttribute(row.markTitle)}" aria-hidden="${row.mark === '' ? 'true' : 'false'}">${escapeAttribute(row.mark)}</span>
-      ${paintHtml}
-      <button class="icon-button" type="button" data-copy-listener="${escapeAttribute(row.signature)}" aria-label="${canCopy ? `Copy ${name}` : 'Copy unavailable'}" title="${canCopy ? 'Copy listener row' : 'Clipboard unavailable'}" ${canCopy ? '' : 'disabled'}>${icons.copy}</button>
-      <button class="icon-button" type="button" data-dismiss-listener="${escapeAttribute(row.signature)}" aria-label="Dismiss ${name}" title="Dismiss listener row">${icons.close}</button>
-    </div>`;
-}
-
-/**
- * The Listeners panel section: a header line, up to two incident rows, the
- * busiest owners filling what is left, and a link to Studio, six lines at
- * most. The rows share one grid so their columns line up.
- */
-function listenerSectionHtml(
-  outlines: readonly ListenerOutline[],
-  studioUrl: string | null,
-  canCopy: boolean,
-  dismissed: ReadonlySet<string>,
-  isPainted: (listenerId: string) => boolean,
-): string {
-  const incidentGroups = listenerIncidentGroups(outlines);
-  const duplicateCount = incidentGroups.filter((group) => group.pattern === 'duplicate-listener').length;
-  const header = `${pluralize(outlines.length, 'listener')}${duplicateCount > 0 ? ` · ${pluralize(duplicateCount, 'duplicate')}` : ''}`;
-  const rows = listenerTableRows(outlines, dismissed);
-  const linkHtml = studioUrl
-    ? `<a class="listener-link" data-open-listeners-studio href="${escapeAttribute(studioListenersUrl(studioUrl))}" target="_blank" rel="noopener noreferrer">All listeners in Studio</a>`
-    : `<span class="listener-link" data-open-listeners-studio aria-disabled="true" title="Pyric Studio is disabled">All listeners in Studio</span>`;
-  return `<div class="worker-state-col" data-listener-panel>
-      <div class="worker-state-row"><span class="state-label listener-header${incidentGroups.length > 0 ? ' has-incident' : ''}">${escapeAttribute(header)}</span></div>
-      <div class="listener-rows">${rows.map((row, index) => listenerRowHtml(row, index, canCopy, isPainted)).join('')}</div>
-      ${linkHtml}
-    </div>`;
-}
-
-function renderErrors(snapshot: PyricRuntimeSnapshot, canCopy: boolean): string {
-  if (snapshot.errors.length === 0) return '<div class="empty">No sandbox errors.</div>';
-  return snapshot.errors.map((error, index) => `
-    <div class="error-row" data-error-id="${escapeAttribute(error.id)}">
-      <span class="error-number">${String(index + 1).padStart(2, '0')}</span>
-      <div class="error-body"><code></code><div class="error-meta"></div></div>
-      <button class="icon-button" type="button" data-copy-error="${escapeAttribute(error.id)}" aria-label="${canCopy ? `Copy error ${index + 1}` : 'Copy unavailable'}" title="${canCopy ? 'Copy error' : 'Clipboard unavailable'}" ${canCopy ? '' : 'disabled'}>${icons.copy}</button>
-      <button class="icon-button" type="button" data-dismiss-error="${escapeAttribute(error.id)}" aria-label="Dismiss error ${index + 1}" title="Dismiss error">${icons.close}</button>
-    </div>
-  `).join('');
+/** `12:50:43` in the page's own clock, which is the one the developer reads. */
+function clockTime(at: number): string {
+  const time = new Date(at);
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${pad(time.getHours())}:${pad(time.getMinutes())}:${pad(time.getSeconds())}`;
 }
 
 /** Mount the framework-independent runtime chip in an isolated shadow root. */
@@ -586,14 +415,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   root.innerHTML = `<style>${styles}</style><div class="announcer" role="status" aria-live="polite" aria-atomic="true"></div><div data-view></div>`;
   const view = root.querySelector<HTMLElement>('[data-view]')!;
   const announcer = root.querySelector<HTMLElement>('.announcer')!;
-  const clipboard = options.clipboard
-    ?? documentLike.defaultView?.navigator.clipboard;
   const studioUrl = 'studioUrl' in options
     ? options.studioUrl
     : options.runtime.getSnapshot().manifest.studioUrl;
-  let open = options.initiallyOpen ?? false;
-  /** The `open` value the view was last built for; the panel's enter animation plays only when it changes. */
-  let renderedOpen: boolean | null = null;
   let snapshot = options.runtime.getSnapshot();
 
   const getLensFn = options.getLens ?? defaultGetLens;
@@ -613,6 +437,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       if (providedIdentity?.switchUser) await providedIdentity.switchUser(uid);
       else setLensFn({ mode: 'as', uid });
       clientUser = readCurrentUser();
+      identityQuery = '';
+      void loadUsers();
       render();
     },
     signOut: async () => {
@@ -626,6 +452,23 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     subscribeAuth: providedIdentity?.subscribeAuth ?? (() => () => {}),
   };
 
+  // ── Identity view state ────────────────────────────────────────────────────
+  /** What the developer typed into the switch-user field. */
+  let identityQuery = '';
+  /** The sandbox's users, read once the Identity view is first shown. */
+  let knownUsers: AuthUserRecord[] = [];
+  let usersRequested = false;
+  const loadUsers = async (): Promise<void> => {
+    usersRequested = true;
+    try {
+      knownUsers = await identity.listUsers();
+    } catch {
+      knownUsers = [];
+    }
+    render();
+  };
+
+  // ── Listeners view state ───────────────────────────────────────────────────
   let listenerMode: ListenerMode | null = null;
   let listenerOutlines: readonly ListenerOutline[] = [];
   /** The remembered painting mode, for the control the chip draws before the
@@ -634,13 +477,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   /** `true` once the Listeners mode has reported at least once. The collapsed
    * chip's listener count stays hidden until then. */
   let everReportedListeners = false;
-  /** Why the last Listeners toggle did nothing, shown until the next toggle. */
-  let listenerNotice: string | null = null;
-  /** Signatures of the listener rows dismissed from the panel. A row comes
-   * back on its own once its signature moves, which a new attach on its
-   * target or a new incident does. */
-  const dismissedListenerRows = new Set<string>();
-  /** Whether the last rendered panel carried the Flow waiting line. */
+  /** Why the outlines refused to come on, for the control's own title. */
+  let outlinesRefused: string | null = null;
+  /** Whether the last rendered panel carried the Flow waiting fact. */
   let renderedFlowWaiting = false;
   const ensureListenerMode = (): ListenerMode | null => {
     if (listenerMode !== null) return listenerMode;
@@ -651,7 +490,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       // The mode reports on every attach, delivery, and resize; rebuild the
       // view only when what the panel shows actually changes. The first
       // painted flow changes the panel without changing the outlines, because
-      // it is what takes the waiting line away.
+      // it is what takes the waiting fact away.
       const waiting = listenerMode?.flowWaiting() === true;
       if (sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting) return;
       renderedFlowWaiting = waiting;
@@ -659,6 +498,71 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       render();
     });
     return listenerMode;
+  };
+
+  // ── Traffic view state ─────────────────────────────────────────────────────
+  /** `false` until the first render. The fold's history batch arrives while this
+   * function is still running, before there is a view for it to rebuild. */
+  let mounted = false;
+  const trafficFeed: TrafficFeed | null = options.sandboxEvents
+    ? createTrafficFeed({
+      subscribeEvents: options.sandboxEvents,
+      onChange: () => {
+        if (mounted) render();
+      },
+    })
+    : null;
+
+  /**
+   * Traffic's rows: the request stream the page delivers, plus the runtime's own
+   * error feed for the failures that are not requests at all. An operation that
+   * reached both is one row, keyed by the sandbox event id both carry.
+   */
+  const trafficRows = (): ChipRequest[] => {
+    const byId = new Map<string, ChipRequest>();
+    for (const request of trafficFeed?.requests() ?? []) byId.set(request.id, request);
+    for (const error of snapshot.errors) {
+      if (byId.has(error.id)) continue;
+      byId.set(error.id, {
+        id: error.id,
+        at: error.at,
+        service: error.service ?? null,
+        method: error.method ?? null,
+        path: error.path ?? null,
+        // A thrown error is not always a call. When it names neither service
+        // nor method, the message is the only true thing to print.
+        label: error.message,
+        verdict: isPermissionDeniedCode(error.code) ? 'denied' : 'error',
+      });
+    }
+    return orderChipRequests([...byId.values()], Date.now()).slice(0, MAX_ROWS);
+  };
+
+  // ── Which view is showing ──────────────────────────────────────────────────
+  const tabStorage = pageChipTabStorage(documentLike);
+  const signals = (): ChipTabSignals => {
+    const now = Date.now();
+    const failedRecently = trafficFeed?.failedRecently(now) === true
+      || snapshot.errors.some((error) => now - error.at <= RECENT_FAILURE_MS);
+    return {
+      failedRecently,
+      duplicateListener: listenerOutlines.some((outline) => outline.incident?.pattern === 'duplicate-listener'),
+      updatePending: snapshot.updateAvailable,
+    };
+  };
+  let tab: ChipTab = openingChipTab(signals(), readRememberedChipTab(tabStorage));
+  let open = options.initiallyOpen ?? false;
+  /** The `open` value the view was last built for; the panel's enter animation plays only when it changes. */
+  let renderedOpen: boolean | null = null;
+  const openPanel = (): void => {
+    tab = openingChipTab(signals(), readRememberedChipTab(tabStorage));
+    open = true;
+  };
+
+  const showTab = (next: ChipTab): void => {
+    tab = next;
+    writeRememberedChipTab(tabStorage, next);
+    render();
   };
 
   /** The Theme dialog, built on the first open: the panel usually never asks. */
@@ -676,63 +580,222 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     return themeDialogController;
   };
 
-  const dialogController: ChipDialogController = createChipDialogController({
-    shadowRoot: root,
-    identity,
-    onToggleAdminBypass: (enable) => {
-      if (enable) {
-        setLensFn({ mode: 'admin' });
-      } else {
-        setLensFn(undefined);
+  // ── The four views ─────────────────────────────────────────────────────────
+
+  const identityViewHtml = (activeUid: string | null, isAdmin: boolean): string => {
+    const user = readCurrentUser();
+    const control = `<div class="row control"><span class="row-mark"></span><span class="row-field"><input type="text" data-identity-query placeholder="Switch user: uid or email" autocomplete="off" aria-label="Switch user by uid or email" value="${escapeAttribute(identityQuery)}"></span></div>`;
+
+    const rows: string[] = [];
+    if (activeUid === null) {
+      rows.push(rowHtml({
+        mark: `<span class="identity" data-panel-identity data-state="out">${identityGlyph('out', 'row-glyph')}</span>`,
+        primary: 'Signed out',
+        fact: '',
+        attributes: 'data-identity-row',
+      }));
+    } else {
+      const email = user?.email ?? null;
+      const primary = email ?? activeUid;
+      rows.push(rowHtml({
+        mark: `<span class="identity" data-panel-identity data-state="in">${identityGlyph('in', 'row-glyph')}</span>`,
+        primary: escapeAttribute(primary),
+        fact: `${email === null ? '' : `<span class="mono" data-identity-uid>${escapeAttribute(activeUid)}</span>`}<button class="row-action" type="button" data-sign-out>Sign out</button>`,
+        attributes: 'data-identity-row',
+        title: activeUid,
+      }));
+    }
+    rows.push(rowHtml({
+      mark: '',
+      primary: 'Bypass rules',
+      fact: `<button class="row-action" type="button" data-toggle-bypass aria-pressed="${isAdmin}">${isAdmin ? 'on' : 'off'}</button>`,
+    }));
+
+    const query = identityQuery.trim();
+    if (query !== '') {
+      const matches = filterUsers(knownUsers, identityQuery)
+        .filter((candidate) => candidate.uid !== activeUid)
+        .slice(0, MAX_ROWS - rows.length);
+      for (const candidate of matches) {
+        const label = userDisplayLabel(candidate);
+        rows.push(buttonRowHtml({
+          mark: `<span class="identity" data-state="out">${identityGlyph('out', 'row-glyph')}</span>`,
+          primary: escapeAttribute(label),
+          // The uid is the fact only when the row is not already named by it.
+          fact: label === candidate.uid ? '' : `<span class="mono">${escapeAttribute(candidate.uid)}</span>`,
+          attributes: `data-switch-user="${escapeAttribute(candidate.uid)}"`,
+          label: `Switch to ${label}`,
+        }));
       }
-      render();
-    },
-    getLens: () => getLensFn(),
-  });
+      // Nothing in the sandbox answers to what was typed, so the row that is
+      // left offers to make it. The address is the query, which is why this row
+      // exists only while one is typed.
+      if (matches.length === 0) {
+        rows.push(buttonRowHtml({
+          mark: `<span class="identity" data-state="out">${identityGlyph('out', 'row-glyph')}</span>`,
+          primary: escapeAttribute(query),
+          fact: 'Create user',
+          attributes: 'data-create-user',
+          label: `Create a user for ${query}`,
+        }));
+      }
+    }
+    return `${control}<div class="rows">${rows.slice(0, MAX_ROWS).join('')}</div>`;
+  };
+
+  const listenersViewHtml = (): string => {
+    const outlinesOn = listenerMode?.enabled() === true;
+    // The remembered mode says how the painting would go, not that it is going:
+    // a page that remembers Flow and has the outlines off shows `off` pressed.
+    const paintMode: ListenerPaintMode = listenerMode?.mode() ?? paintModeBeforeBuild;
+    const flowReason = listenerMode === null ? null : listenerMode.flowUnavailableReason();
+    const pressed = (candidate: 'off' | ListenerPaintMode): boolean =>
+      candidate === 'off' ? !outlinesOn : outlinesOn && paintMode === candidate;
+    const offTitle = outlinesRefused === null ? 'Paint nothing' : outlinesRefused;
+    const flowBlocked = flowReason ?? outlinesRefused;
+    const overviewBlocked = outlinesRefused;
+    renderedFlowWaiting = listenerMode?.flowWaiting() === true;
+    const waiting = renderedFlowWaiting
+      ? '<span data-flow-waiting>waiting for a delivery</span>'
+      : '';
+    const control = `<div class="row control">
+        <span class="row-mark"></span>
+        <span class="row-primary">Outlines</span>
+        <span class="row-fact">${waiting}<span class="segmented" role="group" aria-label="How listeners are painted" data-listener-modes><button type="button" data-listener-mode="off" aria-pressed="${pressed('off')}" title="${escapeAttribute(offTitle)}">off</button><button type="button" data-listener-mode="overview" aria-pressed="${pressed('overview')}"${overviewBlocked === null ? ' title="Outline every attached listener"' : ` aria-disabled="true" title="${escapeAttribute(overviewBlocked)}"`}>Overview</button><button type="button" data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowBlocked === null ? ' title="Outline what rendered after each delivery"' : ` aria-disabled="true" title="${escapeAttribute(flowBlocked)}"`}>Flow</button></span></span>
+      </div>`;
+
+    const ordered = [...listenerOutlines].sort((a, b) => {
+      const duplicate = (outline: ListenerOutline): number =>
+        outline.incident?.pattern === 'duplicate-listener' ? 0 : 1;
+      return duplicate(a) - duplicate(b)
+        || b.deliveryCount - a.deliveryCount
+        || a.label.localeCompare(b.label);
+    }).slice(0, MAX_ROWS);
+
+    const rows = ordered.map((outline) => {
+      const target = displayTarget(outline);
+      const isDuplicate = outline.incident?.pattern === 'duplicate-listener';
+      const title = isDuplicate
+        ? `${target} attached ${outline.incident!.count === 2 ? 'twice' : `${outline.incident!.count} times`}`
+        : outline.labelIsOwner ? `${outline.label} · ${target}` : target;
+      // An owner names the row and the target reads as its secondary. With
+      // nothing on the page to name it, the target is all there is, so it
+      // becomes the primary rather than being printed twice.
+      const primary = outline.labelIsOwner
+        ? `${escapeAttribute(outline.label)} <span class="row-secondary mono">${escapeAttribute(target)}</span>`
+        : `<span class="mono">${escapeAttribute(target)}</span>`;
+      return rowHtml({
+        mark: `<span class="row-swatch" data-listener-swatch style="background:${escapeAttribute(listenerColors(outline.listenerId).swatch)}"></span>`,
+        primary,
+        fact: `<span class="mono">${outline.deliveryCount}</span>`,
+        className: isDuplicate ? 'problem' : '',
+        attributes: `data-listener-row="${escapeAttribute(outline.listenerId)}"`,
+        href: studioUrl ? studioListenerUrl(studioUrl, outline) : null,
+        title,
+      });
+    });
+    return `${control}<div class="rows" data-listener-rows>${rows.join('')}</div>`;
+  };
+
+  const trafficViewHtml = (): string => {
+    const rows = trafficRows().map((request) => {
+      const call = request.service !== null && request.method !== null
+        ? `${request.service}.${request.method}`
+        : request.label ?? request.service ?? request.method ?? '';
+      const path = request.path === null ? '' : ` <span class="mono row-secondary">${escapeAttribute(request.path)}</span>`;
+      return rowHtml({
+        mark: '',
+        primary: `<span class="mono row-secondary">${clockTime(request.at)}</span> ${escapeAttribute(call)}${path}`,
+        fact: request.verdict,
+        className: request.verdict === 'ok' ? '' : 'problem',
+        attributes: `data-request-row="${escapeAttribute(request.id)}"`,
+        href: studioUrl ? studioSectionUrl(studioUrl, 'traffic', `request=${encodeURIComponent(request.id)}`) : null,
+        title: `${call}${request.path === null ? '' : ` ${request.path}`} · ${request.verdict}`,
+      });
+    });
+    return `<div class="rows" data-traffic-rows>${rows.join('')}</div>`;
+  };
+
+  const sandboxViewHtml = (): string => {
+    const aiState = aiEngineState();
+    const modeLabel = snapshot.mode === 'in-page'
+      ? 'in-page'
+      : snapshot.mode === 'shared-worker' ? 'shared worker' : 'starting';
+    const runtimePrimary = snapshot.mode === 'starting' ? modeLabel : `${modeLabel} · running`;
+    const runningEpoch = snapshot.runningEpoch?.slice(0, 8) ?? '';
+    const rows: string[] = [
+      rowHtml({
+        mark: `<span class="row-dot${snapshot.updateAvailable ? ' pending' : ''}"></span>`,
+        primary: escapeAttribute(runtimePrimary),
+        fact: runningEpoch === '' ? '' : `<span class="mono" data-running-epoch>${escapeAttribute(runningEpoch)}</span>`,
+        attributes: 'data-runtime-row',
+      }),
+      rowHtml({
+        mark: '',
+        primary: 'AI engine',
+        fact: escapeAttribute(aiState.primary),
+        attributes: 'data-ai-row',
+        title: aiState.detail,
+      }),
+      rowHtml({
+        mark: '',
+        primary: 'Overlay theme',
+        fact: '<button class="row-action" type="button" data-open-overlay-theme>Edit</button>',
+      }),
+    ];
+    if (snapshot.updateAvailable) {
+      const epochs = `${snapshot.runningEpoch?.slice(0, 8) ?? 'unknown'} → ${snapshot.servedEpoch?.slice(0, 8) ?? 'unknown'}`;
+      rows.push(rowHtml({
+        mark: '',
+        primary: 'Update worker',
+        fact: `<span class="mono" data-worker-epochs>${escapeAttribute(epochs)}</span><button class="row-action" type="button" data-update-worker aria-disabled="${snapshot.updatingWorker}">${snapshot.updatingWorker ? 'Updating' : 'Update'}</button>`,
+      }));
+    }
+    rows.push(rowHtml({
+      mark: '',
+      primary: 'Hide pyric on this page',
+      fact: '<button class="row-action" type="button" data-dismiss-chip>Hide</button>',
+    }));
+    return `<div class="rows">${rows.join('')}</div>`;
+  };
+
+  const viewHtml = (activeUid: string | null, isAdmin: boolean): string => {
+    if (tab === 'identity') return identityViewHtml(activeUid, isAdmin);
+    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : '<div class="rows"></div>';
+    if (tab === 'traffic') return trafficViewHtml();
+    return sandboxViewHtml();
+  };
 
   const render = (next = snapshot): void => {
-    const active = root.activeElement;
-    const oldViewport = view.querySelector<HTMLElement>('[data-error-viewport]');
-    const oldScroll = oldViewport
-      ? {
-          top: oldViewport.scrollTop,
-          atBottom: oldViewport.scrollHeight - oldViewport.scrollTop - oldViewport.clientHeight <= 8,
-        }
-      : null;
-    const activeCopyId = active?.getAttribute('data-copy-error');
-    const activeCopyListener = active?.getAttribute('data-copy-listener');
-    const activeControl = ['data-expand', 'data-collapse', 'data-update-worker', 'data-open-studio', 'data-open-impersonate']
-      .find((attribute) => active?.hasAttribute(attribute));
-    const focusToken = activeCopyId !== null && activeCopyId !== undefined
-      ? { attribute: 'data-copy-error', value: activeCopyId }
-      : activeCopyListener !== null && activeCopyListener !== undefined
-      ? { attribute: 'data-copy-listener', value: activeCopyListener }
-      : activeControl
-        ? { attribute: activeControl, value: null }
-        : null;
+    const active = root.activeElement as HTMLElement | null;
+    const focusAttribute = [
+      'data-identity-query',
+      'data-collapse',
+      'data-expand',
+      'data-open-studio',
+      'data-chip-tab',
+      'data-sign-out',
+      'data-toggle-bypass',
+      'data-switch-user',
+      'data-create-user',
+      'data-listener-mode',
+      'data-open-overlay-theme',
+      'data-update-worker',
+      'data-dismiss-chip',
+    ].find((attribute) => active?.hasAttribute(attribute));
+    const focusToken = focusAttribute === undefined
+      ? null
+      : {
+          attribute: focusAttribute,
+          value: active?.getAttribute(focusAttribute) ?? null,
+          caret: isTextField(active) ? active.selectionStart : null,
+        };
     snapshot = next;
-    const errorCount = snapshot.errors.length;
-    const workerLabel = snapshot.updateAvailable
-      ? 'New worker available'
-      : snapshot.mode === 'starting'
-        ? 'Sandbox starting'
-        : snapshot.mode === 'in-page'
-          ? 'In-page sandbox'
-          : 'Worker version';
-    const epochs = snapshot.updateAvailable
-      ? `${snapshot.runningEpoch?.slice(0, 8) ?? 'unknown'} → ${snapshot.servedEpoch?.slice(0, 8) ?? 'unknown'}`
-      : snapshot.runningEpoch?.slice(0, 8) ?? '';
-    const aiState = aiEngineState();
 
     const lens = getLensFn();
     const user = readCurrentUser();
     const isAdmin = lens?.mode === 'admin';
-    const activeUid = lens?.mode === 'as' ? lens.uid : user?.uid;
-
-    let identityStateHtml = '<span class="epochs" data-identity-state>App session</span>';
-    if (activeUid) {
-      identityStateHtml = `<span class="epochs" data-identity-state data-identity-badge title="as: ${escapeAttribute(activeUid)}">as: ${escapeAttribute(activeUid)}</span>`;
-    }
+    const activeUid = (lens?.mode === 'as' ? lens.uid : user?.uid) ?? null;
 
     // The collapsed chip carries identity in one slot: which glyph says whether
     // there is a session, its colour says whether rules are bypassed, and the
@@ -741,62 +804,17 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const identityTitle = isAdmin
       ? activeUid ? `bypass rules · ${activeUid}` : 'bypass rules'
       : activeUid ?? 'Signed out';
-    const identityIconHtml = `<span class="identity" data-identity-icon data-state="${identityState}" title="${escapeAttribute(identityTitle)}">${identityState === 'out' ? identityGlyphs.out : identityGlyphs.in}</span>`;
+    const identityIconHtml = `<span class="identity" data-identity-icon data-state="${identityState}" title="${escapeAttribute(identityTitle)}">${identityGlyph(identityState === 'out' ? 'out' : 'in', 'identity-icon')}</span>`;
 
     // The name carries the two page-wide problems as colour. Errors outrank an
     // available worker, because an error is about the page as it is running.
+    const errorCount = snapshot.errors.length;
     const brandTone = errorCount > 0 ? ' error' : snapshot.updateAvailable ? ' warning' : '';
     const brandTitle = errorCount > 0
       ? pluralize(errorCount, 'error')
       : snapshot.updateAvailable ? 'New worker available' : '';
     const brandHtml = `<span class="brand-label${brandTone}"${brandTitle ? ` title="${escapeAttribute(brandTitle)}"` : ''}>pyric</span>`;
 
-    // The facts the collapsed chip no longer spells out, on one line under the
-    // panel title.
-    const panelFacts = [
-      activeUid ? `as: ${escapeAttribute(activeUid)}` : '',
-      isAdmin ? 'bypass rules' : '',
-      errorCount > 0 ? pluralize(errorCount, 'error') : '',
-      snapshot.updateAvailable ? 'New worker available' : '',
-    ].filter((fact) => fact !== '').join(' · ');
-
-    const listenersOn = listenerMode?.enabled() === true;
-    let listenersButtonHtml = '';
-    if (options.listeners) {
-      // The mode may not be built yet; the control still has to show which way
-      // the painting would go, so it falls back to the remembered mode.
-      const paintMode: ListenerPaintMode = listenerMode?.mode() ?? paintModeBeforeBuild;
-      const flowReason = listenerMode === null ? null : listenerMode.flowUnavailableReason();
-      const flowOff = flowReason !== null;
-      listenersButtonHtml = `<button class="button" type="button" data-toggle-listeners aria-pressed="${listenersOn}">Listeners</button>
-          <div class="segmented" role="group" aria-label="How listeners are painted" data-listener-modes>
-            <button type="button" data-listener-mode="overview" aria-pressed="${paintMode === 'overview'}" title="Outline every attached listener">Overview</button>
-            <button type="button" data-listener-mode="flow" aria-pressed="${paintMode === 'flow'}"${flowOff ? ` aria-disabled="true" title="${escapeAttribute(flowReason)}"` : ' title="Outline what rendered after each delivery"'}>Flow</button>
-          </div>
-          <button class="button" type="button" data-open-overlay-theme title="Edit the overlay's custom properties">Theme</button>`;
-      // Flow paints on delivery, so a page that is sitting idle shows nothing
-      // and looks broken. The line says what the mode is waiting for, and goes
-      // as soon as the first delivery is painted.
-      renderedFlowWaiting = listenerMode?.flowWaiting() === true;
-      if (renderedFlowWaiting) {
-        listenersButtonHtml += `
-          <div class="flow-waiting" data-flow-waiting>Waiting for a delivery to show its flow.</div>`;
-      }
-    }
-    let listenerPanelHtml = '';
-    if (listenerNotice !== null) {
-      listenerPanelHtml = `<div class="worker-state-col" data-listener-notice><div class="worker-state-row"><span class="state-label">${escapeAttribute(listenerNotice)}</span></div></div>`;
-    } else if (listenerMode !== null) {
-      listenerPanelHtml = listenerOutlines.length === 0
-        ? `<div class="worker-state-col" data-listener-panel><div class="worker-state-row"><span class="state-label">No listeners</span></div></div>`
-        : listenerSectionHtml(
-          listenerOutlines,
-          studioUrl ?? null,
-          Boolean(clipboard),
-          dismissedListenerRows,
-          (listenerId) => listenerMode?.isListenerVisible(listenerId) !== false,
-        );
-    }
     const hasListenerIncident = listenerOutlines.some((outline) => outline.incident !== null);
     // A bare number, and only once the mode has something to count: a zero on a
     // page that has not reported yet says nothing.
@@ -804,56 +822,41 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       ? `<span class="chip-count${hasListenerIncident ? ' error' : ''}" data-listener-count title="${pluralize(listenerOutlines.length, 'listener')}">${listenerOutlines.length}</span>`
       : '';
 
-    view.innerHTML = `${open ? `
-      <section class="panel" role="dialog" aria-label="pyric">
+    const problem = problemTab(signals());
+    const tabsHtml = CHIP_TABS.map((candidate) => {
+      const tone = candidate !== problem
+        ? ''
+        : candidate === 'sandbox' ? ' pending' : ' problem';
+      return `<button class="tab${tone}" type="button" role="tab" id="pyric-tab-${candidate}" data-chip-tab="${candidate}" aria-selected="${candidate === tab}" aria-controls="pyric-view">${CHIP_TAB_LABELS[candidate]}</button>`;
+    }).join('');
+
+    const studioSection = tab === 'identity'
+      ? { section: 'auth', query: undefined }
+      : tab === 'listeners'
+        ? { section: 'traffic', query: 'view=listeners' }
+        : tab === 'traffic'
+          ? { section: 'traffic', query: undefined }
+          : { section: 'settings', query: undefined };
+    const studioHref = studioUrl === null || studioUrl === undefined
+      ? null
+      : studioSectionUrl(studioUrl, studioSection.section, studioSection.query);
+    const studioHtml = studioHref === null
+      ? '<span class="header-studio" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio ↗</span>'
+      : `<a class="header-studio" data-open-studio href="${escapeAttribute(studioHref)}" target="_blank" rel="noopener noreferrer">Studio ↗</a>`;
+
+    view.innerHTML = open
+      ? `<section class="panel" role="dialog" aria-label="pyric">
         <header class="panel-header">
-          <div class="panel-title"><span class="brand-mark">&gt;_</span><strong>pyric</strong>${errorCount > 0 ? `<span class="count">${errorCount} ${errorCount === 1 ? 'error' : 'errors'}</span><button class="clear-button" type="button" data-clear-errors aria-label="Clear all errors">Clear</button>` : ''}</div>
-          <div class="panel-controls">
-            <button class="icon-button" type="button" data-collapse aria-label="Minimize pyric">${icons.minimize}</button>
-            <button class="icon-button" type="button" data-dismiss-chip aria-label="Dismiss pyric from page">${icons.close}</button>
-          </div>
+          <span class="panel-name">pyric</span>
+          <span class="header-controls">${studioHtml}<button class="icon-button" type="button" data-collapse aria-label="Minimize pyric">${icons.minimize}</button></span>
         </header>
-        ${panelFacts ? `<div class="panel-facts" data-panel-facts>${panelFacts}</div>` : ''}
-        <div class="worker-state"><span class="state-label${snapshot.updateAvailable ? ' available' : ''}">${workerLabel}</span><span class="epochs">${epochs}</span></div>
-        <div class="worker-state-col" data-ai-status>
-          <div class="worker-state-row">
-            <span class="state-label">AI engine</span>
-            <span class="epochs">${aiState.primary}</span>
-          </div>
-          ${aiState.subline ? `<div class="worker-state-subline">${aiState.subline}</div>` : ''}
-        </div>
-        <div class="worker-state"><span class="state-label">Rules</span><span class="epochs" style="${isAdmin ? 'color: #8f7fe8; font-weight: 500;' : ''}">${isAdmin ? 'bypassed' : 'enforced'}</span></div>
-        <div class="worker-state"><span class="state-label">Identity</span>${identityStateHtml}</div>
-        ${listenerPanelHtml}
-        <div class="errors" data-error-viewport>${renderErrors(snapshot, Boolean(clipboard))}</div>
-        <div class="actions">
-          <button class="button update" type="button" data-update-worker ${snapshot.updateAvailable ? '' : 'disabled'} aria-disabled="${snapshot.updateAvailable && !snapshot.updatingWorker ? 'false' : 'true'}">${snapshot.updatingWorker ? 'Updating…' : 'Update worker'}</button>
-          <button class="button" type="button" data-open-impersonate>Identity</button>
-          ${listenersButtonHtml}
-          ${studioUrl
-            ? `<a class="button" data-open-studio href="${escapeAttribute(studioUrl)}" target="_blank" rel="noopener noreferrer">Studio${icons.external}</a>`
-            : `<span class="button" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio${icons.external}</span>`}
-        </div>
-      </section>
-    ` : `
-      <button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">${identityIconHtml}${brandHtml}${listenerCountHtml}</button>
-    `}`;
+        <div class="tabs" role="tablist" aria-label="pyric views">${tabsHtml}</div>
+        <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}">${viewHtml(activeUid, isAdmin)}</div>
+      </section>`
+      : `<button class="chip" type="button" data-expand aria-label="Open pyric" aria-expanded="false">${identityIconHtml}${brandHtml}${listenerCountHtml}</button>`;
 
-    const announcement = `${workerLabel}. ${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${listenerNotice === null ? '' : ` ${listenerNotice}`}`;
+    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
-    const newViewport = view.querySelector<HTMLElement>('[data-error-viewport]');
-    if (oldScroll && newViewport) {
-      newViewport.scrollTop = oldScroll.atBottom ? newViewport.scrollHeight : oldScroll.top;
-    }
-
-    for (const error of snapshot.errors) {
-      const row = [...root.querySelectorAll('[data-error-id]')]
-        .find((candidate) => candidate.getAttribute('data-error-id') === error.id);
-      const code = row?.querySelector('code');
-      const meta = row?.querySelector('.error-meta');
-      if (code) code.textContent = error.message;
-      if (meta) meta.textContent = [error.source, error.service && error.method ? `${error.service}.${error.method}` : error.service ?? error.method, error.path, error.code].filter(Boolean).join(' · ');
-    }
 
     if (renderedOpen !== open) {
       // The panel is a new surface on every open, so it fades in each time. The
@@ -864,7 +867,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
 
     root.querySelector('[data-expand]')?.addEventListener('click', () => {
-      open = true;
+      openPanel();
       render();
       root.querySelector<HTMLButtonElement>('[data-collapse]')?.focus();
     });
@@ -873,106 +876,81 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       render();
       root.querySelector<HTMLButtonElement>('[data-expand]')?.focus();
     });
-    root.querySelector('[data-clear-errors]')?.addEventListener('click', () => {
-      options.runtime.clearErrors();
-    });
-    root.querySelector('[data-dismiss-chip]')?.addEventListener('click', () => {
-      host.style.display = 'none';
-    });
-    root.querySelector('[data-update-worker]')?.addEventListener('click', () => {
-      if (!snapshot.updateAvailable || snapshot.updatingWorker) return;
-      void options.runtime.updateWorker().catch(() => { /* status records and renders the failure */ });
-    });
-    root.querySelector('[data-toggle-listeners]')?.addEventListener('click', () => {
-      const mode = ensureListenerMode();
-      if (mode === null) return;
-      const wanted = !mode.enabled();
-      mode.setEnabled(wanted);
-      // The mode refuses to start when attribution is off; say so rather than
-      // rebuilding the panel with nothing changed.
-      listenerNotice = wanted && !mode.enabled()
-        ? 'Listener attribution is off in this build, so there are no owners to outline.'
-        : null;
-      // The summary reads the fold whether the outlines are on or off; the
-      // mode only reports on change, so take its current answer here.
-      listenerOutlines = mode.outlines();
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-chip-tab]')) {
+      button.addEventListener('click', () => {
+        const next = button.dataset.chipTab;
+        if (next === undefined) return;
+        showTab(next as ChipTab);
+      });
+    }
+    const queryInput = root.querySelector<HTMLInputElement>('[data-identity-query]');
+    queryInput?.addEventListener('input', () => {
+      identityQuery = queryInput.value;
       render();
+    });
+    root.querySelector('[data-sign-out]')?.addEventListener('click', () => {
+      void identity.signOut();
+    });
+    root.querySelector('[data-toggle-bypass]')?.addEventListener('click', () => {
+      setLensFn(getLensFn()?.mode === 'admin' ? undefined : { mode: 'admin' });
+      render();
+    });
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-switch-user]')) {
+      button.addEventListener('click', () => {
+        const uid = button.dataset.switchUser;
+        if (uid === undefined) return;
+        void identity.switchUser(uid);
+      });
+    }
+    root.querySelector('[data-create-user]')?.addEventListener('click', () => {
+      identity.openCreateUser();
     });
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-listener-mode]')) {
       button.addEventListener('click', () => {
         const mode = ensureListenerMode();
         if (mode === null) return;
-        const wanted = button.dataset.listenerMode === 'flow' ? 'flow' : 'overview';
-        mode.setMode(wanted);
-        // The mode refuses Flow on a page whose renders it cannot read; say
-        // which of the two is missing rather than leaving the control still.
-        listenerNotice = mode.mode() === wanted ? null : mode.flowUnavailableReason();
+        const wanted = button.dataset.listenerMode;
+        if (wanted === 'off') {
+          mode.setEnabled(false);
+          outlinesRefused = null;
+        } else {
+          const paint: ListenerPaintMode = wanted === 'flow' ? 'flow' : 'overview';
+          mode.setMode(paint);
+          mode.setEnabled(true);
+          // The mode refuses Flow on a page whose renders it cannot read, and
+          // refuses either mode when listener attribution is off. Say which,
+          // on the control, rather than leaving it still.
+          outlinesRefused = mode.enabled()
+            ? mode.mode() === paint ? null : mode.flowUnavailableReason()
+            : 'Listener attribution is off in this build, so there are no owners to outline.';
+        }
         listenerOutlines = mode.outlines();
         render();
       });
     }
-    for (const box of root.querySelectorAll<HTMLInputElement>('[data-toggle-listener-paint]')) {
-      box.addEventListener('change', () => {
-        const mode = listenerMode;
-        if (mode === null) return;
-        const row = listenerTableRows(listenerOutlines, dismissedListenerRows)
-          .find((candidate) => candidate.signature === box.dataset.toggleListenerPaint);
-        if (row === undefined) return;
-        for (const listenerId of row.listenerIds) mode.setListenerVisible(listenerId, box.checked);
-        render();
-      });
-    }
-    root.querySelector('[data-open-overlay-theme]')?.addEventListener('click', (e) => {
+    root.querySelector('[data-open-overlay-theme]')?.addEventListener('click', (event) => {
       if (ensureListenerMode() === null) return;
-      themeDialog().open(e.currentTarget as HTMLElement);
+      themeDialog().open(event.currentTarget as HTMLElement);
     });
-    root.querySelector('[data-open-impersonate]')?.addEventListener('click', (e) => {
-      void dialogController.open(e.currentTarget as HTMLElement);
+    root.querySelector('[data-update-worker]')?.addEventListener('click', () => {
+      if (!snapshot.updateAvailable || snapshot.updatingWorker) return;
+      void options.runtime.updateWorker().catch(() => { /* status records and renders the failure */ });
     });
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-copy-error]')) {
-      button.addEventListener('click', () => {
-        const error = snapshot.errors.find((item) => item.id === button.dataset.copyError);
-        if (!error || !clipboard) return;
-        void clipboard.writeText(formatPyricRuntimeError(error)).catch(() => {
-          button.setAttribute('data-copy-failed', '');
-          button.setAttribute('aria-label', 'Copy failed');
-          button.title = 'Copy failed';
-        });
-      });
-    }
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-copy-listener]')) {
-      button.addEventListener('click', () => {
-        const signature = button.dataset.copyListener;
-        const row = listenerTableRows(listenerOutlines, dismissedListenerRows)
-          .find((candidate) => candidate.signature === signature);
-        if (!row || !clipboard) return;
-        void clipboard.writeText(row.copyText).catch(() => {
-          button.setAttribute('data-copy-failed', '');
-          button.setAttribute('aria-label', 'Copy failed');
-          button.title = 'Copy failed';
-        });
-      });
-    }
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-dismiss-listener]')) {
-      button.addEventListener('click', () => {
-        if (!button.dataset.dismissListener) return;
-        dismissedListenerRows.add(button.dataset.dismissListener);
-        render();
-      });
-    }
-    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-dismiss-error]')) {
-      button.addEventListener('click', () => {
-        if (button.dataset.dismissError) {
-          options.runtime.dismissError(button.dataset.dismissError);
-        }
-      });
-    }
+    root.querySelector('[data-dismiss-chip]')?.addEventListener('click', () => {
+      host.style.display = 'none';
+    });
+
     if (focusToken) {
       const candidates = root.querySelectorAll<HTMLElement>(`[${focusToken.attribute}]`);
       const replacement = [...candidates].find((candidate) =>
         focusToken.value === null || candidate.getAttribute(focusToken.attribute) === focusToken.value);
       replacement?.focus();
+      if (focusToken.caret !== null && isTextField(replacement)) {
+        replacement.setSelectionRange(focusToken.caret, focusToken.caret);
+      }
     }
+    // The sandbox's users are only read when the view that lists them is up.
+    if (open && tab === 'identity' && !usersRequested) void loadUsers();
   };
 
   documentLike.body.append(host);
@@ -986,15 +964,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     render();
   });
 
-  // The Listeners summary and the collapsed count read the mode's fold, so the
-  // mode exists from the start; the button only toggles the outlines.
+  // The Listeners rows and the collapsed count read the mode's fold, so the
+  // mode exists from the start; the control only turns the painting on.
   ensureListenerMode();
 
-  const unsubAuth = identity.subscribeAuth((user) => {
-    clientUser = user;
+  const unsubAuth = identity.subscribeAuth((next) => {
+    clientUser = next;
     render();
   });
 
+  mounted = true;
   render();
   // The chip fades in once, when the page first gets it. The class sits on the
   // stable container rather than on the chip, so a render right behind the
@@ -1008,8 +987,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       unsubLens();
       unsubAuth();
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
-      dialogController.dispose();
       themeDialogController?.dispose();
+      trafficFeed?.dispose();
       listenerMode?.dispose();
       host.remove();
     },

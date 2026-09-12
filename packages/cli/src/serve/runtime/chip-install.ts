@@ -51,6 +51,9 @@ export function installPyricRuntimeChip(
   if (!config.studioEnabled) chipOptions.studioUrl = null;
   const events = options.listenerEvents;
   if (events !== null && events !== undefined) {
+    // Traffic folds the same stream the Listeners mode does, from its own
+    // subscription, so neither fold has to know the other exists.
+    chipOptions.sandboxEvents = events;
     const studioUrl = config.studioEnabled
       ? options.runtime.getSnapshot().manifest.studioUrl
       : null;
