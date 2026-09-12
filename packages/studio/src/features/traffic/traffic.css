@@ -1375,23 +1375,41 @@
   flex-direction: column;
   gap: var(--space-2);
 }
-.traffic__listener-documents {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 2px var(--space-4);
-}
-.traffic__listener-document {
+.traffic__listener-documents-head {
   display: flex;
   align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.traffic__listener-documents-head span {
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+}
+.traffic__listener-documents {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.traffic__listener-document {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px 88px;
+  align-items: baseline;
   gap: 12px;
-  min-width: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
   font-family: var(--font-mono);
   font-size: 12px;
 }
-.traffic__listener-document-changes {
-  margin-left: auto;
-  flex-shrink: 0;
+.traffic__listener-document:last-child {
+  border-bottom: none;
+}
+.traffic__listener-document:hover {
+  background: var(--panel);
+}
+.traffic__listener-document-time {
   color: var(--faint);
+  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 

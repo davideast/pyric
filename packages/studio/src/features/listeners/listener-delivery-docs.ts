@@ -198,31 +198,47 @@ export function deliveredDocumentReads(history: readonly ListenerDelivery[]): nu
   return reads;
 }
 
-/** One path and how many deliveries changed it. */
-export interface DeliveredPathCount {
+/** One change to one document, as a delivery reported it. */
+export interface DocumentChange {
+  readonly at: number;
+  readonly change: Exclude<DeliveryChange, 'unchanged'>;
+}
+
+/** A document this listener changed during the session. */
+export interface ChangedDocument {
   readonly path: string;
-  readonly changes: number;
+  /** Every change, oldest first. */
+  readonly changes: readonly DocumentChange[];
+  /** The most recent change. */
+  readonly last: DocumentChange;
 }
 
 /**
- * Every path the listener delivered, with the number of deliveries that
- * changed it, most-changed first and ties in path order. An unchanged path in
- * a delivery is the same data again, so it does not count; the initial
- * delivery's paths count once, since arriving is the first change.
+ * The documents this listener changed, most recently changed first. The
+ * initial snapshot is the listener's starting set rather than a change, so its
+ * paths are left out unless a later delivery changed them; an unchanged path
+ * in a delivery is the same data again and does not count.
  */
-export function deliveredPathCounts(
+export function changedDocuments(
   history: readonly ListenerDelivery[],
-): readonly DeliveredPathCount[] {
-  const changes = new Map<string, number>();
+): readonly ChangedDocument[] {
+  const changes = new Map<string, DocumentChange[]>();
   for (const delivery of history) {
+    if (delivery.initial) continue;
     for (const doc of delivery.docs) {
-      const current = changes.get(doc.path) ?? 0;
-      changes.set(doc.path, doc.change === 'unchanged' ? current : current + 1);
+      if (doc.change === 'unchanged') continue;
+      const list = changes.get(doc.path) ?? [];
+      list.push({ at: delivery.at, change: doc.change });
+      changes.set(doc.path, list);
     }
   }
   return Object.freeze(
     [...changes.entries()]
-      .map(([path, count]) => Object.freeze({ path, changes: count }))
-      .sort((a, b) => (b.changes - a.changes) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+      .map(([path, list]) => {
+        const sorted = [...list].sort((a, b) => a.at - b.at);
+        const last = sorted[sorted.length - 1]!;
+        return Object.freeze({ path, changes: Object.freeze(sorted), last });
+      })
+      .sort((a, b) => (b.last.at - a.last.at) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
   );
 }

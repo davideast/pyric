@@ -233,18 +233,19 @@ describe('the delivery log', () => {
 });
 
 describe('the documents', () => {
-  it('lists every path with how many deliveries changed it, most changed first', () => {
+  it('lists the documents later deliveries changed, with the last change and its time', () => {
     const { container } = page();
-    const cells = [...container.querySelectorAll('[data-pyric-document-grid] [data-pyric-document]')];
-    expect(cells.map((cell) => cell.getAttribute('data-pyric-document'))).toEqual([
-      'notes/one',
-      'notes/two',
-    ]);
-    expect(cells.map((cell) => cell.querySelector('[data-pyric-document-changes]')!.textContent)).toEqual([
-      '2×',
-      '1×',
-    ]);
-    expect(cells[0]!.querySelector('a')!.getAttribute('href')).toBe('/firestore/notes/one');
+    expect(container.querySelector('[data-pyric-documents-figures]')!.textContent).toBe('2 in snapshot · 2 changed');
+    const rows = [...container.querySelectorAll('[data-pyric-document-list] [data-pyric-document]')];
+    expect(rows.map((row) => row.getAttribute('data-pyric-document'))).toEqual(['notes/one', 'notes/two']);
+    expect(rows.map((row) => row.querySelector('[data-pyric-change]')!.textContent)).toEqual(['modified', 'added']);
+    expect(rows.every((row) => row.querySelector('[data-pyric-document-time]')!.textContent!.length > 0)).toBe(true);
+    expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe('/firestore/notes/one');
+  });
+
+  it('has no documents section when only the initial snapshot was delivered', () => {
+    const { container } = page([attach(), delivery(13_000, [{ path: 'notes/one', data: { n: 1 } }])]);
+    expect(container.querySelector('[data-pyric-section="documents"]')).toBeNull();
   });
 });
 

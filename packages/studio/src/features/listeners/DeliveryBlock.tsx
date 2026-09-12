@@ -17,7 +17,7 @@ import { deliveryFigures } from './listener-facts.js';
 import type { ListenerDelivery } from './listener-delivery-docs.js';
 import { documentHref, documentTargetFor } from './listener-links.js';
 
-const deliveryTimeFormatter = new Intl.DateTimeFormat(undefined, {
+export const deliveryTimeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: 'numeric',
   minute: '2-digit',
   second: '2-digit',

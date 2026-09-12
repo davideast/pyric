@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
 import {
   deliveredDocumentReads,
-  deliveredPathCounts,
+  changedDocuments,
   distinctDeliveredPaths,
   latestListenerDelivery,
   listenerDeliveryHistory,
@@ -231,8 +231,8 @@ describe('deliveredDocumentReads', () => {
   });
 });
 
-describe('deliveredPathCounts', () => {
-  it('counts the deliveries that changed each path, most-changed first', () => {
+describe('changedDocuments', () => {
+  it('lists the documents later deliveries changed, most recent change first, with every change', () => {
     const events = [
       snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
       snapshot('a', 20, [
@@ -244,22 +244,37 @@ describe('deliveredPathCounts', () => {
         { path: 'notes/two', data: { n: 2 } },
       ]),
     ];
-    expect(deliveredPathCounts(listenerDeliveryHistory(events, 'a'))).toEqual([
-      { path: 'notes/one', changes: 3 },
-      { path: 'notes/two', changes: 1 },
+    expect(changedDocuments(listenerDeliveryHistory(events, 'a'))).toEqual([
+      {
+        path: 'notes/one',
+        changes: [{ at: 20, change: 'modified' }, { at: 30, change: 'modified' }],
+        last: { at: 30, change: 'modified' },
+      },
+      { path: 'notes/two', changes: [{ at: 20, change: 'added' }], last: { at: 20, change: 'added' } },
     ]);
   });
 
-  it('orders equal counts by path', () => {
+  it('leaves out the initial snapshot and unchanged paths', () => {
     const events = [
       snapshot('a', 10, [
         { path: 'notes/b', data: { n: 1 } },
         { path: 'notes/a', data: { n: 1 } },
       ]),
+      snapshot('a', 20, [
+        { path: 'notes/b', data: { n: 1 } },
+        { path: 'notes/a', data: { n: 1 } },
+      ]),
     ];
-    expect(deliveredPathCounts(listenerDeliveryHistory(events, 'a')).map((c) => c.path)).toEqual([
-      'notes/a',
-      'notes/b',
+    expect(changedDocuments(listenerDeliveryHistory(events, 'a'))).toEqual([]);
+  });
+
+  it('records a removal as the last change', () => {
+    const events = [
+      snapshot('a', 10, [{ path: 'notes/one', data: { n: 1 } }]),
+      snapshot('a', 20, []),
+    ];
+    expect(changedDocuments(listenerDeliveryHistory(events, 'a'))).toEqual([
+      { path: 'notes/one', changes: [{ at: 20, change: 'removed' }], last: { at: 20, change: 'removed' } },
     ]);
   });
 });

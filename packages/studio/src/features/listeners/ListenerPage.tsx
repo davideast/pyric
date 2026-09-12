@@ -23,13 +23,20 @@ import { activeListeners, type ActiveListener, type SandboxEvent } from 'pyric/s
 import { pushPath } from '../../shell/router.js';
 import { deliveryMetrics } from './listener-metrics.js';
 import {
+  changedDocuments,
   deliveredDocumentReads,
-  deliveredPathCounts,
   distinctDeliveredPaths,
   listenerDeliveryHistory,
 } from './listener-delivery-docs.js';
-import { DeliveryBlock, PathLink } from './DeliveryBlock.js';
+import { DeliveryBlock, PathLink, deliveryTimeFormatter } from './DeliveryBlock.js';
 import { IncidentBlock } from './IncidentBlock.js';
+import type { ChangedDocument } from './listener-delivery-docs.js';
+
+/** The last change kind, with how many changes the document had when more than one. */
+function documentChangeLabel(document: ChangedDocument): string {
+  const count = document.changes.length;
+  return count > 1 ? `${document.last.change} ${count}×` : document.last.change;
+}
 import { elementLabel } from './listener-element.js';
 import { formatListenerTarget, groupIdentityFor } from './listener-groups.js';
 import { listenerFactLine } from './listener-facts.js';
@@ -133,7 +140,8 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
     reads: deliveredDocumentReads(history),
     suppressed: listener.suppressedCount,
   };
-  const documents = deliveredPathCounts(history);
+  const documents = changedDocuments(history);
+  const snapshotSize = history.length === 0 ? 0 : history[history.length - 1]!.size;
   // Keyed by the delivery's position in the history rather than its
   // timestamp: two deliveries of one listener can land in the same
   // millisecond, and a key has to stay unique when they do.
@@ -226,8 +234,13 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
 
         {documents.length === 0 ? null : (
           <section className="traffic__listener-section" data-pyric-section="documents">
-            <p className="traffic__metric-eyebrow">Documents</p>
-            <div className="traffic__listener-documents" data-pyric-document-grid="">
+            <div className="traffic__listener-documents-head">
+              <p className="traffic__metric-eyebrow">Documents</p>
+              <span data-pyric-documents-figures="">
+                {formatCount(snapshotSize)} in snapshot · {formatCount(documents.length)} changed
+              </span>
+            </div>
+            <div className="traffic__listener-documents" data-pyric-document-list="">
               {documents.map((document) => (
                 <div
                   className="traffic__listener-document"
@@ -235,11 +248,11 @@ export function ListenerPage({ events, listenerId, window, now }: ListenerPagePr
                   data-pyric-document={document.path}
                 >
                   <PathLink path={document.path} service={listener.service} />
-                  <span
-                    className="traffic__listener-document-changes"
-                    data-pyric-document-changes=""
-                  >
-                    {formatCount(document.changes)}×
+                  <span className="traffic__delivery-change" data-pyric-change={document.last.change}>
+                    {documentChangeLabel(document)}
+                  </span>
+                  <span className="traffic__listener-document-time" data-pyric-document-time="">
+                    {deliveryTimeFormatter.format(document.last.at)}
                   </span>
                 </div>
               ))}
