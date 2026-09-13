@@ -338,18 +338,21 @@ run_subpath_check() {
   cat > "$WORK/consumer/__subpath-check.mjs" <<'CHECKJS'
 import { readFileSync } from 'node:fs';
 const subpaths = readFileSync('__subpaths.txt', 'utf8').split('\n').filter(Boolean);
-// Side-effect-only subpaths (register loaders for `node --import`): importing
-// them IS the contract; they intentionally export zero symbols. Import failure
-// still fails the gate.
-const SIDE_EFFECT_ONLY = new Set(['@pyric/cli/register']);
+// These entry points intentionally export zero runtime symbols. The Flow
+// contract's declarations are compiled from the installed package below.
+// Import failure still fails the gate.
+const EMPTY_EXPORTS = new Map([
+  ['@pyric/cli/register', 'side-effect-only register loader'],
+  ['@pyric/cli/flow', 'types-only treatment contract; checked by TypeScript below'],
+]);
 let failed = false;
 for (const subpath of subpaths) {
   try {
     const mod = await import(subpath);
     const keys = Object.keys(mod).sort();
     if (keys.length === 0) {
-      if (SIDE_EFFECT_ONLY.has(subpath)) {
-        console.log('  ✓ ' + subpath + ' (side-effect-only register loader; zero exports by design)');
+      if (EMPTY_EXPORTS.has(subpath)) {
+        console.log('  ✓ ' + subpath + ' (' + EMPTY_EXPORTS.get(subpath) + ')');
         continue;
       }
       console.error('  ✗ ' + subpath + ' — imported but exported zero symbols');
@@ -375,6 +378,24 @@ run_subpath_check "${PYRIC_ADMIN_SUBPATHS[@]}"
 
 echo "▸ @pyric/cli subpaths"
 run_subpath_check "${PYRIC_CLI_SUBPATHS[@]}"
+
+cat > "$WORK/consumer/__flow-types.mts" <<'FLOWTYPES'
+import type { FlowTreatment } from '@pyric/cli/flow';
+export default {
+  css: 'html[data-pyric-treatment="team:quiet"] [data-pyric-flow] { outline: 1px solid teal; }',
+  mount({ document, container, history }) {
+    const summary = document.createElement('span');
+    container.append(summary);
+    return {
+      update() { summary.textContent = String(history().length); },
+      dispose() { summary.remove(); },
+    };
+  },
+} satisfies FlowTreatment;
+FLOWTYPES
+node "$ROOT/node_modules/typescript/bin/tsc" --noEmit --strict --skipLibCheck \
+  --module nodenext --target es2022 "$WORK/consumer/__flow-types.mts"
+echo "  ✓ @pyric/cli/flow treatment contract compiles from the installed package"
 
 echo "▸ @pyric/ui subpaths"
 run_subpath_check "${PYRIC_UI_SUBPATHS[@]}"

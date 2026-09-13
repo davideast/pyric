@@ -135,6 +135,7 @@
     "./bridge",
     "./bridge/client",
     "./discover",
+    "./flow",
     "./vite",
     "./next",
     "./bundler",
