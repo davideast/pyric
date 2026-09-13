@@ -25,7 +25,7 @@ Read the relevant functions in [overlay-theme.ts](../../../packages/cli/src/serv
 ## 2. Choose the customization path
 
 - **Colors, typography, line widths, fade appearance:** read [CUSTOMIZATION.md — Theme values](CUSTOMIZATION.md#theme-values). Use the existing allowlisted theme properties.
-- **A new visual treatment:** read [CUSTOMIZATION.md — Treatments](CUSTOMIZATION.md#treatments). Start in Flow Studies unless the user explicitly wants a runtime default or configurable product feature.
+- **A new visual treatment:** read [CUSTOMIZATION.md — Treatments](CUSTOMIZATION.md#treatments). Use the shared runtime registry for built-ins or a registered custom module for an app-specific treatment. Flow Studies consumes that same registry.
 - **Scroll drift, displaced labels, or cleanup:** read [CUSTOMIZATION.md — Geometry](CUSTOMIZATION.md#geometry). Trace the element-to-overlay binding before changing CSS offsets.
 
 **Done:** identify the exact files and selectors or property names that implement the requested change. Distinguish demo-only hooks from the runtime contract.
@@ -36,7 +36,7 @@ Keep listener color identity and readable fresh/retained states. Animate diagnos
 
 For this project's styling work, use grid/flex `gap` for spacing, with explicit control sizes and shared alignment tracks. Do not add margin or padding for spacing. Existing legacy padding tokens are compatibility surface, not a pattern for new treatments.
 
-Ordinary targets and replaced-element badges are two rendering paths: account for both in every changed label treatment. Scope experimental selectors to the example, and reuse the positioning machinery for detached decoration. Check existing application pseudo-elements before taking over `::before` or `::after`.
+Ordinary targets and replaced-element badges are two rendering paths: account for both in every changed label treatment. Scope selectors to the active treatment ID, and reuse the positioning machinery for detached decoration. Check existing application pseudo-elements before taking over `::before` or `::after`.
 
 **Done:** every affected surface has a fresh state, a retained state, and a cleanup path; any motion has a reduced-motion presentation. New visual metaphors explain what they encode without implying unmeasured behavior.
 

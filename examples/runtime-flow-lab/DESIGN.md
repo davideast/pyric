@@ -63,7 +63,7 @@ components:
 
 **Creative North Star: "Runtime Flow studies"**
 
-This document records the local example built in `lab.css`, `treatments.css`, `app.ts`, and `index.html`. It extends the existing dark Pyric preview with the user's chosen Geist and Geist Mono pairing. It establishes neither a new Pyric brand nor a public runtime theme API.
+This document records the local example built in `lab.css`, the runtime treatment registry, `app.ts`, and `index.html`. It extends the existing dark Pyric preview with the user's chosen Geist and Geist Mono pairing. It establishes neither a new Pyric brand nor a separate theme API.
 
 The workspace stays quiet so changes in individual chat regions remain visible. Controls introduce a delivery, annotations show observed rendering, and nearby descriptions explain each treatment's use and limitation.
 
@@ -119,12 +119,12 @@ Controls use gently rounded corners; the workspace has a larger shared outline a
 ### Do:
 
 - **Do** preserve Geist and Geist Mono, shared alignment lines, and gap-only spacing.
-- **Do** keep experimental effects scoped to this example and preserve reduced-motion behavior.
+- **Do** keep experimental effects scoped to the active runtime treatment and preserve reduced-motion behavior.
 - **Do** disclose that deliveries are fixtures and that observed renders establish correlation.
 
 ### Don't:
 
 - **Don't** describe heat as CPU cost, dimensions as render duration, or fixture sequence numbers as traced dependencies.
-- **Don't** promote these experimental treatments into a public theme API or a new brand identity.
+- **Do** keep the example and chip on the same runtime treatment registry.
 
 Not canonized: individual treatment flourishes and the one-letter workspace placeholder are local demonstration details, not reusable brand assets. No approved composition or external quality benchmark is claimed.

@@ -84,7 +84,7 @@ export const OVERLAY_THEME_DEFAULTS: OverlayTheme = Object.freeze({
   '--pyric-overlay-incident': '#e6c79c',
   '--pyric-overlay-badge-bg': '#16161a',
   '--pyric-overlay-badge-fg': '',
-  '--pyric-overlay-badge-font-family': '"JetBrains Mono", ui-monospace, monospace',
+  '--pyric-overlay-badge-font-family': '"Pyric Geist Mono", ui-monospace, monospace',
   '--pyric-overlay-badge-font-size': '10px',
   '--pyric-overlay-badge-padding': '1px 6px',
   '--pyric-overlay-leaf-badge-font-size': '9px',

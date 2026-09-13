@@ -142,7 +142,9 @@ for (const pkg of PKGS) {
     const spec = pkg + sub.slice(1); // "." -> "", "./x" -> "/x"
     try {
       const mod = await import(spec);
-      if (Object.keys(mod).length === 0) { console.error(`  ✗ ${spec} — 0 exports`); failed = true; }
+      // Flow deliberately exports types only. Compile a consuming module below
+      // so each manager must resolve its declarations as well as its JS entry.
+      if (Object.keys(mod).length === 0 && spec !== '@pyric/cli/flow') { console.error(`  ✗ ${spec} — 0 exports`); failed = true; }
       else total++;
     } catch (e) {
       console.error(`  ✗ ${spec} — ${e?.code ?? ''} ${e?.message ?? e}`);
@@ -154,6 +156,23 @@ if (failed) { console.error('install matrix: subpath resolution FAILED'); proces
 console.log(`  ✓ all ${total} advertised subpaths resolve under ${process.env.PM_LABEL ?? 'this manager'}`);
 NODECHECK
 PM_LABEL="$PM" node __matrix-resolve.mjs
+cat > "$CONSUMER/__flow-types.mts" <<'FLOWTYPES'
+import type { FlowTreatment } from '@pyric/cli/flow';
+export default {
+  css: 'html[data-pyric-treatment="team:quiet"] [data-pyric-flow] { outline: 1px solid teal; }',
+  mount({ document, container, history }) {
+    const summary = document.createElement('span');
+    container.append(summary);
+    return {
+      update() { summary.textContent = String(history().length); },
+      dispose() { summary.remove(); },
+    };
+  },
+} satisfies FlowTreatment;
+FLOWTYPES
+node "$ROOT/node_modules/typescript/bin/tsc" --noEmit --strict --skipLibCheck \
+  --module nodenext --target es2022 "$CONSUMER/__flow-types.mts"
+echo "  ✓ @pyric/cli/flow declarations resolve and typecheck under $PM"
 node "$ROOT/scripts/audit-packed-cli.mjs" \
   "$CONSUMER" \
   "$ROOT/scripts/fixtures/cli-release-contract.json"

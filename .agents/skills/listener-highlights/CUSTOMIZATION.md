@@ -35,14 +35,13 @@ Each listener accumulates marks during a burst. When a mark's timer ends, it sta
 
 ## Treatments
 
-[Flow Studies](../../../examples/runtime-flow-lab/README.md) is the working example, served by `examples/runtime-flow-lab/serve.ts`. Its deliveries are fixtures, but React commits, listener folding, and the Flow painter are real.
+[Flow Studies](../../../examples/runtime-flow-lab/README.md) consumes the same registry as the chip. Its deliveries are fixtures; React commits, listener folding, and the Flow painter are real.
 
-- `treatments.ts`: treatment ID, name, group, description, useful case, and limitation.
-- `treatments.css`: visuals scoped by `html[data-flow-treatment="ID"] #chat-workspace`.
-- `app.ts`: selection, simulated deliveries, extra metadata, and vector annotations.
-- `lab.css`: page layout, distinct from the highlight treatments.
+The existing project-root `pyric.json` owns `flow.treatment` and `flow.treatments` registrations. Read the configuration and custom-module examples in the Flow Studies README when configuring an application. The shared sandbox host serves custom browser modules; Vite can override `flow`, and Next uses its existing host rewrites. Saved browser selection (`pyric:flow-treatment`) overrides the project default.
 
-Adding CSS under a new ID also requires its catalog entry. The existing selection code builds the controls from that catalog. Fields such as `data-lab-hits`, `data-lab-sequence`, `data-lab-name`, and `data-lab-size` are populated by this example, not by the production painter. Heat means observed marks; thread curves express correlation, not a proven causal graph.
+Read [flow-treatments/catalog.ts](../../../packages/cli/src/serve/runtime/flow-treatments/catalog.ts) for IDs and descriptions and [builtins.ts](../../../packages/cli/src/serve/runtime/flow-treatments/builtins.ts) for lazy loaders. Each implementation exports a `FlowTreatment`: `css` and optionally `mount(context)` returning `update`/`dispose`. Types are exported from `@pyric/cli/flow`. Common appearance lives in `base.ts`; vector annotations in `maps.ts`; the controller owns selection, metadata, loading failures, and lifecycle.
+
+Adding a built-in requires its metadata, loader, implementation, and meaningful browser coverage. Custom modules live in the consuming app and use namespaced IDs. Scope selectors to `html[data-pyric-treatment="ID"]`. The controller sets `data-pyric-flow-hits`, `data-pyric-flow-sequence`, `data-pyric-flow-name`, and `data-pyric-flow-size` on marks and detached badges. Heat means observed paints; thread curves express correlation, not a proven causal graph. Treatment changes restyle retained marks without inventing another delivery.
 
 ### Runtime styling hooks
 
@@ -57,23 +56,23 @@ Adding CSS under a new ID also requires its catalog entry. The existing selectio
 | `[data-pyric-flow-badge]` | Detached label for a replaced target, inside the overlay |
 | `[data-pyric-listener-box]` | Overview region box, not a Flow render target |
 
-Detached badges carry `data-listener-id`, `data-hue`, and the fading/retained attributes. They are outside `#chat-workspace`: a descendant selector for the chat cannot style them. Match them separately under `[data-pyric-listener-overlay]` and the same treatment selector. Preserve their position binding and translate-up placement while changing their appearance.
+Detached badges carry `data-listener-id`, `data-hue`, and the fading/retained attributes. They are outside the app target: its descendant selectors cannot style them. Match them separately under `[data-pyric-listener-overlay]` and the same treatment selector. Preserve their position binding and translate-up placement while changing their appearance.
 
 A minimal custom outline rule uses the runtime's per-target hue:
 
 ```css
-html[data-flow-treatment="custom"] #chat-workspace [data-pyric-flow] {
+html[data-pyric-treatment="team:custom"] [data-pyric-flow] {
   outline: 1px dashed var(--pyric-overlay-hue);
   outline-offset: 3px;
 }
-html[data-flow-treatment="custom"] #chat-workspace [data-pyric-flow-retained] {
+html[data-pyric-treatment="team:custom"] [data-pyric-flow-retained] {
   outline-color: color-mix(in srgb, var(--pyric-overlay-hue) 35%, transparent);
 }
 ```
 
-Treat this as the visual rule, not a complete treatment registration. The lab's base rules handle labels and suppress the runtime outline animation; outside the lab, account for the runtime animation cascade explicitly.
+Treat this as the visual rule, not a complete treatment registration. Built-ins share base rules that handle labels and suppress the runtime outline animation; a custom module must account for the runtime animation cascade explicitly.
 
-For product-wide treatment changes, edit `flowStyleSheetText` or `overlayStyleSheetText` in the runtime. Extending the token contract is a separate change from registering a demo treatment. Trace any new property through resolution, both application locations, the Theme editor, persistence, and its tests.
+For a built-in treatment change, edit its implementation in the registry. For underlying fallback paint, edit `flowStyleSheetText` or `overlayStyleSheetText`. Extending the token contract is a separate change from registering a demo treatment. Trace any new property through resolution, both application locations, the Theme editor, persistence, and its tests.
 
 ## Geometry
 
@@ -83,6 +82,6 @@ Detached labels and Overview boxes use [overlay-anchor.ts](../../../packages/cli
 
 [listener-overlay.ts](../../../packages/cli/src/serve/runtime/listener-overlay.ts) owns fallback geometry updates: captured scroll events catch nested scrollers, frame scheduling coalesces work, and resize/mutation observers cover further layout changes. `onReposition` lets the Flow painter follow. Measured coordinates come from `getBoundingClientRect` in a fixed viewport layer; adding document scroll offsets mixes coordinate systems.
 
-Keep detached decorations in the diagnostic overlay layer so they are excluded from Flow's observation of app mutations. Release anchor bindings, observers, timers, and detached nodes when targets disappear or a mode is disposed. Reuse this machinery when adding vector decorations; inspect the lab's captured scroll handling for its thread map and mini-map.
+Keep detached decorations in the diagnostic overlay layer so they are excluded from Flow's observation of app mutations. Release anchor bindings, observers, timers, and detached nodes when targets disappear or a mode is disposed. Reuse this machinery when adding vector decorations; use the treatment context and its geometry-driven `update` callback, as `maps.ts` does.
 
 Native support is feature-detected, not guaranteed by browser name. For a new API capability, verify current browser documentation and behavior; existing tests exercise the native path and a forced fallback separately. Transformed containing blocks, clipping, and existing app pseudo-elements require testing in the actual host layout.

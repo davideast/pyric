@@ -21,6 +21,7 @@ try {
     await page.addStyleTag({
       content: ".photo { anchor-name: --application-avatar; }",
     });
+    await expect(page.locator("#treatment option")).toHaveCount(15);
     const variants = await page
       .locator("#treatment option")
       .evaluateAll((options) => options.map((option) => option.value));
@@ -39,6 +40,7 @@ try {
     };
     for (const treatment of variants) {
       await page.locator("#treatment").selectOption(treatment);
+      await expect(page.locator("html")).toHaveAttribute("data-pyric-treatment", treatment);
       await expect(badge).toBeVisible();
       expect(
         await badge.evaluate((el) => el.hasAttribute("data-pyric-anchored")),

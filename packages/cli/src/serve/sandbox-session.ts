@@ -1,3 +1,5 @@
+import { createFlowTreatmentHost } from './flow-treatment-host.js';
+import type { FlowConfig } from './flow-config.js';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -29,6 +31,7 @@ import {
 } from './state-store.js';
 
 export interface SandboxSessionOptions {
+  flow?: FlowConfig;
   projectDir: string;
   firebaseConfig: FirebaseJson | null;
   sdk: { dir: string; workerVersion?: string };
@@ -167,6 +170,7 @@ export async function createSandboxSession(
       options.logger?.note('  ⚠ no database.rules.json found — client RTDB reads/writes default to DENY (matching production Firebase). Use --permissive for open prototyping.');
     }
   }
+  const flowTreatments = await createFlowTreatmentHost(options.projectDir, options.flow);
   const events = createEventHub();
   // A background generation that lands in the cache is broadcast on the same
   // hub the rules watchers use. The page, not the application, listens: it
@@ -337,7 +341,9 @@ export async function createSandboxSession(
   return {
     summary,
     payload,
-    handle: namespace,
+    async handle(req, res, url) {
+      return await flowTreatments.handle(req, res, url) || namespace(req, res, url);
+    },
     reloadFirestoreRules,
     reloadDatabaseRules,
     close,

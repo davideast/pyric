@@ -1,3 +1,4 @@
+import type { FlowConfig } from './flow-config.js';
 import { existsSync } from 'node:fs';
 import type { ViteDevServer } from 'vite';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from '../cli/firebase-json.js';
@@ -43,6 +44,7 @@ import { attachViteGenerationMiddleware } from './vite-generation-middleware.js'
 import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
 
 export interface ViteSandboxGenerationOptions {
+  flow?: FlowConfig;
   rules: string | undefined;
   seed: string | undefined;
   persist: boolean | undefined;
@@ -194,6 +196,7 @@ export async function createViteSandboxGeneration(
     };
     const sessionOptions: SandboxSessionOptions = {
       projectDir: cwd,
+      flow: options.flow,
       firebaseConfig: rulesConfig,
       sdk,
       seedFile: options.seed,
