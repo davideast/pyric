@@ -47,6 +47,8 @@ import {
 import { documentReferenceConverter } from './converters/reference.js';
 import { vectorValueConverter } from './converters/vector.js';
 import { bytesConverter, geoPointConverter } from './converters/bytes-geopoint.js';
+import { isPlainObject } from '../plain-object.js';
+export { isPlainObject } from '../plain-object.js';
 
 export type DocumentData = Record<string, unknown>;
 
@@ -182,19 +184,6 @@ export function resolveValue(value: unknown, ctx: ResolveContext): unknown {
   }
   // Primitives, Dates, class instances, functions, etc. — identity.
   return value;
-}
-
-/**
- * Plain-object detection: an object literal whose prototype chain is
- * `Object.prototype` (or null, for `Object.create(null)`). Class
- * instances like `Date`, `Timestamp`, `DocumentReference` deliberately
- * fall through to converter-or-identity handling — the resolver should
- * not silently strip their prototype by walking them as plain maps.
- */
-export function isPlainObject(value: unknown): value is DocumentData {
-  if (value === null || typeof value !== 'object') return false;
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
 }
 
 /**
