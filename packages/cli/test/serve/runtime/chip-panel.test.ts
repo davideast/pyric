@@ -1,3 +1,4 @@
+import { createSdkActivityJournal } from 'pyric/sandbox/internal';
 import { JSDOM } from 'jsdom';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mountPyricRuntimeChip } from '../../../src/serve/runtime/chip.js';
@@ -80,6 +81,7 @@ function setup(options: { rememberedTab?: string; withListeners?: boolean } = {}
     ...(options.withListeners
       ? {
           listeners: (onChange: (outlines: never) => void) => createListenerMode({
+    activity: createSdkActivityJournal(),
             document: doc,
             onChange: onChange as never,
             incidents: duplicateIncident,

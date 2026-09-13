@@ -51,6 +51,8 @@ import {
 export type { ListenerPaintMode } from './listener-paint-mode.js';
 
 export interface ListenerModeOptions {
+  /** Page activity source; fixtures can supply an isolated journal. */
+  activity?: Pick<typeof sdkActivity, 'records' | 'subscribe'>;
   treatments?: FlowTreatmentManifest;
   treatmentStorage?: Pick<Storage, 'getItem' | 'setItem'> | null;
   document: Document;
@@ -172,6 +174,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   });
 
   const events: SandboxEvent[] = [];
+  const activity = options.activity ?? sdkActivity;
   let current: readonly ListenerOutline[] = [];
   let overlay: ListenerOverlay | null = null;
   let flow: FlowMode | null = null;
@@ -217,7 +220,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
 
   const recompute = (): void => {
     const previous = current;
-    current = activityOutlines(listenerOutlines(events, readIncidents(events)), sdkActivity.records(), observed);
+    current = activityOutlines(listenerOutlines(events, readIncidents(events)), activity.records(), observed);
     // A detached listener keeps no paint. Flow holds its last subtree until
     // the next delivery, and for a listener that is gone there will not be
     // one.
@@ -287,7 +290,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     events.push(...batch);
     recompute();
   });
-  const stopActivity = sdkActivity.subscribe(() => recompute());
+  const stopActivity = activity.subscribe(() => recompute());
   recompute();
 
   const hidePainting = (): void => {

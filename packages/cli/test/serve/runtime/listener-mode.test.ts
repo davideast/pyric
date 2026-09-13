@@ -1,4 +1,4 @@
-import { sdkActivity } from 'pyric/sandbox/internal';
+import { createSdkActivityJournal } from 'pyric/sandbox/internal';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
@@ -78,7 +78,9 @@ function harness(options: {
   let subscriptions = 0;
   let delivered: ((listenerId: string) => void) | null = null;
   const commits = fakeCommits(options.react ?? true);
+  const activity = createSdkActivityJournal();
   const mode = createListenerMode({
+    activity,
     document: doc,
     attributionEnabled: () => options.attributionEnabled ?? true,
     incidents: () => [],
@@ -111,6 +113,7 @@ function harness(options: {
   });
   return {
     doc,
+    activity,
     mode,
     commits,
     rowEl,
@@ -211,6 +214,7 @@ describe('incident marking', () => {
     const doc = dom.window.document;
     let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
     const mode = createListenerMode({
+    activity: createSdkActivityJournal(),
       document: doc,
       attributionEnabled: () => true,
       subscribeEvents: (callback) => {
@@ -249,6 +253,7 @@ describe('studio hand-off', () => {
     const opened: string[] = [];
     let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
     const mode = createListenerMode({
+    activity: createSdkActivityJournal(),
       document: doc,
       attributionEnabled: () => true,
       incidents: () => [],
@@ -517,7 +522,7 @@ describe('the chip\'s Studio Listeners link', () => {
 
 it('does not invent a render association by replaying an unmapped completed SDK read', () => {
   const page = harness();
-  const activity = sdkActivity.begin({
+  const activity = page.activity.begin({
     app: {}, method: 'getDoc', kind: 'operation',
     source: { service: 'firestore', target: 'todos/one', key: 'todos/one' },
     owners: [{ kind: 'tag', name: 'Todos', element: '#todos' }],

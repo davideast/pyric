@@ -49,7 +49,7 @@ it('counts public worker reads and callbacks once while isolating independent ap
     expect(events.filter(event => event.phase === 'end' && event.record.kind === 'subscription').map(event => event.record.status)).toEqual(['closed', 'closed', 'closed']);
     await expect(client.getDoc(client.doc(first, 'private/one'))).rejects.toMatchObject({ code: 'permission-denied' });
     expect(events.filter(event => event.phase === 'start')).toHaveLength(9);
-    expect(events.at(-1)?.record).toMatchObject({ status: 'failed', deliveryCount: 0 });
+    expect(events.findLast(event => event.phase === 'end' && event.record.target === 'private/one')?.record).toMatchObject({ status: 'failed', deliveryCount: 0 });
   } finally {
     for (const unsubscribe of unsubscribes) unsubscribe();
     stop();

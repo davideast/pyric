@@ -1,3 +1,4 @@
+import { createSdkActivityJournal } from 'pyric/sandbox/internal';
 import { JSDOM } from 'jsdom';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mountPyricRuntimeChip } from '../../../src/serve/runtime/chip.js';
@@ -120,6 +121,7 @@ function setup(options: {
     setLens: () => {},
     subscribeLens: () => () => {},
     listeners: (onChange) => createListenerMode({
+    activity: createSdkActivityJournal(),
       document: doc,
       onChange,
       attributionEnabled: () => options.attributionEnabled ?? true,
