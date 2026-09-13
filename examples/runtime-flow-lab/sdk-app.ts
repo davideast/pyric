@@ -72,13 +72,17 @@ mode.setEnabled(true);
 function DataPanel() {
   const [result, setResult] = React.useState('Select a read or start listeners.');
   const [listening, setListening] = React.useState(false);
+  const readNumber = React.useRef(0);
   React.useEffect(() => {
     if (!listening) return;
     const one = listenDocument(data => setResult(`Firestore listener: ${JSON.stringify(data)}`));
     const two = listenDatabase(data => setResult(`Database listener: ${JSON.stringify(data)}`));
     return () => { one(); two(); };
   }, [listening]);
-  const run = (label: string, read: () => Promise<unknown>) => async () => setResult(`${label}: ${JSON.stringify(await read())}`);
+  const run = (label: string, read: () => Promise<unknown>) => async () => {
+    const data = await read();
+    setResult(`${label} #${++readNumber.current}: ${JSON.stringify(data)}`);
+  };
   return h('section', { 'data-component': 'DataPanel' },
     h('h1', null, `Real SDK Flow / ${kind}`),
     h('div', { className: 'controls' },

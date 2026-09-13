@@ -78,7 +78,8 @@ for (const runtime of ['inpage', 'worker']) {
     const first = await panel.getAttribute('data-pyric-flow-listener');
     const childStart = await page.locator('[data-result]').evaluate(el => el.getAnimations()[0].startTime);
     await page.waitForTimeout(1600);
-    await page.locator('[data-read=query]').click();
+    await page.locator('[data-read=document]').click();
+    await expect(page.locator('[data-result]')).toContainText('Document read #2');
     await expect.poll(() => panel.getAttribute('data-pyric-flow-listener')).not.toBe(first);
     await expect.poll(() => page.evaluate(() => (window as typeof window & { scanStarts: number }).scanStarts)).toBe(2);
     // Restart an in-flight scan too, without waiting for it to finish.
