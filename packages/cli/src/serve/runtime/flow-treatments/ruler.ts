@@ -8,7 +8,7 @@ export default {
   outline-style: dotted;
 }
 html[data-pyric-treatment="ruler"]
- 
+
   [data-pyric-flow-label]::after {
   content: attr(data-pyric-flow-size) " px / " attr(data-pyric-flow-name);
   top: -19px;

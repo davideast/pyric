@@ -9,7 +9,7 @@ export default {
   outline-width: 2px;
 }
 html[data-pyric-treatment="heat"]
- 
+
   [data-pyric-flow-label]::after {
   content: attr(data-pyric-flow-hits) " observed updates";
 }

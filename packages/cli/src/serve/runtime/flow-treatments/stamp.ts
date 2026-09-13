@@ -4,7 +4,7 @@ export default {
   css:
     baseCss +
     `html[data-pyric-treatment="stamp"]
- 
+
   [data-pyric-flow-label]::after {
   content: "#" attr(data-pyric-flow-sequence) " / " attr(data-pyric-flow-name) " / "
     attr(data-pyric-flow-hits) " hits";

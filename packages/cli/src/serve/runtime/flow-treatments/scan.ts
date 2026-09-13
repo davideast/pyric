@@ -23,7 +23,7 @@ export default {
   }
 }
 html[data-pyric-treatment="scan"]
- 
+
   [data-pyric-flow-retained]::before {
   content: none;
 }`,

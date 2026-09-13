@@ -18,7 +18,7 @@ export default {
   }
 }
 html[data-pyric-treatment="echo"]
- 
+
   [data-pyric-flow-retained]::before {
   content: none;
 }`,

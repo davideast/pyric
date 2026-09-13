@@ -19,7 +19,7 @@ export default {
   }
 }
 html[data-pyric-treatment="radar"]
- 
+
   [data-pyric-flow-retained]::before {
   content: none;
 }`,
