@@ -1,3 +1,4 @@
+import type { FlowConfig } from './flow-config.js';
 /**
  * `@pyric/cli/vite` — the firebase→pyric-sandbox swap as a Vite plugin.
  *
@@ -94,6 +95,8 @@ export interface PyricOptions {
    *  dev/builds. On by default. Pass `false` to hide it, or
    *  `{ initiallyOpen: true }` when actively debugging runtime errors. */
   runtimeChip?: PyricRuntimeChipOption;
+  /** Overrides the shared pyric.json Flow configuration. */
+  flow?: FlowConfig;
   /** RTDB-triggered Cloud Functions under this dev server (the `pyric sandbox`
    *  parity fold). By default a `functions` block in `firebase.json` is
    *  discovered automatically: its `onValueCreated` triggers run in an isolated
@@ -279,6 +282,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
         ui: uiEnabled,
         functions: functionsOptions,
         avatars: options.avatars,
+        flow: options.flow,
       };
       const generationInput: ViteSandboxGenerationInput = {
         server,

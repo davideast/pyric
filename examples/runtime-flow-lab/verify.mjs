@@ -11,6 +11,10 @@ try {
     deviceScaleFactor: 1,
   });
   const errors = [];
+  const chunks = new Set();
+  page.on("request", (request) => {
+    if (request.url().includes("/chunks/")) chunks.add(request.url());
+  });
   page.on(
     "pageerror",
     (error) => (
@@ -36,6 +40,29 @@ try {
   );
   await expect(page.locator("#chat-workspace")).not.toHaveAttribute(
     "data-pyric-flow-listener",
+  );
+  // The chip uses the same registry, loading only the selected visual chunk.
+  const picker = page.locator("[data-flow-treatment]");
+  await expect(picker.locator("option")).toHaveCount(15);
+  expect([...chunks].some((url) => /corners-/.test(url))).toBe(false);
+  const mark = page.locator("[data-component=UnreadBadge]");
+  const sequenceBefore = await mark.getAttribute("data-pyric-flow-sequence");
+  await picker.selectOption("corners");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-pyric-treatment",
+    "corners",
+  );
+  expect([...chunks].some((url) => /corners-/.test(url))).toBe(true);
+  expect(await mark.getAttribute("data-pyric-flow-sequence")).toBe(
+    sequenceBefore,
+  );
+  expect(
+    await page.evaluate(() => localStorage.getItem("pyric:flow-treatment")),
+  ).toBe("corners");
+  await picker.selectOption("outline");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-pyric-treatment",
+    "outline",
   );
   // The same live pathway must work after startup replay expires.
   const now = await page.evaluate(() => Date.now());
@@ -66,18 +93,19 @@ try {
   for (const id of variants) {
     await page.locator("#treatment").selectOption(id);
     await expect(page.locator("html")).toHaveAttribute(
-      "data-flow-treatment",
+      "data-pyric-treatment",
       id,
     );
     await expect(
       page.locator("#chat-workspace [data-pyric-flow]").first(),
     ).toBeVisible();
-    await expect(page.locator("[data-lab-hits]").first()).toHaveAttribute(
-      "data-lab-hits",
-      /\d+/,
-    );
+    await expect(
+      page.locator("[data-pyric-flow-hits]").first(),
+    ).toHaveAttribute("data-pyric-flow-hits", /\d+/);
     if (["threads", "trail", "minimap"].includes(id))
-      await expect(page.locator(".lab-flow-map>*").first()).toBeAttached();
+      await expect(
+        page.locator(".pyric-treatment-flow-map>*").first(),
+      ).toBeAttached();
   }
   await page.locator("#treatment").selectOption("threads");
   await page.locator("[data-deliver=messages]").click();

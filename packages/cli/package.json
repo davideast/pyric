@@ -107,6 +107,10 @@
         "types": "./dist/register/app-bridge.d.ts",
         "import": "./dist/register/app-bridge.js"
       }
+    },
+    "./flow": {
+      "types": "./dist/serve/runtime/flow-treatments/types.d.ts",
+      "import": "./dist/serve/runtime/flow-treatments/types.js"
     }
   },
   "bin": {
@@ -127,6 +131,7 @@
     "eval:report": "bun eval/report.ts",
     "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts --config test/e2e/playwright.config.ts",
     "test:identity-conformance": "playwright test identity-switch.pw.ts auth-popup.pw.ts auth-avatars.pw.ts auth-avatars-disabled.pw.ts --config test/e2e/playwright.config.ts",
+    "test:flow-treatments": "playwright test flow-treatment.pw.ts --config test/e2e/playwright.config.ts",
     "test:site-cli": "playwright test --config test/e2e/site-cli/playwright.config.ts",
     "test:site-static": "playwright test --config test/e2e/site-static/playwright.config.ts",
     "test:soak": "playwright test --config test/e2e/soak/playwright.config.ts",

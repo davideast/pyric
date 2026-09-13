@@ -373,6 +373,9 @@ jobs:
         # transitions, user creation, and explicit sign-out through the chip.
         run: bun run --cwd packages/cli test:identity-conformance
 
+      - name: Runtime Flow treatments
+        run: bun run --cwd packages/cli test:flow-treatments
+
       - name: CLI-hosted Studio
         run: bun run --cwd packages/cli test:site-cli
 
