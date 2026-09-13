@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en" data-flow-treatment="outline">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pyric Flow studies</title>
+    <link rel="stylesheet" href="/lab.css" />
+  </head>
+  <body>
+    <main class="lab">
+      <header class="lab-heading">
+        <div>
+          <h1>Flow studies</h1>
+          <p>A chat workspace with independent render targets.</p>
+        </div>
+        <button class="lab-button" id="inspector">Inspector</button>
+      </header>
+      <section class="study" aria-label="Flow treatment">
+        <div class="study-controls">
+          <label for="treatment">Flow treatment</label
+          ><span class="select-field"><select id="treatment"></select></span
+          ><button
+            class="lab-icon"
+            id="previous"
+            aria-label="Previous treatment"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
+            >
+              <path d="m12 5-5 5 5 5" />
+            </svg></button
+          ><button class="lab-icon" id="next" aria-label="Next treatment">
+            <svg
+              viewBox="0 0 20 20"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
+            >
+              <path d="m8 5 5 5-5 5" />
+            </svg>
+          </button>
+        </div>
+        <p id="treatment-description"></p>
+        <p class="study-note">
+          Choosing a treatment repeats the last delivery.
+        </p>
+        <p class="study-note" id="treatment-use"></p>
+      </section>
+      <section
+        class="delivery-controls"
+        aria-label="Simulate listener deliveries"
+      >
+        <div class="delivery-heading">
+          <h2>Trigger a delivery</h2>
+          <button class="lab-link" id="clear">Clear marks & history</button>
+        </div>
+        <div class="delivery-buttons">
+          <button class="lab-button primary" data-deliver="messages">
+            New message</button
+          ><button class="lab-button" data-deliver="presence">Presence</button
+          ><button class="lab-button" data-deliver="typing">Typing</button
+          ><button class="lab-button" data-deliver="receipts">
+            Read receipt</button
+          ><button class="lab-button" id="burst">Run a burst</button>
+        </div>
+        <p class="delivery-status" id="delivery-status" role="status">
+          Choose an update. Watch the changed components, not the whole page.
+        </p>
+      </section>
+      <div id="demo-app"></div>
+      <div class="lab-legend">
+        <span><i></i>Fresh update</span
+        ><span><i class="retained"></i>Last observed update</span
+        ><span id="color-legend"
+          >Listener color stays consistent across treatments.</span
+        >
+      </div>
+      <details class="study-index" open>
+        <summary>
+          Browse all 15 treatments <span>5 standard / 10 experimental</span>
+        </summary>
+        <div id="treatment-index"></div>
+      </details>
+      <footer class="lab-footer">
+        Local demo: deliveries are simulated; React commits and Flow marks are
+        real. Flow shows renders observed after a delivery, not proven data
+        dependencies. Experimental treatments are scoped to this example.
+      </footer>
+    </main>
+    <script type="module" src="/chip.js"></script>
+  </body>
+</html>

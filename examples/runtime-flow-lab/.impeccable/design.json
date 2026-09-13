@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-12T21:02:27.097221+00:00",
+  "title": "Design System: Pyric Runtime Flow Lab",
+  "extensions": {
+    "colorMeta": {
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "tonalRamp": [
+          "oklch(15.00% 0.0089 264.31)",
+          "oklch(26.43% 0.0089 264.31)",
+          "oklch(37.86% 0.0089 264.31)",
+          "oklch(49.29% 0.0089 264.31)",
+          "oklch(60.71% 0.0089 264.31)",
+          "oklch(72.14% 0.0089 264.31)",
+          "oklch(83.57% 0.0089 264.31)",
+          "oklch(95.00% 0.0089 264.31)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "tonalRamp": [
+          "oklch(15.00% 0.0087 264.52)",
+          "oklch(26.43% 0.0087 264.52)",
+          "oklch(37.86% 0.0087 264.52)",
+          "oklch(49.29% 0.0087 264.52)",
+          "oklch(60.71% 0.0087 264.52)",
+          "oklch(72.14% 0.0087 264.52)",
+          "oklch(83.57% 0.0087 264.52)",
+          "oklch(95.00% 0.0087 264.52)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.0257 259.82)",
+          "oklch(26.43% 0.0257 259.82)",
+          "oklch(37.86% 0.0257 259.82)",
+          "oklch(49.29% 0.0257 259.82)",
+          "oklch(60.71% 0.0257 259.82)",
+          "oklch(72.14% 0.0257 259.82)",
+          "oklch(83.57% 0.0257 259.82)",
+          "oklch(95.00% 0.0257 259.82)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Line",
+        "tonalRamp": [
+          "oklch(15.00% 0.0195 260.65)",
+          "oklch(26.43% 0.0195 260.65)",
+          "oklch(37.86% 0.0195 260.65)",
+          "oklch(49.29% 0.0195 260.65)",
+          "oklch(60.71% 0.0195 260.65)",
+          "oklch(72.14% 0.0195 260.65)",
+          "oklch(83.57% 0.0195 260.65)",
+          "oklch(95.00% 0.0195 260.65)"
+        ]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "Control",
+        "tonalRamp": [
+          "oklch(15.00% 0.0188 258.37)",
+          "oklch(26.43% 0.0188 258.37)",
+          "oklch(37.86% 0.0188 258.37)",
+          "oklch(49.29% 0.0188 258.37)",
+          "oklch(60.71% 0.0188 258.37)",
+          "oklch(72.14% 0.0188 258.37)",
+          "oklch(83.57% 0.0188 258.37)",
+          "oklch(95.00% 0.0188 258.37)"
+        ]
+      },
+      "control-border": {
+        "role": "neutral",
+        "displayName": "Control border",
+        "tonalRamp": [
+          "oklch(15.00% 0.0299 259.76)",
+          "oklch(26.43% 0.0299 259.76)",
+          "oklch(37.86% 0.0299 259.76)",
+          "oklch(49.29% 0.0299 259.76)",
+          "oklch(60.71% 0.0299 259.76)",
+          "oklch(72.14% 0.0299 259.76)",
+          "oklch(83.57% 0.0299 259.76)",
+          "oklch(95.00% 0.0299 259.76)"
+        ]
+      },
+      "control-hover": {
+        "role": "neutral",
+        "displayName": "Control hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.0309 259.72)",
+          "oklch(26.43% 0.0309 259.72)",
+          "oklch(37.86% 0.0309 259.72)",
+          "oklch(49.29% 0.0309 259.72)",
+          "oklch(60.71% 0.0309 259.72)",
+          "oklch(72.14% 0.0309 259.72)",
+          "oklch(83.57% 0.0309 259.72)",
+          "oklch(95.00% 0.0309 259.72)"
+        ]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "Primary",
+        "tonalRamp": [
+          "oklch(15.00% 0.0669 272.84)",
+          "oklch(26.43% 0.0669 272.84)",
+          "oklch(37.86% 0.0669 272.84)",
+          "oklch(49.29% 0.0669 272.84)",
+          "oklch(60.71% 0.0669 272.84)",
+          "oklch(72.14% 0.0669 272.84)",
+          "oklch(83.57% 0.0669 272.84)",
+          "oklch(95.00% 0.0669 272.84)"
+        ]
+      },
+      "primary-text": {
+        "role": "primary",
+        "displayName": "Primary text",
+        "tonalRamp": [
+          "oklch(15.00% 0.0532 267.23)",
+          "oklch(26.43% 0.0532 267.23)",
+          "oklch(37.86% 0.0532 267.23)",
+          "oklch(49.29% 0.0532 267.23)",
+          "oklch(60.71% 0.0532 267.23)",
+          "oklch(72.14% 0.0532 267.23)",
+          "oklch(83.57% 0.0532 267.23)",
+          "oklch(95.00% 0.0532 267.23)"
+        ]
+      }
+    },
+    "motion": [
+      {
+        "name": "retained-mark-transition",
+        "value": "outline-color 1.2s ease-out",
+        "purpose": "Fresh outlines soften into retained marks; disabled for reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "narrow",
+        "value": "600px"
+      },
+      {
+        "name": "inspector-reservation",
+        "value": "1250px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Delivery button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Secondary fixture delivery control.",
+      "html": "<button class=\"ds-button\">Presence</button>",
+      "css": ".ds-button{font-family:\"Pyric Geist\",system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:36px;background:#222831;color:#e8ebf1;border:1px solid #414b5b;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;}.ds-button::before,.ds-button::after{content:\"\"}.ds-button:hover{background:#343e4e}.ds-button:focus-visible{outline:2px solid #bdcbff;outline-offset:4px;}.ds-button:disabled{cursor:wait;opacity:.5}"
+    },
+    {
+      "name": "Primary delivery button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main fixture message action.",
+      "html": "<button class=\"ds-button ds-primary\">New message</button>",
+      "css": ".ds-button{font-family:\"Pyric Geist\",system-ui,sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:36px;background:#222831;color:#e8ebf1;border:1px solid #414b5b;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;}.ds-button::before,.ds-button::after{content:\"\"}.ds-button:hover{background:#343e4e}.ds-button:focus-visible{outline:2px solid #bdcbff;outline-offset:4px;}.ds-button:disabled{cursor:wait;opacity:.5}.ds-primary{background:#c3d0ff;border-color:#c3d0ff;color:#17213c}.ds-primary:hover{background:#dce4ff}"
+    },
+    {
+      "name": "Treatment select",
+      "kind": "input",
+      "description": "Native selection inside a gap-based inset field.",
+      "html": "<span class=\"ds-field\"><select aria-label=\"Flow treatment\"><option>Crisp outline</option><option>Heat memory</option></select></span>",
+      "css": ".ds-field{display:grid;grid-template-columns:0 minmax(0,1fr) 0;gap:10px;background:#191e26;border:1px solid #414b5b;border-radius:7px}.ds-field::before,.ds-field::after{content:\"\"}.ds-field select{font-family:\"Pyric Geist\",system-ui,sans-serif;height:38px;width:100%;background:#191e26;color:#e8ebf1;border:0;border-radius:0;font-size:13px;cursor:pointer}.ds-field select:focus-visible{outline:2px solid #bdcbff;outline-offset:4px;}"
+    },
+    {
+      "name": "Treatment index choice",
+      "kind": "nav",
+      "description": "Name and use case; hover and selected states share a surface.",
+      "html": "<button class=\"ds-choice\" aria-pressed=\"true\"><span><strong>Corner brackets</strong><small>Reading large components with less visual obstruction.</small></span></button>",
+      "css": ".ds-choice{font-family:\"Pyric Geist\",system-ui,sans-serif;display:grid;grid-template-columns:0 minmax(0,1fr) 0;gap:10px;border:0;border-top:1px solid var(--lab-line,#303640);background:transparent;text-align:left;cursor:pointer}.ds-choice::before,.ds-choice::after{content:\"\";grid-column:2}.ds-choice>span{grid-column:2}.ds-choice strong{font-size:12px;font-weight:500;color:#d6dfed}.ds-choice small{display:block;font-size:11px;line-height:1.5;color:#98a8be}.ds-choice:hover,.ds-choice[aria-pressed=\"true\"]{background:#1c2534}.ds-choice:focus-visible{outline:2px solid #bdcbff;outline-offset:4px;}"
+    },
+    {
+      "name": "Unread badge",
+      "kind": "chip",
+      "description": "Static preview of the count that subscribes to messages.",
+      "html": "<span class=\"ds-count\">3</span>",
+      "css": ".ds-count{font-family:\"Pyric Geist\",system-ui,sans-serif;display:grid;place-items:center;min-width:22px;height:22px;background:#354777;color:#d8e1ff;border-radius:5px;font-size:11px;font-weight:600}"
+    },
+    {
+      "name": "Chat container",
+      "kind": "card",
+      "description": "Flat conversation surface with a darker channel rail.",
+      "html": "<section class=\"ds-chat\"><aside class=\"ds-inset ds-rail\"><span>Product team</span></aside><div class=\"ds-inset\"><span># design</span></div></section>",
+      "css": ".ds-chat{font-family:\"Pyric Geist\",system-ui,sans-serif;display:grid;grid-template-columns:148px minmax(0,1fr);background:#14181f;color:#e8ebf1;border:1px solid var(--lab-line,#303640);border-radius:12px;font-size:13px}.ds-rail{background:#11151b;border-inline-end:1px solid var(--lab-line,#303640);border-radius:12px 0 0 12px}.ds-inset{display:grid;grid-template-columns:0 minmax(0,1fr) 0;gap:16px}.ds-inset::before,.ds-inset::after{content:\"\";grid-column:2}.ds-inset>*{grid-column:2}"
+    },
+    {
+      "name": "Flow label",
+      "kind": "custom",
+      "refersTo": "flow-label",
+      "description": "Static preview; live labels are painted only on actual Flow-marked regions.",
+      "html": "<span class=\"ds-flow-label\">MessageList</span>",
+      "css": ".ds-flow-label{display:grid;align-items:center;height:20px;background:#101621;color:var(--pyric-overlay-hue,#90b8ff);border:1px solid var(--pyric-overlay-hue,#90b8ff);border-radius:4px;font:10px/20px \"Pyric Geist Mono\",monospace;white-space:nowrap}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Runtime Flow studies",
+    "overview": "This document records the local example built in `lab.css`, `treatments.css`, `app.ts`, and `index.html`. It extends the existing dark Pyric preview with the user's chosen Geist and Geist Mono pairing. It establishes neither a new Pyric brand nor a public runtime theme API.\n\nThe workspace stays quiet so changes in individual chat regions remain visible. Controls introduce a delivery, annotations show observed rendering, and nearby descriptions explain each treatment's use and limitation.",
+    "keyCharacteristics": [
+      "Dark, flat surfaces with compact controls and aligned edges.",
+      "Gap-only spacing, including inset and outer whitespace.",
+      "Monospaced runtime annotations over readable chat content.",
+      "Five standard and ten experimental treatments sharing real Flow marks."
+    ],
+    "rules": [
+      {
+        "name": "The Evidence Color Rule",
+        "body": "Preserve listener color across treatments except where a treatment explicitly assigns color another disclosed meaning, as heat memory does for observed update counts.",
+        "section": "colors"
+      },
+      {
+        "name": "The Gap-Only Rule",
+        "body": "Express spacing through layout gaps, tracks, dimensions, and empty inset cells; do not add margin or padding declarations to this example.",
+        "section": "layout"
+      }
+    ],
+    "dos": [
+      "**Do** preserve Geist and Geist Mono, shared alignment lines, and gap-only spacing.",
+      "**Do** keep experimental effects scoped to this example and preserve reduced-motion behavior.",
+      "**Do** disclose that deliveries are fixtures and that observed renders establish correlation."
+    ],
+    "donts": [
+      "**Don't** describe heat as CPU cost, dimensions as render duration, or fixture sequence numbers as traced dependencies.",
+      "**Don't** promote these experimental treatments into a public theme API or a new brand identity."
+    ]
+  }
+}

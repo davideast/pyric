@@ -94,10 +94,13 @@ function setup(options: {
   // A row React rendered inline inside the todos region, so a delivery has
   // something the fiber walk can attribute.
   const rowEl = doc.querySelector('#row')!;
-  const regionHost = { tag: 5, type: 'div', stateNode: doc.querySelector('#todos')!, return: null, child: null };
-  (rowEl as unknown as Record<string, unknown>)['__reactFiber$k'] = {
-    tag: 5, type: 'span', stateNode: rowEl, return: regionHost, child: null,
-  };
+  const component = { tag: 0, type: function TodoList() {}, return: null, child: null as unknown };
+  const regionHost = { tag: 5, type: 'div', stateNode: doc.querySelector('#todos')!, return: component, child: null };
+  component.child = regionHost;
+  const rowFiber = { tag: 5, type: 'span', stateNode: rowEl, return: regionHost, child: null };
+  (regionHost as { child: unknown }).child = rowFiber;
+  (doc.querySelector('#todos') as unknown as Record<string, unknown>)['__reactFiber$k'] = regionHost;
+  (rowEl as unknown as Record<string, unknown>)['__reactFiber$k'] = rowFiber;
   let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
   let delivered: ((listenerId: string) => void) | null = null;
   let commit: (() => void) | null = null;
@@ -170,20 +173,21 @@ function setup(options: {
 }
 
 function bar(root: ShadowRoot, which: ListenerPaintMode): HTMLButtonElement {
-  return root.querySelector<HTMLButtonElement>(`[data-listener-mode="${which}"]`)!;
+  return root.querySelector<HTMLButtonElement>(which === 'overview' ? '[data-listener-all]' : `[data-listener-mode="${which}"]`)!;
 }
 
 const owner = { kind: 'component', name: 'TodoList', element: '#todos' };
 
 describe('the Listeners view', () => {
-  it('gives every listener one row: the owner over its target in the listener hue, and its deliveries in the slot', () => {
+  it('gives every listener one row: the owner over its target, a matching color mark, and deliveries in the slot', () => {
     const page = setup();
     page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner]), delivery('d1', 'L1', { kind: 'query', collection: 'todos' })]);
     const row = page.root.querySelector('[data-listener-row="L1"]')!;
     expect(row.querySelector('.c1')!.textContent).toBe('TodoList');
     expect(row.querySelector('.s1')!.textContent).toBe('todos (query)');
-    expect(row.querySelector<HTMLElement>('.s1 .mono')!.style.color).not.toBe('');
-    expect(row.querySelector('.slot')!.textContent).toBe('1');
+    expect(row.querySelector<HTMLElement>('.listener-mark')!.style.getPropertyValue('--listener-color')).not.toBe('');
+    expect(row.querySelector('.slot strong')!.textContent).toBe('1');
+    expect(row.querySelector('.slot')!.textContent).toContain('deliveries');
     expect(row.querySelector('.slot .btn')).toBeNull();
     expect(row.tagName).toBe('BUTTON');
   });
@@ -203,9 +207,9 @@ describe('the Listeners view', () => {
     expect(page.root.querySelector('[data-chip-tab="listeners"]')!.classList.contains('problem')).toBe(true);
   });
 
-  it('offers Overview, Flow, and Theme in the bar, with nothing pressed while the outlines are off', () => {
+  it('offers a Show all toggle and Flow and Theme actions with nothing pressed initially', () => {
     const page = setup({ rememberedPaintMode: 'flow', react: true });
-    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.textContent)).toEqual(['Overview', 'Flow', 'Theme']);
+    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.textContent)).toEqual(['Flow', 'Theme']);
     expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
     expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('false');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
@@ -224,7 +228,8 @@ describe('the Listeners view', () => {
 
   it('disables Flow with the reason on a page whose renders it cannot read', () => {
     const page = setup({ react: false });
-    expect(bar(page.root, 'flow').getAttribute('aria-disabled')).toBe('true');
+    expect(bar(page.root, 'flow').disabled).toBe(true);
+    expect(page.root.querySelector('[data-flow-unavailable]')!.textContent).toContain('React');
     expect(bar(page.root, 'flow').getAttribute('title')).toContain('React');
   });
 
@@ -243,11 +248,35 @@ describe('the Listeners view', () => {
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
   });
 
+  it('restores all listeners from a selected row, including listeners beyond the old seven-row cap', () => {
+    const page = setup();
+    page.push(Array.from({ length: 12 }, (_, i) => attach(`a${i}`, `L${i}`, { kind: 'doc', path: `todos/${i}` }, [owner])));
+    expect(page.root.querySelectorAll('[data-listener-row]').length).toBe(12);
+    page.root.querySelector<HTMLButtonElement>('[data-listener-row="L9"]')!.click();
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
+    bar(page.root, 'overview').click();
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(12);
+    expect(page.root.querySelectorAll('[data-listener-row][aria-pressed="true"]').length).toBe(0);
+    bar(page.root, 'overview').click();
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
+  });
+
+  it('enables Flow when render events are available and receives the ensuing delivery', () => {
+    const page = setup({ react: true });
+    page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner])]);
+    expect(bar(page.root, 'flow').disabled).toBe(false);
+    bar(page.root, 'flow').click();
+    expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('true');
+    expect(page.root.querySelector('.view')!.textContent).toContain('Waiting for the next delivery');
+    page.flowDelivery('L1');
+    expect(page.root.querySelector('.view')!.textContent).not.toContain('Waiting for the next delivery');
+  });
+
   it('says why nothing paints while listener attribution is off', () => {
     const page = setup({ attributionEnabled: false });
     bar(page.root, 'overview').click();
-    expect(bar(page.root, 'overview').getAttribute('aria-disabled')).toBe('true');
-    expect(bar(page.root, 'overview').getAttribute('title')).toContain('attribution');
+    expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
+    expect(page.root.querySelector('.view')!.textContent).toContain('attribution');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
 });

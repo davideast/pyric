@@ -4,6 +4,7 @@ export interface RuntimeIdentity {
   uid: string;
   email?: string | null;
   displayName?: string | null;
+  photoURL?: string | null;
 }
 
 /** The chip's complete identity integration seam, passed intact through mounting. */
@@ -22,5 +23,6 @@ export function projectRuntimeIdentity(user: RuntimeIdentity | null | undefined)
     uid: user.uid,
     email: user.email,
     displayName: user.displayName,
+    ...(user.photoURL === undefined ? {} : { photoURL: user.photoURL }),
   };
 }

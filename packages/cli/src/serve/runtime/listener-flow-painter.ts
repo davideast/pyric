@@ -32,6 +32,7 @@
 import { listenerHueIndex } from './listener-palette.js';
 import { ensureFlowStyleSheet, ensureOverlayStyleSheet } from './overlay-theme.js';
 import type { FlowSubtree } from './fiber-flow.js';
+import { tryAnchorOverlay } from './overlay-anchor.js';
 
 /** One delivery, ready to draw. */
 export interface FlowPaint {
@@ -153,6 +154,8 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
     badge: HTMLElement | null;
     /** Puts an element's own `position` back, when the painter set one. */
     restore: (() => void) | null;
+    /** Release a native anchor held by a detached photo/input badge. */
+    releaseAnchor: (() => void) | null;
   }
 
   /** One listener's marks, keyed by the element each is on. */
@@ -169,6 +172,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
     mark.cancel();
     const element = mark.element as HTMLElement;
     mark.badge?.remove();
+    mark.releaseAnchor?.();
     mark.restore?.();
     group.marks.delete(mark.element);
     // Two listeners can land on the same element. The attributes name one of
@@ -190,6 +194,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
   };
 
   const positionBadge = (badge: HTMLElement, element: Element): void => {
+    if (badge.hasAttribute('data-pyric-anchored')) return;
     const rect = element.getBoundingClientRect();
     badge.style.left = `${rect.left}px`;
     badge.style.top = `${rect.top}px`;
@@ -244,6 +249,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
             cancel: () => {},
             badge: null,
             restore: measured ? null : anchorElement(documentLike, component.element),
+            releaseAnchor: null,
           };
           group.marks.set(component.element, mark);
         } else {
@@ -270,6 +276,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
             badge.dataset.hue = hue;
             badge.dataset.listenerId = paint.listenerId;
             options.container.append(badge);
+            mark.releaseAnchor = tryAnchorOverlay(badge, component.element, false);
             mark.badge = badge;
           }
           mark.badge.textContent = label;
@@ -307,10 +314,12 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
       for (const listenerId of [...groups.keys()]) removeGroup(listenerId);
     },
     reposition() {
-      for (const group of groups.values()) {
-        for (const mark of group.marks.values()) {
+      for (const [listenerId, group] of groups) {
+        for (const mark of [...group.marks.values()]) {
+          if (!mark.element.isConnected) { removeMark(group, listenerId, mark); continue; }
           if (mark.badge !== null) positionBadge(mark.badge, mark.element);
         }
+        if (group.marks.size === 0) groups.delete(listenerId);
       }
     },
     dispose() {

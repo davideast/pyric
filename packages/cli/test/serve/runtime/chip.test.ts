@@ -194,6 +194,26 @@ describe('the panel shell', () => {
     expect(root.querySelector('[data-open-studio]')!.getAttribute('aria-disabled')).toBe('true');
   });
 
+  it('supports arrow navigation between tabs and exposes a minimize control', () => {
+    const { root, dom } = setup({ initiallyOpen: true });
+    const identity = root.querySelector<HTMLButtonElement>('[data-chip-tab="identity"]')!;
+    identity.focus();
+    identity.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowRight' }));
+    expect(root.activeElement).toBe(root.querySelector('[data-chip-tab="listeners"]'));
+    expect(root.querySelectorAll('[role="tab"][tabindex="0"]').length).toBe(1);
+    expect(root.querySelector('[data-collapse]')!.getAttribute('aria-label')).toBe('Minimize pyric');
+  });
+
+  it('preserves the scroll position on live updates and starts a different tab at the top', async () => {
+    const { root, runtime, showTab } = setup({ initiallyOpen: true });
+    await Promise.resolve();
+    root.querySelector('.view')!.scrollTop = 90;
+    runtime.reportError('test error', 'runtime');
+    expect(root.querySelector('.view')!.scrollTop).toBe(90);
+    showTab('traffic');
+    expect(root.querySelector('.view')!.scrollTop).toBe(0);
+  });
+
   it('colours the tab whose view holds the problem, and opens on it', () => {
     const { root, runtime } = setup();
     runtime.reportError('write to conversations denied', 'sandbox');
@@ -271,6 +291,79 @@ describe('the Identity view', () => {
     expect(texts(root, '[data-switch-user] .c1')).toEqual(['bob@example.com']);
     root.querySelector<HTMLButtonElement>('[data-switch-user="u2"]')!.click();
     expect(switchUser).toHaveBeenCalledWith('u2');
+  });
+
+  it('shows session photos immediately and keeps an initials fallback when an image fails', () => {
+    const { root, dom } = setup({ initiallyOpen: true, initialUser: { uid: 'u1', displayName: 'Alice Chen', photoURL: '/avatars/alice.png' } });
+    const image = root.querySelector<HTMLImageElement>('[data-identity-row] img')!;
+    expect(image.getAttribute('src')).toBe('/avatars/alice.png');
+    expect(root.querySelector('.avatar')!.textContent).toBe('AC');
+    image.dispatchEvent(new dom.window.Event('error'));
+    expect(image.hidden).toBe(true);
+  });
+
+  it('shows the impersonated profile and accessible provider marks instead of borrowing the app profile', async () => {
+    const { root } = setup({
+      initiallyOpen: true,
+      initialUser: { uid: 'app-user', displayName: 'App user', photoURL: '/app-user.png' },
+      initialLens: { mode: 'as', uid: 'u2' },
+      listUsers: () => [{ uid: 'u2', displayName: 'Bob', email: 'bob@example.com', photoUrl: '/bob.png', providerUserInfo: [{ providerId: 'google.com' }, { providerId: 'github.com' }] } as AuthUserRecord],
+    });
+    await Promise.resolve();
+    const row = root.querySelector('[data-identity-row]')!;
+    expect(row.querySelector('.c1')!.textContent).toBe('Bob');
+    expect(row.querySelector('img')!.getAttribute('src')).toBe('/bob.png');
+    expect([...row.querySelectorAll('.provider')].map((provider) => provider.getAttribute('aria-label'))).toEqual(['google.com', 'github.com']);
+    expect(row.querySelectorAll('svg').length).toBe(2);
+    expect(root.querySelector('.view')!.textContent).toContain('Impersonating');
+  });
+
+  it('distinguishes an unavailable directory from an empty one and retries when Identity reopens', async () => {
+    let attempts = 0;
+    const { root, showTab } = setup({ initiallyOpen: true, listUsers: () => {
+      if (++attempts === 1) throw new Error('offline');
+      return [user('u2', 'bob@example.com')];
+    } });
+    await Promise.resolve();
+    expect(root.querySelector('.view')!.textContent).toContain('Could not load users');
+    showTab('sandbox');
+    showTab('identity');
+    await Promise.resolve();
+    expect(root.querySelector('[data-switch-user="u2"]')).not.toBeNull();
+  });
+
+  it('bounds provider icons and reveals all ten providers without signing the user in', async () => {
+    const switchUser = mock(() => {});
+    const providers = ['google.com', 'github.com', 'password', 'phone', 'microsoft.com', 'apple.com', 'facebook.com', 'twitter.com', 'oidc.example', 'saml.example'];
+    const { root, runtime } = setup({ initiallyOpen: true, switchUser, listUsers: () => [{ uid: 'many', email: 'many@example.com', providerUserInfo: providers.map(providerId => ({ providerId })) } as AuthUserRecord] });
+    await Promise.resolve();
+    expect(root.querySelectorAll('[data-switch-user="many"] .provider').length).toBe(3);
+    const details = root.querySelector<HTMLDetailsElement>('[data-user-providers="many"]')!;
+    expect(details.querySelector('summary')!.textContent).toContain('+7 providers');
+    details.open = true;
+    expect([...details.querySelectorAll('.provider-entry')].map(el => el.textContent)).toEqual(providers);
+    runtime.reportError('update', 'runtime');
+    expect(root.querySelector<HTMLDetailsElement>('[data-user-providers="many"]')!.open).toBe(true);
+    expect(switchUser).not.toHaveBeenCalled();
+  });
+
+  it('searches all 10,000 users while rendering only one page and makes later pages reachable', async () => {
+    const directory = Array.from({ length: 10_000 }, (_, i) => user(`user-${i}`, `user-${i}@example.com`));
+    const listUsers = mock(() => directory);
+    const { root, dom } = setup({ initiallyOpen: true, listUsers });
+    await Promise.resolve();
+    expect(root.querySelectorAll('[data-switch-user]').length).toBe(20);
+    expect(root.querySelector('[data-user-range]')!.textContent).toBe('1–20 of 10,000');
+    root.querySelector<HTMLButtonElement>('[data-user-next]')!.click();
+    expect(root.querySelector('[data-user-range]')!.textContent).toBe('21–40 of 10,000');
+    expect(root.querySelector('[data-switch-user="user-20"]')).not.toBeNull();
+    const search = root.querySelector<HTMLInputElement>('[data-identity-query]')!;
+    search.value = 'user-9999';
+    search.dispatchEvent(new dom.window.Event('input'));
+    expect(root.querySelectorAll('[data-switch-user]').length).toBe(1);
+    expect(root.querySelector('[data-switch-user="user-9999"]')).not.toBeNull();
+    expect(root.querySelector('[data-user-next]')).toBeNull();
+    expect(listUsers).toHaveBeenCalledTimes(1);
   });
 
   it('turns the rules bypass on and off from the bar', () => {
@@ -357,6 +450,20 @@ describe('the Traffic view', () => {
     const ok = rows[1]!;
     expect(ok.querySelector('.s2')!.textContent).toBe('');
     expect(ok.querySelector('.slot')!.textContent).toBe('ok');
+  });
+
+  it('expands a request in place without changing its copyable cells', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    const path = 'conversations/long-conversation-id/messages/long-message-id';
+    push([request('r1', Date.now(), path, 'allow')]);
+    showTab('traffic');
+    root.querySelector<HTMLButtonElement>('[data-request-row="r1"]')!.click();
+    const expanded = root.querySelector<HTMLButtonElement>('[data-request-row="r1"]')!;
+    expect(expanded.getAttribute('aria-expanded')).toBe('true');
+    expect(expanded.querySelector('.c2')!.textContent).toBe(path);
+    expect(root.querySelector('[data-chip-view="traffic"]')).not.toBeNull();
+    expanded.click();
+    expect(root.querySelector('[data-request-row="r1"]')!.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('narrows to the denials from the bar, and copies the rows it is showing', async () => {
