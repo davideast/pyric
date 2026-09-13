@@ -15,6 +15,15 @@
  * scope summary".
  */
 export { getInternalEnv } from './sandbox-impl.js';
+export {
+  createSdkActivityJournal,
+  finishSdkRead,
+  sdkActivity,
+  type SdkActivityEvent,
+  type SdkActivityHandle,
+  type SdkActivityRecord,
+  type SdkActivitySource,
+} from './sdk-activity.js';
 // Listener attribution: the owner records pyric stamps onto its own listener
 // events. Every mirrored surface with listeners reaches these, so they live in
 // the cross-surface runtime rather than in one surface's backend.

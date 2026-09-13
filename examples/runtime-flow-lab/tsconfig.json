@@ -34,6 +34,9 @@
   "include": [
     "app.ts",
     "serve.ts",
-    "treatments.ts"
+    "treatments.ts",
+    "sdk-app.ts",
+    "sdk-worker.ts",
+    "sdk-server.mts"
   ]
 }

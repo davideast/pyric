@@ -1,4 +1,5 @@
 /** Canonical provenance stamping and nested-window composition. */
+import { sdkActivity } from './sdk-activity.js';
 
 import type {
   EventProvenance,
@@ -18,6 +19,10 @@ export function stampProvenance<E extends SandboxEvent>(
   overrides?: EventProvenance,
 ): E {
   const out = { ...event } as E & EventProvenance;
+  if (event.kind === 'listener_attach' || (event.kind === 'listener' && event.phase === 'attach')) {
+    const listenerId = sdkActivity.registrationId();
+    if (listenerId) out.activity = { ...out.activity, listenerId };
+  }
   out.service = event.service ?? overrides?.service ?? 'firestore';
 
   // Pre-context admin events used `detail.admin` as their only execution-lens

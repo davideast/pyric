@@ -1,3 +1,4 @@
+import { sdkActivity } from 'pyric/sandbox/internal';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
 import type { SandboxEvent } from 'pyric/sandbox';
@@ -511,4 +512,21 @@ describe('the chip\'s Studio Listeners link', () => {
       } as Parameters<typeof studioListenerUrl>[1]),
     ).toBe('/__pyric/ui/traffic/?view=listeners&listener=l%201&target=notes%2Fastro-host');
   });
+});
+
+
+it('does not invent a render association by replaying an unmapped completed SDK read', () => {
+  const page = harness();
+  const activity = sdkActivity.begin({
+    app: {}, method: 'getDoc', kind: 'operation',
+    source: { service: 'firestore', target: 'todos/one', key: 'todos/one' },
+    owners: [{ kind: 'tag', name: 'Todos', element: '#todos' }],
+  });
+  activity.delivered();
+  activity.complete();
+  page.mode.setMode('flow');
+  page.mode.setEnabled(true);
+  expect(flowMarks(page.doc)).toHaveLength(0);
+  expect(page.mode.outlines().find(outline => outline.listenerId === activity.id)?.observedRender).toBe(false);
+  page.mode.dispose();
 });

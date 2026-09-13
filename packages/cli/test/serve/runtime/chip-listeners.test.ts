@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom';
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mountPyricRuntimeChip } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
@@ -8,6 +8,11 @@ import type { ActivityIncident } from 'pyric/firestore/internal';
 import { createListenerMode } from '../../../src/serve/runtime/listener-mode.js';
 import type { ListenerPaintMode } from '../../../src/serve/runtime/listener-paint-mode.js';
 import { LISTENER_PAINT_MODE_KEY } from '../../../src/serve/runtime/listener-paint-mode.js';
+
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+});
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -157,6 +162,7 @@ function setup(options: {
   });
   const root = chip.element.shadowRoot!;
   root.querySelector<HTMLButtonElement>('[data-chip-tab="listeners"]')!.click();
+  cleanups.push(() => { chip.dispose(); dom.window.close(); });
   return {
     doc,
     chip,

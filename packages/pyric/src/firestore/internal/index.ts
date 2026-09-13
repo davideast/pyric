@@ -12,3 +12,7 @@ export type {
   ActivityReport,
   ActivitySourceAttribution,
 } from '../sandbox/activity-monitor.js';
+
+// Diagnostic projections do not invoke arbitrary query-operand getters.
+export { activityValue } from '../sandbox/activity-query-value.js';
+export { activityStructuralIdentity } from '../sandbox/activity-structural-identity.js';

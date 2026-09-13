@@ -20,7 +20,7 @@ import {
   type Firestore,
   type Query,
 } from 'pyric/firestore';
-import { getInternalEnv } from 'pyric/sandbox/internal';
+import { getInternalEnv, sdkActivity } from 'pyric/sandbox/internal';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
@@ -51,7 +51,7 @@ export async function handleFirestoreReadOp(
     case 'getDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        const snap = await getDoc(ref);
+        const snap = await sdkActivity.silence(() => getDoc(ref));
         ok(port, msg.id, serializeDocSnap(snap as Parameters<typeof serializeDocSnap>[0]));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -64,7 +64,7 @@ export async function handleFirestoreReadOp(
         // and CollectionReference is structurally compatible at runtime even though
         // the type system doesn't know that (CollectionReference has no `_isQuery`
         // brand). Cast through Query to satisfy the type checker.
-        const snap = await getDocs(source as Query);
+        const snap = await sdkActivity.silence(() => getDocs(source as Query));
         const docs = snap.docs.map((d) =>
           serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
         );

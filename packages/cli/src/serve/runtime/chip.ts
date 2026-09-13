@@ -258,6 +258,7 @@ const styles = `
   .listener-mark { width: 10px; height: 10px; border: 2px solid var(--listener-color); border-radius: 3px; }
   .listener-row .row-content { grid-template-columns: 12px minmax(0, 1fr) 88px; }
   .listener-row .c1.wide, .listener-row .s1.wide { grid-column: 2; }
+  .listener-row .s2 { grid-column: 2; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
   .listener-fact { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
   .listener-fact strong { color: #dce2ed; font-weight: 550; font-variant-numeric: tabular-nums; }
   .row[aria-pressed="true"] .listener-fact { color: var(--pyric-accent); }
@@ -360,6 +361,9 @@ function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline
       && outline.target === other.target
       && outline.isQuery === other.isQuery
       && outline.deliveryCount === other.deliveryCount
+      && outline.activity?.method === other.activity?.method
+      && outline.activity?.status === other.activity?.status
+      && outline.observedRender === other.observedRender
       && outline.incident?.pattern === other.incident?.pattern
       && outline.incident?.count === other.incident?.count
       && outline.incident?.windowMs === other.incident?.windowMs;
@@ -420,7 +424,7 @@ function rowHtml(cells: RowCells): string {
       html += `<span class="s1 wide split"><span>${cells.s1 ?? ''}</span><span class="right">${cells.s1Right}</span></span>`;
     } else {
       html += `<span class="s1${wide ? ' wide' : ''}">${cells.s1 ?? ''}</span>`;
-      if (!wide) html += `<span class="s2">${cells.s2 ?? ''}</span>`;
+      if (!wide || cells.s2) html += `<span class="s2">${cells.s2 ?? ''}</span>`;
     }
   }
   return `<div class="${classes}"${title}${attributes}><span class="row-content">${cells.leading ? `<span class="leading">${cells.leading}</span>` : ''}${html}</span></div>`;
@@ -776,6 +780,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         return buttonRowHtml({
           c1: escapeAttribute(outline.labelIsOwner ? outline.label : target),
           s1: outline.labelIsOwner ? `<span class="mono">${escapeAttribute(target)}</span>` : escapeAttribute(outline.service === 'database' ? 'Realtime Database' : 'Firestore'),
+          s2: outline.activity ? escapeAttribute(`${outline.activity.method} / ${outline.activity.status}${outline.observedRender ? ' / Rendered after delivery' : ' / No associated visual update'}`) : '',
           leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(hue)}"></span>`,
           slot: `<span class="listener-fact"><strong>${outline.deliveryCount}</strong><span>${activeListenerId === outline.listenerId ? 'Highlighted' : 'deliveries'}</span></span>`,
           className: 'listener-row',
@@ -795,7 +800,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const bar = barHtml([buttonHtml('data-open-overlay-theme', 'Theme', "Edit the overlay's custom properties")]);
     const detail = blocked ?? (listenerMode?.flowWaiting() ? 'Waiting for the next delivery to show what rendered.' : activeListenerId ? 'Selected listener highlighted. Use Show all to restore every outline.' : 'Select a listener to highlight its components on your page.');
     const flowHint = flowReason ? `<span class="hint" data-flow-unavailable>${escapeAttribute(flowReason)}</span>` : '';
-    return { body: `${introHtml('Listeners on this page', detail, flowHint)}${paintControls}${sectionHtml(pluralize(listenerOutlines.length, 'listener'), `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No listeners attached', 'Open a part of your app that subscribes to data to see it here.')}`, '', toggle)}`, bar };
+    return { body: `${introHtml('Reads and listeners on this page', detail, flowHint)}${paintControls}${sectionHtml(pluralize(listenerOutlines.length, 'activity', 'activities'), `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here.')}`, '', toggle)}`, bar };
   };
 
   let expandedRequestId: string | null = null;

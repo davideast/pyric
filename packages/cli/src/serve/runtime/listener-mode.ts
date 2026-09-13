@@ -22,7 +22,8 @@ import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatment
  */
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { listenerOutlines, type ListenerOutline } from './listener-outline-model.js';
+import { activityOutlines, listenerOutlines, type ListenerOutline } from './listener-outline-model.js';
+import { sdkActivity } from 'pyric/sandbox/internal';
 import { createListenerOverlay, type ListenerOverlay } from './listener-overlay.js';
 import { incidentsFromEvents } from './listener-incidents.js';
 import { studioSectionUrl } from './studio-links.js';
@@ -181,6 +182,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   let flowPainted = false;
   /** Listeners the developer switched off. Page session only, never stored. */
   const hidden = new Set<string>();
+  const observed = new Set<string>();
   const treatments = createTreatmentController({
     document: documentLike, manifest: options.treatments, storage: options.treatmentStorage,
     onChange: () => options.onChange?.(current),
@@ -215,13 +217,15 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
 
   const recompute = (): void => {
     const previous = current;
-    current = listenerOutlines(events, readIncidents(events));
+    current = activityOutlines(listenerOutlines(events, readIncidents(events)), sdkActivity.records(), observed);
     // A detached listener keeps no paint. Flow holds its last subtree until
     // the next delivery, and for a listener that is gone there will not be
     // one.
     for (const outline of previous) {
       if (current.some((next) => next.listenerId === outline.listenerId)) continue;
       flow?.clearListener(outline.listenerId);
+      observed.delete(outline.listenerId);
+      hidden.delete(outline.listenerId);
     }
     paint();
     options.onChange?.(current);
@@ -250,14 +254,14 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       // developer sees the latest flow rather than waiting for the next
       // delivery on a page that may be idle.
       recentDeliveries: () => visibleOutlines()
-        .filter((outline) => outline.lastDeliveryAt !== undefined)
+        .filter((outline) => outline.lastDeliveryAt !== undefined && (!outline.activity || outline.observedRender))
         .map((outline) => ({ listenerId: outline.listenerId, at: outline.lastDeliveryAt! })),
-      onPaint: () => {
-        if (flowPainted) return;
+      onPaint: (id) => {
+        observed.add(id);
         flowPainted = true;
         // The panel's waiting hint is gone as of this paint, and the panel
         // only rebuilds when the mode says something changed.
-        options.onChange?.(current);
+        recompute();
       },
       ...(options.flow ?? {}),
     });
@@ -283,6 +287,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     events.push(...batch);
     recompute();
   });
+  const stopActivity = sdkActivity.subscribe(() => recompute());
   recompute();
 
   const hidePainting = (): void => {
@@ -383,10 +388,12 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       view?.removeEventListener('storage', onStorage);
       hidePainting();
       unsubscribe?.();
+      stopActivity();
       unsubscribe = null;
       events.length = 0;
       current = [];
       hidden.clear();
+      observed.clear();
     },
   };
 }

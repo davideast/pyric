@@ -107,3 +107,24 @@ A module exports `{ css, mount? }`. Scope styles to its treatment ID. The existi
 For vector annotations, `mount({ document, container, history })` returns `{ update, dispose }`. Mount nodes in `container`, read the last five observed paints from `history()`, update geometry in `update`, and release owned resources in `dispose`. The runtime calls `update` after paints and shared geometry changes, including captured nested scrolling. It disposes the previous treatment when switching or disabling Flow. Existing marks carry `data-pyric-flow-hits`, `data-pyric-flow-sequence`, `data-pyric-flow-name`, and `data-pyric-flow-size`; detached badges receive those fields too. Counts describe observed paints, not CPU cost or proven dependencies.
 
 Thread map uses a labeled listener origin because an incoming delivery may have no corresponding on-page button. The mini-map represents observed regions rather than requiring application-specific component attributes.
+
+## Real SDK reads and listeners
+
+The separate SDK example runs actual Firestore and Realtime Database calls through the same Flow runtime:
+
+```sh
+bun run build
+bun examples/runtime-flow-lab/sdk-server.mts
+```
+
+Open [the in-page sandbox](http://localhost:5198/?runtime=inpage) or [the SharedWorker bridge](http://localhost:5198/?runtime=worker). Use the three read buttons, start listeners, then write the next version. All results update the same React component. **Read without rendering** and **Read denied path** exercise activity without a visual association. This example uses local seeded data and permissive example rules; it does not contact a Firebase project.
+
+The chip records each read separately and each listener registration separately. Successful reads count once even if the value is unchanged. Completed records remain visible for up to 30 seconds; after the render-correlation window, the oldest terminal records are evicted when more than 100 are retained. Active registrations remain until stopped. Flow describes an observed render after delivery, not proven data lineage. Keep Flow enabled while exercising the example to observe commits.
+
+Run the actual SDK browser checks from the repository root:
+
+```sh
+E2E_BASE=http://127.0.0.1:5198 bunx --no-install playwright test sdk-flow.pw.ts --config packages/cli/test/e2e/playwright.config.ts
+```
+
+The test starts its own example server on an available port and exercises both runtimes. `E2E_BASE` prevents the unrelated Studio server from starting. To run the example manually on another port, set `SDK_FLOW_PORT`.

@@ -48,6 +48,7 @@ export const _snapSubs = new Map<string, {
   error?: (err: unknown) => void;
   /** Firestore listeners abort on app deletion; RTDB/Auth stop silently. */
   service?: 'firestore';
+  close?: () => void;
 }>();
 
 /**
@@ -135,6 +136,7 @@ export function disconnectPort(port: ClientPort): void {
     if (subscription.service === 'firestore') {
       subscription.error?.(new FirebaseError('aborted', 'The operation was aborted.'));
     }
+    subscription.close?.();
   }
   for (const [id, subscription] of [..._eventSubs]) {
     if (subscription.port !== port) continue;

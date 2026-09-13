@@ -101,6 +101,12 @@ beforeAll(async () => {
   appEntry = await import('pyric/app');
   const priorFixture = appEntry.getApps().find((app) => app.name === 'composite-served-entry-worker-test');
   if (priorFixture) await appEntry.deleteApp(priorFixture);
+  // Deleting the final app leaves its configuration bound. With no live app
+  // to reuse, clear that test-only registry state before starting this fixture.
+  if (appEntry.getApps().length === 0) {
+    const { resetAppRegistryForTests } = await import('../../../../pyric/dist/app/registry.js');
+    await resetAppRegistryForTests();
+  }
   const options = appEntry.getApps()[0]?.options ?? { projectId: 'composite-served-entry' };
   fixtureApp = appEntry.initializeApp(options, 'composite-served-entry-worker-test');
   fs = await import('../../../src/serve/entries/firestore.js');

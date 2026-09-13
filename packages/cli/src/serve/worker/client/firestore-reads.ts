@@ -13,34 +13,41 @@ import type {
 import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
-import { reportListenerDelivery } from './listener-delivery.js';
+import { beginWorkerFirestoreActivity } from './sdk-activity.js';
+import { finishSdkRead } from 'pyric/sandbox/internal';
 import { makeDocSnapshot, makeQuerySnapshot } from './snapshots.js';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot } from './snapshots.js';
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
 
 export async function getDoc(ref: DocRefHandle): Promise<ClientDocSnapshot> {
-  const result = await dataRpc(ref.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'getDoc',
-    path: ref.descriptor.path,
-  }) as RawDocResult;
-  return makeDocSnapshot(result, ref.port);
+  const activity = beginWorkerFirestoreActivity(ref, 'getDoc', 'operation');
+  try {
+    const result = await dataRpc(ref.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'getDoc',
+      path: ref.descriptor.path,
+    }) as RawDocResult;
+    return finishSdkRead(activity, makeDocSnapshot(result, ref.port));
+  } catch (error) { activity.fail(); throw error; }
 }
 
 export async function getDocs(
   source: CollRefHandle | QueryHandle,
 ): Promise<ClientQuerySnapshot> {
-  const result = await dataRpc(source.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'getDocs',
-    source: source.__kind === 'coll-ref'
-      ? (source as CollRefHandle).descriptor
-      : (source as QueryHandle).descriptor,
-  }) as RawQueryResult;
-  return makeQuerySnapshot(result, source.port);
+  const activity = beginWorkerFirestoreActivity(source, 'getDocs', 'operation');
+  try {
+    const result = await dataRpc(source.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'getDocs',
+      source: source.__kind === 'coll-ref'
+        ? (source as CollRefHandle).descriptor
+        : (source as QueryHandle).descriptor,
+    }) as RawQueryResult;
+    return finishSdkRead(activity, makeQuerySnapshot(result, source.port));
+  } catch (error) { activity.fail(); throw error; }
 }
 
 /**
@@ -167,6 +174,8 @@ export function onSnapshot(
     : maybeError) as SnapshotErrorCallback | undefined;
   let currentSubId = nextSubId();
   const port = target.port;
+  const activity = beginWorkerFirestoreActivity(target, 'onSnapshot', 'subscription', owners);
+  activity.transport(currentSubId);
 
   const subscription = {
     port,
@@ -174,15 +183,19 @@ export function onSnapshot(
     next: (raw: unknown) => {
       // Reported on the subscription id the sandbox also records as the
       // listener id, immediately before the application's callback runs.
-      reportListenerDelivery(currentSubId);
       const r = raw as Record<string, unknown>;
       if ('docs' in r) {
-        callback(makeQuerySnapshot(r as unknown as RawQueryResult, port));
+        const snapshot = makeQuerySnapshot(r as unknown as RawQueryResult, port);
+        activity.delivered();
+        callback(snapshot);
       } else {
-        callback(makeDocSnapshot(r as unknown as RawDocResult, port));
+        const snapshot = makeDocSnapshot(r as unknown as RawDocResult, port);
+        activity.delivered();
+        callback(snapshot);
       }
     },
-    error: errorCallback,
+    error: (error: unknown) => { activity.fail(); errorCallback?.(error); },
+    close: () => activity.close(),
   };
 
   const descriptor: TargetDescriptor =
@@ -202,6 +215,7 @@ export function onSnapshot(
         : { t: 'sub', subId: currentSubId, target: descriptor, ...(owners ? { owners } : {}) }) satisfies InboundMessage,
     ),
   );
+  if (!opened) activity.fail();
   if (!opened && errorCallback) queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
 
   let unsubscribed = false;
@@ -209,6 +223,7 @@ export function onSnapshot(
     if (unsubscribed) return;
     closeSubscription(port, currentSubId);
     currentSubId = nextSubId();
+    activity.transport(currentSubId);
     const reopened = openSnapshotSubscription(
       port,
       currentSubId,
@@ -226,6 +241,7 @@ export function onSnapshot(
 
   return () => {
     unsubscribed = true;
+    activity.close();
     unsubLens();
     closeSubscription(port, currentSubId);
   };
