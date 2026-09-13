@@ -64,6 +64,19 @@ const paintOf = (page: ReturnType<typeof setup>, over?: Partial<{ listenerId: st
 });
 
 describe('marking one delivery', () => {
+  it('removes a detached photo badge and its timer when the image leaves the page', () => {
+    const page = setup();
+    const photo = page.el('#avatar');
+    page.painter.paint(paintOf(page, { subtree: subtreeOf([component(photo, 'Photo')]) }));
+    expect(page.container.querySelectorAll('[data-pyric-flow-badge]')).toHaveLength(1);
+    photo.remove();
+    page.painter.reposition();
+    expect(page.container.querySelectorAll('[data-pyric-flow-badge]')).toHaveLength(0);
+    expect(photo.hasAttribute('data-pyric-flow')).toBe(false);
+    expect(page.timers.filter(timer => timer.at > 0)).toHaveLength(0);
+    page.painter.dispose();
+  });
+
   it('marks the elements themselves in the listener colour', () => {
     const page = setup();
     page.painter.paint(paintOf(page));

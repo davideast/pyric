@@ -125,7 +125,6 @@ function pickPoolImage(pool: AssetManifestImage[], seed: string): AssetManifestI
  *  write never fails the resolve that produced the bytes. */
 function cacheSourceResult(
   dir: string,
-  manifest: AssetManifest | null,
   key: string,
   data: Uint8Array,
   contentType: string,
@@ -135,6 +134,9 @@ function cacheSourceResult(
   const file = `${key}.${ext}`;
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, file), data);
+  // Other users can finish downloading while this source is awaiting bytes.
+  // Merge against the current index inside this synchronous write operation.
+  const manifest = loadManifest(dir);
   const images = (manifest?.images ?? []).filter((image) => image.key !== key);
   images.push({ file, contentType, key });
   const updated: AssetManifest = { version: 1, images };
@@ -202,7 +204,6 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
   async function runSource(
     req: AssetRequest,
     source: AssetSource,
-    manifest: AssetManifest | null,
   ): Promise<ResolvedAsset> {
     let result: AssetResult;
     try {
@@ -215,7 +216,7 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
       const ext = extensionFor(result.contentType);
       if (!ext) return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
       try {
-        cacheSourceResult(opts.dir, manifest, req.key, result.data, result.contentType);
+        cacheSourceResult(opts.dir, req.key, result.data, result.contentType);
         announceMaterialised(req.key);
       } catch {
         // Failure containment: serve the bytes the source produced even
@@ -240,7 +241,7 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
     }
     const data = new Uint8Array(await response.arrayBuffer());
     try {
-      cacheSourceResult(opts.dir, manifest, req.key, data, contentType);
+      cacheSourceResult(opts.dir, req.key, data, contentType);
       announceMaterialised(req.key);
     } catch {
       // Same containment as the { data } branch above.
@@ -275,7 +276,7 @@ export function createAssetResolver(opts: AssetResolverOptions): AssetResolver {
           return { ...opts.fallback(req, 'fallback'), origin: 'fallback' };
         }
         sourceInvocations++;
-        pending = runSource(req, opts.source, manifest).finally(() => {
+        pending = runSource(req, opts.source).finally(() => {
           inFlight.delete(req.key);
         });
         inFlight.set(req.key, pending);

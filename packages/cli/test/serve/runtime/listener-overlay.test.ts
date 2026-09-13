@@ -32,6 +32,36 @@ function boxes(doc: Document): HTMLElement[] {
 }
 
 describe('createListenerOverlay', () => {
+  it('remeasures fallback boxes and followers on nested non-bubbling scroll, then stops on dispose', () => {
+    const doc = page();
+    const target = doc.querySelector<HTMLElement>('#todos')!;
+    let top = 240;
+    target.getBoundingClientRect = () => ({ x: 20, y: top, left: 20, top, right: 120, bottom: top + 80, width: 100, height: 80, toJSON: () => ({}) });
+    const overlay = createListenerOverlay({ document: doc });
+    overlay.update([outline({})]);
+    const box = boxes(doc)[0]!;
+    let followed = 0;
+    overlay.onReposition(() => { followed++; });
+    top = 70;
+    target.dispatchEvent(new doc.defaultView!.Event('scroll', { bubbles: false }));
+    expect(box.style.top).toBe('70px');
+    expect(followed).toBe(1);
+    overlay.dispose();
+    top = 10;
+    target.dispatchEvent(new doc.defaultView!.Event('scroll', { bubbles: false }));
+    expect(followed).toBe(1);
+  });
+
+  it('removes detached targets when geometry is refreshed', () => {
+    const doc = page();
+    const overlay = createListenerOverlay({ document: doc });
+    overlay.update([outline({})]);
+    doc.querySelector('#todos')!.remove();
+    overlay.reposition();
+    expect(boxes(doc)).toHaveLength(0);
+    overlay.dispose();
+  });
+
   it('draws one box per outlined listener with its label, target, and delivery count', () => {
     const doc = page();
     const overlay = createListenerOverlay({ document: doc });

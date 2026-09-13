@@ -1,26 +1,11 @@
 /**
- * The runtime chip: a collapsed pill on a served page, and an open panel of
- * four views behind it.
- *
- * The pill carries three things and no words for them: which identity the page
- * is running as, the name, and how many listeners are attached. Problems reach
- * it as colour on the part they are about.
- *
- * The panel answers the three reasons a developer clicks that pill. Something
- * went red, so Traffic holds the last requests and what Rules said about them.
- * They want to be someone else, so Identity switches the user and bypasses the
- * rules. They want to see what the page is doing, so Listeners lists what is
- * attached and Sandbox states which runtime is running it. The panel opens on
- * the view the strongest current signal names, which is usually the view the
- * colour on the pill came from.
- *
- * Every view has the same macro: a control zone, a list of rows, and an action
- * bar on the panel's bottom edge. Every row is the same three tracks — a 16px
- * mark, a primary column, a right-aligned fact — and a row is never anything
- * but itself: no button, toggle, or link lives inside one. Whatever a view can
- * do lives in its control zone or its bar, in the same place on every tab, so
- * four unrelated subjects read as one panel and nothing moves between them.
+ * A compact inspector for the app's identity, listeners, traffic, and sandbox.
+ * Header, tabs, scroll viewport, and action bar share one fixed panel frame.
+ * Rows retain named cells across views; each view assigns those cells to the
+ * tracks its information needs. Insets and grouping come exclusively from gaps.
+ * Row actions operate on the page; Studio is an explicit secondary destination.
  */
+import { installChipFonts } from './chip-fonts.js';
 import type { AuthLens } from 'pyric/sandbox';
 import type { AuthUserRecord } from 'pyric/auth';
 import type { PyricRuntimeStatus } from './status.js';
@@ -31,7 +16,7 @@ import {
 } from './chip-theme-dialog.js';
 import { pageOverlayThemeStorage } from './overlay-theme.js';
 import type { RuntimeIdentity, RuntimeIdentityBindings } from './identity.js';
-import { studioListenerUrl, type ListenerMode } from './listener-mode.js';
+import type { ListenerMode } from './listener-mode.js';
 import { studioSectionUrl } from './studio-links.js';
 import type { ListenerOutline } from './listener-outline-model.js';
 import { listenerColors } from './listener-palette.js';
@@ -131,178 +116,229 @@ function aiEngineState(): AiEngineDisplay {
 
 const styles = `
   :host {
-    --pyric-bg: #1e1e24;
-    --pyric-border: #33333f;
-    --pyric-border-soft: #2a2a35;
-    --pyric-text: #fbfbfe;
-    --pyric-muted: #89899f;
+    all: initial;
+    --pyric-bg: #1b1d23;
+    --pyric-content: #15171c;
+    --pyric-border: #3a3e49;
+    --pyric-border-soft: #2d303a;
+    --pyric-text: #edf0f5;
+    --pyric-muted: #a4acbb;
+    --pyric-accent: #b4c7ff;
     --pyric-warning: #e6c79c;
     --pyric-error: #f0a0a0;
-    all: initial;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 20px;
+    --record-inset: calc(var(--space-3) + 1px);
+    --content-inset: calc(var(--space-4) + var(--record-inset));
     position: fixed;
     right: max(16px, env(safe-area-inset-right));
     bottom: max(16px, env(safe-area-inset-bottom));
     z-index: 2147483000;
     color: var(--pyric-text);
-    font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: "Pyric Geist", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
     font-synthesis: none;
+    color-scheme: dark;
   }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  .announcer { height: 1px; overflow: hidden; position: absolute; width: 1px; clip: rect(0 0 0 0); white-space: nowrap; }
-  button, a, input { font: inherit; }
-  :focus-visible { outline: 1px solid var(--pyric-muted); outline-offset: 2px; }
-  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
-
-  /*
-   * The pill is the word and nothing else, one fixed box. Its border carries
-   * the page's state: the error colour for a denial or a duplicate listener,
-   * the warning colour for a pending worker update. Nothing inside it changes.
-   */
-  .chip {
-    align-items: center;
-    background: var(--pyric-bg);
-    border: 1px solid var(--pyric-border);
-    border-radius: 999px;
-    box-shadow: 0 12px 34px rgba(0, 0, 0, .38);
-    color: var(--pyric-text);
-    cursor: pointer;
-    display: flex;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: 11px;
-    height: 32px;
-    justify-content: center;
-    width: 72px;
-  }
-  .chip:hover { border-color: #4a4a58; }
+  *, *::before, *::after { box-sizing: border-box; }
+  button, a, input { all: unset; box-sizing: border-box; font: inherit; }
+  button, a { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: -2px; }
+  .announcer, .sr-only { height: 1px; overflow: hidden; position: absolute; width: 1px; clip-path: inset(50%); white-space: nowrap; }
+  .mono { font-family: "Pyric Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .icon { width: 16px; height: 16px; flex: none; }
+  .chip { display: flex; align-items: center; justify-content: center; width: 72px; height: 32px; border: 1px solid var(--pyric-border); border-radius: 16px; background: var(--pyric-bg); color: var(--pyric-text); cursor: pointer; font-size: 12px; font-weight: 600; box-shadow: 0 8px 24px #0005; }
+  .chip:hover { background: #292d36; }
   .chip.error { border-color: var(--pyric-error); }
   .chip.warning { border-color: var(--pyric-warning); }
 
-  /*
-   * The panel is a grid whose outer tracks are the 16px insets, so every
-   * child's left edge is line L and every right edge is line R without a single
-   * padding or margin. Inside, the column stacks header, strip, view, and bar
-   * with one 20px section gap. Height is fixed: 16 + 40 + 20 + 32 + 20 + 300 +
-   * 20 + 32 + 16.
-   */
-  .panel {
-    background: var(--pyric-bg);
-    border: 1px solid var(--pyric-border);
-    border-radius: 10px;
-    box-shadow: 0 18px 60px rgba(0, 0, 0, .48);
-    display: grid;
-    grid-template-columns: 16px minmax(0, 1fr) 16px;
-    grid-template-rows: 16px minmax(0, 1fr) 16px;
-    height: 496px;
-    max-width: calc(100vw - 32px);
-    overflow: hidden;
-    width: 384px;
-  }
-  .panel-column { display: flex; flex-direction: column; gap: 20px; grid-column: 2; grid-row: 2; min-height: 0; }
-  .panel-header { align-items: center; display: flex; flex: 0 0 40px; justify-content: space-between; }
-  .panel-name { font-size: 13px; font-weight: 500; line-height: 20px; }
-  .actions { align-items: center; display: flex; gap: 8px; justify-content: flex-end; }
-
-  .tabs { border-bottom: 1px solid var(--pyric-border-soft); display: flex; flex: 0 0 32px; gap: 20px; }
-  .tab {
-    background: transparent;
-    border: 0;
-    border-bottom: 2px solid transparent;
-    color: var(--pyric-muted);
-    cursor: pointer;
-    font-size: 13px;
-    line-height: 20px;
-  }
-  .tab:hover { color: var(--pyric-text); }
-  .tab[aria-selected="true"] { border-bottom-color: var(--pyric-text); color: var(--pyric-text); }
+  /* Zero-size outer tracks turn gaps into insets. The shell, section frames,
+     and records all use this same construction, with no additive spacing. */
+  .panel { display: grid; width: 440px; height: 568px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); background: var(--pyric-bg); border: 1px solid var(--pyric-border); border-radius: 12px; box-shadow: 0 18px 60px #0007; overflow: hidden; }
+  .panel-column { display: grid; grid-template-rows: 64px 44px minmax(0, 1fr) 64px; min-width: 0; min-height: 0; }
+  .panel-header, .bar { display: grid; grid-template-columns: 0 minmax(0, 1fr) auto 0; align-items: center; column-gap: var(--content-inset); overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
+  .brand { display: flex; align-items: center; gap: var(--space-2); grid-column: 2; }
+  .panel-name { font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
+  .panel-header > .actions { grid-column: 3; }
+  .actions { display: flex; align-items: center; gap: var(--space-2); justify-content: flex-end; }
+  .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-block: 1px solid var(--pyric-border-soft); background: var(--pyric-content); }
+  .tab { display: grid; place-items: center; cursor: pointer; color: var(--pyric-muted); font-size: 12px; font-weight: 550; border-bottom: 2px solid transparent; }
+  .tab + .tab { border-left: 1px solid var(--pyric-border-soft); }
+  .tab:hover { background: #242832; color: var(--pyric-text); }
+  .tab[aria-selected="true"] { background: #242936; border-bottom-color: var(--pyric-accent); color: var(--pyric-accent); }
   .tab.problem { color: var(--pyric-error); }
   .tab.problem[aria-selected="true"] { border-bottom-color: var(--pyric-error); }
   .tab.pending { color: var(--pyric-warning); }
   .tab.pending[aria-selected="true"] { border-bottom-color: var(--pyric-warning); }
 
-  /* The view is the one section that scrolls; its sections are 20 apart and its
-     rows 8 apart. */
-  .view { display: flex; flex: 0 0 300px; flex-direction: column; gap: 20px; min-height: 0; overflow-y: auto; }
+  /* The scrollbar owns a separate gutter. Records stop before it even on
+     systems with overlay scrollbars; the footer never participates in scroll. */
+  .view { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--space-4); min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: #555c6b transparent; overscroll-behavior: contain; }
   .view::-webkit-scrollbar { width: 8px; }
-  .view::-webkit-scrollbar-thumb { background: var(--pyric-border); border-radius: 4px; }
-  .rows { display: flex; flex-direction: column; gap: 8px; }
-  .field {
-    align-items: center;
-    background: rgba(0,0,0,.22);
-    border: 1px solid var(--pyric-border-soft);
-    border-radius: 6px;
-    display: grid;
-    flex: 0 0 32px;
-    grid-template-columns: 8px minmax(0, 1fr) 8px;
-  }
-  .field:focus-within { border-color: #4a4a58; }
-  .field input { background: transparent; border: 0; color: var(--pyric-text); font-size: 13px; grid-column: 2; line-height: 20px; outline: none; width: 100%; }
-
-  /*
-   * One row, every tab: three columns and two lines. Column one starts at L,
-   * column two at L2 (112 from L), and the slot ends at R. A tab without a
-   * fixed first column spans its text across one and two. The slot holds the
-   * row's fact or its one button, never both.
-   */
-  .row {
-    column-gap: 8px;
-    display: grid;
-    grid-template-columns: 112px minmax(0, 1fr) 84px;
-    grid-template-rows: 20px;
-    row-gap: 4px;
-    text-align: left;
-    width: 100%;
-  }
-  .row.sub { grid-template-rows: 20px 16px; }
-  button.row { background: transparent; border: 0; border-radius: 4px; color: inherit; cursor: pointer; }
-  button.row:hover { background: rgba(255,255,255,.05); }
-  button.row[aria-pressed="true"] { background: rgba(255,255,255,.09); }
-  .c1, .c2 { font-size: 13px; line-height: 20px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .view::-webkit-scrollbar-thumb { background: #555c6b; border-radius: 4px; }
+  .view-content { grid-column: 2; display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; }
+  .view-content::before, .view-content::after { content: ''; flex: 0 0 0; }
+  .section { display: flex; flex-direction: column; gap: var(--space-3); }
+  .section-heading, .intro-rail, .pagination { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--record-inset); }
+  .section-line, .pagination-line { grid-column: 2; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 20px; }
+  .intro-rail > .intro { grid-column: 2; }
+  .section-title { font-size: 13px; font-weight: 600; }
+  .section-meta, .hint { color: var(--pyric-muted); font-size: 11px; }
+  .intro { display: flex; flex-direction: column; gap: var(--space-1); }
+  .intro .section-title { font-size: 15px; }
+  .rows { display: flex; flex-direction: column; border: 1px solid var(--pyric-border-soft); border-radius: 8px; background: var(--pyric-content); }
+  .rows:empty { display: none; }
+  .row { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; column-gap: var(--space-3); row-gap: var(--space-3); text-align: left; width: 100%; }
+  .row + .row, .identity-record + .identity-record { border-top: 1px solid var(--pyric-border-soft); }
+  .row:first-child { border-start-start-radius: 7px; border-start-end-radius: 7px; }
+  .row:last-child { border-end-start-radius: 7px; border-end-end-radius: 7px; }
+  .row-content { grid-column: 2; grid-row: 2; display: grid; align-items: center; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 88px; column-gap: var(--space-3); row-gap: var(--space-1); min-width: 0; }
+  button.row { color: inherit; cursor: pointer; }
+  button.row:hover { background: #252b37; }
+  button.row[aria-pressed="true"] { background: #2a3348; box-shadow: inset 0 0 0 1px #788fbd; }
+  .c1, .c2, .s1, .s2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c1 { font-size: 13px; font-weight: 550; line-height: 20px; }
   .c1.wide { grid-column: 1 / 3; }
-  .s1, .s2 { color: var(--pyric-muted); font-size: 12px; grid-row: 2; line-height: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .c2 { font-size: 12px; line-height: 20px; }
+  .s1, .s2 { color: var(--pyric-muted); font-size: 11px; line-height: 18px; grid-row: 2; }
   .s1 { grid-column: 1; }
   .s1.wide { grid-column: 1 / 3; }
   .s2 { grid-column: 2; }
-  .s1.split { display: flex; gap: 8px; justify-content: space-between; }
-  .s1.split .right { display: flex; gap: 8px; }
-  .slot { align-items: center; color: var(--pyric-muted); display: flex; font-size: 12px; grid-column: 3; grid-row: 1; justify-content: flex-end; line-height: 20px; min-width: 0; overflow: hidden; white-space: nowrap; }
-  .row.problem .c1, .row.problem .c2, .row.problem .slot { color: var(--pyric-error); }
-  .row.pending .c1, .row.pending .slot { color: var(--pyric-warning); }
-  .slot.ok { color: var(--pyric-muted); }
-
-  /* The one button. */
-  .btn {
-    align-items: center;
-    background: transparent;
-    border: 1px solid var(--pyric-border-soft);
-    border-radius: 4px;
-    color: var(--pyric-muted);
-    cursor: pointer;
-    display: inline-flex;
-    flex: 0 0 84px;
-    font-size: 12px;
-    height: 32px;
-    justify-content: center;
-    line-height: 20px;
-    text-decoration: none;
-    width: 84px;
+  .s1.split { display: flex; align-items: center; gap: var(--space-2); }
+  .s1.split > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .right { display: flex; gap: var(--space-1); flex: none; max-width: 56px; }
+  .provider-disclosure { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; gap: var(--space-3); }
+  .provider-details { grid-column: 2; min-width: 0; }
+  .provider-body { display: grid; grid-template-rows: 0 auto; row-gap: var(--space-2); }
+  .provider-details > summary { grid-column: 2; display: flex; align-items: center; gap: var(--space-1); font-size: 11px; color: var(--pyric-accent); cursor: pointer; min-height: 24px; list-style: none; }
+  .provider-details > summary::-webkit-details-marker { display: none; }
+  .provider-details[open] > summary .icon { transform: rotate(90deg); }
+  .provider-list { grid-row: 2; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .provider-entry { display: inline-flex; gap: var(--space-1); align-items: center; font-size: 11px; color: var(--pyric-muted); overflow-wrap: anywhere; }
+  .provider-disclosure::after { content: ""; grid-column: 2; height: 0; }
+  .pagination .btn { width: 32px; flex-basis: 32px; }
+  .pagination [data-user-previous] .icon { transform: rotate(180deg); }
+  .pagination .section-meta { font-variant-numeric: tabular-nums; }
+  .slot { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); grid-column: 3; grid-row: 1 / 3; color: var(--pyric-muted); font-size: 11px; min-width: 0; }
+  .slot > span { min-width: 0; overflow-wrap: anywhere; }
+  .slot .verdict { width: 52px; min-width: 52px; }
+  .row.problem .slot, .row.problem .c1 { color: var(--pyric-error); }
+  .row.pending .slot, .row.pending .c1 { color: var(--pyric-warning); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); width: 88px; height: 32px; flex: 0 0 88px; border: 1px solid #454b59; border-radius: 6px; background: #282d37; color: #dbe1ed; cursor: pointer; font-size: 11px; font-weight: 550; line-height: 16px; text-decoration: none; white-space: nowrap; }
+  .btn:hover:not(:disabled):not([aria-disabled="true"]) { background: #343d4d; border-color: #76839b; color: #fff; }
+  .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; opacity: .5; }
+  .btn[aria-pressed="true"] { background: #35435e; border-color: #829ac9; color: #dce6ff; }
+  .btn.icon-button { width: 32px; flex-basis: 32px; background: transparent; }
+  [data-open-studio] { background: transparent; border-color: var(--pyric-border-soft); }
+  .bar { border-top: 1px solid var(--pyric-border-soft); background: var(--pyric-content); }
+  .bar-hint { grid-column: 2; color: var(--pyric-muted); font-size: 11px; }
+  .bar > .actions { grid-column: 3; }
+  .bar.no-hint { grid-template-columns: 0 minmax(0, 1fr) 0; }
+  .bar.no-hint > .actions { grid-column: 2; }
+  .bar.no-hint .bar-hint { display: none; }
+  .field { display: grid; grid-template-columns: 0 16px minmax(0, 1fr) 0; gap: var(--space-3); align-items: center; height: 36px; flex: none; border: 1px solid #454b59; border-radius: 6px; background: var(--pyric-content); color: var(--pyric-muted); }
+  .field > .icon { grid-column: 2; }
+  .field input { grid-column: 3; width: 100%; min-width: 0; color: var(--pyric-text); font-size: 12px; }
+  .field input::placeholder { color: var(--pyric-muted); opacity: 1; }
+  .field:focus-within { outline: 2px solid var(--pyric-accent); outline-offset: -2px; }
+  .field input:focus-visible { outline: none; }
+  .has-leading .row-content { grid-template-columns: 36px minmax(0, 1fr) 88px; }
+  .has-leading .c1.wide, .has-leading .s1.wide { grid-column: 2; }
+  .leading { grid-column: 1; grid-row: 1 / 3; display: grid; place-items: center; }
+  .avatar { display: grid; place-items: center; width: 36px; height: 36px; overflow: hidden; border: 1px solid #474f60; border-radius: 50%; background: #30394b; color: #d1ddf5; font-size: 12px; font-weight: 550; }
+  .avatar > * { grid-area: 1 / 1; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .avatar img[hidden] { display: none; }
+  .provider { display: grid; place-items: center; width: 16px; height: 16px; color: #c6cfdf; }
+  .provider .icon { width: 13px; height: 13px; }
+  .listener-mark { width: 10px; height: 10px; border: 2px solid var(--listener-color); border-radius: 3px; }
+  .listener-row .row-content { grid-template-columns: 12px minmax(0, 1fr) 88px; }
+  .listener-row .c1.wide, .listener-row .s1.wide { grid-column: 2; }
+  .listener-fact { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
+  .listener-fact strong { color: #dce2ed; font-weight: 550; font-variant-numeric: tabular-nums; }
+  .row[aria-pressed="true"] .listener-fact { color: var(--pyric-accent); }
+  .traffic-row .row-content { grid-template-columns: minmax(0, 1fr) 72px 52px; grid-template-rows: 20px auto; align-items: start; column-gap: var(--space-2); }
+  .traffic-row .c1 { grid-column: 1; grid-row: 1; color: var(--pyric-muted); font-size: 11px; font-weight: 400; line-height: 20px; }
+  .traffic-row .c2 { grid-column: 1 / -1; grid-row: 2; }
+  .traffic-row .s1 { grid-column: 2; grid-row: 1; text-align: left; line-height: 20px; }
+  .traffic-row .s1 .mono { font-size: 11px; }
+  .traffic-row .s2 { grid-column: 1 / -1; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
+  .traffic-row .s2:empty { display: none; }
+  .traffic-row[aria-expanded="true"] .c2 { white-space: normal; overflow-wrap: anywhere; }
+  [data-chip-view="sandbox"] .s1 { white-space: normal; overflow-wrap: anywhere; }
+  .traffic-row .slot { grid-column: 3; grid-row: 1; align-self: start; }
+  .listener-toggle { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; font-size: 11px; color: var(--pyric-muted); height: 32px; }
+  .toggle-track { width: 28px; height: 16px; display: grid; grid-template-columns: 0 1fr 0; gap: 2px; align-items: center; background: #3a3e49; border: 1px solid #697488; border-radius: 8px; }
+  .toggle-track::after { content: ''; grid-column: 2; width: 10px; height: 10px; background: #dce1eb; border-radius: 50%; justify-self: start; }
+  .listener-toggle[aria-pressed="true"] .toggle-track { background: #536b9d; border-color: var(--pyric-accent); }
+  .listener-toggle[aria-pressed="true"] .toggle-track::after { justify-self: end; }
+  .verdict { display: flex; align-items: center; justify-content: center; gap: var(--space-1); min-width: 52px; height: 20px; border: 1px solid #49404a; border-radius: 4px; background: #38282d; color: var(--pyric-error); }
+  .verdict.ok { color: #b3c7bd; border-color: #3b4943; background: #232e29; }
+  .empty { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--space-4); border: 1px dashed #454b59; border-radius: 8px; }
+  .empty > .intro { grid-column: 2; grid-row: 2; }
+  .empty .section-title { font-size: 13px; }
+  @media (max-width: 400px) {
+    :host { --space-3: 8px; --space-4: 12px; --space-6: 20px; }
+    .row-content, .has-leading .row-content, .listener-row .row-content { column-gap: var(--space-2); }
+    .has-leading .row-content { grid-template-columns: 32px minmax(0, 1fr) 80px; }
+    .avatar { width: 32px; height: 32px; }
+    .btn { width: 80px; flex-basis: 80px; }
+    .bar-hint { font-size: 10px; }
   }
-  .btn:hover:not(:disabled) { border-color: #3a3a48; color: var(--pyric-text); }
-  .btn:disabled, .btn[aria-disabled="true"] { cursor: not-allowed; opacity: .42; }
-  .btn[aria-pressed="true"] { background: rgba(255,255,255,.09); border-color: #3a3a48; color: var(--pyric-text); }
-  .slot .btn { height: 20px; }
-  .bar { flex: 0 0 32px; }
-
   @media (prefers-reduced-motion: no-preference) {
     [data-view], .panel { transform-origin: bottom right; }
     .entering { animation: pyric-enter 120ms ease-out; }
     @keyframes pyric-enter { from { opacity: 0; transform: translateY(4px) scale(.98); } }
   }
-
   ${THEME_DIALOG_STYLES}
 `;
 
 function escapeAttribute(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
+/** Small, shared stroke icons; provider marks use their recognizable silhouettes. */
+function iconHtml(name: string): string {
+  const paths: Record<string, string> = {
+    copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v12h5"/>',
+    chevron: '<path d="m9 5 7 7-7 7"/>',
+    minimize: '<path d="M5 12h14"/>',
+    external: '<path d="M14 4h6v6M20 4l-9 9M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
+    user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',
+    password: '<rect x="4" y="9" width="16" height="12" rx="2"/><path d="M8 9V6a4 4 0 0 1 8 0v3M12 14v3"/>',
+    phone: '<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/>',
+    'google.com': '<path d="M20 7a9 9 0 1 0 1 6h-9M21 13v-2h-9"/>',
+    'github.com': '<path d="M8 21v-4c-5 1-5-3-7-3m15 7v-4c0-1-.3-2-1-2 4-.5 6-2 6-6 0-2-.5-3-2-4 .3-1 .3-2 0-3-2 0-3 1-4 2a14 14 0 0 0-6 0C8 3 7 2 5 2c-.3 1-.3 2 0 3-1.5 1-2 2-2 4 0 4 2 5.5 6 6-.7 0-1 1-1 2"/>',
+    'facebook.com': '<path d="M14 22V12h4l1-4h-5V6c0-2 1-3 4-3V0h-4c-4 0-5 3-5 6v2H6v4h3v10"/>',
+    'twitter.com': '<path d="m4 3 16 18h-4L1 3h4m15 0L4 21"/>',
+    'microsoft.com': '<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/>',
+    'apple.com': '<path d="M15 3c0-2 2-3 3-3 0 2-1 3-3 3Zm-3 3C5 1 1 9 5 17c3 6 4 3 7 3s4 3 7-3c-5-2-5-7-1-9-2-3-4-3-6-2Z"/>',
+  };
+  return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] ?? paths.user}</svg>`;
+}
+
+function avatarHtml(photoUrl: string | null | undefined, label: string): string {
+  const initials = label.trim().split(/\s+/).slice(0, 2).map((part) => part[0] ?? '').join('').toUpperCase();
+  // Profile images may be relative served assets or remote HTTP images.
+  const safePhoto = photoUrl && /^(https?:\/\/|\/(?!\/))/.test(photoUrl) ? photoUrl : null;
+  return `<span class="avatar" aria-hidden="true"><span>${escapeAttribute(initials || '?')}</span>${safePhoto ? `<img data-avatar src="${escapeAttribute(safePhoto)}" alt="" referrerpolicy="no-referrer">` : ''}</span>`;
+}
+
+function sectionHtml(title: string, body: string, meta = '', action = ''): string {
+  return `<section class="section"><div class="section-heading"><div class="section-line"><span class="section-title">${escapeAttribute(title)}</span><span class="actions"><span class="section-meta">${escapeAttribute(meta)}</span>${action}</span></div></div>${body}</section>`;
+}
+
+function introHtml(title: string, hint: string, detail = ''): string {
+  return `<div class="intro-rail"><div class="intro"><span class="section-title">${escapeAttribute(title)}</span><span class="hint">${escapeAttribute(hint)}</span>${detail}</div></div>`;
+}
+
+function emptyHtml(title: string, detail: string): string {
+  return `<div class="empty"><div class="intro"><span class="section-title">${escapeAttribute(title)}</span><span class="hint">${escapeAttribute(detail)}</span></div></div>`;
 }
 
 /** `true` when two listener lists would render the same Listeners view. */
@@ -324,7 +360,7 @@ function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline
 
 /** `12 listeners`, `1 listener`, etc. */
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count} ${count === 1 ? singular : plural}`;
+  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
 }
 
 /** The target the way the app wrote it: `conversations (query)`, `users/u1`. */
@@ -335,13 +371,17 @@ function displayTarget(outline: ListenerOutline): string {
 /** A view: what the scrolling area holds, and its action bar. */
 interface ChipView { body: string; bar: string }
 
-/** How many rows a view lists. Past this the answer is Studio's. */
+/** Traffic is a bounded recent feed; the identity directory has searchable pages. */
 const MAX_ROWS = 7;
+const USER_PAGE_SIZE = 20;
+const PROVIDER_ICON_LIMIT = 3;
 
-/** One cell's text, escaped, or nothing. */
+/** Named cells containing escaped text or trusted component markup. */
 interface RowCells {
   /** Column one, or the whole text width when `c2` is absent. */
   c1: string;
+  /** Optional avatar or listener mark, outside the text cells. */
+  leading?: string;
   /** Column two, at L2. Present only on a tab with a fixed first column. */
   c2?: string;
   /** The sub-row under column one; with `c2`, under the first column only. */
@@ -350,7 +390,7 @@ interface RowCells {
   s2?: string;
   /** The sub-row's right-aligned cell, ending at R. Only without `c2`. */
   s1Right?: string;
-  /** The slot at R: a fact or one button, already escaped or built. */
+  /** The trailing fact or action slot, already escaped or built. */
   slot: string;
   className?: string;
   attributes?: string;
@@ -361,7 +401,7 @@ interface RowCells {
 function rowHtml(cells: RowCells): string {
   const hasSub = cells.s1 !== undefined || cells.s2 !== undefined || cells.s1Right !== undefined;
   const wide = cells.c2 === undefined;
-  const classes = `row${hasSub ? ' sub' : ''}${cells.className ? ` ${cells.className}` : ''}`;
+  const classes = `row${hasSub ? ' sub' : ''}${cells.leading ? ' has-leading' : ''}${cells.className ? ` ${cells.className}` : ''}`;
   const title = cells.title ? ` title="${escapeAttribute(cells.title)}"` : '';
   const attributes = cells.attributes ? ` ${cells.attributes}` : '';
   let html = `<span class="c1${wide ? ' wide' : ''}">${cells.c1}</span>`;
@@ -375,17 +415,17 @@ function rowHtml(cells: RowCells): string {
       if (!wide) html += `<span class="s2">${cells.s2 ?? ''}</span>`;
     }
   }
-  return `<div class="${classes}"${title}${attributes}>${html}</div>`;
+  return `<div class="${classes}"${title}${attributes}><span class="row-content">${cells.leading ? `<span class="leading">${cells.leading}</span>` : ''}${html}</span></div>`;
 }
 
 /** A row whose own click is its action; `pressed` marks it active. */
-function buttonRowHtml(cells: RowCells & { label: string; pressed?: boolean }): string {
+function buttonRowHtml(cells: RowCells & { label: string; pressed?: boolean; expanded?: boolean }): string {
   const inner = rowHtml(cells);
   const body = inner.slice(inner.indexOf('>') + 1, -'</div>'.length);
   const hasSub = cells.s1 !== undefined || cells.s2 !== undefined || cells.s1Right !== undefined;
-  const classes = `row${hasSub ? ' sub' : ''}${cells.className ? ` ${cells.className}` : ''}`;
+  const classes = `row${hasSub ? ' sub' : ''}${cells.leading ? ' has-leading' : ''}${cells.className ? ` ${cells.className}` : ''}`;
   const title = cells.title ? ` title="${escapeAttribute(cells.title)}"` : '';
-  return `<button class="${classes}" type="button" aria-label="${escapeAttribute(cells.label)}"${cells.pressed === undefined ? '' : ` aria-pressed="${cells.pressed}"`}${title} ${cells.attributes ?? ''}>${body}</button>`;
+  return `<button class="${classes}" type="button" aria-label="${escapeAttribute(cells.label)}"${cells.pressed === undefined ? '' : ` aria-pressed="${cells.pressed}"`}${cells.expanded === undefined ? '' : ` aria-expanded="${cells.expanded}"`}${title} ${cells.attributes ?? ''}>${body}</button>`;
 }
 
 /** `true` for an element with a text caret to preserve across a rebuild. */
@@ -399,8 +439,8 @@ function buttonHtml(attributes: string, label: string, title?: string): string {
 }
 
 /** The action bar: up to three buttons against R, the primary one rightmost. */
-function barHtml(buttons: readonly string[]): string {
-  return `<div class="actions bar" data-action-bar>${buttons.join('')}</div>`;
+function barHtml(buttons: readonly string[], hint = ''): string {
+  return `<div class="bar${hint ? '' : ' no-hint'}" data-action-bar><span class="bar-hint">${hint}</span><span class="actions">${buttons.join('')}</span></div>`;
 }
 
 /** `12:50:43` in the page's own clock, which is the one the developer reads. */
@@ -455,6 +495,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       else setLensFn({ mode: 'as', uid });
       clientUser = readCurrentUser();
       identityQuery = '';
+      identityPage = 0;
       void loadUsers();
       render();
     },
@@ -472,16 +513,24 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   // ── Identity view state ────────────────────────────────────────────────────
   /** What the developer typed into the switch-user field. */
   let identityQuery = '';
+  let identityPage = 0;
+  let filteredDirectory: { users: AuthUserRecord[]; query: string; uid: string | null; matches: AuthUserRecord[] } | null = null;
   /** The sandbox's users, read once the Identity view is first shown. */
   let knownUsers: AuthUserRecord[] = [];
   let usersRequested = false;
+  let usersLoading = false;
+  let usersFailed = false;
   const loadUsers = async (): Promise<void> => {
     usersRequested = true;
+    usersLoading = true;
+    usersFailed = false;
     try {
       knownUsers = await identity.listUsers();
     } catch {
       knownUsers = [];
+      usersFailed = true;
     }
+    usersLoading = false;
     render();
   };
 
@@ -577,10 +626,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let renderedOpen: boolean | null = null;
   const openPanel = (): void => {
     tab = openingChipTab(signals(), readRememberedChipTab(tabStorage));
+    if (tab === 'identity' && usersFailed) usersRequested = false;
     open = true;
   };
 
   const showTab = (next: ChipTab): void => {
+    if (next === 'identity' && usersFailed) usersRequested = false;
     tab = next;
     writeRememberedChipTab(tabStorage, next);
     render();
@@ -618,56 +669,73 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     });
   };
 
+  const userProviders = (record: AuthUserRecord | undefined): string[] =>
+    record === undefined ? [] : [...new Set(getUserProviders(record))];
   const providersHtml = (record: AuthUserRecord | undefined): string =>
-    record === undefined ? '' : getUserProviders(record).map((provider) => `<span>${escapeAttribute(provider)}</span>`).join('');
+    userProviders(record).slice(0, PROVIDER_ICON_LIMIT).map((provider) =>
+      `<span class="provider" role="img" aria-label="${escapeAttribute(provider)}" title="${escapeAttribute(provider)}">${iconHtml(provider)}</span>`).join('');
+  const identityRecordHtml = (row: string, record: AuthUserRecord | undefined): string => {
+    const providers = userProviders(record);
+    if (providers.length <= PROVIDER_ICON_LIMIT) return `<div class="identity-record">${row}</div>`;
+    const entries = providers.map((provider) => `<span class="provider-entry">${iconHtml(provider)}<span>${escapeAttribute(provider)}</span></span>`).join('');
+    return `<div class="identity-record">${row}<div class="provider-disclosure"><details class="provider-details" data-user-providers="${escapeAttribute(record!.uid)}"><summary aria-label="Show all ${providers.length} providers for ${escapeAttribute(userDisplayLabel(record!))}">${iconHtml('chevron')}<span>+${providers.length - PROVIDER_ICON_LIMIT} providers</span></summary><div class="provider-body"><div class="provider-list">${entries}</div></div></details></div></div>`;
+  };
 
   const identityViewHtml = (activeUid: string | null, isAdmin: boolean): ChipView => {
-    const user = readCurrentUser();
-    const rows: string[] = [updateRowHtml()];
-    const matched: string[] = [];
-    if (activeUid === null) {
-      rows.push(rowHtml({ c1: 'Signed out', slot: '', attributes: 'data-identity-row' }));
-    } else {
-      const record = knownUsers.find((candidate) => candidate.uid === activeUid);
-      const name = user?.displayName ?? record?.displayName ?? null;
-      const email = user?.email ?? record?.email ?? null;
-      const sub = name === null ? '' : escapeAttribute(email ?? '');
-      const providers = providersHtml(record);
-      rows.push(rowHtml({
-        c1: escapeAttribute(name ?? email ?? activeUid),
-        ...(sub === '' && providers === '' ? {} : { s1: sub, s1Right: providers }),
-        slot: buttonHtml('data-sign-out', 'Sign out'),
-        attributes: 'data-identity-row',
-        title: activeUid,
-      }));
-    }
-
+    const session = readCurrentUser();
+    // An impersonated identity must never borrow the app session's profile.
+    const user = session?.uid === activeUid ? session : null;
+    const record = knownUsers.find((candidate) => candidate.uid === activeUid);
+    const name = user?.displayName ?? record?.displayName ?? null;
+    const email = user?.email ?? record?.email ?? null;
+    const label = name ?? email ?? activeUid ?? 'Signed out';
+    const current = rowHtml({
+      c1: escapeAttribute(label),
+      s1: activeUid === null ? 'Choose a user below to sign in' : escapeAttribute(name ? email ?? activeUid : activeUid),
+      s1Right: providersHtml(record),
+      leading: activeUid === null ? `<span class="avatar">${iconHtml('user')}</span>` : avatarHtml(user?.photoURL ?? record?.photoUrl, label),
+      slot: activeUid === null ? '' : buttonHtml('data-sign-out', 'Sign out'),
+      attributes: 'data-identity-row',
+      title: activeUid,
+    });
     const query = identityQuery.trim();
-    const matches = filterUsers(knownUsers, identityQuery)
-      .filter((candidate) => candidate.uid !== activeUid)
-      .slice(0, MAX_ROWS);
-    for (const candidate of matches) {
+    if (filteredDirectory?.users !== knownUsers || filteredDirectory.query !== identityQuery || filteredDirectory.uid !== activeUid) {
+      filteredDirectory = { users: knownUsers, query: identityQuery, uid: activeUid, matches: filterUsers(knownUsers, identityQuery).filter((candidate) => candidate.uid !== activeUid) };
+    }
+    const available = filteredDirectory.matches;
+    identityPage = Math.min(identityPage, Math.max(0, Math.ceil(available.length / USER_PAGE_SIZE) - 1));
+    const offset = identityPage * USER_PAGE_SIZE;
+    const matches = available.slice(offset, offset + USER_PAGE_SIZE);
+    const matched = matches.map((candidate) => {
       const label = userDisplayLabel(candidate);
-      const email = candidate.email ?? '';
-      const sub = label === email ? '' : escapeAttribute(email);
-      const providers = providersHtml(candidate);
-      matched.push(buttonRowHtml({
+      return identityRecordHtml(buttonRowHtml({
         c1: escapeAttribute(label),
-        ...(sub === '' && providers === '' ? {} : { s1: sub, s1Right: providers }),
+        s1: escapeAttribute(label === candidate.email ? candidate.uid : candidate.email ?? candidate.uid),
+        s1Right: providersHtml(candidate),
+        leading: avatarHtml(candidate.photoUrl, label),
         slot: '<span class="btn" aria-hidden="true">Sign in</span>',
         attributes: `data-switch-user="${escapeAttribute(candidate.uid)}"`,
         label: `Sign in as ${label}`,
         title: candidate.uid,
-      }));
-    }
-
+      }), candidate);
+    });
     const buttons: string[] = [];
-    if (query !== '' && matches.length === 0) {
+    if (query !== '' && matches.length === 0 && !usersLoading && !usersFailed) {
       buttons.push(buttonHtml('data-create-user', 'Create user', `Create a user for ${query}`));
     }
     buttons.push(buttonHtml(`data-toggle-bypass aria-pressed="${isAdmin}"`, 'Bypass rules', isAdmin ? 'Rules are bypassed' : 'Evaluate rules as the session'));
-    const search = `<div class="field"><input type="text" data-identity-query placeholder="Search users" autocomplete="off" aria-label="Search users" value="${escapeAttribute(identityQuery)}"></div>`;
-    return { body: `<div class="rows">${rows.join('')}</div>${search}<div class="rows" data-user-rows>${matched.join('')}</div>`, bar: barHtml(buttons) };
+    const search = `<div class="field">${iconHtml('search')}<input type="text" data-identity-query placeholder="Search name, email, or provider" autocomplete="off" aria-label="Search users" value="${escapeAttribute(identityQuery)}"></div>`;
+    const empty = !usersRequested || usersLoading ? emptyHtml('Loading users', 'Reading the sandbox user directory.')
+      : usersFailed ? emptyHtml('Could not load users', 'Reopen Identity to try reading the sandbox directory again.')
+      : query ? emptyHtml('No matching users', 'Try another name, email, or provider. You can also create a user below.')
+      : emptyHtml('No other users yet', 'Users created by your app will appear here for quick switching.');
+    const range = available.length ? `${(offset + 1).toLocaleString()}–${(offset + matches.length).toLocaleString()} of ${available.length.toLocaleString()}` : '0 users';
+    const pagination = available.length > USER_PAGE_SIZE ? `<div class="pagination"><div class="pagination-line"><span class="section-meta" data-user-range>${range}</span><span class="actions"><button class="btn icon-button" type="button" data-user-previous aria-label="Previous users"${identityPage === 0 ? ' disabled' : ''}>${iconHtml('chevron')}</button><button class="btn icon-button" type="button" data-user-next aria-label="Next users"${offset + USER_PAGE_SIZE >= available.length ? ' disabled' : ''}>${iconHtml('chevron')}</button></span></div></div>` : '';
+    const update = updateRowHtml();
+    return {
+      body: `${update ? `<div class="rows">${update}</div>` : ''}${sectionHtml('Current identity', `<div class="rows">${identityRecordHtml(current, record)}</div>`, isAdmin ? 'Rules bypassed' : getLensFn()?.mode === 'as' ? 'Impersonating' : '')}${sectionHtml('Switch user', `${search}${pagination}<div class="rows" data-user-rows>${matched.join('')}</div>${matched.length ? '' : empty}`, pluralize(available.length, 'user'))}`,
+      bar: barHtml(buttons, isAdmin ? 'Rules bypassed' : 'Rules enforced'),
+    };
   };
 
   const listenersViewHtml = (): ChipView => {
@@ -678,13 +746,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
     const incidents = listenerOutlines.filter((outline) => outline.incident?.pattern === 'duplicate-listener');
     const ordered = [...listenerOutlines]
-      .sort((a, b) => b.deliveryCount - a.deliveryCount || a.label.localeCompare(b.label))
-      .slice(0, MAX_ROWS);
+      .sort((a, b) => b.deliveryCount - a.deliveryCount || a.label.localeCompare(b.label));
 
     const rows = [
       ...incidents.map((outline) => buttonRowHtml({
         c1: 'Duplicate subscription',
         s1: `<span class="mono">${escapeAttribute(displayTarget(outline))}</span>`,
+        title: displayTarget(outline),
         slot: `<span class="mono">${outline.incident!.count}</span>`,
         className: 'problem',
         attributes: `data-listener-incident="${escapeAttribute(outline.listenerId)}" data-activate-listener="${escapeAttribute(outline.listenerId)}"`,
@@ -696,8 +764,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         const hue = listenerColors(outline.listenerId).swatch;
         return buttonRowHtml({
           c1: escapeAttribute(outline.labelIsOwner ? outline.label : target),
-          s1: `<span class="mono" style="color:${escapeAttribute(hue)}">${escapeAttribute(outline.labelIsOwner ? target : '')}</span>`,
-          slot: `<span class="mono">${outline.deliveryCount}</span>`,
+          s1: outline.labelIsOwner ? `<span class="mono">${escapeAttribute(target)}</span>` : escapeAttribute(outline.service === 'database' ? 'Realtime Database' : 'Firestore'),
+          leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(hue)}"></span>`,
+          slot: `<span class="listener-fact"><strong>${outline.deliveryCount}</strong><span>${activeListenerId === outline.listenerId ? 'Highlighted' : 'deliveries'}</span></span>`,
+          className: 'listener-row',
+          title: `${target} — ${activeListenerId === outline.listenerId ? 'Click to show all listeners' : 'Click to highlight on the page'}`,
           attributes: `data-listener-row="${escapeAttribute(outline.listenerId)}" data-activate-listener="${escapeAttribute(outline.listenerId)}"`,
           label: `Outline ${outline.labelIsOwner ? outline.label : target} on the page`,
           pressed: activeListenerId === outline.listenerId,
@@ -705,57 +776,69 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       }),
     ];
     const blocked = outlinesRefused;
+    const allOn = outlinesOn && paintMode === 'overview' && activeListenerId === null && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
+    const toggle = `<button type="button" class="listener-toggle" data-listener-all aria-pressed="${allOn}"><span class="toggle-track" aria-hidden="true"></span>Show all</button>`;
     const bar = barHtml([
-      buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"${blocked === null ? '' : ' aria-disabled="true"'}`, 'Overview', blocked ?? 'Outline every attached listener'),
-      buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${(flowReason ?? blocked) === null ? '' : ' aria-disabled="true"'}`, 'Flow', flowReason ?? blocked ?? 'Outline what rendered after each delivery'),
+      buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery'),
       buttonHtml('data-open-overlay-theme', 'Theme', "Edit the overlay's custom properties"),
     ]);
-    return { body: `<div class="rows" data-listener-rows>${rows.join('')}</div>`, bar };
+    const detail = blocked ?? (listenerMode?.flowWaiting() ? 'Waiting for the next delivery to show what rendered.' : activeListenerId ? 'Selected listener highlighted. Use Show all to restore every outline.' : 'Select a listener to highlight its components on your page.');
+    const flowHint = flowReason ? `<span class="hint" data-flow-unavailable>${escapeAttribute(flowReason)}</span>` : '';
+    return { body: `${introHtml('Listeners on this page', detail, flowHint)}${sectionHtml(pluralize(listenerOutlines.length, 'listener'), `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No listeners attached', 'Open a part of your app that subscribes to data to see it here.')}`, '', toggle)}`, bar };
   };
 
+  let expandedRequestId: string | null = null;
   const trafficViewHtml = (): ChipView => {
     const rows = trafficRows().map((request) => {
-      // A failure that names no call sits in the path column, under a
-      // `runtime` call, so column one stays the call column on every row.
+      // Keep named cells stable for copying while the path owns the main line.
       const named = request.service !== null && request.method !== null;
       const call = named ? `${request.service}.${request.method}` : 'runtime';
       const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
-      return rowHtml({
+      return buttonRowHtml({
         c1: escapeAttribute(call),
         c2: named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.reason ?? ''),
-        slot: `<span class="${request.verdict === 'ok' ? 'ok' : ''}">${request.verdict}</span>`,
-        className: request.verdict === 'ok' ? '' : 'problem',
-        attributes: `data-request-row="${escapeAttribute(request.id)}"`,
+        slot: `<span class="verdict ${request.verdict === 'ok' ? 'ok' : ''}">${request.verdict}</span>`,
+        className: `traffic-row${request.verdict === 'ok' ? '' : ' problem'}`,
+        title: [call, what, request.reason].filter(Boolean).join(' —'),
+        attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
+        label: `${call}: ${what}. ${request.verdict}. ${expandedRequestId === request.id ? 'Collapse' : 'Expand'} full path`,
+        expanded: expandedRequestId === request.id,
       });
     });
+    const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
     const bar = barHtml([
       buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only'),
-      buttonHtml(`data-copy-traffic${clipboard ? '' : ' disabled'}`, 'Copy', clipboard ? 'Copy these rows as plain text' : 'Clipboard unavailable'),
     ]);
-    return { body: `<div class="rows" data-traffic-rows>${rows.join('')}</div>`, bar };
+    return { body: `${introHtml('Recent traffic', 'Select a request to expand its full path.')}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
   };
 
   const sandboxViewHtml = (): ChipView => {
     const aiState = aiEngineState();
     const rows = [
-      // The model is the fact a user knows; the sandbox engine reads as `scripted`.
-      rowHtml({ c1: 'Model', slot: escapeAttribute(aiState.primary.replace(/^sandbox \((.*)\)$/, '$1')), attributes: 'data-ai-row', title: aiState.detail }),
-      rowHtml({ c1: 'Worker', slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? '')}</span>`, attributes: 'data-worker-row' }),
-      rowHtml({ c1: 'Theme', slot: buttonHtml('data-open-overlay-theme', 'Edit', "Edit the overlay's custom properties"), attributes: 'data-theme-row' }),
+      rowHtml({ c1: 'Model', s1: aiState.detail ? escapeAttribute(aiState.detail) : aiState.primary === 'sandbox (scripted)' ? 'Scripted responses for local development' : 'Responses use the configured provider', slot: escapeAttribute(aiState.primary.replace(/^sandbox \((.*)\)$/, '$1')), attributes: 'data-ai-row', title: aiState.detail ?? aiState.primary }),
+      rowHtml({ c1: 'Worker', s1: snapshot.updateAvailable ? 'A newer version is available' : snapshot.runningEpoch ? 'Current sandbox version' : 'Waiting for the sandbox to connect', slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch }),
     ];
-    return { body: `<div class="rows">${rows.join('')}</div>`, bar: barHtml([buttonHtml('data-dismiss-chip', 'Hide', 'Hide pyric on this page')]) };
+    const theme = rowHtml({ c1: 'Theme', s1: 'Colors and outlines for listeners', slot: buttonHtml(`data-open-overlay-theme${options.listeners ? '' : ' disabled'}`, 'Edit', options.listeners ? "Edit the overlay's custom properties" : 'Listener overlays are unavailable on this page'), attributes: 'data-theme-row' });
+    return {
+      body: `${introHtml('Your local sandbox', 'The configuration behind this page.')}${sectionHtml('Runtime', `<div class="rows">${rows.join('')}</div>`)}${sectionHtml('Page overlays', `<div class="rows">${theme}</div>`)}`,
+      bar: barHtml([buttonHtml('data-dismiss-chip', 'Hide', 'Hide pyric on this page')], 'Hide until reload'),
+    };
   };
 
   const viewHtml = (activeUid: string | null, isAdmin: boolean): ChipView => {
     if (tab === 'identity') return identityViewHtml(activeUid, isAdmin);
-    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : { body: '<div class="rows"></div>', bar: barHtml([]) };
+    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : { body: emptyHtml('Listeners unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
     return sandboxViewHtml();
   };
 
   const render = (next = snapshot): void => {
+    const openProviders = [...root.querySelectorAll<HTMLDetailsElement>('[data-user-providers][open]')].map((details) => details.dataset.userProviders);
+    const providerFocus = root.activeElement?.closest('[data-user-providers]')?.getAttribute('data-user-providers');
+    const previousView = root.querySelector<HTMLElement>('[data-chip-view]');
+    const scrollTop = previousView?.dataset.chipView === tab ? previousView.scrollTop : 0;
     const active = root.activeElement as HTMLElement | null;
     const focusAttribute = [
       'data-identity-query',
@@ -767,8 +850,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-toggle-bypass',
       'data-switch-user',
       'data-create-user',
+      'data-user-previous',
+      'data-user-next',
+      'data-listener-all',
       'data-listener-mode',
       'data-activate-listener',
+      'data-inspect-request',
       'data-traffic-denied',
       'data-copy-traffic',
       'data-open-overlay-theme',
@@ -783,6 +870,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           caret: isTextField(active) ? active.selectionStart : null,
         };
     snapshot = next;
+    renderedFlowWaiting = listenerMode?.flowWaiting() === true;
 
     const lens = getLensFn();
     const user = readCurrentUser();
@@ -802,7 +890,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const tone = candidate !== problem
         ? ''
         : current.failedRecently || current.duplicateListener ? ' problem' : ' pending';
-      return `<button class="tab${tone}" type="button" role="tab" id="pyric-tab-${candidate}" data-chip-tab="${candidate}" aria-selected="${candidate === tab}" aria-controls="pyric-view">${CHIP_TAB_LABELS[candidate]}</button>`;
+      return `<button class="tab${tone}" type="button" role="tab" id="pyric-tab-${candidate}" data-chip-tab="${candidate}" tabindex="${candidate === tab ? 0 : -1}" aria-selected="${candidate === tab}" aria-controls="pyric-view">${CHIP_TAB_LABELS[candidate]}</button>`;
     }).join('');
 
     const studioSection = tab === 'identity'
@@ -816,21 +904,32 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       ? null
       : studioSectionUrl(studioUrl, studioSection.section, studioSection.query);
     const studioHtml = studioHref === null
-      ? '<span class="btn" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio</span>'
-      : `<a class="btn" data-open-studio href="${escapeAttribute(studioHref)}" target="_blank" rel="noopener noreferrer" title="Open this view in Studio">Studio</a>`;
+      ? `<span class="btn" data-open-studio aria-disabled="true" title="Pyric Studio is disabled">Studio${iconHtml('external')}</span>`
+      : `<a class="btn" data-open-studio href="${escapeAttribute(studioHref)}" target="_blank" rel="noopener noreferrer" title="Open this view in Studio">Studio${iconHtml('external')}</a>`;
 
+    if (open) installChipFonts(documentLike);
     const built = open ? viewHtml(activeUid, isAdmin) : { body: '', bar: '' };
     view.innerHTML = open
       ? `<section class="panel" role="dialog" aria-label="pyric"><div class="panel-column">
         <header class="panel-header">
-          <span class="panel-name">pyric</span>
-          <span class="actions">${studioHtml}${buttonHtml('data-collapse', 'Close', 'Close pyric')}</span>
+          <span class="brand"><span class="panel-name">pyric</span></span>
+          <span class="actions">${studioHtml}<button class="btn icon-button" type="button" data-collapse title="Minimize pyric" aria-label="Minimize pyric">${iconHtml('minimize')}<span class="sr-only">Close</span></button></span>
         </header>
         <div class="tabs" role="tablist" aria-label="pyric views">${tabsHtml}</div>
-        <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}">${built.body}</div>
+        <div class="view" id="pyric-view" role="tabpanel" data-chip-view="${tab}" aria-labelledby="pyric-tab-${tab}"><div class="view-content">${built.body}</div></div>
         ${built.bar}
       </div></section>`
       : `<button class="chip${chipTone}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric</button>`;
+
+    for (const details of root.querySelectorAll<HTMLDetailsElement>('[data-user-providers]')) {
+      details.open = openProviders.includes(details.dataset.userProviders);
+      if (providerFocus === details.dataset.userProviders) details.querySelector('summary')?.focus({ preventScroll: true });
+    }
+    const scrollView = root.querySelector<HTMLElement>('[data-chip-view]');
+    if (scrollView) scrollView.scrollTop = scrollTop;
+    for (const photo of root.querySelectorAll<HTMLImageElement>('[data-avatar]')) {
+      photo.addEventListener('error', () => { photo.hidden = true; });
+    }
 
     const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
@@ -854,6 +953,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       root.querySelector<HTMLButtonElement>('[data-expand]')?.focus();
     });
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-chip-tab]')) {
+      button.addEventListener('keydown', (event) => {
+        const index = CHIP_TABS.indexOf(tab);
+        const nextIndex = event.key === 'ArrowRight' ? (index + 1) % CHIP_TABS.length
+          : event.key === 'ArrowLeft' ? (index + CHIP_TABS.length - 1) % CHIP_TABS.length
+          : event.key === 'Home' ? 0 : event.key === 'End' ? CHIP_TABS.length - 1 : null;
+        if (nextIndex === null) return;
+        event.preventDefault();
+        showTab(CHIP_TABS[nextIndex]!);
+        root.querySelector<HTMLButtonElement>(`[data-chip-tab="${tab}"]`)?.focus();
+      });
       button.addEventListener('click', () => {
         const next = button.dataset.chipTab;
         if (next === undefined) return;
@@ -863,8 +972,17 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const queryInput = root.querySelector<HTMLInputElement>('[data-identity-query]');
     queryInput?.addEventListener('input', () => {
       identityQuery = queryInput.value;
+      identityPage = 0;
       render();
     });
+    for (const direction of ['previous', 'next'] as const) {
+      root.querySelector(`[data-user-${direction}]`)?.addEventListener('click', () => {
+        identityPage += direction === 'next' ? 1 : -1;
+        render();
+        const userRows = root.querySelector('[data-user-rows]');
+        userRows?.scrollIntoView?.({ block: 'nearest' });
+      });
+    }
     root.querySelector('[data-sign-out]')?.addEventListener('click', () => {
       void identity.signOut();
     });
@@ -882,6 +1000,18 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     root.querySelector('[data-create-user]')?.addEventListener('click', () => {
       identity.openCreateUser();
     });
+    root.querySelector('[data-listener-all]')?.addEventListener('click', () => {
+      const mode = ensureListenerMode();
+      if (!mode) return;
+      const allOn = mode.enabled() && mode.mode() === 'overview' && activeListenerId === null && mode.outlines().every((outline) => mode.isListenerVisible(outline.listenerId));
+      activeListenerId = null;
+      for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
+      if (!allOn) mode.setMode('overview');
+      mode.setEnabled(!allOn);
+      outlinesRefused = !allOn && !mode.enabled() ? 'Listener attribution is off in this build, so there are no owners to outline.' : null;
+      listenerOutlines = mode.outlines();
+      render();
+    });
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-listener-mode]')) {
       button.addEventListener('click', () => {
         const mode = ensureListenerMode();
@@ -891,6 +1021,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         // else is that mode going on.
         if (mode.enabled() && mode.mode() === paint) {
           mode.setEnabled(false);
+          activeListenerId = null;
+          for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
           outlinesRefused = null;
         } else {
           mode.setMode(paint);
@@ -919,7 +1051,19 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           mode.setMode('overview');
           mode.setEnabled(true);
         }
+        if (!mode.enabled()) {
+          activeListenerId = null;
+          outlinesRefused = 'Listener attribution is off in this build, so there are no owners to outline.';
+        } else {
+          outlinesRefused = null;
+        }
         listenerOutlines = mode.outlines();
+        render();
+      });
+    }
+    for (const row of root.querySelectorAll<HTMLButtonElement>('[data-inspect-request]')) {
+      row.addEventListener('click', () => {
+        expandedRequestId = expandedRequestId === row.dataset.inspectRequest ? null : row.dataset.inspectRequest ?? null;
         render();
       });
     }
@@ -957,7 +1101,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const candidates = root.querySelectorAll<HTMLElement>(`[${focusToken.attribute}]`);
       const replacement = [...candidates].find((candidate) =>
         focusToken.value === null || candidate.getAttribute(focusToken.attribute) === focusToken.value);
-      replacement?.focus();
+      replacement?.focus({ preventScroll: true });
       if (focusToken.caret !== null && isTextField(replacement)) {
         replacement.setSelectionRange(focusToken.caret, focusToken.caret);
       }

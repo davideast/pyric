@@ -37,6 +37,32 @@ function fakeResponse(opts: {
 }
 
 describe('createAssetResolver: keyed cache', () => {
+  it.each(['data', 'url'] as const)('retains every concurrent %s download across resolver restarts', async (kind) => {
+    const dir = tmp();
+    saveManifest(dir, { version: 1, name: 'Portraits', images: [{ file: 'pool.png' }] });
+    const resolver = createAssetResolver({
+      dir,
+      source: ({ key }) => kind === 'url'
+        ? { url: `https://example.test/${key}` }
+        : { data: new TextEncoder().encode(key), contentType: 'image/png' },
+      fetchImpl: async (url) => new Response(String(url).split('/').at(-1), { headers: { 'content-type': 'image/png' } }),
+      fallback: failingFallback,
+      sourceDeadlineMs: 1000,
+    });
+    const keys = ['alice', 'bob', 'charlie'];
+    await Promise.all(keys.map((key) => resolver.resolve(req(key))));
+    const restarted = createAssetResolver({ dir, fallback: failingFallback });
+    for (const key of keys) {
+      const result = await restarted.resolve(req(key));
+      expect(result.origin).toBe('cache');
+      expect(new TextDecoder().decode(result.data)).toBe(key);
+    }
+    const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+    expect(manifest.name).toBe('Portraits');
+    expect(manifest.images).toContainEqual({ file: 'pool.png' });
+    expect(manifest.images).toHaveLength(4);
+  });
+
   it('serves a materialised manifest entry without touching source or fallback', async () => {
     const dir = tmp();
     const bytes = new TextEncoder().encode('hero-bytes');

@@ -244,6 +244,7 @@ export function overlayStyleSheetText(): string {
   return `
   ${hueRules()}
   [data-pyric-listener-overlay] [data-pyric-listener-box] {
+    box-sizing: border-box;
     position: absolute;
     pointer-events: none;
     border: var(--pyric-overlay-outline-width) var(--pyric-overlay-outline-style) var(--pyric-overlay-hue);

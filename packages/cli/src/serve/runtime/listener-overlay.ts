@@ -1,7 +1,7 @@
 /**
  * The boxes the chip's Listeners mode paints over the page.
  *
- * The overlay owns one absolutely positioned container appended to the page
+ * The overlay owns one fixed-position container appended to the page
  * body and rebuilds its boxes from a list of {@link ListenerOutline} records.
  * It derives nothing: the model decides which listeners exist, what they are
  * called, what they listen to, and which incident they are part of.
@@ -12,9 +12,9 @@
  * `overlay-theme.ts`, which the container carries. Position and size stay
  * inline, because they are measured from the page rather than chosen.
  *
- * The overlay reads page geometry and never writes it. Its only page-level
- * listener is a window resize handler, which recomputes the boxes it already
- * drew. It installs nothing on application elements.
+ * Native CSS anchors follow supported targets. Other targets are measured on
+ * scroll (including nested scrollers), resize, and layout changes. Anchor
+ * names are restored when the diagnostic releases an application element.
  */
 import type { ListenerOutline } from './listener-outline-model.js';
 import { listenerHueIndex } from './listener-palette.js';
@@ -24,6 +24,7 @@ import {
   type OverlayTheme,
 } from './overlay-theme.js';
 import type { ListenerPaintMode } from './listener-paint-mode.js';
+import { tryAnchorOverlay } from './overlay-anchor.js';
 
 export interface ListenerOverlayOptions {
   document: Document;
@@ -45,13 +46,13 @@ export interface ListenerOverlay {
   container(): HTMLElement;
   /** Recompute the boxes already drawn against the page's current geometry. */
   reposition(): void;
-  /** Called after a resize, so a second painter can follow the page too. */
+  /** Called after geometry changes, so a second painter can follow too. */
   onReposition(listener: () => void): () => void;
   /** Say which painting mode the container is in, for the stylesheet. */
   setMode(mode: ListenerPaintMode): void;
   /** Replace the container's custom properties with these overrides. */
   setTheme(theme: OverlayTheme | null): void;
-  /** Remove the container and its resize handler. */
+  /** Remove the container, anchor bindings, and geometry observers. */
   dispose(): void;
 }
 
@@ -94,6 +95,7 @@ function ownedElements(documentLike: Document, outline: ListenerOutline): Elemen
 }
 
 function positionBox(box: HTMLElement, element: Element): void {
+  if (box.hasAttribute('data-pyric-anchored')) return;
   const rect = element.getBoundingClientRect();
   box.style.left = `${rect.left}px`;
   box.style.top = `${rect.top}px`;
@@ -112,9 +114,10 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
   applyOverlayTheme(container, options.theme);
   documentLike.body.append(container);
 
-  let drawn: Array<{ box: HTMLElement; element: Element }> = [];
+  let drawn: Array<{ box: HTMLElement; element: Element; release: (() => void) | null }> = [];
 
   const draw = (outlines: readonly ListenerOutline[]): void => {
+    for (const entry of drawn) entry.release?.();
     for (const previous of [...container.querySelectorAll(`[${BOX_ATTRIBUTE}]`)]) previous.remove();
     drawn = [];
     for (const outline of outlines) {
@@ -144,9 +147,10 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
         });
 
         box.append(badge);
-        positionBox(box, element);
         container.append(box);
-        drawn.push({ box, element });
+        const release = tryAnchorOverlay(box, element, true);
+        positionBox(box, element);
+        drawn.push({ box, element, release });
       }
     }
   };
@@ -154,12 +158,37 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
   const followers = new Set<() => void>();
 
   const reposition = (): void => {
-    for (const entry of drawn) positionBox(entry.box, entry.element);
+    drawn = drawn.filter((entry) => {
+      if (!entry.element.isConnected) {
+        entry.release?.();
+        entry.box.remove();
+        return false;
+      }
+      positionBox(entry.box, entry.element);
+      return true;
+    });
     for (const follower of [...followers]) follower();
   };
 
   const view = documentLike.defaultView;
+  let frame: number | null = null;
+  const scheduleReposition = (): void => {
+    if (!view?.requestAnimationFrame) { reposition(); return; }
+    if (frame !== null) return;
+    frame = view.requestAnimationFrame(() => { frame = null; reposition(); });
+  };
   view?.addEventListener('resize', reposition);
+  // Element scroll events do not bubble. Capture observes nested scrollers.
+  view?.addEventListener('scroll', scheduleReposition, { capture: true, passive: true });
+  view?.visualViewport?.addEventListener('resize', scheduleReposition);
+  view?.visualViewport?.addEventListener('scroll', scheduleReposition);
+  const resize = view?.ResizeObserver ? new view.ResizeObserver(scheduleReposition) : null;
+  resize?.observe(documentLike.documentElement);
+  if (documentLike.body) resize?.observe(documentLike.body);
+  const mutations = view?.MutationObserver ? new view.MutationObserver((records) => {
+    if (records.some(record => !container.contains(record.target))) scheduleReposition();
+  }) : null;
+  if (documentLike.body) mutations?.observe(documentLike.body, { subtree: true, childList: true, characterData: true, attributes: true });
 
   return {
     update(outlines) {
@@ -183,6 +212,13 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
     },
     dispose() {
       view?.removeEventListener('resize', reposition);
+      view?.removeEventListener('scroll', scheduleReposition, true);
+      view?.visualViewport?.removeEventListener('resize', scheduleReposition);
+      view?.visualViewport?.removeEventListener('scroll', scheduleReposition);
+      if (frame !== null) view?.cancelAnimationFrame(frame);
+      resize?.disconnect();
+      mutations?.disconnect();
+      for (const entry of drawn) entry.release?.();
       followers.clear();
       drawn = [];
       container.remove();

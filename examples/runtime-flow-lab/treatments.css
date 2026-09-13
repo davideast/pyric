@@ -1,0 +1,237 @@
+/* These studies deliberately stay outside the runtime's public theme API. */
+html[data-flow-treatment] #chat-workspace [data-pyric-flow] {
+  --ink: var(--pyric-overlay-hue, #90b8ff);
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
+  border-radius: 5px;
+  animation: none;
+  transition: outline-color 1.2s ease-out;
+}
+html[data-flow-treatment] #chat-workspace [data-pyric-flow-retained] {
+  outline-color: color-mix(in srgb, var(--ink) 35%, transparent);
+}
+html[data-flow-treatment] #chat-workspace [data-pyric-flow-label]::after {
+  all: unset;
+  box-sizing: border-box;
+  content: attr(data-pyric-flow-label);
+  position: absolute;
+  top: -12px;
+  right: 4px;
+  z-index: 50;
+  display: grid;
+  align-items: center;
+  height: 20px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #101621;
+  color: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  font:
+    10px/20px "Pyric Geist Mono",
+    monospace;
+  pointer-events: none;
+  opacity: 1;
+}
+html[data-flow-treatment] #chat-workspace [data-pyric-flow-retained]::after {
+  opacity: 0.6;
+}
+html[data-flow-treatment] #chat-workspace [data-pyric-flow]::before {
+  content: none;
+  position: absolute;
+  inset: -4px;
+  border-radius: 5px;
+  pointer-events: none;
+  z-index: 40;
+}
+html[data-flow-treatment="wash"] #chat-workspace [data-pyric-flow] {
+  box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--ink) 9%, transparent);
+}
+html[data-flow-treatment="wash"] #chat-workspace [data-pyric-flow-retained] {
+  box-shadow: none;
+}
+html[data-flow-treatment="rail"] #chat-workspace [data-pyric-flow] {
+  outline: 0;
+  box-shadow: inset 3px 0 var(--ink);
+}
+html[data-flow-treatment="rail"] #chat-workspace [data-pyric-flow-retained] {
+  box-shadow: inset 1px 0 color-mix(in srgb, var(--ink) 45%, transparent);
+}
+html[data-flow-treatment="corners"] #chat-workspace [data-pyric-flow],
+html[data-flow-treatment="label"] #chat-workspace [data-pyric-flow] {
+  outline: 0;
+}
+html[data-flow-treatment="corners"] #chat-workspace [data-pyric-flow]::before {
+  content: "";
+  background:
+    linear-gradient(var(--ink), var(--ink)) top left/12px 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) top left/2px 12px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) top right/12px 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) top right/2px 12px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) bottom left/12px 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) bottom left/2px 12px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) bottom right/12px 2px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) bottom right/2px 12px no-repeat;
+}
+html[data-flow-treatment="radar"] #chat-workspace [data-pyric-flow]::before {
+  content: "";
+  border: 1px solid var(--ink);
+  animation: lab-radar 1.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes lab-radar {
+  from {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: scale(1.07, 1.2);
+    opacity: 0;
+  }
+}
+html[data-flow-treatment="scan"] #chat-workspace [data-pyric-flow]::before {
+  content: "";
+  background: linear-gradient(
+      transparent,
+      color-mix(in srgb, var(--ink) 25%, transparent),
+      var(--ink),
+      transparent
+    )
+    0 -24px/100% 24px no-repeat;
+  animation: lab-scan 1.4s ease-out both;
+}
+@keyframes lab-scan {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 calc(100% + 24px);
+  }
+}
+html[data-flow-treatment="ants"] #chat-workspace [data-pyric-flow] {
+  outline: 0;
+}
+html[data-flow-treatment="ants"] #chat-workspace [data-pyric-flow]::before {
+  content: "";
+  background:
+    repeating-linear-gradient(90deg, var(--ink) 0 5px, transparent 5px 10px)
+      top/200% 1px no-repeat,
+    repeating-linear-gradient(90deg, var(--ink) 0 5px, transparent 5px 10px)
+      bottom/200% 1px no-repeat,
+    repeating-linear-gradient(0deg, var(--ink) 0 5px, transparent 5px 10px)
+      left/1px 200% no-repeat,
+    repeating-linear-gradient(0deg, var(--ink) 0 5px, transparent 5px 10px)
+      right/1px 200% no-repeat;
+  animation: lab-ants 1.6s linear both;
+}
+@keyframes lab-ants {
+  to {
+    background-position:
+      10px top,
+      -10px bottom,
+      left 10px,
+      right -10px;
+  }
+}
+html[data-flow-treatment="echo"] #chat-workspace [data-pyric-flow]::before {
+  content: "";
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--ink) 50%, transparent),
+    0 0 0 6px color-mix(in srgb, var(--ink) 30%, transparent),
+    0 0 0 10px color-mix(in srgb, var(--ink) 12%, transparent);
+  animation: lab-echo 1.5s ease-out both;
+}
+@keyframes lab-echo {
+  to {
+    transform: scale(1.03, 1.08);
+    opacity: 0;
+  }
+}
+html[data-flow-treatment="heat"] #chat-workspace [data-pyric-flow] {
+  --ink: hsl(var(--lab-heat, 210) 85% 68%);
+  box-shadow: inset 0 0 0 100vmax hsl(var(--lab-heat, 210) 75% 50% / 0.12);
+  outline-width: 2px;
+}
+html[data-flow-treatment="heat"]
+  #chat-workspace
+  [data-pyric-flow-label]::after {
+  content: attr(data-lab-hits) " observed updates";
+}
+html[data-flow-treatment="stamp"]
+  #chat-workspace
+  [data-pyric-flow-label]::after {
+  content: "#" attr(data-lab-sequence) " / " attr(data-lab-name) " / "
+    attr(data-lab-hits) " hits";
+  height: 22px;
+  border-radius: 2px;
+  border-style: dashed;
+  transform: rotate(-1deg);
+  color: #e3ecfa;
+}
+html[data-flow-treatment="ruler"] #chat-workspace [data-pyric-flow] {
+  outline-offset: 7px;
+  outline-style: dotted;
+}
+html[data-flow-treatment="ruler"]
+  #chat-workspace
+  [data-pyric-flow-label]::after {
+  content: attr(data-lab-size) " px / " attr(data-lab-name);
+  top: -19px;
+}
+html[data-flow-treatment="ruler"] #chat-workspace [data-pyric-flow]::before {
+  content: "";
+  inset: -8px;
+  border-top: 1px solid var(--ink);
+  border-bottom: 1px solid var(--ink);
+  background:
+    repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 10px)
+      top/100% 4px no-repeat,
+    repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 10px)
+      bottom/100% 4px no-repeat;
+}
+html[data-flow-treatment="threads"] #chat-workspace [data-pyric-flow],
+html[data-flow-treatment="trail"] #chat-workspace [data-pyric-flow] {
+  outline-style: dashed;
+  outline-width: 1px;
+}
+html[data-flow-treatment="minimap"] #chat-workspace [data-pyric-flow] {
+  outline-width: 1px;
+}
+html[data-flow-treatment] #chat-workspace [data-pyric-flow-retained]::before {
+  animation: none;
+  opacity: 0.3;
+}
+html[data-flow-treatment="radar"]
+  #chat-workspace
+  [data-pyric-flow-retained]::before,
+html[data-flow-treatment="scan"]
+  #chat-workspace
+  [data-pyric-flow-retained]::before,
+html[data-flow-treatment="echo"]
+  #chat-workspace
+  [data-pyric-flow-retained]::before {
+  content: none;
+}
+.lab-flow-map {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+.lab-flow-map text {
+  font:
+    10px "Pyric Geist Mono",
+    monospace;
+  fill: #e0eaff;
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-flow-treatment] #chat-workspace [data-pyric-flow],
+  html[data-flow-treatment] #chat-workspace [data-pyric-flow]::before,
+  html[data-flow-treatment] #chat-workspace [data-pyric-flow]::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
