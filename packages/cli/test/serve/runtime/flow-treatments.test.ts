@@ -56,6 +56,33 @@ function setup(
 }
 
 describe("Flow treatment lifecycle", () => {
+  it("honors a selection made while the overlay is discovering configuration", async () => {
+    const dom = new JSDOM('<div id="overlay"></div>', {
+      url: "http://localhost",
+    });
+    let finish!: (response: Response) => void;
+    dom.window.fetch = () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    const controller = createTreatmentController({
+      document: dom.window.document,
+      onChange() {},
+    });
+    const attaching = controller.attach(
+      dom.window.document.querySelector<HTMLElement>("#overlay")!,
+    );
+    const choosing = controller.select("corners");
+    finish(Response.json({ treatment: "outline", treatments: [] }));
+    await Promise.all([attaching, choosing]);
+    expect(controller.state().selected).toBe("corners");
+    expect(dom.window.document.documentElement.dataset.pyricTreatment).toBe(
+      "corners",
+    );
+    expect(dom.window.localStorage.getItem(FLOW_TREATMENT_KEY)).toBe("corners");
+    controller.dispose();
+    dom.window.close();
+  });
   it("uses the stored choice over the project default and ignores missing stored ids", async () => {
     for (const [stored, expected] of [
       ["rail", "rail"],
