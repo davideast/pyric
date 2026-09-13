@@ -49,11 +49,14 @@ With the example running:
 
 ```sh
 node examples/runtime-flow-lab/verify.mjs
+node examples/runtime-flow-lab/verify-selection.mjs
 node examples/runtime-flow-lab/verify-scroll.mjs
 bunx --no-install tsc -p examples/runtime-flow-lab/tsconfig.json
 ```
 
 The browser check covers specific component updates, one delivery updating multiple regions, idle-time delivery, all fifteen styles, a burst, narrow-screen overflow, reduced motion, and inspector toggling. Screenshots are written to `/tmp/flow-lab-review` by default; override `FLOW_LAB_SCREENSHOTS` and `FLOW_LAB_URL` as needed.
+
+The selection check delays configuration and module loading, switches through both the page and chip selectors, and verifies actual outline CSS and decoration cleanup when returning from every treatment to Crisp outline.
 
 The scroll check exercises native CSS anchors and a forced measured fallback across all fifteen treatments: document and nested scrolling, layout changes, resizing, removed photos, and restoration of application anchor names.
 

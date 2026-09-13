@@ -216,8 +216,11 @@ export function createTreatmentController(options: TreatmentControllerOptions) {
     select,
     async attach(next: HTMLElement) {
       container = next;
+      const request = serial;
       await initialize();
-      if (disposed || container !== next) return;
+      // Configuration discovery must not replace an explicit choice made while
+      // it was pending, or compete with a treatment already being loaded.
+      if (disposed || container !== next || request !== serial || loading) return;
       await select(selected, false);
       if (!implementation && error && !disposed && container === next) {
         const failed = retry,

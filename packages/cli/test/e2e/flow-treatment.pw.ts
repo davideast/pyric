@@ -60,14 +60,34 @@ test("loads the project default and custom module in the browser, switches witho
     }
     res.setHeader("Content-Type", "text/html");
     res.end(
-      '<!doctype html><div id="target" data-pyric-flow="0" data-pyric-flow-listener="one">Message</div><div id="overlay"></div><script type="module" src="/app.js"></script>',
+      '<!doctype html><style>:root { --pyric-overlay-flow-outline-width: 2px; --pyric-overlay-outline-style: solid; }</style><div id="target" data-pyric-flow="0" data-pyric-flow-listener="one">Message</div><div id="overlay"></div><script type="module" src="/app.js"></script>',
     );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing port");
   try {
+    let configure!: () => void;
+    const configuration = new Promise<void>((resolve) => {
+      configure = resolve;
+    });
+    await page.route("**/__pyric/flow/manifest.json", async (route) => {
+      await configuration;
+      await route.continue();
+    });
     await page.goto(`http://127.0.0.1:${address.port}`);
+    await page.waitForFunction("!!globalThis.controller");
+    await page.evaluate('void globalThis.controller.select("outline")');
+    configure();
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-pyric-treatment",
+      "outline",
+    );
+    await expect(page.locator("#target")).toHaveCSS("outline-style", "solid");
+    await expect(page.locator("#target")).toHaveCSS("outline-width", "2px");
+    await page.unroute("**/__pyric/flow/manifest.json");
+    await page.evaluate(() => localStorage.removeItem("pyric:flow-treatment"));
+    await page.reload();
     await page.waitForFunction("globalThis.ready === true");
     expect(
       await page.locator("html").getAttribute("data-pyric-treatment"),
