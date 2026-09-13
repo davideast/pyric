@@ -85,11 +85,18 @@ for (const runtime of ['inpage', 'worker']) {
     // Restart an in-flight scan too, without waiting for it to finish.
     await page.locator('[data-read=document]').click();
     await expect.poll(() => page.evaluate(() => (window as typeof window & { scanStarts: number }).scanStarts)).toBe(3);
+    // Exercise different sources across the previous deliveries' fade timers.
+    for (const [index, read] of ['document', 'database', 'query', 'document', 'database', 'query'].entries()) {
+      await page.waitForTimeout(1100);
+      await page.locator(`[data-read=${read}]`).click();
+      await expect.poll(() => page.evaluate(() => (window as typeof window & { scanStarts: number }).scanStarts)).toBe(4 + index);
+      await expect(panel).not.toHaveAttribute('data-pyric-flow-retained');
+    }
     expect(await page.locator('[data-result]').evaluate(el => el.getAnimations()[0].startTime)).toBe(childStart);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.locator('[data-read=query]').click();
     await expect.poll(() => panel.evaluate(el => getComputedStyle(el, '::before').animationName)).toBe('none');
-    expect(await page.evaluate(() => (window as typeof window & { scanStarts: number }).scanStarts)).toBe(3);
+    expect(await page.evaluate(() => (window as typeof window & { scanStarts: number }).scanStarts)).toBe(9);
 
   });
 }

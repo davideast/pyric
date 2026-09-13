@@ -285,3 +285,41 @@ describe('taking the marks off', () => {
     expect(page.timers.filter((timer) => timer.at > 0)).toHaveLength(0);
   });
 });
+
+it('transfers a shared target to the newest activity without inheriting old fade timers', () => {
+  const page = setup();
+  const element = page.el('#thread');
+  const subtree = subtreeOf([component(element, 'Thread')]);
+  page.painter.paint(paintOf(page, { listenerId: 'read-1', subtree }));
+  page.advance(2000);
+  page.painter.paint(paintOf(page, { listenerId: 'read-2', subtree }));
+  page.advance(1000);
+  expect(element.hasAttribute('data-pyric-flow-retained')).toBe(false);
+  page.painter.clearListener('read-1');
+  expect(element.style.position).toBe('relative');
+  page.advance(2000);
+  expect(element.hasAttribute('data-pyric-flow-retained')).toBe(true);
+  page.painter.paint(paintOf(page, { listenerId: 'read-3', subtree }));
+  expect(element.hasAttribute('data-pyric-flow-retained')).toBe(false);
+  page.painter.dispose();
+  expect(element.style.position).toBe('');
+  expect(page.timers.filter(timer => timer.at > 5000)).toHaveLength(0);
+});
+
+it('transfers a photo badge between activities without leaving an older badge or timer', () => {
+  const page = setup();
+  const photo = page.el('#avatar');
+  const subtree = subtreeOf([component(photo, 'Photo')]);
+  page.painter.paint(paintOf(page, { listenerId: 'photo-1', subtree }));
+  page.advance(2000);
+  page.painter.paint(paintOf(page, { listenerId: 'photo-2', subtree }));
+  page.advance(1000);
+  const badges = page.container.querySelectorAll('[data-pyric-flow-badge]');
+  expect(badges).toHaveLength(1);
+  expect(badges[0].getAttribute('data-listener-id')).toBe('photo-2');
+  expect(badges[0].hasAttribute('data-pyric-flow-retained')).toBe(false);
+  page.painter.clearListener('photo-1');
+  expect(page.container.querySelectorAll('[data-pyric-flow-badge]')).toHaveLength(1);
+  page.painter.dispose();
+  expect(page.container.querySelectorAll('[data-pyric-flow-badge]')).toHaveLength(0);
+});
