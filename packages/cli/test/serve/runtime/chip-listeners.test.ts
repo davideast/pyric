@@ -207,9 +207,28 @@ describe('the Listeners view', () => {
     expect(page.root.querySelector('[data-chip-tab="listeners"]')!.classList.contains('problem')).toBe(true);
   });
 
+  it('selects grouped built-ins in Flow and removes the selector in Overview', async () => {
+    const page = setup({ react: true });
+    page.root.querySelector<HTMLButtonElement>('[data-listener-mode="flow"]')!.click();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    let select = page.root.querySelector<HTMLSelectElement>('[data-flow-treatment]')!;
+    expect(select.options.length).toBe(15);
+    expect([...select.querySelectorAll('optgroup')].map(group => group.label)).toEqual(['Standard', 'Experimental']);
+    select.value = 'corners';
+    select.dispatchEvent(new page.doc.defaultView!.Event('change', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    select = page.root.querySelector<HTMLSelectElement>('[data-flow-treatment]')!;
+    expect(select.value).toBe('corners');
+    expect(page.doc.documentElement.dataset.pyricTreatment).toBe('corners');
+    page.root.querySelector<HTMLButtonElement>('[data-listener-mode="overview"]')!.click();
+    expect(page.root.querySelector('[data-flow-treatment]')).toBeNull();
+    expect(page.doc.documentElement.hasAttribute('data-pyric-treatment')).toBe(false);
+    page.chip.dispose();
+  });
+
   it('offers a Show all toggle and Flow and Theme actions with nothing pressed initially', () => {
     const page = setup({ rememberedPaintMode: 'flow', react: true });
-    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.textContent)).toEqual(['Flow', 'Theme']);
+    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.textContent)).toEqual(['Theme']);
     expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
     expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('false');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);

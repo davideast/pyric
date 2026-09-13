@@ -75,6 +75,12 @@ export interface FlowPainter {
   dispose(): void;
 }
 
+const detachedBadges = new WeakMap<Element, HTMLElement>();
+/** The detached label for the currently visible mark on a replaced target. */
+export function flowBadgeFor(element: Element): HTMLElement | null {
+  return detachedBadges.get(element) ?? null;
+}
+
 /** How long a mark stays at full strength, in milliseconds. */
 const DEFAULT_FADE_MS = 3000;
 
@@ -171,6 +177,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
   const removeMark = (group: Group, listenerId: string, mark: Mark): void => {
     mark.cancel();
     const element = mark.element as HTMLElement;
+    if (detachedBadges.get(mark.element) === mark.badge) detachedBadges.delete(mark.element);
     mark.badge?.remove();
     mark.releaseAnchor?.();
     mark.restore?.();
@@ -279,6 +286,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
             mark.releaseAnchor = tryAnchorOverlay(badge, component.element, false);
             mark.badge = badge;
           }
+          detachedBadges.set(component.element, mark.badge);
           mark.badge.textContent = label;
           mark.badge.title = `${component.name} changed after a delivery from ${paint.target}`;
           positionBadge(mark.badge, component.element);

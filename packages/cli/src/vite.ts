@@ -21,3 +21,5 @@ export type { AssetRequest, AssetResult, AssetSource } from './serve/assets/reso
 // bundles @pyric/cli' browser-side bridge client (Pyric Studio registers as
 // the bridge peer) applies the SAME shims instead of re-deriving them.
 export { NODE_BUILTIN_RE, NODE_BUILTIN_SHIMS } from './serve/bundler.js';
+
+export type { FlowConfig } from './serve/flow-config.js';

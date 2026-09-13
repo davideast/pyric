@@ -8,7 +8,7 @@ Commands run from the repository root after workspace dependencies are installed
 bun test packages/cli/test/serve/runtime/overlay-theme.test.ts packages/cli/test/serve/runtime/listener-overlay.test.ts packages/cli/test/serve/runtime/listener-flow-painter.test.ts
 ```
 
-Include `listener-mode.test.ts` and the relevant Theme dialog tests when changing application or persistence. Run `bun run build` in `packages/cli` for production TypeScript changes. Select additional tests based on the actual changed behavior rather than asserting styling through source-text matches.
+Include `flow-treatments.test.ts`, `flow-treatment-host.test.ts`, and `flow-treatment-browser.test.ts` for registry or loading changes. Include `listener-mode.test.ts` and the relevant Theme dialog tests when changing application or persistence. Run `bun run build` in `packages/cli` for production TypeScript changes. Select additional tests based on the actual changed behavior rather than asserting styling through source-text matches.
 
 ## Visual treatments
 

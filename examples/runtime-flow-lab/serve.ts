@@ -1,3 +1,5 @@
+import { build as bundle } from "esbuild";
+import { createFlowTreatmentHost } from "../../packages/cli/src/serve/flow-treatment-host.ts";
 /** Run from the repository root: bun examples/runtime-flow-lab/serve.ts */
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
@@ -13,9 +15,14 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 const resolve = createRequire(
   new URL("../../packages/studio/package.json", import.meta.url),
 );
-const build = await Bun.build({
-  entrypoints: [join(here, "app.ts")],
-  target: "browser",
+const outputDir = join(tmpdir(), "pyric-flow-lab-bundle");
+const build = await bundle({
+  entryPoints: [join(here, "app.ts")],
+  platform: "browser",
+  bundle: true,
+  format: "esm",
+  target: "es2022",
+  write: false,
   plugins: [
     {
       name: "workspace-react",
@@ -28,9 +35,20 @@ const build = await Bun.build({
     },
   ],
   minify: false,
+  splitting: true,
+  entryNames: "chip",
+  chunkNames: "chunks/[name]-[hash]",
+  outdir: outputDir,
 });
-if (!build.success) throw new Error(build.logs.map(String).join("\n"));
-const script = await build.outputs[0]!.text();
+
+const assets = new Map(
+  await Promise.all(
+    build.outputFiles.map(
+      async (asset) => [asset.path.replace(outputDir, ""), asset.text] as const,
+    ),
+  ),
+);
+const flowHost = await createFlowTreatmentHost(process.cwd());
 const portraits = [12, 47, 13, 49, 14, 44, 15, 48, 16];
 const ids = [
   "david",
@@ -64,16 +82,17 @@ const resolver = createAssetResolver({
 const port = Number(process.env.FLOW_LAB_PORT ?? 5197);
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+  if (await flowHost.handle(req, res, url)) return;
   if (url.pathname.startsWith("/__pyric/assets/")) {
     await handleAvatar(resolver, req, res, url);
     return;
   }
-  if (url.pathname === "/chip.js") {
+  if (assets.has(url.pathname)) {
     res.writeHead(200, {
       "Content-Type": "text/javascript; charset=utf-8",
       "Cache-Control": "no-store",
     });
-    res.end(script);
+    res.end(assets.get(url.pathname));
     return;
   }
   if (url.pathname === "/lab.css") {

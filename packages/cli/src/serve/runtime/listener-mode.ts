@@ -1,3 +1,5 @@
+import { createTreatmentController } from './flow-treatments/controller.js';
+import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatments/types.js';
 /**
  * The chip's Listeners mode: what on the page has a listener, what it listens
  * to, and where its data goes.
@@ -48,6 +50,8 @@ import {
 export type { ListenerPaintMode } from './listener-paint-mode.js';
 
 export interface ListenerModeOptions {
+  treatments?: FlowTreatmentManifest;
+  treatmentStorage?: Pick<Storage, 'getItem' | 'setItem'> | null;
   document: Document;
   /**
    * The page's sandbox event source. The first delivery carries history, each
@@ -85,6 +89,9 @@ export interface ListenerModeOptions {
 }
 
 export interface ListenerMode {
+  clearTreatmentHistory?(): void;
+  treatmentState?(): FlowTreatmentState;
+  setTreatment?(id: string): Promise<void>;
   setEnabled(enabled: boolean): void;
   enabled(): boolean;
   /** Which way the listeners are painted. */
@@ -174,6 +181,10 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   let flowPainted = false;
   /** Listeners the developer switched off. Page session only, never stored. */
   const hidden = new Set<string>();
+  const treatments = createTreatmentController({
+    document: documentLike, manifest: options.treatments, storage: options.treatmentStorage,
+    onChange: () => options.onChange?.(current),
+  });
 
   // The commit source is installed once, whether or not Flow is ever turned
   // on: React reads the hook global while its own module first evaluates, so
@@ -225,9 +236,11 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     if (flow !== null || overlay === null) return;
     if (!flowAvailable()) return;
     flowPainted = false;
+    void treatments.attach(overlay.container());
     flow = startFlowMode({
       document: documentLike,
       container: overlay.container(),
+      onTreatmentPaint: (paint) => treatments.record(paint),
       commits,
       // A delivery observed on the page carries the client's subscription id;
       // the outline knows both ids.
@@ -251,10 +264,12 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     const followFlow = flow;
     stopFollowing = overlay.onReposition(() => {
       followFlow.reposition();
+      treatments.reposition();
     });
   };
 
   const stopFlow = (): void => {
+    treatments.detach();
     stopFollowing?.();
     stopFollowing = null;
     flow?.dispose();
@@ -298,6 +313,9 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   view?.addEventListener('storage', onStorage);
 
   return {
+    clearTreatmentHistory: treatments.clear,
+    treatmentState: treatments.state,
+    setTreatment: treatments.select,
     setEnabled(next) {
       const isOn = overlay !== null;
       if (next === isOn) return;
@@ -351,6 +369,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       // leaving it there would leave a box no row is checked for. Switching
       // back on leaves the page empty until the next delivery.
       if (!visible) flow?.clearListener(listenerId);
+      treatments.reposition();
     },
     overlayTheme() {
       return effectiveTheme();
@@ -360,6 +379,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       overlay?.setTheme(effectiveTheme());
     },
     dispose() {
+      treatments.dispose();
       view?.removeEventListener('storage', onStorage);
       hidePainting();
       unsubscribe?.();

@@ -6,6 +6,7 @@
  * or magic process sniffing.
  */
 
+import type { FlowConfig } from '../serve/flow-config.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -16,6 +17,8 @@ export interface PyricRulesConfig {
 }
 
 export interface PyricConfig {
+  /** Listener Flow default and browser treatment modules. */
+  flow?: FlowConfig;
   /** Default command to execute under the sandbox if none is passed on CLI. */
   command?: string;
   /** Local port to bind the Pyric sandbox host. */

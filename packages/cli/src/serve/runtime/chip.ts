@@ -271,6 +271,14 @@ const styles = `
   .traffic-row[aria-expanded="true"] .c2 { white-space: normal; overflow-wrap: anywhere; }
   [data-chip-view="sandbox"] .s1 { white-space: normal; overflow-wrap: anywhere; }
   .traffic-row .slot { grid-column: 3; grid-row: 1; align-self: start; }
+  .paint-controls { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--record-inset); row-gap: 12px; min-width: 0; }
+  .paint-controls > * { grid-column: 2; }
+  .paint-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .paint-switch .btn { width: 100%; }
+  .treatment-field { display: grid; gap: 6px; min-width: 0; }
+  .treatment-field select { font: inherit; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 34px; min-width: 0; }
+  .treatment-field select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
+  .treatment-field .hint { overflow-wrap: anywhere; }
   .listener-toggle { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; font-size: 11px; color: var(--pyric-muted); height: 32px; }
   .toggle-track { width: 28px; height: 16px; display: grid; grid-template-columns: 0 1fr 0; gap: 2px; align-items: center; background: #3a3e49; border: 1px solid #697488; border-radius: 8px; }
   .toggle-track::after { content: ''; grid-column: 2; width: 10px; height: 10px; background: #dce1eb; border-radius: 50%; justify-self: start; }
@@ -546,6 +554,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let outlinesRefused: string | null = null;
   /** Whether the last rendered panel carried the Flow waiting fact. */
   let renderedFlowWaiting = false;
+  let renderedTreatmentState = '';
   const ensureListenerMode = (): ListenerMode | null => {
     if (listenerMode !== null) return listenerMode;
     const build = options.listeners;
@@ -556,7 +565,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       // painted flow changes the panel without changing the outlines, because
       // it is what takes the waiting fact away.
       const waiting = listenerMode?.flowWaiting() === true;
-      if (sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting) return;
+      const treatmentState = JSON.stringify(listenerMode?.treatmentState?.());
+      if (sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting && treatmentState === renderedTreatmentState) return;
+      renderedTreatmentState = treatmentState;
       renderedFlowWaiting = waiting;
       listenerOutlines = outlines;
       render();
@@ -778,13 +789,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const blocked = outlinesRefused;
     const allOn = outlinesOn && paintMode === 'overview' && activeListenerId === null && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
     const toggle = `<button type="button" class="listener-toggle" data-listener-all aria-pressed="${allOn}"><span class="toggle-track" aria-hidden="true"></span>Show all</button>`;
-    const bar = barHtml([
-      buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery'),
-      buttonHtml('data-open-overlay-theme', 'Theme', "Edit the overlay's custom properties"),
-    ]);
+    const treatment = listenerMode?.treatmentState?.();
+    const paintControls = `<div class="paint-controls"><div class="paint-switch">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')
+    }</div>${paintMode === 'flow' && treatment ? `<div class="treatment-field"><label class="section-title" for="pyric-flow-treatment">Treatment</label><select id="pyric-flow-treatment" data-flow-treatment aria-describedby="flow-treatment-description">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select><span class="hint" id="flow-treatment-description">${escapeAttribute(treatment.choices.find(entry => entry.id === treatment.selected)?.description ?? '')}</span>${treatment.loading ? '<span class="hint" role="status">Loading treatment…</span>' : ''}${treatment.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span><button type="button" class="btn" data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}">Retry</button>` : ''}</div>` : ''}</div>`;
+    const bar = barHtml([buttonHtml('data-open-overlay-theme', 'Theme', "Edit the overlay's custom properties")]);
     const detail = blocked ?? (listenerMode?.flowWaiting() ? 'Waiting for the next delivery to show what rendered.' : activeListenerId ? 'Selected listener highlighted. Use Show all to restore every outline.' : 'Select a listener to highlight its components on your page.');
     const flowHint = flowReason ? `<span class="hint" data-flow-unavailable>${escapeAttribute(flowReason)}</span>` : '';
-    return { body: `${introHtml('Listeners on this page', detail, flowHint)}${sectionHtml(pluralize(listenerOutlines.length, 'listener'), `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No listeners attached', 'Open a part of your app that subscribes to data to see it here.')}`, '', toggle)}`, bar };
+    return { body: `${introHtml('Listeners on this page', detail, flowHint)}${paintControls}${sectionHtml(pluralize(listenerOutlines.length, 'listener'), `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No listeners attached', 'Open a part of your app that subscribes to data to see it here.')}`, '', toggle)}`, bar };
   };
 
   let expandedRequestId: string | null = null;
@@ -854,6 +865,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-user-next',
       'data-listener-all',
       'data-listener-mode',
+      'data-flow-treatment',
       'data-activate-listener',
       'data-inspect-request',
       'data-traffic-denied',
@@ -999,6 +1011,14 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     root.querySelector('[data-create-user]')?.addEventListener('click', () => {
       identity.openCreateUser();
+    });
+    root.querySelector<HTMLSelectElement>('[data-flow-treatment]')?.addEventListener('change', (event) => {
+      const select = event.currentTarget as HTMLSelectElement;
+      void listenerMode?.setTreatment?.(select.value);
+    });
+    root.querySelector('[data-treatment-retry]')?.addEventListener('click', () => {
+      const retry = listenerMode?.treatmentState?.().retry;
+      if (retry) void listenerMode?.setTreatment?.(retry);
     });
     root.querySelector('[data-listener-all]')?.addEventListener('click', () => {
       const mode = ensureListenerMode();

@@ -107,6 +107,10 @@
         "types": "./dist/register/app-bridge.d.ts",
         "import": "./dist/register/app-bridge.js"
       }
+    },
+    "./flow": {
+      "types": "./dist/serve/runtime/flow-treatments/types.d.ts",
+      "import": "./dist/serve/runtime/flow-treatments/types.js"
     }
   },
   "bin": {

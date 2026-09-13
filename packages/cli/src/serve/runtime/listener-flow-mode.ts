@@ -1,3 +1,4 @@
+import type { FlowPaint } from './listener-flow-painter.js';
 /**
  * The chip's Flow painting mode: where a listener's data went, as it arrives.
  *
@@ -33,6 +34,7 @@ export interface ChangedNodeSource {
 }
 
 export interface FlowModeOptions {
+  onTreatmentPaint?: (paint: FlowPaint) => void;
   document: Document;
   /** The overlay's container. Flow draws into the layer Overview owns. */
   container: HTMLElement;
@@ -127,6 +129,7 @@ function observePageChanges(documentLike: Document, container: HTMLElement): Cha
     drain() {
       const nodes: unknown[] = [];
       for (const record of observer.takeRecords()) {
+        if (record.type === 'attributes' && record.attributeName?.startsWith('data-pyric-')) continue;
         if (!isChipOwned(record.target, container)) nodes.push(record.target);
         for (const added of record.addedNodes) {
           if (!isChipOwned(added, container)) nodes.push(added);
@@ -184,14 +187,19 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
       ? (region === null ? null : regionSubtree(region, ownerName))
       : flowSubtree(nodes, { regionElement: region, ownerName });
     if (subtree === null || subtree.components.length === 0) return;
-    painter.paint({
+    const paint: FlowPaint = {
       listenerId: outline.listenerId,
       label: outline.label,
       target: outline.isQuery ? `${outline.target} (query)` : outline.target,
       deliveryCount: outline.deliveryCount,
       subtree,
-    });
+    };
+    painter.paint(paint);
+    options.onTreatmentPaint?.(paint);
     options.onPaint?.(outline.listenerId);
+    // Discard synchronous diagnostic writes (including temporary positioning
+    // and treatment metadata) before the next application commit.
+    changes.drain();
   };
 
   const correlation: DeliveryCorrelation = createDeliveryCorrelation({
