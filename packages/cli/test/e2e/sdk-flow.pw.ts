@@ -55,3 +55,40 @@ for (const runtime of ['inpage', 'worker']) {
     expect(errors).toEqual([]);
   });
 }
+
+for (const runtime of ['inpage', 'worker']) {
+  test(`${runtime}: Scanner pass restarts for successive rendered reads`, async ({ page }) => {
+    await page.setViewportSize({ width: 1500, height: 1100 });
+    await page.goto(`${server.url}/?runtime=${runtime}`);
+    await page.getByRole('tab', { name: 'Listeners' }).click();
+    await page.locator('[data-flow-treatment]').selectOption('scan');
+    await expect(page.locator('html')).toHaveAttribute('data-pyric-treatment', 'scan');
+    await page.addStyleTag({ content: '@keyframes pyric-treatment-child { from { opacity: .9; } to { opacity: 1; } } [data-result] { animation: pyric-treatment-child 60s linear infinite; }' });
+
+    await page.evaluate(() => {
+      const state = window as typeof window & { scanStarts: number };
+      state.scanStarts = 0;
+      document.addEventListener('animationstart', event => {
+        if (event.animationName === 'pyric-treatment-scan') state.scanStarts++;
+      });
+    });
+    const panel = page.locator('[data-component=DataPanel]');
+    await page.locator('[data-read=document]').click();
+    await expect.poll(() => page.evaluate(() => (window as typeof window & { scanStarts: number }).scanStarts)).toBe(1);
+    const first = await panel.getAttribute('data-pyric-flow-listener');
+    const childStart = await page.locator('[data-result]').evaluate(el => el.getAnimations()[0].startTime);
+    await page.waitForTimeout(1600);
+    await page.locator('[data-read=query]').click();
+    await expect.poll(() => panel.getAttribute('data-pyric-flow-listener')).not.toBe(first);
+    await expect.poll(() => page.evaluate(() => (window as typeof window & { scanStarts: number }).scanStarts)).toBe(2);
+    // Restart an in-flight scan too, without waiting for it to finish.
+    await page.locator('[data-read=document]').click();
+    await expect.poll(() => page.evaluate(() => (window as typeof window & { scanStarts: number }).scanStarts)).toBe(3);
+    expect(await page.locator('[data-result]').evaluate(el => el.getAnimations()[0].startTime)).toBe(childStart);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.locator('[data-read=query]').click();
+    await expect.poll(() => panel.evaluate(el => getComputedStyle(el, '::before').animationName)).toBe('none');
+    expect(await page.evaluate(() => (window as typeof window & { scanStarts: number }).scanStarts)).toBe(3);
+
+  });
+}
