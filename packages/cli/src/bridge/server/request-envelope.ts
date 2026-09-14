@@ -1,4 +1,5 @@
 import type { BridgeMessage } from '../protocol.js';
+import { validateAuthState } from 'pyric/sandbox';
 import type { InboundMessage } from '../../serve/worker/protocol.js';
 
 const workerMessageTypes: Record<InboundMessage['t'], true> = {
@@ -42,9 +43,37 @@ function isSubscriptionPayload(payload: unknown): boolean {
   return isNamedTarget || isDescriptor;
 }
 
+function isIdentityLens(value: unknown): boolean {
+  const isMalformedObject = !isProtocolRecord(value);
+  if (isMalformedObject) return false;
+  switch (value.mode) {
+    case 'admin':
+    case 'anon':
+    case 'app-session':
+      return true;
+    case 'as':
+      try {
+        validateAuthState(value);
+        return true;
+      } catch {
+        return false;
+      }
+    default:
+      return false;
+  }
+}
+
 /** Validate request envelopes before dispatch; service handlers own argument semantics. */
 export function requestEnvelopeError(frame: BridgeMessage): string | undefined {
   switch (frame.type) {
+    case 'remote-set-lens': {
+      const hasSessionId = typeof frame.clientSessionId === 'string';
+      const hasValidRequestId = frame.id === undefined || typeof frame.id === 'string';
+      const hasIdentityLens = isIdentityLens(frame.lens);
+      const isMalformedLens = !hasSessionId || !hasValidRequestId || !hasIdentityLens;
+      if (isMalformedLens) return 'Invalid remote identity lens envelope.';
+      return;
+    }
     case 'worker-message': {
       const isMalformedMessage = !isWorkerMessageEnvelope(frame.message);
       if (isMalformedMessage) return 'Invalid worker message envelope.';
