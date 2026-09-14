@@ -25,11 +25,12 @@ import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatment
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { activityOutlines, listenerOutlines, type ListenerOutline } from './listener-outline-model.js';
-import { sdkActivity } from 'pyric/sandbox/internal';
+import { sdkActivity, sdkMethodCoverage, observationService, type SdkActivityRecord } from 'pyric/sandbox/internal';
 import { createListenerOverlay, type ListenerOverlay } from './listener-overlay.js';
 import { incidentsFromEvents } from './listener-incidents.js';
 import { studioSectionUrl } from './studio-links.js';
 import { startFlowMode, type FlowMode } from './listener-flow-mode.js';
+
 import {
   installReactCommitSource,
   reactRendered,
@@ -51,6 +52,12 @@ import {
 } from './listener-paint-mode.js';
 
 export type { ListenerPaintMode } from './listener-paint-mode.js';
+
+/** Data shows returned data and listener evidence; write acknowledgments live in Traffic. */
+function isDataActivity(record: SdkActivityRecord): boolean {
+  const method = sdkMethodCoverage(observationService(record.service)).find(entry => entry.method === record.method);
+  return method?.category !== 'write';
+}
 
 export interface ListenerModeOptions {
   /** Page activity source; fixtures can supply an isolated journal. */
@@ -242,7 +249,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
 
   const recompute = (): void => {
     const previous = current;
-    current = activityOutlines(listenerOutlines(events, readIncidents(events)), activity.records(), observed);
+    current = activityOutlines(listenerOutlines(events, readIncidents(events)), activity.records().filter(isDataActivity), observed);
     // A detached listener keeps no paint. Flow holds its last subtree until
     // the next delivery, and for a listener that is gone there will not be
     // one.
@@ -332,6 +339,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     recompute();
   });
   const stopActivity = activity.subscribe(event => {
+    if (!isDataActivity(event.record)) return;
     history.record(event);
     pruneRegions();
     recompute();

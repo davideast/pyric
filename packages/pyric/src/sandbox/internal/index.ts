@@ -18,6 +18,17 @@ export { getInternalEnv } from './sandbox-impl.js';
 export { captureIndexQuery, analyzeIndexQuery, readIndexConfig, type IndexQuery, type IndexFinding } from '../../rules/indexes/query-analysis.js';
 export type { IndexesConfig, IndexesConfigEntry } from '../../rules/indexes/types.js';
 export {
+  analyzeServiceIndex, captureDatabaseIndexQuery, databaseIndexLocations, indexService, isDatabaseIndexQuery,
+  type DatabaseIndexQuery, type DatabaseIndexDefinition, type DatabaseIndexConfig,
+  type ServiceIndexQuery, type ServiceIndexConfig, type ServiceIndexDefinition, type ServiceIndexFinding,
+} from '../../rules/indexes/service-query.js';
+export { observationService, type SdkObservation } from './sdk-observation.js';
+export { runSdkWrite } from './sdk-write-activity.js';
+export { createSdkRates, createSdkRateMonitor, sdkRates } from './sdk-rates.js';
+export type { SdkRateSnapshot, SdkServiceRate, SdkMethodRate, SdkRateBucket } from './sdk-rates.js';
+export { sdkMethodCoverage } from './sdk-coverage.js';
+export type { SdkMethodCoverage, SdkMethodCategory } from './sdk-coverage.js';
+export {
   createSdkActivityJournal,
   finishSdkRead,
   sdkActivity,
@@ -133,3 +144,6 @@ export * from '../../firestore/sandbox/wire-encoder.js';
 // with explicit named re-exports once the admin-compat layer's
 // surface stops drifting.
 export { createSandboxRoot } from './root.js';
+
+export { firestoreReadUsage } from './usage-evidence.js';
+export type { UsageEvidence } from './usage-evidence.js';

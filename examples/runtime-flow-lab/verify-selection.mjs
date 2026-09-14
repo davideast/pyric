@@ -35,11 +35,12 @@ try {
   await picker.selectOption("corners");
   await started;
   await chip.selectOption("outline");
+  const chunkResponse = page.waitForResponse(response => /\/chunks\/corners-/.test(response.url()));
   release();
   await expect(picker).toHaveValue("outline");
   // A subsequent selection waits behind the released chunk and exposes late callbacks.
   await expect.poll(() => picker.inputValue()).toBe("outline");
-  await page.waitForLoadState("networkidle");
+  await (await chunkResponse).finished();
   await expect(picker).toHaveValue("outline");
   await expect(chip).toHaveValue("outline");
   await page.unroute("**/chunks/corners-*.js");

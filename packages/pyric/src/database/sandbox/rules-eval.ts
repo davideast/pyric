@@ -169,6 +169,7 @@ export interface EvalContext {
   query?: SimulationInput['query'];
   /** Optional query spec from sandbox query execution; automatically converts to `query` and validates `.indexOn`. */
   querySpec?: QuerySpec;
+  indexMethod?: 'get' | 'listen';
 }
 
 export type RtdbDefaultPolicy = 'allow' | 'deny';
@@ -181,7 +182,10 @@ export class RulesEvaluator {
    * @param clock The sandbox's clock, read for the rules engine's `now`. A
    * standalone evaluator keeps its own wall clock.
    */
-  constructor(private readonly clock: SandboxClock = new SandboxClock()) {}
+  constructor(
+    private readonly clock: SandboxClock = new SandboxClock(),
+    private readonly missingIndex?: (path: string, spec: QuerySpec, ctx: EvalContext) => void,
+  ) {}
 
   /** Set default access policy when no rules are loaded ('allow' or 'deny'). */
   setDefaultPolicy(policy: RtdbDefaultPolicy): void {
@@ -352,7 +356,11 @@ export class RulesEvaluator {
       };
     }
     if (result.data.allowed && isReadOperation && ctx.querySpec) {
-      this.assertQueryIndex(path, ctx.querySpec);
+      try { this.assertQueryIndex(path, ctx.querySpec); }
+      catch (error) {
+        try { this.missingIndex?.(path, ctx.querySpec, ctx); } catch { /* diagnostics do not change the SDK failure */ }
+        throw error;
+      }
     }
     return {
       check: result.data.allowed ? 'allow' : 'deny',

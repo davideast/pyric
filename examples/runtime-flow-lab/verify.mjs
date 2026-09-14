@@ -1,5 +1,6 @@
 /** Browser check for the running manual example. */
 import { chromium, expect } from "@playwright/test";
+import { chatListenerIds } from "./verify-data.mjs";
 import { mkdir } from "node:fs/promises";
 const url = process.env.FLOW_LAB_URL ?? "http://localhost:5197";
 const output = process.env.FLOW_LAB_SCREENSHOTS ?? "/tmp/flow-lab-review";
@@ -25,18 +26,21 @@ try {
   await page.goto(url);
   await expect(page.locator("[data-deliver=messages]")).toBeVisible();
   await expect(page.locator("#treatment option")).toHaveCount(15);
+  const listenerIds = await chatListenerIds(page);
+  // Real subscriptions deliver their initial snapshots before the first action.
+  await page.locator('#clear').click();
   await page.locator("[data-deliver=messages]").click();
   await expect(page.locator("[data-component=UnreadBadge]")).toHaveAttribute(
     "data-pyric-flow-listener",
-    "messages",
+    listenerIds.messages,
   );
   await expect(page.locator("[data-component=MessageList]")).toHaveAttribute(
     "data-pyric-flow-listener",
-    "messages",
+    listenerIds.messages,
   );
   await expect(page.locator("[data-component=MemberList]")).not.toHaveAttribute(
     "data-pyric-flow-listener",
-    "messages",
+    listenerIds.messages,
   );
   await expect(page.locator("#chat-workspace")).not.toHaveAttribute(
     "data-pyric-flow-listener",
@@ -71,11 +75,11 @@ try {
   await page.locator("[data-deliver=presence]").click();
   await expect(page.locator("[data-component=PresenceStrip]")).toHaveAttribute(
     "data-pyric-flow-listener",
-    "presence",
+    listenerIds.presence,
   );
   await expect(page.locator("[data-component=MemberList]")).toHaveAttribute(
     "data-pyric-flow-listener",
-    "presence",
+    listenerIds.presence,
   );
   await expect(
     page.locator("[data-component=MessageList]"),
@@ -84,7 +88,7 @@ try {
     await page.locator(`#clear`).click();
     await page.locator(`[data-deliver=${source}]`).click();
     await expect(
-      page.locator(`[data-pyric-flow-listener=${source}]`).first(),
+      page.locator(`[data-pyric-flow-listener="${listenerIds[source]}"]`).first(),
     ).toBeVisible();
   }
   const variants = await page

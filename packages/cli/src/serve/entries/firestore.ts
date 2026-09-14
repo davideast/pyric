@@ -15,6 +15,8 @@
  */
 import './init.js';
 import * as ip from 'pyric/firestore';
+import { readDocumentAs, readQueryAs } from 'pyric/firestore/internal';
+import { readDocumentAs as workerDocumentRead, readQueryAs as workerQueryRead } from '../worker/client/firestore-reads.js';
 import { getFirestore as pyricGetFirestore } from 'pyric/firestore';
 import * as wcRaw from '../worker/client.js';
 import { useWorker } from './worker-runtime.js';
@@ -206,10 +208,14 @@ export const memoryEagerGarbageCollector = ip.memoryEagerGarbageCollector;
 export const memoryLruGarbageCollector = ip.memoryLruGarbageCollector;
 export const setLogLevel = ip.setLogLevel;
 
-export const getDocFromServer = D.getDoc;
-export const getDocsFromServer = D.getDocs;
-export const getDocFromCache = D.getDoc;
-export const getDocsFromCache = D.getDocs;
+// Preserve the served alias contract: all four read the local authoritative
+// store. Only the observation method differs; this does not add cache behavior.
+const documentRead = useWorker ? workerDocumentRead as unknown as typeof readDocumentAs : readDocumentAs;
+const queryRead = useWorker ? workerQueryRead as unknown as typeof readQueryAs : readQueryAs;
+export const getDocFromServer: typeof ip.getDoc = ref => documentRead(ref, 'getDocFromServer');
+export const getDocsFromServer: typeof ip.getDocs = query => queryRead(query, 'getDocsFromServer');
+export const getDocFromCache: typeof ip.getDoc = ref => documentRead(ref, 'getDocFromCache');
+export const getDocsFromCache: typeof ip.getDocs = query => queryRead(query, 'getDocsFromCache');
 
 /**
  * Local no-op reimplementation rather than delegating to `ip.onSnapshotsInSync`:

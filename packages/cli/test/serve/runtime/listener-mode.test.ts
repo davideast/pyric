@@ -540,6 +540,29 @@ it('does not invent a render association by replaying an unmapped completed SDK 
 });
 
 
+it('keeps write acknowledgments out of Data history and outlines', () => {
+  const page = harness();
+  const app = {};
+  for (const [service, method] of [['firestore', 'setDoc'], ['database', 'update']]) {
+    const write = page.activity.begin({
+      app, method, kind: 'operation',
+      source: { service, target: 'todos/one', key: 'todos/one' },
+    });
+    write.complete();
+  }
+  const read = page.activity.begin({
+    app, method: 'getDoc', kind: 'operation',
+    source: { service: 'firestore', target: 'todos/one', key: 'todos/one' },
+  });
+  read.delivered();
+  read.complete();
+  expect(page.activity.records()).toHaveLength(3);
+  expect(page.mode.history!.counts()).toMatchObject({ calls: 1, deliveries: 1 });
+  expect(page.mode.outlines().map(outline => outline.listenerId)).toEqual([read.id]);
+  page.mode.dispose();
+  page.activity.dispose();
+});
+
 it('preserves interleaved commit sources and rejects removed history regions', () => {
   const page = harness();
   const app = {};

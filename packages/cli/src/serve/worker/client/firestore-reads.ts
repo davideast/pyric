@@ -20,8 +20,12 @@ import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapsh
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
 
-export async function getDoc(ref: DocRefHandle): Promise<ClientDocSnapshot> {
-  const activity = beginWorkerFirestoreActivity(ref, 'getDoc', 'operation');
+export function getDoc(ref: DocRefHandle): Promise<ClientDocSnapshot> {
+  return readDocumentAs(ref, 'getDoc');
+}
+
+export async function readDocumentAs(ref: DocRefHandle, method: string): Promise<ClientDocSnapshot> {
+  const activity = beginWorkerFirestoreActivity(ref, method, 'operation');
   try {
     const result = await dataRpc(ref.port, {
       t: 'op',
@@ -33,10 +37,12 @@ export async function getDoc(ref: DocRefHandle): Promise<ClientDocSnapshot> {
   } catch (error) { activity.fail(); throw error; }
 }
 
-export async function getDocs(
-  source: CollRefHandle | QueryHandle,
-): Promise<ClientQuerySnapshot> {
-  const activity = beginWorkerFirestoreActivity(source, 'getDocs', 'operation');
+export function getDocs(source: CollRefHandle | QueryHandle): Promise<ClientQuerySnapshot> {
+  return readQueryAs(source, 'getDocs');
+}
+
+export async function readQueryAs(source: CollRefHandle | QueryHandle, method: string): Promise<ClientQuerySnapshot> {
+  const activity = beginWorkerFirestoreActivity(source, method, 'operation');
   try {
     const result = await dataRpc(source.port, {
       t: 'op',
@@ -79,15 +85,18 @@ export async function listSubcollections(db: ClientDb, docPath: string): Promise
 export async function getCountFromServer(
   source: CollRefHandle | QueryHandle,
 ): Promise<{ data(): { count: number } }> {
-  const result = await dataRpc(source.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'count',
-    source: source.__kind === 'coll-ref'
-      ? (source as CollRefHandle).descriptor
-      : (source as QueryHandle).descriptor,
-  }) as { count: number };
-  return { data: () => ({ count: result.count }) };
+  const activity = beginWorkerFirestoreActivity(source, 'getCountFromServer', 'operation');
+  try {
+    const result = await dataRpc(source.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'count',
+      source: source.__kind === 'coll-ref'
+        ? (source as CollRefHandle).descriptor
+        : (source as QueryHandle).descriptor,
+    }) as { count: number };
+    return finishSdkRead(activity, { data: () => ({ count: result.count }) });
+  } catch (error) { activity.fail(); throw error; }
 }
 
 // ─── Multi-field aggregates (count / sum / average) ───────────────────────
@@ -117,16 +126,19 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
   source: CollRefHandle | QueryHandle,
   spec: S,
 ): Promise<{ data(): { [K in keyof S]: number | null } }> {
-  const result = await dataRpc(source.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'aggregate',
-    source: source.__kind === 'coll-ref'
-      ? (source as CollRefHandle).descriptor
-      : (source as QueryHandle).descriptor,
-    spec,
-  }) as { data: { [K in keyof S]: number | null } };
-  return { data: () => result.data };
+  const activity = beginWorkerFirestoreActivity(source, 'getAggregateFromServer', 'operation');
+  try {
+    const result = await dataRpc(source.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'aggregate',
+      source: source.__kind === 'coll-ref'
+        ? (source as CollRefHandle).descriptor
+        : (source as QueryHandle).descriptor,
+      spec,
+    }) as { data: { [K in keyof S]: number | null } };
+    return finishSdkRead(activity, { data: () => result.data });
+  } catch (error) { activity.fail(); throw error; }
 }
 
 // ─── onSnapshot ──────────────────────────────────────────────────────────
@@ -186,11 +198,11 @@ export function onSnapshot(
       const r = raw as Record<string, unknown>;
       if ('docs' in r) {
         const snapshot = makeQuerySnapshot(r as unknown as RawQueryResult, port);
-        activity.delivered();
+        activity.delivered(snapshot, (r as { usage?: import('pyric/sandbox/internal').UsageEvidence }).usage);
         callback(snapshot);
       } else {
         const snapshot = makeDocSnapshot(r as unknown as RawDocResult, port);
-        activity.delivered();
+        activity.delivered(snapshot, (r as { usage?: import('pyric/sandbox/internal').UsageEvidence }).usage);
         callback(snapshot);
       }
     },

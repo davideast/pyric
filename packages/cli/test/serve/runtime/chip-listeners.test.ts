@@ -262,28 +262,32 @@ describe('the Listeners view', () => {
     expect(bar(page.root, 'flow').getAttribute('title')).toContain('React');
   });
 
-  it('singles a listener out on the page from its row, and clears it on the second press', () => {
+  it('highlights from the eye without coupling history navigation to visibility', () => {
     const page = setup();
     page.push([
       attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner]),
       attach('a2', 'L2', { kind: 'doc', path: 'profiles/p1' }, [{ kind: 'component', name: 'Profile', element: '#profile' }]),
     ]);
+    page.root.querySelector<HTMLButtonElement>('[data-highlight-source="L1"]')!.click();
+    expect(page.root.querySelector('[data-sources-back]')).toBeNull();
     page.root.querySelector<HTMLButtonElement>('[data-listener-row="L1"]')!.click();
     expect(page.root.querySelector('[data-sources-back]')).not.toBeNull();
     expect(page.root.querySelector('[data-listener-row]')).toBeNull();
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
     page.root.querySelector<HTMLButtonElement>('[data-sources-back]')!.click();
     expect(page.root.querySelectorAll('[data-listener-row]')).toHaveLength(2);
-    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
+    page.root.querySelector<HTMLButtonElement>('[data-highlight-source="L1"]')!.click();
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
 
   it('restores all listeners from a selected row, including listeners beyond the old seven-row cap', () => {
     const page = setup();
     page.push(Array.from({ length: 12 }, (_, i) => attach(`a${i}`, `L${i}`, { kind: 'doc', path: `todos/${i}` }, [owner])));
     expect(page.root.querySelectorAll('[data-listener-row]').length).toBe(12);
-    page.root.querySelector<HTMLButtonElement>('[data-listener-row="L9"]')!.click();
+    page.root.querySelector<HTMLButtonElement>('[data-highlight-source="L9"]')!.click();
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
-    page.root.querySelector<HTMLButtonElement>('[data-sources-back]')!.click();
+    page.root.querySelector<HTMLButtonElement>('[data-listener-all]')!.click();
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(12);
     expect(page.root.querySelectorAll('[data-listener-row][aria-pressed="true"]').length).toBe(0);
     bar(page.root, 'overview').click();

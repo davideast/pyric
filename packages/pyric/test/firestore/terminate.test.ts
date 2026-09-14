@@ -11,7 +11,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
-import { getFirestore, doc, getDoc, setDoc } from '../../src/firestore/index.js';
+import { getFirestore, doc, collection, getDoc, getDocs, getDocFromServer, getDocsFromServer, setDoc } from '../../src/firestore/index.js';
 import { terminate } from '../../src/firestore/index.js';
 
 const RULES = `rules_version = '2';
@@ -44,12 +44,18 @@ describe('terminate', () => {
     const terminatedRef = doc(db, 'notes/n1');
     await setDoc(terminatedRef, { text: 'before' });
 
+    const terminatedQuery = collection(db, 'notes');
     await terminate(db);
 
     expect(disposeSpy).not.toHaveBeenCalled();
-    await expect(getDoc(terminatedRef)).rejects.toMatchObject({
-      code: 'failed-precondition',
-    });
+    for (const read of [
+      () => getDoc(terminatedRef),
+      () => getDocs(terminatedQuery),
+      () => getDocFromServer(terminatedRef),
+      () => getDocsFromServer(terminatedQuery),
+    ]) {
+      await expect(read()).rejects.toMatchObject({ code: 'failed-precondition' });
+    }
     await setDoc(doc(sibling, 'notes/n1'), { text: 'after' });
     expect((await getDoc(doc(sibling, 'notes/n1'))).data()).toEqual({ text: 'after' });
   });

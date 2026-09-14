@@ -1,4 +1,4 @@
-import { captureIndexQuery, sdkActivity, type SdkActivityHandle, type SdkActivityRecord } from 'pyric/sandbox/internal';
+import { captureIndexQuery, captureDatabaseIndexQuery, sdkActivity, type SdkActivityHandle, type SdkActivityRecord } from 'pyric/sandbox/internal';
 import { activityValue, activityStructuralIdentity } from 'pyric/firestore/internal';
 import { queryIdentifier } from 'pyric/database/internal';
 import type { ListenerOwner } from 'pyric/sandbox';
@@ -45,6 +45,7 @@ export function beginWorkerDatabaseActivity(
   return sdkActivity.begin({
     app: ref.port, method, kind, owners,
     source: { service: 'database', target: ref.path, isQuery: !!query,
+      ...(query ? { indexQuery: captureDatabaseIndexQuery(ref.path, query) } : {}),
       key: JSON.stringify([ref.path, query ? queryIdentifier(query) : 'default']),
     },
   });

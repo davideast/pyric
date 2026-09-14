@@ -77,3 +77,28 @@ it('carries index descriptors through worker query listener lifecycle without op
     expect(JSON.stringify(subscription.map(event => event.record.indexQuery))).not.toContain('private-draft-value');
   } finally { stopListener(); stopRecording(); globalThis.SharedWorker = previous; }
 });
+
+it('carries document usage across the worker bridge without recounting unchanged query documents', async () => {
+  const previous = globalThis.SharedWorker;
+  const ctx = await makeHostCtx();
+  setRules(ctx.sandbox, 'rules_version = "2"; service cloud.firestore { match /databases/{db}/documents { match /notes/{id} { allow read, write: if true; } } }');
+  ctx.sandbox.admin.setDocument('notes/one', { version: 1 });
+  ctx.sandbox.admin.setDocument('notes/two', { version: 1 });
+  const { db } = connectClientToHost(ctx, 'worker://usage');
+  const usage: number[] = [];
+  const bytes: number[] = [];
+  const stop = sdkActivity.observe(event => {
+    if (event.method === 'onSnapshot' && event.phase === 'delivery') usage.push(event.usage?.documentReads ?? -1);
+    if (event.service === 'rtdb' && event.phase === 'delivery') bytes.push(event.usage?.payloadBytes ?? -1);
+  });
+  let unsubscribe = () => {};
+  try {
+    unsubscribe = client.onSnapshot(client.collection(db, 'notes'), () => {});
+    await sleep();
+    await client.updateDoc(client.doc(db, 'notes/one'), { version: 2 });
+    await sleep();
+    expect(usage).toEqual([2, 1]);
+    await rtdbGet(rtdbRef(rtdbGetDatabase(db), 'missing'));
+    expect(bytes).toEqual([4]);
+  } finally { unsubscribe(); stop(); globalThis.SharedWorker = previous; }
+});

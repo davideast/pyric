@@ -11,7 +11,7 @@
  * version) → static server with the `/__pyric/` namespace + HTML injection.
  */
 import { randomBytes } from 'node:crypto';
-import { join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { existsSync, watch as watchFile } from 'node:fs';
 import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, type FirebaseJson } from './firebase-json.js';
@@ -464,7 +464,11 @@ export async function startServe(opts: {
   const watchingDb = isWatchEnabled && hasDbRulesPath;
   if (watchingDb) {
     let debounceDb: ReturnType<typeof setTimeout> | null = null;
-    const dbWatcher = watchFile(dbRulesSourcePath as string, () => {
+    // Index edits replace the file atomically. Watching its inode would stop
+    // following later saves after the first rename; watch the parent instead.
+    const dbRulesFile = dbRulesSourcePath as string;
+    const dbWatcher = watchFile(dirname(dbRulesFile), (_event, filename) => {
+      if (filename !== null && String(filename) !== basename(dbRulesFile)) return;
       const hasDebounceDb = debounceDb !== null;
       if (hasDebounceDb) {
         clearTimeout(debounceDb as ReturnType<typeof setTimeout>);

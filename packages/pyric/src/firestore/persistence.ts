@@ -7,6 +7,9 @@
  * variants, `setLogLevel`, and `onSnapshotsInSync`. Read the section note
  * below before touching any function.
  */
+import { readDocument, readQuery } from './reads.js';
+import { beginFirestoreActivity } from './sdk-activity.js';
+import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
 import type { FirebaseApp } from '../app/types.js';
 import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
@@ -21,7 +24,6 @@ import type {
   Unsubscribe,
 } from './types.js';
 import { getFirestore } from './instances.js';
-import { getDoc, getDocs } from './reads.js';
 import { clientStateFor } from './client-state.js';
 
 // ─── Tier: offline / persistence / network family (issue #144) ────────
@@ -334,17 +336,17 @@ export function initializeFirestore(
  * same honest thing.
  *
  */
-export function getDocFromServer<T = DocumentData>(
+export async function getDocFromServer<T = DocumentData>(
   ref: DocumentReference<T>,
 ): Promise<DocumentSnapshot<T>> {
-  return getDoc(ref);
+  return readDocument(ref, beginFirestoreActivity(targetOf(ref), ref, 'getDocFromServer', 'operation'));
 }
 
 /** Query-plural form of {@link getDocFromServer}. */
-export function getDocsFromServer<T = DocumentData>(
+export async function getDocsFromServer<T = DocumentData>(
   query: Query<T>,
 ): Promise<QuerySnapshot<T>> {
-  return getDocs(query);
+  return readQuery(query, beginFirestoreActivity(targetOf(query), query, 'getDocsFromServer', 'operation'));
 }
 
 /**
@@ -360,12 +362,14 @@ export function getDocFromCache<T = DocumentData>(
 ): Promise<DocumentSnapshot<T>> {
   const target = targetOf(ref);
   const client = clientStateFor(target);
+  const activity = beginFirestoreActivity(target, ref, 'getDocFromCache', 'operation');
   try {
     client.assertPathCached(ref.path);
   } catch (error) {
+    activity.fail();
     return Promise.reject(error);
   }
-  return getDoc(ref).then((snapshot) => {
+  return readDocument(ref, activity).then((snapshot) => {
     Object.defineProperty(snapshot, 'metadata', {
       value: Object.freeze({
         fromCache: true,
@@ -383,15 +387,16 @@ export function getDocsFromCache<T = DocumentData>(
 ): Promise<QuerySnapshot<T>> {
   const target = targetOf(query);
   const client = clientStateFor(target);
+  const activity = beginFirestoreActivity(target, query, 'getDocsFromCache', 'operation');
   if (!client.hasCachedQuery(query as object)) {
-    return Promise.resolve(tag({
+    return Promise.resolve(finishSdkRead(activity, tag({
       size: 0,
       empty: true,
       docs: [],
       metadata: Object.freeze({ fromCache: true, hasPendingWrites: false }),
-    }, target));
+    }, target)));
   }
-  return getDocs(query).then((snapshot) => {
+  return readQuery(query, activity).then((snapshot) => {
     Object.defineProperty(snapshot, 'metadata', {
       value: Object.freeze({
         fromCache: true,

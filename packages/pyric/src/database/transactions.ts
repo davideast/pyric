@@ -1,3 +1,5 @@
+import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
+import { beginDatabaseActivity } from './sdk-activity.js';
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf } from './routing.js';
 import type { DataSnapshot, DatabaseReference } from './types.js';
@@ -85,15 +87,17 @@ export async function runTransaction<T>(
   options?: TransactionOptions,
 ): Promise<TransactionResult> {
   const target = targetOf(r as unknown as object);
-  const result = target.backend.runTransaction(
-    authFor(target),
-    r._path,
-    transactionUpdate as (current: JsonValue) => JsonValue | undefined,
-    options,
-  );
-  const snap = buildSandboxSnapFromRaw(target, r, result.val);
-  return new TransactionResult(result.committed, snap) as TransactionResult & {
-    committed: boolean;
-    snapshot: DataSnapshot;
-  };
+  return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), () => {
+    const result = target.backend.runTransaction(
+      authFor(target),
+      r._path,
+      transactionUpdate as (current: JsonValue) => JsonValue | undefined,
+      options,
+    );
+    const snap = buildSandboxSnapFromRaw(target, r, result.val);
+    return new TransactionResult(result.committed, snap) as TransactionResult & {
+      committed: boolean;
+      snapshot: DataSnapshot;
+    };
+  });
 }

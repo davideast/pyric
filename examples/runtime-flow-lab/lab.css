@@ -547,3 +547,11 @@ select {
 .lab::after {
   content: "";
 }
+
+.data-controls, #rtdb-controls:not([hidden]) { display:grid; gap:12px; }
+.data-picker { display:grid; grid-template-columns:88px minmax(0,1fr) auto; gap:12px; align-items:center; }
+.data-picker .select-field { min-width:0; }
+@media (max-width:600px) {
+  .data-picker { grid-template-columns:minmax(0,1fr) auto; }
+  .data-picker label { grid-column:1 / -1; }
+}

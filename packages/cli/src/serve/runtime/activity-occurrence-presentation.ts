@@ -3,6 +3,9 @@ import type { ActivityOccurrence } from './activity-occurrences.js';
 interface OccurrencePresentation { readonly label: string; readonly outcome: string }
 const readLabels: Readonly<Record<string, string>> = {
   getDoc: 'Read document', getDocs: 'Read collection', get: 'Read database',
+  getDocFromCache: 'Read document', getDocFromServer: 'Read document',
+  getDocsFromCache: 'Read collection', getDocsFromServer: 'Read collection',
+  getCountFromServer: 'Read count', getAggregateFromServer: 'Read aggregate',
 };
 
 /** UI wording is derived from facts, never used to determine lifecycle state. */

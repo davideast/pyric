@@ -1,5 +1,7 @@
+import { firestoreReadUsage, databaseReadUsage, firestoreWriteUsage, type UsageEvidence } from './usage-evidence.js';
 import type { ListenerOwner } from '../types/events.js';
-import type { IndexQuery } from '../../rules/indexes/query-analysis.js';
+import type { ServiceIndexQuery } from '../../rules/indexes/service-query.js';
+import { sdkObservation, type SdkObservation } from './sdk-observation.js';
 
 /** Page-side SDK evidence. Transport messages are deliberately not deliveries. */
 export interface SdkActivitySource {
@@ -8,7 +10,7 @@ export interface SdkActivitySource {
   /** Canonical adapter descriptor, used only for identity, never exposed in records. */
   readonly key: string;
   readonly isQuery?: boolean;
-  readonly indexQuery?: IndexQuery;
+  readonly indexQuery?: ServiceIndexQuery;
 }
 
 export interface SdkActivityRecord {
@@ -18,7 +20,7 @@ export interface SdkActivityRecord {
   readonly service: SdkActivitySource['service'];
   readonly target: string;
   readonly isQuery: boolean;
-  readonly indexQuery?: IndexQuery;
+  readonly indexQuery?: ServiceIndexQuery;
   readonly method: string;
   readonly kind: 'operation' | 'subscription';
   readonly status: 'pending' | 'active' | 'completed' | 'failed' | 'closed';
@@ -34,8 +36,8 @@ export interface SdkActivityRecord {
 export interface SdkActivityHandle {
   readonly id: string;
   /** Call immediately before handing a successful result to application code. */
-  delivered(): void;
-  complete(): void;
+  delivered(snapshot?: unknown, usage?: UsageEvidence): void;
+  complete(usage?: UsageEvidence): void;
   fail(): void;
   close(): void;
   transport(id: string): void;
@@ -44,6 +46,7 @@ export interface SdkActivityHandle {
 export interface SdkActivityEvent {
   readonly phase: 'start' | 'delivery' | 'end' | 'remove' | 'transport';
   readonly record: SdkActivityRecord;
+  readonly usage?: UsageEvidence;
 }
 
 interface AppIdentity {
@@ -57,12 +60,15 @@ interface AppIdentity {
  */
 export function createSdkActivityJournal(options: {
   now?: () => number;
+  /** Independent of the sandbox clock and wall-clock adjustments. */
+  monotonicNow?: () => number;
   retentionMs?: number;
   maxCompleted?: number;
   /** Protect completed deliveries until the page's render window has elapsed. */
   correlationWindowMs?: number;
 } = {}) {
   const now = options.now ?? Date.now;
+  const monotonicNow = options.monotonicNow ?? (() => performance.now());
   const correlationWindowMs = options.correlationWindowMs ?? 250;
   const retentionMs = Math.max(options.retentionMs ?? 30_000, correlationWindowMs);
   const maxCompleted = options.maxCompleted ?? 100;
@@ -70,6 +76,10 @@ export function createSdkActivityJournal(options: {
   const records = new Map<string, SdkActivityRecord>();
   const releaseSources = new Map<string, () => void>();
   const subscribers = new Set<(event: SdkActivityEvent) => void>();
+  const observers = new Set<(observation: SdkObservation) => void>();
+  const observations: Array<{ event: SdkObservation; observers: Array<(event: SdkObservation) => void> }> = [];
+  let observationSequence = 0;
+  let observing = false;
   let appSerial = 0;
   let sourceSerial = 0;
   let activitySerial = 0;
@@ -79,7 +89,27 @@ export function createSdkActivityJournal(options: {
   let silenced = false;
   let pruning = false;
 
-  function notify(phase: SdkActivityEvent['phase'], record: SdkActivityRecord): void {
+  function notify(phase: SdkActivityEvent['phase'], record: SdkActivityRecord, usage?: UsageEvidence): void {
+    const observation = sdkObservation({ phase, record, usage }, now(), monotonicNow(), observationSequence + 1);
+    if (observation) {
+      observationSequence++;
+      observations.push({ event: observation, observers: [...observers] });
+    }
+    // An observer may synchronously cause another SDK call. Finish delivering
+    // this observation before delivering the next to any other observer.
+    if (!observing) {
+      observing = true;
+      try {
+        while (observations.length) {
+          const next = observations.shift()!;
+          for (const observer of next.observers) {
+            try { observer(next.event); } catch { /* Diagnostics cannot alter SDK behavior. */ }
+          }
+        }
+      } finally {
+        observing = false;
+      }
+    }
     for (const subscriber of [...subscribers]) {
       try { subscriber({ phase, record }); } catch { /* Diagnostics cannot alter SDK behavior. */ }
     }
@@ -174,25 +204,31 @@ export function createSdkActivityJournal(options: {
         });
         notify('start', record);
       }
-      function update(phase: SdkActivityEvent['phase'], patch: Partial<SdkActivityRecord>): void {
+      function update(phase: SdkActivityEvent['phase'], patch: Partial<SdkActivityRecord>, usage?: UsageEvidence): void {
         const current = records.get(id);
         if (!current || current.endedAt !== undefined) return;
         const next = Object.freeze({ ...current, ...patch });
         records.set(id, next);
-        notify(phase, next);
+        notify(phase, next, usage);
       }
-      function end(status: 'completed' | 'failed' | 'closed'): void {
-        update('end', { status, endedAt: now() });
+      function end(status: 'completed' | 'failed' | 'closed', usage?: UsageEvidence): void {
+        update('end', { status, endedAt: now() }, usage);
         prune();
       }
       return {
         id,
-        delivered() {
+        delivered(snapshot, suppliedUsage) {
           const current = records.get(id);
           if (!current || (current.kind === 'operation' && current.deliveryCount > 0)) return;
-          update('delivery', { deliveryCount: current.deliveryCount + 1, lastDeliveryAt: now() });
+          let usage: UsageEvidence;
+          try {
+            usage = suppliedUsage ?? (current.service === 'firestore'
+              ? (current.method.endsWith('FromCache') ? { documentReads: 0 } : firestoreReadUsage(snapshot, current.kind === 'subscription', current.deliveryCount === 0))
+              : databaseReadUsage(snapshot));
+          } catch { usage = { unmeasured: 1 }; }
+          update('delivery', { deliveryCount: current.deliveryCount + 1, lastDeliveryAt: now() }, usage);
         },
-        complete() { end('completed'); },
+        complete(usage) { end('completed', usage ?? (record.service === 'firestore' ? firestoreWriteUsage(record.method) : undefined)); },
         fail() { end('failed'); },
         close() { end('closed'); },
         transport(transportId) { update('transport', { transportId }); },
@@ -206,11 +242,17 @@ export function createSdkActivityJournal(options: {
       if (!disposed) subscribers.add(subscriber);
       return () => { subscribers.delete(subscriber); };
     },
+    /** Live observations, independent of history retention and Flow rendering. */
+    observe(observer: (observation: SdkObservation) => void): () => void {
+      if (!disposed) observers.add(observer);
+      return () => { observers.delete(observer); };
+    },
     dispose(): void {
       disposed = true;
       clearTimeout(timer);
       for (const record of [...records.values()]) remove(record);
       subscribers.clear();
+      observers.clear();
     },
   };
 }
@@ -226,7 +268,7 @@ export const sdkActivity = globalStore[JOURNAL_KEY]
 
 /** Return the same snapshot synchronously, without adding a Promise reaction. */
 export function finishSdkRead<T>(activity: SdkActivityHandle, snapshot: T): T {
-  activity.delivered();
+  activity.delivered(snapshot);
   activity.complete();
   return snapshot;
 }

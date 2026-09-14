@@ -1,0 +1,214 @@
+import type { UsageEvidence } from './usage-evidence.js';
+import { sdkActivity, type SdkActivityRecord, type createSdkActivityJournal } from './sdk-activity.js';
+import type { EventService } from '../types/operation.js';
+import { observationService, type SdkObservation } from './sdk-observation.js';
+import { sdkMethodCoverage, sdkUntrackedMethods, type SdkMethodCategory } from './sdk-coverage.js';
+
+const RETAINED_SECONDS = 60;
+const WINDOW_SECONDS = 5;
+function ringSlot(second: number): number {
+  return ((second % RETAINED_SECONDS) + RETAINED_SECONDS) % RETAINED_SECONDS;
+}
+interface Bucket { second: number; calls: number; deliveries: number }
+interface UsageBucket { second: number; documentReads: number; documentWrites: number; documentDeletes: number; payloadBytes: number; unmeasured: number }
+export interface ServiceUsageRate {
+  readonly documentReads: number;
+  readonly documentWrites: number;
+  readonly documentDeletes: number;
+  readonly payloadBytes: number;
+  readonly unmeasured: number;
+}
+const usageKeys = ['documentReads', 'documentWrites', 'documentDeletes', 'payloadBytes', 'unmeasured'] as const;
+function emptyUsage(second: number): UsageBucket {
+  return { second, documentReads: 0, documentWrites: 0, documentDeletes: 0, payloadBytes: 0, unmeasured: 0 };
+}
+interface Series {
+  service: EventService;
+  method: string;
+  category: SdkMethodCategory;
+  buckets: Bucket[];
+  activeListeners: number;
+  observed: boolean;
+}
+export interface SdkRateBucket {
+  readonly second: number;
+  readonly calls: number;
+  readonly deliveries: number;
+}
+export interface SdkMethodRate {
+  readonly method: string;
+  readonly category: SdkMethodCategory;
+  readonly callsPerSecond: number;
+  readonly deliveriesPerSecond: number;
+  readonly activeListeners: number;
+  readonly observed: boolean;
+  readonly buckets: readonly SdkRateBucket[];
+}
+export interface SdkServiceRate {
+  readonly service: EventService;
+  readonly usage?: ServiceUsageRate;
+  readonly lastActivityAt?: number;
+  readonly usageBuckets?: readonly (ServiceUsageRate & { readonly second: number })[];
+  /** Latest activity window survives idle time; bounded to 60 one-second buckets. */
+  readonly history?: { readonly endSecond: number; readonly startedSecond: number; readonly methods: readonly SdkMethodRate[]; readonly usageBuckets?: readonly (ServiceUsageRate & { readonly second: number })[] };
+  /** Unsupported services have no methods or numeric totals to imply zero usage. */
+  readonly coverage: 'partial' | 'unsupported';
+  readonly untrackedMethods: readonly string[];
+  readonly observed: boolean;
+  readonly methods: readonly SdkMethodRate[];
+}
+export interface SdkRateSnapshot {
+  readonly monotonicAt: number;
+  readonly windowSeconds: number;
+  readonly services: readonly SdkServiceRate[];
+}
+
+/**
+ * One accumulator per ordered journal observer stream. Sequence watermarks discard
+ * replay without retaining completed activities. Only live listener IDs are held.
+ * Fixed method coverage bounds series count; fixed rings bound event storage.
+ */
+export function createSdkRates(options: { monotonicNow?: () => number; activeListeners?: readonly SdkActivityRecord[] } = {}) {
+  const now = options.monotonicNow ?? (() => performance.now());
+  const series = new Map<string, Series>();
+  const startedSecond = Math.floor(now() / 1000);
+  const lastActivity = new Map<EventService, { second: number; at: number }>();
+  const active = new Map<string, Series>();
+  const usage = new Map<EventService, UsageBucket[]>();
+  function recordUsage(service: EventService, second: number, evidence: UsageEvidence): void {
+    let ring = usage.get(service);
+    if (!ring) { ring = Array.from({ length: RETAINED_SECONDS }, () => emptyUsage(-Infinity)); usage.set(service, ring); }
+    const slot = ringSlot(second);
+    if (ring[slot]!.second !== second) ring[slot] = emptyUsage(second);
+    for (const key of usageKeys) {
+      const value = evidence[key];
+      if (value !== undefined && Number.isFinite(value) && value >= 0) ring[slot]![key] += value;
+    }
+  }
+  let sequence = 0;
+  for (const service of ['firestore', 'rtdb', 'storage'] as const) {
+    for (const entry of sdkMethodCoverage(service)) {
+      series.set(`${service}/${entry.method}`, {
+        service, ...entry, observed: false, activeListeners: 0,
+        buckets: Array.from({ length: RETAINED_SECONDS }, () => ({ second: -Infinity, calls: 0, deliveries: 0 })),
+      });
+    }
+  }
+  // A late subscriber can seed the live gauge without inventing historical calls.
+  for (const listener of options.activeListeners ?? []) {
+    if (listener.kind !== 'subscription' || listener.endedAt !== undefined) continue;
+    const service = observationService(listener.service);
+    const row = series.get(`${service}/${listener.method}`);
+    if (row && !active.has(listener.id)) {
+      active.set(listener.id, row);
+      ++row.activeListeners;
+      row.observed = true;
+    }
+  }
+  function record(event: SdkObservation): void {
+    if (event.sequence <= sequence) return;
+    sequence = event.sequence;
+    const row = series.get(`${event.service}/${event.method}`);
+    if (!row) return;
+    if (event.usage) {
+      recordUsage(event.service, Math.floor(event.monotonicAt / 1000), event.usage);
+      lastActivity.set(event.service, { second: Math.floor(event.monotonicAt / 1000), at: event.at });
+    }
+    if (event.phase === 'end' || event.phase === 'remove') {
+      const listener = active.get(event.activityId);
+      if (listener) {
+        --listener.activeListeners;
+        active.delete(event.activityId);
+      }
+      return;
+    }
+    row.observed = true;
+    const second = Math.floor(event.monotonicAt / 1000);
+    if ((event.phase === 'start' && row.category !== 'listener') || (event.phase === 'delivery' && row.category === 'listener')) {
+      lastActivity.set(event.service, { second, at: event.at });
+    }
+    const slot = ringSlot(second);
+    let bucket = row.buckets[slot]!;
+    if (bucket.second !== second) {
+      bucket = { second, calls: 0, deliveries: 0 };
+      row.buckets[slot] = bucket;
+    }
+    if (event.phase === 'start') {
+      ++bucket.calls;
+      if (event.kind === 'subscription' && !active.has(event.activityId)) {
+        ++row.activeListeners;
+        active.set(event.activityId, row);
+      }
+    } else if (event.phase === 'delivery') {
+      ++bucket.deliveries;
+    }
+  }
+  function snapshot(): SdkRateSnapshot {
+    const monotonicAt = now();
+    const second = Math.floor(monotonicAt / 1000);
+    const services = (['firestore', 'rtdb', 'storage'] as const).map(service => {
+      const methods = [...series.values()].filter(row => row.service === service).map(row => {
+        const buckets = Array.from({ length: RETAINED_SECONDS }, (_, index) => {
+          const stamp = second - RETAINED_SECONDS + 1 + index;
+          const slot = ringSlot(stamp);
+          const bucket = row.buckets[slot]!;
+          return Object.freeze({ second: stamp, calls: bucket.second === stamp ? bucket.calls : 0,
+            deliveries: bucket.second === stamp ? bucket.deliveries : 0 });
+        });
+        const recent = buckets.slice(-WINDOW_SECONDS);
+        return Object.freeze({ method: row.method, category: row.category,
+          callsPerSecond: recent.reduce((sum, bucket) => sum + bucket.calls, 0) / WINDOW_SECONDS,
+          deliveriesPerSecond: recent.reduce((sum, bucket) => sum + bucket.deliveries, 0) / WINDOW_SECONDS,
+          activeListeners: row.activeListeners, observed: row.observed, buckets: Object.freeze(buckets) });
+      });
+      const last = lastActivity.get(service);
+      const historyEnd = last ? Math.min(second, last.second + 2) : second;
+      const historyMethods = methods.map(method => {
+        const row = series.get(`${service}/${method.method}`)!;
+        const buckets = Array.from({ length: RETAINED_SECONDS }, (_, index) => {
+          const stamp = historyEnd - RETAINED_SECONDS + 1 + index;
+          const bucket = row.buckets[ringSlot(stamp)]!;
+          return Object.freeze({ second: stamp, calls: bucket.second === stamp ? bucket.calls : 0,
+            deliveries: bucket.second === stamp ? bucket.deliveries : 0 });
+        });
+        return Object.freeze({ ...method, buckets: Object.freeze(buckets) });
+      });
+      const usageWindow = (end: number) => Object.freeze(Array.from({ length: RETAINED_SECONDS }, (_, index) => {
+        const stamp = end - RETAINED_SECONDS + 1 + index;
+        const bucket = usage.get(service)?.[ringSlot(stamp)];
+        return Object.freeze(bucket?.second === stamp ? { ...bucket } : emptyUsage(stamp));
+      }));
+      const totals = emptyUsage(second);
+      for (const bucket of usage.get(service) ?? []) {
+        if (bucket.second <= second && bucket.second > second - WINDOW_SECONDS) {
+          for (const key of usageKeys) totals[key] += bucket[key];
+        }
+      }
+      const measurement = Object.freeze({ documentReads: totals.documentReads / WINDOW_SECONDS,
+        documentWrites: totals.documentWrites / WINDOW_SECONDS, documentDeletes: totals.documentDeletes / WINDOW_SECONDS,
+        payloadBytes: totals.payloadBytes / WINDOW_SECONDS, unmeasured: totals.unmeasured });
+      return Object.freeze({ service, usage: measurement, usageBuckets: usageWindow(second),
+        ...(last ? { lastActivityAt: last.at } : {}),
+        history: Object.freeze({ endSecond: historyEnd, startedSecond, methods: Object.freeze(historyMethods), usageBuckets: usageWindow(historyEnd) }), coverage: methods.length ? 'partial' as const : 'unsupported' as const,
+        untrackedMethods: sdkUntrackedMethods(service),
+        observed: methods.some(method => method.observed), methods: Object.freeze(methods) });
+    });
+    return Object.freeze({ monotonicAt, windowSeconds: WINDOW_SECONDS, services: Object.freeze(services) });
+  }
+  return Object.freeze({ record, snapshot });
+}
+
+/** Install independently of any UI; disposing a view must not dispose its monitor. */
+export function createSdkRateMonitor(
+  journal: ReturnType<typeof createSdkActivityJournal> = sdkActivity,
+  options: { monotonicNow?: () => number } = {},
+) {
+  const rates = createSdkRates({ ...options, activeListeners: journal.records() });
+  const dispose = journal.observe(rates.record);
+  return Object.freeze({ snapshot: rates.snapshot, dispose });
+}
+
+// Separate source/dist runtime bundles share one observer and one accumulation.
+const RATES_KEY = Symbol.for('pyric.sdk-rates');
+const globalStore = globalThis as { [RATES_KEY]?: ReturnType<typeof createSdkRateMonitor> };
+export const sdkRates = globalStore[RATES_KEY] ?? (globalStore[RATES_KEY] = createSdkRateMonitor());

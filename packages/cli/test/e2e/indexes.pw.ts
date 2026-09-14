@@ -9,7 +9,8 @@ let server: Awaited<ReturnType<typeof startSdkFlowServer>>;
 test.beforeAll(async () => { root = await mkdtemp(join(tmpdir(), 'index-chip-')); server = await startSdkFlowServer(0, root); });
 test.afterAll(async () => { await server?.close(); await rm(root, { recursive: true, force: true }); });
 test.beforeEach(async () => {
-  await writeFile(join(root, 'firebase.json'), JSON.stringify({ firestore: { indexes: 'local.indexes.json' } }));
+  await writeFile(join(root, 'firebase.json'), JSON.stringify({ firestore: { indexes: 'local.indexes.json' }, database: { rules: 'database.rules.json' } }));
+  await writeFile(join(root, 'database.rules.json'), JSON.stringify({ rules: { '.read': true, '.write': true, projects: {} } }));
   await writeFile(join(root, 'local.indexes.json'), JSON.stringify({ indexes: [], fieldOverrides: [{ collectionGroup: 'projects', fieldPath: 'privateNotes', indexes: [] }] }));
 });
 
@@ -97,3 +98,55 @@ test('traffic badges share dimensions and alignment at narrow widths', async ({ 
   await page.setViewportSize({ width: 1500, height: 1050 });
   await page.screenshot({ path: '/tmp/traffic-badges-desktop.png' });
 });
+
+for (const runtime of ['inpage', 'worker']) {
+  test(`${runtime}: RTDB failed query uses the same index preview and local action`, async ({ page }) => {
+    await page.goto(`${server.url}/?runtime=${runtime}`);
+    await page.locator('[data-database-index-read]').click();
+    await expect(page.locator('[data-database-index-results]')).toContainText('Index not defined');
+    await page.getByRole('tab', { name: 'Traffic', exact: true }).click();
+    const row = page.locator('[data-request-row]').filter({ hasText: 'rtdb.get' }).filter({ hasText: '/projects' }).first();
+    await expect(row.getByLabel('Index missing from config')).toBeVisible();
+    await page.locator('[data-database-index-listen]').click();
+    const failedListener = page.locator('[data-request-row]').filter({ hasText: 'rtdb.listen' }).filter({ hasText: '/projects' }).first();
+    await expect(failedListener.getByLabel('Index missing from config')).toBeVisible();
+    if (await page.locator('[data-database-index-listen]').textContent() === 'Stop database query') await page.locator('[data-database-index-listen]').click();
+    await row.click();
+    const details = page.locator('[data-index-details]');
+    await expect(page.locator('[data-traffic-detail]')).toContainText('Realtime Database');
+    await expect(page.locator('[data-traffic-detail]')).toContainText('Failed');
+    await expect(details).toContainText('budget');
+    await expect(details).toContainText('database.rules.json');
+    await details.getByText('JSON definition', { exact: true }).click();
+    await expect(details.getByLabel('Index addition')).toContainText('".indexOn"');
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await details.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    const add = page.getByRole('button', { name: 'Add index', exact: true });
+    await expect(add).toBeInViewport();
+    const before = await add.boundingBox();
+    await add.click();
+    await expect(add).toHaveAttribute('data-save-state', 'saved');
+    expect((await add.boundingBox())?.width).toBe(before?.width);
+    await expect(details).toContainText('Configured');
+    const config = JSON.parse(await readFile(join(root, 'database.rules.json'), 'utf8'));
+    expect(config.rules.projects['.indexOn']).toBe('budget');
+    expect(config.rules['.read']).toBe(true);
+    // Saving configuration does not rewrite a recorded failed outcome.
+    await expect(page.locator('[data-traffic-detail]')).toContainText('Failed');
+    await page.setViewportSize({ width: 1500, height: 1050 });
+    await page.locator('[data-database-index-read]').click();
+    await expect(page.locator('[data-database-index-results]')).toContainText('large');
+    await page.locator('[data-request-back]').click();
+    await expect(page.locator('[data-request-row]').filter({ hasText: 'rtdb.get' }).filter({ hasText: '/projects' }).getByLabel('Succeeded', { exact: true }).first()).toBeVisible();
+    await page.locator('[data-database-index-listen]').click();
+    await expect(page.locator('[data-database-index-listen]')).toHaveText('Stop database query');
+    await page.getByRole('tab', { name: 'Data', exact: true }).click();
+    const source = page.locator('[data-listener-row]').filter({ hasText: '/projects' }).first();
+    await expect(source).toContainText('Realtime Database');
+    await source.click();
+    await expect(page.locator('[data-index-details]')).toContainText('Configured');
+    await page.locator('[data-database-index-listen]').click();
+    await expect(page.locator('[data-database-index-listen]')).toHaveText('Listen to database projects');
+    await page.screenshot({ path: `/tmp/rtdb-index-${runtime}.png` });
+  });
+}

@@ -38,6 +38,7 @@ class FirestoreAuthIntegrationTest {
     private val sentUnsubs = CopyOnWriteArrayList<String>()
     private var authStateSubId: String? = null
     private var idTokenSubId: String? = null
+    @Volatile private var tokenClaims: Map<String, Any?> = emptyMap()
 
     @BeforeEach
     fun setUp() {
@@ -48,6 +49,7 @@ class FirestoreAuthIntegrationTest {
         sentUnsubs.clear()
         authStateSubId = null
         idTokenSubId = null
+        tokenClaims = emptyMap()
 
         transport = InMemoryBridgeTransport()
         bridgeClient = PyricBridgeClient(transport)
@@ -93,6 +95,9 @@ class FirestoreAuthIntegrationTest {
                             if (reqTenantId != null) {
                                 userMap["tenantId"] = reqTenantId
                             }
+                            @Suppress("UNCHECKED_CAST")
+                            val customClaims = userMap["customClaims"] as? Map<String, Any?> ?: emptyMap()
+                            tokenClaims = customClaims + mapOf("sub" to userMap["uid"])
                             val userJson = JsonCodec.encodeToString(userMap)
                             transport.sendToClient(
                                 """{"type":"worker-res","id":"$id","ok":true,"value":{"user":$userJson,"operationType":"signIn"}}"""
@@ -104,8 +109,10 @@ class FirestoreAuthIntegrationTest {
                             }
                         }
                         "auth.getIdTokenResult" -> {
+                            if (op["forceRefresh"] == true) tokenClaims = tokenClaims + ("role" to "admin")
+                            val claimsJson = JsonCodec.encodeToString(tokenClaims)
                             transport.sendToClient(
-                                """{"type":"worker-res","id":"$id","ok":true,"value":{"token":"mock-token","claims":{"role":"admin","sub":"user-alice"}}}"""
+                                """{"type":"worker-res","id":"$id","ok":true,"value":{"token":"mock-token","claims":$claimsJson}}"""
                             )
                         }
                         "auth.signOut" -> {
@@ -462,6 +469,8 @@ class FirestoreAuthIntegrationTest {
     fun testSnapshotStreamResubscriptionOnIdTokenClaimRefresh() {
         // 1. Sign in as Alice with no custom claims
         Tasks.await(auth.signInWithEmailAndPassword("alice@example.com", "secret"))
+        // Exercise the token lookup that can also happen during initial auth delivery.
+        Tasks.await(auth.currentUser!!.getIdToken(forceRefresh = false))
         val docRef = firestore.document("users/alice")
 
         val latch = CountDownLatch(1)

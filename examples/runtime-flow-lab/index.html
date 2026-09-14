@@ -15,6 +15,31 @@
         </div>
         <button class="lab-button" id="inspector">Inspector</button>
       </header>
+      <section class="data-controls" aria-label="Chat data">
+        <div class="data-picker">
+          <label for="chat-service">Messages</label>
+          <div class="select-field"><select id="chat-service"><option value="firestore">Firestore</option><option value="rtdb">Realtime Database</option></select></div>
+          <button class="lab-button" id="reset-data">Reset data</button>
+        </div>
+        <div id="rtdb-controls" hidden>
+          <div class="data-picker">
+            <label for="listener-mode">Listener</label>
+            <div class="select-field"><select id="listener-mode"><option value="value">Value events</option><option value="children">Child events</option></select></div>
+            <button class="lab-button" id="listeners">Stop listeners</button>
+          </div>
+          <div class="data-picker">
+            <label for="listener-scope">Scope</label>
+            <div class="select-field"><select id="listener-scope"><option value="messages">Latest 10 messages</option><option value="conversation">Whole conversation</option></select></div>
+            <button class="lab-button" id="older">Load older</button>
+          </div>
+          <div class="delivery-buttons">
+            <button class="lab-button" id="edit-message">Edit latest message</button>
+            <button class="lab-button" id="query-index">Find Alice messages</button>
+            <button class="lab-link" id="reset-index">Reset demo index</button>
+          </div>
+          <p class="study-note">Value events return the full value. Child events return one message. Callback size is not billed download size.</p>
+        </div>
+      </section>
       <section class="study" aria-label="Flow treatment">
         <div class="study-controls">
           <label for="treatment">Flow treatment</label
@@ -51,16 +76,16 @@
         </div>
         <p id="treatment-description"></p>
         <p class="study-note">
-          Choosing a treatment repeats the last delivery.
+          Choosing a treatment triggers another update.
         </p>
         <p class="study-note" id="treatment-use"></p>
       </section>
       <section
         class="delivery-controls"
-        aria-label="Simulate listener deliveries"
+        aria-label="Update chat data"
       >
         <div class="delivery-heading">
-          <h2>Trigger a delivery</h2>
+          <h2>Trigger an update</h2>
           <button class="lab-link" id="clear">Clear marks & history</button>
         </div>
         <div class="delivery-buttons">
@@ -70,6 +95,7 @@
           ><button class="lab-button" data-deliver="typing">Typing</button
           ><button class="lab-button" data-deliver="receipts">
             Read receipt</button
+          ><button class="lab-button" id="refresh">Refresh data</button
           ><button class="lab-button" id="burst">Run a burst</button>
         </div>
         <p class="delivery-status" id="delivery-status" role="status">
@@ -91,8 +117,8 @@
         <div id="treatment-index"></div>
       </details>
       <footer class="lab-footer">
-        Local demo: deliveries are simulated; React commits and Flow marks are
-        real. Flow shows renders observed after a delivery, not proven data
+        Local demo: chat updates use Firestore and Realtime Database SDK calls.
+        Flow shows renders observed after a delivery, not proven data
         dependencies. Treatments are shared with the runtime chip.
       </footer>
     </main>

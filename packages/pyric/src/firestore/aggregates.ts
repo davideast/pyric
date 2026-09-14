@@ -4,6 +4,8 @@
  * `count` / `sum` / `average` field descriptors and the
  * `getCountFromServer` / `getAggregateFromServer` executors.
  */
+import { beginFirestoreActivity } from './sdk-activity.js';
+import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
 import type {
   AggregateField as ChainAggregateField,
   AggregateSpec as ChainAggregateSpec,
@@ -103,10 +105,13 @@ export function average(field: string): AggregateField {
 export async function getCountFromServer(
   source: Query | CollectionReference,
 ): Promise<AggregateQuerySnapshot<{ count: number }>> {
-  const target = targetOf(source);
-  const snap = await chainQueryFor(target, source).aggregate({ count: { kind: 'count' } });
-  const data = snap.data();
-  return { data: () => ({ count: (data.count ?? 0) as number }) };
+  const activity = beginFirestoreActivity(targetOf(source), source, 'getCountFromServer', 'operation');
+  try {
+    const target = targetOf(source);
+    const snap = await chainQueryFor(target, source).aggregate({ count: { kind: 'count' } });
+    const data = snap.data();
+    return finishSdkRead(activity, { data: () => ({ count: (data.count ?? 0) as number }) });
+  } catch (error) { activity.fail(); throw error; }
 }
 
 /**
@@ -120,9 +125,12 @@ export async function getAggregateFromServer<S extends AggregateSpec>(
   source: Query | CollectionReference,
   spec: S,
 ): Promise<AggregateQuerySnapshot<{ [K in keyof S]: number | null }>> {
-  const target = targetOf(source);
-  const chainSpec: ChainAggregateSpec = {};
-  for (const alias of Object.keys(spec)) chainSpec[alias] = spec[alias] as ChainAggregateField;
-  const snap = await chainQueryFor(target, source).aggregate(chainSpec);
-  return { data: () => snap.data() as { [K in keyof S]: number | null } };
+  const activity = beginFirestoreActivity(targetOf(source), source, 'getAggregateFromServer', 'operation');
+  try {
+    const target = targetOf(source);
+    const chainSpec: ChainAggregateSpec = {};
+    for (const alias of Object.keys(spec)) chainSpec[alias] = spec[alias] as ChainAggregateField;
+    const snap = await chainQueryFor(target, source).aggregate(chainSpec);
+    return finishSdkRead(activity, { data: () => snap.data() as { [K in keyof S]: number | null } });
+  } catch (error) { activity.fail(); throw error; }
 }

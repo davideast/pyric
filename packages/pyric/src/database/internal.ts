@@ -3,3 +3,4 @@ export {
   type DisconnectOperation,
 } from './disconnect-operation-queue.js';
 export { queryIdentifier } from './query-shape.js';
+export { canonicalizeDatabaseUrl } from './sandbox/backend-for.js';

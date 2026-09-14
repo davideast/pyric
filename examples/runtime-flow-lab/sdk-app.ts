@@ -1,3 +1,4 @@
+import { createIndexConfigClient } from '../../packages/cli/src/serve/runtime/index-config-client.ts';
 import { flowRules, securityScenarios, securityIdentity, type ProjectDocument } from './security-scenarios.ts';
 import { createListenerMode, type ListenerMode } from '../../packages/cli/src/serve/runtime/listener-mode.ts';
 import { mountPyricRuntimeChip } from '../../packages/cli/src/serve/runtime/chip.ts';
@@ -25,6 +26,9 @@ let deniedWrite: () => Promise<unknown>;
 let readProject: (path: string) => Promise<unknown>;
 let updateProject: (path: string, value: ProjectDocument) => Promise<unknown>;
 let readIndexedProjects: () => Promise<unknown[]>;
+let readDatabaseProjects: () => Promise<unknown>;
+let listenDatabaseProjects: (next: (value: unknown) => void) => Promise<() => void>;
+const localIndexes = createIndexConfigClient(fetch.bind(globalThis));
 let version = 0;
 if (kind === 'worker') {
   const sdk = await import('../../packages/cli/src/serve/worker/client.ts');
@@ -41,6 +45,15 @@ if (kind === 'worker') {
   readProject = path => asAlice(async () => (await sdk.getDoc(sdk.doc(db, path))).data());
   updateProject = (path, value) => asAlice(() => sdk.setDoc(sdk.doc(db, path), { ...value }));
   readIndexedProjects = () => asAlice(async () => (await sdk.getDocs(sdk.query(sdk.collection(db, 'projects'), sdk.where('status', '==', 'draft'), sdk.orderBy('budget', 'desc')))).docs.map(doc => doc.data()));
+  const rulesClient = await import('../../packages/cli/src/serve/worker/client/rules.ts');
+  const projects = { ref: database.rtdbRef(database.rtdbGetDatabase(db), 'projects'), _spec: { orderBy: { kind: 'child' as const, path: 'budget' }, bounds: [], limit: null } };
+  const prepareDatabaseProjects = async () => {
+    const config = await localIndexes.read('rtdb');
+    await rulesClient.setDatabaseRules(db, config.config);
+    await writes.rtdbSet(projects.ref, { small: { budget: 10 }, large: { budget: 40 } });
+  };
+  readDatabaseProjects = async () => { await prepareDatabaseProjects(); return (await reads.rtdbGet(projects)).val(); };
+  listenDatabaseProjects = async next => { await prepareDatabaseProjects(); return listeners.rtdbOnValue(projects, snap => next(snap.val()), error => next(error instanceof Error ? error.message : String(error))); };
   const document = sdk.doc(db, 'messages/current');
   const node = database.rtdbRef(database.rtdbGetDatabase(db), 'messages/current');
   readDocument = async () => (await sdk.getDoc(document)).data();
@@ -67,6 +80,15 @@ if (kind === 'worker') {
   readProject = async path => (await sdk.getDoc(sdk.doc(signedInDb, path))).data();
   updateProject = (path, value) => sdk.setDoc(sdk.doc(signedInDb, path), { ...value });
   readIndexedProjects = async () => (await sdk.getDocs(sdk.query(sdk.collection(signedInDb, 'projects'), sdk.where('status', '==', 'draft'), sdk.orderBy('budget', 'desc')))).docs.map(doc => doc.data());
+  const projects = database.query(database.ref(rtdb, 'projects'), database.orderByChild('budget'));
+  const prepareDatabaseProjects = async () => {
+    const config = await localIndexes.read('rtdb');
+    if (!('rules' in config.config)) throw new Error('Database rules are unavailable.');
+    database.sandbox.setRules(rtdb, config.config);
+    database.sandbox.setData(rtdb, { projects: { small: { budget: 10 }, large: { budget: 40 } } });
+  };
+  readDatabaseProjects = async () => { await prepareDatabaseProjects(); return (await database.get(projects)).val(); };
+  listenDatabaseProjects = async next => { await prepareDatabaseProjects(); return database.onValue(projects, snap => next(snap.val()), error => next(error instanceof Error ? error.message : String(error))); };
   const document = sdk.doc(db, 'messages/current');
   const node = database.ref(rtdb, 'messages/current');
   readDocument = async () => (await sdk.getDoc(document)).data();
@@ -122,10 +144,21 @@ createRoot(document.querySelector('#app')!).render(h(React.Fragment, null, h(Dat
 
 function IndexLab() {
   const [projects, setProjects] = React.useState<unknown[]>([]);
+  const [databaseResult, setDatabaseResult] = React.useState('No database query run yet');
+  const subscription = React.useRef<(() => void) | null>(null);
+  const [subscribed, setSubscribed] = React.useState(false);
+  React.useEffect(() => () => subscription.current?.(), []);
   return h('section', { 'data-component': 'IndexLab' },
     h('h2', null, 'Draft projects by budget'),
     h('button', { 'data-index-read': '', onClick: async () => setProjects(await readIndexedProjects()) }, 'Read sorted projects'),
     h('article', { 'data-index-results': '' }, projects.length ? `${projects.length} draft projects` : 'No query run yet'),
+    h('button', { 'data-database-index-read': '', onClick: async () => { try { setDatabaseResult(JSON.stringify(await readDatabaseProjects())); } catch (error) { setDatabaseResult(error instanceof Error ? error.message : 'Query failed'); } } }, 'Read database projects'),
+    h('button', { 'data-database-index-listen': '', onClick: async () => {
+      if (subscription.current) { subscription.current(); subscription.current = null; setSubscribed(false); return; }
+      try { subscription.current = await listenDatabaseProjects(value => setDatabaseResult(JSON.stringify(value))); setSubscribed(true); }
+      catch (error) { setDatabaseResult(error instanceof Error ? error.message : 'Query failed'); }
+    } }, subscribed ? 'Stop database query' : 'Listen to database projects'),
+    h('article', { 'data-database-index-results': '' }, databaseResult),
   );
 }
 

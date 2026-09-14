@@ -120,7 +120,7 @@ Controls use gently rounded corners; the workspace has a larger shared outline a
 
 - **Do** preserve Geist and Geist Mono, shared alignment lines, and gap-only spacing.
 - **Do** keep experimental effects scoped to the active runtime treatment and preserve reduced-motion behavior.
-- **Do** disclose that deliveries are fixtures and that observed renders establish correlation.
+- **Do** disclose that the chat uses local SDK operations and that observed renders establish correlation.
 
 ### Don't:
 

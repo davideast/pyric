@@ -76,7 +76,7 @@ export async function handleFirestoreReadOp(
     case 'count': {
       try {
         const source = resolveTarget(db, msg.source);
-        const snap = await getCountFromServer(source as Query);
+        const snap = await sdkActivity.silence(() => getCountFromServer(source as Query));
         ok(port, msg.id, { count: snap.data().count });
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -88,7 +88,7 @@ export async function handleFirestoreReadOp(
       // through; the reply data is plain numbers / null (empty-input average).
       try {
         const source = resolveTarget(db, msg.source);
-        const snap = await getAggregateFromServer(source as Query, msg.spec as AggregateSpec);
+        const snap = await sdkActivity.silence(() => getAggregateFromServer(source as Query, msg.spec as AggregateSpec));
         ok(port, msg.id, { data: snap.data() });
       } catch (e) { fail(port, msg.id, e); }
       break;

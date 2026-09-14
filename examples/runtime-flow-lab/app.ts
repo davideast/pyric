@@ -9,10 +9,14 @@ import {
   createListenerMode,
   type ListenerMode,
 } from "../../packages/cli/src/serve/runtime/listener-mode.ts";
-import { reportListenerDelivery } from "../../packages/cli/src/serve/worker/client/listener-delivery.ts";
+import { initializeSandbox } from "pyric/sandbox";
+import { setRules } from "pyric/sandbox/firestore";
+import { createChatData, type ChatService, type ListenOptions } from "./chat-data.ts";
+import * as database from "pyric/database";
 import { avatarAssetUrl } from "../../packages/cli/src/serve/assets/avatar-url.ts";
 import { treatments, type TreatmentId } from "./treatments.ts";
 
+const service: ChatService = new URLSearchParams(location.search).get("service") === "rtdb" ? "rtdb" : "firestore";
 const sources = [
   {
     id: "messages",
@@ -23,7 +27,7 @@ const sources = [
   { id: "typing", path: "/typing/design", label: "Typing" },
   {
     id: "receipts",
-    path: "conversations/design/read-receipts",
+    path: "conversations/design/read-receipts/current",
     label: "Read receipt",
   },
 ];
@@ -193,7 +197,7 @@ async function main() {
       "div",
       { className: "message-list", "data-component": "MessageList" },
       ...messages
-        .slice(-4)
+        .slice(service === "rtdb" ? 0 : -4)
         .map((message) => h(StableMessage, { key: message.id, message })),
     );
   }
@@ -299,8 +303,24 @@ async function main() {
   }));
   let current: RuntimeIdentity | null = users[0] ?? null;
   let authChanged = (_user: RuntimeIdentity | null) => {};
-  let eventChanged = (_events: readonly SandboxEvent[]) => {};
-  let trafficChanged = (_events: readonly SandboxEvent[]) => {};
+  const sandbox = initializeSandbox();
+  setRules(sandbox, `rules_version = '2'; service cloud.firestore {
+    match /databases/{database}/documents {
+      match /conversations/design/{document=**} { allow read, write: if true; }
+    }
+  }`);
+  const rtdb = database.getDatabase(sandbox);
+  database.sandbox.setRules(rtdb, { rules: {
+    presence: { '.read': true, '.write': true },
+    typing: { '.read': true, '.write': true },
+  } });
+  database.sandbox.setData(rtdb, { presence: { online: true }, typing: { design: false } });
+  const chat = createChatData(sandbox, service, messageStore.get());
+  if (service === 'rtdb') await chat.rules();
+  const subscribeEvents = (listener: (events: readonly SandboxEvent[]) => void) => {
+    listener(sandbox.history());
+    return sandbox.onEvent(event => listener([event]));
+  };
   let lens: AuthLens | undefined;
   const runtime = createPyricRuntimeStatus({
     studioUrl: "/__pyric/ui/studio",
@@ -330,10 +350,7 @@ async function main() {
       lens = next;
     },
     subscribeLens: () => () => {},
-    sandboxEvents: (fn) => {
-      trafficChanged = fn;
-      return () => {};
-    },
+    sandboxEvents: subscribeEvents,
     listeners: (onChange) =>
       (mode = createListenerMode({
         document,
@@ -346,34 +363,46 @@ async function main() {
         themeStorage: null,
         paintStorage: null,
         incidents: () => [],
-        subscribeEvents: (fn) => {
-          eventChanged = fn;
-          return () => {};
-        },
+        subscribeEvents,
         overlayTheme: {
           "--pyric-overlay-badge-font-family": '"Pyric Geist Mono",monospace',
         },
       })),
   });
-  eventChanged(
-    sources.map((source) => ({
-      kind: "listener_attach",
-      id: `attach-${source.id}`,
-      at: Date.now(),
-      listenerId: source.id,
-      target: { kind: "doc", path: source.path },
-      auth: null,
-      owners: [
-        {
-          kind: "component",
-          name: "ChatWorkspace",
-          element: "#chat-workspace",
-        },
-      ],
-    })),
-  );
   mode.setMode("flow");
   mode.setEnabled(true);
+
+  function received(id: string, update: () => void) {
+    flushSync(update);
+    const source = sources.find(source => source.id === id)!;
+    document.querySelector("#delivery-status")!.textContent =
+      `Delivery ${++sequence} / ${id === 'messages' ? chat.messagePath() : service === 'rtdb' && id === 'receipts' ? '/conversations/design/receipts' : source.path} / observed after a React commit`;
+  }
+  const owner = { kind: 'component' as const, name: 'ChatWorkspace', element: document.querySelector('#chat-workspace')! };
+  chat.connect(owner, messages => {
+    received('messages', () => {
+      const previous = new Map(messageStore.get().map(message => [message.id, message]));
+      messageStore.set(messages.map(message => {
+        const prior = previous.get(message.id);
+        return prior && JSON.stringify(prior) === JSON.stringify(message) ? prior : message;
+      }));
+    });
+  }, count => received('receipts', () => receiptStore.set(count)));
+  let subscriptions: (() => void)[] = [];
+  function stopCommon() { subscriptions.forEach(stop => stop()); subscriptions = []; }
+  function startCommon() {
+    stopCommon();
+    subscriptions = [
+    database.onValue(database.ref(rtdb, '/presence'), snapshot => {
+      received('presence', () => presenceStore.set(snapshot.child('online').val() === true));
+    }, { owner }),
+    database.onValue(database.ref(rtdb, '/typing/design'), snapshot => {
+      received('typing', () => typingStore.set(snapshot.val() === true));
+    }, { owner }),
+    ];
+  }
+  startCommon();
+  window.addEventListener('pagehide', () => { chat.stop(); for (const stop of subscriptions) stop(); }, { once: true });
 
   const examples = [
     "The unread badge should move with this message.",
@@ -382,92 +411,116 @@ async function main() {
     "Try Presence next: two separate regions should respond.",
     "A burst makes repeated updates easier to compare.",
   ];
-  function deliver(id: string, button?: HTMLElement) {
-    const source = sources.find((source) => source.id === id)!;
+  let nextMessageId = chat.initialCount;
+  async function deliver(id: string) {
     selectedSource = id;
-    void button;
-    sequence++;
-    eventChanged([
-      {
-        kind: "snapshot_delivery",
-        id: `delivery-${sequence}`,
-        at: Date.now(),
-        listenerId: id,
-        target: { kind: "doc", path: source.path },
-        auth: null,
-        addedCount: 0,
-        modifiedCount: 1,
-        removedCount: 0,
-        size: 1,
-      },
-    ]);
-    // Same ordering as the worker read adapters: delivery, callback, commit.
-    reportListenerDelivery(id);
-    flushSync(() => {
-      if (id === "messages") {
-        const all = messageStore.get();
-        messageStore.set([
-          ...all,
-          {
-            id: all.length + 1,
-            who: "alice",
-            name: "Alice Chen",
-            text: examples[(all.length - 3) % examples.length]!,
-            time: new Date().toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-          },
-        ]);
-      }
-      if (id === "presence") presenceStore.set(!presenceStore.get());
-      if (id === "typing") typingStore.set(!typingStore.get());
-      if (id === "receipts") receiptStore.set(receiptStore.get() + 1);
-    });
-    trafficChanged([
-      {
-        kind: "request",
-        id: `request-${sequence}`,
-        at: Date.now(),
-        evalMs: 0,
-        origin: "listener",
-        reasons: ["Simulated preview delivery"],
-        method: "get",
-        path: source.path,
-        result: "allow",
-        auth: null,
-      },
-    ]);
-    document.querySelector("#delivery-status")!.textContent =
-      `Delivery ${sequence} / ${source.path} / observed after a React commit`;
+    if (id === 'messages') {
+      const messageId = ++nextMessageId;
+      await chat.write({
+        id: messageId,
+        who: 'alice',
+        name: 'Alice Chen',
+        text: examples[(messageId - 4) % examples.length]!,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      });
+    } else if (id === 'presence') {
+      await database.update(database.ref(rtdb, '/presence'), { online: !presenceStore.get() });
+    } else if (id === 'typing') {
+      await database.set(database.ref(rtdb, '/typing/design'), !typingStore.get());
+    } else if (id === 'receipts') {
+      await chat.markRead(receiptStore.get() + 1);
+    }
   }
-  for (const button of document.querySelectorAll<HTMLButtonElement>(
-    "[data-deliver]",
-  ))
-    button.onclick = () => deliver(button.dataset.deliver!, button);
+  function reportError(error: unknown) {
+    document.querySelector('#delivery-status')!.textContent =
+      error instanceof Error ? error.message : 'The chat update failed.';
+    console.error(error);
+  }
+  async function refreshData() {
+    const [messages, presence] = await Promise.all([
+      chat.read(),
+      database.get(database.ref(rtdb, '/presence')),
+    ]);
+    document.querySelector('#delivery-status')!.textContent =
+      `Read ${messages} messages. Alice and Marcus are ${presence.child('online').val() === true ? 'online' : 'offline'}.`;
+  }
+  document.querySelector<HTMLButtonElement>('#refresh')!.onclick = () => {
+    void refreshData().catch(reportError);
+  };
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-deliver]')) {
+    button.onclick = () => { void deliver(button.dataset.deliver!).catch(reportError); };
+  }
   let bursting = false;
   document.querySelector<HTMLButtonElement>("#burst")!.onclick = async () => {
     if (bursting) return;
     bursting = true;
     const button = document.querySelector<HTMLButtonElement>("#burst")!;
-    button.disabled = true;
-    for (const id of [
-      "messages",
-      "presence",
-      "typing",
-      "messages",
-      "receipts",
-    ]) {
-      deliver(id);
-      await new Promise((resolve) => setTimeout(resolve, 650));
+    document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(".data-controls button, .data-controls select, .delivery-buttons button").forEach(control => { control.disabled = true; });
+    try {
+      await refreshData();
+      for (const id of ['messages', 'presence', 'typing', 'messages', 'receipts']) {
+        await deliver(id);
+        await new Promise(resolve => setTimeout(resolve, 650));
+      }
+    } catch (error) {
+      reportError(error);
+    } finally {
+      document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(".data-controls button, .data-controls select, .delivery-buttons button").forEach(control => { control.disabled = false; });
+      syncDataControls();
+      bursting = false;
     }
-    button.disabled = false;
-    bursting = false;
   };
+  const backend = document.querySelector<HTMLSelectElement>('#chat-service')!;
+  backend.value = service;
+  backend.onchange = () => { const url = new URL(location.href); url.searchParams.set('service', backend.value); location.href = url.href; };
+  document.querySelector<HTMLElement>('#rtdb-controls')!.hidden = service !== 'rtdb';
+  let listening = true;
+  const listenerMode = document.querySelector<HTMLSelectElement>('#listener-mode')!;
+  const listenerScope = document.querySelector<HTMLSelectElement>('#listener-scope')!;
+  const listenerButton = document.querySelector<HTMLButtonElement>('#listeners')!;
+  function syncDataControls() {
+    listenerScope.disabled = listenerMode.value === 'children';
+    document.querySelector<HTMLButtonElement>('#older')!.disabled = listenerScope.value === 'conversation';
+    listenerButton.textContent = listening ? 'Stop listeners' : 'Start listeners';
+  }
+  function configureListeners() {
+    if (listenerMode.value === 'children') listenerScope.value = 'messages';
+    if (listening) chat.start({ mode: listenerMode.value, scope: listenerScope.value } as ListenOptions);
+    syncDataControls();
+  }
+  listenerMode.onchange = configureListeners;
+  listenerScope.onchange = configureListeners;
+  listenerButton.onclick = () => { listening = !listening; if (listening) { configureListeners(); startCommon(); } else { chat.stop(); stopCommon(); } syncDataControls(); };
+  document.querySelector<HTMLButtonElement>('#older')!.onclick = () => {
+    void chat.loadOlder().then(count => { document.querySelector('#delivery-status')!.textContent = `Loaded ${count} older messages.`; }).catch(reportError);
+  };
+  document.querySelector<HTMLButtonElement>('#edit-message')!.onclick = () => {
+    const message = messageStore.get().at(-1);
+    if (message) void chat.write({ ...message, text: `${message.text} Edited.` }).catch(reportError);
+  };
+  document.querySelector<HTMLButtonElement>('#query-index')!.onclick = () => {
+    void chat.queryIndex().then(count => { document.querySelector('#delivery-status')!.textContent = `Found ${count} messages by Alice.`; }).catch(error => {
+      if (error instanceof Error && error.message.includes('.indexOn')) document.querySelector('#delivery-status')!.textContent = 'Missing index. Open this query in Traffic.';
+      else reportError(error);
+    });
+  };
+  document.querySelector<HTMLButtonElement>('#reset-data')!.onclick = () => {
+    stopCommon(); chat.reset(); startCommon(); nextMessageId = chat.initialCount; listening = true; syncDataControls();
+  };
+  document.querySelector<HTMLButtonElement>('#reset-index')!.onclick = () => {
+    void (async () => {
+      const init = await (await fetch('/__pyric/init.json')).json();
+      const response = await fetch('/__demo/reset-index', { method: 'POST', headers: { 'x-pyric-session-token': init.sessionToken } });
+      if (!response.ok) throw new Error('Unable to reset the demo index.');
+      await chat.rules();
+      document.querySelector('#delivery-status')!.textContent = 'Demo index reset. Run Find Alice messages again.';
+    })().catch(reportError);
+  };
+  syncDataControls();
   document.querySelector<HTMLButtonElement>("#clear")!.onclick = () => {
-    for (const source of sources) {
-      mode.setListenerVisible(source.id, false);
-      mode.setListenerVisible(source.id, true);
+    for (const source of mode.outlines()) {
+      mode.setListenerVisible(source.listenerId, false);
+      mode.setListenerVisible(source.listenerId, true);
     }
     mode.clearTreatmentHistory?.();
     document.querySelector("#delivery-status")!.textContent =
@@ -550,8 +603,8 @@ async function main() {
     if (preview) {
       mode.setMode("flow");
       mode.setEnabled(true);
-      for (const source of sources) mode.setListenerVisible(source.id, true);
-      deliver(selectedSource);
+      for (const source of mode.outlines()) mode.setListenerVisible(source.listenerId, true);
+      await deliver(selectedSource);
     }
   }
   select.onchange = () => choose(select.value as TreatmentId);
@@ -571,4 +624,4 @@ async function main() {
   // The runtime restores the project default or saved selection.
   // Rendering, metadata, and geometry now belong to the shared runtime registry.
 }
-void main();
+void main().catch(error => { console.error(error); document.querySelector("#delivery-status")!.textContent = String(error); });

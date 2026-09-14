@@ -293,7 +293,7 @@ function wrapNext(
 ): (snap: unknown) => void {
   return (snap) => {
     const value = finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source);
-    activity.delivered();
+    activity.delivered(value);
     next(value);
     clientStateFor(target).notifySnapshotDelivered();
   };
@@ -310,7 +310,7 @@ function wrapObserver(
     next: obs.next
       ? (snap) => {
           const value = finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source);
-          activity.delivered();
+          activity.delivered(value);
           obs.next!(value);
           clientStateFor(target).notifySnapshotDelivered();
         }

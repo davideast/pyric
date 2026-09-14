@@ -50,6 +50,7 @@ export class ChildListeners {
     const id = this.state.events.nextListenerId();
     const attachOwners = listenerAttachOwners();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
+      indexMethod: 'listen',
       auth,
       mockData: this.state.tree.snapshot() as Record<string, unknown>,
       querySpec: spec,
