@@ -132,6 +132,7 @@ export async function handleConnectionOp(
       try {
         const snapshot = decodeImportBundle(msg.bundle);
         ctx.sandbox.loadSnapshot(snapshot);
+        restoreSubscriptions(ctx);
         ok(port, msg.id, { ok: true });
       } catch (error) {
         fail(port, msg.id, error);
