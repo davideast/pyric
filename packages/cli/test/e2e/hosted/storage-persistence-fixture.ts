@@ -50,6 +50,11 @@ export async function startHostWithPausedStorageRead(fixture: SoakServe) {
   await firstExit;
   const preload = join(fixture.dir, 'pause-blob-read.mjs');
   writeFileSync(preload, `
+    import { subscribe } from 'node:diagnostics_channel';
+    subscribe('http.server.request.start', ({ request }) => {
+      const isPipelineEnd = request.headers['x-pyric-test-pipeline-end'] === '1';
+      if (isPipelineEnd) process.stderr.write('HTTP pipeline received\\n');
+    });
     const readBytes = Blob.prototype.arrayBuffer;
     const release = Promise.withResolvers();
     let paused = false;

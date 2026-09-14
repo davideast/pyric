@@ -238,7 +238,10 @@ the bridge's held authentication policy. Legacy frames without it share a
 legacy queue. Each Node tool caller also owns a 256-call/24 MiB budget for
 complete forwarded messages, held until host execution settles. Canceling
 bridge requests cannot free these still-occupied host reservations. Direct
-command admission and broader shutdown accounting remain unfinished. Accepted
+service commands are ordered by the HTTP connection admitted by the server;
+a stalled command does not block reads from another connection. The request
+body cannot choose that execution owner. Direct-command count/byte admission
+and broader shutdown accounting remain unfinished. Accepted
 Node MCP work uses the permitted drain path: up to 64 execution owners may
 remain active, including those whose MCP session has closed; capacity returns
 as their last accepted calls settle. Native SharedWorker

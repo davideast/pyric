@@ -120,7 +120,7 @@ export async function createHostedRuntime(
   }
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir);
   const ports = new Map<string, HostedPort>();
-  let methodWork = Promise.resolve();
+  const methodWork = new Map<object, Promise<void>>();
   const toolWork = new Map<string, OperationQueue>();
   let closed = false;
 
@@ -264,14 +264,16 @@ export async function createHostedRuntime(
   return {
     instanceId,
     toolNames: SANDBOX_TOOL_NAMES,
-    runMethod(key: string, args: Record<string, unknown>, callerProjectDir: string): Promise<OperationResult> {
+    /** The admitted transport connection owns command ordering; JSON cannot choose another caller. */
+    runMethod(key: string, args: Record<string, unknown>, callerProjectDir: string, connection: object): Promise<OperationResult> {
       if (closed) return Promise.resolve({ ok: false, summary: 'The hosted sandbox is closed.' });
       const projectDistance = relative(ownedProjectDir, callerProjectDir);
       const namesParentDirectory = projectDistance === '..' || projectDistance.startsWith(`..${sep}`);
       const isOutsideProject = namesParentDirectory || isAbsolute(projectDistance);
       if (isOutsideProject) return Promise.resolve({ ok: false, summary: 'The discovered host belongs to another project.' });
       const method = methodByKey(key);
-      const result = methodWork.then(async () => {
+      const previous = methodWork.get(connection) ?? Promise.resolve();
+      const result = previous.then(async () => {
         const hasMutationEffect = method.effect === 'write' || method.effect === 'destructive';
         // Held identity belongs to this caller, not the persisted sandbox.
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
@@ -283,7 +285,12 @@ export async function createHostedRuntime(
         if (isRead) return describeRead(outcome);
         return outcome;
       });
-      methodWork = result.then(() => {}, () => {});
+      const pending = result.then(() => {}, () => {});
+      methodWork.set(connection, pending);
+      void pending.then(() => {
+        const isLastCall = methodWork.get(connection) === pending;
+        if (isLastCall) methodWork.delete(connection);
+      });
       return result;
     },
     receive(message: BridgeMessage): void {
@@ -343,7 +350,7 @@ export async function createHostedRuntime(
       closed = true;
       initialized.dispose();
       try {
-        await Promise.all([methodWork, ...[...toolWork.values()].map(queue => queue.pending), ...[...ports.keys()].map(closePort)]);
+        await Promise.all([...methodWork.values(), ...[...toolWork.values()].map(queue => queue.pending), ...[...ports.keys()].map(closePort)]);
       } finally {
         sandbox.dispose();
       }

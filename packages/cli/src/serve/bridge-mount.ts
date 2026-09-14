@@ -303,7 +303,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
             res.end(JSON.stringify({ ok: false, summary: 'The discovered host instance has changed.' }));
             return true;
           }
-          const result = await runtime.runMethod(call.key, call.args, call.projectDir);
+          const result = await runtime.runMethod(call.key, call.args, call.projectDir, req.socket);
           res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
         } catch (error) {
           const isError = error instanceof Error;
