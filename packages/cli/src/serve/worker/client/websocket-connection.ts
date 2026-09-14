@@ -1,11 +1,12 @@
-import { isBridgeMessage, WORKER_PORT_CAPABILITY, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
+import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, WORKER_PORT_CAPABILITY, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
-import { encodeBridgeMessage } from '../../../bridge/frame-output.js';
+import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreFirestoreSubscriptions, wirePort } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
+const utf8 = new TextEncoder();
 
 /** Own one app's physical connections while retaining its logical SDK port. */
 export function getHostedFirestore(target: { url: string; projectKey: string }): ClientDb {
@@ -172,6 +173,12 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     connection.addEventListener('message', (event: MessageEvent<string>) => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
+      const exceedsFrameLimit = utf8.encode(event.data).byteLength > MAX_BRIDGE_FRAME_BYTES;
+      if (exceedsFrameLimit) {
+        connection.close(BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE);
+        failConnection(BRIDGE_FRAME_LIMIT_MESSAGE);
+        return;
+      }
       let parsed: unknown;
       try {
         parsed = JSON.parse(event.data);

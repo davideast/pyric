@@ -2,6 +2,8 @@ import type { OutboundMessage } from '../serve/worker/protocol.js';
 import { MAX_BRIDGE_FRAME_BYTES, type BridgeMessage } from './protocol.js';
 
 export const BRIDGE_FRAME_LIMIT_MESSAGE = 'Bridge response exceeds the 12 MiB encoded frame limit.';
+/** Browser WebSocket.close permits application codes, not protocol code 1009. */
+export const BROWSER_FRAME_LIMIT_CLOSE_CODE = 4009;
 
 const frameLimitError = { code: 'resource-exhausted', message: BRIDGE_FRAME_LIMIT_MESSAGE };
 const utf8 = new TextEncoder();

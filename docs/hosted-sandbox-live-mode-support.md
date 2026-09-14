@@ -166,6 +166,13 @@ These are implementation inputs to test, not measured performance claims.
 Preserve the existing 8 MiB decoded Storage operation limit. The transport
 frame limit must accommodate its base64 representation and envelope.
 
+When a browser initiates a frame-limit close, use application code `4009`: the
+browser WebSocket API prohibits initiating protocol code `1009`. Node sockets
+use `1009`. Both paths must settle affected work and release the connection.
+The browser receive check runs before JSON parsing/dispatch, after the native
+WebSocket implementation has assembled its message; it cannot cap the native
+browser network buffer through that API.
+
 | Resource or deadline | Initial bound | Exhaustion behaviour |
 | --- | ---: | --- |
 | Hosted init and attach | 5 seconds per stage | Reject startup and close its resources; no fallback store. |
