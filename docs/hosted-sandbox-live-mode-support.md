@@ -202,10 +202,13 @@ a correlation record, timer or event-loop hold. Its byte charge includes the
 complete JSON UTF-8 worker-op request, including correlation metadata. The
 operation promise releases the shared reservation on every settlement; replies,
 timeouts and disposal also remove the existing pending records.
-The bridge also counts pending legacy worker-relay operations by admitted
-consumer identity, refusing operation 257 before forwarding or allocating a
-correlation timer. The same consumer can refill its allowance after replies,
-timeout or explicit disposal. Each MCP server instance also admits at most
+The bridge applies the same count and byte policy to pending legacy
+worker-relay operations by admitted consumer identity. It charges the complete
+outgoing frame, including its bridge-issued correlation and session metadata,
+before forwarding or allocating a correlation timer. Pending records share
+the client budget without a separate retained client registry. Settlement
+releases each reservation, including when other calls remain pending. The
+same consumer can refill its allowance after replies, timeout or explicit disposal. Each MCP server instance also admits at most
 256 forwarded/in-process tool calls for its owning session; replies, failures
 and timeout release slots. SDK request cancellation or session deletion
 settles forwarded bridge calls and clears their correlation timers. Cancellation

@@ -24,12 +24,12 @@ import type {
   WorkerMessageFrame,
 } from '../protocol.js';
 import {
-  MAX_PENDING_OPERATIONS,
   NO_SANDBOX_ERROR_MESSAGE,
   NO_WORKER_RELAY_ERROR_MESSAGE,
   WORKER_RELAY_CAPABILITY,
   WORKER_PORT_CAPABILITY,
 } from '../protocol.js';
+import { createOperationBudget } from '../operation-budget.js';
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
 import { createWorkerSessions } from './worker-sessions.js';
 import { createCallerIdentity, type CallerIdentityStore } from '../../auth/identity.js';
@@ -235,6 +235,7 @@ interface ActivePeer {
 }
 
 interface PendingWorkerOp {
+  budget: ReturnType<typeof createOperationBudget>;
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -484,32 +485,36 @@ export function createBridge(opts: BridgeOptions): Bridge {
     }).finally(() => signal?.removeEventListener('abort', cancelPendingCall));
   }
 
+  function workerOperationBudget(clientSessionId?: string): ReturnType<typeof createOperationBudget> {
+    for (const operation of workerPending.values()) {
+      const belongsToClient = operation.clientSessionId === clientSessionId;
+      if (belongsToClient) return operation.budget;
+    }
+    return createOperationBudget();
+  }
+
   function dispatchWorkerOp(op: WorkerOpPayload, clientSessionId?: string): Promise<unknown> {
     const currentPeer = peer;
     const hasNoPeer = currentPeer === null;
     if (hasNoPeer) return Promise.reject(workerOpError('unavailable', NO_SANDBOX_ERROR_MESSAGE));
     const hasNoWorkerRelay = !peerHasRelay();
     if (hasNoWorkerRelay) return Promise.reject(workerOpError('unimplemented', NO_WORKER_RELAY_ERROR_MESSAGE));
-    let pendingOperations = 0;
-    for (const operation of workerPending.values()) {
-      const belongsToClient = operation.clientSessionId === clientSessionId;
-      if (belongsToClient) pendingOperations += 1;
-    }
-    const hasReachedCapacity = pendingOperations >= MAX_PENDING_OPERATIONS;
-    if (hasReachedCapacity) {
-      return Promise.reject(workerOpError('resource-exhausted', 'This client already has 256 pending operations.'));
-    }
+    const id = randomUUID();
+    const request: BridgeMessage = { type: 'worker-op', id, clientSessionId, op };
+    const budget = workerOperationBudget(clientSessionId);
+    const reservation = budget.reserve(request);
+    const isRefused = !reservation.accepted;
+    if (isRefused) return Promise.reject(workerOpError(reservation.error.code, reservation.error.message));
     return new Promise<unknown>((resolve, reject) => {
-      const id = randomUUID();
       const timer = setTimeout(() => {
         const wasPending = workerPending.delete(id);
         if (wasPending) {
           reject(workerOpError('deadline-exceeded', `sandbox worker op timed out after ${callTimeoutMs}ms (op: ${op.method})`));
         }
       }, callTimeoutMs);
-      workerPending.set(id, { resolve, reject, timer, method: op.method, clientSessionId });
+      workerPending.set(id, { resolve, reject, timer, method: op.method, clientSessionId, budget });
       try {
-        currentPeer.send({ type: 'worker-op', id, clientSessionId, op });
+        currentPeer.send(request);
       } catch (err) {
         clearTimeout(timer);
         workerPending.delete(id);
@@ -517,7 +522,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
         const detail = isError ? err.message : String(err);
         reject(workerOpError('unavailable', `failed to send worker op to sandbox: ${detail}`));
       }
-    });
+    }).finally(reservation.release);
   }
 
   function subscribeWorker(
