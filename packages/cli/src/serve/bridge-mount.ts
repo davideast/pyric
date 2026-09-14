@@ -30,7 +30,7 @@ import { createAuditWriter } from '../bridge/server/audit.js';
 import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
 import { pyricVersion } from './standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from './server.js';
-import { MAX_BRIDGE_FRAME_BYTES, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
+import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import type { InitPayload } from './init-payload.js';
 import type { createHostedRuntime } from './hosted/runtime.js';
 import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, hostedMethodRequest } from './hosted/method-protocol.js';
@@ -125,7 +125,6 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   // reconnect/dev-server restart. The long-lived `bridge` (peer + dispatch +
   // audit) is shared; each session owns its transport+server.
   const SESSION_IDLE_MS = 10 * 60_000;
-  const MAX_SESSIONS = 64;
   type Session = {
     transport: StreamableHTTPServerTransport;
     close: () => Promise<void>;
@@ -156,9 +155,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     if (closed) {
       throw Object.assign(new Error('pyric bridge: mount is closed'), { statusCode: 503 });
     }
-    const isAtSessionCapacity = sessions.size + pendingSessions.size >= MAX_SESSIONS;
+    const isAtSessionCapacity = sessions.size + pendingSessions.size >= MAX_MOUNTED_MCP_SESSIONS;
     if (isAtSessionCapacity) {
-      throw Object.assign(new Error(`pyric bridge: at session cap (${MAX_SESSIONS})`), { statusCode: 503 });
+      throw Object.assign(new Error(`pyric bridge: at session cap (${MAX_MOUNTED_MCP_SESSIONS})`), { statusCode: 503 });
     }
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),

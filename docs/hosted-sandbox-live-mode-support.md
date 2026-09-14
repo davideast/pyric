@@ -178,6 +178,7 @@ browser network buffer through that API.
 | Hosted init and attach | 5 seconds per stage | Reject startup and close its resources; no fallback store. |
 | Inbound or outbound encoded frame | 12 MiB | Refuse before dispatch/send; isolate the offending request or connection. |
 | Encoded document nesting | 64 containers | Refuse before recursive decoding or execution. |
+| Mounted MCP sessions / retained Node execution owners | 64 per layer | Refuse new session/owner allocation at capacity; unfinished host work retains its owner after session closure until it drains. |
 | Pending operations per client | 256 | Reject new work with resource exhaustion before accepting it. |
 | Queued operation bytes per client | 24 MiB | Reject new work before accepting it; do not discard an acknowledged operation. |
 | Observation queue per consumer | 1,000 events or 16 MiB, whichever comes first | Report the dropped sequence range; keep operation/control traffic independent. |
@@ -237,7 +238,10 @@ the bridge's held authentication policy. Legacy frames without it share a
 legacy queue. Each Node tool caller also owns a 256-call/24 MiB budget for
 complete forwarded messages, held until host execution settles. Canceling
 bridge requests cannot free these still-occupied host reservations. Direct
-command admission and cancellation propagation remain unfinished. Native SharedWorker
+command admission and broader shutdown accounting remain unfinished. Accepted
+Node MCP work uses the permitted drain path: up to 64 execution owners may
+remain active, including those whose MCP session has closed; capacity returns
+as their last accepted calls settle. Native SharedWorker
 ports now enforce the same operation count per logical client, preserving
 client order while allowing another client to progress. Native MessagePort
 admission also measures the complete operation message's JSON UTF-8 encoding

@@ -7,7 +7,7 @@ import { createSandboxRoot } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { FirebaseError } from 'pyric/app';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
-import { assertJsonSafeRelayValue, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
+import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
 import { createSurfaceContext } from '../../bridge/surface/context.js';
@@ -141,7 +141,17 @@ export async function createHostedRuntime(
 
   function enqueueToolCall(message: ToolCallRequest): void {
     const callerId = message.callerId ?? 'legacy';
-    const owned = toolWork.get(callerId) ?? { pending: Promise.resolve(), budget: createOperationBudget() };
+    const existing = toolWork.get(callerId);
+    const needsQueue = existing === undefined;
+    const isAtSessionCapacity = needsQueue && toolWork.size >= MAX_MOUNTED_MCP_SESSIONS;
+    if (isAtSessionCapacity) {
+      send({ type: 'tool-result', id: message.id, ok: false, error: {
+        code: 'resource-exhausted',
+        message: `The hosted sandbox is at its MCP execution session cap (${MAX_MOUNTED_MCP_SESSIONS}).`,
+      } });
+      return;
+    }
+    const owned = existing ?? { pending: Promise.resolve(), budget: createOperationBudget() };
     const reservation = owned.budget.reserve(message);
     const isRefused = !reservation.accepted;
     if (isRefused) {

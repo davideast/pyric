@@ -50,6 +50,9 @@ export const DEFAULT_BRIDGE_PORT = 5174;
 /** Encoded bridge message limit, including its envelope and base64 payloads. */
 export const MAX_BRIDGE_FRAME_BYTES = 12 * 1024 * 1024;
 
+/** Mounted MCP sessions and Node execution owners retained until their work drains. */
+export const MAX_MOUNTED_MCP_SESSIONS = 64;
+
 /** Maximum accepted operations awaiting completion for one client. */
 export const MAX_PENDING_OPERATIONS = 256;
 
