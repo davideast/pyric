@@ -37,6 +37,8 @@ import { tryAnchorOverlay } from './overlay-anchor.js';
 /** One delivery, ready to draw. */
 export interface FlowPaint {
   readonly listenerId: string;
+  readonly colorKey?: string;
+  readonly pinned?: boolean;
   /** The owner label the Listeners panel uses. */
   readonly label: string;
   /** The target the way the application wrote it. */
@@ -231,7 +233,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
   return {
     paint(paint) {
       if (paint.subtree.components.length === 0) return;
-      const hue = String(listenerHueIndex(paint.listenerId));
+      const hue = String(listenerHueIndex(paint.colorKey ?? paint.listenerId));
       const existing = groups.get(paint.listenerId);
       const group: Group = existing ?? { marks: new Map<Element, Mark>(), latestPaintId: 0 };
       if (existing === undefined) groups.set(paint.listenerId, group);
@@ -307,7 +309,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
         }
 
         mark.paintId = paintId;
-        mark.cancel = schedule(() => {
+        mark.cancel = paint.pinned ? () => {} : schedule(() => {
           fadeEnded(paint.listenerId, component.element, paintId);
         }, fadeMs);
         painted.push(mark);
@@ -324,6 +326,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
           mark.badge?.setAttribute('data-pyric-flow-fading', '');
         }
       };
+      if (paint.pinned) return;
       if (view?.requestAnimationFrame) view.requestAnimationFrame(fade);
       else schedule(fade, 0);
     },

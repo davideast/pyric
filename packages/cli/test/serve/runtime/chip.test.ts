@@ -175,7 +175,7 @@ describe('the panel shell', () => {
     const { root } = setup({ initiallyOpen: true });
     expect(root.querySelector('.panel-name')!.textContent).toBe('pyric');
     expect(texts(root, '.panel-header .btn')).toEqual(['Studio', 'Close']);
-    expect(texts(root, '[data-chip-tab]')).toEqual(['Identity', 'Listeners', 'Traffic', 'Sandbox']);
+    expect(texts(root, '[data-chip-tab]')).toEqual(['Identity', 'Data', 'Traffic', 'Sandbox']);
     expect(texts(root, '[data-chip-tab]').some((label) => /\d/.test(label))).toBe(false);
   });
 
@@ -458,18 +458,19 @@ describe('the Traffic view', () => {
     expect(ok.querySelector('.slot')!.textContent).toBe('ok');
   });
 
-  it('expands a request in place without changing its copyable cells', () => {
+  it('drills into the selected request and returns through its breadcrumb', () => {
     const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
     const path = 'conversations/long-conversation-id/messages/long-message-id';
     push([request('r1', Date.now(), path, 'allow')]);
     showTab('traffic');
     root.querySelector<HTMLButtonElement>('[data-request-row="r1"]')!.click();
-    const expanded = root.querySelector<HTMLButtonElement>('[data-request-row="r1"]')!;
-    expect(expanded.getAttribute('aria-expanded')).toBe('true');
+    const expanded = root.querySelector<HTMLElement>('[data-traffic-detail]')!;
+    expect(root.querySelector('[data-traffic-rows]')).toBeNull();
     expect(expanded.querySelector('.c2')!.textContent).toBe(path);
     expect(root.querySelector('[data-chip-view="traffic"]')).not.toBeNull();
-    expanded.click();
-    expect(root.querySelector('[data-request-row="r1"]')!.getAttribute('aria-expanded')).toBe('false');
+    root.querySelector<HTMLButtonElement>('[data-request-back]')!.click();
+    expect(root.querySelector('[data-traffic-detail]')).toBeNull();
+    expect(root.querySelector('[data-request-row="r1"]')).not.toBeNull();
   });
 
   it('narrows to the denials from the bar, and copies the rows it is showing', async () => {

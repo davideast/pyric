@@ -12,7 +12,7 @@ for (const runtime of ['inpage', 'worker']) {
     page.on('pageerror', error => errors.push(error.message));
     await page.setViewportSize({ width: 1500, height: 1100 });
     await page.goto(`${server.url}/?runtime=${runtime}`);
-    await page.getByRole('tab', { name: 'Listeners' }).click();
+    await page.getByRole('tab', { name: 'Data' }).click();
     const panel = page.locator('[data-component=DataPanel]');
     const rows = page.locator('[data-listener-row]');
     for (const read of ['document', 'query', 'database']) {
@@ -21,28 +21,28 @@ for (const runtime of ['inpage', 'worker']) {
       await expect(panel).toHaveAttribute('data-pyric-flow');
       await expect.poll(() => panel.getAttribute('data-pyric-flow-listener')).not.toBe(previousId);
       const id = await panel.getAttribute('data-pyric-flow-listener');
-      await expect(page.locator(`[data-listener-row="${id}"]`)).toContainText('completed / Rendered after delivery');
+      await expect(page.locator(`[data-listener-row="${id}"]`)).toContainText('1 delivery');
     }
     await expect(rows).toHaveCount(3);
     await page.locator('[data-listen]').click();
-    await expect(rows).toHaveCount(5);
+    await expect(rows).toHaveCount(3);
     await page.locator('[data-write]').click();
     await expect(page.locator('[data-result]')).toContainText('version":2');
     const id = await panel.getAttribute('data-pyric-flow-listener');
-    await expect(page.locator(`[data-listener-row="${id}"]`)).toContainText('active / Rendered after delivery');
-    // Stop both registrations, then wait beyond the existing correlation window.
     await page.locator('[data-listen]').click();
-    await expect(rows.filter({ hasText: '/ closed' })).toHaveCount(2);
     await page.waitForTimeout(300);
     const before = await page.locator('[data-result]').textContent();
     await page.locator('[data-unmapped]').click();
-    await expect(rows).toHaveCount(6);
-    await expect(rows.filter({ hasText: 'completed / No associated visual update' })).toHaveCount(1);
     await expect(page.locator('[data-result]')).toHaveText(before!);
+    await rows.filter({ hasText: 'Firestore' }).first().click();
+    await expect(page.locator('[data-history-entry]').filter({ hasText: 'No render observed' })).not.toHaveCount(0);
+    await page.locator('[data-sources-back]').click();
     await page.locator('[data-denied]').click();
-    await expect(rows).toHaveCount(7);
-    await expect(rows.filter({ hasText: 'failed / No associated visual update' })).toHaveCount(1);
-    await expect(rows.filter({ hasText: 'failed' }).locator('.listener-fact strong')).toHaveText('0');
+    await rows.filter({ hasText: 'private/denied' }).click();
+    await expect(page.locator('[data-history-entry]')).toContainText('Failed');
+    await page.locator('[data-sources-back]').click();
+    await page.locator('[data-read=document]').click();
+    await expect(panel).toHaveAttribute('data-pyric-flow');
     await page.locator('[data-flow-treatment]').selectOption('corners');
     await expect(page.locator('html')).toHaveAttribute('data-pyric-treatment', 'corners');
     await expect(panel).toHaveCSS('outline-width', '0px');
@@ -50,7 +50,8 @@ for (const runtime of ['inpage', 'worker']) {
     await expect(panel).toHaveCSS('outline-width', '2px');
     await page.screenshot({ path: `/tmp/sdk-flow-final-${runtime}.png`, fullPage: true });
     // Verify actual runtime retention, not just the journal's unit-test clock.
-    await expect(rows).toHaveCount(0, { timeout: 35_000 });
+    await expect(panel).not.toHaveAttribute('data-pyric-flow', { timeout: 35_000 });
+    await expect(rows).not.toHaveCount(0);
     await expect(panel).not.toHaveAttribute('data-pyric-flow');
     expect(errors).toEqual([]);
   });
@@ -60,7 +61,7 @@ for (const runtime of ['inpage', 'worker']) {
   test(`${runtime}: Scanner pass restarts for successive rendered reads`, async ({ page }) => {
     await page.setViewportSize({ width: 1500, height: 1100 });
     await page.goto(`${server.url}/?runtime=${runtime}`);
-    await page.getByRole('tab', { name: 'Listeners' }).click();
+    await page.getByRole('tab', { name: 'Data' }).click();
     await page.locator('[data-flow-treatment]').selectOption('scan');
     await expect(page.locator('html')).toHaveAttribute('data-pyric-treatment', 'scan');
     await page.addStyleTag({ content: '@keyframes pyric-treatment-child { from { opacity: .9; } to { opacity: 1; } } [data-result] { animation: pyric-treatment-child 60s linear infinite; }' });
@@ -105,7 +106,7 @@ test('Listeners puts activity before a fixed compact display toolbar', async ({ 
   for (const width of [1100, 360]) {
     await page.setViewportSize({ width, height: 800 });
     await page.goto(`${server.url}/?runtime=inpage`);
-    await page.getByRole('tab', { name: 'Listeners' }).click();
+    await page.getByRole('tab', { name: 'Data' }).click();
     await page.locator('[data-read=document]').click();
     await expect(page.locator('[data-listener-row]')).toHaveCount(1);
     const toolbar = page.locator('[data-action-bar]');
@@ -122,43 +123,153 @@ test('Listeners puts activity before a fixed compact display toolbar', async ({ 
 });
 
 for (const runtime of ['inpage', 'worker']) {
-  test(`${runtime}: recent history explains repeated reads and clearing preserves subscriptions`, async ({ page }) => {
+  test(`${runtime}: sources group calls and explain compact outcomes in details`, async ({ page }) => {
     await page.setViewportSize({ width: 1100, height: 850 });
     await page.goto(`${server.url}/?runtime=${runtime}`);
-    await page.getByRole('tab', { name: 'Listeners' }).click();
-    for (let i = 0; i < 3; i++) await page.locator('[data-read=document]').click();
-    await expect(page.locator('[data-listener-row]')).toHaveCount(3);
-    await page.locator('[data-listener-row]').first().click();
-    await expect(page.locator('[data-activity-detail]')).toContainText('3 calls, 3 deliveries, 3 associated commits');
-    await expect(page.locator('[data-activity-detail]')).toContainText('not proof of data ownership');
-    await expect(page.locator('[data-activity-history]')).toBeVisible();
-    const renders = page.locator('[data-history-entry]').filter({ hasText: 'Rendered after' });
-    await renders.first().click();
-    await expect(page.getByRole('status').filter({ hasText: 'Highlighting' })).toContainText('Highlighting the surviving region');
-    await page.locator('[data-flow-treatment]').selectOption('scan');
-    await expect(page.locator('[data-activity-detail]').first()).toContainText('3 associated commits');
-    await page.screenshot({ path: `/tmp/activity-history-${runtime}-desktop.png` });
+    await page.getByRole('tab', { name: 'Data' }).click();
+    for (let i = 0; i < 12; i++) await page.locator('[data-read=document]').click();
+    await expect(page.locator('[data-listener-row]')).toHaveCount(1);
+    await expect(page.locator('[data-activity-history]')).toHaveCount(0);
+    await page.locator('[data-listener-row]').click();
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Data');
+    await expect(page.locator('[data-chip-view=listeners]')).not.toContainText('30 seconds');
+    await expect(page.locator('[data-chip-view=listeners]')).not.toContainText('commits');
+    await expect(page.locator('[data-history-entry]')).toHaveCount(10);
+    await expect(page.locator('[data-history-entry]').first()).toContainText('Rendered');
+    await expect(page.locator('[data-history-entry]').first()).not.toContainText('app-');
+    await expect(page.locator('[data-history-entry]').first()).not.toContainText('commit');
+    await page.screenshot({ path: `/tmp/sources-${runtime}-desktop.png` });
+    await page.locator('[data-history-entry]').first().click();
+    await expect(page.locator('[data-activity-detail]')).toContainText('Response time');
     await page.setViewportSize({ width: 360, height: 800 });
-    await renders.first().scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `/tmp/activity-history-${runtime}-mobile-detail.png` });
-    const next = page.locator('[data-history-page]').filter({ hasText: 'Next' });
-    await next.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `/tmp/activity-history-${runtime}-mobile-pagination.png` });
+    await page.screenshot({ path: `/tmp/sources-${runtime}-mobile.png` });
     expect(await page.locator('[data-chip-view=listeners]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-    await next.click();
+    await page.locator('[data-history-page]').filter({ hasText: 'Next' }).click();
     await expect(page.locator('[data-history-entry]')).toHaveCount(2);
     await page.setViewportSize({ width: 1100, height: 850 });
-    // Clear affects the diagnostic history only, including while a listener is live.
+    await expect(page.getByRole('link', { name: 'View traffic' })).toContainText('Traffic');
+    const originalUrl = page.url();
+    await page.getByRole('link', { name: 'View traffic' }).click();
+    expect(page.url()).toBe(originalUrl);
+    await expect(page.getByRole('tab', { name: 'Traffic' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Traffic');
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('messages/current');
+    await page.locator('[data-inspect-request]').first().click();
+    await expect(page.locator('[data-traffic-detail]')).toContainText('messages/current');
+    await expect(page.locator('[data-traffic-detail]')).toContainText('Succeeded');
+    await expect(page.locator('[data-traffic-rows]')).toHaveCount(0);
+    await page.screenshot({ path: `/tmp/traffic-detail-${runtime}.png` });
+    await page.locator('[data-request-back]').click();
+    await expect(page.locator('[data-traffic-rows]')).toBeVisible();
+    await page.screenshot({ path: `/tmp/traffic-breadcrumb-${runtime}.png` });
+    await page.locator('[data-clear-traffic-source]').click();
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Data' }).click();
     await page.locator('[data-listen]').click();
     await page.locator('[data-clear-activity-history]').click();
     await expect(page.locator('[data-history-entry]')).toHaveCount(0);
-    await expect(page.locator('[data-listener-row]').filter({ hasText: '/ active' })).toHaveCount(2);
-    await page.locator('[data-listener-all]').click();
+    await page.locator('[data-write]').click();
+    await expect(page.locator('[data-history-entry]')).toHaveCount(1);
+    await expect(page.locator('[data-history-entry]')).toContainText('Update received');
+    await expect(page.locator('[data-history-entry]')).toHaveAttribute('aria-label', /Subscription 1/);
+    await page.waitForTimeout(300);
+    await page.locator('[data-unmapped]').click();
+    await expect(page.locator('[data-history-entry]').filter({ hasText: 'No render observed' })).toHaveCount(1);
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.screenshot({ path: `/tmp/sources-${runtime}-mobile-outcomes.png` });
+    expect(await page.locator('[data-chip-view=listeners]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.locator('[data-sources-back]').click();
+    await expect(page.locator('[data-activity-history]')).toHaveCount(0);
+    await expect(page.locator('[data-listener-row]')).toHaveCount(2);
+  });
+}
+
+for (const runtime of ['inpage', 'worker']) {
+  test(`${runtime}: Overview keeps observed listener regions and the treatment picker available`, async ({ page }) => {
+    await page.goto(`${server.url}/?runtime=${runtime}`);
+    await page.getByRole('tab', { name: 'Data' }).click();
+    await page.locator('[data-listen]').click();
+    await expect(page.locator('[data-component=DataPanel]')).toHaveAttribute('data-pyric-flow');
+    await page.locator('[data-listener-mode=overview]').click();
+    await expect(page.locator('[data-pyric-listener-box]').first()).toBeVisible();
+    await expect(page.locator('[data-flow-treatment]')).toBeVisible();
+    await page.locator('[data-write]').click();
+    await expect(page.locator('[data-result]')).toContainText('version\":2');
+    await expect(page.locator('[data-pyric-listener-box]').first()).toBeVisible();
+    await expect(page.locator('[data-component=DataPanel]')).not.toHaveAttribute('data-pyric-flow');
+    await page.screenshot({ path: `/tmp/overview-${runtime}.png` });
+    await page.locator('[data-listen]').click();
+    await expect(page.locator('[data-pyric-listener-box]')).toHaveCount(0);
+    await expect(page.locator('[data-listener-row]').filter({ hasText: 'Stopped' })).toHaveCount(2);
+    // A fresh session must discover regions without visiting Flow first.
+    await page.reload();
+    await page.getByRole('tab', { name: 'Data' }).click();
+    await page.locator('[data-listener-mode=overview]').click();
+    await page.locator('[data-listen]').click();
+    await expect(page.locator('[data-pyric-listener-box]').first()).toBeVisible();
+    await expect(page.locator('[data-flow-treatment]')).toBeVisible();
     await page.locator('[data-listener-mode=flow]').click();
     await page.locator('[data-write]').click();
-    await expect(page.locator('[data-history-entry]').filter({ hasText: 'Delivered' })).toHaveCount(2);
-    await page.setViewportSize({ width: 360, height: 800 });
-    await page.screenshot({ path: `/tmp/activity-history-${runtime}-mobile.png` });
-    expect(await page.locator('[data-action-bar]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect(page.locator('[data-component=DataPanel]')).toHaveAttribute('data-pyric-flow');
+    await page.locator('[data-listen]').click();
+    await expect(page.locator('[data-component=DataPanel]')).not.toHaveAttribute('data-pyric-flow');
+  });
+}
+
+for (const runtime of ['inpage', 'worker']) {
+  test(`${runtime}: repeated reads share one Overview badge with the Data total`, async ({ page }) => {
+    await page.goto(`${server.url}/?runtime=${runtime}`);
+    await page.getByRole('tab', { name: 'Data' }).click();
+    await page.locator('[data-listener-mode=overview]').click();
+    for (let n = 1; n <= 10; n++) {
+      await page.locator('[data-read=document]').click();
+      await expect(page.locator('[data-result]')).toContainText(`Document read #${n}:`);
+    }
+    await expect(page.locator('[data-listener-row]')).toContainText('10 calls');
+    await expect(page.locator('[data-pyric-listener-badge]')).toHaveCount(1);
+    await expect(page.locator('[data-pyric-listener-badge]')).toContainText('10');
+    await page.locator('[data-listener-mode=flow]').click();
+    await page.locator('[data-read=document]').click();
+    await expect(page.locator('[data-listener-row]')).toContainText('11 calls');
+    await expect(page.locator('[data-component=DataPanel]')).toHaveAttribute('data-pyric-flow-label', /11$/);
+    const hue = await page.locator('[data-component=DataPanel]').getAttribute('data-pyric-flow');
+    await page.locator('[data-read=document]').click();
+    await expect(page.locator('[data-component=DataPanel]')).toHaveAttribute('data-pyric-flow', hue!);
+    await expect(page.locator('[data-listener-row]')).toContainText('12 calls');
+    let swatch = '';
+    await expect.poll(async () => (swatch = await page.locator('.listener-mark').evaluate(el => getComputedStyle(el).borderTopColor))).not.toBe('');
+    await page.locator('[data-listener-mode=overview]').click();
+    await page.locator('[data-listener-row]').click();
+    await page.locator('[data-history-entry]').first().click();
+    await expect(page.locator('html')).toHaveAttribute('data-pyric-treatment', 'outline');
+    await expect(page.locator('[data-component=DataPanel]')).toHaveCSS('outline-color', swatch);
+
+    await expect(page.locator('[data-component=DataPanel]')).toHaveAttribute('data-pyric-flow', hue!);
+    await page.waitForTimeout(4200);
+    await expect(page.locator('[data-component=DataPanel]')).not.toHaveAttribute('data-pyric-flow-retained');
+
+
+  });
+}
+
+for (const runtime of ['inpage', 'worker']) {
+  test(`${runtime}: denial marks a related region and opens the exact request`, async ({ page }) => {
+    await page.goto(`${server.url}/?runtime=${runtime}`);
+    await page.getByRole('tab', { name: 'Data' }).click();
+    // No known region: chip fallback only, without inventing a target.
+    await page.locator('[data-denied]').click();
+    await expect(page.locator('[data-pyric-denials]')).toHaveCount(0);
+    await page.locator('[data-read=document]').click();
+    await expect(page.locator('[data-component=DataPanel]')).toHaveAttribute('data-pyric-flow');
+    await page.locator('[data-denied-write]').click();
+    const marker = page.locator('[data-pyric-denials] [data-pyric-listener-badge]').first();
+    await expect(marker).toContainText('Write denied — related region');
+    await expect(page.locator('[data-result]')).toContainText('version":1');
+    const id = await marker.getAttribute('data-listener-id');
+    await marker.click();
+    await expect(page.locator('[data-traffic-detail]')).toHaveAttribute('data-request-row', id!);
+    await expect(page.locator('[data-traffic-detail]')).toContainText('Denied');
+    await page.screenshot({ path: `/tmp/denial-${runtime}.png` });
+    await expect(page.locator('[data-pyric-denials]')).toHaveCount(0, { timeout: 10000 });
   });
 }

@@ -102,7 +102,7 @@ function isChipOwned(node: unknown, container: HTMLElement): boolean {
   const owner = (element.nodeType === 1 ? element : element.parentNode) as Element | null;
   if (owner === null) return false;
   try {
-    return owner.closest('[data-pyric-runtime-chip-host], pyric-runtime-chip') !== null;
+    return owner.closest('[data-pyric-runtime-chip-host], pyric-runtime-chip, [data-pyric-listener-overlay]') !== null;
   } catch {
     return false;
   }
@@ -194,6 +194,7 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
     if (subtree === null || subtree.components.length === 0) return;
     const paint: FlowPaint = {
       listenerId: outline.listenerId,
+      colorKey: outline.activity?.sourceId,
       label: outline.label,
       target: outline.isQuery ? `${outline.target} (query)` : outline.target,
       deliveryCount: outline.deliveryCount,

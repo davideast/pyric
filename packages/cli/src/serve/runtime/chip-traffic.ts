@@ -148,6 +148,7 @@ export interface TrafficFeedOptions {
   subscribeEvents: (callback: (events: readonly SandboxEvent[]) => void) => () => void;
   /** Called whenever the tail changed, for the panel's own rebuild. */
   onChange?: () => void;
+  onRequest?: (request: ChipRequest, event: SandboxEvent) => void;
   /** How many rows to keep. */
   limit?: number;
 }
@@ -162,6 +163,7 @@ export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
       const request = chipRequestFromEvent(event);
       if (request === null) continue;
       tail.push(request);
+      options.onRequest?.(request, event);
       added = true;
     }
     if (!added) return;

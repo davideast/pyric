@@ -326,7 +326,7 @@ describe('the two painting modes', () => {
     page.mode.dispose();
   });
 
-  it('brings the Overview boxes back and stops watching when it switches back', () => {
+  it('brings the Overview boxes back and keeps observing when it switches back', () => {
     const page = harness();
     page.mode.setEnabled(true);
     page.push([todosAttach]);
@@ -334,7 +334,7 @@ describe('the two painting modes', () => {
     page.mode.setMode('overview');
 
     expect(boxes(page.doc)).toHaveLength(1);
-    expect(page.flowWatching()).toBe(false);
+    expect(page.flowWatching()).toBe(true);
     page.mode.dispose();
   });
 

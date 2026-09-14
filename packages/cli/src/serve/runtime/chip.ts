@@ -1,4 +1,5 @@
-import { activityDisplayTarget, type ActivityHistoryEntry } from './activity-history.js';
+import { createDenialMarkers } from './denial-markers.js';
+import { activityDisplayTarget, activityOccurrences, type ActivityHistoryEntry } from './activity-history.js';
 /**
  * A compact inspector for the app's identity, listeners, traffic, and sandbox.
  * Header, tabs, scroll viewport, and action bar share one fixed panel frame.
@@ -276,9 +277,34 @@ const styles = `
   .activity-detail { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--record-inset); border-top: 1px solid var(--pyric-border-soft); }
   .activity-detail-content { grid-column: 2; grid-row: 2; display: grid; gap: var(--space-2); font-size: 11px; }
   .activity-path { overflow-wrap: anywhere; }
+  .data-path { display: flex; align-items: baseline; min-width: 0; font-family: "Pyric Geist Mono", ui-monospace, monospace; font-size: 12px; font-weight: 400; }
+  .data-path-parent { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pyric-muted); }
+  .data-path-leaf { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pyric-text); }
+  .data-breadcrumbs { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 24px; font-size: 12px; }
+  .data-breadcrumbs button { font: inherit; color: var(--pyric-accent); background: transparent; border: 0; height: 28px; cursor: pointer; }
+  .data-breadcrumbs .icon { width: 12px; height: 12px; flex: 0 0 12px; }
+  .breadcrumb-service { font-weight: 600; white-space: nowrap; }
+  .breadcrumb-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .source-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+  .request-facts { all: unset; }
+  .request-detail, .request-facts { display: grid; gap: 16px; }
+  .request-fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; font-size: 12px; }
+  .request-fact dt { color: var(--pyric-muted); }
+  .request-fact dd { all: unset; min-width: 0; overflow-wrap: anywhere; }
+  .nav-link { display: inline-flex; align-items: center; gap: 4px; height: 28px; font-size: 12px; color: var(--pyric-accent); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+  .nav-link .icon { width: 12px; height: 12px; }
+  .source-actions, .history-summary, .activity-fact { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .source-actions { font-weight: 600; }
+  .history-body { display: grid; gap: 12px; min-width: 0; }
+  .history-summary { font-size: 11px; color: var(--pyric-muted); }
+  .history-summary .btn { width: 48px; flex-basis: 48px; height: 28px; }
   .history-context { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--record-inset); }
   .history-context > * { grid-column: 2; }
   .history-pagination { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+  .history-row .row-content { grid-template-columns: minmax(0, 1fr) 132px; }
+  .history-row .c1.wide, .history-row .s1.wide { grid-column: 1; }
+  .history-row .slot { grid-column: 2; grid-row: 1 / 3; align-self: start; }
+  .history-row .listener-fact { font-size: 11px; }
   .history-row .s2 { grid-column: 1 / -1; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
   .listener-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: var(--space-2); width: 100%; min-width: 0; }
   .paint-switch { display: grid; grid-template-columns: repeat(2, 64px); gap: 4px; }
@@ -321,6 +347,7 @@ function escapeAttribute(value: string): string {
 /** Small, shared stroke icons; provider marks use their recognizable silhouettes. */
 function iconHtml(name: string): string {
   const paths: Record<string, string> = {
+    traffic: '<path d="M7 3v18m-4-4 4 4 4-4M17 21V3m-4 4 4-4 4 4"/>',
     settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--pyric-content)"/><circle cx="15" cy="17" r="3" fill="var(--pyric-content)"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v12h5"/>',
     chevron: '<path d="m9 5 7 7-7 7"/>',
@@ -581,13 +608,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       // it is what takes the waiting fact away.
       const waiting = listenerMode?.flowWaiting() === true;
       const treatmentState = JSON.stringify(listenerMode?.treatmentState?.());
-      const historyState = JSON.stringify([listenerMode?.history?.snapshot(), listenerMode?.history?.counts()]);
+      const historyState = JSON.stringify([listenerMode?.history?.snapshot(), listenerMode?.history?.counts(undefined, Infinity)]);
       const inspected = listenerMode?.selectedActivity?.() ?? null;
       const inspectionVersion = listenerMode?.inspectionVersion?.() ?? 0;
       const inspectionChanged = inspectionVersion !== inspectedFromPage;
       if (inspectionChanged) {
         inspectedFromPage = inspectionVersion;
-        if (inspected) { activeListenerId = inspected; tab = 'listeners'; open = true; }
+        if (inspected) { selectedSourceKey = undefined; activeListenerId = inspected; selectedHistory = null; historyPage = 0;  tab = 'listeners'; open = true; }
       }
       if (historyState === renderedHistoryState && !inspectionChanged && sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting && treatmentState === renderedTreatmentState) return;
       renderedHistoryState = historyState;
@@ -606,9 +633,20 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   /** `false` until the first render. The fold's history batch arrives while this
    * function is still running, before there is a view for it to rebuild. */
   let mounted = false;
+  const denials = createDenialMarkers({
+    document: documentLike,
+    related: (service, path) => listenerMode?.relatedRegion?.(service, path) ?? null,
+    select: request => {
+      selectedRequest = request;
+      open = true;
+      showTab('traffic');
+      root.querySelector<HTMLButtonElement>('[data-request-back]')?.focus();
+    },
+  });
   const trafficFeed: TrafficFeed | null = options.sandboxEvents
     ? createTrafficFeed({
       subscribeEvents: options.sandboxEvents,
+      onRequest: (request, event) => { if (mounted && listenerMode?.enabled()) denials.show(request, event); },
       onChange: () => {
         if (mounted) render();
       },
@@ -620,6 +658,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
    * error feed for the failures that are not requests at all. An operation that
    * reached both is one row, keyed by the sandbox event id both carry.
    */
+  let trafficSource: { service: string; target: string } | null = null;
   const trafficRows = (): ChipRequest[] => {
     const byId = new Map<string, ChipRequest>();
     for (const request of trafficFeed?.requests() ?? []) byId.set(request.id, request);
@@ -640,7 +679,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     const ordered = orderChipRequests([...byId.values()], Date.now());
     const kept = trafficFilter === 'denied' ? ordered.filter((request) => request.verdict !== 'ok') : ordered;
-    return kept.slice(0, MAX_ROWS);
+    const matching = kept.filter(request => !trafficSource || ((request.service === trafficSource.service || (request.service === 'rtdb' && trafficSource.service === 'database')) && activityDisplayTarget(request.path ?? '').replace(/^\//, '') === trafficSource.target.replace(/^\//, '')));
+    return matching.slice(0, MAX_ROWS);
   };
 
   // ── Which view is showing ──────────────────────────────────────────────────
@@ -666,6 +706,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   const showTab = (next: ChipTab): void => {
+    if (next !== 'listeners') { listenerMode?.inspectHistory?.(null); selectedHistory = null; }
     if (next === 'identity' && usersFailed) usersRequested = false;
     tab = next;
     writeRememberedChipTab(tabStorage, next);
@@ -690,10 +731,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   // ── The four views ─────────────────────────────────────────────────────────
 
   /** The listener a row click singled out on the page, if any. */
+  let selectedSourceKey: string | undefined;
   let activeListenerId: string | null = null;
   let selectedHistory: number | null = null;
   let historyPage = 0;
-  let historyMessage = '';
 
 
   /** The pending worker update as the first tab's first row, while it lasts. */
@@ -777,116 +818,129 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     };
   };
 
+  const selectedSourceId = (): string | undefined => {
+    if (selectedSourceKey) return selectedSourceKey;
+    const live = listenerOutlines.find(outline => outline.listenerId === activeListenerId);
+    if (live) return live.activity?.sourceId ?? live.listenerId;
+    return listenerMode?.history?.snapshot().entries.find(entry => entry.activityId === activeListenerId)?.sourceId;
+  };
+  const sourceGroups = () => {
+    const groups = new Map<string, { id: string; activityId: string; target: string; service: string; members: ListenerOutline[] }>();
+    for (const entry of listenerMode?.history?.snapshot().entries ?? []) {
+      if (!groups.has(entry.sourceId)) groups.set(entry.sourceId, { id: entry.sourceId, activityId: entry.activityId, target: entry.target, service: entry.service, members: [] });
+    }
+    for (const outline of listenerOutlines) {
+      const id = outline.activity?.sourceId ?? outline.listenerId;
+      const group = groups.get(id) ?? { id, activityId: outline.listenerId, target: activityDisplayTarget(outline.target), service: outline.service, members: [] };
+      group.members.push(outline);
+      groups.set(id, group);
+    }
+    return [...groups.values()];
+  };
   const activityDetailHtml = (id: string, event?: ActivityHistoryEntry): string => {
     const history = listenerMode?.history;
     const entries = history?.snapshot().entries.filter(entry => entry.activityId === id) ?? [];
-    const latest = entries.at(-1);
-    const record = listenerOutlines.find(outline => outline.listenerId === id)?.activity;
-    if (!latest && !record) return '';
-    const source = latest ?? record!;
-    const counts = history?.counts(source.sourceId);
+    const start = entries.find(entry => entry.phase === 'start');
+    const end = entries.find(entry => entry.phase === 'end');
     const association = event ? history?.association(event.sequence) : undefined;
-    const commits = entries.filter(entry => entry.phase === 'render' && (!event || entry.sequence === association?.sequence));
-    const commitIds = new Set(commits.map(entry => entry.commitId));
-    const candidates = history?.snapshot().entries.filter(entry => entry.phase === 'render' && commitIds.has(entry.commitId) && entry.activityId !== id) ?? [];
-    const unique = [...new Map(candidates.map(entry => [entry.activityId, entry])).values()];
-    return `<div class="activity-detail" data-activity-detail="${escapeAttribute(id)}"><div class="activity-detail-content">
-      <span class="mono activity-path">${escapeAttribute(activityDisplayTarget(source.target))}</span>
-      <span>${escapeAttribute(source.service === 'database' ? 'Realtime Database' : 'Firestore')} / ${escapeAttribute(source.method)} / ${escapeAttribute(source.kind === 'subscription' ? 'Subscription' : 'One-shot read')}</span>
-      <span>${escapeAttribute(record?.status ?? latest?.status ?? '')} / ${escapeAttribute(source.appId)}</span>
-      ${counts ? `<span class="hint">${counts.partial ? 'Retained events in' : 'Observed in'} last 30 seconds: ${counts.calls} calls, ${counts.deliveries} deliveries, ${counts.commits} associated commits for this source.</span>` : ''}
-      <span class="hint">${commits.length ? 'Rendered after delivery. This is a timing association, not proof of data ownership.' : 'No associated visual update. Render observation runs while Flow is on.'}</span>
-      ${unique.length ? `<span class="hint">Other candidates in the same commit:</span>${unique.map(entry => `<span class="mono activity-path">${escapeAttribute(entry.method)} ${escapeAttribute(entry.target)} (${escapeAttribute(entry.activityId)})</span>`).join('')}` : ''}
-    </div></div>`;
+    const candidates = history?.snapshot().entries.filter(entry => entry.phase === 'render' && association && entry.commitId === association.commitId && entry.activityId !== id) ?? [];
+    const targets = [...new Set(candidates.map(entry => entry.target))];
+    const facts: string[] = [];
+    if (start?.kind === 'operation' && end) facts.push(`<div class="activity-fact"><span>Response time</span><span class="mono">${Math.max(0, end.at - start.at)} ms</span></div>`);
+    if (targets.length) facts.push(`<span>Also observed in this render</span>${targets.map(target => `<span class="mono activity-path">${escapeAttribute(target)}</span>`).join('')}`);
+    if (!facts.length) return '';
+    return `<div class="activity-detail" data-activity-detail="${escapeAttribute(id)}"><div class="activity-detail-content">${facts.join('')}</div></div>`;
   };
   const historyHtml = (): string => {
     const history = listenerMode?.history;
     if (!history) return '';
     const snapshot = history.snapshot();
-    const sourceId = listenerOutlines.find(outline => outline.listenerId === activeListenerId)?.activity?.sourceId;
-    const entries = snapshot.entries.filter(entry => !sourceId || entry.sourceId === sourceId).reverse();
+    const sourceId = selectedSourceId();
+    const entries = activityOccurrences(snapshot.entries.filter(entry => entry.sourceId === sourceId));
     historyPage = Math.min(historyPage, Math.max(0, Math.ceil(entries.length / 10) - 1));
     const shown = entries.slice(historyPage * 10, historyPage * 10 + 10);
-    const counts = history.counts(sourceId);
-    const phaseLabel = (entry: ActivityHistoryEntry) => {
-      const names = { start: 'Called', delivery: 'Delivered', render: 'Rendered after', end: entry.status };
-      return names[entry.phase];
-    };
-    const rows = shown.map(entry => buttonRowHtml({
-      c1: `${escapeAttribute(entry.method)} / ${escapeAttribute(phaseLabel(entry))}`,
-      s1: `<span class="mono">${escapeAttribute(entry.target)}</span>`,
-      s2: `<span class="hint">${escapeAttribute(entry.activityId)}${entry.commitId === undefined ? '' : ` / commit ${entry.commitId}`}</span>`,
-      slot: `<span class="mono">${escapeAttribute(new Date(entry.at).toLocaleTimeString([], { hour12: false }))}</span>`,
+    const counts = history.counts(sourceId, Infinity);
+    const rows = shown.map(({ event: entry, label, outcome, registration }) => buttonRowHtml({
+      c1: escapeAttribute(label),
+      s1: escapeAttribute(registration === null ? entry.method : `${entry.method} #${registration}`),
+      slot: `<span class="listener-fact"><span class="mono">${escapeAttribute(clockTime(entry.at))}</span><span>${outcome}</span></span>`,
       className: 'history-row', attributes: `data-history-entry="${entry.sequence}"`,
-      label: `Inspect ${entry.method} ${phaseLabel(entry)} ${entry.target}`, expanded: selectedHistory === entry.sequence,
+      label: `Inspect ${label}: ${outcome}${registration === null ? '' : `, Subscription ${registration}`}`, pressed: selectedHistory === entry.sequence, expanded: selectedHistory === entry.sequence && activityDetailHtml(entry.activityId, entry) !== '',
     }) + (selectedHistory === entry.sequence ? activityDetailHtml(entry.activityId, entry) : '')).join('');
     const inset = (html: string) => `<div class="history-context">${html}</div>`;
-    return sectionHtml(sourceId ? 'Recent for this source' : 'Recent activity', `
-      ${inset(`<span class="hint">${counts.partial ? 'Retained in' : 'Last'} 30 seconds: ${counts.calls} calls / ${counts.deliveries} deliveries / ${counts.commits} associated commits</span>`)}
+    return `<div class="history-body">
+      ${inset(`<div class="history-summary"><span>${counts.partial ? '≥ ' : ''}${counts.calls} calls <span aria-hidden="true">/</span> ${counts.partial ? '≥ ' : ''}${counts.deliveries} results <span aria-hidden="true">/</span> ${counts.partial ? '≥ ' : ''}${counts.commits} renders</span>${buttonHtml('data-clear-activity-history', 'Clear', 'Clear all recorded history')}</div>`)}
       <div class="rows" data-activity-history>${rows}</div>
       ${!entries.length ? inset('<span class="hint">No events recorded since this view started or was cleared.</span>') : ''}
-      ${entries.length > 10 ? inset(`<div class="history-pagination">${buttonHtml(`data-history-page="${historyPage - 1}"${historyPage === 0 ? ' disabled' : ''}`, 'Previous')}<span class="hint">${historyPage * 10 + 1}–${Math.min(entries.length, historyPage * 10 + 10)} of ${entries.length} events</span>${buttonHtml(`data-history-page="${historyPage + 1}"${(historyPage + 1) * 10 >= entries.length ? ' disabled' : ''}`, 'Next')}</div>`) : ''}
-      ${inset(`<span class="hint">Alt-click a highlighted region to inspect its sources. Latest ${snapshot.limit} events since opening or clearing this view; reload resets history. ${snapshot.discarded ? `${snapshot.discarded} older events discarded; counts may be incomplete.` : ''} Clear history keeps subscriptions and their lifetime delivery counts.</span>`)}
-      ${historyMessage ? inset(`<span role="status" class="hint">${escapeAttribute(historyMessage)}</span>`) : ''}
-    `, '', buttonHtml('data-clear-activity-history', 'Clear', 'Clear recent activity history'));
+      ${entries.length > 10 ? inset(`<div class="history-pagination">${buttonHtml(`data-history-page="${historyPage - 1}"${historyPage === 0 ? ' disabled' : ''}`, 'Previous')}<span class="hint">${historyPage * 10 + 1}–${Math.min(entries.length, historyPage * 10 + 10)} of ${entries.length} items</span>${buttonHtml(`data-history-page="${historyPage + 1}"${(historyPage + 1) * 10 >= entries.length ? ' disabled' : ''}`, 'Next')}</div>`) : ''}
+      ${inset(`<span class="hint">${snapshot.discarded ? `${snapshot.discarded} older events removed. Counts cover retained history.` : 'Counts cover recorded history.'} Clear or reload to reset.</span>`)}
+    </div>`;
+
   };
 
+  const dataPathHtml = (path: string): string => {
+    const split = path.lastIndexOf('/') + 1;
+    return `<span class="data-path" title="${escapeAttribute(path)}"><span class="data-path-parent">${escapeAttribute(path.slice(0, split))}</span><span class="data-path-leaf">${escapeAttribute(path.slice(split))}</span></span>`;
+  };
   const listenersViewHtml = (): ChipView => {
     const outlinesOn = listenerMode?.enabled() === true;
     const paintMode: ListenerPaintMode = listenerMode?.mode() ?? paintModeBeforeBuild;
     const flowReason = listenerMode === null ? null : listenerMode.flowUnavailableReason();
     const pressed = (candidate: ListenerPaintMode): boolean => outlinesOn && paintMode === candidate;
 
-    const incidents = listenerOutlines.filter((outline) => outline.incident?.pattern === 'duplicate-listener');
-    const ordered = [...listenerOutlines]
-      .sort((a, b) => b.deliveryCount - a.deliveryCount || a.label.localeCompare(b.label));
-
-    const rows = [
-      ...incidents.map((outline) => buttonRowHtml({
-        c1: 'Duplicate subscription',
-        s1: `<span class="mono">${escapeAttribute(displayTarget(outline))}</span>`,
-        title: displayTarget(outline),
-        slot: `<span class="mono">${outline.incident!.count}</span>`,
-        className: 'problem',
-        attributes: `data-listener-incident="${escapeAttribute(outline.listenerId)}" data-activate-listener="${escapeAttribute(outline.listenerId)}"`,
-        label: `Outline the ${outline.incident!.count} subscriptions to ${displayTarget(outline)}`,
-        pressed: activeListenerId === outline.listenerId,
-      })),
-      ...ordered.map((outline) => {
-        const target = activityDisplayTarget(displayTarget(outline));
-        const hue = listenerColors(outline.listenerId).swatch;
-        return buttonRowHtml({
-          c1: escapeAttribute(outline.labelIsOwner ? outline.label : target),
-          s1: outline.labelIsOwner ? `<span class="mono">${escapeAttribute(target)}</span>` : escapeAttribute(outline.service === 'database' ? 'Realtime Database' : 'Firestore'),
-          s2: outline.activity ? escapeAttribute(`${outline.activity.method} / ${outline.activity.status}${outline.observedRender ? ' / Rendered after delivery' : ' / No associated visual update'}`) : '',
-          leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(hue)}"></span>`,
-          slot: `<span class="listener-fact"><strong>${outline.deliveryCount}</strong><span>deliveries</span></span>`,
-          className: 'listener-row',
-          title: `${target} — Inspect activity and highlight on the page`,
-          attributes: `data-listener-row="${escapeAttribute(outline.listenerId)}" data-activate-listener="${escapeAttribute(outline.listenerId)}"`,
-          label: `Outline ${outline.labelIsOwner ? outline.label : target} on the page`,
-          pressed: activeListenerId === outline.listenerId,
-          expanded: activeListenerId === outline.listenerId,
-        }) + (activeListenerId === outline.listenerId ? activityDetailHtml(outline.activity?.id ?? outline.listenerId) : '');
-      }),
-    ];
+    const groups = sourceGroups();
+    const selected = groups.find(group => group.id === selectedSourceId());
+    const rows = groups.map(group => {
+      const counts = group.members.some(member => !member.activity) ? undefined : listenerMode?.history?.counts(group.id, Infinity);
+      const stopped = group.members.some(member => member.activity?.kind === 'subscription') && group.members.every(member => member.activity && (member.activity.kind !== 'subscription' || member.activity.status === 'closed'));
+      const calls = counts?.calls ?? group.members.length;
+      const deliveries = counts?.deliveries ?? group.members.reduce((sum, member) => sum + member.deliveryCount, 0);
+      return buttonRowHtml({
+        c1: dataPathHtml(group.target),
+        s1: `${group.service === 'database' ? 'Realtime Database node' : group.members.some(member => member.isQuery) || group.target.split('/').filter(Boolean).length % 2 === 1 ? 'Firestore collection' : 'Firestore document'}${stopped ? ' — Stopped' : ''}${group.members.some(member => member.incident) ? ' — Duplicate subscriptions' : ''}`,
+        slot: `<span class="listener-fact"><span>${counts?.partial ? '≥ ' : ''}${pluralize(calls, 'call')}</span><span>${counts?.partial ? '≥ ' : ''}${pluralize(deliveries, 'delivery', 'deliveries')}</span></span>`,
+        leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(listenerColors(group.id).swatch)}"></span>`,
+        className: group.members.some(member => member.incident) ? 'listener-row problem' : 'listener-row', title: `Inspect ${group.target}`,
+        attributes: `${group.members.some(member => member.incident) ? 'data-listener-incident="true" ' : ''}data-listener-row="${escapeAttribute(group.activityId)}" data-activate-listener="${escapeAttribute(group.activityId)}"`,
+        label: `Inspect ${group.target}`, expanded: false,
+      });
+    });
     const blocked = outlinesRefused;
     const allOn = outlinesOn && paintMode === 'overview' && activeListenerId === null && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
     const toggle = `<button type="button" class="listener-toggle" data-listener-all aria-pressed="${allOn}"><span class="toggle-track" aria-hidden="true"></span>Show all</button>`;
     const treatment = listenerMode?.treatmentState?.();
     const description = treatment?.choices.find(entry => entry.id === treatment.selected)?.description ?? '';
-    const picker = paintMode === 'flow' && treatment ? `<select id="pyric-flow-treatment" data-flow-treatment aria-label="Flow treatment" title="${escapeAttribute(description)}">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}" title="${escapeAttribute(entry.description)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>` : '<span></span>';
+    const picker = treatment ? `<select id="pyric-flow-treatment" data-flow-treatment aria-label="Flow treatment" title="${escapeAttribute(description)}">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}" title="${escapeAttribute(entry.description)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>` : '<span></span>';
     const notice = treatment?.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span>${buttonHtml(`data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}"`, 'Retry')}` : treatment?.loading ? '<span class="hint" role="status">Loading treatment…</span>' : '';
     const toolbar = `<div class="listener-toolbar"><div class="paint-switch" role="group" aria-label="Highlight mode">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')}</div>${picker}<button type="button" class="btn icon-button" data-open-overlay-theme aria-label="Highlight settings" title="Highlight settings">${iconHtml('settings')}</button>${notice ? `<span class="listener-toolbar-notice">${notice}</span>` : ''}</div>`;
     const bar = barHtml([toolbar]);
     const guidance = blocked ?? flowReason;
     const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
-    return { body: `${sectionHtml(pluralize(listenerOutlines.length, 'activity', 'activities'), list, '', toggle)}${historyHtml()}${guidance ? `<span class="hint" data-flow-unavailable>${escapeAttribute(guidance)}</span>` : ''}`, bar };
+    let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts(undefined, Infinity).partial ? 'Retained history / incomplete' : 'Recorded history', toggle);
+    if (selected) {
+      body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${selected.service === 'database' ? 'Realtime Database' : 'Firestore'}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
+    }
+    if (guidance) body += `<span class="hint" data-flow-unavailable>${escapeAttribute(guidance)}</span>`;
+    return { body, bar };
 
   };
 
-  let expandedRequestId: string | null = null;
+  let selectedRequest: ChipRequest | null = null;
   const trafficViewHtml = (): ChipView => {
+    if (selectedRequest) {
+      const request = selectedRequest;
+      const method = request.method ?? 'Request';
+      const target = request.path ?? request.label ?? 'Request';
+      const service = request.service === 'database' ? 'Realtime Database' : request.service === 'firestore' ? 'Firestore' : request.service ?? 'Runtime';
+      const outcome = { ok: 'Succeeded', denied: 'Denied', error: 'Failed' }[request.verdict];
+      const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
+      const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
+      return {
+        body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
+          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${request.reason ? fact('Reason', request.reason, 's2') : ''}</dl></section></div>`,
+        bar: barHtml([]),
+      };
+    }
     const rows = trafficRows().map((request) => {
       // Keep named cells stable for copying while the path owns the main line.
       const named = request.service !== null && request.method !== null;
@@ -901,15 +955,14 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         className: `traffic-row${request.verdict === 'ok' ? '' : ' problem'}`,
         title: [call, what, request.reason].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
-        label: `${call}: ${what}. ${request.verdict}. ${expandedRequestId === request.id ? 'Collapse' : 'Expand'} full path`,
-        expanded: expandedRequestId === request.id,
+        label: `Inspect ${call}: ${what}. ${request.verdict}`,
       });
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
     const bar = barHtml([
       buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only'),
     ]);
-    return { body: `${introHtml('Recent traffic', 'Select a request to expand its full path.')}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
+    return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${trafficSource.service === 'database' ? 'Realtime Database' : 'Firestore'}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
   };
 
   const sandboxViewHtml = (): ChipView => {
@@ -927,7 +980,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   const viewHtml = (activeUid: string | null, isAdmin: boolean): ChipView => {
     if (tab === 'identity') return identityViewHtml(activeUid, isAdmin);
-    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : { body: emptyHtml('Listeners unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
+    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : { body: emptyHtml('Data unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
     return sandboxViewHtml();
   };
@@ -950,6 +1003,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-create-user',
       'data-user-previous',
       'data-user-next',
+      'data-source-traffic',
+      'data-clear-traffic-source',
+      'data-sources-back',
       'data-history-entry',
       'data-history-page',
       'data-clear-activity-history',
@@ -957,6 +1013,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-listener-mode',
       'data-flow-treatment',
       'data-activate-listener',
+      'data-request-back',
       'data-inspect-request',
       'data-traffic-denied',
       'data-copy-traffic',
@@ -1114,7 +1171,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const mode = ensureListenerMode();
       if (!mode) return;
       const allOn = mode.enabled() && mode.mode() === 'overview' && activeListenerId === null && mode.outlines().every((outline) => mode.isListenerVisible(outline.listenerId));
-      activeListenerId = null;
+      activeListenerId = null; selectedSourceKey = undefined;
       for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
       if (!allOn) mode.setMode('overview');
       mode.setEnabled(!allOn);
@@ -1131,7 +1188,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         // else is that mode going on.
         if (mode.enabled() && mode.mode() === paint) {
           mode.setEnabled(false);
-          activeListenerId = null;
+          activeListenerId = null; selectedSourceKey = undefined;
           for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
           outlinesRefused = null;
         } else {
@@ -1148,8 +1205,23 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     // A listener row singles its listener out on the page: the outlines come
     // on if they were off, and only that listener is painted until the row is
     // pressed again.
+    root.querySelector('[data-source-traffic]')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      const selected = sourceGroups().find(group => group.id === selectedSourceId());
+      if (selected) trafficSource = { service: selected.service, target: selected.target };
+      trafficFilter = 'all'; selectedRequest = null; showTab('traffic');
+    });
+    root.querySelector('[data-clear-traffic-source]')?.addEventListener('click', () => { trafficSource = null; selectedRequest = null; render(); });
+    root.querySelector('[data-sources-back]')?.addEventListener('click', () => {
+      activeListenerId = null; selectedSourceKey = undefined; selectedHistory = null; historyPage = 0;
+      listenerMode?.inspectHistory?.(null);
+      for (const outline of listenerOutlines) listenerMode?.setListenerVisible(outline.listenerId, true);
+      render();
+      const view = root.querySelector<HTMLElement>('.view'); if (view) view.scrollTop = 0;
+      root.querySelector<HTMLButtonElement>('[data-listener-row]')?.focus();
+    });
     root.querySelector('[data-clear-activity-history]')?.addEventListener('click', () => {
-      selectedHistory = null; historyPage = 0; historyMessage = '';
+      selectedHistory = null; historyPage = 0;
       listenerMode?.clearActivityHistory?.(); render();
     });
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-history-page]')) {
@@ -1162,9 +1234,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         const entry = listenerMode?.history?.snapshot().entries.find(entry => entry.sequence === sequence);
         const associated = listenerMode?.history?.association(sequence);
         const highlightSequence = selectedHistory === null ? null : associated?.sequence ?? null;
-        const highlighted = listenerMode?.inspectHistory?.(highlightSequence);
-        historyMessage = '';
-        if (selectedHistory !== null) historyMessage = highlighted ? 'Highlighting the surviving region observed after this delivery.' : 'No surviving observed region for this event.';
+        listenerMode?.inspectHistory?.(highlightSequence);
+
         render();
       });
     }
@@ -1173,10 +1244,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         const mode = ensureListenerMode();
         const listenerId = button.dataset.activateListener;
         if (mode === null || listenerId === undefined) return;
-        historyPage = 0; selectedHistory = null; historyMessage = '';
-        activeListenerId = activeListenerId === listenerId ? null : listenerId;
+        historyPage = 0; selectedHistory = null;
+        selectedSourceKey = sourceGroups().find(group => group.activityId === listenerId)?.id;
+        activeListenerId = listenerId;
         for (const outline of mode.outlines()) {
-          mode.setListenerVisible(outline.listenerId, activeListenerId === null || outline.listenerId === activeListenerId);
+          mode.setListenerVisible(outline.listenerId, activeListenerId === null || outline.activity?.sourceId === selectedSourceId() || outline.listenerId === activeListenerId);
         }
         if (activeListenerId !== null && !mode.enabled()) {
           mode.setMode('overview');
@@ -1189,12 +1261,19 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         }
         listenerOutlines = mode.outlines();
         render();
+        const view = root.querySelector<HTMLElement>('.view'); if (view) view.scrollTop = 0;
+        root.querySelector<HTMLButtonElement>('[data-sources-back]')?.focus();
       });
     }
+    root.querySelector('[data-request-back]')?.addEventListener('click', () => { selectedRequest = null; render(); });
     for (const row of root.querySelectorAll<HTMLButtonElement>('[data-inspect-request]')) {
       row.addEventListener('click', () => {
-        expandedRequestId = expandedRequestId === row.dataset.inspectRequest ? null : row.dataset.inspectRequest ?? null;
+        const request = trafficRows().find(request => request.id === row.dataset.inspectRequest);
+        if (!request) return;
+        selectedRequest = { ...request };
         render();
+        const view = root.querySelector<HTMLElement>('.view'); if (view) view.scrollTop = 0;
+        root.querySelector<HTMLButtonElement>('[data-request-back]')?.focus();
       });
     }
     root.querySelector('[data-traffic-denied]')?.addEventListener('click', () => {
@@ -1276,6 +1355,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
       themeDialogController?.dispose();
       trafficFeed?.dispose();
+      denials.dispose();
       listenerMode?.dispose();
       host.remove();
     },

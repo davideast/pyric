@@ -5,7 +5,7 @@ import { getDatabase, sandbox as databaseSandbox } from 'pyric/database';
 import { handleMessage, type HostCtx } from '../../packages/cli/src/serve/worker/host.ts';
 
 const sandbox = initializeSandbox();
-setRules(sandbox, "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /messages/{id} { allow read, write: if true; } } }");
+setRules(sandbox, "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /messages/{id} { allow read: if true; allow write: if request.resource.data.version >= 0; } } }");
 databaseSandbox.setDefaultPolicy(getDatabase(sandbox), 'allow');
 const ready = sandbox.enablePersistence({ key: 'sdk-flow-demo', injectedBackend: createMemoryBackend() });
 const context: HostCtx = {

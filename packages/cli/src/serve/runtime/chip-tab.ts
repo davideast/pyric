@@ -28,7 +28,7 @@ export const CHIP_TABS: readonly ChipTab[] = ['identity', 'listeners', 'traffic'
 /** The label each view carries in the strip. */
 export const CHIP_TAB_LABELS: Readonly<Record<ChipTab, string>> = {
   identity: 'Identity',
-  listeners: 'Listeners',
+  listeners: 'Data',
   traffic: 'Traffic',
   sandbox: 'Sandbox',
 };

@@ -191,11 +191,11 @@ describe('the Listeners view', () => {
     const page = setup();
     page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner]), delivery('d1', 'L1', { kind: 'query', collection: 'todos' })]);
     const row = page.root.querySelector('[data-listener-row="L1"]')!;
-    expect(row.querySelector('.c1')!.textContent).toBe('TodoList');
-    expect(row.querySelector('.s1')!.textContent).toBe('todos (query)');
+    expect(row.querySelector('.c1')!.textContent).toBe('todos');
+    expect(row.querySelector('.s1')!.textContent).toBe('Firestore collection');
     expect(row.querySelector<HTMLElement>('.listener-mark')!.style.getPropertyValue('--listener-color')).not.toBe('');
-    expect(row.querySelector('.slot strong')!.textContent).toBe('1');
-    expect(row.querySelector('.slot')!.textContent).toContain('deliveries');
+    expect(row.querySelector('.slot')!.textContent).toContain('1 call');
+    expect(row.querySelector('.slot')!.textContent).toContain('delivery');
     expect(row.querySelector('.slot .btn')).toBeNull();
     expect(row.tagName).toBe('BUTTON');
   });
@@ -209,13 +209,13 @@ describe('the Listeners view', () => {
     const first = page.root.querySelector('[data-listener-rows] .row')!;
     expect(first.getAttribute('data-listener-incident')).not.toBeNull();
     expect(first.classList.contains('problem')).toBe(true);
-    expect(first.querySelector('.c1')!.textContent).toBe('Duplicate subscription');
-    expect(first.querySelector('.s1')!.textContent).toBe('todos (query)');
-    expect(first.querySelector('.slot')!.textContent).toBe('2');
+    expect(first.querySelector('.s1')!.textContent).toContain('Duplicate subscriptions');
+    expect(first.querySelector('.c1')!.textContent).toBe('todos');
+    expect(first.querySelector('.slot')!.textContent).toContain('call');
     expect(page.root.querySelector('[data-chip-tab="listeners"]')!.classList.contains('problem')).toBe(true);
   });
 
-  it('selects grouped built-ins in Flow and removes the selector in Overview', async () => {
+  it('keeps grouped treatment choices available in Overview without applying Flow styling', async () => {
     const page = setup({ react: true });
     page.root.querySelector<HTMLButtonElement>('[data-listener-mode="flow"]')!.click();
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -229,7 +229,7 @@ describe('the Listeners view', () => {
     expect(select.value).toBe('corners');
     expect(page.doc.documentElement.dataset.pyricTreatment).toBe('corners');
     page.root.querySelector<HTMLButtonElement>('[data-listener-mode="overview"]')!.click();
-    expect(page.root.querySelector('[data-flow-treatment]')).toBeNull();
+    expect(page.root.querySelector<HTMLSelectElement>('[data-flow-treatment]')!.value).toBe('corners');
     expect(page.doc.documentElement.hasAttribute('data-pyric-treatment')).toBe(false);
     page.chip.dispose();
   });
@@ -269,11 +269,11 @@ describe('the Listeners view', () => {
       attach('a2', 'L2', { kind: 'doc', path: 'profiles/p1' }, [{ kind: 'component', name: 'Profile', element: '#profile' }]),
     ]);
     page.root.querySelector<HTMLButtonElement>('[data-listener-row="L1"]')!.click();
-    expect(page.root.querySelector('[data-listener-row="L1"]')!.getAttribute('aria-pressed')).toBe('true');
-    expect(page.root.querySelector('[data-listener-row="L2"]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(page.root.querySelector('[data-sources-back]')).not.toBeNull();
+    expect(page.root.querySelector('[data-listener-row]')).toBeNull();
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
-    page.root.querySelector<HTMLButtonElement>('[data-listener-row="L1"]')!.click();
-    expect(page.root.querySelector('[data-listener-row="L1"]')!.getAttribute('aria-pressed')).toBe('false');
+    page.root.querySelector<HTMLButtonElement>('[data-sources-back]')!.click();
+    expect(page.root.querySelectorAll('[data-listener-row]')).toHaveLength(2);
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
   });
 
@@ -283,7 +283,7 @@ describe('the Listeners view', () => {
     expect(page.root.querySelectorAll('[data-listener-row]').length).toBe(12);
     page.root.querySelector<HTMLButtonElement>('[data-listener-row="L9"]')!.click();
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
-    bar(page.root, 'overview').click();
+    page.root.querySelector<HTMLButtonElement>('[data-sources-back]')!.click();
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(12);
     expect(page.root.querySelectorAll('[data-listener-row][aria-pressed="true"]').length).toBe(0);
     bar(page.root, 'overview').click();
