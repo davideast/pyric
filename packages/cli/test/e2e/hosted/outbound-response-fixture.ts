@@ -1,6 +1,6 @@
 import { expect, test, type Browser } from '@playwright/test';
 import { startHostedFixture } from './fixture.js';
-import { isBridgeMessage } from '../../../src/bridge/protocol.js';
+import { observeHostedFrames } from './frame-observation-fixture.js';
 
 export async function assertOversizedResponseRefusal(browser: Browser, operation: 'read' | 'listen'): Promise<void> {
   const fixture = await startHostedFixture();
@@ -9,35 +9,7 @@ export async function assertOversizedResponseRefusal(browser: Browser, operation
   try {
     const requesting = await requestingContext.newPage();
     const healthy = await healthyContext.newPage();
-    let largestFrame = 0;
-    let closedSockets = 0;
-    const largeObservations: { size: number; hasSample: boolean }[] = [];
-    let notifyClose = () => {};
-    const connectionClosed = new Promise<string>(resolve => {
-      notifyClose = () => resolve('connection closed before an SDK response');
-    });
-    requesting.on('websocket', socket => {
-      const isSandboxSocket = socket.url().endsWith('/__pyric/sandbox');
-      if (isSandboxSocket) {
-        socket.on('framereceived', event => {
-          largestFrame = Math.max(largestFrame, Buffer.byteLength(event.payload));
-          const frame: unknown = JSON.parse(event.payload.toString());
-          const isResultEnvelope = isBridgeMessage(frame) && frame.type === 'worker-message-result';
-          if (isResultEnvelope) {
-            const message = frame.message;
-            const isEventBatch = message.t === 'event';
-            if (isEventBatch) {
-              for (const observed of message.events) {
-                const isLargeSnapshot = observed.kind === 'snapshot_delivery'
-                  && observed.target.kind === 'query' && observed.target.collection === 'large';
-                if (isLargeSnapshot) largeObservations.push({ size: observed.size, hasSample: observed.sample !== undefined });
-              }
-            }
-          }
-        });
-        socket.on('close', () => { closedSockets += 1; notifyClose(); });
-      }
-    });
+    await observeHostedFrames(requesting);
     for (const page of [requesting, healthy]) {
       await page.goto(fixture.info.url);
       await expect(page.locator('#document')).toHaveText('Empty');
@@ -75,10 +47,10 @@ export async function assertOversizedResponseRefusal(browser: Browser, operation
       const isError = error instanceof Error;
       return { evaluationError: isError ? error.message : 'Page evaluation failed' };
     });
-    const result = await Promise.race([request, connectionClosed]);
+    const result = await request;
     expect(result).toEqual({ code: 'resource-exhausted', message: 'Bridge response exceeds the 12 MiB encoded frame limit.' });
-    expect(largestFrame).toBeLessThanOrEqual(12 * 1024 * 1024);
-    expect(closedSockets).toBe(0);
+    expect(await requesting.evaluate(() => globalThis.__pyricFrameObservations.largestFrame)).toBeLessThanOrEqual(12 * 1024 * 1024);
+    expect(await requesting.evaluate(() => globalThis.__pyricFrameObservations.closedSockets)).toBe(0);
     await healthy.locator('#write').click();
     await expect(healthy.locator('#write-result')).toHaveText('Written');
     for (const page of [requesting, healthy]) {
@@ -87,9 +59,18 @@ export async function assertOversizedResponseRefusal(browser: Browser, operation
     await requesting.locator('#write').click();
     await expect(requesting.locator('#write-result')).toHaveText('Written');
     const usesListener = operation === 'listen';
-    if (usesListener) await expect.poll(() => largeObservations).toContainEqual({ size: 7, hasSample: false });
-    expect(largestFrame).toBeLessThanOrEqual(12 * 1024 * 1024);
-    expect(closedSockets).toBe(0);
+    if (usesListener) {
+      await requesting.evaluate(async () => {
+        const sdk = await import('firebase/firestore');
+        await sdk.setDoc(sdk.doc(sdk.getFirestore(), 'shared/frame-barrier'), { message: 'Observation check complete' });
+      });
+      // Observe a later write on the same stream before asserting that the summary was retained.
+      await requesting.waitForFunction(() => globalThis.__pyricFrameObservations.barrier);
+      const observations = await requesting.evaluate(() => globalThis.__pyricFrameObservations.largeObservations);
+      expect(observations).toContainEqual({ size: 7, hasSample: false });
+    }
+    expect(await requesting.evaluate(() => globalThis.__pyricFrameObservations.largestFrame)).toBeLessThanOrEqual(12 * 1024 * 1024);
+    expect(await requesting.evaluate(() => globalThis.__pyricFrameObservations.closedSockets)).toBe(0);
     expect(fixture.stderr()).not.toContain('uncaught exception');
   } finally {
     await test.info().attach('host-stderr', { body: fixture.stderr(), contentType: 'text/plain' });

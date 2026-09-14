@@ -1,0 +1,61 @@
+import type { OutboundMessage } from '../serve/worker/protocol.js';
+import { MAX_BRIDGE_FRAME_BYTES, type BridgeMessage } from './protocol.js';
+
+export const BRIDGE_FRAME_LIMIT_MESSAGE = 'Bridge response exceeds the 12 MiB encoded frame limit.';
+
+const frameLimitError = { code: 'resource-exhausted', message: BRIDGE_FRAME_LIMIT_MESSAGE };
+const utf8 = new TextEncoder();
+
+/** Encode bounded output, retaining correlation when an oversized result can be refused. */
+export function encodeBridgeMessage(frame: BridgeMessage): string | undefined {
+  const payload = JSON.stringify(frame);
+  const fitsFrameLimit = utf8.encode(payload).byteLength <= MAX_BRIDGE_FRAME_BYTES;
+  if (fitsFrameLimit) return payload;
+  const reduced = JSON.stringify(reduceOversizedFrame(frame));
+  const stillExceedsLimit = utf8.encode(reduced).byteLength > MAX_BRIDGE_FRAME_BYTES;
+  if (stillExceedsLimit) return;
+  return reduced;
+}
+
+function reduceOversizedFrame(frame: BridgeMessage): BridgeMessage {
+  switch (frame.type) {
+    case 'worker-message-result':
+      return { ...frame, message: reduceOversizedWorkerMessage(frame.message) };
+    case 'worker-res':
+      return {
+        type: 'worker-res', id: frame.id, clientSessionId: frame.clientSessionId,
+        ok: false, error: frameLimitError,
+      };
+    case 'worker-snap':
+      return { ...frame, value: { __error: frameLimitError } };
+    default:
+      return frame;
+  }
+}
+
+function reduceOversizedWorkerMessage(message: OutboundMessage): OutboundMessage {
+  switch (message.t) {
+    case 'res':
+      return {
+        t: 'res', id: message.id, clientSessionId: message.clientSessionId,
+        ok: false, error: frameLimitError,
+      };
+    case 'snap':
+      return { ...message, value: { __error: frameLimitError } };
+    case 'event': {
+      // Snapshot samples are optional; retain every observation and its metadata.
+      const events = message.events.map(event => {
+        const isSnapshotDelivery = event.kind === 'snapshot_delivery';
+        if (isSnapshotDelivery) {
+          const summary = { ...event };
+          delete summary.sample;
+          return summary;
+        }
+        return event;
+      });
+      return { ...message, events };
+    }
+    default:
+      return message;
+  }
+}
