@@ -87,19 +87,15 @@ export function requireSessionUser(session: MintedSession | null, api: string): 
 }
 
 /**
- * Re-mint an existing port session by UID while preserving any custom claims
- * carried on `session.state.token`.
+ * Refresh a port session from the stored account while retaining its tenant.
+ * Session claims may predate an admin change or checkpoint restore; they must
+ * never be written back to the account during refresh.
  */
 export function remintSessionWithClaims(auth: Auth, session: MintedSession): MintedSession {
-  const rawToken = (session.state.token ?? {}) as Record<string, unknown>;
-  const { sub: _sub, firebase: _firebase, ...customClaims } = rawToken;
-  if (Object.keys(customClaims).length > 0) {
-    authSandboxOps.updateUser(auth, session.user.uid, { customClaims });
-  }
   return authSandboxOps.mintSession(auth, {
     kind: 'uid',
     uid: session.user.uid,
-    ...(session.user.tenantId ? { tenantId: session.user.tenantId } : {}),
+    tenantId: session.user.tenantId ?? null,
   });
 }
 

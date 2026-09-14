@@ -9,7 +9,7 @@ Do not modify the manual demo project. Commit and push each verified slice.
 
 1. Anonymous UID uniqueness — verified locally. Deletion/restart cannot transfer UID-owned data to a new identity; retained accounts preserve their UID, claims, creation time and last-login time.
 2. Session retention expiry — verified locally. The original app obtains fresh admission after the retention window, with Auth restored before listeners. Expired/invalid grants remain refused; app deletion cancels recovery; uncertain writes never replay.
-3. Checkpoint restoration — next. Supported Firestore/Auth/RTDB/Storage data and identity metadata round trip; corruption refuses before replacing healthy state.
+3. Checkpoint restoration — in progress. Account refresh no longer overwrites restored claims. Storage metadata round trip and corruption refusal remain open.
 4. Restoration diagnostics — pending. Startup text and readiness JSON match authoritative SDK state.
 5. Interrupted recovery — pending. A second interruption restores identity/listeners once; obsolete callbacks and app deletion cannot revive sessions.
 6. Reset/import with active apps — pending. Both browsers see replacement; removed listeners stay removed and stale work cannot resurrect data.
@@ -68,3 +68,13 @@ The client previously retried the expired grant and treated its refusal as termi
 Review added a direct old-grant refusal after the real window and four short browser-clock cases: deleted user, deleted app, invalid grant, and a failed first fresh-admission attempt. The clock cases exercise client decisions; the real-clock case separately proves the host actually expires the old grant.
 
 Final current checks: 26 focused browser cases in 2.0 minutes, four short cases on Node 22.15.0 in 10.3 seconds, 59 session/relay regressions in six isolated processes, strict CLI/fixture types, four-file code form with zero findings, and three browser boundaries. Socket: 7,259/16,384 bytes; worker client: 54,943/98,304; RTDB listeners: 12,930/32,768. Reports use `/tmp/pyric-hardening-session-expiry-`; archived input hashes bind them to the source and emitted CLI files. The minimum-Node run did not repeat the long real-clock scenario. Whole-feature and copied-standalone checks remain reserved for the final milestone join.
+
+## Task 3: Auth refresh slice
+
+The all-service checkpoint probe reached restore after correcting two fixture assumptions: use modular `reload(user)` and the supported RTDB snapshot `priority` property. Its actual restore assertion exposed stale Auth claims and regenerated Storage metadata. These are separate failures; the combined round trip remains open.
+
+Minimization showed that claim reads without reload already worked. The worker's shared refresh helper wrote the session's old token claims into the account before re-minting it. Thus reload could undo both an admin revocation and a restored checkpoint. The helper now reads the stored account and keeps the port tenant, removing the stale write and conditional spread. Email/password refresh use the same correction. No new service, adapter, dependency, resource owner or runtime decision is introduced.
+
+`bun x playwright test --config packages/cli/test/e2e/hosted/playwright.config.ts checkpoint-auth.pw.ts` reproduced expected `saved`, received `changed` after restore and reload (`/tmp/pyric-hardening-checkpoint-auth-red.log`, exit 1). The exact fixture then passed unchanged in 3.9 seconds (`/tmp/pyric-hardening-checkpoint-auth-green.log`, exit 0). Both fixture and logs are archived in `ignored/hardening/checkpoint/`. Earlier passing minimization probes and the pre-restore reload failure are diagnostic evidence, not the final red/green pair.
+
+Separate review verifies all three refresh operations across hosted, default SharedWorker and in-page: the SDK sees the revoked claims, retains its tenant, fails a protected write, and the public admin account retains the revocation. Final affected checks pass 33 browser cases in 54.4 seconds, ten minimum-Node cases in 17.2 seconds, and 57 regressions in four isolated files. CLI and fixture strict types pass; changed-code form has zero findings. Reports use `/tmp/pyric-hardening-checkpoint-auth-`. The source change is confined to the host helper; browser leaves and shared SDK implementation are unchanged. Applicable packaging remains at the final join. This slice does not close the all-service checkpoint or corruption requirements.

@@ -14,6 +14,8 @@ The user narrowed the active goal to the ten-item reliability queue in `docs/hos
 
 A separate S6 tooling commit corrects class-member scope to match U3's modified-function rule. Modified members stay checked in full, with explicit unchanged-member reporting and whole-class checking for new classes or changed headers. Twenty-eight checker tests and strict types pass. Pushes are blocked by automatic approval review pending the direct authorization question; verified local commits remain available.
 
+Task 3 has a verified Auth slice: reload and email/password refresh no longer write stale session claims over an admin change or restored checkpoint. The unchanged SDK checkpoint fixture is red/green. Separate review passes 33 affected browser cases, ten minimum-Node cases, 57 worker regressions, strict types and source form. Storage metadata round trip and corruption refusal remain open; the combined all-service probe is not yet passing.
+
 ## Previous repair: hosted app recovery after process restart
 
 Manual QA reproduced a permanent closed connection in existing pages after restarting the host. A new S1/S2/S3 regression reproduced the reported error twice. Process identity now distinguishes fresh admission to a replacement host from resuming the same host; app configuration and existing Auth restoration precede observer restoration and readiness. A separate red/green case preserves invalid-grant refusal when process identity is missing or malformed.
