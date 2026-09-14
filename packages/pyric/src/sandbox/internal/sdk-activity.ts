@@ -75,7 +75,7 @@ export function createSdkActivityJournal(options: {
   const releaseSources = new Map<string, () => void>();
   const subscribers = new Set<(event: SdkActivityEvent) => void>();
   const observers = new Set<(observation: SdkObservation) => void>();
-  const observations: SdkObservation[] = [];
+  const observations: Array<{ event: SdkObservation; observers: Array<(event: SdkObservation) => void> }> = [];
   let observationSequence = 0;
   let observing = false;
   let appSerial = 0;
@@ -91,7 +91,7 @@ export function createSdkActivityJournal(options: {
     const observation = sdkObservation({ phase, record }, now(), monotonicNow(), observationSequence + 1);
     if (observation) {
       observationSequence++;
-      observations.push(observation);
+      observations.push({ event: observation, observers: [...observers] });
     }
     // An observer may synchronously cause another SDK call. Finish delivering
     // this observation before delivering the next to any other observer.
@@ -100,8 +100,8 @@ export function createSdkActivityJournal(options: {
       try {
         while (observations.length) {
           const next = observations.shift()!;
-          for (const observer of [...observers]) {
-            try { observer(next); } catch { /* Diagnostics cannot alter SDK behavior. */ }
+          for (const observer of next.observers) {
+            try { observer(next.event); } catch { /* Diagnostics cannot alter SDK behavior. */ }
           }
         }
       } finally {

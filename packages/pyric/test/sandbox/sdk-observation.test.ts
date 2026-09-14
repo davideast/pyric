@@ -114,4 +114,14 @@ describe('SDK observation contract', () => {
     expect(observed.map(event => event.phase)).toEqual(['start', 'start', 'end', 'end']);
     journal.dispose();
   });
+
+  it('delivers cleanup when another observer disposes the journal during a call', () => {
+    const journal = createSdkActivityJournal();
+    const observed: SdkObservation[] = [];
+    journal.observe(event => { if (event.phase === 'start') journal.dispose(); });
+    journal.observe(event => observed.push(event));
+    journal.begin({ app: {}, source, method: 'onValue', kind: 'subscription' });
+    expect(observed.map(event => event.phase)).toEqual(['start', 'remove']);
+    expect(observed.map(event => event.sequence)).toEqual([1, 2]);
+  });
 });

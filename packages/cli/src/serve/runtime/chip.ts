@@ -1,4 +1,6 @@
 import { serviceLabel, sourceLabel } from './service-presentation.js';
+import { RATE_STYLES, rateView, refreshRateView } from './chip-rates.js';
+import { sdkRates } from 'pyric/sandbox/internal';
 import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
 import { INDEX_STYLES, indexDetailsHtml, indexActionHtml } from './chip-indexes.js';
 import { createIndexInspector, createIndexConfigClient, type IndexConfigClient } from './index-config-client.js';
@@ -63,6 +65,7 @@ import {
 } from '../worker/client/core.js';
 
 export interface PyricRuntimeChipOptions {
+  rates?: Pick<typeof sdkRates, 'snapshot'>;
   indexConfig?: IndexConfigClient | null;
   runtime: PyricRuntimeStatus;
   document?: Document;
@@ -297,6 +300,7 @@ const styles = `
   .source-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
   ${RULE_EVIDENCE_STYLES}
   ${INDEX_STYLES}
+  ${RATE_STYLES}
   .request-facts { all: unset; }
   .request-detail, .request-facts { display: grid; gap: 16px; }
   .request-fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; font-size: 12px; }
@@ -664,6 +668,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   /** Which requests Traffic lists. A page session remembers nothing here: the
    * filter is a way of reading the last minute, not a preference. */
   let trafficFilter: 'all' | 'denied' = 'all';
+  let trafficDisplay: 'requests' | 'rates' = 'requests';
+  let selectedRateService: string | null = null;
+  const rates = options.rates ?? sdkRates;
   /** `false` until the first render. The fold's history batch arrives while this
    * function is still running, before there is a view for it to rebuild. */
   let mounted = false;
@@ -985,7 +992,19 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   let selectedRequest: ChipRequest | null = null;
+  const trafficToolbar = (): string => {
+    const modes = `<div class="paint-switch" role="group" aria-label="Traffic view">${buttonHtml(`data-traffic-display="requests" aria-pressed="${trafficDisplay === 'requests'}"`, 'Requests')}${buttonHtml(`data-traffic-display="rates" aria-pressed="${trafficDisplay === 'rates'}"`, 'Rates')}</div>`;
+    let filter = '';
+    if (trafficDisplay === 'requests') filter = buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only');
+    return barHtml([`<div class="traffic-toolbar">${modes}${filter}</div>`]);
+  };
   const trafficViewHtml = (): ChipView => {
+    if (trafficDisplay === 'rates') {
+      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute);
+      let breadcrumb = '';
+      if (selectedRateService) breadcrumb = `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(serviceLabel(selectedRateService))}</span></nav></div>`;
+      return { body: breadcrumb + sectionHtml(measured.title, measured.body, measured.detail), bar: trafficToolbar() };
+    }
     if (selectedRequest) {
       const request = selectedRequest;
       const method = request.method ?? 'Request';
@@ -1028,9 +1047,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       });
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
-    const bar = barHtml([
-      buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only'),
-    ]);
+    const bar = trafficToolbar();
     return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
   };
 
@@ -1061,6 +1078,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const previousRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
     const previousExpressions = [...(previousRuleDetails?.querySelectorAll<HTMLElement>('.rule-expression') ?? [])];
     const expressionScroll = previousExpressions.map(expression => expression.scrollLeft);
+    const rateMethods = [...root.querySelectorAll<HTMLElement>('[data-rate-method] code')];
+    const rateScroll = new Map(rateMethods.map(code => [code.parentElement?.parentElement?.dataset.rateMethod, code.scrollLeft]));
+    const focusedRate = rateMethods.find(code => code === root.activeElement)?.parentElement?.parentElement?.dataset.rateMethod;
     const focusedExpression = previousExpressions.findIndex(expression => expression === root.activeElement);
     const ruleDetailsFocus = root.activeElement?.closest('[data-rule-details]')?.getAttribute('data-rule-details');
     const openProviders = [...root.querySelectorAll<HTMLDetailsElement>('[data-user-providers][open]')].map((details) => details.dataset.userProviders);
@@ -1094,6 +1114,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-request-back',
       'data-inspect-request',
       'data-traffic-denied',
+      'data-traffic-display',
+      'data-inspect-rates',
+      'data-rates-back',
       'data-copy-traffic',
       'data-open-overlay-theme',
       'data-update-worker',
@@ -1177,6 +1200,26 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     const scrollView = root.querySelector<HTMLElement>('[data-chip-view]');
     if (scrollView) scrollView.scrollTop = scrollTop;
+    for (const code of root.querySelectorAll<HTMLElement>('[data-rate-method] code')) {
+      const method = code.parentElement?.parentElement?.dataset.rateMethod;
+      code.scrollLeft = rateScroll.get(method) ?? 0;
+      if (method === focusedRate) code.focus({ preventScroll: true });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-traffic-display]')) {
+      button.addEventListener('click', () => {
+        trafficDisplay = button.dataset.trafficDisplay === 'rates' ? 'rates' : 'requests';
+        selectedRequest = null;
+        render();
+      });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-inspect-rates]')) {
+      button.addEventListener('click', () => {
+        selectedRateService = button.dataset.inspectRates ?? null;
+        render();
+        root.querySelector<HTMLButtonElement>('[data-rates-back]')?.focus({ preventScroll: true });
+      });
+    }
+    root.querySelector('[data-rates-back]')?.addEventListener('click', () => { selectedRateService = null; render(); });
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-index-action]')) {
       button.addEventListener('click', async () => {
         const key = button.dataset.indexKey!;
@@ -1315,7 +1358,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       event.preventDefault();
       const selected = sourceGroups().find(group => group.id === selectedSourceId());
       if (selected) trafficSource = { service: selected.service, target: selected.target };
-      trafficFilter = 'all'; selectedRequest = null; showTab('traffic');
+      trafficFilter = 'all'; trafficDisplay = 'requests'; selectedRequest = null; showTab('traffic');
     });
     root.querySelector('[data-clear-traffic-source]')?.addEventListener('click', () => { trafficSource = null; selectedRequest = null; render(); });
     root.querySelector('[data-sources-back]')?.addEventListener('click', () => {
@@ -1447,6 +1490,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   mounted = true;
   render();
+  // Sampling the clock advances idle rates. Updating cells preserves controls,
+  // horizontal method scrolling and focus while the developer inspects them.
+  const rateClock = setInterval(() => {
+    if (open && tab === 'traffic' && trafficDisplay === 'rates') refreshRateView(root, rates.snapshot());
+  }, 1000);
+  if (typeof rateClock === 'object' && 'unref' in rateClock) rateClock.unref();
   void indexInspector.refresh();
   // The chip fades in once, when the page first gets it. The class sits on the
   // stable container rather than on the chip, so a render right behind the
@@ -1456,6 +1505,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   return {
     element: host,
     dispose() {
+      clearInterval(rateClock);
       unsubscribe();
       unsubLens();
       unsubAuth();
