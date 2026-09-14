@@ -18,6 +18,7 @@ import type { AuthLens, SandboxEvent } from 'pyric/sandbox';
 import { FirebaseError } from 'pyric/app';
 import { receiveClockState } from './clock.js';
 import type { ClientPort } from './handles.js';
+import { MAX_PENDING_OPERATIONS } from '../../../bridge/protocol.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
 
@@ -34,6 +35,8 @@ export function nextSubId(): string { return `sub-${++_subCounter}`; }
  */
 export const _pending = new Map<string, {
   port: ClientPort;
+  clientSessionId?: string;
+  isOperation: boolean;
   resolve: (v: unknown) => void;
   reject: (e: Error & { code: string }) => void;
 }>();
@@ -479,10 +482,17 @@ export function rawRpc(
 ): Promise<unknown> {
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) return Promise.reject(appDeletedError());
+  const isOperation = msg.t === 'op' || msg.t === 'tool';
+  const hasReachedCapacity = isOperation && pendingOperationCount(port, msg.clientSessionId) >= MAX_PENDING_OPERATIONS;
+  if (hasReachedCapacity) {
+    return Promise.reject(new FirebaseError('resource-exhausted', 'This client already has 256 pending operations.'));
+  }
   return new Promise<unknown>((resolve, reject) => {
     const opMsg = msg as { id: string };
     _pending.set(opMsg.id, {
       port,
+      clientSessionId: msg.clientSessionId,
+      isOperation,
       resolve,
       reject,
     });
@@ -493,6 +503,15 @@ export function rawRpc(
       reject(error);
     }
   });
+}
+
+function pendingOperationCount(port: ClientPort, clientSessionId: string | undefined): number {
+  let count = 0;
+  for (const request of _pending.values()) {
+    const belongsToClient = request.isOperation && request.port === port && request.clientSessionId === clientSessionId;
+    if (belongsToClient) count += 1;
+  }
+  return count;
 }
 
 /** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
