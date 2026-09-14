@@ -72,11 +72,15 @@ export function attachPeer(
     try {
       parsed = JSON.parse(raw.toString());
     } catch {
+      ws.close(1002, 'Invalid bridge message JSON.');
       return;
     }
     const msg = parsed;
     const isUnrecognizedMessage = !isBridgeMessage(msg);
-    if (isUnrecognizedMessage) return;
+    if (isUnrecognizedMessage) {
+      ws.close(1002, 'Unrecognized bridge message envelope.');
+      return;
+    }
     const isWorkerMessage = msg.type === 'worker-message';
     if (isWorkerMessage) {
       const isMalformedMessage = !isWorkerMessageEnvelope(msg.message);

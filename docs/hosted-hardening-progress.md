@@ -14,7 +14,7 @@ Do not modify the manual demo project. Commit and push each verified slice.
 5. Interrupted recovery — verified locally. A second interruption restores the original identity and one listener; delayed old-socket events cannot overwrite or disconnect the recovered app, and deletion during Auth restoration cancels recovery.
 6. Reset/import with active apps — verified locally. Hosted and default SharedWorker listeners follow replacement without reviving unsubscribed listeners; paused transactions retry against replacement state. Complete portable imports restore Storage bytes/metadata and await durable persistence, including an older asynchronous save and hard restart.
 7. Persistence-failure recovery — verified locally. Failed writes report uncertainty; mutations remain refused even after permissions are repaired. Restart restores durable documents/Storage bytes, the original app does not replay its uncertain increment, and new writes succeed.
-8. Malformed requests — in progress. Invalid worker envelopes and non-string browser worker request/subscription IDs reject before dispatch; another app remains usable and the affected app can reconnect. Outer/legacy relay frames, remaining payloads, versions and size/depth boundaries remain open.
+8. Malformed requests — in progress. Invalid outer JSON/envelope kinds, worker envelopes and non-string browser worker request/subscription IDs reject before dispatch; another app remains usable and the affected app can reconnect. Known-frame/legacy relay payloads, versions and size/depth boundaries remain open.
 9. Lifecycle cleanup — pending. Repeated startup failures, interrupted initialization, reconnect, deletion and shutdown release resources and ownership.
 10. Sleep/resume with delayed disconnect notification — pending. An expired host session recovers even when the browser observes the interruption late; invalid grants remain refused and uncertain writes never replay.
 11. Identity and tenant isolation across clients — pending. Switching or signing out in one app cannot change another app's identity, tenant, claims or Rules access, including after recovery.
@@ -266,3 +266,15 @@ Final verification: 31 affected browser cases passed under Node 22.15.0 in 1.1 m
 This closes the scoped browser worker correlation checks, not all of item 8. Outer JSON/envelopes, legacy relay correlation, remaining method payloads, protocol-version refusal and size/depth limits remain to be verified. Later items and final packaging/integration/handoff are still open.
 
 Envelope rejection commit: `9787eac1d150676d9d9a05143cb5247893b37d4d`, local pending push authorization.
+
+## Task 8: Outer frame rejection and shared fault fixture — verified slice
+
+Two separate public-wire regressions reproduced pending SDK writes when the outer frame contained invalid JSON or an unknown message type. The socket parser previously returned silently on both paths. It now closes the offending connection with the existing protocol-error behavior before dispatch. Each unchanged original regression passed after its correction. Review covers null, array, numeric and string roots, missing frame type and a non-string type, along with no mutation, an independently usable app and subsequent recovery of the affected app.
+
+The three malformed-write scenario files had identical setup and assertion bodies. Review extracted those bodies into `malformed-write-fixture.ts`; the tests now supply just their wire transformation. Before extraction, the normalised bodies were compared and matched exactly, including refusal, isolation, listener recovery, subsequent writes and the absence of uncaught host exceptions. The original files are retained in the evidence archive. Subscription-specific tests retain their distinct fixture instead of adding modes to this helper.
+
+Final verification: 39 affected browser cases passed under Node 22.15.0 in 1.4 minutes, including all extracted callers, eight outer-frame cases, correlation/subscription validation, admission refusal, deletion/restart recovery, SharedWorker behavior and explicit in-page control refusal. Thirty-one peer/session regressions passed in three isolated files. Strict CLI/fixture types, five-file source form and staged whitespace checks pass. The production change adds only explicit rejection on the existing parser's two failure paths; no runtime owner or browser dependency changed. Reports and source/artifact hashes are retained under `ignored/hardening/outer-frame/`.
+
+Item 8 remains open for validation of known outer-frame payloads and legacy relay correlation, remaining method payloads, protocol-version refusal and size/depth bounds. This does not claim full protocol validation or cross-version compatibility. Later queue items, final packaging/integration verification and the morning handoff remain open.
+
+Correlation-ID commit: `8308ea40abc53694a4a06824db189cfbc7f8a2b7`, local pending push authorization.
