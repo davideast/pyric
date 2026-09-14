@@ -71,6 +71,8 @@ export function getDatabase(
       appRuntime.onDelete(() => connection.drain().catch(() => undefined));
       const t: SandboxLiveTarget = {
         kind: 'sandbox-live',
+        activityApp: app,
+        activityScope: canonicalKey,
         backend,
         connection,
         sandbox,
@@ -90,7 +92,7 @@ export function getDatabase(
   if (isSandboxContext(target)) {
     const backend = getOrCreateBackend(target.sandbox, effectiveUrl);
     const connection = new RtdbConnectionLifecycle(backend, () => target.auth, false);
-    const t: SandboxTarget = { kind: 'sandbox', backend, auth: target.auth, connection };
+    const t: SandboxTarget = { kind: 'sandbox', activityApp: target, activityScope: canonicalizeDatabaseUrl(effectiveUrl), backend, auth: target.auth, connection };
     return new Database(t);
   }
 
@@ -103,6 +105,8 @@ export function getDatabase(
     );
     const t: SandboxLiveTarget = {
       kind: 'sandbox-live',
+      activityApp: target,
+      activityScope: canonicalizeDatabaseUrl(effectiveUrl),
       backend,
       connection,
       sandbox: target,

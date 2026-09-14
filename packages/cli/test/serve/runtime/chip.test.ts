@@ -1,5 +1,5 @@
 import { JSDOM } from 'jsdom';
-import { describe, expect, it, mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
@@ -8,6 +8,11 @@ import type { AuthUserRecord } from 'pyric/auth';
 import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
 import type { RuntimeIdentityBindings } from '../../../src/serve/runtime/identity.js';
 import type { ChipTab } from '../../../src/serve/runtime/chip-tab.js';
+
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+});
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -95,6 +100,7 @@ function setup(options: {
   }
 
   const chip = mountPyricRuntimeChip(chipOptions);
+  cleanups.push(() => { chip.dispose(); dom.window.close(); });
   const root = chip.element.shadowRoot!;
   return {
     dom,

@@ -1,3 +1,4 @@
+import { sdkActivity } from 'pyric/sandbox/internal';
 /**
  * SharedWorker host — RTDB modular ops (playground shared-runtime bridge).
  *
@@ -208,7 +209,7 @@ export async function handleRtdbOp(
     case 'rtdb.get': {
       try {
         const db = lensRtdb(ctx, msg.actAs, port);
-        ok(port, msg.id, rtdbSnapToWire(await rtdbGet(rtdbTarget(db, msg.path, msg.query))));
+        ok(port, msg.id, rtdbSnapToWire(await sdkActivity.silence(() => rtdbGet(rtdbTarget(db, msg.path, msg.query)))));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

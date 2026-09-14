@@ -2,6 +2,8 @@ import { generatePushId } from './sandbox/push-id.js';
 import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf } from './routing.js';
 import { isQuery } from './query-shape.js';
+import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
+import { beginDatabaseActivity } from './sdk-activity.js';
 import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from './types.js';
 import { buildSandboxRef } from './references.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
@@ -19,24 +21,27 @@ import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
  * Matches the SDK's `DataSnapshot.val()` contract.
  */
 export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
-  // Query branch — windowed read.
-  if (isQuery(r as object)) {
-    const q = r as Query;
-    const target = targetOf(q.ref as unknown as object);
-    return Promise.resolve().then(() => {
-      const rows = target.admin
-        ? target.backend.adminGetQuery(q.ref._path, q._spec)
-        : target.backend.getQuery(authFor(target), q.ref._path, q._spec);
-      return buildSandboxQuerySnap(target, q.ref, rows);
-    });
-  }
-  const ref0 = r as DatabaseReference;
-  const target = targetOf(ref0 as unknown as object);
+  const query = isQuery(r as object) ? r as Query : undefined;
+  const ref0 = query?.ref ?? r as DatabaseReference;
+  const target = targetOf(ref0 as object);
+  const activity = beginDatabaseActivity(r, 'get', 'operation');
+  // Keep the existing single Promise reaction and exact backend error object.
   return Promise.resolve().then(() => {
-    const val = target.admin
-      ? target.backend.adminGet(ref0._path)
-      : target.backend.get(authFor(target), ref0._path);
-    return buildSandboxSnap(target, ref0, val);
+    try {
+      if (query) {
+        const rows = target.admin
+          ? target.backend.adminGetQuery(query.ref._path, query._spec)
+          : target.backend.getQuery(authFor(target), query.ref._path, query._spec);
+        return finishSdkRead(activity, buildSandboxQuerySnap(target, query.ref, rows));
+      }
+      const val = target.admin
+        ? target.backend.adminGet(ref0._path)
+        : target.backend.get(authFor(target), ref0._path);
+      return finishSdkRead(activity, buildSandboxSnap(target, ref0, val));
+    } catch (error) {
+      activity.fail();
+      throw error;
+    }
   });
 }
 

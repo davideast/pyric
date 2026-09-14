@@ -159,7 +159,7 @@ const styles = `
   /* Zero-size outer tracks turn gaps into insets. The shell, section frames,
      and records all use this same construction, with no additive spacing. */
   .panel { display: grid; width: 440px; height: 568px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); background: var(--pyric-bg); border: 1px solid var(--pyric-border); border-radius: 12px; box-shadow: 0 18px 60px #0007; overflow: hidden; }
-  .panel-column { display: grid; grid-template-rows: 64px 44px minmax(0, 1fr) 64px; min-width: 0; min-height: 0; }
+  .panel-column { display: grid; grid-template-rows: 64px 44px minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
   .panel-header, .bar { display: grid; grid-template-columns: 0 minmax(0, 1fr) auto 0; align-items: center; column-gap: var(--content-inset); overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
   .brand { display: flex; align-items: center; gap: var(--space-2); grid-column: 2; }
   .panel-name { font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
@@ -234,7 +234,7 @@ const styles = `
   .btn[aria-pressed="true"] { background: #35435e; border-color: #829ac9; color: #dce6ff; }
   .btn.icon-button { width: 32px; flex-basis: 32px; background: transparent; }
   [data-open-studio] { background: transparent; border-color: var(--pyric-border-soft); }
-  .bar { border-top: 1px solid var(--pyric-border-soft); background: var(--pyric-content); }
+  .bar { min-height: 64px; border-top: 1px solid var(--pyric-border-soft); background: var(--pyric-content); }
   .bar-hint { grid-column: 2; color: var(--pyric-muted); font-size: 11px; }
   .bar > .actions { grid-column: 3; }
   .bar.no-hint { grid-template-columns: 0 minmax(0, 1fr) 0; }
@@ -258,6 +258,7 @@ const styles = `
   .listener-mark { width: 10px; height: 10px; border: 2px solid var(--listener-color); border-radius: 3px; }
   .listener-row .row-content { grid-template-columns: 12px minmax(0, 1fr) 88px; }
   .listener-row .c1.wide, .listener-row .s1.wide { grid-column: 2; }
+  .listener-row .s2 { grid-column: 2; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
   .listener-fact { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
   .listener-fact strong { color: #dce2ed; font-weight: 550; font-variant-numeric: tabular-nums; }
   .row[aria-pressed="true"] .listener-fact { color: var(--pyric-accent); }
@@ -271,14 +272,14 @@ const styles = `
   .traffic-row[aria-expanded="true"] .c2 { white-space: normal; overflow-wrap: anywhere; }
   [data-chip-view="sandbox"] .s1 { white-space: normal; overflow-wrap: anywhere; }
   .traffic-row .slot { grid-column: 3; grid-row: 1; align-self: start; }
-  .paint-controls { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--record-inset); row-gap: 12px; min-width: 0; }
-  .paint-controls > * { grid-column: 2; }
-  .paint-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .paint-switch .btn { width: 100%; }
-  .treatment-field { display: grid; gap: 6px; min-width: 0; }
-  .treatment-field select { font: inherit; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 34px; min-width: 0; }
-  .treatment-field select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
-  .treatment-field .hint { overflow-wrap: anywhere; }
+  .listener-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: var(--space-2); width: 100%; min-width: 0; }
+  .paint-switch { display: grid; grid-template-columns: repeat(2, 64px); gap: 4px; }
+  .paint-switch .btn { width: 64px; min-width: 0; font-size: 11px; }
+  .listener-toolbar select { font: inherit; font-size: 11px; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 32px; min-width: 0; text-overflow: ellipsis; }
+  .listener-toolbar select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
+  .listener-toolbar .icon-button { grid-column: 3; }
+  .listener-toolbar-notice { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2); }
+
   .listener-toggle { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; font-size: 11px; color: var(--pyric-muted); height: 32px; }
   .toggle-track { width: 28px; height: 16px; display: grid; grid-template-columns: 0 1fr 0; gap: 2px; align-items: center; background: #3a3e49; border: 1px solid #697488; border-radius: 8px; }
   .toggle-track::after { content: ''; grid-column: 2; width: 10px; height: 10px; background: #dce1eb; border-radius: 50%; justify-self: start; }
@@ -312,6 +313,7 @@ function escapeAttribute(value: string): string {
 /** Small, shared stroke icons; provider marks use their recognizable silhouettes. */
 function iconHtml(name: string): string {
   const paths: Record<string, string> = {
+    settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--pyric-content)"/><circle cx="15" cy="17" r="3" fill="var(--pyric-content)"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v12h5"/>',
     chevron: '<path d="m9 5 7 7-7 7"/>',
     minimize: '<path d="M5 12h14"/>',
@@ -360,6 +362,9 @@ function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline
       && outline.target === other.target
       && outline.isQuery === other.isQuery
       && outline.deliveryCount === other.deliveryCount
+      && outline.activity?.method === other.activity?.method
+      && outline.activity?.status === other.activity?.status
+      && outline.observedRender === other.observedRender
       && outline.incident?.pattern === other.incident?.pattern
       && outline.incident?.count === other.incident?.count
       && outline.incident?.windowMs === other.incident?.windowMs;
@@ -420,7 +425,7 @@ function rowHtml(cells: RowCells): string {
       html += `<span class="s1 wide split"><span>${cells.s1 ?? ''}</span><span class="right">${cells.s1Right}</span></span>`;
     } else {
       html += `<span class="s1${wide ? ' wide' : ''}">${cells.s1 ?? ''}</span>`;
-      if (!wide) html += `<span class="s2">${cells.s2 ?? ''}</span>`;
+      if (!wide || cells.s2) html += `<span class="s2">${cells.s2 ?? ''}</span>`;
     }
   }
   return `<div class="${classes}"${title}${attributes}><span class="row-content">${cells.leading ? `<span class="leading">${cells.leading}</span>` : ''}${html}</span></div>`;
@@ -776,6 +781,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         return buttonRowHtml({
           c1: escapeAttribute(outline.labelIsOwner ? outline.label : target),
           s1: outline.labelIsOwner ? `<span class="mono">${escapeAttribute(target)}</span>` : escapeAttribute(outline.service === 'database' ? 'Realtime Database' : 'Firestore'),
+          s2: outline.activity ? escapeAttribute(`${outline.activity.method} / ${outline.activity.status}${outline.observedRender ? ' / Rendered after delivery' : ' / No associated visual update'}`) : '',
           leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(hue)}"></span>`,
           slot: `<span class="listener-fact"><strong>${outline.deliveryCount}</strong><span>${activeListenerId === outline.listenerId ? 'Highlighted' : 'deliveries'}</span></span>`,
           className: 'listener-row',
@@ -790,12 +796,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const allOn = outlinesOn && paintMode === 'overview' && activeListenerId === null && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
     const toggle = `<button type="button" class="listener-toggle" data-listener-all aria-pressed="${allOn}"><span class="toggle-track" aria-hidden="true"></span>Show all</button>`;
     const treatment = listenerMode?.treatmentState?.();
-    const paintControls = `<div class="paint-controls"><div class="paint-switch">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')
-    }</div>${paintMode === 'flow' && treatment ? `<div class="treatment-field"><label class="section-title" for="pyric-flow-treatment">Treatment</label><select id="pyric-flow-treatment" data-flow-treatment aria-describedby="flow-treatment-description">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select><span class="hint" id="flow-treatment-description">${escapeAttribute(treatment.choices.find(entry => entry.id === treatment.selected)?.description ?? '')}</span>${treatment.loading ? '<span class="hint" role="status">Loading treatment…</span>' : ''}${treatment.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span><button type="button" class="btn" data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}">Retry</button>` : ''}</div>` : ''}</div>`;
-    const bar = barHtml([buttonHtml('data-open-overlay-theme', 'Theme', "Edit the overlay's custom properties")]);
-    const detail = blocked ?? (listenerMode?.flowWaiting() ? 'Waiting for the next delivery to show what rendered.' : activeListenerId ? 'Selected listener highlighted. Use Show all to restore every outline.' : 'Select a listener to highlight its components on your page.');
-    const flowHint = flowReason ? `<span class="hint" data-flow-unavailable>${escapeAttribute(flowReason)}</span>` : '';
-    return { body: `${introHtml('Listeners on this page', detail, flowHint)}${paintControls}${sectionHtml(pluralize(listenerOutlines.length, 'listener'), `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No listeners attached', 'Open a part of your app that subscribes to data to see it here.')}`, '', toggle)}`, bar };
+    const description = treatment?.choices.find(entry => entry.id === treatment.selected)?.description ?? '';
+    const picker = paintMode === 'flow' && treatment ? `<select id="pyric-flow-treatment" data-flow-treatment aria-label="Flow treatment" title="${escapeAttribute(description)}">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}" title="${escapeAttribute(entry.description)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>` : '<span></span>';
+    const notice = treatment?.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span>${buttonHtml(`data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}"`, 'Retry')}` : treatment?.loading ? '<span class="hint" role="status">Loading treatment…</span>' : '';
+    const toolbar = `<div class="listener-toolbar"><div class="paint-switch" role="group" aria-label="Highlight mode">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')}</div>${picker}<button type="button" class="btn icon-button" data-open-overlay-theme aria-label="Highlight settings" title="Highlight settings">${iconHtml('settings')}</button>${notice ? `<span class="listener-toolbar-notice">${notice}</span>` : ''}</div>`;
+    const bar = barHtml([toolbar]);
+    const guidance = blocked ?? flowReason;
+    const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
+    return { body: `${sectionHtml(pluralize(listenerOutlines.length, 'activity', 'activities'), list, '', toggle)}${guidance ? `<span class="hint" data-flow-unavailable>${escapeAttribute(guidance)}</span>` : ''}`, bar };
+
   };
 
   let expandedRequestId: string | null = null;

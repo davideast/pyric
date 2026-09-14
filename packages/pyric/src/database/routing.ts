@@ -44,6 +44,8 @@ export const TARGET_SYMBOL: unique symbol = Symbol('pyric/database/target');
 
 export type SandboxTarget = {
   kind: 'sandbox';
+  activityApp?: object;
+  activityScope?: string;
   backend: RtdbBackend;
   auth: AuthState;
   admin?: boolean;
@@ -51,6 +53,8 @@ export type SandboxTarget = {
 };
 export type SandboxLiveTarget = {
   kind: 'sandbox-live';
+  activityApp?: object;
+  activityScope?: string;
   backend: RtdbBackend;
   sandbox: Sandbox;
   currentUser?: () => AuthState;

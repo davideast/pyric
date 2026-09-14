@@ -1,3 +1,4 @@
+import { sdkActivity } from 'pyric/sandbox/internal';
 /**
  * SharedWorker host — Firestore + RTDB value-subscription registry.
  *
@@ -127,6 +128,10 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
 }
 
 export function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void {
+  sdkActivity.silence(() => handleSubImpl(ctx, port, msg));
+}
+
+function handleSubImpl(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void {
   ensurePortSubs(ctx, port);
   const portSubs = ctx.subs.get(port)!;
 
@@ -162,6 +167,10 @@ export function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage
 }
 
 export function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): void {
+  sdkActivity.silence(() => handleRtdbSubImpl(ctx, port, msg));
+}
+
+function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): void {
   ensurePortSubs(ctx, port);
   const portSubs = ctx.subs.get(port)!;
   if (portSubs.has(msg.subId)) return;

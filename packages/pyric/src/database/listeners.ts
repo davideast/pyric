@@ -1,3 +1,5 @@
+import { sdkActivity, type SdkActivityHandle } from '../sandbox/internal/sdk-activity.js';
+import { beginDatabaseActivity } from './sdk-activity.js';
 import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
 import type { JsonValue } from './sandbox/data-tree.js';
@@ -97,7 +99,14 @@ export function onValue(
   cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
   options?: ListenOptions,
 ): Unsubscribe {
-  return onValueInternal(r, cb, cancelCallbackOrOptions, options, cb);
+  const listenOptions = typeof cancelCallbackOrOptions === 'function' ? options : cancelCallbackOrOptions;
+  const activity = beginDatabaseActivity(r, 'onValue', 'subscription', attributionOf(listenOptions));
+  // onlyOnce may detach before invoking a captured initial callback.
+  const lifecycle = listenOptions?.onlyOnce ? { ...activity, close: () => queueMicrotask(() => activity.close()) } : activity;
+  const next = (snap: DataSnapshot): void => { activity.delivered(); cb(snap); };
+  try {
+    return sdkActivity.registering(activity, () => onValueInternal(r, next, cancelCallbackOrOptions, options, cb, lifecycle));
+  } catch (error) { activity.fail(); throw error; }
 }
 
 function onValueInternal(
@@ -106,6 +115,7 @@ function onValueInternal(
   cancelCallbackOrOptions: ((error: Error) => void) | ListenOptions | undefined,
   options: ListenOptions | undefined,
   registryCallback: (snap: DataSnapshot) => void,
+  activity: SdkActivityHandle,
 ): Unsubscribe {
   const cancelCallback = typeof cancelCallbackOrOptions === 'function'
     ? cancelCallbackOrOptions
@@ -128,7 +138,7 @@ function onValueInternal(
       if (unsub) unsub();
       cb(snap);
     };
-    unsub = onValueInternal(r, onceCb, cancelCallback, ownerOnlyOptions(listenOptions), registryCallback);
+    unsub = onValueInternal(r, onceCb, cancelCallback, ownerOnlyOptions(listenOptions), registryCallback, activity);
     // Synchronous initial fire: `onceCb` ran before `unsub` was set, so
     // remove the now-stale listener here.
     if (fired) unsub();
@@ -157,6 +167,7 @@ function onValueInternal(
     // controls, so a page's `onValue` stays on the rule-gated path below.
     let registration: ListenerRegistration | undefined;
     const unregister = (): void => {
+      activity.close();
       if (registration) {
         listenerRegistry.removeExact(target, q.ref._path, 'value', registryCallback, registration, scope);
       }
@@ -170,8 +181,8 @@ function onValueInternal(
           q.ref._path,
           deliver,
           q._spec,
-          cancelCallback,
-          onCanceled,
+          cancelCallback ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
+          () => { activity.fail(); onCanceled(); },
           attributionOf(listenOptions),
         ),
         unregister,
@@ -196,6 +207,7 @@ function onValueInternal(
   };
   let registration: ListenerRegistration | undefined;
   const unregister = (): void => {
+    activity.close();
     if (registration) listenerRegistry.removeExact(target, ref0._path, 'value', registryCallback, registration);
   };
   const subscribed = target.admin
@@ -207,8 +219,8 @@ function onValueInternal(
         ref0._path,
         wrapper,
         undefined,
-        cancelCallback,
-        onCanceled,
+        cancelCallback ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
+        () => { activity.fail(); onCanceled(); },
         attributionOf(listenOptions),
       ),
       unregister,
@@ -325,13 +337,24 @@ function subscribeChild(
   cancelCallbackOrOptions?: ((error: Error) => void) | ListenOptions,
   options?: ListenOptions,
 ): Unsubscribe {
+  const registryCallback = cb;
+  const requestedOptions = typeof cancelCallbackOrOptions === 'function' ? options : cancelCallbackOrOptions;
+  const method = { child_added: 'onChildAdded', child_changed: 'onChildChanged', child_removed: 'onChildRemoved', child_moved: 'onChildMoved' }[event];
+  const activity = beginDatabaseActivity(r, method, 'subscription', attributionOf(requestedOptions));
+  const lifecycle = requestedOptions?.onlyOnce ? { ...activity, close: () => queueMicrotask(() => activity.close()) } : activity;
+  cb = (snap, previous) => { activity.delivered(); registryCallback(snap, previous); };
+  const attach = (next: typeof cb, cancel: ((error: Error) => void) | undefined): Unsubscribe => {
+    try {
+      return sdkActivity.registering(activity, () => onChildEvent(r, event, next, cancel ? (error) => { activity.fail(); cancel(error); } : undefined, registryCallback, lifecycle));
+    } catch (error) { activity.fail(); throw error; }
+  };
   const cancelCallback = typeof cancelCallbackOrOptions === 'function'
     ? cancelCallbackOrOptions
     : undefined;
   const listenOptions = typeof cancelCallbackOrOptions === 'function'
     ? options
     : cancelCallbackOrOptions;
-  if (!listenOptions?.onlyOnce) return onChildEvent(r, event, cb, cancelCallback);
+  if (!listenOptions?.onlyOnce) return attach(cb, cancelCallback);
 
   if (event === 'child_added') {
     let attaching = true;
@@ -348,7 +371,7 @@ function subscribeChild(
       unsubscribe();
       cb(snap, previousChildName);
     };
-    unsubscribe = onChildEvent(r, event, wrapped, cancelCallback, cb);
+    unsubscribe = attach(wrapped, cancelCallback);
     attaching = false;
     if (initial.length > 0) {
       stopped = true;
@@ -375,7 +398,7 @@ function subscribeChild(
     unsubscribe?.();
     cb(snap, event === 'child_removed' ? null : previousChildName);
   };
-  unsubscribe = onChildEvent(r, event, once, cancelCallback, cb);
+  unsubscribe = attach(once, cancelCallback);
   // Initial child_added delivery is synchronous, before `unsubscribe` is
   // assigned. Remove the registration after attachment in that case.
   if (fired) unsubscribe();
@@ -410,8 +433,9 @@ function onChildEvent(
   r: DatabaseReference | Query,
   event: ChildEvent,
   cb: (snap: DataSnapshot, previousChildName: string | null) => void,
-  cancelCallback?: (error: Error) => void,
-  registryCallback = cb,
+  cancelCallback: ((error: Error) => void) | undefined,
+  registryCallback: typeof cb,
+  activity: SdkActivityHandle,
 ): Unsubscribe {
   // Unwrap a Query into its base ref + spec; a plain ref has no spec.
   const isQ = isQuery(r as object);
@@ -438,6 +462,7 @@ function onChildEvent(
   };
   let registration: ListenerRegistration | undefined;
   const unregister = (): void => {
+    activity.close();
     if (registration) {
       listenerRegistry.removeExact(target, baseRef._path, event, registryCallback, registration, scope);
     }
@@ -451,7 +476,7 @@ function onChildEvent(
       wrapper,
       spec,
       cancelCallback,
-      onCanceled,
+      () => { activity.fail(); onCanceled(); },
     ),
     unregister,
   );

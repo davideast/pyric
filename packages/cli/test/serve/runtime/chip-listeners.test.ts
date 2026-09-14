@@ -1,5 +1,6 @@
+import { createSdkActivityJournal } from 'pyric/sandbox/internal';
 import { JSDOM } from 'jsdom';
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mountPyricRuntimeChip } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
@@ -8,6 +9,11 @@ import type { ActivityIncident } from 'pyric/firestore/internal';
 import { createListenerMode } from '../../../src/serve/runtime/listener-mode.js';
 import type { ListenerPaintMode } from '../../../src/serve/runtime/listener-paint-mode.js';
 import { LISTENER_PAINT_MODE_KEY } from '../../../src/serve/runtime/listener-paint-mode.js';
+
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+});
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -115,6 +121,7 @@ function setup(options: {
     setLens: () => {},
     subscribeLens: () => () => {},
     listeners: (onChange) => createListenerMode({
+    activity: createSdkActivityJournal(),
       document: doc,
       onChange,
       attributionEnabled: () => options.attributionEnabled ?? true,
@@ -157,6 +164,7 @@ function setup(options: {
   });
   const root = chip.element.shadowRoot!;
   root.querySelector<HTMLButtonElement>('[data-chip-tab="listeners"]')!.click();
+  cleanups.push(() => { chip.dispose(); dom.window.close(); });
   return {
     doc,
     chip,
@@ -226,9 +234,11 @@ describe('the Listeners view', () => {
     page.chip.dispose();
   });
 
-  it('offers a Show all toggle and Flow and Theme actions with nothing pressed initially', () => {
+  it('keeps display controls in the footer and the activity list first', () => {
     const page = setup({ rememberedPaintMode: 'flow', react: true });
-    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.textContent)).toEqual(['Theme']);
+    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Overview', 'Flow', 'Highlight settings']);
+    expect(page.root.querySelector('.view [data-listener-mode]')).toBeNull();
+    expect(page.root.querySelector('.view [data-flow-treatment]')).toBeNull();
     expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
     expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('false');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
@@ -286,7 +296,7 @@ describe('the Listeners view', () => {
     expect(bar(page.root, 'flow').disabled).toBe(false);
     bar(page.root, 'flow').click();
     expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('true');
-    expect(page.root.querySelector('.view')!.textContent).toContain('Waiting for the next delivery');
+    expect(page.root.querySelector('.view [data-listener-row]')).not.toBeNull();
     page.flowDelivery('L1');
     expect(page.root.querySelector('.view')!.textContent).not.toContain('Waiting for the next delivery');
   });

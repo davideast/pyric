@@ -12,7 +12,8 @@ import {
 } from './core.js';
 import type { ClientPort, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
-import { reportListenerDelivery } from './listener-delivery.js';
+import { beginWorkerDatabaseActivity } from './sdk-activity.js';
+import type { SdkActivityHandle } from 'pyric/sandbox/internal';
 import {
   isRtdbQuery,
   rtdbChild,
@@ -71,8 +72,9 @@ function removeRegistration(registration: ListenerRegistration): void {
 function openValueSubscription(
   target: RtdbTarget,
   next: (snap: RtdbDataSnapshot) => void,
-  cancelCallbackOrOptions?: ((err: unknown) => void) | ValueListenOptions,
-  options?: ValueListenOptions,
+  cancelCallbackOrOptions: ((err: unknown) => void) | ValueListenOptions | undefined,
+  options: ValueListenOptions | undefined,
+  activity: SdkActivityHandle,
 ): Unsubscribe {
   const { ref, query } = targetParts(target);
   const error = typeof cancelCallbackOrOptions === 'function' ? cancelCallbackOrOptions : undefined;
@@ -80,6 +82,7 @@ function openValueSubscription(
     ? options
     : cancelCallbackOrOptions;
   let currentSubId = nextSubId();
+  activity.transport(currentSubId);
   let fired = false;
   let unsubscribed = false;
 
@@ -102,14 +105,14 @@ function openValueSubscription(
       fired = true;
       // Reported on the subscription id the sandbox also records as the
       // listener id, immediately before the application's callback runs.
-      reportListenerDelivery(currentSubId);
       if (listenOptions?.onlyOnce) {
         unsubLens();
         closeSubscription(ref.port, currentSubId);
       }
       next(hydrateRtdbSnapshot(ref, wire));
     },
-    error,
+    error: (cause: unknown) => { activity.fail(); error?.(cause); },
+    close: () => activity.close(),
   };
 
   const opened = openSnapshotSubscription(
@@ -118,6 +121,7 @@ function openValueSubscription(
     subHandler,
     stampIssuer(makeSubMsg(currentSubId, _defaultLens)),
   );
+  if (!opened) activity.fail();
   if (!opened && error) {
     queueMicrotask(() => error(new Error('FIREBASE FATAL ERROR: Database has been deleted.')));
   }
@@ -126,6 +130,7 @@ function openValueSubscription(
     if (unsubscribed || (listenOptions?.onlyOnce && fired)) return;
     closeSubscription(ref.port, currentSubId);
     currentSubId = nextSubId();
+    activity.transport(currentSubId);
     openSnapshotSubscription(
       ref.port,
       currentSubId,
@@ -137,6 +142,7 @@ function openValueSubscription(
   return () => {
     if (unsubscribed) return;
     unsubscribed = true;
+    activity.close();
     unsubLens();
     closeSubscription(ref.port, currentSubId);
   };
@@ -177,16 +183,18 @@ export function rtdbOnValue(
   const listenOptions = typeof cancelCallbackOrOptions === 'function'
     ? options
     : cancelCallbackOrOptions;
+  const activity = beginWorkerDatabaseActivity(target, 'onValue', 'subscription', pageListenerOwners(listenOptions));
   let unsubscribe: Unsubscribe = () => {};
   const rawUnsubscribe = openValueSubscription(target, (snapshot) => {
     try {
+      activity.delivered();
       next(snapshot);
     } catch {
       // Firebase isolates listener exceptions from sibling deliveries.
     } finally {
       if (listenOptions?.onlyOnce) queueMicrotask(() => unsubscribe());
     }
-  }, cancelCallbackOrOptions, options);
+  }, cancelCallbackOrOptions, options, activity);
   unsubscribe = registerListener(
     target,
     'value',
@@ -226,7 +234,8 @@ function onChildEvent(
   target: RtdbTarget,
   kind: ChildEventKind,
   next: (snap: RtdbDataSnapshot, previousChildName: string | null) => void,
-  error?: (err: unknown) => void,
+  error: ((err: unknown) => void) | undefined,
+  activity: SdkActivityHandle,
   reverseInitial = false,
 ): Unsubscribe {
   const { ref, query } = targetParts(target);
@@ -307,7 +316,7 @@ function onChildEvent(
       }
     }
     previous = current;
-  }, error);
+  }, error, undefined, activity);
 }
 
 function subscribeChild(
@@ -322,9 +331,12 @@ function subscribeChild(
   const listenOptions = typeof cancelCallbackOrOptions === 'function'
     ? options
     : cancelCallbackOrOptions;
+  const activity = beginWorkerDatabaseActivity(target, `onChild${kind[0]!.toUpperCase()}${kind.slice(1)}`, 'subscription', pageListenerOwners(listenOptions));
+  const callback = next;
+  next = (snapshot, previous) => { activity.delivered(); callback(snapshot, previous); };
   const eventType = `child_${kind}` as RtdbEventType;
   if (!listenOptions?.onlyOnce) {
-    return registerListener(target, eventType, registryCallback, onChildEvent(target, kind, next, error));
+    return registerListener(target, eventType, registryCallback, onChildEvent(target, kind, next, error, activity));
   }
   let stopped = false;
   let stopScheduled = false;
@@ -344,7 +356,7 @@ function subscribeChild(
         unsubscribe();
       }
     }
-  }, error, kind === 'added');
+  }, error, activity, kind === 'added');
   unsubscribe = registerListener(target, eventType, registryCallback, rawUnsubscribe);
   return unsubscribe;
 }

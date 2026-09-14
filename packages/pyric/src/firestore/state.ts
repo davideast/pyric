@@ -38,6 +38,7 @@ import { Bytes, GeoPoint, vector } from './field-values.js';
 export const TARGET_SYMBOL: unique symbol = Symbol('pyric/firestore/target');
 
 interface FirestoreTargetLifecycle {
+  activityApp?: object;
   own?: (cleanup: () => void) => () => void;
   assertUsable?: () => void;
   terminate?: () => void;

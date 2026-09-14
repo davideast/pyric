@@ -8,6 +8,8 @@ import { translateReadData } from './snapshots.js';
 import { getSnapshotField } from './field-path.js';
 import { activityValue } from '../../../firestore/sandbox/activity-query-value.js';
 import { activityDisplayValue } from '../../../firestore/sandbox/activity-query-display.js';
+import { activityStructuralIdentity } from '../activity-structural-identity.js';
+import type { SdkActivitySource } from '../../../sandbox/internal/sdk-activity.js';
 import {
   executionCursor,
   executionFilter,
@@ -261,6 +263,17 @@ export class QueryImpl implements Query {
    */
   protected queryScope(): QueryScope {
     return { kind: 'collection', path: this.collectionPath };
+  }
+
+  /** SDK diagnostics reuse the engine's captured query identity without reading operands again. */
+  sdkActivitySource(): SdkActivitySource {
+    const scope = this.queryScope();
+    return {
+      service: 'firestore',
+      target: scope.kind === 'collection' ? scope.path : scope.collectionId,
+      key: activityStructuralIdentity({ scope, query: this.activityQuery() }),
+      isQuery: true,
+    };
   }
 
   /**
