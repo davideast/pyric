@@ -55,9 +55,7 @@ import { createIndexedDBBackend } from 'pyric/sandbox';
 
 import {
   handleMessage,
-  cleanupPortWithDisconnect,
   type HostCtx,
-  type PortLike,
 } from './host.js';
 import { buildWorkerCtx, type EventSourceLike } from './serve-init.js';
 import type { InboundMessage } from './protocol.js';
@@ -69,6 +67,7 @@ import { createServiceWorkerRelay } from './service-worker-relay.js';
 import { createWorkerRetirement } from './retirement.js';
 import { createContextResolver } from './context-resolver.js';
 import { createPortLifecycleManager } from './port-lifecycle.js';
+import { createClientMessageQueue } from './client-message-queue.js';
 
 declare const __PYRIC_WORKER_VERSION__: string;
 const workerEpoch = typeof __PYRIC_WORKER_VERSION__ !== 'undefined'
@@ -139,12 +138,33 @@ workerScope.onconnect = (e: MessageEvent) => {
   retirement.connect(port);
   void getCtx().catch(() => undefined);
 
-  let messageQueue = Promise.resolve();
+  const enqueue = createClientMessageQueue({
+    async handle(message) {
+      const wasClosed = portLifecycle.isPortClosed(port);
+      if (wasClosed) return;
+      try {
+        const ctx = await getCtx();
+        const closedDuringInit = portLifecycle.isPortClosed(port);
+        if (closedDuringInit) return;
+        await handleMessage(ctx, port, message);
+      } catch (error) {
+        console.error('[pyric worker] message handler error:', error, 'msg:', message);
+      }
+    },
+    refuse(message) {
+      port.postMessage({
+        t: 'res', id: message.id, clientSessionId: message.clientSessionId, ok: false,
+        error: { code: 'resource-exhausted', message: 'This client already has 256 pending operations.' },
+      });
+    },
+  });
   port.onmessage = (ev: MessageEvent<InboundMessage>) => {
-    if (ev.data.t === 'op' && ev.data.method === 'getRuntimeEpoch') {
+    const message = ev.data;
+    const readsEpoch = message.t === 'op' && message.method === 'getRuntimeEpoch';
+    if (readsEpoch) {
       port.postMessage({
         t: 'res',
-        id: ev.data.id,
+        id: message.id,
         ok: true,
         value: {
           version: workerEpoch,
@@ -152,39 +172,25 @@ workerScope.onconnect = (e: MessageEvent) => {
       });
       return;
     }
-    if (ev.data.t === 'op' && ev.data.method === 'retireRuntime') {
-      void retirement.retire(port, ev.data.id, ev.data.targetEpoch);
+    const retiresWorker = message.t === 'op' && message.method === 'retireRuntime';
+    if (retiresWorker) {
+      void retirement.retire(port, message.id, message.targetEpoch);
       return;
     }
-    if (!retirement.accepting()) {
-      if ('id' in ev.data) {
+    const isRetiring = !retirement.accepting();
+    if (isRetiring) {
+      const hasRequestId = 'id' in message;
+      if (hasRequestId) {
         port.postMessage({
-          t: 'res', id: ev.data.id, ok: false,
+          t: 'res', id: message.id, ok: false,
           error: { code: 'pyric/worker-retiring', message: 'The Pyric worker is restarting.' },
         });
       }
       return;
     }
-    // Serialize each port's frames. A disconnect acknowledgement therefore
-    // cannot overtake an already-posted mutation, and later frames see the
-    // disconnected-port tombstone instead of touching the shared backend.
-    messageQueue = messageQueue.then(async () => {
-      const portLike = port as unknown as PortLike;
-      if (portLifecycle.isPortClosed(portLike)) {
-        return;
-      }
-      try {
-        const ctx = await getCtx();
-        if (portLifecycle.isPortClosed(portLike)) {
-          return;
-        }
-        await handleMessage(ctx, portLike, ev.data);
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('[pyric worker] message handler error:', (e as Error)?.stack ?? e, 'msg:', ev.data);
-      }
-    });
-    retirement.track(port, messageQueue);
+    // A physical disconnect is a barrier across all this port's client queues.
+    // Track every accepted task: the latest client's tail cannot represent them all.
+    retirement.trackDetached(enqueue(message));
   };
 
   // Best-effort port cleanup on tab close/navigation.
@@ -192,7 +198,7 @@ workerScope.onconnect = (e: MessageEvent) => {
   // best-effort; subscriptions also GC when the worker itself dies.
   port.addEventListener('close', () => {
     retirement.disconnect(port);
-    portLifecycle.onPortClosed(port as unknown as PortLike, contextResolver.current());
+    portLifecycle.onPortClosed(port, contextResolver.current());
   });
 };
 
