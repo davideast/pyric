@@ -12,7 +12,7 @@ import type {
   QueryScope,
 } from '../query-execution.js';
 import type { Filter } from './types.js';
-import { assertQueryWhereOperator } from '../query-operators.js';
+import { assertQueryWhereFilter } from '../query-operators.js';
 
 export type ComparableQueryFilter =
   | (Extract<QueryFilter, { kind: 'where' }> & {
@@ -36,7 +36,7 @@ export function snapshotFilter(
 ): ComparableQueryFilter {
   const isWhereFilter = filter.kind === 'where';
   if (isWhereFilter) {
-    assertQueryWhereOperator(filter.op);
+    assertQueryWhereFilter(filter.op, filter.value);
     const hasCapturedOperand = 'comparisonValue' in filter;
     const usesListOperand = filter.op === 'in' || filter.op === 'not-in';
     const comparisonValue = hasCapturedOperand

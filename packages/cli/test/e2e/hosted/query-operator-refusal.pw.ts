@@ -1,10 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { queryFilterOutcome, type QueryOperation, type FilterWrapper } from './query-filter-fixture.js';
 import { startSoakServe } from '../soak/harness.js';
 import { prepareRuntimeFixture } from './runtime-fixture.js';
 
-type QueryOperation = 'read' | 'count' | 'listen';
-type FilterWrapper = 'plain' | 'and' | 'or';
 const modes = ['hosted', 'sharedworker', 'inpage'] as const;
 for (const mode of modes) {
   test(`${mode} refuses unsupported operators before row matching or composite short circuits`, async ({ page }) => {
@@ -33,7 +32,7 @@ for (const mode of modes) {
           for (const wrapper of wrappers) {
             for (const operation of operations) {
               const args = JSON.stringify({ operator, field: 'rank', value: 2 });
-              expect(await operatorOutcome(page, { args, collection, wrapper, operation })).toEqual({
+              expect(await queryFilterOutcome(page, { args, collection, wrapper, operation })).toEqual({
                 kind: 'failed', code: 'invalid-argument', message: 'Unsupported Firestore filter operator.',
               });
             }
@@ -54,7 +53,7 @@ for (const mode of modes) {
       ];
       for (const { values, ...filter } of validFilters) {
         for (const operation of operations) {
-          const outcome = await operatorOutcome(page, { args: JSON.stringify(filter), collection: 'ranked', wrapper: 'plain', operation });
+          const outcome = await queryFilterOutcome(page, { args: JSON.stringify(filter), collection: 'ranked', wrapper: 'plain', operation });
           const usesCount = operation === 'count';
           if (usesCount) expect(outcome).toEqual({ kind: 'count', size: values.length });
           else expect(outcome).toEqual({ kind: 'values', values });
@@ -69,39 +68,4 @@ for (const mode of modes) {
       await fixture.stop();
     }
   });
-}
-
-async function operatorOutcome(page: Page, input: { args: string; collection: string; wrapper: FilterWrapper; operation: QueryOperation }) {
-  return page.evaluate(async ({ args, collection, wrapper, operation }) => {
-    const sdk = await import('firebase/firestore');
-    let unsubscribe = () => {};
-    try {
-      const { field, operator, value } = JSON.parse(args);
-      const filter = sdk.where(field, operator, value);
-      const source = sdk.query(sdk.collection(sdk.getFirestore(), collection), sdk.orderBy('rank'));
-      const usesAnd = wrapper === 'and';
-      const usesOr = wrapper === 'or';
-      let query: typeof source;
-      if (usesAnd) query = sdk.query(source, sdk.and(sdk.where('rank', '<', 0), filter));
-      else if (usesOr) query = sdk.query(source, sdk.or(sdk.where('rank', '>=', 0), filter));
-      else query = sdk.query(source, filter);
-      const usesCount = operation === 'count';
-      if (usesCount) return { kind: 'count', size: (await sdk.getCountFromServer(query)).data().count };
-      const usesListener = operation === 'listen';
-      if (usesListener) {
-        const values = await new Promise<unknown[]>((resolve, reject) => {
-          unsubscribe = sdk.onSnapshot(query, snapshot => resolve(snapshot.docs.map(doc => doc.data().rank)), reject);
-        });
-        return { kind: 'values', values };
-      }
-      const snapshot = await sdk.getDocs(query);
-      return { kind: 'values', values: snapshot.docs.map(doc => doc.data().rank) };
-    } catch (error) {
-      const isError = error instanceof Error;
-      const hasCode = typeof error === 'object' && error !== null && 'code' in error;
-      return { kind: 'failed', code: hasCode ? error.code : null, message: isError ? error.message : 'Non-Error rejection' };
-    } finally {
-      unsubscribe();
-    }
-  }, input);
 }
