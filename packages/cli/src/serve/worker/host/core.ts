@@ -40,6 +40,7 @@ import {
   type Query,
 } from 'pyric/firestore';
 import { assertEncodedDocValueDepth, decodeDocValue, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
+import { FirebaseError } from 'pyric/app';
 import {
   getDatabase as pyricGetDatabase,
   getAdminDatabase as pyricGetAdminDatabase,
@@ -85,9 +86,12 @@ export function resolveTarget(
   if (isGroup) {
     return pyricCollectionGroup(db, target.collectionId);
   }
-  // query descriptor
-  const source = resolveTarget(db, target.source) as CollectionReference | Query;
-  const constraints = target.constraints.map((c) => resolveConstraint(c, db));
+  const hasUnsupportedTarget = target.__ref !== 'query';
+  if (hasUnsupportedTarget) {
+    throw new FirebaseError('invalid-argument', 'Unsupported Firestore target descriptor.');
+  }
+  const source = resolveTarget(db, target.source);
+  const constraints = target.constraints.map((constraint) => resolveConstraint(constraint, db));
   return pyricQuery(source, ...constraints);
 }
 
