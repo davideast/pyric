@@ -36,10 +36,38 @@ export function encodeBridgeMessage(frame: BridgeMessage): string | undefined {
   const payload = JSON.stringify(frame);
   const fitsFrameLimit = utf8.encode(payload).byteLength <= MAX_BRIDGE_FRAME_BYTES;
   if (fitsFrameLimit) return payload;
-  const reduced = JSON.stringify(reduceOversizedFrame(frame));
+  const reducedFrame = reduceOversizedFrame(frame);
+  const reduced = JSON.stringify(reducedFrame);
   const stillExceedsLimit = utf8.encode(reduced).byteLength > MAX_BRIDGE_FRAME_BYTES;
-  if (stillExceedsLimit) return;
+  if (stillExceedsLimit) return encodeObservationGap(reducedFrame);
   return reduced;
+}
+
+/** Keep an undeliverable observation batch from closing the operation connection. */
+function encodeObservationGap(frame: BridgeMessage): string | undefined {
+  const isOtherFrame = frame.type !== 'worker-message-result';
+  if (isOtherFrame) return;
+  const message = frame.message;
+  const isOtherMessage = message.t !== 'event';
+  if (isOtherMessage) return;
+  const first = message.events[0];
+  const last = message.events.at(-1);
+  const isEmptyBatch = first === undefined || last === undefined;
+  if (isEmptyBatch) return;
+  const refusal: BridgeMessage = {
+    ...frame,
+    message: {
+      ...message,
+      events: [{
+        kind: 'observation_gap', id: `observation-gap:${first.id}:${last.id}`, at: first.at,
+        reason: 'frame-limit', omittedCount: message.events.length,
+        firstEventId: first.id, lastEventId: last.id,
+      }],
+    },
+  };
+  const payload = JSON.stringify(refusal);
+  const fitsFrameLimit = utf8.encode(payload).byteLength <= MAX_BRIDGE_FRAME_BYTES;
+  if (fitsFrameLimit) return payload;
 }
 
 function reduceOversizedFrame(frame: BridgeMessage): BridgeMessage {

@@ -43,6 +43,7 @@ export type {
   SandboxEvent,
   SandboxListenerEvent,
   SandboxOperationEvent,
+  SandboxObservationGapEvent,
   SandboxRuntimeErrorEvent,
   SandboxSnapshot,
   ServiceEventOperation,

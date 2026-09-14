@@ -188,6 +188,15 @@ browser network buffer through that API.
 | Connection heartbeat | Every 15 seconds; interrupted after 45 seconds without liveness | Apply the same loss transition as a closed socket. |
 | Reconnect delay | 250 ms initial, exponential backoff capped at 5 seconds, with bounded jitter | One reconnect owner per app; cancel on deletion. |
 
+An oversized observation batch first loses optional snapshot samples. If it still
+cannot fit, its consumer receives an `observation_gap` in the existing event
+stream, carrying the omitted count and first/last source event IDs. The gap
+replaces that delivery batch; it does not report the underlying operations as
+failed or change their data. The runtime reports incomplete activity and keeps
+operation/control traffic connected. These IDs delimit the omitted batch, not
+a globally contiguous sequence range. This frame refusal does not implement
+the separate queue, retained-history, or capture budgets below.
+
 Before closing gate 6B, run a 15-minute local workload after a 2-minute warm-up:
 four active consumers, 100 total 1 KiB document operations per second, 20 live
 subscriptions per active consumer, and one stalled observation consumer.

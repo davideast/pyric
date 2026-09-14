@@ -571,6 +571,17 @@ export interface SandboxRuntimeErrorEvent {
   detail?: Record<string, unknown>;
 }
 
+/** A delivery failure, not a failed sandbox operation. Source IDs delimit the omitted batch. */
+export interface SandboxObservationGapEvent {
+  kind: 'observation_gap';
+  id: string;
+  at: number;
+  reason: 'frame-limit';
+  omittedCount: number;
+  firstEventId: string;
+  lastEventId: string;
+}
+
 /**
  * Discriminated union of every event the sandbox emits to
  * {@link Sandbox.onEvent} subscribers.
@@ -597,5 +608,6 @@ export type SandboxEvent = (
   | SandboxCommitEvent
   | SandboxListenerEvent
   | SandboxRuntimeErrorEvent
+  | SandboxObservationGapEvent
 ) &
   EventProvenance;
