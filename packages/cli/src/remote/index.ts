@@ -30,6 +30,7 @@
  * subpath (`@pyric/cli/remote`), never bundled for the browser.
  */
 import { WebSocket } from 'ws';
+import { Socket } from 'node:net';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
 import type { FullMetadata } from 'pyric/storage';
 import {
@@ -761,12 +762,15 @@ export async function connectRemoteSandbox(
   // literal loopback family the health probe actually reached.
   let serveUrl: string;
   let wsBase: string;
-  if (options.url) {
-    serveUrl = options.url.replace(/\/$/, '');
+  const requestedUrl = options.url;
+  const hasExplicitUrl = requestedUrl !== undefined && requestedUrl.length > 0;
+  if (hasExplicitUrl) {
+    serveUrl = requestedUrl.replace(/\/$/, '');
     wsBase = serveUrl;
   } else {
     const found = await discoverServe(cwd);
-    if (!found) {
+    const hasNoDiscovery = found === null;
+    if (hasNoDiscovery) {
       throw remoteError(
         'not-found',
         'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json in ' +
@@ -785,8 +789,15 @@ export async function connectRemoteSandbox(
   // changes loop-exit accounting, never delivery: while ANY pending op or
   // live subscription holds a ref (the core's updateLoopHold), frames flow
   // normally; when idle, a finished script exits instead of hanging.
-  const wsSocket = (): { ref(): void; unref(): void } | undefined =>
-    (ws as unknown as { _socket?: { ref(): void; unref(): void } })._socket;
+  const wsSocket = (): Socket | undefined => {
+    const hasUnderlyingSocket = '_socket' in ws;
+    if (hasUnderlyingSocket) {
+      const socket = ws._socket;
+      const isNetworkSocket = socket instanceof Socket;
+      if (isNetworkSocket) return socket;
+    }
+    return;
+  };
 
   const core = createRemoteSandboxCore(
     {
@@ -798,13 +809,22 @@ export async function connectRemoteSandbox(
   );
 
   ws.on('message', (raw) => {
-    let msg: unknown;
+    let parsed: unknown;
     try {
-      msg = JSON.parse(raw.toString());
+      parsed = JSON.parse(raw.toString());
     } catch {
       return;
     }
-    if (isBridgeMessage(msg)) core.handleMessage(msg);
+    const msg = parsed;
+    const isUnrecognizedFrame = !isBridgeMessage(msg);
+    if (isUnrecognizedFrame) return;
+    const isUnsupportedProtocol = msg.type === 'attach-ack' && msg.protocol !== 1;
+    if (isUnsupportedProtocol) {
+      core.dispose('The remote sandbox uses an unsupported bridge protocol. Expected version 1.');
+      ws.close();
+      return;
+    }
+    core.handleMessage(msg);
   });
   ws.on('close', () => core.dispose('remote sandbox connection closed (serve stopped or connection lost)'));
   ws.on('error', (err) => core.dispose(`remote sandbox connection failed: ${err.message}`));
@@ -998,4 +1018,3 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
     );
   });
 }
-

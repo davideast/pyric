@@ -175,6 +175,11 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       if (isUnrecognizedFrame) return;
       switch (message.type) {
         case 'attach-ack': {
+          const isUnsupportedProtocol = message.protocol !== 1;
+          if (isUnsupportedProtocol) {
+            failConnection('The hosted sandbox uses an unsupported bridge protocol. Expected version 1.');
+            return;
+          }
           const isIncompatibleHost = message.capabilities?.includes(WORKER_PORT_CAPABILITY) !== true;
           if (isIncompatibleHost) {
             failConnection('The selected host does not support browser worker ports.');
