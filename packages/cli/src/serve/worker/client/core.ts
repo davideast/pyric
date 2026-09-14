@@ -18,7 +18,7 @@ import type { AuthLens, SandboxEvent } from 'pyric/sandbox';
 import { FirebaseError } from 'pyric/app';
 import { receiveClockState } from './clock.js';
 import type { ClientPort } from './handles.js';
-import { MAX_PENDING_OPERATIONS } from '../../../bridge/protocol.js';
+import { createOperationBudget } from '../../../bridge/operation-budget.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
 
@@ -36,7 +36,8 @@ export function nextSubId(): string { return `sub-${++_subCounter}`; }
 export const _pending = new Map<string, {
   port: ClientPort;
   clientSessionId?: string;
-  isOperation: boolean;
+  budget?: ReturnType<typeof createOperationBudget>;
+  release?: () => void;
   resolve: (v: unknown) => void;
   reject: (e: Error & { code: string }) => void;
 }>();
@@ -166,7 +167,7 @@ export function rejectPendingRequests(port: ClientPort, error: Error & { code: s
   for (const [id, pending] of [..._pending]) {
     const isOwnedRequest = pending.port === port;
     if (isOwnedRequest) {
-      _pending.delete(id);
+      takePendingRequest(id);
       pending.reject(error);
     }
   }
@@ -245,11 +246,17 @@ function relayDenial(
 export function wirePort(port: ClientPort): void {
   port.onmessage = (ev: MessageEvent<OutboundMessage>) => {
     const msg = ev.data;
-    if (msg.t === 'res') {
-      const pending = _pending.get(msg.id);
-      if (!pending) return;
-      _pending.delete(msg.id);
-      if (msg.ok) {
+    const isResponse = msg.t === 'res';
+    const isSnapshot = msg.t === 'snap';
+    const isEventBatch = msg.t === 'event';
+    const isRuntimeReload = msg.t === 'runtime-reload';
+    const isClock = msg.t === 'clock';
+    if (isResponse) {
+      const pending = takePendingRequest(msg.id);
+      const isUnknownRequest = pending === undefined;
+      if (isUnknownRequest) return;
+      const succeeded = msg.ok;
+      if (succeeded) {
         pending.resolve(msg.value);
       } else {
         const err = new Error(msg.error.message) as Error & {
@@ -261,47 +268,56 @@ export function wirePort(port: ClientPort): void {
         // Structured denial context (spike gap 6): re-attach so consumers —
         // and the bridge relay, which re-serializes thrown errors — see the
         // same shape a local SandboxError carries.
-        if (msg.error.denialContext !== undefined) {
+        const hasDenialContext = msg.error.denialContext !== undefined;
+        if (hasDenialContext) {
           err.denialContext = msg.error.denialContext;
         }
         // AI wire error envelope (pyric/ai): re-attach so the served
         // `firebase/ai` entry can mint the exact SDK AIError decoration the
         // in-process plane applies (see entries/ai.ts).
-        if (msg.error.aiEnvelope !== undefined) {
+        const hasAiEnvelope = msg.error.aiEnvelope !== undefined;
+        if (hasAiEnvelope) {
           err.aiEnvelope = msg.error.aiEnvelope;
         }
         relayDenial('read', err);
         pending.reject(err);
       }
-    } else if (msg.t === 'snap') {
+    } else if (isSnapshot) {
       const sub = _snapSubs.get(msg.subId);
-      if (!sub) return;
+      const isUnknownSubscription = sub === undefined;
+      if (isUnknownSubscription) return;
       // Auth snaps carry `SerializedUser | null` — a null value is a valid
       // "signed out" payload, not an error, so guard the __error sniff.
       const value = (msg.value ?? {}) as Record<string, unknown>;
-      if (value.__error) {
+      const hasError = Boolean(value.__error);
+      if (hasError) {
         const errPayload = value.__error as { code: string; message: string; denialContext?: unknown; aiEnvelope?: unknown };
         const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown; aiEnvelope?: unknown };
         err.code = errPayload.code;
-        if (errPayload.denialContext !== undefined) err.denialContext = errPayload.denialContext;
-        if (errPayload.aiEnvelope !== undefined) err.aiEnvelope = errPayload.aiEnvelope;
+        const hasDenialContext = errPayload.denialContext !== undefined;
+        if (hasDenialContext) err.denialContext = errPayload.denialContext;
+        const hasAiEnvelope = errPayload.aiEnvelope !== undefined;
+        if (hasAiEnvelope) err.aiEnvelope = errPayload.aiEnvelope;
         relayDenial('listener', err);
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).
-        if (sub.error) sub.error(err);
+        const handleError = sub.error;
+        const hasErrorHandler = handleError !== undefined;
+        if (hasErrorHandler) handleError.call(sub, err);
         else console.error('pyric/firestore: Uncaught Error in snapshot listener:', err);
         return;
       }
       sub.next(msg.value);
-    } else if (msg.t === 'event') {
+    } else if (isEventBatch) {
       // Event-stream batch (Pyric Studio keystone). Plain JSON SandboxEvents —
       // no rehydration. Deliver the whole batch to the registered subscriber.
       const subscription = _eventSubs.get(msg.subId);
-      if (subscription) subscription.next(msg.events);
-    } else if (msg.t === 'runtime-reload') {
+      const hasSubscription = subscription !== undefined;
+      if (hasSubscription) subscription.next(msg.events);
+    } else if (isRuntimeReload) {
       for (const listener of runtimeReloadListeners) listener(msg);
-    } else if (msg.t === 'clock') {
+    } else if (isClock) {
       receiveClockState(msg.state);
     }
   };
@@ -483,35 +499,45 @@ export function rawRpc(
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) return Promise.reject(appDeletedError());
   const isOperation = msg.t === 'op' || msg.t === 'tool';
-  const hasReachedCapacity = isOperation && pendingOperationCount(port, msg.clientSessionId) >= MAX_PENDING_OPERATIONS;
-  if (hasReachedCapacity) {
-    return Promise.reject(new FirebaseError('resource-exhausted', 'This client already has 256 pending operations.'));
-  }
+  const budget = isOperation ? operationBudget(port, msg.clientSessionId) : undefined;
+  const reservation = budget?.reserve(msg);
+  const isRefused = reservation?.accepted === false;
+  if (isRefused) return Promise.reject(new FirebaseError(reservation.error.code, reservation.error.message));
   return new Promise<unknown>((resolve, reject) => {
     const opMsg = msg as { id: string };
     _pending.set(opMsg.id, {
       port,
       clientSessionId: msg.clientSessionId,
-      isOperation,
+      budget,
+      release: reservation?.release,
       resolve,
       reject,
     });
     try {
       postMessage(msg);
     } catch (error) {
-      _pending.delete(opMsg.id);
+      takePendingRequest(opMsg.id);
       reject(error);
     }
   });
 }
 
-function pendingOperationCount(port: ClientPort, clientSessionId: string | undefined): number {
-  let count = 0;
+function operationBudget(port: ClientPort, clientSessionId: string | undefined): ReturnType<typeof createOperationBudget> {
   for (const request of _pending.values()) {
-    const belongsToClient = request.isOperation && request.port === port && request.clientSessionId === clientSessionId;
-    if (belongsToClient) count += 1;
+    const belongsToClient = request.port === port && request.clientSessionId === clientSessionId;
+    const budget = request.budget;
+    const hasClientBudget = belongsToClient && budget !== undefined;
+    if (hasClientBudget) return budget;
   }
-  return count;
+  return createOperationBudget();
+}
+
+/** Removing correlation releases its operation charge, including local cancellation. */
+function takePendingRequest(id: string) {
+  const request = _pending.get(id);
+  _pending.delete(id);
+  request?.release?.();
+  return request;
 }
 
 /** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
@@ -533,12 +559,14 @@ export function rpcWithTimeout(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      if (!_pending.delete(id)) return;
+      const isAlreadySettled = takePendingRequest(id) === undefined;
+      if (isAlreadySettled) return;
       reject(new Error(timeoutMessage));
     }, timeoutMs);
   });
   return Promise.race([rpc(port, msg), timeout]).finally(() => {
-    if (timer) clearTimeout(timer);
+    const hasTimer = timer !== undefined;
+    if (hasTimer) clearTimeout(timer);
   });
 }
 

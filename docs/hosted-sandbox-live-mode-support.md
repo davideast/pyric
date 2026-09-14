@@ -192,7 +192,12 @@ The pending-operation budget counts one-shot service and tool calls awaiting
 completion. Cleanup and connection-control messages do not consume operation
 capacity, so saturation cannot prevent deletion. Where a browser port relays
 several consumers, each logical client has its own allowance. Browser/worker
-client and Node host admission are enforced. The Node host counts executing
+client and Node host admission are enforced. The browser client reserves the
+complete JSON UTF-8 operation message before correlation registration or send,
+with the same 256-call/24 MiB policy. Its existing pending records share the
+budget by physical port and logical client. Removing correlation releases the
+reservation on reply, error, failed post, timed RPC cancellation or deletion.
+The Node host counts executing
 and queued operations and their JSON UTF-8 message bytes until their handlers
 finish, using the shared 256-call/24 MiB admission policy. A failed handler
 releases its reservation. Legacy consumer operations use their admitted session rather than
