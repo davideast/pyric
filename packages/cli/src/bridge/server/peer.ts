@@ -44,7 +44,14 @@ function isWorkerMessageEnvelope(message: unknown): boolean {
   if (isMalformedObject) return false;
   const isMissingType = !('t' in message);
   if (isMissingType) return false;
-  return typeof message.t === 'string' && Object.hasOwn(workerMessageTypes, message.t);
+  const isKnownType = typeof message.t === 'string' && Object.hasOwn(workerMessageTypes, message.t);
+  const isUnknownType = !isKnownType;
+  if (isUnknownType) return false;
+  const needsRequestId = message.t === 'op' || message.t === 'tool' || message.t === 'disconnect';
+  if (needsRequestId) return 'id' in message && typeof message.id === 'string';
+  const needsSubscriptionId = message.t === 'sub' || message.t === 'unsub';
+  if (needsSubscriptionId) return 'subId' in message && typeof message.subId === 'string';
+  return true;
 }
 
 export function attachPeer(
