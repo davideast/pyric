@@ -1,3 +1,4 @@
+import type { QueryWhereFilterOp } from './query-operators.js';
 import { activityValue } from './activity-query-value.js';
 import { isPlainObject } from './value-resolver.js';
 import { topK } from './topk.js';
@@ -9,10 +10,7 @@ import type { QueryConstraints, QueryWhereConstraint } from './list-query-proof.
 import type { FirestoreSimError } from './errors.js';
 
 export type QueryDocumentData = Record<string, unknown>;
-export type QueryWhereFilterOp =
-  | '<' | '<=' | '==' | '!=' | '>=' | '>'
-  | 'in' | 'not-in'
-  | 'array-contains' | 'array-contains-any';
+export type { QueryWhereFilterOp } from './query-operators.js';
 export type QueryOrderDirection = 'asc' | 'desc';
 export type QueryFilter =
   | { readonly kind: 'where'; readonly field: string; readonly op: QueryWhereFilterOp; readonly value: unknown }

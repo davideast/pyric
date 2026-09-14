@@ -12,6 +12,7 @@ import type {
   QueryScope,
 } from '../query-execution.js';
 import type { Filter } from './types.js';
+import { assertQueryWhereOperator } from '../query-operators.js';
 
 export type ComparableQueryFilter =
   | (Extract<QueryFilter, { kind: 'where' }> & {
@@ -33,14 +34,14 @@ export function snapshotFilter(
   filter: Filter | QueryFilter | ComparableQueryFilter,
   owner?: object,
 ): ComparableQueryFilter {
-  if (filter.kind === 'where') {
-    const comparisonValue = 'comparisonValue' in filter
+  const isWhereFilter = filter.kind === 'where';
+  if (isWhereFilter) {
+    assertQueryWhereOperator(filter.op);
+    const hasCapturedOperand = 'comparisonValue' in filter;
+    const usesListOperand = filter.op === 'in' || filter.op === 'not-in';
+    const comparisonValue = hasCapturedOperand
       ? filter.comparisonValue
-      : captureQueryOperand(
-        filter.value,
-        owner,
-        filter.op === 'in' || filter.op === 'not-in',
-      );
+      : captureQueryOperand(filter.value, owner, usesListOperand);
     return Object.freeze({
       kind: 'where',
       field: filter.field,
@@ -52,7 +53,7 @@ export function snapshotFilter(
   return Object.freeze({
     kind: filter.kind,
     filters: Object.freeze(filter.filters.map((nested) => snapshotFilter(nested, owner))),
-  }) as ComparableQueryFilter;
+  });
 }
 
 export function snapshotCursor(
