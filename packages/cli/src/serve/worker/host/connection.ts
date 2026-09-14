@@ -14,8 +14,6 @@
  */
 
 import type { PersistenceBackend } from 'pyric/sandbox';
-import { serializeToBuckets, bundleRecords } from 'pyric/sandbox';
-import { decodeImportBundle } from 'pyric/sandbox/internal';
 import {
   listCheckpoints,
   recordCheckpointBackend,
@@ -28,6 +26,7 @@ import {
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { restoreSubscriptions } from './subscriptions.js';
+import { exportStateBundle, importStateBundle } from './state-transfer.js';
 
 /** Build hash injected by the bundler's esbuild `define`. Undefined when the
  *  compiled host is imported directly (tests) — guarded with `typeof`. */
@@ -116,23 +115,16 @@ export async function handleConnectionOp(
     }
 
     case 'exportState': {
-      // Phase 2 (transfer): serialize the FULL sandbox state to a portable bundle
-      // string using the SAME chunk format the persist layer uses, so wrapper
-      // types (Timestamp / Bytes / GeoPoint / VectorValue) round-trip. The string
-      // crosses the MessagePort cleanly (unlike the raw snapshot object).
-      const snap = ctx.sandbox.snapshot();
-      ok(port, msg.id, { bundle: bundleRecords(serializeToBuckets(snap.firestore, snap.services, 0)) });
+      const bundle = await exportStateBundle(ctx.sandbox);
+      ok(port, msg.id, { bundle });
       break;
     }
 
     case 'importState': {
-      // Phase 2 (clobber): replace this sandbox's ENTIRE state with the imported
-      // bundle via the public loadSnapshot() (reset + rebuild firestore + restore
-      // services; listeners re-evaluate, persist re-flushes).
       try {
-        const snapshot = decodeImportBundle(msg.bundle);
-        ctx.sandbox.loadSnapshot(snapshot);
+        await importStateBundle(ctx.sandbox, msg.bundle);
         restoreSubscriptions(ctx);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, { ok: true });
       } catch (error) {
         fail(port, msg.id, error);

@@ -97,7 +97,7 @@ export async function getWorkerInstanceId(db: ClientDb): Promise<string> {
 
 /**
  * Phase 2 (transfer): export the FULL sandbox state as a portable bundle string
- * (the chunk format the persist layer uses, so wrapper types round-trip). Save
+ * (the complete checkpoint format, including Storage bytes and metadata). Save
  * it to a file and {@link importWorkerState} it into another instance.
  */
 export async function exportWorkerState(db: ClientDb): Promise<string> {
