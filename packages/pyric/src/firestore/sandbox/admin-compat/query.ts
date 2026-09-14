@@ -178,6 +178,12 @@ export class QueryImpl implements Query {
   }
 
   orderBy(field: string, direction: OrderDirection = 'asc'): Query {
+    const hasInvalidDirection = direction !== 'asc' && direction !== 'desc';
+    if (hasInvalidDirection) {
+      throw new FirestoreCompatError({
+        code: 'invalid-argument', message: "orderBy() direction must be 'asc' or 'desc'.",
+      });
+    }
     return this.clone({ orders: [...this.orders, { field, direction }] });
   }
 
