@@ -88,7 +88,12 @@ export function openSnapshotSubscription(
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) return false;
   _snapSubs.set(subId, { ...subscription, message });
-  port.postMessage(message);
+  try {
+    port.postMessage(message);
+  } catch (error) {
+    _snapSubs.delete(subId);
+    throw error;
+  }
   return true;
 }
 

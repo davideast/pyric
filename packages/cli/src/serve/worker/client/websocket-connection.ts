@@ -1,5 +1,6 @@
 import { isBridgeMessage, WORKER_PORT_CAPABILITY, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
+import { encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreFirestoreSubscriptions, wirePort } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
@@ -40,6 +41,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       const cancelsSubscription = !isAttached && message.t === 'unsub';
       const canQueue = isInitialStartup || cancelsSubscription;
       if (canQueue) {
+        encodeRequest({ type: 'worker-message', message });
         queued.push(message);
         return;
       }
@@ -90,8 +92,15 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     for (const listener of [...connectionListeners]) listener(connected);
   }
 
+  function encodeRequest(message: BridgeMessage): string {
+    const payload = encodeBridgeMessage(message);
+    const exceedsFrameLimit = payload === undefined;
+    if (exceedsFrameLimit) throw new FirebaseError('resource-exhausted', 'Bridge request exceeds the 12 MiB encoded frame limit.');
+    return payload;
+  }
+
   function send(connection: WebSocket, message: BridgeMessage): void {
-    connection.send(JSON.stringify(message));
+    connection.send(encodeRequest(message));
   }
 
   function deliver(message: OutboundMessage): void {
