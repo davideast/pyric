@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import type { SeedUser } from '../../auth/sandbox-backend-types.js';
-import type { StorageStateRecord } from '../../storage/sandbox/persistence-state.js';
+import type { SeedUser } from '../../auth/seed-user.js';
+import type { StoredMetadata } from '../../storage/persistence.js';
 
 // Keep every exported account field in the file codec. Extra fields are
 // retained so reading a fixture does not silently discard its contents.
@@ -36,7 +36,7 @@ const storageMetadataFields = {
   contentLanguage: z.string().optional(),
   customMetadata: z.record(z.string()).optional(),
   md5Hash: z.string().optional(),
-} satisfies Record<keyof StorageStateRecord['metadata'], z.ZodType<unknown>>;
+} satisfies Record<keyof StoredMetadata, z.ZodType<unknown>>;
 
 /** Shared account file shape used by checkpoints and host state. */
 export const seedUserSchema = z.object(userFields).passthrough();
