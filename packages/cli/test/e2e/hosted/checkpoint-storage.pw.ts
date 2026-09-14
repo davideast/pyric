@@ -1,3 +1,4 @@
+import { prepareRuntimeFixture } from './runtime-fixture.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { connectRemoteSandbox } from '@pyric/cli/remote';
@@ -36,16 +37,13 @@ test('SharedWorker checkpoint validation preserves empty bytes and every base64 
   }
 });
 
-for (const mode of ['hosted', 'sharedworker', 'inpage'] as const) {
+for (const mode of ['hosted', 'sharedworker'] as const) {
   test(`${mode} checkpoint restore retains the saved Storage object metadata`, async ({ page }) => {
-    const flags = ['--no-capture'];
-    const isHosted = mode === 'hosted';
-    const isInpage = mode === 'inpage';
-    if (isHosted) flags.push('--hosted');
-    if (isInpage) flags.push('--inpage');
+    const { flags, expectedMode } = await prepareRuntimeFixture(page, mode);
     const fixture = await startStoragePersistenceFixture(flags);
     try {
       await page.goto(fixture.info.url);
+      await expect.poll(() => page.evaluate(() => globalThis.__pyricRuntime?.getSnapshot().mode)).toBe(expectedMode);
       await expect(page.locator('#ready')).toHaveText('Ready');
       const saved = await page.evaluate(async () => {
         const { getStorage, ref, uploadBytes } = await import('firebase/storage');

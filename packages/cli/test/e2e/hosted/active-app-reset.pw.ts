@@ -7,6 +7,7 @@ for (const mode of ['hosted', 'sharedworker'] as const) {
     test.setTimeout(30_000);
     const flags = ['--no-capture'];
     const isHosted = mode === 'hosted';
+    const expectedMode = isHosted ? 'hosted' : 'shared-worker';
     if (isHosted) flags.push('--hosted');
     const fixture = await startSoakServe({
       flags,
@@ -36,6 +37,7 @@ for (const mode of ['hosted', 'sharedworker'] as const) {
       const observer = await observerContext.newPage();
       for (const page of [writer, observer]) {
         await page.goto(fixture.info.url);
+        await expect.poll(() => page.evaluate(() => globalThis.__pyricRuntime?.getSnapshot().mode)).toBe(expectedMode);
         await expect(page.locator('#current')).toHaveText('Missing');
       }
       await writer.evaluate(async () => {

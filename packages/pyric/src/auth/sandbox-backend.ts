@@ -2046,19 +2046,7 @@ export class SandboxBackend {
     claims: Record<string, unknown>,
     forceRefresh: boolean,
   ): string {
-    if (forceRefresh) {
-      const fresh = this.mintToken(uid, claims);
-      this.tokenCache.set(uid, fresh);
-      // Fan out to onIdTokenChanged listeners only — identity is
-      // unchanged, so onAuthStateChanged stays silent.
-      this.fanOut('id-token');
-      return fresh.token;
-    }
-    const cached = this.tokenCache.get(uid);
-    if (cached) return cached.token;
-    const fresh = this.mintToken(uid, claims);
-    this.tokenCache.set(uid, fresh);
-    return fresh.token;
+    return this.getIdTokenResultFor(uid, claims, forceRefresh).token;
   }
 
   /** {@link getIdTokenFor} variant returning the full IdTokenResult.
@@ -2071,11 +2059,23 @@ export class SandboxBackend {
     if (forceRefresh) {
       const fresh = this.mintToken(uid, claims);
       this.tokenCache.set(uid, fresh);
+      const current = this.session.currentUser;
+      const refreshesCurrentUser = current !== null && current.uid === uid;
+      if (refreshesCurrentUser) {
+        // Rules follow refreshed claims without turning a token refresh into a sign-in.
+        this.applyingTransition = true;
+        try {
+          this.session.currentUser = { ...current, token: claims };
+        } finally {
+          this.applyingTransition = false;
+        }
+      }
       this.fanOut('id-token');
       return fresh.result;
     }
     const cached = this.tokenCache.get(uid);
-    if (cached) return cached.result;
+    const hasCachedToken = cached !== undefined;
+    if (hasCachedToken) return cached.result;
     const fresh = this.mintToken(uid, claims);
     this.tokenCache.set(uid, fresh);
     return fresh.result;

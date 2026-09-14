@@ -1,7 +1,8 @@
+import { prepareRuntimeFixture } from './runtime-fixture.js';
 import { connectRemoteSandbox } from '@pyric/cli/remote';
 import { expect, test, type Page } from '@playwright/test';
 import { startHostedFixture } from './fixture.js';
-import { startSoakServe } from '../soak/harness.js';
+import { McpHttpClient, startSoakServe, waitForPeer } from '../soak/harness.js';
 
 async function readCheckpointClaim(page: Page, reloadProfile = false) {
   return page.evaluate(async reloadProfile => {
@@ -44,11 +45,7 @@ test('checkpoint restore refreshes claims on the existing signed-in user', async
 for (const mode of ['hosted', 'sharedworker', 'inpage'] as const) {
   for (const operation of ['reload', 'updateEmail', 'updatePassword'] as const) {
     test(`${mode} ${operation} cannot restore revoked claims from an older session`, async ({ page }) => {
-      const isHosted = mode === 'hosted';
-      const isInpage = mode === 'inpage';
-      const flags = ['--no-capture'];
-      if (isHosted) flags.push('--hosted');
-      if (isInpage) flags.push('--inpage');
+      const { flags, expectedMode } = await prepareRuntimeFixture(page, mode);
       const fixture = await startSoakServe({ flags, extraFiles: {
         'firestore.rules': `rules_version = '2'; service cloud.firestore {
           match /databases/{database}/documents { match /profiles/{uid} {
@@ -70,48 +67,49 @@ for (const mode of ['hosted', 'sharedworker', 'inpage'] as const) {
       } });
       try {
         await page.goto(fixture.info.url);
+        await expect.poll(() => page.evaluate(() => globalThis.__pyricRuntime?.getSnapshot().mode)).toBe(expectedMode);
         await expect(page.locator('#ready')).toHaveText(/\S+/);
         const uid = await page.locator('#ready').innerText();
-        const control = await connectRemoteSandbox({ url: fixture.info.url });
-        try {
-          await control.auth.updateUser(uid, { customClaims: { role: 'editor' } });
-          await page.evaluate(async () => {
-            const { getAuth } = await import('firebase/auth');
-            const { doc, getFirestore, setDoc } = await import('firebase/firestore');
-            const user = getAuth().currentUser;
-            const isSignedOut = user === null;
-            if (isSignedOut) throw new Error('Expected the authenticated owner');
-            await user.getIdTokenResult(true);
-            await setDoc(doc(getFirestore(), 'profiles', user.uid), { message: 'Allowed' });
-          });
-          await control.auth.updateUser(uid, { customClaims: { role: 'viewer' } });
-          const refreshed = await page.evaluate(async operation => {
-            const auth = await import('firebase/auth');
-            const { doc, getFirestore, setDoc } = await import('firebase/firestore');
-            const user = auth.getAuth().currentUser;
-            const isSignedOut = user === null;
-            if (isSignedOut) throw new Error('Expected the authenticated owner');
-            switch (operation) {
-              case 'reload': await auth.reload(user); break;
-              case 'updateEmail': await auth.updateEmail(user, 'updated@example.test'); break;
-              case 'updatePassword': await auth.updatePassword(user, 'updated-password'); break;
-            }
-            const token = await user.getIdTokenResult(true);
-            let writeResult = 'allowed';
-            try {
-              await setDoc(doc(getFirestore(), 'profiles', user.uid), { message: 'Must refuse' });
-            } catch (error) {
-              const isCodedError = error instanceof Error && 'code' in error;
-              if (isCodedError) writeResult = String(error.code);
-              else throw error;
-            }
-            return { role: token.claims.role, tenant: user.tenantId, writeResult };
-          }, operation);
-          expect(refreshed).toEqual({ role: 'viewer', tenant: 'tenant-blue', writeResult: 'permission-denied' });
-          expect(await control.auth.listUsers()).toMatchObject([{ uid, customClaims: { role: 'viewer' } }]);
-        } finally {
-          control.close();
-        }
+        await waitForPeer(fixture.info.url);
+        const control = new McpHttpClient(`${fixture.info.url}/__pyric/mcp`);
+        await control.initialize();
+        await expect(control.toolCall('auth_set_claims', { uid, claims: { role: 'editor' } })).resolves.toMatchObject({ ok: true });
+        await page.evaluate(async () => {
+          const { getAuth } = await import('firebase/auth');
+          const { doc, getFirestore, setDoc } = await import('firebase/firestore');
+          const user = getAuth().currentUser;
+          const isSignedOut = user === null;
+          if (isSignedOut) throw new Error('Expected the authenticated owner');
+          await user.getIdTokenResult(true);
+          await setDoc(doc(getFirestore(), 'profiles', user.uid), { message: 'Allowed' });
+        });
+        await expect(control.toolCall('auth_set_claims', { uid, claims: { role: 'viewer' } })).resolves.toMatchObject({ ok: true });
+        const refreshed = await page.evaluate(async operation => {
+          const auth = await import('firebase/auth');
+          const { doc, getFirestore, setDoc } = await import('firebase/firestore');
+          const user = auth.getAuth().currentUser;
+          const isSignedOut = user === null;
+          if (isSignedOut) throw new Error('Expected the authenticated owner');
+          switch (operation) {
+            case 'reload': await auth.reload(user); break;
+            case 'updateEmail': await auth.updateEmail(user, 'updated@example.test'); break;
+            case 'updatePassword': await auth.updatePassword(user, 'updated-password'); break;
+          }
+          const token = await user.getIdTokenResult(true);
+          let writeResult = 'allowed';
+          try {
+            await setDoc(doc(getFirestore(), 'profiles', user.uid), { message: 'Must refuse' });
+          } catch (error) {
+            const isCodedError = error instanceof Error && 'code' in error;
+            if (isCodedError) writeResult = String(error.code);
+            else throw error;
+          }
+          return { role: token.claims.role, tenant: user.tenantId, writeResult };
+        }, operation);
+        expect(refreshed).toEqual({ role: 'viewer', tenant: 'tenant-blue', writeResult: 'permission-denied' });
+        await expect(control.toolCall('auth_list_users', {})).resolves.toMatchObject({
+          ok: true, data: { users: [{ uid, claims: { role: 'viewer' } }] },
+        });
       } finally {
         await page.close();
         await fixture.stop();

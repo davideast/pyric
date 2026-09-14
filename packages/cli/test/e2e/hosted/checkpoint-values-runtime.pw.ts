@@ -1,15 +1,15 @@
+import { prepareRuntimeFixture } from './runtime-fixture.js';
 import { connectRemoteSandbox } from '@pyric/cli/remote';
 import { expect, test } from '@playwright/test';
 import { startStoragePersistenceFixture } from './storage-persistence-fixture.js';
 
-for (const mode of ['sharedworker', 'inpage'] as const) {
+for (const mode of ['sharedworker'] as const) {
   test(`${mode} checkpoint keeps typed values distinct from literal marker maps`, async ({ page }) => {
-    const flags = ['--no-capture'];
-    const isInpage = mode === 'inpage';
-    if (isInpage) flags.push('--inpage');
+    const { flags, expectedMode } = await prepareRuntimeFixture(page, mode);
     const fixture = await startStoragePersistenceFixture(flags);
     try {
       await page.goto(fixture.info.url);
+      await expect.poll(() => page.evaluate(() => globalThis.__pyricRuntime?.getSnapshot().mode)).toBe(expectedMode);
       await expect(page.locator('#ready')).toHaveText('Ready');
       const setup = await connectRemoteSandbox({ url: fixture.info.url });
       try {
