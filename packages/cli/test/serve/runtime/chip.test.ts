@@ -473,6 +473,29 @@ describe('the Traffic view', () => {
     expect(root.querySelector('[data-request-row="r1"]')).not.toBeNull();
   });
 
+  it('keeps Reason aligned with request facts and preserves open rule details during new activity', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    push([{
+      kind: 'request', id: 'original', at: Date.now(), evalMs: 1, method: 'get', path: 'docs/a',
+      auth: null, result: 'deny', reasons: [],
+      rulesEvidence: {
+        version: 'private-debug-id', scope: 'request', decision: 'DENY', truncated: false, paths: [],
+        rules: [{ expression: 'false', verdict: 'DENY', checks: [] }],
+      },
+    }]);
+    showTab('traffic');
+    root.querySelector<HTMLButtonElement>('[data-request-row="original"]')!.click();
+    expect(texts(root, '.request-facts dt')).toContain('Reason');
+    expect(root.textContent).not.toContain('private-debug-id');
+    const details = root.querySelector<HTMLDetailsElement>('[data-rule-details]')!;
+    details.open = true;
+    details.querySelector('summary')!.focus();
+    push([request('new', Date.now(), 'docs/b', 'allow')]);
+    expect(root.querySelector<HTMLDetailsElement>('[data-rule-details]')!.open).toBe(true);
+    expect(root.activeElement?.tagName).toBe('SUMMARY');
+    expect(root.querySelector('[data-traffic-detail]')!.getAttribute('data-request-row')).toBe('original');
+  });
+
   it('narrows to the denials from the bar, and copies the rows it is showing', async () => {
     const written: string[] = [];
     const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true, clipboard: { writeText: async (text) => { written.push(text); } } });
@@ -485,7 +508,7 @@ describe('the Traffic view', () => {
     root.querySelector<HTMLButtonElement>('[data-copy-traffic]')!.click();
     await Promise.resolve();
     expect(written[0]).toContain('firestore.set  conversations/c1  denied');
-    expect(written[0]).toContain('denied for u9');
+    expect(written[0]).toContain('u9');
   });
 
   it('carries the failures that are not requests from the runtime error feed', () => {

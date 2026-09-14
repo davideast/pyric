@@ -269,7 +269,75 @@ for (const runtime of ['inpage', 'worker']) {
     await marker.click();
     await expect(page.locator('[data-traffic-detail]')).toHaveAttribute('data-request-row', id!);
     await expect(page.locator('[data-traffic-detail]')).toContainText('Denied');
+    await expect(page.locator('[data-traffic-detail]')).toContainText('No applicable rule allowed this request');
+    await expect(page.locator('.rules-evidence')).toContainText('version');
+    await expect(page.locator('.rules-evidence')).toContainText('At least');
+    await page.getByText('Rule details', { exact: true }).click();
+    await expect(page.locator('.rules-evidence')).not.toContainText('Captured rules version');
+    await expect(page.locator('.rules-evidence')).toContainText('Review them before copying or sharing');
+    await expect(page.locator('.rules-evidence')).toContainText('-1');
+    await page.setViewportSize({ width: 360, height: 800 });
+    await expect.poll(() => page.locator('.rules-evidence').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: `/tmp/denial-${runtime}.png` });
     await expect(page.locator('[data-pyric-denials]')).toHaveCount(0, { timeout: 10000 });
+  });
+}
+
+for (const runtime of ['inpage', 'worker']) {
+  test(`${runtime}: signed-in project denials explain ownership, roles and validation`, async ({ page }) => {
+    await page.setViewportSize({ width: 1500, height: 1100 });
+    await page.goto(`${server.url}/?runtime=${runtime}`);
+    for (const [scenario, expected] of [['ownership', 'bob'], ['role', 'editor'], ['validation', '-250']]) {
+      await page.locator('#security-scenario').selectOption(scenario!);
+      await page.locator('[data-security-load]').click();
+      await expect(page.locator('[data-security-result]')).toContainText('North launch');
+      await page.locator('[data-security-attempt]').click();
+      await expect(page.locator('[data-security-result]')).toContainText('Change denied');
+      await page.getByRole('tab', { name: 'Traffic' }).click();
+      const back = page.locator('[data-clear-traffic-source]');
+      if (await back.count()) await back.click();
+      const row = page.locator('[data-request-row]').filter({ hasText: 'projects/' }).filter({ hasText: 'denied' }).first();
+      await row.click();
+      await expect(page.locator('[data-traffic-detail]')).toContainText('alice');
+        await expect(page.locator('.rule-comparison')).not.toHaveCount(0);
+      await expect(page.locator('.rules-evidence')).toContainText(expected!);
+      await page.locator('.rule-comparison').last().scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `/tmp/security-${runtime}-${scenario}.png` });
+      if (scenario === 'ownership') {
+        await page.getByText('Rule details', { exact: true }).click();
+        await expect(page.locator('.rules-detail-body')).toContainText('does not cover projects/bobs-launch');
+        await expect(page.locator('.rules-detail-body')).toContainText('covers projects/bobs-launch');
+        await page.locator('.rules-detail-body').scrollIntoViewIfNeeded();
+        await page.screenshot({ path: `/tmp/security-details-${runtime}.png` });
+        await page.setViewportSize({ width: 360, height: 800 });
+        await expect.poll(() => page.locator('.rules-evidence').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+        const condition = page.locator('.rules-group .rule-expression').first();
+        await expect(condition).toHaveCSS('white-space', 'nowrap');
+        await expect.poll(() => condition.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+        const textClearance = await condition.evaluate(element => {
+          const text = document.createRange();
+          text.selectNodeContents(element);
+          return element.getBoundingClientRect().bottom - text.getBoundingClientRect().bottom;
+        });
+        expect(textClearance).toBeGreaterThanOrEqual(16);
+        await condition.hover();
+        await page.mouse.wheel(160, 0);
+        await expect.poll(() => condition.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+        await page.waitForTimeout(1200);
+        expect(await condition.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+        await page.getByRole('button', { name: 'Read document', exact: true }).dispatchEvent('click');
+        await expect(page.locator('[data-result]')).toContainText('Document read');
+        expect(await condition.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
+        const labels = await page.locator('.rule-check').evaluateAll(rows => rows.every(row => row.querySelector('dt')?.textContent === 'Condition'));
+        expect(labels).toBe(true);
+        await page.locator('.rules-group').first().scrollIntoViewIfNeeded();
+        await page.screenshot({ path: `/tmp/security-narrow-${runtime}.png` });
+        await page.setViewportSize({ width: 1500, height: 1100 });
+      }
+    }
+    await page.locator('#security-scenario').selectOption('allowed');
+    await page.locator('[data-security-load]').click();
+    await page.locator('[data-security-attempt]').click();
+    await expect(page.locator('[data-security-result]')).toContainText('Saved successfully');
   });
 }

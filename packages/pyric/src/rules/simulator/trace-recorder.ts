@@ -6,6 +6,7 @@ export interface ExprTraceEntry {
   source: string;
   kind: Expression['type'];
   parent: number | null;
+  operator?: string;
   value?: unknown;
   skipped?: boolean;
   error?: string;
@@ -23,6 +24,7 @@ export class TraceRecorder {
     const index = this.entries.length;
     const parent = this.parents.length > 0 ? this.parents[this.parents.length - 1] : null;
     const entry: ExprTraceEntry = { source: assembleExpression(expr), kind: expr.type, parent };
+    if (expr.type === 'binaryOp') entry.operator = expr.op;
     this.stampFrame(entry);
     this.entries.push(entry);
     this.parents.push(index);
@@ -46,6 +48,7 @@ export class TraceRecorder {
       parent,
       skipped: true,
     };
+    if (expr.type === 'binaryOp') entry.operator = expr.op;
     this.stampFrame(entry);
     this.entries.push(entry);
   }

@@ -28,7 +28,7 @@ export async function startSdkFlowServer(port = 0) {
     if (path === '/__pyric/flow/manifest.json') { res.setHeader('Content-Type', 'application/json'); res.end('{"treatments":[]}'); return; }
     res.setHeader('Content-Type', 'text/html');
     res.end(`<!doctype html><html><head><style>
-      html{color-scheme:dark;font:16px system-ui;background:#101419;color:#e7ebf1}
+      .security-lab{display:grid;gap:16px;max-width:700px}.security-lab p,.security-lab h2,.security-lab pre{all:unset}.security-lab h2{font-size:24px;font-weight:600}.security-lab pre{font-family:monospace;white-space:pre-wrap;overflow-wrap:anywhere}.security-lab select{font:inherit;min-height:40px}.security-proposed{display:grid;gap:8px}html{color-scheme:dark;font:16px system-ui;background:#101419;color:#e7ebf1}
       body{display:grid;grid-template-columns:32px minmax(0,1fr) 32px;gap:24px}
       #app{grid-column:2;display:grid;gap:24px;min-height:400px;max-width:700px}
       section{display:grid;gap:24px;align-content:start} .controls{display:flex;flex-wrap:wrap;gap:12px}

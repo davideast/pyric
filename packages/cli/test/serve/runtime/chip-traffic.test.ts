@@ -51,7 +51,7 @@ describe('the request a sandbox event stands for', () => {
       method: 'set',
       path: 'conversations/c1',
       verdict: 'ok',
-      reason: null,
+      identity: null,
     });
   });
 
@@ -83,7 +83,7 @@ describe('the request a sandbox event stands for', () => {
       method: 'listen',
       path: 'conversations',
       verdict: 'ok',
-      reason: null,
+      identity: null,
     });
 
     const canonical = chipRequestFromEvent({

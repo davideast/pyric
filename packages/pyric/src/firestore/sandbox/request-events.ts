@@ -17,6 +17,7 @@ import type { Operation } from './writes.js';
  * `RequestEvent` shape consumers see.
  */
 export interface EmitRequestInput {
+  rulesEvidence?: import('../../sandbox/types/rules-evidence.js').RulesEvidence;
   queryProof?: QueryProofDiagnostic;
   at: number;
   evalMs: number;
@@ -98,6 +99,7 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
   if (input.resourceAfter !== undefined) {
     out.resourceAfter = input.resourceAfter;
   }
+  if (input.rulesEvidence !== undefined) out.rulesEvidence = input.rulesEvidence;
   if (input.queryProof !== undefined) out.queryProof = input.queryProof;
   const matched = parseMatchedRule(input.debugMessages, input.result);
   if (matched) out.matchedRule = matched;
