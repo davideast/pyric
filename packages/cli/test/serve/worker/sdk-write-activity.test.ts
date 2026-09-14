@@ -44,7 +44,7 @@ it('counts worker Firestore public calls once across host mirrors, batch writes,
       'setDoc', 'updateDoc', 'addDoc', 'writeBatch.commit', 'runTransaction', 'updateDoc', 'getCountFromServer', 'getAggregateFromServer', 'getDocFromServer', 'getDocFromCache', 'getDocsFromServer', 'getDocsFromCache', 'deleteDoc', 'setDoc',
     ]);
     expect(events.filter(event => event.phase === 'delivery').map(event => event.record.method)).toEqual(['getCountFromServer', 'getAggregateFromServer', 'getDocFromServer', 'getDocFromCache', 'getDocsFromServer', 'getDocsFromCache']);
-    expect(events.at(-1)?.record.status).toBe('failed');
+    expect(events.filter(event => event.phase === 'end').at(-1)?.record.status).toBe('failed');
   } finally { stop(); globalThis.SharedWorker = previous; }
 });
 
@@ -73,7 +73,7 @@ it('counts worker RTDB public writes once, including multipath updates, pushes a
     await Promise.all(pendingWrites);
     databaseSandbox.setDefaultPolicy(getDatabase(ctx.sandbox), 'deny');
     await expect(rtdbUpdate(target, { 'one/a': 1, 'two/b': 2 })).rejects.toBeDefined();
-    expect(events.at(-1)?.record.status).toBe('failed');
+    expect(events.filter(event => event.phase === 'end').at(-1)?.record.status).toBe('failed');
     expect(result.committed).toBe(true);
     expect(attempts).toBe(2);
     expect(events.filter(event => event.phase === 'start').map(event => event.record.method)).toEqual([
