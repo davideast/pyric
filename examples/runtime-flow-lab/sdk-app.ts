@@ -53,7 +53,7 @@ if (kind === 'worker') {
     await writes.rtdbSet(projects.ref, { small: { budget: 10 }, large: { budget: 40 } });
   };
   readDatabaseProjects = async () => { await prepareDatabaseProjects(); return (await reads.rtdbGet(projects)).val(); };
-  listenDatabaseProjects = async next => { await prepareDatabaseProjects(); return listeners.rtdbOnValue(projects, snap => next(snap.val()), error => next(error.message)); };
+  listenDatabaseProjects = async next => { await prepareDatabaseProjects(); return listeners.rtdbOnValue(projects, snap => next(snap.val()), error => next(error instanceof Error ? error.message : String(error))); };
   const document = sdk.doc(db, 'messages/current');
   const node = database.rtdbRef(database.rtdbGetDatabase(db), 'messages/current');
   readDocument = async () => (await sdk.getDoc(document)).data();
@@ -88,7 +88,7 @@ if (kind === 'worker') {
     database.sandbox.setData(rtdb, { projects: { small: { budget: 10 }, large: { budget: 40 } } });
   };
   readDatabaseProjects = async () => { await prepareDatabaseProjects(); return (await database.get(projects)).val(); };
-  listenDatabaseProjects = async next => { await prepareDatabaseProjects(); return database.onValue(projects, snap => next(snap.val()), error => next(error.message)); };
+  listenDatabaseProjects = async next => { await prepareDatabaseProjects(); return database.onValue(projects, snap => next(snap.val()), error => next(error instanceof Error ? error.message : String(error))); };
   const document = sdk.doc(db, 'messages/current');
   const node = database.ref(rtdb, 'messages/current');
   readDocument = async () => (await sdk.getDoc(document)).data();

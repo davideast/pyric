@@ -1,3 +1,4 @@
+import type { UsageEvidence } from './usage-evidence.js';
 import type { EventService } from '../types/operation.js';
 import type { SdkActivityEvent, SdkActivityRecord } from './sdk-activity.js';
 
@@ -9,6 +10,8 @@ export function observationService(service: EventService | 'database'): EventSer
 
 /** Public SDK evidence only. No results, credentials, query values or DOM owners. */
 export interface SdkObservation {
+  /** Numeric usage evidence; never the result payload. */
+  readonly usage?: UsageEvidence;
   /** Journal-local delivery order, used to reject replay without retaining IDs. */
   readonly sequence: number;
   /** Unique within this journal session, including repeated listener deliveries. */
@@ -39,6 +42,7 @@ export function sdkObservation(
   if (event.phase === 'transport') return undefined;
   const { record, phase } = event;
   return Object.freeze({
+    ...(event.usage ? { usage: Object.freeze({ ...event.usage }) } : {}),
     sequence,
     id: `${record.id}/${phase}/${record.deliveryCount}`,
     activityId: record.id,

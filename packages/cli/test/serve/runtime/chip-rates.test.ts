@@ -12,19 +12,22 @@ const method = (name: string, category: SdkMethodRate['category'], calls: number
 const snapshot: SdkRateSnapshot = {
   monotonicAt: 1000, windowSeconds: 5,
   services: [
-    { service: 'rtdb', coverage: 'partial', observed: true, untrackedMethods: ['onDisconnect'],
+    { service: 'rtdb', usage: { documentReads: 0, documentWrites: 0, documentDeletes: 0, payloadBytes: 2048, unmeasured: 0 }, coverage: 'partial', observed: true, untrackedMethods: ['onDisconnect'],
       methods: [method('get', 'read', 2, 2), method('update', 'write', 3, 0), method('onValue', 'listener', 0.2, 4, 1)] },
     { service: 'storage', coverage: 'unsupported', observed: false, methods: [], untrackedMethods: [] },
   ],
 };
 
-test('service summaries distinguish read results from listener updates and unsupported usage', () => {
+test('service summaries use service-specific usage units and expose billing gaps', () => {
   const view = rateView(snapshot, null, label, escape);
   const document = new JSDOM(view.body).window.document;
   expect(view.detail).toBe('5-second average');
-  expect(document.querySelector('[data-rate-reads]')?.textContent).toBe('2');
-  expect(document.querySelector('[data-rate-writes]')?.textContent).toBe('3');
-  expect(document.querySelector('[data-rate-updates]')?.textContent).toBe('4');
+  expect(view.title).toBe('Usage estimates');
+  expect(document.querySelector('[data-usage="payloadBytes"]')?.textContent).toBe('2 KiB/s');
+  expect(document.body.textContent).toContain('Billed downloadsNot measured');
+  expect(document.querySelector('[data-usage=reads]')?.textContent).toBe('2');
+  expect(document.querySelector('[data-usage=writes]')?.textContent).toBe('3');
+  expect(document.querySelector('[data-usage=deliveries]')?.textContent).toBe('4');
   const storage = document.querySelector('[data-rate-service="storage"]');
   expect(storage?.textContent).toContain('Not measured');
   expect(storage?.querySelector('button')).toBeNull();
@@ -42,7 +45,7 @@ test('method detail shows listener gauges and coverage without implying write da
   expect(listener?.querySelector('[data-rate-active]')?.textContent).toBe('1');
   expect(document.querySelector('[data-rate-method="update"] [aria-label="No data result"]')).not.toBeNull();
   expect(document.querySelector('[data-rate-method="onDisconnect"]')?.textContent).toContain('Not measured');
-  expect(document.body.textContent).toContain('Listed SDK methods');
+  expect(document.body.textContent).toContain('Snapshot size is not billed download size.');
 });
 
 test('labels are escaped before rendering and stale selection returns to the service overview', () => {
@@ -65,9 +68,16 @@ test('idle refresh updates numbers without replacing a focused method or its scr
     })),
   };
   refreshRateView(document, idle);
+  for (const key of ['reads', 'writes', 'deliveries']) expect(document.querySelector(`[data-usage=${key}]`)?.textContent).toBe('0');
   expect(document.activeElement).toBe(code);
   expect(code.scrollLeft).toBe(20);
   expect(document.querySelector('[data-rate-method="onValue"] [data-rate-calls]')?.textContent).toBe('0');
   expect(document.querySelector('[data-rate-method="onValue"] [data-rate-results]')?.textContent).toBe('0');
   expect(document.querySelector('[data-rate-listeners]')?.textContent).toBe('0');
+});
+
+test('missing usage evidence is not replaced with SDK counts', () => {
+  const unknown = { ...snapshot, services: snapshot.services.map(service => ({ ...service, usage: undefined })) };
+  const document = new JSDOM(rateView(unknown, null, label, escape).body).window.document;
+  expect(document.querySelector('[data-usage="payloadBytes"]')?.textContent).toBe('Not measured');
 });

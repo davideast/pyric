@@ -1,3 +1,4 @@
+import { firestoreReadUsage, databaseReadUsage, firestoreWriteUsage, type UsageEvidence } from './usage-evidence.js';
 import type { ListenerOwner } from '../types/events.js';
 import type { ServiceIndexQuery } from '../../rules/indexes/service-query.js';
 import { sdkObservation, type SdkObservation } from './sdk-observation.js';
@@ -35,8 +36,8 @@ export interface SdkActivityRecord {
 export interface SdkActivityHandle {
   readonly id: string;
   /** Call immediately before handing a successful result to application code. */
-  delivered(): void;
-  complete(): void;
+  delivered(snapshot?: unknown, usage?: UsageEvidence): void;
+  complete(usage?: UsageEvidence): void;
   fail(): void;
   close(): void;
   transport(id: string): void;
@@ -45,6 +46,7 @@ export interface SdkActivityHandle {
 export interface SdkActivityEvent {
   readonly phase: 'start' | 'delivery' | 'end' | 'remove' | 'transport';
   readonly record: SdkActivityRecord;
+  readonly usage?: UsageEvidence;
 }
 
 interface AppIdentity {
@@ -87,8 +89,8 @@ export function createSdkActivityJournal(options: {
   let silenced = false;
   let pruning = false;
 
-  function notify(phase: SdkActivityEvent['phase'], record: SdkActivityRecord): void {
-    const observation = sdkObservation({ phase, record }, now(), monotonicNow(), observationSequence + 1);
+  function notify(phase: SdkActivityEvent['phase'], record: SdkActivityRecord, usage?: UsageEvidence): void {
+    const observation = sdkObservation({ phase, record, usage }, now(), monotonicNow(), observationSequence + 1);
     if (observation) {
       observationSequence++;
       observations.push({ event: observation, observers: [...observers] });
@@ -202,25 +204,31 @@ export function createSdkActivityJournal(options: {
         });
         notify('start', record);
       }
-      function update(phase: SdkActivityEvent['phase'], patch: Partial<SdkActivityRecord>): void {
+      function update(phase: SdkActivityEvent['phase'], patch: Partial<SdkActivityRecord>, usage?: UsageEvidence): void {
         const current = records.get(id);
         if (!current || current.endedAt !== undefined) return;
         const next = Object.freeze({ ...current, ...patch });
         records.set(id, next);
-        notify(phase, next);
+        notify(phase, next, usage);
       }
-      function end(status: 'completed' | 'failed' | 'closed'): void {
-        update('end', { status, endedAt: now() });
+      function end(status: 'completed' | 'failed' | 'closed', usage?: UsageEvidence): void {
+        update('end', { status, endedAt: now() }, usage);
         prune();
       }
       return {
         id,
-        delivered() {
+        delivered(snapshot, suppliedUsage) {
           const current = records.get(id);
           if (!current || (current.kind === 'operation' && current.deliveryCount > 0)) return;
-          update('delivery', { deliveryCount: current.deliveryCount + 1, lastDeliveryAt: now() });
+          let usage: UsageEvidence;
+          try {
+            usage = suppliedUsage ?? (current.service === 'firestore'
+              ? (current.method.endsWith('FromCache') ? { documentReads: 0 } : firestoreReadUsage(snapshot, current.kind === 'subscription', current.deliveryCount === 0))
+              : databaseReadUsage(snapshot));
+          } catch { usage = { unmeasured: 1 }; }
+          update('delivery', { deliveryCount: current.deliveryCount + 1, lastDeliveryAt: now() }, usage);
         },
-        complete() { end('completed'); },
+        complete(usage) { end('completed', usage ?? (record.service === 'firestore' ? firestoreWriteUsage(record.method) : undefined)); },
         fail() { end('failed'); },
         close() { end('closed'); },
         transport(transportId) { update('transport', { transportId }); },
@@ -260,7 +268,7 @@ export const sdkActivity = globalStore[JOURNAL_KEY]
 
 /** Return the same snapshot synchronously, without adding a Promise reaction. */
 export function finishSdkRead<T>(activity: SdkActivityHandle, snapshot: T): T {
-  activity.delivered();
+  activity.delivered(snapshot);
   activity.complete();
   return snapshot;
 }

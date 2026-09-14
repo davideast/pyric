@@ -10,9 +10,11 @@ bun examples/runtime-flow-lab/serve.ts
 
 Open [the example](http://localhost:5197). Set `FLOW_LAB_PORT` to choose another port. Restart the server after editing TypeScript; CSS and HTML are read on each request.
 
-Choose a treatment, then use **New message**, **Presence**, **Typing**, **Read receipt**, or **Run a burst**. Choosing a treatment repeats the last delivery so you can compare it immediately. **Clear marks & history** clears visual history while preserving the chat data. **Inspector** opens or minimizes the actual runtime chip.
+Choose a treatment, then use **New message**, **Presence**, **Typing**, **Read receipt**, **Refresh data**, or **Run a burst**. Choosing a treatment triggers another update so you can compare it immediately. **Clear marks & history** clears visual history while preserving the chat data. **Inspector** opens or minimizes the actual runtime chip.
 
-All deliveries and user records are fixture data. The React renderer, commit hook, listener folding, and Flow painter are the real implementation. A render after a delivery is correlation, not proof that particular data reached every marked component. All fifteen treatments come from the runtime registry; the example and chip load the same styles and annotations.
+The chat starts with seeded data. Messages and read receipts use real local Firestore writes and subscriptions; presence and typing use real local Realtime Database writes and subscriptions. **Refresh data** reads messages from Firestore and presence from Realtime Database. **Run a burst** performs those two reads, then five SDK writes and their listener deliveries. The headline measurements estimate Firestore document reads (including listeners), successful writes and deletes, and RTDB snapshot payload bytes. They are partial local estimates, not a Firebase bill. Unmeasured charges and RTDB wire-size limits appear in the service detail. **Read receipt** writes a receipt. Open **Inspector → Traffic → Rates** to see usage by service, then choose a service for coverage and individual SDK methods. Rates use a five-second average and return to zero when idle. The identity directory remains fixture data.
+
+The React renderer, commit hook, listener folding, and Flow painter are the real implementation. A render after a delivery is correlation, not proof that particular data reached every marked component. All fifteen treatments come from the runtime registry; the example and chip load the same styles and annotations. This chat uses the in-page sandbox; the separate SDK example below also exercises the worker runtime.
 
 Portraits use Pyric's URL-backed avatar resolver with sample images from Pravatar. The resolver caches them in the system temporary directory; failed downloads fall back to generated avatars. Browser fonts are bundled locally.
 
@@ -51,6 +53,7 @@ With the example running:
 node examples/runtime-flow-lab/verify.mjs
 node examples/runtime-flow-lab/verify-selection.mjs
 node examples/runtime-flow-lab/verify-scroll.mjs
+node examples/runtime-flow-lab/verify-rates.mjs
 bunx --no-install tsc -p examples/runtime-flow-lab/tsconfig.json
 ```
 
@@ -138,3 +141,15 @@ E2E_BASE=http://127.0.0.1:5198 bunx --no-install playwright test sdk-flow.pw.ts 
 ```
 
 The test starts its own example server on an available port and exercises both runtimes. `E2E_BASE` prevents the unrelated Studio server from starting. To run the example manually on another port, set `SDK_FLOW_PORT`.
+
+## RTDB chat comparison
+
+Choose **Realtime Database** in the Messages selector, or open `http://localhost:5197/?service=rtdb`. Switching services reloads the page, seeds a fresh dataset and starts fresh usage counters.
+
+RTDB seeds 30 deterministic messages and listens to the latest 10. **Load older** fetches the preceding 10 by ID without expanding the live query. **Value events** deliver the query snapshot; **Child events** maintain the same message list through added, changed and removed callbacks. Compare **Edit latest message** in each mode to see the payload difference. These callback sizes are not billed downloads.
+
+**Whole conversation** listens above messages, receipts and extra conversation metadata. It deliberately demonstrates a broader read than this screen needs. **Stop listeners** detaches all four data streams (or all child subscriptions); writes still work, and **Start listeners** reads the current state again. **Reset data** restores the deterministic seed and restarts listeners.
+
+**Find Alice messages** queries by `who`, initially without its `.indexOn`. Open the failed request in Traffic and use **Add index**, then run the query again. **Reset demo index** restores the missing-index case. The server keeps this configuration in a dedicated temporary directory; it never edits the project's rules. Restarting the demo resets that configuration too.
+
+Run `node examples/runtime-flow-lab/verify-rtdb.mjs` with the server running to verify pagination, edits, value/child payload differences, listener cleanup, broad scope, resets, index repair and narrow-screen layout.

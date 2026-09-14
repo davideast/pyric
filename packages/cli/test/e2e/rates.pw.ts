@@ -43,12 +43,15 @@ for (const runtime of ['inpage', 'worker']) {
     await page.screenshot({ path: `/tmp/service-rates-${runtime}-overview.png` });
     await page.locator('[data-inspect-rates=rtdb]').click();
     const method = page.locator('[data-rate-method=onValue]');
-    await expect(method.locator('[data-rate-active]')).toHaveText('1');
+    await expect(page.locator('[data-rate-listeners]')).toHaveText('1');
+    await page.getByRole('button', { name: 'Live', exact: true }).click();
     await page.locator('[data-write]').click();
-    await expect.poll(async () => Number(await method.locator('[data-rate-results]').textContent())).toBeGreaterThan(0);
+    await expect.poll(async () => Number(await method.locator('[data-period-results]').textContent())).toBeGreaterThan(0);
     await page.locator('[data-listen]').click();
-    await expect(method.locator('[data-rate-active]')).toHaveText('0');
-    await expect(method.locator('[data-rate-results]')).toHaveText('0', { timeout: 8000 });
+    await expect(page.locator('[data-rate-listeners]')).toHaveText('0');
+    const delivered = await method.locator('[data-period-results]').textContent();
+    await page.locator('[data-write]').click();
+    await expect(method.locator('[data-period-results]')).toHaveText(delivered!);
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator('[data-rate-detail]')).toBeVisible();
     expect(await page.locator('[data-rate-detail]').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -81,7 +84,7 @@ for (const runtime of ['inpage', 'worker']) {
     await longMethod.evaluate(element => { element.scrollLeft = element.scrollWidth; });
     await page.screenshot({ path: `/tmp/service-rates-${runtime}-long-method.png` });
     const row = page.locator('[data-rate-method=getDoc]');
-    await expect(row.locator('[data-rate-calls]')).toHaveText('0', { timeout: 8000 });
+    await expect(row.locator('[data-period-calls]')).toHaveText('151');
     expect(await calls(page, 'firestore', 'getDoc')).toBe(151);
   });
 }

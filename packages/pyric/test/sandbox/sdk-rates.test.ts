@@ -98,3 +98,38 @@ it('exposes unsupported coverage separately from unobserved tracked methods and 
   expect(Object.isFrozen(snapshot)).toBe(true);
   expect(Object.isFrozen(snapshot.services[0]!.methods[0]!.buckets)).toBe(true);
 });
+
+it('retains the last activity window after the live minute expires without inventing live traffic', () => {
+  const { journal, rates, time } = harness();
+  time(10000);
+  journal.begin({ app, source, method: 'set', kind: 'operation' }).complete();
+  time(11000);
+  journal.begin({ app, source, method: 'get', kind: 'operation' }).complete();
+  time(600000);
+  const service = rates.snapshot().services.find(service => service.service === 'rtdb')!;
+  expect(service.methods.every(method => method.callsPerSecond === 0)).toBe(true);
+  expect(service.history!.methods.flatMap(method => method.buckets).reduce((sum, bucket) => sum + bucket.calls, 0)).toBe(2);
+  expect(service.history!.endSecond).toBe(13);
+  expect(service.lastActivityAt).toBeDefined();
+  journal.dispose();
+});
+
+it('retains immutable document usage buckets after idle and anchors delayed completions', () => {
+  const { journal, rates, time } = harness();
+  const firestore = { service: 'firestore' as const, target: 'messages', key: 'messages' };
+  const read = journal.begin({ app, source: firestore, method: 'getDocs', kind: 'operation' });
+  time(10000);
+  read.delivered(undefined, { documentReads: 12 });
+  read.complete();
+  const write = journal.begin({ app, source: firestore, method: 'writeBatch.commit', kind: 'operation' });
+  write.complete({ documentWrites: 3, documentDeletes: 1 });
+  const captured = rates.snapshot().services.find(service => service.service === 'firestore')!;
+  expect(captured.usageBuckets?.find(bucket => bucket.second === 10)).toMatchObject({ documentReads: 12, documentWrites: 3, documentDeletes: 1 });
+  expect(Object.isFrozen(captured.usageBuckets)).toBe(true);
+  time(600000);
+  const idle = rates.snapshot().services.find(service => service.service === 'firestore')!;
+  expect(idle.usage?.documentReads).toBe(0);
+  expect(idle.history?.usageBuckets?.find(bucket => bucket.second === 10)?.documentReads).toBe(12);
+  expect(idle.history?.endSecond).toBe(12);
+  journal.dispose();
+});

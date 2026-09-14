@@ -1,0 +1,86 @@
+import { expect, test } from 'bun:test';
+import { JSDOM } from 'jsdom';
+import type { SdkRateSnapshot, SdkMethodRate } from 'pyric/sandbox/internal';
+import { createRateHistory, historyHtml, bindHistory, refreshHistory } from '../../../src/serve/runtime/rate-history.js';
+
+function snapshot(second = 20): SdkRateSnapshot {
+  const method = (name: string, category: SdkMethodRate['category']): SdkMethodRate => ({
+    method: name, category, observed: true, activeListeners: category === 'listener' ? 1 : 0,
+    callsPerSecond: 0, deliveriesPerSecond: 0,
+    buckets: Array.from({ length: 60 }, (_, index) => ({ second: index - 47,
+      calls: index - 47 === 10 ? 4 : index - 47 === 11 ? 2 : 0,
+      deliveries: index - 47 === 10 ? 8 : index - 47 === 11 ? 6 : 0 })),
+  });
+  const methods = [method('get', 'read'), method('set', 'write'), method('onValue', 'listener')];
+  return { monotonicAt: second * 1000, windowSeconds: 5, services: [{ service: 'rtdb', coverage: 'partial', observed: true,
+    untrackedMethods: [], lastActivityAt: 1700000011000, methods,
+    history: { endSecond: 13, startedSecond: 0, methods } }] };
+}
+
+test('idle opening selects the most recent burst, using its full seconds as the denominator', () => {
+  const state = createRateHistory();
+  state.open(snapshot());
+  const frame = state.view(snapshot())!;
+  expect(frame.paused).toBe(true);
+  expect([frame.from, frame.to, frame.duration]).toEqual([10, 11, 2]);
+  expect(frame.totals).toEqual({ reads: 6, writes: 6, deliveries: 14, deletes: 0 });
+  expect(frame.peaks).toEqual({ reads: 4, writes: 4, deliveries: 8, deletes: 0 });
+  expect(frame.service.methods[0]!.callsPerSecond).toBe(3);
+  expect(frame.service.methods[2]!.deliveriesPerSecond).toBe(7);
+  expect(state.view(snapshot(1000))!.totals).toEqual(frame.totals);
+});
+
+test('live resumes, selection clamps to visible history and preserves zero seconds', () => {
+  const state = createRateHistory(); state.open(snapshot()); state.live();
+  expect(state.view(snapshot())!.paused).toBe(false);
+  state.select(snapshot(), 9, 12);
+  expect(state.view(snapshot())!.duration).toBe(4);
+  expect(state.view(snapshot())!.service.methods[0]!.callsPerSecond).toBe(1.5);
+  state.select(snapshot(), -500, 9999);
+  expect([state.view(snapshot())!.from, state.view(snapshot())!.to]).toEqual([0, 20]);
+});
+
+test('opening during activity stays live and an empty service has no fabricated burst', () => {
+  const state = createRateHistory(); state.open(snapshot(11));
+  expect(state.view(snapshot(11))!.paused).toBe(false);
+  const empty = { ...snapshot(), services: [] };
+  expect(createRateHistory().view(empty)).toBeUndefined();
+});
+
+test('keyboard selection extends in both directions and refresh preserves focus', () => {
+  const state = createRateHistory(); state.open(snapshot());
+  const window = new JSDOM(historyHtml(state.view(snapshot())!)).window;
+  const chart = window.document.querySelector<HTMLElement>('[data-history-chart]')!;
+  bindHistory(window.document, state, snapshot, () => refreshHistory(window.document, state.view(snapshot())!));
+  chart.focus();
+  for (let i = 0; i < 2; i++) chart.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft', shiftKey: true, bubbles: true }));
+  expect([state.view(snapshot())!.from, state.view(snapshot())!.to]).toEqual([9, 11]);
+  expect(window.document.activeElement).toBe(chart);
+  expect(chart.getAttribute('aria-valuetext')).toContain('to');
+});
+
+test('Firestore selects document evidence rather than SDK calls and keeps its capture independent', () => {
+  const base = snapshot();
+  const source = base.services[0]!;
+  const usageBuckets = [
+    { second: 10, documentReads: 12, documentWrites: 3, documentDeletes: 1, payloadBytes: 0, unmeasured: 0 },
+    { second: 11, documentReads: 4, documentWrites: 2, documentDeletes: 0, payloadBytes: 0, unmeasured: 0 },
+  ];
+  const firestore = { ...source, service: 'firestore' as const, usageBuckets,
+    history: { ...source.history!, usageBuckets } };
+  const both = { ...base, services: [...base.services, firestore] };
+  const state = createRateHistory('firestore');
+  state.open(both);
+  const frame = state.view(both)!;
+  expect(frame.duration).toBe(2);
+  expect(frame.totals).toEqual({ reads: 16, writes: 5, deletes: 1, deliveries: 0 });
+  expect(frame.peaks.reads).toBe(12);
+  expect(historyHtml(frame)).toContain('Document estimates per second');
+  expect(historyHtml(frame)).toContain('Deletes');
+  expect(historyHtml(frame)).not.toContain('Deliveries');
+  expect(state.view({ ...both, monotonicAt: 1000000 })!.totals).toEqual(frame.totals);
+  const rtdb = createRateHistory('rtdb');
+  rtdb.open(both);
+  rtdb.live();
+  expect(state.view(both)!.paused).toBe(true);
+});

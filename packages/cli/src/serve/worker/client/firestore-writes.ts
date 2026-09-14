@@ -118,7 +118,8 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
         id: nextId(),
         method: 'batchCommit',
         writes: [...writes],
-      }));
+      }), () => ({ documentWrites: writes.filter(write => write.method !== 'delete').length,
+        documentDeletes: writes.filter(write => write.method === 'delete').length }));
     },
   };
   return batch;

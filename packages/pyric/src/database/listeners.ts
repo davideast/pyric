@@ -103,7 +103,7 @@ export function onValue(
   const activity = beginDatabaseActivity(r, 'onValue', 'subscription', attributionOf(listenOptions));
   // onlyOnce may detach before invoking a captured initial callback.
   const lifecycle = listenOptions?.onlyOnce ? { ...activity, close: () => queueMicrotask(() => activity.close()) } : activity;
-  const next = (snap: DataSnapshot): void => { activity.delivered(); cb(snap); };
+  const next = (snap: DataSnapshot): void => { activity.delivered(snap); cb(snap); };
   try {
     return sdkActivity.registering(activity, () => onValueInternal(r, next, cancelCallbackOrOptions, options, cb, lifecycle));
   } catch (error) { activity.fail(); throw error; }
@@ -342,7 +342,7 @@ function subscribeChild(
   const method = { child_added: 'onChildAdded', child_changed: 'onChildChanged', child_removed: 'onChildRemoved', child_moved: 'onChildMoved' }[event];
   const activity = beginDatabaseActivity(r, method, 'subscription', attributionOf(requestedOptions));
   const lifecycle = requestedOptions?.onlyOnce ? { ...activity, close: () => queueMicrotask(() => activity.close()) } : activity;
-  cb = (snap, previous) => { activity.delivered(); registryCallback(snap, previous); };
+  cb = (snap, previous) => { activity.delivered(snap); registryCallback(snap, previous); };
   const attach = (next: typeof cb, cancel: ((error: Error) => void) | undefined): Unsubscribe => {
     try {
       return sdkActivity.registering(activity, () => onChildEvent(r, event, next, cancel ? (error) => { activity.fail(); cancel(error); } : undefined, registryCallback, lifecycle));

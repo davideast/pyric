@@ -187,7 +187,7 @@ export function rtdbOnValue(
   let unsubscribe: Unsubscribe = () => {};
   const rawUnsubscribe = openValueSubscription(target, (snapshot) => {
     try {
-      activity.delivered();
+      activity.delivered(snapshot);
       next(snapshot);
     } catch {
       // Firebase isolates listener exceptions from sibling deliveries.
@@ -333,7 +333,7 @@ function subscribeChild(
     : cancelCallbackOrOptions;
   const activity = beginWorkerDatabaseActivity(target, `onChild${kind[0]!.toUpperCase()}${kind.slice(1)}`, 'subscription', pageListenerOwners(listenOptions));
   const callback = next;
-  next = (snapshot, previous) => { activity.delivered(); callback(snapshot, previous); };
+  next = (snapshot, previous) => { activity.delivered(snapshot); callback(snapshot, previous); };
   const eventType = `child_${kind}` as RtdbEventType;
   if (!listenOptions?.onlyOnce) {
     return registerListener(target, eventType, registryCallback, onChildEvent(target, kind, next, error, activity));

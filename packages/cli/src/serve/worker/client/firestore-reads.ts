@@ -198,11 +198,11 @@ export function onSnapshot(
       const r = raw as Record<string, unknown>;
       if ('docs' in r) {
         const snapshot = makeQuerySnapshot(r as unknown as RawQueryResult, port);
-        activity.delivered();
+        activity.delivered(snapshot, (r as { usage?: import('pyric/sandbox/internal').UsageEvidence }).usage);
         callback(snapshot);
       } else {
         const snapshot = makeDocSnapshot(r as unknown as RawDocResult, port);
-        activity.delivered();
+        activity.delivered(snapshot, (r as { usage?: import('pyric/sandbox/internal').UsageEvidence }).usage);
         callback(snapshot);
       }
     },
