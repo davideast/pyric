@@ -45,7 +45,7 @@ import type {
   WorkerOpPayload,
   WorkerSubPayload,
 } from '../bridge/protocol.js';
-import { isBridgeMessage, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
+import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
 import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
@@ -783,7 +783,7 @@ export async function connectRemoteSandbox(
   }
 
   const wsUrl = `${wsBase.replace(/^http/, 'ws')}/__pyric/sandbox`;
-  const ws = new WebSocket(wsUrl);
+  const ws = new WebSocket(wsUrl, { maxPayload: MAX_BRIDGE_FRAME_BYTES });
 
   // Event-loop hold (exit-hang fix): `ws` exposes no ref/unref of its own —
   // reach the underlying net.Socket (present once connected). Unref'ing only
