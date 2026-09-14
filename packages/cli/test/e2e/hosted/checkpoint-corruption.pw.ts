@@ -8,12 +8,13 @@ import { startHostedFixture } from './fixture.js';
 import { startHost } from './host-process.js';
 
 const corruptions = ['auth', 'firestore', 'storage', 'rules', 'account-record', 'storage-record',
-  'object-bytes', 'storage-rules', 'database-version', 'object-path', 'object-root', 'object-size', 'counts'] as const;
+  'object-bytes', 'storage-rules', 'database-version', 'object-path', 'object-root', 'object-size', 'counts', 'firestore-bytes'] as const;
 
 function corruptedState(state: Checkpoint['state'], corruption: Exclude<typeof corruptions[number], 'counts'>) {
   switch (corruption) {
     case 'auth': return { ...state, auth: { users: null, providers: {} } };
     case 'firestore': return { ...state, firestore: null };
+    case 'firestore-bytes': return { ...state, firestore: { 'shared/broken': { value: { __type: 'bytes' } } } };
     case 'storage': return { ...state, storage: null };
     case 'rules': return { ...state, rules: null };
     case 'account-record': return { ...state, auth: { users: [null], providers: {} } };

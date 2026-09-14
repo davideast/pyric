@@ -30,6 +30,7 @@ import { getAuth, sandbox as authSandbox, type Auth, type SeedUser } from '../au
 import { getOrCreateBackend } from '../database/sandbox/backend-for.js';
 import type { RtdbBackend } from '../database/sandbox/backend.js';
 import type { JsonValue } from '../database/sandbox/data-tree.js';
+import { DOC_VALUE_ENCODING, type DocValueEncoding } from '../firestore/internal/value-codec.js';
 import {
   deleteObject,
   listAll,
@@ -47,6 +48,7 @@ import {
   type StorageStateRecord,
 } from '../storage/internal.js';
 import { getInternalEnv } from './internal/sandbox-impl.js';
+import { encodeStateDocument, decodeStateDocument } from './internal/state-values.js';
 import { getClock, type SandboxClockState } from './clock.js';
 import type { LocalSandbox } from './types/service.js';
 
@@ -111,6 +113,8 @@ export type SandboxService = (typeof SANDBOX_SERVICES)[number];
 export interface FullSandboxState {
   /** Firestore documents by full path. */
   firestore: Record<string, Record<string, unknown>>;
+  /** Declared value encoding; absent in legacy states that carry plain document maps. */
+  firestoreEncoding?: DocValueEncoding;
   /**
    * The Realtime Database persistence envelope: the tree and its priorities.
    * The database's rules travel in {@link SandboxRuleSources} instead, so the
@@ -224,7 +228,8 @@ export async function captureFullState(sandbox: LocalSandbox): Promise<FullSandb
   };
 
   return {
-    firestore: structuredClone(env.snapshot()) as Record<string, Record<string, unknown>>,
+    firestore: Object.fromEntries(Object.entries(env.snapshot()).map(([path, data]) => [path, encodeStateDocument(data)])),
+    firestoreEncoding: DOC_VALUE_ENCODING,
     database: databaseStateWithoutRules(database),
     storage: await captureStorage(storage),
     auth: {
@@ -254,14 +259,16 @@ function applyClock(sandbox: LocalSandbox, captured: SandboxClockState | undefin
 function applyFirestoreDocuments(
   sandbox: LocalSandbox,
   documents: Record<string, Record<string, unknown>>,
+  encoding: DocValueEncoding | undefined,
 ): void {
   const env = getInternalEnv(sandbox);
   for (const path of Object.keys(env.snapshot())) {
-    if (path in documents) continue;
+    const isRetained = path in documents;
+    if (isRetained) continue;
     sandbox.admin.deleteDocument(path);
   }
   for (const [path, data] of Object.entries(documents)) {
-    sandbox.admin.setDocument(path, structuredClone(data));
+    sandbox.admin.setDocument(path, decodeStateDocument(data, encoding));
   }
 }
 
@@ -340,7 +347,7 @@ export async function applyFullState(
   state: FullSandboxState,
 ): Promise<void> {
   applyClock(sandbox, state.clock);
-  applyFirestoreDocuments(sandbox, state.firestore);
+  applyFirestoreDocuments(sandbox, state.firestore, state.firestoreEncoding);
   getInternalEnv(sandbox).deployRules(state.rules.firestore);
   applyDatabase(sandbox, state);
   applyAuth(sandbox, state.auth);

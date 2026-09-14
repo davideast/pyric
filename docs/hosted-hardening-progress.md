@@ -9,14 +9,33 @@ Do not modify the manual demo project. Commit and push each verified slice.
 
 1. Anonymous UID uniqueness — verified locally. Deletion/restart cannot transfer UID-owned data to a new identity; retained accounts preserve their UID, claims, creation time and last-login time.
 2. Session retention expiry — verified locally. The original app obtains fresh admission after the retention window, with Auth restored before listeners. Expired/invalid grants remain refused; app deletion cancels recovery; uncertain writes never replay.
-3. Checkpoint restoration — in progress. Account and Storage metadata round trip, including host restart. Corrupt envelopes, service records and fallible Storage inputs now refuse before reset. Firestore special-value fidelity is the remaining round-trip check before closing this item.
+3. Checkpoint restoration — verified locally. Account/Storage metadata, Firestore typed values and literal maps survive the scoped round trips and host restart. Corrupt service inputs refuse before reset; legacy records and branch consumers retain their value semantics. Broader atomicity/concurrency gaps remain explicit.
 4. Restoration diagnostics — pending. Startup text and readiness JSON match authoritative SDK state.
 5. Interrupted recovery — pending. A second interruption restores identity/listeners once; obsolete callbacks and app deletion cannot revive sessions.
 6. Reset/import with active apps — pending. Both browsers see replacement; removed listeners stay removed and stale work cannot resurrect data.
 7. Persistence-failure recovery — pending. Accurate uncertainty, later mutation refusal, and repaired-storage restart preserve the last durable state.
 8. Malformed requests — pending. Invalid envelopes, payloads, versions, and size/depth boundaries fail without mutation or disruption of another client.
 9. Lifecycle cleanup — pending. Repeated startup failures, interrupted initialization, reconnect, deletion and shutdown release resources and ownership.
-10. Combined verification and morning handoff — pending. Current affected matrix, runtime parity, types, source form, applicable packaging; fixes, reports, remaining failures and manual QA steps.
+10. Sleep/resume with delayed disconnect notification — pending. An expired host session recovers even when the browser observes the interruption late; invalid grants remain refused and uncertain writes never replay.
+11. Identity and tenant isolation across clients — pending. Switching or signing out in one app cannot change another app's identity, tenant, claims or Rules access, including after recovery.
+12. RTDB disconnect behavior — pending. Connectivity signals and registered disconnect operations follow the declared session-lifetime contract across transient loss, expiry and explicit app deletion.
+13. Concurrent transactions and atomic writes — pending. Two clients contend through normal SDK calls without lost updates; rejected batches remain atomic and ambiguous acknowledgments do not trigger transport replay.
+14. Packed installation and runtime selection — pending. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.
+15. Combined verification and morning handoff — pending. Current affected matrix, runtime parity, types, source form, applicable packaging; fixes, reports, remaining failures and manual QA steps.
+
+### Added follow-on gates
+
+These five additions extend the ordered queue; they do not promise overnight completion or expand it into hosted live-mode implementation. Finish the current verified slice before advancing. Reuse existing evidence when its inputs and assertions cover the requirement; reproduce a failure before changing implementation.
+
+| Item | Prerequisites | Required evidence before completion |
+| --- | --- | --- |
+| 10. Delayed disconnect | Session expiry and interrupted recovery (2, 5) | Separate host expiry from browser notification in a public lifecycle fixture. Prove recovery of the original valid identity and listeners, a subsequent authorized write, invalid-grant refusal and absence of mutation replay. An observed-interruption clock test alone is insufficient. |
+| 11. Identity isolation | Identity, recovery and active-app replacement (1, 5, 6) | Two independent browser contexts with distinct users/tenants exercise allowed and denied SDK operations before and after one changes identity and reconnects. Assert each client's resulting user/token and downstream Rules decision; compare SharedWorker behavior where applicable. |
+| 12. RTDB disconnect | Recovery and cleanup (5, 9, 10) | Public SDK observers and a second client verify `.info/connected`, disconnect execution timing, cancellation and absence of duplicate effects across transient loss, expiry and deletion. Resolve expected behavior against the existing support contract before writing assertions. |
+| 13. Concurrent writes | Persistence failure and request validation (7, 8) | Two clients produce a real transaction conflict and the expected committed result through SDK retry semantics. A rejected batch changes no documents. A lost-acknowledgment fixture proves the transport does not replay a non-idempotent mutation. Reuse existing engine semantics rather than adding another scheduler. |
+| 14. Packed consumer | Completed source fixes and cleanup (9) | Install the actual package in an isolated directory outside the workspace. Verify selected runtime and an SDK write/listener round trip through served imports and Vite, including reload/HMR without duplicate delivery. Run applicable minimum-Node and browser-boundary checks; retain package identity and commands so final verification can reuse this evidence. |
+
+Every item also requires the advancement checks below. Broader redesigns discovered by these probes are recorded separately, with the failing scoped requirement left open. At the stopping point, perform the final verification and handoff for completed slices even if later queue items remain untouched.
 
 ## Advancement requirements
 
@@ -115,3 +134,19 @@ Final verification is terminal, with no retries or skipped cases:
 Every corruption case checks the healthy SDK document, the unchanged public account list, and a successful subsequent write. One also kills/restarts the host and checks the durable document. The SharedWorker path verifies empty bytes and all base64 padding remainders. Malformed-file fault injection is hosted; valid restoration is checked across all three runtimes. No production Firebase or manual demo data was used.
 
 These checks establish structural corruption refusal and the specified object consistency checks, not detection of arbitrary edits that remain valid data. Atomic rollback after a later resource/I/O failure, concurrent capture, general input resource limits and arbitrary buckets remain separate gaps. Task 3 stays open until ordinary Firestore special values are checked; the existing full-service fixture currently uses plain document fields. Applicable packaging remains at the milestone join.
+
+## Task 3: Firestore value fidelity — verified locally
+
+The original SDK checkpoint tests lost Timestamp methods after restore. Full-state capture now uses the existing declared Firestore value encoding before JSON removes wrapper identity, and restoration decodes that declaration. Review reproduced a literal timestamp-shaped map being converted into a Timestamp; escaping ordinary maps with the existing codec fixes that without a second scalar codec. Full-state branch storage retains the declaration, and promotion decodes documents before writing them.
+
+Two further public-boundary failures were reproduced and repaired. Malformed encoded bytes erased healthy state before restore failed; checkpoint validation now decodes Firestore inputs before reset. A plain SDK write followed by host restart converted a literal map into a Timestamp even without checkpoint operations; newly written persistence buckets now declare their value encoding individually. Legacy buckets retain their prior decoding contract, and bucket-level declarations allow old and newly flushed records to coexist.
+
+The published in-process MCP branch interface exposed `literal.fields.note` in its diff instead of the actual field `literal.note`. Diff now decodes documents before walking fields. The first hosted MCP probes used operations that its tool surface does not expose and count only as setup failures. Review also corrected an invalid promotion expectation: promotion applies branch changes relative to its base, so an unchanged branch must preserve a later live edit. The field-path assertion is unchanged and passes; this fixture does not prove promotion of an actual changed typed value.
+
+Current terminal checks: 42 affected browser cases passed in 1.1 minutes, including all three runtime paths; eight focused cases passed on Node 22.15.0 in 16.1 seconds; 107 regressions passed in eight isolated files; strict Pyric/CLI/fixture types, changed-code form and client/live browser boundaries passed. Reports use `/tmp/pyric-hardening-checkpoint-values-`, with source-bound copies in `ignored/hardening/checkpoint-values/`. The byte-corruption, literal-map restart and branch-path red fixtures are retained there. The minimized restart test is now named `checkpoint-literal-restart.pw.ts`; its behavioral assertions are unchanged.
+
+Final compatibility review passes legacy full-state maps without an encoding declaration, mixed old/new persistence buckets after actual host restart, and changed-value promotion through persisted MCP branches. The promotion check uses a real unauthenticated read with installed Rules requiring a Timestamp at the specified instant and a literal map with its original fields. An initial Rules simulation had no seeded resource and was unsuitable for this assertion; the corrected read evaluates the actual promoted document. These are review checks, not additional claimed red/green fixes.
+
+The three added review cases pass individually; the two branch cases plus legacy/mixed-bucket cases pass together under Node 22.15.0 (four cases, 7.0 seconds). Final fixture types and fifteen-file code form pass. Production and emitted input hashes match the preceding 42-case combined browser run, eight-case minimum-Node run, 107 regressions, production typechecks and browser boundaries, so that evidence is reused. `ignored/hardening/checkpoint-values/verified-inputs.json` binds the final inputs and reports. All processes are terminal, without retries or skipped cases.
+
+Task 3's scoped round trips and corruption refusal are verified. Current readers accept legacy records; downgrade compatibility with older readers is not established. General checkpoint atomicity, coherent concurrent capture and arbitrary buckets remain separate. Applicable packaging remains at the milestone join. Later queue items are untouched; the manual demo has not been changed.

@@ -17,7 +17,9 @@
  * (Float32Array vector encoding is a later, backward-compatible refinement on the
  * per-bucket record shape.)
  */
-import { rehydrateDocValue } from '../../firestore/internal/value-codec.js';
+import { DOC_VALUE_ENCODING, rehydrateEncodedDocValue, requireDocumentData,
+  type DocValueEncoding } from '../../firestore/internal/value-codec.js';
+import { encodeStateDocument } from '../internal/state-values.js';
 import { deserializeSnapshot } from './serialize.js';
 
 export const CHUNK_FORMAT_VERSION = 3 as const;
@@ -42,6 +44,8 @@ export function pathToBucketId(path: string): string {
 /** A firestore bucket record: marker-encoded docs keyed by full path. */
 export interface BucketRecord {
   docs: Record<string, Record<string, unknown>>;
+  /** Per-bucket declaration permits legacy and newly flushed buckets to coexist. */
+  encoding?: DocValueEncoding;
   /** FNV checksum of `docs`, set on write and verified on read so a corrupt
    *  bucket is quarantined (skipped) rather than restored as garbage. */
   checksum?: number;
@@ -52,13 +56,6 @@ export interface MetaRecord {
   version: typeof CHUNK_FORMAT_VERSION;
   savedAt: number;
   services: Record<string, unknown>;
-}
-
-/** Marker-encode a doc to a structured-clone-safe plain tree (reuses the wrapper
- *  `toJSON` markers via a per-doc round-trip; small per-doc strings, never one
- *  keyspace blob). */
-function encodeDoc(data: Record<string, unknown>): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(data)) as Record<string, unknown>;
 }
 
 /** FNV-1a checksum of a bucket's docs, for corruption detection on read. */
@@ -90,16 +87,15 @@ export function serializeToBuckets(
   records.set(META_RECORD_ID, { version: CHUNK_FORMAT_VERSION, savedAt, services });
   for (const [path, data] of Object.entries(firestore)) {
     const id = pathToBucketId(path);
-    let bucket = records.get(id) as BucketRecord | undefined;
-    if (!bucket) {
-      bucket = { docs: {} };
-      records.set(id, bucket);
-    }
-    bucket.docs[path] = encodeDoc(data);
+    const existing = records.get(id) as BucketRecord | undefined;
+    const bucket = existing ?? { docs: {}, encoding: DOC_VALUE_ENCODING };
+    records.set(id, bucket);
+    bucket.docs[path] = encodeStateDocument(data);
   }
   // Checksum each bucket so a corrupt record is detected + quarantined on read.
   for (const [id, rec] of records) {
-    if (id === META_RECORD_ID) continue;
+    const isMetadata = id === META_RECORD_ID;
+    if (isMetadata) continue;
     (rec as BucketRecord).checksum = checksumDocs((rec as BucketRecord).docs);
   }
   return records;
@@ -172,27 +168,32 @@ export function deserializeFromBuckets(
   const firestore: Record<string, Record<string, unknown>> = {};
   let services: Record<string, unknown> = {};
   for (const [id, rec] of records) {
-    if (id === META_RECORD_ID) {
+    const isMetadata = id === META_RECORD_ID;
+    if (isMetadata) {
       const meta = rec as Partial<MetaRecord> | null;
-      if (meta && typeof meta.services === 'object' && meta.services !== null) {
-        services = meta.services;
+      const savedServices = meta?.services;
+      const hasServices = typeof savedServices === 'object' && savedServices !== null;
+      if (hasServices) {
+        services = savedServices;
       }
       continue;
     }
     const bucket = rec as Partial<BucketRecord> | null;
-    if (!bucket || typeof bucket.docs !== 'object' || bucket.docs === null) continue;
+    const documents = bucket?.docs;
+    const isMalformedBucket = typeof documents !== 'object' || documents === null;
+    if (isMalformedBucket) continue;
     // C5: verify the bucket's checksum (when present). A mismatch means the
     // record was corrupted in storage; quarantine it (skip + warn) rather than
     // restore garbage. Records without a checksum (pre-checksum v3) are accepted.
-    if (
-      typeof bucket.checksum === 'number' &&
-      checksumDocs(bucket.docs as Record<string, Record<string, unknown>>) !== bucket.checksum
-    ) {
+    const hasCorruptChecksum =
+      typeof bucket?.checksum === 'number' &&
+      checksumDocs(documents) !== bucket.checksum;
+    if (hasCorruptChecksum) {
       console.warn(`[sandbox/persistence] checksum mismatch for bucket '${id}'; skipping corrupt bucket`);
       continue;
     }
-    for (const [path, data] of Object.entries(bucket.docs)) {
-      firestore[path] = rehydrateDocValue(data) as Record<string, unknown>;
+    for (const [path, data] of Object.entries(documents)) {
+      firestore[path] = requireDocumentData(rehydrateEncodedDocValue(data, bucket?.encoding));
     }
   }
   return { firestore, services };

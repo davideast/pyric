@@ -1,9 +1,11 @@
 import { z } from 'zod';
+import { DOC_VALUE_ENCODING } from '../../firestore/internal/value-codec.js';
 import { base64ToBytes } from '../../storage/base64.js';
 import { normalizePath } from '../../storage/reference.js';
 import { compileStorageRules } from '../../storage/rules-resolution.js';
 import type { FullSandboxState, StorageObjectState } from '../full-state.js';
 import { seedUserSchema, storedMetadataSchema } from '../internal/state-schemas.js';
+import { decodeStateDocument } from '../internal/state-values.js';
 import { SandboxError } from '../types/errors.js';
 
 const storageFields = {
@@ -35,6 +37,7 @@ function hasSupportedDatabaseEnvelope(value: unknown): boolean {
 
 const stateFields = {
   firestore: z.record(z.record(z.unknown())),
+  firestoreEncoding: z.literal(DOC_VALUE_ENCODING).optional(),
   database: z.unknown().refine(hasSupportedDatabaseEnvelope, 'Invalid RTDB persistence envelope'),
   storage: z.array(z.object(storageFields)),
   auth: z.object({ users: z.array(seedUserSchema), providers: z.record(z.boolean()) }),
@@ -49,13 +52,20 @@ const stateFields = {
 
 const checkpointStateSchema = z.object(stateFields);
 
-/** Validate serialized state and fallible Storage inputs before resetting healthy state. */
+/** Validate serialized state and fallible service inputs before resetting healthy state. */
 export function assertCheckpointState(state: unknown): void {
   const result = checkpointStateSchema.safeParse(state);
   const isInvalidState = !result.success;
   if (isInvalidState) {
     const details = result.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ');
     throw new SandboxError('invalid-argument', `Invalid checkpoint state (${details}).`);
+  }
+  try {
+    for (const document of Object.values(result.data.firestore)) {
+      decodeStateDocument(document, result.data.firestoreEncoding);
+    }
+  } catch (error) {
+    throw new SandboxError('invalid-argument', `Invalid checkpoint Firestore values: ${String(error)}`);
   }
   for (const object of result.data.storage) {
     const declaredSize = object.metadata?.size;
