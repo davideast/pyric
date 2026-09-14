@@ -48,6 +48,7 @@ export const _snapSubs = new Map<string, {
   error?: (err: unknown) => void;
   /** Firestore listeners abort on app deletion; RTDB/Auth stop silently. */
   service?: 'firestore';
+  message?: InboundMessage;
 }>();
 
 /**
@@ -84,8 +85,9 @@ export function openSnapshotSubscription(
   subscription: (typeof _snapSubs extends Map<string, infer T> ? T : never),
   message: InboundMessage,
 ): boolean {
-  if (disconnectedPorts.has(port)) return false;
-  _snapSubs.set(subId, subscription);
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) return false;
+  _snapSubs.set(subId, { ...subscription, message });
   port.postMessage(message);
   return true;
 }
@@ -97,10 +99,23 @@ export function openEventSubscription(
   next: (events: readonly SandboxEvent[]) => void,
   message: InboundMessage,
 ): boolean {
-  if (disconnectedPorts.has(port)) return false;
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) return false;
   _eventSubs.set(subId, { port, next });
   port.postMessage(message);
   return true;
+}
+
+/** Re-establish document listener intent without repeating one-shot operations. */
+export function restoreFirestoreSubscriptions(port: ClientPort): void {
+  for (const [subId, subscription] of _snapSubs) {
+    const message = subscription.message;
+    const ownsDocumentListener = subscription.port === port && subscription.service === 'firestore' && message?.t === 'sub';
+    if (ownsDocumentListener) {
+      port.postMessage({ t: 'unsub', subId });
+      port.postMessage(message);
+    }
+  }
 }
 
 /** Remove a local subscription and notify only a live app port. */
@@ -111,33 +126,45 @@ export function closeSubscription(
 ): void {
   _snapSubs.delete(subId);
   _eventSubs.delete(subId);
-  if (!disconnectedPorts.has(port)) {
-    port.postMessage({
-      t: 'unsub',
-      subId,
-      ...(clientSessionId ? { clientSessionId } : {}),
-    } satisfies InboundMessage);
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) return;
+  const message: InboundMessage = { t: 'unsub', subId };
+  const hasSessionId = clientSessionId !== undefined && clientSessionId !== '';
+  if (hasSessionId) message.clientSessionId = clientSessionId;
+  try {
+    port.postMessage(message);
+  } catch {
+    // Local cancellation is complete even when the host cannot be notified.
+  }
+}
+
+/** Settle outstanding calls without claiming that the owning app was deleted. */
+export function rejectPendingRequests(port: ClientPort, error: Error & { code: string }): void {
+  for (const [id, pending] of [..._pending]) {
+    const isOwnedRequest = pending.port === port;
+    if (isOwnedRequest) {
+      _pending.delete(id);
+      pending.reject(error);
+    }
   }
 }
 
 /** Drop every client-side correlation owned by a closing app port. */
 export function disconnectPort(port: ClientPort): void {
   disconnectedPorts.add(port);
-  const error = appDeletedError();
-  for (const [id, pending] of [..._pending]) {
-    if (pending.port !== port) continue;
-    _pending.delete(id);
-    pending.reject(error);
-  }
+  rejectPendingRequests(port, appDeletedError());
   for (const [id, subscription] of [..._snapSubs]) {
-    if (subscription.port !== port) continue;
+    const isForeignSubscription = subscription.port !== port;
+    if (isForeignSubscription) continue;
     _snapSubs.delete(id);
-    if (subscription.service === 'firestore') {
+    const isFirestoreSubscription = subscription.service === 'firestore';
+    if (isFirestoreSubscription) {
       subscription.error?.(new FirebaseError('aborted', 'The operation was aborted.'));
     }
   }
   for (const [id, subscription] of [..._eventSubs]) {
-    if (subscription.port !== port) continue;
+    const isForeignSubscription = subscription.port !== port;
+    if (isForeignSubscription) continue;
     _eventSubs.delete(id);
   }
   port.onmessage = null;
@@ -426,15 +453,21 @@ export function stampIssuer<T extends { t?: string }>(msg: T): T {
  * the final remote provenance fields before sending through this function.
  */
 export function rawRpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
-  if (disconnectedPorts.has(port)) return Promise.reject(appDeletedError());
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) return Promise.reject(appDeletedError());
   return new Promise<unknown>((resolve, reject) => {
     const opMsg = msg as { id: string };
     _pending.set(opMsg.id, {
       port,
       resolve,
-      reject: reject as (e: Error & { code: string }) => void,
+      reject,
     });
-    port.postMessage(msg);
+    try {
+      port.postMessage(msg);
+    } catch (error) {
+      _pending.delete(opMsg.id);
+      reject(error);
+    }
   });
 }
 

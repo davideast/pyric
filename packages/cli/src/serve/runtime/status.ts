@@ -2,7 +2,7 @@ import type { SandboxEvent } from 'pyric/sandbox';
 import type { PyricRuntimeManifest } from './manifest.js';
 import { readPyricRuntimeManifest } from './manifest.js';
 
-export type PyricRuntimeMode = 'starting' | 'shared-worker' | 'in-page';
+export type PyricRuntimeMode = 'starting' | 'shared-worker' | 'in-page' | 'hosted';
 export type PyricRuntimeErrorSource = 'sandbox' | 'worker' | 'runtime';
 
 export interface PyricRuntimeError {

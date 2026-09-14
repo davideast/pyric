@@ -42,7 +42,8 @@ export type RulesDisposition =
   | { kind: 'bypassed'; reason: 'admin' }
   | {
       kind: 'not-evaluated';
-      reason: 'no-rules' | 'unsupported' | 'not-a-rules-operation' | 'runtime-error';
+      /** External execution supplies an SDK outcome, without a local rules evaluation. */
+      reason: 'no-rules' | 'unsupported' | 'not-a-rules-operation' | 'runtime-error' | 'external-execution';
     };
 
 /** Provenance consumed only by the firestore activity diagnostics. Bundled in

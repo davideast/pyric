@@ -103,8 +103,10 @@ export interface NamespaceOptions {
   /** Default-on Firebase Activity Guard sink. The served worker posts bounded,
    *  deduplicated incidents here so the host can surface them in its terminal. */
   activity?: (incident: ActivityIncident) => void;
-  /** `--persist`: mounts GET/POST /__pyric/state (the state channel). */
+  /** Mounts the state channel for browser mirroring or hosted inspection. */
   state?: StateStore;
+  /** Hosted state can be read here; its runtime owns all writes. */
+  stateOwner?: 'browser' | 'host';
   /** `--capture`: mounts GET/POST /__pyric/capture. POST — the page/worker
    *  pushes its session fixture here; the handler writes it verbatim to
    *  `.pyric/last-session.json` for `pyric verify` to replay. GET — returns the
@@ -433,15 +435,18 @@ function guardLoopback(
 
 export function createPyricNamespace(opts: NamespaceOptions) {
   const stateWriterLock = createWriterLock();
+  const hostOwnsState = opts.stateOwner === 'host';
   const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();
   const sessionToken = opts.sessionToken ?? randomBytes(24).toString('base64url');
   // Fail closed: with no launcher-supplied secret the generated one is held by
   // nobody, so `/__pyric/beacon` accepts nothing rather than everything.
   const beaconToken = opts.beaconToken ?? randomBytes(24).toString('base64url');
   let studioRoutes: ((req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean>) | null = null;
-  if (opts.studio) {
+  const studio = opts.studio;
+  const hasStudio = studio !== undefined;
+  if (hasStudio) {
     const studioOptions: StudioRouteOptions = {
-      ...opts.studio,
+      ...studio,
       sessionToken,
       writerLock: studioWriterLock,
       boundHost: opts.boundHost,
@@ -449,77 +454,100 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     };
     studioRoutes = createStudioRoutes(studioOptions);
   }
-  const siteTree = opts.siteUiDir
-    ? createSiteTreeHandler(opts.siteUiDir, opts.workerVersion)
+  const siteUiDir = opts.siteUiDir;
+  const hasSiteTree = siteUiDir !== undefined && siteUiDir.length > 0;
+  const siteTree = hasSiteTree
+    ? createSiteTreeHandler(siteUiDir, opts.workerVersion)
     : null;
   const denialThrottle = createDenialThrottle();
   // Issued once per server boot. The outer static/Vite host guard protects
   // init.json before this capability is disclosed to the served runtime.
-  const activityToken = opts.activity ? randomBytes(24).toString('base64url') : undefined;
+  const activity = opts.activity;
+  const hasActivity = activity !== undefined;
+  const activityEndpoint = hasActivity
+    ? { sink: activity, token: randomBytes(24).toString('base64url') }
+    : undefined;
   return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
-    if (
-      studioRoutes &&
-      (url.pathname.startsWith('/__pyric/workspace') ||
-        url.pathname.startsWith('/__pyric/projects'))
-    ) {
-      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        return true;
+    const routes = studioRoutes;
+    const hasStudioRoutes = routes !== null;
+    if (hasStudioRoutes) {
+      const isStudioRequest = url.pathname.startsWith('/__pyric/workspace') || url.pathname.startsWith('/__pyric/projects');
+      if (isStudioRequest) {
+        const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+        if (hostRefused) return true;
+        return routes(req, res, url);
       }
-      return studioRoutes(req, res, url);
     }
-    if (opts.state && url.pathname === '/__pyric/state') {
-      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        return true;
-      }
-      if (!isAllowedSessionToken(req, url, sessionToken)) {
+    const state = opts.state;
+    const isStateRequest = state !== undefined && url.pathname === '/__pyric/state';
+    if (isStateRequest) {
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
+      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
+      if (sessionRefused) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
-      return handleState(opts.state!, stateWriterLock, req, res, url).then(() => true);
-    }
-    if (opts.capture && url.pathname === '/__pyric/capture') {
-      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+      const isRead = req.method === 'GET';
+      const conflictsWithHost = hostOwnsState && !isRead;
+      if (conflictsWithHost) {
+        res.writeHead(423, { 'content-type': 'text/plain' }).end(
+          'The hosted sandbox owns this state. Use its SDK, CLI or MCP interface to change data.',
+        );
         return true;
       }
-      if (!isAllowedSessionToken(req, url, sessionToken)) {
+      return handleState(state, stateWriterLock, req, res, url).then(() => true);
+    }
+    const capture = opts.capture;
+    const isCaptureRequest = capture !== undefined && url.pathname === '/__pyric/capture';
+    if (isCaptureRequest) {
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
+      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
+      if (sessionRefused) {
         res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
         return true;
       }
-      return handleCapture(opts.capture, req, res).then(() => true);
+      return handleCapture(capture, req, res).then(() => true);
     }
-    if (opts.activity && url.pathname === '/__pyric/activity') {
-      return handleActivity(opts.activity, req, res, activityToken!).then(() => true);
+    const isActivityRequest = activityEndpoint !== undefined && url.pathname === '/__pyric/activity';
+    if (isActivityRequest) {
+      return handleActivity(activityEndpoint.sink, req, res, activityEndpoint.token).then(() => true);
     }
-    if (opts.events && url.pathname === '/__pyric/events') {
-      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
-        return true;
-      }
-      opts.events.handle(req, res);
+    const events = opts.events;
+    const isEventsRequest = events !== undefined && url.pathname === '/__pyric/events';
+    if (isEventsRequest) {
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
+      events.handle(req, res);
       return true;
     }
-    if (url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`)) {
+    const isAiProxyRequest = url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`);
+    if (isAiProxyRequest) {
       return handleAiProxy(opts.aiProxyUpstream, denialThrottle, req, res, url, opts.logger).then(
         () => true,
       );
     }
-    if (url.pathname === BEACON_PATH) {
+    const isBeaconRequest = url.pathname === BEACON_PATH;
+    if (isBeaconRequest) {
       return handleBeacon({ token: beaconToken, onBeacon: opts.beacon }, req, res).then(() => true);
     }
-    if (url.pathname === '/__pyric/denials') {
+    const isDenialRequest = url.pathname === '/__pyric/denials';
+    if (isDenialRequest) {
       return handleDenials(denialThrottle, opts.logger, req, res).then(() => true);
     }
-    if (url.pathname === '/__pyric/init.json') {
+    const isInitRequest = url.pathname === '/__pyric/init.json';
+    if (isInitRequest) {
+      const payload = { ...opts.initPayload(), sessionToken };
+      const hasActivityEndpoint = activityEndpoint !== undefined;
+      if (hasActivityEndpoint) payload.activityToken = activityEndpoint.token;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(
-        JSON.stringify({
-          ...opts.initPayload(),
-          sessionToken,
-          ...(activityToken ? { activityToken } : {}),
-        }),
-      );
+      res.end(JSON.stringify(payload));
       return true;
     }
-    if (opts.avatars && url.pathname.startsWith(ASSETS_ROUTE_PREFIX)) {
+    const avatars = opts.avatars;
+    const isAvatarRequest = avatars !== undefined && url.pathname.startsWith(ASSETS_ROUTE_PREFIX);
+    if (isAvatarRequest) {
       // Security class: PUBLIC STATIC, the same class as `/__pyric/sdk/*`, and
       // deliberately NOT one of the token-gated channels (state, capture,
       // workspace, projects, activity). An `<img src>` cannot attach a session
@@ -529,23 +557,27 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       // guard rejects any Host that is not loopback or an `--allowed-host`
       // before this handler ever runs. The bytes served are generated avatars,
       // which carry no secret the guard is protecting.
-      return handleAvatar(opts.avatars, req, res, url).then(() => true);
+      return handleAvatar(avatars, req, res, url).then(() => true);
     }
-    if (url.pathname.startsWith('/__pyric/sdk/')) {
+    const isSdkRequest = url.pathname.startsWith('/__pyric/sdk/');
+    if (isSdkRequest) {
       // basename() flattens any traversal attempt — the sdk dir is flat.
       const file = join(opts.sdkDir, basename(url.pathname));
-      if (!existsSync(file)) {
+      const missingFile = !existsSync(file);
+      if (missingFile) {
         res.writeHead(404).end('not found');
         return true;
       }
-      const type = file.endsWith('.map') ? 'application/json' : 'text/javascript; charset=utf-8';
+      const isSourceMap = file.endsWith('.map');
+      const type = isSourceMap ? 'application/json' : 'text/javascript; charset=utf-8';
       // Immutable-friendly: bundle filenames are content-hashed chunks or
       // cache-keyed outputs; still no-store in dev for simplicity.
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
       pipeFileToResponse(file, res);
       return true;
     }
-    if (siteTree?.(req, res, url)) return true;
+    const servedSiteFile = siteTree?.(req, res, url) ?? false;
+    if (servedSiteFile) return true;
     return false; // unknown /__pyric/* → caller 404s
   };
 }

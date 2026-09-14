@@ -8,6 +8,7 @@ import { firestoreValuesEqual } from './value-equality.js';
 import { FirestoreCompatError } from './firestore-compat-error.js';
 import { activityValue } from './activity-query-value.js';
 import { registerActivityValue } from './activity-value-registry.js';
+import { Timestamp } from '../timestamp.js';
 
 export type CapturedQueryOperand = {
   readonly kind: 'canonical';
@@ -18,6 +19,23 @@ export type CapturedQueryOperand = {
 interface CanonicalQueryValue {
   comparison: unknown;
   execution: unknown;
+}
+
+interface TimestampIdentity {
+  type: 'timestamp';
+  seconds: number;
+  nanoseconds: number;
+}
+
+function isTimestampIdentity(value: unknown): value is TimestampIdentity {
+  const isRecord = value !== null && typeof value === 'object';
+  if (isRecord) {
+    const hasTimestampMarker = 'type' in value && value.type === 'timestamp';
+    const hasSeconds = 'seconds' in value && typeof value.seconds === 'number';
+    const hasNanoseconds = 'nanoseconds' in value && typeof value.nanoseconds === 'number';
+    return hasTimestampMarker && hasSeconds && hasNanoseconds;
+  }
+  return false;
 }
 
 function invalidOperand(message: string): FirestoreCompatError {
@@ -31,30 +49,50 @@ function canonicalize(
   allowNestedArrays = false,
   parentIsArray = false,
 ): CanonicalQueryValue {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+  const isSimpleScalar = value === null || typeof value === 'string' || typeof value === 'boolean';
+  if (isSimpleScalar) {
     return { comparison: value, execution: value };
   }
-  if (typeof value === 'number') return { comparison: value, execution: value };
-  if (typeof value === 'undefined' || typeof value === 'bigint'
-    || typeof value === 'function' || typeof value === 'symbol') {
+  const isNumber = typeof value === 'number';
+  if (isNumber) return { comparison: value, execution: value };
+  const isUnsupportedPrimitive = typeof value === 'undefined' || typeof value === 'bigint'
+    || typeof value === 'function' || typeof value === 'symbol';
+  if (isUnsupportedPrimitive) {
     throw invalidOperand(`Unsupported Firestore query value: ${typeof value}.`);
   }
-  if (typeof value !== 'object') throw invalidOperand('Unsupported Firestore query value.');
+  const isNotObject = typeof value !== 'object';
+  if (isNotObject) throw invalidOperand('Unsupported Firestore query value.');
 
   const registered = registeredQueryValue(value);
-  if (registered !== undefined) {
+  const isRegisteredValue = registered !== undefined;
+  if (isRegisteredValue) {
     const registeredOwner = registeredQueryValueOwner(value);
-    if (registeredOwner !== undefined && owner !== undefined && registeredOwner !== owner) {
+    const hasForeignOwner = registeredOwner !== undefined && owner !== undefined && registeredOwner !== owner;
+    if (hasForeignOwner) {
       throw invalidOperand('Document reference belongs to a different Firestore database.');
+    }
+    const isTimestamp = isTimestampIdentity(registered);
+    if (isTimestamp) {
+      const nanoseconds = Math.floor(registered.nanoseconds / 1_000) * 1_000;
+      const timestamp = new Timestamp(registered.seconds, nanoseconds);
+      return {
+        comparison: {
+          type: 'registered-firestore-value',
+          value: Object.freeze({ type: 'timestamp', seconds: timestamp.seconds, nanoseconds }),
+        },
+        execution: timestamp,
+      };
     }
     return {
       comparison: { type: 'registered-firestore-value', value: registered },
       execution: registeredQueryExecutionValue(value),
     };
   }
-  if (value instanceof Date) {
+  const isDate = value instanceof Date;
+  if (isDate) {
     const millis = value.getTime();
-    if (!Number.isFinite(millis)) throw invalidOperand('Invalid Date query value.');
+    const isInvalidDate = !Number.isFinite(millis);
+    if (isInvalidDate) throw invalidOperand('Invalid Date query value.');
     const seconds = Math.floor(millis / 1_000);
     const timestamp = Object.freeze({
       seconds,
@@ -74,24 +112,29 @@ function canonicalize(
       execution: timestamp,
     };
   }
-  if (value instanceof Uint8Array) {
+  const isByteArray = value instanceof Uint8Array;
+  if (isByteArray) {
     const copy = value.slice();
     return {
       comparison: { type: 'bytes', values: Array.from(copy) },
       execution: copy,
     };
   }
-  if (ancestors.has(value)) throw invalidOperand('Cyclic query operands are not Firestore values.');
+  const isCyclicValue = ancestors.has(value);
+  if (isCyclicValue) throw invalidOperand('Cyclic query operands are not Firestore values.');
 
   const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null && !Array.isArray(value)) {
+  const hasUnsupportedPrototype = prototype !== Object.prototype && prototype !== null && !Array.isArray(value);
+  if (hasUnsupportedPrototype) {
     throw invalidOperand('Firestore query maps must be plain objects.');
   }
 
   ancestors.add(value);
   try {
-    if (Array.isArray(value)) {
-      if (parentIsArray && !allowNestedArrays) {
+    const isArray = Array.isArray(value);
+    if (isArray) {
+      const isDisallowedNestedArray = parentIsArray && !allowNestedArrays;
+      if (isDisallowedNestedArray) {
         throw invalidOperand('Nested arrays are not supported.');
       }
       const entries = value.map((entry) => canonicalize(

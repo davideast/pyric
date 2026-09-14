@@ -42,7 +42,7 @@ import {
   MAX_STORAGE_OP_BYTES,
   MAX_STORAGE_OP_B64_LENGTH,
 } from '../protocol.js';
-import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
+import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { authStateForLens, lensCacheKey, opProvenance, sessionCacheKey } from './core.js';
 import { portSession } from '../host-auth.js';
 
@@ -234,14 +234,16 @@ export async function handleStorageOp(
       // thread the op's provenance EXPLICITLY so a Studio-issued write is
       // attributable end to end (issue #84 item 3).
       try {
-        if (msg.dataB64.length > MAX_STORAGE_OP_B64_LENGTH) {
+        const exceedsEncodedLimit = msg.dataB64.length > MAX_STORAGE_OP_B64_LENGTH;
+        if (exceedsEncodedLimit) {
           throw storagePayloadTooLarge(
             Math.floor(msg.dataB64.length * 0.75),
             `storage.putBytes payload for '${msg.path}'`,
           );
         }
         const bytes = base64ToBytes(msg.dataB64);
-        if (bytes.byteLength > MAX_STORAGE_OP_BYTES) {
+        const exceedsDecodedLimit = bytes.byteLength > MAX_STORAGE_OP_BYTES;
+        if (exceedsDecodedLimit) {
           throw storagePayloadTooLarge(bytes.byteLength, `storage.putBytes payload for '${msg.path}'`);
         }
         const storage = bindStorageOperationContext(
@@ -253,6 +255,7 @@ export async function handleStorageOp(
           bytes,
           toSettableMetadata(msg),
         );
+        await bestEffortFlush(ctx);
         // FullMetadata — plain JSON, relay-safe.
         ok(port, msg.id, result.metadata);
       } catch (e) { fail(port, msg.id, e); }
@@ -272,11 +275,13 @@ export async function handleStorageOp(
         );
         const r = storageRef(storage, msg.path);
         const meta = await storageGetMetadata(r);
-        if (meta.size > MAX_STORAGE_OP_BYTES) {
+        const exceedsStoredLimit = meta.size > MAX_STORAGE_OP_BYTES;
+        if (exceedsStoredLimit) {
           throw storagePayloadTooLarge(meta.size, `object '${msg.path}'`);
         }
         const buf = await storageGetBytes(r);
-        if (buf.byteLength > MAX_STORAGE_OP_BYTES) {
+        const exceedsReadLimit = buf.byteLength > MAX_STORAGE_OP_BYTES;
+        if (exceedsReadLimit) {
           throw storagePayloadTooLarge(buf.byteLength, `object '${msg.path}'`);
         }
         ok(port, msg.id, {
@@ -300,13 +305,14 @@ export async function handleStorageOp(
           opProvenance(msg),
         );
         await storageDeleteObject(storageRef(storage, msg.path));
+        await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
 
     default: {
-      fail(port, msg.id, new Error(`Unknown method: ${String((msg as { method: unknown }).method)}`));
+      fail(port, msg.id, new Error(`Unknown method: ${String(msg.method)}`));
     }
   }
 }

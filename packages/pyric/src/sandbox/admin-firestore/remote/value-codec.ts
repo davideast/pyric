@@ -10,25 +10,18 @@
  * the worker STORES real typed values (rules comparisons and `orderBy`
  * see a Timestamp, not a map). Read payloads arrive as the
  * `SerializedDocData` JSON envelope and are rehydrated with the ONE shared
- * codec (`pyric/firestore/internal/value-codec`'s `rehydrateDocValue`) then
+ * codec (`pyric/firestore/internal/value-codec`) under the reply's encoding, then
  * translated to
  * the compat field shapes (`translateReadData`) — the same shapes the
  * local arm's read path yields.
  *
- * KNOWN CODEC DIVERGENCE (accepted): user data that happens to be SHAPED
- * like a codec marker — a plain map such as `{ __type: 'timestamp',
- * seconds, nanos }` or `{ type: 'firestore/timestamp/1.0', … }` — is
- * TRANSMUTED into the real typed value on the relayed path (the host's
- * `prepareWriteData` / constraint rehydration cannot tell an intentional
- * marker from a lookalike), while an in-page `setDoc` of the same map
- * stores a plain map. This is the persistence codec's own behavior (an
- * IndexedDB save/reload transmutes the same shapes), so the relay is
- * consistent with the sandbox's durability semantics rather than with
- * the in-page live path — marker-shaped user data is already reserved
- * vocabulary in this system.
+ * Legacy remote writes still reserve scalar-marker shapes. They do not yet
+ * declare the newer map-safe value encoding. Reads honor the returned
+ * envelope's encoding through the shared codec. Adopting explicit encoding
+ * for remote writes and migrating persistence remain required work.
  */
 
-import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
+import { rehydrateEncodedDocValue } from 'pyric/firestore/internal/value-codec';
 import {
   Timestamp as CompatTimestamp,
   type DocumentData,
@@ -123,7 +116,7 @@ export function encodeWriteData(data: DocumentData): unknown {
  *  their RULES-INTERNAL wrapper form (what the local engine stores). Used
  *  where a downstream helper does its own compat translation. */
 export function decodeInternal(serialized: WireDocData): DocumentData {
-  return rehydrateDocValue(JSON.parse(serialized.json)) as DocumentData;
+  return rehydrateEncodedDocValue(JSON.parse(serialized.json), serialized.valueEncoding) as DocumentData;
 }
 
 /** Full read-path decode: shared codec rehydration + the same

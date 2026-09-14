@@ -17,9 +17,11 @@ import {
   type LintResult,
   type OrderDirection,
   type WhereFilterOp,
-  type WriteBatch as ChainWriteBatch,
-  type Transaction as ChainTransaction,
+  type Query as ChainQuery,
+  type AdminQuerySnapshot,
 } from 'pyric/sandbox/admin-firestore';
+import type { SetOptions } from './writes.js';
+import type { OperationOptions } from './sandbox/admin-compat/types.js';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
 import { TARGET_SYMBOL, type Target } from './state.js';
@@ -75,6 +77,8 @@ export type AppFirestore = Firestore & { readonly app: FirebaseApp };
 export interface DocumentReference<_T = DocumentData> {
   readonly id: string;
   readonly path: string;
+  withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): DocumentReference<T>;
+  withConverter(converter: null): DocumentReference<DocumentData>;
 }
 /** A reference to a Firestore collection. Backend-opaque. */
 export interface CollectionReference<_T = DocumentData> {
@@ -113,8 +117,21 @@ export interface QuerySnapshot<T = DocumentData> {
   readonly docs: ReadonlyArray<QueryDocumentSnapshot<T>>;
   readonly metadata: SnapshotMetadata;
 }
-export interface WriteBatch extends ChainWriteBatch {}
-export interface Transaction extends ChainTransaction {}
+export interface WriteBatch {
+  set<T = DocumentData>(ref: DocumentReference<T>, data: T, options?: SetOptions): WriteBatch;
+  update(ref: DocumentReference, data: DocumentData): WriteBatch;
+  delete(ref: DocumentReference): WriteBatch;
+  /** Retains the existing sandbox-only per-commit auth override. */
+  commit(options?: OperationOptions): Promise<void>;
+}
+export interface Transaction {
+  get<T = DocumentData>(ref: DocumentReference<T>): Promise<DocumentSnapshot<T> & { exists(): boolean }>;
+  /** Existing sandbox query extension; modular Firebase transactions read documents. */
+  get(query: ChainQuery): Promise<AdminQuerySnapshot>;
+  set<T = DocumentData>(ref: DocumentReference<T>, data: T, options?: SetOptions): Transaction;
+  update(ref: DocumentReference, data: DocumentData): Transaction;
+  delete(ref: DocumentReference): Transaction;
+}
 export type Unsubscribe = () => void;
 
 export const CACHE_SIZE_UNLIMITED = -1;

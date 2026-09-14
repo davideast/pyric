@@ -16,17 +16,18 @@ import { pageListenerOwners } from './listener-owners.js';
 import { reportListenerDelivery } from './listener-delivery.js';
 import { makeDocSnapshot, makeQuerySnapshot } from './snapshots.js';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot } from './snapshots.js';
+import type { DocumentData } from 'pyric/firestore';
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
 
-export async function getDoc(ref: DocRefHandle): Promise<ClientDocSnapshot> {
+export async function getDoc<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>> {
   const result = await dataRpc(ref.port, {
     t: 'op',
     id: nextId(),
     method: 'getDoc',
     path: ref.descriptor.path,
   }) as RawDocResult;
-  return makeDocSnapshot(result, ref.port);
+  return makeDocSnapshot(result, ref.port, ref);
 }
 
 export async function getDocs(

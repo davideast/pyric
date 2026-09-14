@@ -7,6 +7,7 @@ export class RtdbConnectionLifecycle {
   private readonly operations = new DisconnectOperationQueue();
   private draining: Promise<void> | null = null;
   private online = true;
+  private readonly connectionListeners = new Set<(online: boolean) => void>();
   private resetGeneration: number;
 
   constructor(
@@ -18,7 +19,8 @@ export class RtdbConnectionLifecycle {
   }
 
   private synchronizeReset(): void {
-    if (this.resetGeneration === this.backend.connectionResetGeneration) return;
+    const isCurrentGeneration = this.resetGeneration === this.backend.connectionResetGeneration;
+    if (isCurrentGeneration) return;
     this.operations.clear();
     this.online = true;
     this.resetGeneration = this.backend.connectionResetGeneration;
@@ -27,14 +29,17 @@ export class RtdbConnectionLifecycle {
   register(operation: DisconnectOperation): Promise<void> {
     this.synchronizeReset();
     try {
-      if (!this.admin) {
-        if (operation.kind === 'update') {
+      const requiresRules = !this.admin;
+      if (requiresRules) {
+        const isUpdate = operation.kind === 'update';
+        if (isUpdate) {
           this.backend.validateUpdate(this.auth(), operation.path, operation.values);
         } else {
+          const isRemove = operation.kind === 'remove';
           this.backend.validateSet(
             this.auth(),
             operation.path,
-            operation.kind === 'remove' ? null : operation.value,
+            isRemove ? null : operation.value,
           );
         }
       }
@@ -58,53 +63,75 @@ export class RtdbConnectionLifecycle {
 
   goOffline(): void {
     this.synchronizeReset();
-    if (!this.online) return;
-    this.online = false;
+    const isOffline = !this.online;
+    if (isOffline) return;
+    this.setOnline(false);
     void this.drain().catch(() => undefined);
   }
 
   goOnline(): void {
     this.synchronizeReset();
-    this.online = true;
+    this.setOnline(true);
+  }
+
+  observeConnection(next: (online: boolean) => void): () => void {
+    this.synchronizeReset();
+    this.connectionListeners.add(next);
+    next(this.online);
+    return () => { this.connectionListeners.delete(next); };
+  }
+
+  private setOnline(online: boolean): void {
+    const isUnchanged = this.online === online;
+    if (isUnchanged) return;
+    this.online = online;
+    for (const listener of [...this.connectionListeners]) listener(online);
   }
 
   drain(): Promise<void> {
     this.synchronizeReset();
-    if (this.draining) return this.draining;
+    const currentDrain = this.draining;
+    const isDraining = currentDrain !== null;
+    if (isDraining) return currentDrain;
     const queued = this.operations.takeAll();
     this.draining = (async () => {
       const failures: unknown[] = [];
       for (const operation of queued) {
         try {
-          if (operation.kind === 'update') {
-            if (this.admin) {
+          const isUpdate = operation.kind === 'update';
+          const isAdmin = this.admin;
+          if (isUpdate) {
+            if (isAdmin) {
               this.backend.adminUpdate(operation.path, operation.values as Record<string, JsonValue>);
             } else {
               this.backend.update(this.auth(), operation.path, operation.values as Record<string, JsonValue>);
             }
           } else {
-            const value = operation.kind === 'remove' ? null : operation.value;
-            if (
-              operation.kind === 'set' &&
-              operation.mergeAfterChildRegistration &&
-              value !== null && typeof value === 'object' && !Array.isArray(value)
-            ) {
-              if (this.admin) {
+            const isRemove = operation.kind === 'remove';
+            const value = isRemove ? null : operation.value;
+            const isSet = operation.kind === 'set';
+            const mergesAfterChildRegistration = isSet && operation.mergeAfterChildRegistration === true;
+            const hasObjectValue = value !== null && typeof value === 'object';
+            const mergesObjectChildren = mergesAfterChildRegistration && hasObjectValue && !Array.isArray(value);
+            if (mergesObjectChildren) {
+              if (isAdmin) {
                 this.backend.adminUpdate(operation.path, value as Record<string, JsonValue>);
               } else {
                 this.backend.update(this.auth(), operation.path, value as Record<string, JsonValue>);
               }
               continue;
             }
-            if (this.admin) {
-              if (operation.kind === 'set' && operation.priority !== undefined) {
-                this.backend.adminSetWithPriority(operation.path, value as JsonValue, operation.priority);
+            const priority = isSet ? operation.priority : undefined;
+            const hasPriority = priority !== undefined;
+            if (isAdmin) {
+              if (hasPriority) {
+                this.backend.adminSetWithPriority(operation.path, value as JsonValue, priority);
               } else {
                 this.backend.adminSet(operation.path, value as JsonValue);
               }
             } else {
-              if (operation.kind === 'set' && operation.priority !== undefined) {
-                this.backend.setWithPriority(this.auth(), operation.path, value as JsonValue, operation.priority);
+              if (hasPriority) {
+                this.backend.setWithPriority(this.auth(), operation.path, value as JsonValue, priority);
               } else {
                 this.backend.set(this.auth(), operation.path, value as JsonValue);
               }
@@ -114,8 +141,10 @@ export class RtdbConnectionLifecycle {
           failures.push(error);
         }
       }
-      if (failures.length === 1) throw failures[0];
-      if (failures.length > 1) throw new AggregateError(failures, 'Multiple onDisconnect operations failed');
+      const hasOneFailure = failures.length === 1;
+      if (hasOneFailure) throw failures[0];
+      const hasMultipleFailures = failures.length > 1;
+      if (hasMultipleFailures) throw new AggregateError(failures, 'Multiple onDisconnect operations failed');
     })().finally(() => {
       this.draining = null;
     });

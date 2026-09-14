@@ -7,7 +7,7 @@
  *   1. Capture reads (admin-mode, no rules) via an injected reader
  *      callback. This decouples the class from `LocalEnvironment` for
  *      testability — Item 2 binds the reader to `this.getDocument`.
- *   2. Queue writes append-only. The merge / atomic-apply / rules-eval
+ *   2. Queue writes append-only. Ordered resolution / atomic-apply / rules-eval
  *      all happen *after* the callback returns, in `LocalEnvironment.
  *      transaction()` (Item 2.1).
  *   3. Enforce global read-before-write ordering — once any write
@@ -21,6 +21,8 @@
  */
 import type { DocumentData } from './local-state.js';
 import { makeError, type FirestoreSimError } from './errors.js';
+import type { Operation } from './writes.js';
+import { cloneDoc } from './document-copy.js';
 import {
   READ_AFTER_WRITE_MESSAGE,
   type CapturedRead,
@@ -97,18 +99,23 @@ export class TransactionContext implements Transaction {
   get(path: string): TransactionSnapshot {
     this.assertReadsAllowed();
     const data = this.reader(path);
-    if (!this.readVersions.has(path)) {
+    const isNewRead = !this.readVersions.has(path);
+    if (isNewRead) {
       this.readVersions.set(path, this.versionReader(path));
     }
     this.reads.push({ path, data });
     // Capture-by-value: callbacks that mutate `data()` later don't
     // poison the captured read set. Cheap (small docs) and matches
     // production semantics where the snapshot is immutable.
-    const captured = data === null ? null : structuredClone(data);
+    const documentMissing = data === null;
+    const captured = documentMissing ? null : cloneDoc(data);
     return {
       path,
       exists: captured !== null,
-      data: () => (captured === null ? undefined : captured),
+      data: () => {
+        const isMissing = captured === null;
+        return isMissing ? undefined : captured;
+      },
     };
   }
 
@@ -121,8 +128,14 @@ export class TransactionContext implements Transaction {
 
   // ─── Writes ───────────────────────────────────────────────────────
 
-  set(path: string, data: DocumentData): void {
-    this.queue({ method: 'set', path, data });
+  set(path: string, data: DocumentData, merge?: Operation['merge']): void {
+    const write: QueuedWrite = { method: 'set', path, data };
+    const hasMerge = merge !== undefined;
+    if (hasMerge) {
+      const hasFieldMask = typeof merge === 'object';
+      write.merge = hasFieldMask ? { mergeFields: [...merge.mergeFields] } : merge;
+    }
+    this.queue(write);
   }
   create(path: string, data: DocumentData): void {
     this.queue({ method: 'create', path, data });
@@ -161,12 +174,16 @@ export class TransactionContext implements Transaction {
   // ─── Private ──────────────────────────────────────────────────────
 
   private queue(write: QueuedWrite): void {
+    const { data } = write;
+    const hasData = data !== undefined;
+    if (hasData) write.data = cloneDoc(data);
     this.writeStarted = true;
     this.writes.push(write);
   }
 
   private assertReadsAllowed(): void {
-    if (this.writeStarted) {
+    const readsAreClosed = this.writeStarted;
+    if (readsAreClosed) {
       throw new ReadAfterWriteError();
     }
   }

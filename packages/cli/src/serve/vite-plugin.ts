@@ -56,6 +56,8 @@ import { createViteModuleContext, createViteModuleSwap } from './vite-module-swa
 import { createVitePageRuntime } from './vite-page-runtime.js';
 
 export interface PyricOptions {
+  /** Execute supported Firestore operations through the application's real SDK. */
+  live?: boolean;
   /** Firestore rules path (relative to `root`). Default discovery prefers an
    *  authored `firestore.modules.rules`, then `firebase.json`, then
    *  `firestore.rules` in the project root. */
@@ -199,7 +201,7 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
  *   export default defineConfig({ plugins: [pyric()] });
  */
 export function pyric(options: PyricOptions = {}): Plugin {
-  const moduleContext = createViteModuleContext();
+  const moduleContext = createViteModuleContext({ live: options.live });
   const { entries, cliRoot } = moduleContext;
   const workerRuntime = createViteWorkerRuntime();
   const studioEnabled = options.ui !== false;
@@ -212,11 +214,14 @@ export function pyric(options: PyricOptions = {}): Plugin {
   const pageRuntime = createVitePageRuntime(pageRuntimeInput);
   const moduleSwap = createViteModuleSwap(moduleContext, {
     getAiMode: () => pageRuntime.ai().mode,
+    live: options.live,
   });
 
   // Normalize the public bridge shorthand once. The active generation owns the
   // bridge/session attachment and routes the peer through the SharedWorker.
-  const bridgeOpts = options.bridge === true ? {} : options.bridge || null;
+  const bridgeSetting = options.bridge;
+  const usesDefaultBridgeOptions = bridgeSetting === true;
+  const bridgeOpts = usesDefaultBridgeOptions ? {} : bridgeSetting || null;
   let activeGeneration: ViteSandboxGeneration | null = null;
 
   return {
@@ -256,6 +261,9 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     resolveId(source, importer) {
+      const realImporter = moduleSwap.upstreamImporter(source, importer);
+      const hasRealImporter = realImporter !== null;
+      if (hasRealImporter) return this.resolve(source, realImporter, { skipSelf: true });
       return moduleSwap.resolveId(source, importer);
     },
 
@@ -294,12 +302,18 @@ export function pyric(options: PyricOptions = {}): Plugin {
       };
       const generation = await createViteSandboxGeneration(generationInput);
       activeGeneration = generation;
-    },
-
-    async closeBundle() {
-      const generation = activeGeneration;
-      activeGeneration = null;
-      await generation?.close();
+      // Vite creates a replacement before closing the old server. Cleanup
+      // belongs to this server, even when another generation is now active.
+      const closeServer = server.close.bind(server);
+      server.close = async () => {
+        const ownsActiveGeneration = activeGeneration === generation;
+        if (ownsActiveGeneration) activeGeneration = null;
+        try {
+          await generation.close();
+        } finally {
+          await closeServer();
+        }
+      };
     },
 
     // Sandbox build only: emit the serve init entry as its own chunk. Emitted in

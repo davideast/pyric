@@ -232,11 +232,6 @@ function inequalityFields(filter: QueryFilter): string[] {
   return filter.filters.flatMap(inequalityFields);
 }
 
-/** True when a filter (possibly composite) carries any inequality op. */
-function hasInequality(filter: QueryFilter): boolean {
-  return inequalityFields(filter).length > 0;
-}
-
 // ─────────────────────────────────────────────────────────────────────────
 // Range comparators (FS-B3) — canonical, type-order-aware.
 //
@@ -473,30 +468,26 @@ export function executeQuery(
 ): QueryRow[] {
   let filtered = applyQueryFilters(rows, [...spec.filters]);
   const normalized = normalizedQueryOrders(spec);
-  const needsOrder =
-    spec.orders.length > 0 ||
-    spec.start !== undefined ||
-    spec.end !== undefined ||
-    spec.filters.some(hasInequality);
-
-  if (
-    needsOrder &&
-    spec.limitCount !== undefined &&
+  const limitCount = spec.limitCount;
+  const canUseTopK =
+    limitCount !== undefined &&
     !spec.limitFromEnd &&
     spec.start === undefined &&
-    spec.end === undefined
-  ) {
+    spec.end === undefined;
+  if (canUseTopK) {
     return topK(
       orderPresent(filtered, normalized),
-      spec.limitCount,
+      limitCount,
       orderComparator(normalized),
     );
   }
-  if (needsOrder) filtered = applyOrder(filtered, normalized);
+  filtered = applyOrder(filtered, normalized);
 
-  if (spec.start || spec.end) {
+  const hasCursors = Boolean(spec.start || spec.end);
+  if (hasCursors) {
     for (const cursor of [spec.start, spec.end]) {
-      if (cursor && !cursor.fromSnapshot && cursor.values.length > spec.orders.length) {
+      const hasTooManyCursorValues = Boolean(cursor && !cursor.fromSnapshot && cursor.values.length > spec.orders.length);
+      if (hasTooManyCursorValues) {
         throw new FirestoreCompatError({
           code: 'invalid-argument',
           message:
@@ -509,17 +500,21 @@ export function executeQuery(
     filtered = applyCursors(filtered, normalized, spec.start, spec.end);
   }
 
-  if (spec.limitCount !== undefined) {
-    if (spec.limitFromEnd) {
-      if (spec.orders.length === 0) {
+  const finalLimit = spec.limitCount;
+  const hasLimit = finalLimit !== undefined;
+  if (hasLimit) {
+    const usesTailLimit = spec.limitFromEnd;
+    if (usesTailLimit) {
+      const hasNoExplicitOrder = spec.orders.length === 0;
+      if (hasNoExplicitOrder) {
         throw new FirestoreCompatError({
           code: 'unimplemented',
           message: 'limitToLast() queries require at least one orderBy clause.',
         });
       }
-      filtered = filtered.slice(-spec.limitCount);
+      filtered = filtered.slice(-finalLimit);
     } else {
-      filtered = filtered.slice(0, spec.limitCount);
+      filtered = filtered.slice(0, finalLimit);
     }
   }
   return filtered;

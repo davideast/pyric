@@ -79,9 +79,10 @@ export function registeredReferenceQueryValuePath(value: object): string | undef
 export function registerReferenceQueryValue(
   value: object,
   path: string,
-  owner: object,
+  owner?: object,
   executionValue: object = value,
 ): void {
   registerQueryValue(value, new ReferenceQueryValue(path), () => executionValue);
-  owners.set(value, owner);
+  const hasOwner = owner !== undefined;
+  if (hasOwner) owners.set(value, owner);
 }

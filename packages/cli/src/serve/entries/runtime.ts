@@ -29,11 +29,12 @@ import {
   relayWorkerSub,
   relayWorkerDisconnect,
 } from '../worker/client.js';
-import { useWorker, workerDb } from './worker-runtime.js';
+import { useWorker, workerDb, useHosted } from './worker-runtime.js';
+import { initPayload, initPayloadRequest } from './init-payload.js';
+export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
-import type { InitPayload } from '../init-payload.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
@@ -122,11 +123,6 @@ let activityTokenFromPayload: string | null = null;
  * the avatar-upgrade flag `entries/init.ts` acts on), so both modes share this
  * request rather than each issuing their own.
  */
-const initPayloadRequest = (async (): Promise<InitPayload> => {
-  const res = await fetch('/__pyric/init.json');
-  if (!res.ok) throw new Error(`/__pyric/init.json → ${res.status}`);
-  return (await res.json()) as InitPayload;
-})();
 
 /**
  * The payload for page-level consumers, `null` when it could not be read.
@@ -134,7 +130,6 @@ const initPayloadRequest = (async (): Promise<InitPayload> => {
  * consumer of one flag must not have to own it a second time. Awaiting this
  * also keeps `initPayloadRequest`'s rejection handled.
  */
-export const initPayload: Promise<InitPayload | null> = initPayloadRequest.catch(() => null);
 
 // ── init payload: fetch + apply (top-level await — see header) ────────
 // WORKER PATH: skipped — the worker fetches the same init.json and owns
@@ -482,6 +477,7 @@ if (typeof window !== 'undefined') {
 // ── bridge peer (only when `pyric dev --bridge` put a URL in the payload;
 //    dynamic import so bridge-less pages never load the client chunk) ─────
 async function connectBridgePeer(rawUrl: string): Promise<void> {
+  if (useHosted) return;
   // Re-anchor the bridge WS to THIS page's origin so it reaches the server the
   // page was actually served from over Tailscale / a LAN IP / https, not the
   // server's baked-in localhost. See bridge-url.ts.
@@ -490,8 +486,9 @@ async function connectBridgePeer(rawUrl: string): Promise<void> {
   // On the worker path, route agent tool-calls THROUGH the SharedWorker so the
   // agent shares the one sandbox the app + Studio use (no separate in-page
   // backend). Off the worker path (in-page fallback), dispatch in-page as before.
-  if (useWorker && workerDb) {
-    const wdb = workerDb;
+  const wdb = workerDb;
+  const hasWorkerBridge = useWorker && wdb !== null;
+  if (hasWorkerBridge) {
     connectBridge(sandbox, {
       url,
       dispatcher: (_sandbox, name, args, actAs) => workerCallTool(wdb, name, args, actAs),

@@ -26,6 +26,8 @@ export interface InitPayload {
    */
   projectKey?: string | null;
   bridgeUrl: string | null;
+  /** Explicit Node ownership; browser startup must not select a local store. */
+  hosted?: boolean;
   seed: Record<string, Record<string, unknown>> | null;
   persist?: boolean;
   seedState?: unknown | null;

@@ -159,6 +159,21 @@ export interface ToolCallResponse {
 /** Peer capability flag: "I can relay worker-op / worker-sub frames". */
 export const WORKER_RELAY_CAPABILITY = 'worker-relay';
 
+/** Full port traffic, including app configuration, clock updates, and teardown. */
+export const WORKER_PORT_CAPABILITY = 'worker-port';
+
+export interface WorkerMessageFrame {
+  type: 'worker-message';
+  clientSessionId?: string;
+  message: import('../serve/worker/protocol.js').InboundMessage;
+}
+
+export interface WorkerMessageResultFrame {
+  type: 'worker-message-result';
+  clientSessionId: string;
+  message: import('../serve/worker/protocol.js').OutboundMessage;
+}
+
 /** `Omit` distributed over a union (plain `Omit` collapses union members). */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
@@ -184,6 +199,9 @@ export type WorkerSubPayload = DistributiveOmit<SubMessage, 't' | 'subId'> & {
 export interface AttachFromConsumer {
   type: 'attach';
   protocol: 1;
+  transport?: 'worker-port';
+  /** Host-issued capability for resuming a worker port's original identity. */
+  resumeToken?: string;
   /** Optional client-supplied session ID to resume an existing session across reconnects. */
   clientSessionId?: string;
   /** Alias for clientSessionId (backward/cross-platform compatibility). */
@@ -199,6 +217,9 @@ export interface AttachFromConsumer {
 export interface AttachAckFromBridge {
   type: 'attach-ack';
   protocol: 1;
+  capabilities?: string[];
+  /** Local project identity, distinct from the bridge's human-readable label. */
+  projectKey?: string;
   bridgeVersion: string;
   /** Whether a browser tab is currently registered as the sandbox peer. */
   peerConnected: boolean;
@@ -217,6 +238,8 @@ export interface AttachAckFromBridge {
   clientSessionId: string;
   /** Alias for clientSessionId. */
   sessionId?: string;
+  /** Private to this connection; never included in consumer presence. */
+  resumeToken?: string;
 }
 
 /** Toward the worker: dispatch this one-shot op. (consumer→bridge and
@@ -283,6 +306,12 @@ export interface WorkerSnapFrame {
 /** Bridge → browser peer: notify that a remote client disconnected. */
 export interface WorkerClientDisconnectFrame {
   type: 'worker-client-disconnect';
+  clientSessionId: string;
+}
+
+/** Bridge → hosted peer: transport loss while logical identity is retained. */
+export interface WorkerClientInterruptedFrame {
+  type: 'worker-client-interrupted';
   clientSessionId: string;
 }
 
@@ -358,16 +387,20 @@ export type BridgeMessage =
   | WorkerUnsubFrame
   | WorkerSnapFrame
   | WorkerClientDisconnectFrame
+  | WorkerClientInterruptedFrame
   | ConsumerPresenceFrame
   | RemoteSetLensFrame
   | RemoteSetLensAckFrame
   | WorkerEventFrame
+  | WorkerMessageFrame
+  | WorkerMessageResultFrame
   | Ping
   | Pong;
 
 /** Type guard for runtime parsing. */
 export function isBridgeMessage(value: unknown): value is BridgeMessage {
-  if (value === null || typeof value !== 'object') return false;
+  const isNotObject = value === null || typeof value !== 'object';
+  if (isNotObject) return false;
   const t = (value as { type?: unknown }).type;
   return (
     t === 'hello' ||
@@ -382,10 +415,13 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
     t === 'worker-unsub' ||
     t === 'worker-snap' ||
     t === 'worker-client-disconnect' ||
+    t === 'worker-client-interrupted' ||
     t === 'consumer-presence' ||
     t === 'remote-set-lens' ||
     t === 'remote-set-lens-ack' ||
     t === 'worker-event' ||
+    t === 'worker-message' ||
+    t === 'worker-message-result' ||
     t === 'ping' ||
     t === 'pong'
   );

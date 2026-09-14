@@ -124,16 +124,36 @@ const disconnectQueues = new WeakMap<HostCtx, Map<PortLike, DisconnectOperationQ
 const offlinePorts = new WeakMap<HostCtx, Set<PortLike>>();
 
 function offlinePortSet(ctx: HostCtx): Set<PortLike> {
-  let ports = offlinePorts.get(ctx);
-  if (!ports) offlinePorts.set(ctx, ports = new Set());
+  hostDisconnectQueues(ctx);
+  const existing = offlinePorts.get(ctx);
+  const hasPorts = existing !== undefined;
+  if (hasPorts) return existing;
+  const ports = new Set<PortLike>();
+  offlinePorts.set(ctx, ports);
+  return ports;
+}
+
+function hostDisconnectQueues(ctx: HostCtx): Map<PortLike, DisconnectOperationQueue<PortDisconnectMetadata>> {
+  const existing = disconnectQueues.get(ctx);
+  const hasQueues = existing !== undefined;
+  if (hasQueues) return existing;
+  const ports = new Map<PortLike, DisconnectOperationQueue<PortDisconnectMetadata>>();
+  disconnectQueues.set(ctx, ports);
+  // The sandbox owns this subscription and releases it on disposal.
+  ctx.sandbox.onEvent((event) => {
+    const startsReset = event.kind === 'session_boundary' && event.phase === 'reset';
+    if (startsReset) clearAllRtdbDisconnects(ctx);
+  });
   return ports;
 }
 
 function portQueue(ctx: HostCtx, port: PortLike): DisconnectOperationQueue<PortDisconnectMetadata> {
-  let ports = disconnectQueues.get(ctx);
-  if (!ports) disconnectQueues.set(ctx, ports = new Map());
-  let queue = ports.get(port);
-  if (!queue) ports.set(port, queue = new DisconnectOperationQueue());
+  const ports = hostDisconnectQueues(ctx);
+  const existing = ports.get(port);
+  const hasQueue = existing !== undefined;
+  if (hasQueue) return existing;
+  const queue = new DisconnectOperationQueue<PortDisconnectMetadata>();
+  ports.set(port, queue);
   return queue;
 }
 
@@ -185,7 +205,7 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike): Pr
   if (failures.length > 1) throw new AggregateError(failures, 'Multiple SharedWorker onDisconnect operations failed');
 }
 
-export function clearAllRtdbDisconnects(ctx: HostCtx): void {
+function clearAllRtdbDisconnects(ctx: HostCtx): void {
   disconnectQueues.get(ctx)?.clear();
   offlinePorts.get(ctx)?.clear();
 }

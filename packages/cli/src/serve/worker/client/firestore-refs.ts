@@ -16,6 +16,8 @@ import type {
 } from '../protocol.js';
 import { lastSegment } from './handles.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle } from './handles.js';
+import { createDocumentReference } from './firestore-reference.js';
+import { encodeDocValue, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
 
 // ─── Path factories (client-side only — no RPC) ──────────────────────────
 
@@ -30,28 +32,23 @@ export function doc(
   parent: ClientDb | CollRefHandle,
   ...pathSegments: string[]
 ): DocRefHandle {
-  const port = 'port' in parent ? parent.port : (parent as ClientDb).port;
+  const port = parent.port;
   let path: string;
 
-  if (parent.__kind === 'client-db') {
-    if (pathSegments.length === 0) throw new TypeError('doc(db, path) requires a path segment.');
+  const isDatabase = parent.__kind === 'client-db';
+  const hasPath = pathSegments.length > 0;
+  if (isDatabase) {
+    const isPathMissing = !hasPath;
+    if (isPathMissing) throw new TypeError('doc(db, path) requires a path segment.');
     path = pathSegments.join('/');
   } else {
     // parent is a CollRefHandle
-    const collPath = (parent as CollRefHandle).descriptor.path;
-    path = pathSegments.length > 0
-      ? `${collPath}/${pathSegments.join('/')}`
-      : collPath; // caller will get auto-id via addDoc; doc() without id is unusual
+    const collPath = parent.descriptor.path;
+    path = collPath;
+    if (hasPath) path = `${collPath}/${pathSegments.join('/')}`;
   }
 
-  const descriptor: DocRef = { __ref: 'doc', path };
-  return {
-    __kind: 'doc-ref',
-    descriptor,
-    port,
-    id: lastSegment(path),
-    path,
-  };
+  return createDocumentReference(port, path);
 }
 
 /**
@@ -102,7 +99,8 @@ export interface QueryConstraintHandle {
 }
 
 export function where(field: string, op: string, value: unknown): QueryConstraintHandle {
-  return { _descriptor: { kind: 'where', field, op, value } };
+  const encoded = encodeDocValue(value);
+  return { _descriptor: { kind: 'where', field, op, value: encoded, valueEncoding: DOC_VALUE_ENCODING } };
 }
 
 /**
@@ -157,19 +155,19 @@ export function limitToLast(n: number): QueryConstraintHandle {
 }
 
 export function startAt(...values: unknown[]): QueryConstraintHandle {
-  return { _descriptor: { kind: 'startAt', values } };
+  return { _descriptor: { kind: 'startAt', values: values.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING } };
 }
 
 export function startAfter(...values: unknown[]): QueryConstraintHandle {
-  return { _descriptor: { kind: 'startAfter', values } };
+  return { _descriptor: { kind: 'startAfter', values: values.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING } };
 }
 
 export function endAt(...values: unknown[]): QueryConstraintHandle {
-  return { _descriptor: { kind: 'endAt', values } };
+  return { _descriptor: { kind: 'endAt', values: values.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING } };
 }
 
 export function endBefore(...values: unknown[]): QueryConstraintHandle {
-  return { _descriptor: { kind: 'endBefore', values } };
+  return { _descriptor: { kind: 'endBefore', values: values.map(encodeDocValue), valueEncoding: DOC_VALUE_ENCODING } };
 }
 
 /**

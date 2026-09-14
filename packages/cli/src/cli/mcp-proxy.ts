@@ -13,13 +13,18 @@
  * talks to the MCP client; `StreamableHTTPClientTransport` talks to serve; each
  * transport's `onmessage` is piped to the other's `send`.
  *
- * Two hardening layers sit on top of that pipe:
+ * Discovery checks and request deadlines sit on top of that pipe:
  *
  *   IDENTITY — the discovery pointer records the bridge's `instanceId`; the
  *     proxy accepts a server only if its `/health` reports the SAME id. Two
  *     sandboxes can collide on one port across loopback families (IPv4 `*:P`
  *     + IPv6 `[::1]:P`); without this, the proxy locks onto whichever family
  *     answers first while the browser is on the other — split-brain.
+ *     Each HTTP request carries that identity so replacement after discovery
+ *     is refused, including before the first MCP session exists.
+ *   PROJECT — each request carries the canonical directory containing the
+ *     selected pointer. The endpoint verifies it before creating or resuming
+ *     an MCP session. This checks discovery context, not client authentication.
  *   TIMEOUT — every relayed request is failed with a JSON-RPC error after
  *     REQUEST_TIMEOUT_MS instead of hanging the agent forever (a killed
  *     server can leave a half-open keep-alive socket that never FINs). A
@@ -31,8 +36,8 @@
  * and the user restarts the MCP connection.)
  *
  * `--in-process` opts out of all of this: it forces the in-process sandbox and
- * never looks for a running bridge, so a run is reproducible whatever else is
- * on the machine. `--surface <id>` (or `PYRIC_TOOL_SURFACE`, with the flag
+ * never looks for a running bridge. The selected project must still have no
+ * other persistence owner. `--surface <id>` (or `PYRIC_TOOL_SURFACE`, with the flag
  * winning) selects the tool surface the in-process server renders, and
  * `--project-dir <dir>` (or `PYRIC_PROJECT_DIR`, same precedence) names the
  * directory that in-process server reads its rules files and `.pyric/state` from.
@@ -43,17 +48,18 @@
  * refused (ADR-0014 Decision 5).
  *
  * Discovery: the `.pyric/serve.json` pointer serve writes in the project cwd
- * is the only thing that attaches, because it is the only thing that proves
- * the server belongs to this project. The health probe across the scan window
+ * selects a host; its contents alone do not prove project ownership. The
+ * endpoint verifies the pointer's directory. The health probe across the scan window
  * still runs, but a server it finds is reported and not attached to: it may be
  * another project's sandbox on the same machine. Degrades LEGIBLY: if no serve
  * is found, or the pointed server's identity can't be matched, we report it
  * and never hang.
  */
-import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { ParsedArgs } from './parse-args.js';
 import { allowProductionFrom } from '../bridge/surface/method-effects.js';
 import { discoverServe, SCAN_PORTS } from '../serve/discovery.js';
+import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER } from '../serve/mcp-project.js';
 
 // Discovery (pointer + identity-pinned health probing) lives in
 // `serve/discovery.ts` — shared with the Node remote-sandbox client
@@ -66,17 +72,22 @@ export { discoverServe } from '../serve/discovery.js';
 const REQUEST_TIMEOUT_MS = 35_000;
 /** JSON-RPC error code for proxy-synthesized failures (server-defined range). */
 const PROXY_ERROR_CODE = -32001;
+/** Transport failure cannot establish whether a sent mutation committed. */
+const UNKNOWN_REQUEST_OUTCOME = 'The request outcome is unknown; a write may have committed. ' +
+  'Check the host state before issuing another write.';
 
 // ── JSON-RPC shape helpers (relay-level; no SDK runtime import) ──────────────
 function msgId(m: JSONRPCMessage): string | number | null {
-  return 'id' in m && (m as { id?: unknown }).id != null ? (m as { id: string | number }).id : null;
+  const hasIdentifier = 'id' in m;
+  if (hasIdentifier) return m.id ?? null;
+  return null;
 }
 /** A request expects a response (has both `id` and `method`). */
-function isRequest(m: JSONRPCMessage): boolean {
+function isRequest(m: JSONRPCMessage): m is JSONRPCRequest {
   return 'method' in m && msgId(m) != null;
 }
 /** A response/error answers a request (has `id`, no `method`). */
-function isResponse(m: JSONRPCMessage): boolean {
+function isResponse(m: JSONRPCMessage): m is JSONRPCMessage & { id: string | number } {
   return !('method' in m) && msgId(m) != null;
 }
 
@@ -178,12 +189,14 @@ export async function runMcpProxy(
     ((c: string, o: InProcessSelection) =>
       import('../bridge/server/in-process.js').then((m) => m.runInProcessMcp(c, o)));
 
-  if (forcesInProcessSandbox(parsed) && requiresRunningServe(parsed)) {
+  const forcesInProcess = forcesInProcessSandbox(parsed);
+  const hasConflictingHosts = forcesInProcess && requiresRunningServe(parsed);
+  if (hasConflictingHosts) {
     log('--attach and --in-process name different hosts for the sandbox; pass one of them.');
     return USAGE_ERROR;
   }
 
-  if (forcesInProcessSandbox(parsed)) {
+  if (forcesInProcess) {
     // `--in-process` is the evaluation and scripting path: one sandbox per
     // process, with no dependence on whatever else is running on this machine.
     // Discovery is not consulted at all, so a running bridge cannot be attached.
@@ -192,18 +205,21 @@ export async function runMcpProxy(
   }
 
   const discovered = await (deps.discover ?? discoverServe)(cwd, log);
-  // Only the project's own pointer file proves a serve belongs to this
-  // project. A server the port scan found may be another project's sandbox on
-  // the same machine, so it is reported and left alone.
-  const found = discovered !== null && discovered.source.startsWith('pointer') ? discovered : null;
-  if (discovered !== null && found === null) {
+  // Only a pointer selects a host. Its directory is then verified by the MCP
+  // endpoint; the pointer's contents alone do not establish project ownership.
+  const hasPointer = discovered !== null && discovered.source.startsWith('pointer');
+  const found = hasPointer ? discovered : null;
+  const foundOnlyByScan = discovered !== null && found === null;
+  if (foundOnlyByScan) {
     log(
       `a sandbox server is answering at ${discovered.base} (${discovered.source}), but no ` +
         '.pyric/serve.json in this project names it, so it is not attached to. Start `pyric serve` ' +
         'from this project to write the pointer, or ignore the server if it belongs to another project.',
     );
   }
-  if (!found && requiresRunningServe(parsed)) {
+  const hasNoHost = found === null;
+  const requiresMissingHost = hasNoHost && requiresRunningServe(parsed);
+  if (requiresMissingHost) {
     log(
       'no running `pyric serve` or `pyric sandbox --bridge` found for this project (looked for ' +
         `.pyric/serve.json and ports ${SCAN_PORTS.join(', ')}), and --attach asks for one. ` +
@@ -211,7 +227,7 @@ export async function runMcpProxy(
     );
     return USAGE_ERROR;
   }
-  if (!found) {
+  if (hasNoHost) {
     // Hybrid mode (design rationale): no dev server to attach to, so host the
     // sandbox IN this process. Zero setup, no browser tab required. A running
     // `pyric sandbox --bridge` upgrades to the shared session on reconnect.
@@ -232,7 +248,16 @@ export async function runMcpProxy(
     '@modelcontextprotocol/sdk/client/streamableHttp.js'
   );
 
-  const http = new StreamableHTTPClientTransport(new URL(found.mcpUrl));
+  const requestHeaders: Record<string, string> = {};
+  const pointerProjectDir = found.pointerProjectDir;
+  const hasPointerProject = pointerProjectDir !== undefined;
+  if (hasPointerProject) requestHeaders[MCP_PROJECT_HEADER] = encodeURIComponent(pointerProjectDir);
+  const instanceId = found.instanceId;
+  const hasInstanceIdentity = instanceId !== null;
+  if (hasInstanceIdentity) requestHeaders[MCP_INSTANCE_HEADER] = instanceId;
+  const http = new StreamableHTTPClientTransport(new URL(found.mcpUrl), {
+    requestInit: { headers: requestHeaders },
+  });
   const stdio = new StdioServerTransport();
 
   return await new Promise<number>((resolveExit) => {
@@ -248,10 +273,11 @@ export async function runMcpProxy(
     };
     const failRequest = (id: string | number, message: string): void => {
       const timer = pending.get(id);
-      if (timer) clearTimeout(timer);
+      const hasTimer = timer !== undefined;
+      if (hasTimer) clearTimeout(timer);
       pending.delete(id);
       settled.add(id);
-      sendStdio({ jsonrpc: '2.0', id, error: { code: PROXY_ERROR_CODE, message } } as JSONRPCMessage);
+      sendStdio({ jsonrpc: '2.0', id, error: { code: PROXY_ERROR_CODE, message } });
     };
 
     const shutdown = (code: number): void => {
@@ -265,14 +291,14 @@ export async function runMcpProxy(
 
     // ── relay: stdio (Claude Code) → http (serve) ──
     stdio.onmessage = (msg) => {
-      if (isRequest(msg)) {
-        const id = msgId(msg)!;
+      const startsRequest = isRequest(msg);
+      if (startsRequest) {
+        const id = msg.id;
         const timer = setTimeout(() => {
           failRequest(
             id,
-            `pyric mcp-proxy: no response from serve within ${REQUEST_TIMEOUT_MS / 1000}s ` +
-              `(the server may have stopped, or no browser tab is connected). ` +
-              `Reopen the dev URL and retry.`,
+            `pyric mcp-proxy: no response from serve within ${REQUEST_TIMEOUT_MS / 1000}s. ` +
+              UNKNOWN_REQUEST_OUTCOME,
           );
         }, REQUEST_TIMEOUT_MS);
         pending.set(id, timer);
@@ -280,29 +306,40 @@ export async function runMcpProxy(
       void http.send(msg).catch((e) => {
         log(`→serve send failed: ${e}`);
         const id = msgId(msg);
-        if (id != null && pending.has(id)) failRequest(id, 'pyric mcp-proxy: failed to reach serve — retry.');
+        const hasPendingRequest = id !== null && pending.has(id);
+        if (hasPendingRequest) {
+          failRequest(id, 'pyric mcp-proxy: no acknowledgment from serve. ' + UNKNOWN_REQUEST_OUTCOME);
+        }
       });
     };
 
     // ── relay: http (serve) → stdio (Claude Code) ──
     http.onmessage = (msg) => {
-      if (isResponse(msg)) {
-        const id = msgId(msg)!;
+      const answersRequest = isResponse(msg);
+      if (answersRequest) {
+        const id = msg.id;
         const timer = pending.get(id);
-        if (timer) {
+        const hasTimer = timer !== undefined;
+        if (hasTimer) {
           clearTimeout(timer);
           pending.delete(id);
-        } else if (settled.has(id)) {
-          // A response that lost the race to its timeout — already failed to the
-          // client. Swallow it so the client never sees a duplicate frame.
-          settled.delete(id);
-          return;
+        } else {
+          const alreadySettled = settled.has(id);
+          if (alreadySettled) {
+            // A response that lost the race to its timeout — already failed to the
+            // client. Swallow it so the client never sees a duplicate frame.
+            settled.delete(id);
+            return;
+          }
         }
       }
       sendStdio(msg);
     };
 
-    http.onerror = (e) => log(`serve transport error: ${e instanceof Error ? e.message : String(e)}`);
+    http.onerror = (e) => {
+      const isError = e instanceof Error;
+      log(`serve transport error: ${isError ? e.message : String(e)}`);
+    };
     http.onclose = () => {
       log('serve closed the connection (did serve stop?)');
       shutdown(0);
@@ -315,7 +352,8 @@ export async function runMcpProxy(
     process.once('SIGTERM', () => shutdown(0));
 
     Promise.all([http.start(), stdio.start()]).catch((e) => {
-      log(`failed to start relay: ${e instanceof Error ? e.message : String(e)}`);
+      const isError = e instanceof Error;
+      log(`failed to start relay: ${isError ? e.message : String(e)}`);
       shutdown(1);
     });
   });

@@ -5,7 +5,7 @@
  *   - `getVersion` (build hash + per-worker instance id),
  *   - full-state transfer (`exportState`/`importState`, the portable bundle),
  *   - named saved states (`checkpoint`/`listCheckpoints`/`restore`/
- *     `deleteCheckpoint`, whole sandbox states in the RAW idb).
+ *     `deleteCheckpoint`, whole sandbox states in the host's checkpoint store).
  *
  * Owns the stable per-worker instance id (persisted to the raw idb).
  * `getOrCreateInstanceId` is imported by serve-init; the instance-id helpers
@@ -14,7 +14,8 @@
  */
 
 import type { PersistenceBackend } from 'pyric/sandbox';
-import { serializeToBuckets, bundleRecords, parseBundle, deserializeFromBuckets } from 'pyric/sandbox';
+import { serializeToBuckets, bundleRecords } from 'pyric/sandbox';
+import { decodeImportBundle } from 'pyric/sandbox/internal';
 import {
   listCheckpoints,
   recordCheckpointBackend,
@@ -25,7 +26,8 @@ import {
 } from 'pyric/sandbox/checkpoints';
 
 import type { OpMessage } from '../protocol.js';
-import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
+import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
+import { restoreSubscriptions } from './subscriptions.js';
 
 /** Build hash injected by the bundler's esbuild `define`. Undefined when the
  *  compiled host is imported directly (tests) — guarded with `typeof`. */
@@ -65,17 +67,19 @@ export async function getOrCreateInstanceId(idb: PersistenceBackend): Promise<st
 }
 
 // ── Named saved states ──────────────────────────────────────────────────────
-// A checkpoint is a named full sandbox state kept in the RAW idb (local-only,
-// like the instance id and the session record; it must NEVER reach the
-// committable server file). They let one instance keep several named states it
-// can go back to (`restore` is a clobber). What a checkpoint holds, how it is
-// named, and how a store keeps one is decided in `pyric/sandbox/checkpoints`,
-// so a state a page saves and a state the CLI saves are the same value.
+// SharedWorker checkpoints stay in its raw IndexedDB; hosted checkpoints use
+// the project's directory backend. Both use the shared checkpoint primitive
+// for names, capture and restore. Private connection/session state is separate.
 
 /** Where this worker keeps its checkpoints, or nothing when it has no store. */
 function checkpointsOf(ctx: HostCtx): CheckpointBackend | null {
-  if (!ctx.sessionBackend) return null;
-  return recordCheckpointBackend(ctx.sessionBackend);
+  const checkpointBackend = ctx.checkpointBackend;
+  const hasCheckpointBackend = checkpointBackend !== undefined;
+  if (hasCheckpointBackend) return checkpointBackend;
+  const recordStore = ctx.sessionBackend;
+  const hasNoRecordStore = recordStore === undefined;
+  if (hasNoRecordStore) return null;
+  return recordCheckpointBackend(recordStore);
 }
 
 /** The connection, state-transfer, and checkpoint methods routed here. */
@@ -103,8 +107,9 @@ export async function handleConnectionOp(
       // The build hash is injected by the bundler (esbuild `define`). `typeof`
       // guards the non-bundled path (tests import the compiled host directly,
       // where the global is undefined) → reports 'dev'.
+      const hasBuildVersion = typeof __PYRIC_WORKER_VERSION__ !== 'undefined';
       ok(port, msg.id, {
-        version: typeof __PYRIC_WORKER_VERSION__ !== 'undefined' ? __PYRIC_WORKER_VERSION__ : 'dev',
+        version: hasBuildVersion ? __PYRIC_WORKER_VERSION__ : 'dev',
         instanceId: ctx.instanceId,
       });
       break;
@@ -124,15 +129,21 @@ export async function handleConnectionOp(
       // Phase 2 (clobber): replace this sandbox's ENTIRE state with the imported
       // bundle via the public loadSnapshot() (reset + rebuild firestore + restore
       // services; listeners re-evaluate, persist re-flushes).
-      ctx.sandbox.loadSnapshot(deserializeFromBuckets(parseBundle(msg.bundle)));
-      ok(port, msg.id, { ok: true });
+      try {
+        const snapshot = decodeImportBundle(msg.bundle);
+        ctx.sandbox.loadSnapshot(snapshot);
+        ok(port, msg.id, { ok: true });
+      } catch (error) {
+        fail(port, msg.id, error);
+      }
       break;
     }
 
     case 'checkpoint': {
       // Capture the whole sandbox under a name, replacing whatever it held.
       const backend = checkpointsOf(ctx);
-      if (backend === null) {
+      const hasNoPersistence = backend === null;
+      if (hasNoPersistence) {
         ok(port, msg.id, { ok: false, error: 'no persistence backend' });
         break;
       }
@@ -143,7 +154,8 @@ export async function handleConnectionOp(
 
     case 'listCheckpoints': {
       const backend = checkpointsOf(ctx);
-      if (backend === null) {
+      const hasNoPersistence = backend === null;
+      if (hasNoPersistence) {
         ok(port, msg.id, { checkpoints: [] });
         break;
       }
@@ -154,22 +166,27 @@ export async function handleConnectionOp(
     case 'restore': {
       // Replace the whole sandbox with the named checkpoint (a clobber).
       const backend = checkpointsOf(ctx);
-      if (backend === null) {
+      const hasNoPersistence = backend === null;
+      if (hasNoPersistence) {
         ok(port, msg.id, { ok: false, error: 'no persistence backend' });
         break;
       }
       const restored = await restoreNamedCheckpoint(backend, msg.name, ctx.sandbox);
-      if (restored === null) {
+      const isMissingCheckpoint = restored === null;
+      if (isMissingCheckpoint) {
         ok(port, msg.id, { ok: false, error: `no such checkpoint: ${msg.name}` });
         break;
       }
+      restoreSubscriptions(ctx);
+      await bestEffortFlush(ctx);
       ok(port, msg.id, { ok: true, at: restored.at, counts: restored.counts });
       break;
     }
 
     case 'deleteCheckpoint': {
       const backend = checkpointsOf(ctx);
-      if (backend === null) {
+      const hasNoPersistence = backend === null;
+      if (hasNoPersistence) {
         ok(port, msg.id, { ok: false, error: 'no persistence backend' });
         break;
       }

@@ -9,19 +9,18 @@
  *   - 0.C: `tx.getAll(...paths)` returns snapshots in input order.
  *   - 0.A + 0.J: read-before-write ordering is GLOBAL — any write method
  *     flips a per-tx flag; subsequent reads throw `failed-precondition`.
- *   - 0.D: same-path multi-write merges on commit (last-wins per field).
- *     The merge happens at commit time in `transaction-merge.ts`; the
- *     queue here is append-only.
+ *   - 0.D: same-path writes resolve in queue order at commit. Results
+ *     summarize each path after execution; the queue is append-only.
  *   - 0.G: callback exceptions propagate unchanged. The result types
  *     here only describe the *successful* (or rule-denied) path; thrown
  *     errors don't construct a `TransactionResult`.
- *   - 0.H: no `retries` field. Single-threaded simulator can't trigger
- *     conflicts. Documented as a known limitation.
+ *   - Read conflicts retry the callback up to `maxAttempts`.
  */
 import type { DocumentData } from './local-state.js';
 import type { AgentEvent } from './event-log.js';
 import type { FirestoreSimError } from './errors.js';
 import type { EventProvenance } from '../../sandbox/types/events.js';
+import type { BatchOperationInput, Operation } from './writes.js';
 
 /**
  * Snapshot shape returned by `tx.get` / `tx.getAll`. Matches the Admin
@@ -50,24 +49,16 @@ export interface CapturedRead {
 }
 
 /**
- * Internal — a queued write before merge/commit. Carries the original
- * call method so `transaction-merge.ts` can collapse same-path entries
- * with the right semantics (`update + update` merges; `set + update`
- * applies update on top of set; etc.).
+ * Internal — a queued write before commit. Keeps the original method,
+ * data and mask until the shared atomic pipeline resolves it in order.
  */
-export interface QueuedWrite {
-  method: 'set' | 'create' | 'update' | 'delete';
-  path: string;
-  data?: DocumentData;
-}
+export type QueuedWrite = BatchOperationInput;
 
 /**
  * Caller surface for `Transaction`. Implementation lives in
  * `transaction.ts`; this interface is what callbacks see.
  *
- * `set` is included even though `BatchOperationInput` doesn't expose
- * it — the Admin SDK's transaction does, and the merge layer collapses
- * `set` into the appropriate `BatchOperation` at commit.
+ * The queued writes retain the same intent as batch inputs until commit.
  */
 export interface Transaction {
   /** Admin-mode read; never evaluates rules. */
@@ -76,7 +67,7 @@ export interface Transaction {
   getAll(...paths: string[]): TransactionSnapshot[];
 
   /** Queue a `set` (overwrite-or-create). Flips writeStarted. */
-  set(path: string, data: DocumentData): void;
+  set(path: string, data: DocumentData, merge?: Operation['merge']): void;
   /** Queue a `create` (fail-on-exists at commit). Flips writeStarted. */
   create(path: string, data: DocumentData): void;
   /** Queue an `update` (fail-if-missing at commit). Flips writeStarted. */
@@ -122,9 +113,8 @@ export interface TransactionOptions {
  * violation) do NOT produce a `TransactionResult` — they propagate.
  *
  * `reads` is included for diagnostic value (production doesn't surface
- * this; we do). `writes` is one entry per *queued* write at the time
- * of commit, post-merge — so two `update` calls to the same path
- * produce one `writes[]` entry, not two.
+ * this; we do). `writes` summarizes each path after execution, so two
+ * `update` calls to the same path produce one `writes[]` entry.
  */
 export interface TransactionResult<R = unknown> {
   /** True iff every queued write passed rules and applied. */

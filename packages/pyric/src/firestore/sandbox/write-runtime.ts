@@ -1,5 +1,5 @@
-import type { DocStore, DocumentData } from './local-state.js';
-import { applyMerge } from './field-merge.js';
+import type { BatchOperation, DocStore, DocumentData } from './local-state.js';
+import { applyMerge, applyUpdate } from './field-merge.js';
 import type {
   SimulateFirestoreRulesHandler,
   TestCase,
@@ -12,12 +12,12 @@ import type { FirestoreEventBus } from './event-bus.js';
 import type { TriggerScope } from './trigger-scope.js';
 import type { FirestoreSimError } from './errors.js';
 import type { Operation } from './writes.js';
-import type { EventProvenance } from '../../sandbox/types/events.js';
+import type { EventProvenance, WriteSandboxEvent } from '../../sandbox/types/events.js';
 import { buildRequestEvent, nextRequestEventId, type EmitRequestInput } from './request-events.js';
 import type { SentinelHit } from './sentinel-capture.js';
 import { buildRulesTestCase } from './rules-test-case.js';
 import { simulateRules } from './rules-simulator.js';
-import { registerDefaultConverters } from './value-resolver.js';
+import { partitionDeletes, registerDefaultConverters } from './value-resolver.js';
 import { SandboxClock } from '../../sandbox/clock.js';
 
 registerDefaultConverters();
@@ -50,7 +50,8 @@ export class WriteRuntime {
   }
 
   emitRequest(input: EmitRequestInput): void {
-    if (!this.events.request.hasSubscribers) return;
+    const hasNoSubscribers = !this.events.request.hasSubscribers;
+    if (hasNoSubscribers) return;
     this.events.request.emit(buildRequestEvent(input));
   }
 
@@ -69,34 +70,47 @@ export class WriteRuntime {
     detail?: { admin?: boolean } & Record<string, unknown>;
     provenance?: EventProvenance;
   }): void {
-    if (!this.events.write.hasSubscribers) return;
-    this.events.write.emit({
+    const hasNoSubscribers = !this.events.write.hasSubscribers;
+    if (hasNoSubscribers) return;
+    const event: WriteSandboxEvent = {
       kind: 'write',
       id: nextRequestEventId().replace(/^req-/, 'wr-'),
       at: this.clock.now(),
       method: input.method,
       path: input.path,
-      auth: input.auth
-        ? { uid: input.auth.uid, ...(input.auth.token ? { token: input.auth.token } : {}) }
-        : null,
-      ...(input.data !== undefined ? { data: input.data } : {}),
+      auth: null,
       priorState: input.priorState,
       nextState: input.nextState,
-      ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
-      ...(input.groupKind !== undefined ? { groupKind: input.groupKind } : {}),
-      ...(input.sentinels && input.sentinels.length > 0 ? { sentinels: input.sentinels } : {}),
-      ...(input.autoId !== undefined ? { autoId: input.autoId } : {}),
       requestTime: { seconds: input.requestTime.seconds, nanoseconds: input.requestTime.nanos },
-      ...(input.detail !== undefined ? { detail: input.detail } : {}),
-      ...(input.provenance ?? {}),
-    });
+    };
+    const { auth } = input;
+    const hasAuth = auth !== null;
+    if (hasAuth) {
+      event.auth = { uid: auth.uid };
+      const hasToken = Boolean(auth.token);
+      if (hasToken) event.auth.token = auth.token;
+    }
+    const hasData = input.data !== undefined;
+    if (hasData) event.data = input.data;
+    const hasGroupId = input.groupId !== undefined;
+    if (hasGroupId) event.groupId = input.groupId;
+    const hasGroupKind = input.groupKind !== undefined;
+    if (hasGroupKind) event.groupKind = input.groupKind;
+    const hasSentinels = input.sentinels !== undefined && input.sentinels.length > 0;
+    if (hasSentinels) event.sentinels = input.sentinels;
+    const hasAutoId = input.autoId !== undefined;
+    if (hasAutoId) event.autoId = input.autoId;
+    const hasDetail = input.detail !== undefined;
+    if (hasDetail) event.detail = input.detail;
+    this.events.write.emit({ ...event, ...input.provenance });
   }
 
   capturePriors(paths: readonly string[]): Record<string, DocumentData | null> {
     const priors: Record<string, DocumentData | null> = {};
     for (const path of paths) {
       const prior = this.state.get(path);
-      priors[path] = prior ? { ...prior } : null;
+      const documentExists = prior !== null;
+      priors[path] = documentExists ? { ...prior } : null;
     }
     return priors;
   }
@@ -116,20 +130,18 @@ export class WriteRuntime {
     );
   }
 
-  private isReadOnlyMethod(method: string): boolean {
-    return method === 'get' || method === 'list';
-  }
-
   private resolvePriorDocumentState(
     path: string,
     projection: Map<string, DocumentData | null>,
     databaseState: DocStore,
   ): DocumentData | null {
-    if (projection.has(path)) {
+    const hasProjection = projection.has(path);
+    if (hasProjection) {
       const projectedState = projection.get(path);
       return projectedState ?? null;
     }
-    if (databaseState.exists(path)) {
+    const documentExists = databaseState.exists(path);
+    if (documentExists) {
       const existingDatabaseState = databaseState.get(path);
       return existingDatabaseState ?? null;
     }
@@ -140,11 +152,12 @@ export class WriteRuntime {
     priorState: DocumentData | null,
     incomingData: DocumentData | undefined,
   ): DocumentData | null {
-    if (priorState === null) {
+    const documentMissing = priorState === null;
+    if (documentMissing) {
       return null;
     }
     const effectiveIncomingData = incomingData ?? {};
-    return applyMerge(priorState, effectiveIncomingData);
+    return applyUpdate(priorState, effectiveIncomingData);
   }
 
   private computeProjectedOverwrite(
@@ -156,23 +169,30 @@ export class WriteRuntime {
     return applyMerge(baseState, effectiveIncomingData);
   }
 
-  buildBatchProjection(testCases: TestCase[]): Map<string, DocumentData | null> {
-    const projection = new Map<string, DocumentData | null>();
-    for (const testCase of testCases) {
-      if (this.isReadOnlyMethod(testCase.method)) {
+  /** Project write intent before the rules vocabulary reduces set to create/update. */
+  buildBatchProjection(
+    operations: BatchOperation[],
+    projection = new Map<string, DocumentData | null>(),
+  ): Map<string, DocumentData | null> {
+    for (const operation of operations) {
+      const isReplacement = operation.method === 'set';
+      if (isReplacement) {
+        projection.set(operation.path, partitionDeletes(operation.data ?? {}).writes);
         continue;
       }
-      if (testCase.method === 'delete') {
-        projection.set(testCase.path, null);
+      const isDelete = operation.method === 'delete';
+      if (isDelete) {
+        projection.set(operation.path, null);
         continue;
       }
-      const priorState = this.resolvePriorDocumentState(testCase.path, projection, this.state);
-      if (testCase.method === 'update') {
-        const updatedDocument = this.computeProjectedUpdate(priorState, testCase.data);
-        projection.set(testCase.path, updatedDocument);
+      const priorState = this.resolvePriorDocumentState(operation.path, projection, this.state);
+      const isUpdate = operation.method === 'update';
+      if (isUpdate) {
+        const updatedDocument = this.computeProjectedUpdate(priorState, operation.data);
+        projection.set(operation.path, updatedDocument);
       } else {
-        const overwrittenDocument = this.computeProjectedOverwrite(priorState, testCase.data);
-        projection.set(testCase.path, overwrittenDocument);
+        const overwrittenDocument = this.computeProjectedOverwrite(priorState, operation.data);
+        projection.set(operation.path, overwrittenDocument);
       }
     }
     return projection;

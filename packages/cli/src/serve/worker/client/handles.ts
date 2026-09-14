@@ -11,13 +11,15 @@ import type {
   InboundMessage,
   OutboundMessage,
 } from '../protocol.js';
+import type { FirestoreDataConverter, DocumentData } from 'pyric/firestore';
 
-/** The exact transport contract shared by native MessagePort and SW relay ports. */
+/** MessagePort delivery, with optional connectivity observation for network transports. */
 export interface ClientPort {
   onmessage: ((event: MessageEvent<OutboundMessage>) => void) | null;
   postMessage(message: InboundMessage): void;
   start(): void;
   close(): void;
+  observeConnection?(listener: (connected: boolean) => void): () => void;
 }
 
 /** Opaque client-side Firestore handle. Holds the MessagePort to the worker. */
@@ -61,12 +63,15 @@ export interface RtdbDataSnapshot {
 }
 
 /** Client-side document reference — carries a DocRef descriptor + port. */
-export interface DocRefHandle {
+export interface DocRefHandle<_T = DocumentData> {
   readonly __kind: 'doc-ref';
   readonly descriptor: DocRef;
   readonly port: ClientPort;
   readonly id: string;
   readonly path: string;
+  readonly converter: FirestoreDataConverter<unknown> | null;
+  withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): DocRefHandle<T>;
+  withConverter(converter: null): DocRefHandle;
 }
 
 /** Client-side collection reference. */

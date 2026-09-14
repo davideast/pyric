@@ -62,12 +62,16 @@ function encodeDoc(data: Record<string, unknown>): Record<string, unknown> {
 }
 
 /** FNV-1a checksum of a bucket's docs, for corruption detection on read. */
-function checksumDocs(docs: Record<string, Record<string, unknown>>): number {
+export function checksumDocs(docs: Record<string, unknown>): number {
   const s = JSON.stringify(docs);
   let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
+  let i = 0;
+  let hasCharacter = i < s.length;
+  while (hasCharacter) {
     h ^= s.charCodeAt(i);
     h = Math.imul(h, 16777619) >>> 0;
+    i += 1;
+    hasCharacter = i < s.length;
   }
   return h;
 }

@@ -49,17 +49,37 @@ export interface QuerySpec {
  * Returns -1 / 0 / 1.
  */
 export function compareValues(a: JsonValue, b: JsonValue): number {
-  if (a === b) return 0;
+  const areEqual = a === b;
+  if (areEqual) return 0;
   // null sorts first.
-  if (a === null) return -1;
-  if (b === null) return 1;
+  const isLeftNull = a === null;
+  if (isLeftNull) return -1;
+  const isRightNull = b === null;
+  if (isRightNull) return 1;
   const ta = typeofRank(a);
   const tb = typeofRank(b);
-  if (ta !== tb) return ta - tb;
+  const haveDifferentTypes = ta !== tb;
+  if (haveDifferentTypes) return ta - tb;
   // Same type — value comparison.
-  if (typeof a === 'number' && typeof b === 'number') return a < b ? -1 : a > b ? 1 : 0;
-  if (typeof a === 'boolean' && typeof b === 'boolean') return a === b ? 0 : a ? 1 : -1;
-  if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
+  const areNumbers = typeof a === 'number' && typeof b === 'number';
+  if (areNumbers) {
+    const isLower = a < b;
+    if (isLower) return -1;
+    const isHigher = a > b;
+    return isHigher ? 1 : 0;
+  }
+  const areBooleans = typeof a === 'boolean' && typeof b === 'boolean';
+  if (areBooleans) {
+    const isLeftTrue = a === true;
+    return isLeftTrue ? 1 : -1;
+  }
+  const areStrings = typeof a === 'string' && typeof b === 'string';
+  if (areStrings) {
+    const isLower = a < b;
+    if (isLower) return -1;
+    const isHigher = a > b;
+    return isHigher ? 1 : 0;
+  }
   // Objects/arrays are "greater" than primitives, but two object-valued
   // children are ORDER-EQUAL under RTDB's model — the tie is broken by
   // key, NOT by an invented JSON-string ordering (DB-B11; mirrors
@@ -70,10 +90,14 @@ export function compareValues(a: JsonValue, b: JsonValue): number {
 
 function typeofRank(v: JsonValue): number {
   // null = 0; boolean = 1; number = 2; string = 3; object/array = 4.
-  if (v === null) return 0;
-  if (typeof v === 'boolean') return 1;
-  if (typeof v === 'number') return 2;
-  if (typeof v === 'string') return 3;
+  const isNull = v === null;
+  if (isNull) return 0;
+  const isBoolean = typeof v === 'boolean';
+  if (isBoolean) return 1;
+  const isNumber = typeof v === 'number';
+  if (isNumber) return 2;
+  const isString = typeof v === 'string';
+  if (isString) return 3;
   return 4;
 }
 
@@ -86,9 +110,11 @@ const INTEGER_32_MAX = 2147483647;
 /** If the string is a 32-bit integer, return it; else `null`. Mirrors
  *  `tryParseInt` (`core/util/util.ts:511-520`). */
 function tryParseInt(str: string): number | null {
-  if (INTEGER_REGEXP.test(str)) {
+  const looksLikeInteger = INTEGER_REGEXP.test(str);
+  if (looksLikeInteger) {
     const intVal = Number(str);
-    if (intVal >= INTEGER_32_MIN && intVal <= INTEGER_32_MAX) {
+    const fitsIntegerKeyRange = intVal >= INTEGER_32_MIN && intVal <= INTEGER_32_MAX;
+    if (fitsIntegerKeyRange) {
       return intVal;
     }
   }
@@ -107,19 +133,25 @@ function tryParseInt(str: string): number | null {
  * lexicographic compare (DB-B4) put `"10"` before `"2"`.
  */
 export function nameCompare(a: string, b: string): number {
-  if (a === b) return 0;
+  const areEqual = a === b;
+  if (areEqual) return 0;
   const aAsInt = tryParseInt(a);
   const bAsInt = tryParseInt(b);
-  if (aAsInt !== null) {
-    if (bAsInt !== null) {
-      return aAsInt - bAsInt === 0 ? a.length - b.length : aAsInt - bAsInt;
+  const isLeftInteger = aAsInt !== null;
+  const isRightInteger = bAsInt !== null;
+  if (isLeftInteger) {
+    if (isRightInteger) {
+      const difference = aAsInt - bAsInt;
+      const haveSameInteger = difference === 0;
+      return haveSameInteger ? a.length - b.length : difference;
     }
     // Integer keys sort before non-integer keys.
     return -1;
-  } else if (bAsInt !== null) {
+  } else if (isRightInteger) {
     return 1;
   }
-  return a < b ? -1 : 1;
+  const comesBefore = a < b;
+  return comesBefore ? -1 : 1;
 }
 
 /**
@@ -143,14 +175,16 @@ export function extractOrderValue(
     case 'priority':
       return priority;
     case 'child': {
-      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      const hasNoChildren = value === null || typeof value !== 'object' || Array.isArray(value);
+      if (hasNoChildren) {
         return null;
       }
       // Path may be a slash-separated dotted path (`'profile/name'`).
       const segs = o.path.split('/').filter((s) => s.length > 0);
       let cur: JsonValue = value;
       for (const s of segs) {
-        if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) return null;
+        const hasNoDescendant = cur === null || typeof cur !== 'object' || Array.isArray(cur);
+        if (hasNoDescendant) return null;
         cur = (cur as Record<string, JsonValue>)[s] ?? null;
       }
       return cur;
@@ -177,9 +211,9 @@ export function executeQuery(
   spec: QuerySpec,
   priorityForKey: (key: string) => Priority = () => null,
 ): QueryRow[] {
-  // Non-collection input → no rows. RTDB's `query()` on a primitive
-  // path returns an empty snapshot.
-  if (pathData === null || typeof pathData !== 'object' || Array.isArray(pathData)) {
+  // Scalar inputs have no child rows. Snapshot callers handle scalar values.
+  const hasNoChildren = pathData === null || typeof pathData !== 'object' || Array.isArray(pathData);
+  if (hasNoChildren) {
     return [];
   }
   const obj = pathData as Record<string, JsonValue>;
@@ -201,7 +235,8 @@ export function executeQuery(
     const va = extractOrderValue(spec.orderBy, a.key, a.value, a.priority);
     const vb = extractOrderValue(spec.orderBy, b.key, b.value, b.priority);
     const cmp = compareValues(va, vb);
-    if (cmp !== 0) return cmp;
+    const haveDifferentOrderValues = cmp !== 0;
+    if (haveDifferentOrderValues) return cmp;
     // Tie-break by key under nameCompare (RTDB's documented behavior —
     // orderByChild / orderByValue ties break by key, numeric-first).
     return nameCompare(a.key, b.key);
@@ -213,12 +248,17 @@ export function executeQuery(
   }
 
   // ─── 3. Limit ─────────────────────────────────────────────────────
-  if (spec.limit) {
-    const n = spec.limit.n;
-    if (spec.limit.kind === 'limitToFirst') {
+  const limit = spec.limit;
+  const hasLimit = limit !== null;
+  if (hasLimit) {
+    const n = limit.n;
+    const takesFirst = limit.kind === 'limitToFirst';
+    if (takesFirst) {
       rows = rows.slice(0, n);
     } else {
-      rows = n >= rows.length ? rows : rows.slice(rows.length - n);
+      const includesAllRows = n >= rows.length;
+      if (includesAllRows) return rows;
+      rows = rows.slice(rows.length - n);
     }
   }
 
@@ -239,31 +279,55 @@ function boundMatches(b: Bound, row: QueryRow, orderBy: OrderBy | null): boolean
   // compared with nameCompare (numeric-first), NOT the value type-order.
   // Under value/child ordering, compare the ordered value, then break
   // ties on the key with nameCompare.
-  const cmp = orderingByKey
-    ? nameCompare(row.key, String(b.value))
-    : compareValues(extractOrderValue(orderBy, row.key, row.value, row.priority), b.value);
+  let cmp: number;
+  if (orderingByKey) {
+    cmp = nameCompare(row.key, String(b.value));
+  } else {
+    const orderValue = extractOrderValue(orderBy, row.key, row.value, row.priority);
+    cmp = compareValues(orderValue, b.value);
+  }
   const keyCmp = (other: string): number => nameCompare(row.key, other);
+  const isAfter = cmp > 0;
+  const isBefore = cmp < 0;
+  const differsFromBound = cmp !== 0;
   switch (b.kind) {
-    case 'startAt':
-      if (cmp > 0) return true;
-      if (cmp < 0) return false;
+    case 'startAt': {
+      if (isAfter) return true;
+      if (isBefore) return false;
       // Equal: defer to optional key tie-breaker.
-      return b.key === undefined || keyCmp(b.key) >= 0;
-    case 'startAfter':
-      if (cmp > 0) return true;
-      if (cmp < 0) return false;
+      const boundaryKey = b.key;
+      const hasNoBoundaryKey = boundaryKey === undefined;
+      return hasNoBoundaryKey || keyCmp(boundaryKey) >= 0;
+    }
+    case 'startAfter': {
+      if (isAfter) return true;
+      if (isBefore) return false;
       // Equal: row passes only if key strictly past the tie-breaker.
-      return b.key === undefined ? false : keyCmp(b.key) > 0;
-    case 'endAt':
-      if (cmp < 0) return true;
-      if (cmp > 0) return false;
-      return b.key === undefined || keyCmp(b.key) <= 0;
-    case 'endBefore':
-      if (cmp < 0) return true;
-      if (cmp > 0) return false;
-      return b.key === undefined ? false : keyCmp(b.key) < 0;
-    case 'equalTo':
-      if (cmp !== 0) return false;
-      return b.key === undefined || keyCmp(b.key) === 0;
+      const boundaryKey = b.key;
+      const hasNoBoundaryKey = boundaryKey === undefined;
+      if (hasNoBoundaryKey) return false;
+      return keyCmp(boundaryKey) > 0;
+    }
+    case 'endAt': {
+      if (isBefore) return true;
+      if (isAfter) return false;
+      const boundaryKey = b.key;
+      const hasNoBoundaryKey = boundaryKey === undefined;
+      return hasNoBoundaryKey || keyCmp(boundaryKey) <= 0;
+    }
+    case 'endBefore': {
+      if (isBefore) return true;
+      if (isAfter) return false;
+      const boundaryKey = b.key;
+      const hasNoBoundaryKey = boundaryKey === undefined;
+      if (hasNoBoundaryKey) return false;
+      return keyCmp(boundaryKey) < 0;
+    }
+    case 'equalTo': {
+      if (differsFromBound) return false;
+      const boundaryKey = b.key;
+      const hasNoBoundaryKey = boundaryKey === undefined;
+      return hasNoBoundaryKey || keyCmp(boundaryKey) === 0;
+    }
   }
 }

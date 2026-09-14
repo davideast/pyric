@@ -6,23 +6,15 @@
 import type { SerializedDocData } from '../protocol.js';
 import { deserializeDocData } from '../protocol.js';
 import type { ClientPort, DocRefHandle } from './handles.js';
+import { createDocumentReference } from './firestore-reference.js';
+import type { DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, SnapshotMetadata } from 'pyric/firestore';
 
 // ─── Rehydration (class instance restoration) ─────────────────────────────
 
-/**
- * Deserialize doc data from wire form to real class instances.
- *
- * `deserializeDocData` (protocol.ts) now calls `rehydrateDocValue` from
- * pyric/sandbox, which reconstructs REAL Timestamp, Bytes, and LatLng
- * instances — not plain-object look-alikes. This means:
- *   - `snap.data().createdAt` is a real `Timestamp` with `.seconds`/`.nanos`
- *   - `snap.data().blob` is a real `Bytes` with `.data` (Uint8Array)
- *   - `snap.data().where` is a real `LatLng` with `.lat`/`.lng`
- * Consumer code that uses `instanceof` checks or method calls will work
- * correctly after deserialization.
- */
-function rehydrateDocData(serialized: SerializedDocData): Record<string, unknown> {
-  return deserializeDocData(serialized) as Record<string, unknown>;
+/** Restore SDK scalar values and references bound to this snapshot's client port. */
+function rehydrateDocData(serialized: SerializedDocData, port: ClientPort): Record<string, unknown> {
+  const references = { create: (path: string) => createDocumentReference(port, path) };
+  return deserializeDocData(serialized, references) as Record<string, unknown>;
 }
 
 // ─── Snapshot deserialization helpers ────────────────────────────────────
@@ -34,15 +26,31 @@ export interface RawDocResult {
   data?: SerializedDocData;
 }
 
-export function makeDocSnapshot(raw: RawDocResult, port: ClientPort): ClientDocSnapshot {
-  const data = raw.exists && raw.data ? rehydrateDocData(raw.data) : undefined;
+export function makeDocSnapshot<T = DocumentData>(raw: RawDocResult, port: ClientPort, reference?: DocRefHandle<T>): ClientDocSnapshot<T> {
+  let data: Record<string, unknown> | undefined;
+  const serialized = raw.data;
+  const hasData = raw.exists && serialized !== undefined;
+  if (hasData) data = rehydrateDocData(serialized, port);
   const path = raw.path ?? raw.id;
-  const ref: DocRefHandle = {
-    __kind: 'doc-ref',
-    descriptor: { __ref: 'doc', path },
-    port,
-    id: raw.id,
-    path,
+  const ref = reference ?? createDocumentReference<T>(port, path);
+  const metadata = { fromCache: false, hasPendingWrites: false };
+  const read = (): T | undefined => {
+    const document = data;
+    const isMissing = document === undefined;
+    if (isMissing) return undefined;
+    const converter = ref.converter;
+    const hasConverter = converter !== null;
+    if (hasConverter) {
+      const snapshot: QueryDocumentSnapshot = {
+        id: raw.id,
+        ref: createDocumentReference(port, path),
+        exists: () => true,
+        metadata,
+        data: () => document,
+      };
+      return (converter as FirestoreDataConverter<T>).fromFirestore(snapshot);
+    }
+    return document as T;
   };
   return {
     id: raw.id,
@@ -51,7 +59,8 @@ export function makeDocSnapshot(raw: RawDocResult, port: ClientPort): ClientDocS
     // Firebase callers may pass `snapshot.ref` straight into deleteDoc/setDoc.
     ref,
     exists: () => raw.exists,
-    data: () => data,
+    metadata,
+    data: read,
   };
 }
 
@@ -70,13 +79,14 @@ export function makeQuerySnapshot(raw: RawQueryResult, port: ClientPort): Client
 
 // ─── Client snapshot types ────────────────────────────────────────────────
 
-export interface ClientDocSnapshot {
+export interface ClientDocSnapshot<T = DocumentData> {
   readonly id: string;
   readonly path: string;
   /** Full port-carrying reference, usable by write APIs. */
-  readonly ref: DocRefHandle;
+  readonly ref: DocRefHandle<T>;
+  readonly metadata: SnapshotMetadata;
   exists(): boolean;
-  data(): Record<string, unknown> | undefined;
+  data(): T | undefined;
 }
 
 export interface ClientQuerySnapshot {

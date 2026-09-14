@@ -197,7 +197,19 @@ describe('composite filter factories — client', () => {
   it('emit nested descriptors matching the wire shape', () => {
     const built = or(and(where('cat', '==', 'x'), where('n', '>=', 5)), where('cat', '==', 'z'));
     expect(built._descriptor).toEqual(
-      OR(AND(W('cat', '==', 'x'), W('n', '>=', 5)), W('cat', '==', 'z')),
+      {
+        kind: 'or',
+        filters: [
+          {
+            kind: 'and',
+            filters: [
+              { kind: 'where', field: 'cat', op: '==', value: 'x', valueEncoding: 'pyric/firestore-values/1' },
+              { kind: 'where', field: 'n', op: '>=', value: 5, valueEncoding: 'pyric/firestore-values/1' },
+            ],
+          },
+          { kind: 'where', field: 'cat', op: '==', value: 'z', valueEncoding: 'pyric/firestore-values/1' },
+        ],
+      },
     );
   });
 

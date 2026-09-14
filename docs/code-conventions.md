@@ -94,9 +94,12 @@ Rule.
 - Do not select a fallback and transform it in the same expression. Select the
   value first, then validate or transform it in a separate statement or named
   helper.
-- Keep a condition inline when it expresses one obvious fact. Extract a
-  positively named predicate when a compound or negated condition encodes a
-  domain boundary, policy, eligibility rule, or state classification.
+- In new files and modified TypeScript statements/functions, every boolean
+  branch reads a meaningfully named local boolean variable. This includes
+  `if`, loop tests, ternaries, and conditional rendering. Already-named
+  booleans need no alias. Compose complicated decisions from local domain
+  facts; preserve short-circuit evaluation, narrowing, and timing across
+  iterations and `await`.
 - The call site states the decision. The predicate contains the boolean
   mechanics and uses domain vocabulary rather than a generic name such as
   `isValid`.
@@ -108,6 +111,24 @@ shorthand with explicit control flow.
 The condition review test: can the condition be stated as one domain question?
 If it can, the call site should ask that question through a named predicate
 rather than restating its boolean algebra.
+
+Run `bun scripts/check-changed-code-form.ts <base-revision>` from the repository
+root. The required build job runs this check, its command tests, and the
+verification-tool typecheck. The report identifies checked files by content
+digest and lists unchanged top-level statements excluded from enforcement;
+an edited function is checked in full. Generated or third-party exclusions
+must be explicit, never introduced just to clear a failure.
+
+The CLI checks source form and resolves condition types through a strict
+TypeScript program, including imported declarations. Conditions with numeric,
+nullable, unknown, or unresolved types fail; constrained and narrowed booleans
+are accepted. Build workspace packages first so their declarations are
+available. The callable checker can also run without a program for syntax-only
+fixtures; the required CLI always supplies one.
+
+The checker cannot establish that a name explains the policy or that extraction
+preserved evaluation timing. Package-specific strict typechecks and behavior
+review remain necessary.
 
 ## 3c. Configuration assembly is explicit
 

@@ -2,14 +2,14 @@ import type { ToolFamilyRecord } from '../tool-families.js';
 export default {
   transport: 'forwarded',
   order: 20,
-  tools: [
-    'firestore_get_document',
-    'firestore_list_documents',
-    'firestore_create_document',
-    'firestore_add_document',
-    'firestore_update_document',
-    'firestore_delete_document',
-    'firestore_batch_write',
-    'firestore_query_where',
-  ],
+  tools: {
+    firestore_get_document: 'read',
+    firestore_list_documents: 'read',
+    firestore_create_document: 'write',
+    firestore_add_document: 'write',
+    firestore_update_document: 'write',
+    firestore_delete_document: 'write',
+    firestore_batch_write: 'write',
+    firestore_query_where: 'read',
+  },
 } as const satisfies ToolFamilyRecord;

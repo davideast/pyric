@@ -13,6 +13,7 @@ export * from './protocol/storage.js';
 
 import type {
   TargetDescriptor,
+  DocValueEncoding,
   AggregateSpecDescriptor,
   WriteDescriptor,
   TxnReadEntry,
@@ -80,10 +81,10 @@ export type OpMessage = (
       activity?: { groupKind?: 'transaction' };
     }
   | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor }
-  | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; options?: { merge?: boolean; mergeFields?: string[] } }
-  | { t: 'op'; id: string; method: 'updateDoc'; path: string; data: unknown }
+  | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] } }
+  | { t: 'op'; id: string; method: 'updateDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding }
   | { t: 'op'; id: string; method: 'deleteDoc'; path: string }
-  | { t: 'op'; id: string; method: 'addDoc'; collectionPath: string; data: unknown }
+  | { t: 'op'; id: string; method: 'addDoc'; collectionPath: string; data: unknown; valueEncoding?: DocValueEncoding }
   | { t: 'op'; id: string; method: 'count'; source: TargetDescriptor }
   | { t: 'op'; id: string; method: 'aggregate'; source: TargetDescriptor; spec: AggregateSpecDescriptor }
   | { t: 'op'; id: string; method: 'batchCommit'; writes: WriteDescriptor[] }
@@ -400,6 +401,9 @@ export type InboundMessage = (
 ) & {
   clientSessionId?: string;
   resumeSession?: boolean;
+  /** Adapter-supplied provenance; it does not grant execution authority. */
+  issuer?: 'studio';
+  relaySource?: 'remote';
 };
 
 // ─── Worker → client messages ─────────────────────────────────────────────

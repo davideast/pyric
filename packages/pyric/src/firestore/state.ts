@@ -25,8 +25,10 @@ import {
   Bytes as RulesBytes,
   LatLng as RulesLatLng,
   Vector as RulesVector,
+  Reference as RulesReference,
 } from 'pyric/rules/internal';
 import type { FirestoreDataConverter } from './types.js';
+import type { ReferenceDecoder } from './internal/value-codec.js';
 import { Bytes, GeoPoint, vector } from './field-values.js';
 
 // ─── Branding + routing ───────────────────────────────────────────────
@@ -266,8 +268,8 @@ export function underlyingOf<T extends object>(obj: T): object {
 export function buildSandboxShell(
   underlying: { id?: string; path?: string },
   target: SandboxTarget | SandboxLiveTarget,
-  converter: FirestoreDataConverter<unknown>,
-): object {
+  converter: FirestoreDataConverter<unknown> | null,
+) {
   const shell = {
     id: underlying.id ?? '',
     path: underlying.path ?? '',
@@ -310,30 +312,38 @@ export function vectorValuesOf(value: unknown): number[] | null {
  * Phase 0-F; the formal COMPAT ✓ + oracle observation land with the
  * conformance phase (Phase 5b). Vector SEARCH (`findNearest`) is separate.
  */
-export function finalizeSandboxValue(value: unknown): unknown {
-  if (value instanceof RulesBytes) {
+export function finalizeSandboxValue(value: unknown, references?: ReferenceDecoder): unknown {
+  const isReference = value instanceof RulesReference;
+  if (isReference) return references?.create(value.path) ?? value;
+  const isBytes = value instanceof RulesBytes;
+  if (isBytes) {
     return Bytes.fromUint8Array(value.data);
   }
-  if (value instanceof RulesLatLng) {
+  const isGeoPoint = value instanceof RulesLatLng;
+  if (isGeoPoint) {
     return new GeoPoint(value.lat, value.lng);
   }
   const vectorValues = vectorValuesOf(value);
-  if (vectorValues) {
+  const isVector = vectorValues !== null;
+  if (isVector) {
     return vector(vectorValues);
   }
-  if (Array.isArray(value)) {
-    return value.map(finalizeSandboxValue);
+  const isArray = Array.isArray(value);
+  if (isArray) {
+    return value.map((item) => finalizeSandboxValue(item, references));
   }
   // Only walk plain objects (`{...}` literals + `Object.create(null)`).
   // Class instances we don't recognize pass through as identity so we
   // don't accidentally destructure their private state (the same gap
   // that motivated #109/#110 in the first place).
-  if (value !== null && typeof value === 'object') {
+  const isObject = value !== null && typeof value === 'object';
+  if (isObject) {
     const proto = Object.getPrototypeOf(value);
-    if (proto === Object.prototype || proto === null) {
+    const isPlainMap = proto === Object.prototype || proto === null;
+    if (isPlainMap) {
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-        out[k] = finalizeSandboxValue(v);
+        out[k] = finalizeSandboxValue(v, references);
       }
       return out;
     }
@@ -341,7 +351,8 @@ export function finalizeSandboxValue(value: unknown): unknown {
   return value;
 }
 
-export function finalizeSandboxData(data: DocumentData | undefined): DocumentData | undefined {
-  if (data === undefined) return undefined;
-  return finalizeSandboxValue(data) as DocumentData;
+export function finalizeSandboxData(data: DocumentData | undefined, references?: ReferenceDecoder): DocumentData | undefined {
+  const isMissing = data === undefined;
+  if (isMissing) return undefined;
+  return finalizeSandboxValue(data, references) as DocumentData;
 }

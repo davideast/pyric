@@ -25,10 +25,9 @@ import type { ResolvedAvatarsConfig } from './avatars-config.js';
 import {
   createStateStore,
   firestoreDocCount,
-  STATE_FILE_VERSION,
-  type PyricStateFile,
   type StateStore,
 } from './state-store.js';
+import { parseStateFile } from './state-file.js';
 
 export interface SandboxSessionOptions {
   flow?: FlowConfig;
@@ -40,6 +39,7 @@ export interface SandboxSessionOptions {
   persistence?: { fresh?: boolean };
   studio?: false | { siteUiDir?: string };
   bridgeUrl?: () => string | null;
+  hosted?: boolean;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
   /** Resolved `avatars` option (already reduced by `avatars-config.ts` from
@@ -163,8 +163,10 @@ export async function createSandboxSession(
     databaseRules: database.rules,
     databaseRulesHash: database.rulesHash,
   };
-  if (!database.sourcePath) {
-    if (options.permissive) {
+  const hasNoDatabaseRules = !database.sourcePath;
+  if (hasNoDatabaseRules) {
+    const isPermissive = Boolean(options.permissive);
+    if (isPermissive) {
       options.logger?.note('  ⓘ RTDB permissive mode active — client reads/writes are open by default.');
     } else {
       options.logger?.note('  ⚠ no database.rules.json found — client RTDB reads/writes default to DENY (matching production Firebase). Use --permissive for open prototyping.');
@@ -182,15 +184,20 @@ export async function createSandboxSession(
   // Only a configured source can produce an image that supersedes a
   // placeholder, so only that case asks the page to open a connection.
   const avatarUpgrades = Boolean(avatarsResolver) && options.avatars?.source !== undefined;
-  const capture: CaptureStore | undefined = (options.capture ?? true)
+  const capturesSession = options.capture ?? true;
+  const capture: CaptureStore | undefined = capturesSession
     ? createCaptureStore(options.projectDir)
     : undefined;
-  const state: StateStore | undefined = options.persistence
+  const persistsSession = Boolean(options.persistence || options.hosted);
+  const state: StateStore | undefined = persistsSession
     ? createStateStore(options.projectDir)
     : undefined;
-  if (state && options.persistence?.fresh) {
+  const hasStateStore = state !== undefined;
+  const resetsState = hasStateStore && !!options.persistence?.fresh;
+  if (resetsState) {
     for (const file of [state.path, state.backupPath]) {
-      if (existsSync(file)) rmSync(file);
+      const hasFile = existsSync(file);
+      if (hasFile) rmSync(file);
     }
   }
   let persisted = state?.load() ?? null;
@@ -198,30 +205,47 @@ export async function createSandboxSession(
   let seedState: unknown | null = null;
   let seedUsers: Record<string, unknown>[] | null = null;
   let seedLabel: string | null = null;
-  if (options.seedFile) {
-    const seedPath = resolve(options.projectDir, options.seedFile);
+  const seedFile = options.seedFile;
+  const hasSeedFile = !!seedFile;
+  if (hasSeedFile) {
+    const seedPath = resolve(options.projectDir, seedFile);
     let parsed: unknown;
     try {
       parsed = JSON.parse(readFileSync(seedPath, 'utf8')) as unknown;
     } catch (error) {
-      throw new SandboxSeedError('read', seedPath, error instanceof Error ? error.message : String(error));
+      const isError = error instanceof Error;
+      const message = isError ? error.message : String(error);
+      throw new SandboxSeedError('read', seedPath, message);
     }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new SandboxSeedError('shape', seedPath, `got ${Array.isArray(parsed) ? 'array' : typeof parsed}`);
+    const isArray = Array.isArray(parsed);
+    const isNotObject = !parsed || typeof parsed !== 'object';
+    const isInvalidSeed = isNotObject || isArray;
+    if (isInvalidSeed) {
+      const kind = isArray ? 'array' : typeof parsed;
+      throw new SandboxSeedError('shape', seedPath, `got ${kind}`);
     }
     const record = parsed as Record<string, unknown>;
-    if (record.version === STATE_FILE_VERSION && ('firestore' in record || 'auth' in record)) {
-      const fixture = record as unknown as PyricStateFile;
+    const hasStateVersion = 'version' in record;
+    const hasStateSections = 'firestore' in record || 'auth' in record;
+    const isStateFixture = hasStateVersion && hasStateSections;
+    if (isStateFixture) {
+      const fixture = parseStateFile(record, seedPath);
       const restoredDocs = firestoreDocCount(fixture.firestore);
       const restoredUsers = fixture.auth?.users?.length ?? 0;
       seedLabel = `${restoredDocs} doc(s) + ${restoredUsers} user(s) from state fixture`;
-      if (state && !state.exists()) {
-        if (fixture.firestore != null) state.writeSection('firestore', fixture.firestore);
-        if (fixture.auth != null) state.writeSection('auth', fixture.auth);
+      const initializesStateStore = hasStateStore && !state.exists();
+      if (initializesStateStore) {
+        const hasFirestoreState = fixture.firestore != null;
+        if (hasFirestoreState) state.writeSection('firestore', fixture.firestore);
+        const hasAuthState = fixture.auth != null;
+        if (hasAuthState) state.writeSection('auth', fixture.auth);
         persisted = state.load();
-      } else if (!state) {
-        seedState = fixture.firestore ?? null;
-        seedUsers = (fixture.auth?.users as Record<string, unknown>[] | undefined) ?? null;
+      } else {
+        const hasNoStateStore = !hasStateStore;
+        if (hasNoStateStore) {
+          seedState = fixture.firestore ?? null;
+          seedUsers = fixture.auth?.users.map((user) => ({ ...user })) ?? null;
+        }
       }
     } else {
       seed = record as Record<string, Record<string, unknown>>;
@@ -229,29 +253,33 @@ export async function createSandboxSession(
     }
   }
 
-  const payload = (): InitPayload => ({
-    rules: live.rules,
-    rulesHash: live.rulesHash,
-    databaseRules: live.databaseRules,
-    databaseRulesHash: live.databaseRulesHash,
-    databaseUrl: database.databaseUrl,
-    storageRules: storage.rules,
-    storageRulesHash: storage.rulesHash,
-    projectKey: options.projectDir,
-    bridgeUrl: options.bridgeUrl?.() ?? null,
-    seed: state?.exists() ? null : seed,
-    seedState,
-    persist: Boolean(state),
-    capture: Boolean(capture),
-    authUsers: state
-      ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
-      : seedUsers,
-    messaging: true,
-    ai: options.ai ?? null,
-    avatars: Boolean(avatarsResolver),
-    avatarUpgrades,
-    permissive: Boolean(options.permissive),
-  });
+  const payload = (): InitPayload => {
+    const hasPersistedState = state?.exists() === true;
+    return {
+      rules: live.rules,
+      rulesHash: live.rulesHash,
+      databaseRules: live.databaseRules,
+      databaseRulesHash: live.databaseRulesHash,
+      databaseUrl: database.databaseUrl,
+      storageRules: storage.rules,
+      storageRulesHash: storage.rulesHash,
+      projectKey: options.projectDir,
+      bridgeUrl: options.bridgeUrl?.() ?? null,
+      hosted: options.hosted,
+      seed: hasPersistedState ? null : seed,
+      seedState,
+      persist: Boolean(state),
+      capture: Boolean(capture),
+      authUsers: hasStateStore
+        ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
+        : seedUsers,
+      messaging: true,
+      ai: options.ai ?? null,
+      avatars: Boolean(avatarsResolver),
+      avatarUpgrades,
+      permissive: Boolean(options.permissive),
+    };
+  };
 
   const summary: SandboxSessionSummary = {
     rules: {
@@ -259,7 +287,7 @@ export async function createSandboxSession(
       database: { sourcePath: database.sourcePath, hash: database.rulesHash },
       storage: { sourcePath: storage.sourcePath, hash: storage.rulesHash },
     },
-    persistence: state
+    persistence: hasStateStore
       ? {
           path: state.path,
           backupPath: state.backupPath,
@@ -274,19 +302,24 @@ export async function createSandboxSession(
     studioMounted: Boolean(options.studio),
   };
 
+  const studio = options.studio;
+  const mountsStudio = !!studio;
+  const hostOwnsState = options.hosted === true;
+  const stateOwner = hostOwnsState ? 'host' : 'browser';
   const namespace = createPyricNamespace({
     sdkDir: options.sdk.dir,
     initPayload: payload,
     events,
     state,
+    stateOwner,
     capture,
-    studio: options.studio
+    studio: mountsStudio
       ? {
           workspace: diskWorkspace(options.projectDir),
           projects: diskProjectStore(join(options.projectDir, '.pyric', 'projects')),
         }
       : undefined,
-    siteUiDir: options.studio ? options.studio.siteUiDir : undefined,
+    siteUiDir: mountsStudio ? studio.siteUiDir : undefined,
     workerVersion: options.sdk.workerVersion,
     avatars: avatarsResolver,
     aiProxyUpstream: options.aiProxyUpstream,
@@ -297,17 +330,21 @@ export async function createSandboxSession(
   });
 
   const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
-    if (!firestore.sourcePath) return { kind: 'not-configured' };
+    const sourcePath = firestore.sourcePath;
+    const hasNoSource = !sourcePath;
+    if (hasNoSource) return { kind: 'not-configured' };
     try {
-      const raw = await readFile(firestore.sourcePath, 'utf8');
-      const rules = prepareRulesSource(raw, firestore.sourcePath);
+      const raw = await readFile(sourcePath, 'utf8');
+      const rules = prepareRulesSource(raw, sourcePath);
       const rulesHash = rulesHashOf(rules);
       live.rules = rules;
       live.rulesHash = rulesHash;
       events.broadcast('rules-changed', { rules, rulesHash });
       return { kind: 'reloaded', rulesHash, clients: events.clientCount() };
     } catch (error) {
-      return { kind: 'rejected', error: error instanceof Error ? error : new Error(String(error)) };
+      const isError = error instanceof Error;
+      const failure = isError ? error : new Error(String(error));
+      return { kind: 'rejected', error: failure };
     }
   };
   const reloadDatabaseRules = async (): Promise<RulesReloadResult> => {

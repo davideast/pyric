@@ -1,10 +1,11 @@
 /** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
 import type { InboundMessage } from '../protocol.js';
-import { queryIdentifier } from 'pyric/database/internal';
+import { executeQuery, queryIdentifier } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   _defaultLens,
   closeSubscription,
+  isDisconnectedPort,
   nextSubId,
   openSnapshotSubscription,
   stampIssuer,
@@ -13,6 +14,7 @@ import {
 import type { ClientPort, RtdbDataSnapshot, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
 import { reportListenerDelivery } from './listener-delivery.js';
+import { observeRtdbConnection } from './rtdb-connection-lifecycle.js';
 import {
   isRtdbQuery,
   rtdbChild,
@@ -174,19 +176,48 @@ export function rtdbOnValue(
   options?: ValueListenOptions,
   registryCallback: object = next,
 ): Unsubscribe {
-  const listenOptions = typeof cancelCallbackOrOptions === 'function'
+  const hasCancelCallback = typeof cancelCallbackOrOptions === 'function';
+  const listenOptions = hasCancelCallback
     ? options
     : cancelCallbackOrOptions;
   let unsubscribe: Unsubscribe = () => {};
-  const rawUnsubscribe = openValueSubscription(target, (snapshot) => {
+  const deliver = (snapshot: RtdbDataSnapshot): void => {
     try {
       next(snapshot);
     } catch {
       // Firebase isolates listener exceptions from sibling deliveries.
     } finally {
-      if (listenOptions?.onlyOnce) queueMicrotask(() => unsubscribe());
+      const isOnce = listenOptions?.onlyOnce === true;
+      if (isOnce) queueMicrotask(() => unsubscribe());
     }
-  }, cancelCallbackOrOptions, options);
+  };
+  const { ref, query } = targetParts(target);
+  const isActivePort = !isDisconnectedPort(ref.port);
+  const isConnectionValue = ref.path === '/.info/connected';
+  const isMetadataRoot = ref.path === '/.info';
+  const observesConnection = isActivePort && (isConnectionValue || isMetadataRoot);
+  let rawUnsubscribe: Unsubscribe;
+  if (observesConnection) {
+    let previousRows: RtdbWireEntry[] | undefined;
+    rawUnsubscribe = observeRtdbConnection(ref.port, (connected) => {
+      const value = isMetadataRoot ? { connected, serverTimeOffset: 0 } : connected;
+      const filtersChildren = isMetadataRoot && query !== undefined;
+      if (filtersChildren) {
+        const rows = executeQuery(value, query);
+        const isUnchangedSelection = sameRtdbValue(previousRows, rows);
+        if (isUnchangedSelection) return;
+        previousRows = rows;
+        const hasRows = rows.length > 0;
+        const projection = Object.fromEntries(rows.map(({ key, value }) => [key, value]));
+        const selectedValue = hasRows ? projection : null;
+        deliver(makeRtdbSnapshot(ref, selectedValue, hasRows, null, rows));
+        return;
+      }
+      deliver(makeRtdbSnapshot(ref, value));
+    });
+  } else {
+    rawUnsubscribe = openValueSubscription(target, deliver, cancelCallbackOrOptions, options);
+  }
   unsubscribe = registerListener(
     target,
     'value',

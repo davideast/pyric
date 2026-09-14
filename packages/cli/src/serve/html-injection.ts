@@ -40,21 +40,42 @@ export function sdkImportMap(options?: { aiMode?: 'sandbox' | 'production' }): R
 }
 
 /** Inject the sandbox import map and boot tags before application modules. */
+export interface ServeTagOptions {
+  importMap?: Record<string, string>;
+  workerVersion?: string;
+  forceInPage?: boolean;
+  hosted?: { projectKey: string };
+}
+
 export function injectServeTags(
   html: string,
-  importMap: Record<string, string> = sdkImportMap(),
-  workerVersion?: string,
-  forceInPage = false,
+  options: ServeTagOptions = {},
 ): string {
+  const importMap = options.importMap ?? sdkImportMap();
+  const { workerVersion, forceInPage = false, hosted } = options;
   const marker = 'data-pyric-serve';
-  if (html.includes(marker)) return html;
+  const isAlreadyInjected = html.includes(marker);
+  if (isAlreadyInjected) return html;
+  let hostMeta = '';
+  const hasHostedSandbox = hosted !== undefined;
+  if (hasHostedSandbox) {
+    const projectKey = hosted.projectKey.replaceAll('&', '&amp;').replaceAll('"', '&quot;')
+      .replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+    hostMeta = `<meta name="pyric-sandbox-host" content="node" data-project-key="${projectKey}" ${marker}>`;
+  }
   // A sandbox build already bundles its runtime. Adding the import map and
   // init module would boot a second backend; only the staleness stamp belongs.
-  if (html.includes(SANDBOX_BUILD_MARKER)) {
-    if (!workerVersion || html.includes('pyric-worker-v')) return html;
-    const meta = `<meta name="pyric-worker-v" content="${workerVersion}" ${marker}>`;
-    const headTag = html.match(/<head[^>]*>/i);
-    if (headTag && headTag.index !== undefined) {
+  const isSandboxBuild = html.includes(SANDBOX_BUILD_MARKER);
+  const hasWorkerVersion = Boolean(workerVersion);
+  if (isSandboxBuild) {
+    const needsVersionStamp = hasWorkerVersion && !html.includes('pyric-worker-v');
+    let meta = hostMeta;
+    if (needsVersionStamp) meta += `<meta name="pyric-worker-v" content="${workerVersion}" ${marker}>`;
+    const hasNoRuntimeStamp = meta.length === 0;
+    if (hasNoRuntimeStamp) return html;
+    const headTag = /<head[^>]*>/i.exec(html);
+    const hasHeadTag = headTag !== null;
+    if (hasHeadTag) {
       const at = headTag.index + headTag[0].length;
       return html.slice(0, at) + meta + html.slice(at);
     }
@@ -63,7 +84,7 @@ export function injectServeTags(
 
   // SharedWorkers survive page reloads, so the page compares this served hash
   // with the worker's baked hash and can offer an explicit worker update.
-  const versionMeta = workerVersion
+  const versionMeta = hasWorkerVersion
     ? `<meta name="pyric-worker-v" content="${workerVersion}" ${marker}>`
     : '';
   // Bridge mode must select the in-page backend before any application module
@@ -72,17 +93,20 @@ export function injectServeTags(
     ? `<script ${marker}>globalThis.__PYRIC_FORCE_INPAGE__=true;</script>`
     : '';
   const tags =
+    hostMeta +
     versionMeta +
     forceTag +
     `<script type="importmap" ${marker}>${JSON.stringify({ imports: importMap })}</script>` +
     `<script type="module" src="/__pyric/sdk/init.js" ${marker}></script>`;
-  const head = html.match(/<head[^>]*>/i);
-  if (head && head.index !== undefined) {
+  const head = /<head[^>]*>/i.exec(html);
+  const hasHead = head !== null;
+  if (hasHead) {
     const at = head.index + head[0].length;
     return html.slice(0, at) + tags + html.slice(at);
   }
-  const htmlTag = html.match(/<html[^>]*>/i);
-  if (htmlTag && htmlTag.index !== undefined) {
+  const htmlTag = /<html[^>]*>/i.exec(html);
+  const hasHtmlTag = htmlTag !== null;
+  if (hasHtmlTag) {
     const at = htmlTag.index + htmlTag[0].length;
     return html.slice(0, at) + tags + html.slice(at);
   }

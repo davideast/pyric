@@ -1,65 +1,28 @@
 /**
- * Internal Firestore value codec — the marker-based serialize/rehydrate of
- * Firestore special scalar types (Timestamp, Bytes, LatLng/GeoPoint,
- * Duration, Reference, Path, Vector).
+ * Firestore wire values shared by browser transports and sandbox persistence.
  *
- * WHY THIS MODULE EXISTS (and why it is a LEAF)
- * ---------------------------------------------
- * Two very different consumers need this codec:
+ * Declared wire encodings can escape marker-shaped maps; legacy persistence
+ * retains its marker interpretation. SDK decoding restores public scalar values
+ * and references owned by the receiving client. Persistence decoding retains
+ * the rules wrappers used by the evaluator. Direct value
+ * imports keep this module independent of the sandbox and rules engines.
  *
- *   1. The sandbox persistence serializer (`sandbox/persistence/serialize.ts`)
- *      — server-side, already pulls the whole engine, doesn't care about size.
- *   2. The SharedWorker CLIENT (`@pyric/cli/.../worker/client.ts` via
- *      `protocol.ts`) — runs in EVERY page that opens a serve session. It only
- *      needs to reconstruct Timestamp/Bytes/LatLng instances from the JSON
- *      markers the worker host wrote; it must NOT drag the rules engine,
- *      simulator, parser, or sandbox into the per-page bundle.
- *
- * Importing the wrapper CLASSES from the `pyric/rules` BARREL would execute the
- * entire rules index (parser + linter + simulator + evaluator → ~10 MB). The
- * wrapper modules themselves are leaf — each depends only on `wrappers/base.js`
- * which has zero imports — so this codec imports them by their DIRECT leaf
- * paths. The result: importing this module pulls ONLY the seven small wrapper
- * classes + their `base.js`, nothing heavy.
- *
- * Real types, not structural stand-ins: because the wrapper constructors are
- * already leaf-cheap, the codec reconstructs the SAME real `Timestamp`/`Bytes`/
- * `LatLng`/etc. classes the in-page (`pyric/firestore`) path yields. This keeps
- * `instanceof` checks and method calls (`.toDate()`, `.toMillis()`, byte
- * access, `.lat`/`.lng`) identical on both sides of the MessagePort and in IDB
- * persistence — there is ONE codec, not two that can drift.
- *
- * Marker formats handled (must stay in sync with each wrapper's `toJSON()`):
- *
- * 1. `pyric/rules` wrapper markers (from `Timestamp.toJSON()` etc.):
- *   { __type: 'timestamp', seconds, nanos }   → Timestamp
- *   { __type: 'bytes', base64 }               → Bytes   (base64url)
- *   { __type: 'latlng', lat, lng }            → LatLng
- *   { __type: 'duration', seconds, nanos }    → Duration
- *   { __type: 'reference', path }             → Reference
- *   { __type: 'path', segments }              → Path
- *   { __type__: '__vector__', value }         → Vector
- *
- * 2. `firebase/firestore` SDK markers (from fb.Timestamp.toJSON() etc.),
- *    produced when `pyric/firestore`'s `getDoc` returns `firebase/firestore`
- *    class instances that are then serialized via JSON.stringify:
- *   { type: 'firestore/timestamp/1.0', seconds, nanoseconds } → Timestamp
- *   { type: 'firestore/bytes/1.0', bytes }                    → Bytes (std b64)
- *   { type: 'firestore/geoPoint/1.0', latitude, longitude }   → LatLng
- *
- * Unknown `__type`/`type` values pass through as plain objects rather than
- * throwing — the rest of the doc still restores cleanly.
+ * Encoding escapes ordinary maps with marker keys before they cross the wire.
+ * Legacy unknown markers remain maps. Complete validation and write-intent
+ * handling are still required by the wire contract.
  */
-
-// Direct leaf imports — NOT the `pyric/rules` barrel. Each of these modules
-// depends only on `./base.js` (no imports), so this stays engine-free.
-import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
+import { Bytes as RulesBytes } from '../../rules/simulator/wrappers/bytes.js';
 import { Duration } from '../../rules/simulator/wrappers/duration.js';
 import { LatLng } from '../../rules/simulator/wrappers/latlng.js';
 import { Path } from '../../rules/simulator/wrappers/path.js';
 import { Reference } from '../../rules/simulator/wrappers/reference.js';
-import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
+import { Timestamp as RulesTimestamp } from '../../rules/simulator/wrappers/timestamp.js';
 import { Vector } from '../../rules/simulator/wrappers/vector.js';
+import { Timestamp } from '../timestamp.js';
+import { Bytes } from '../bytes.js';
+import { GeoPoint } from '../geo-point.js';
+import { VectorValue } from '../vector-value.js';
+import { FirebaseError } from '../../sandbox/internal/firebase-error.js';
 // Sideways leaf import into the firestore surface (same character as the
 // wrapper imports above): the activity value registry is a zero-dependency
 // leaf owned by `firestore/sandbox/`, consumed here only to stamp trusted
@@ -68,7 +31,75 @@ import {
   registerActivityValue,
   trustedWireActivityValue,
 } from '../sandbox/activity-value-registry.js';
-import { registerQueryValue } from '../sandbox/query-value-registry.js';
+import { registerQueryValue, registeredReferenceQueryValuePath } from '../sandbox/query-value-registry.js';
+export { registerReferenceQueryValue } from '../sandbox/query-value-registry.js';
+export { requireDocumentData } from './document-data.js';
+
+export const DOC_VALUE_ENCODING = 'pyric/firestore-values/1';
+export type DocValueEncoding = typeof DOC_VALUE_ENCODING;
+
+function resolveMapEncoding(encoding: DocValueEncoding | undefined): boolean {
+  const isLegacyEncoding = encoding === undefined;
+  const allowsEscapedMaps = encoding === DOC_VALUE_ENCODING;
+  const isUnsupportedEncoding = !isLegacyEncoding && !allowsEscapedMaps;
+  if (isUnsupportedEncoding) {
+    throw new FirebaseError('invalid-argument', 'Unsupported Firestore value encoding.');
+  }
+  return allowsEscapedMaps;
+}
+
+/** Encode SDK values before transport removes their class or copies their owner. */
+export function encodeDocValue(value: unknown): unknown {
+  const isScalar = value === null || typeof value !== 'object';
+  if (isScalar) return value;
+  const isTimestamp = value instanceof Timestamp;
+  if (isTimestamp) return value.toJSON();
+  const isDate = value instanceof Date;
+  if (isDate) return Timestamp.fromDate(value).toJSON();
+  const isBytes = value instanceof Bytes;
+  if (isBytes) return value.toJSON();
+  const isGeoPoint = value instanceof GeoPoint;
+  if (isGeoPoint) return value.toJSON();
+  const isVector = value instanceof VectorValue;
+  if (isVector) return value.toJSON();
+  const referencePath = registeredReferenceQueryValuePath(value);
+  const isReference = referencePath !== undefined;
+  if (isReference) return { __type: 'reference', path: referencePath };
+  const isArray = Array.isArray(value);
+  if (isArray) return value.map(encodeDocValue);
+  const prototype = Object.getPrototypeOf(value);
+  const isPlainMap = prototype === Object.prototype || prototype === null;
+  if (isPlainMap) {
+    const fields = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, encodeDocValue(item)]));
+    const hasMarkerField = Object.hasOwn(fields, 'type')
+      || Object.hasOwn(fields, '__type')
+      || Object.hasOwn(fields, '__type__');
+    if (hasMarkerField) return { type: 'pyric/map/1.0', fields };
+    return fields;
+  }
+  return value;
+}
+
+/** A decoder's owner supplies usable references; persistence keeps rules values. */
+export interface ReferenceDecoder {
+  create(path: string): object;
+}
+
+interface ValueConstructors {
+  bytes(value: Uint8Array): object;
+  geoPoint(latitude: number, longitude: number): object;
+  reference(path: string): object;
+  timestamp(seconds: number, nanoseconds: number): object;
+  vector(values: readonly number[]): object;
+}
+
+const rulesValues: ValueConstructors = {
+  bytes: (value) => new RulesBytes(value),
+  geoPoint: (latitude, longitude) => new LatLng(latitude, longitude),
+  reference: (path) => new Reference(path),
+  timestamp: (seconds, nanoseconds) => new RulesTimestamp(seconds, nanoseconds),
+  vector: (values) => new Vector(values),
+};
 
 /**
  * Decode a base64url string (`-`/`_` alphabet, no padding) back into a
@@ -95,23 +126,35 @@ function base64StdDecode(s: string): Uint8Array {
   return out;
 }
 
-/**
- * Walk a parsed JSON tree and re-wrap any marker shape back into its real
- * wrapper-class instance. Visits arrays and plain objects recursively. Plain
- * values (and plain objects without a recognized discriminator) pass through.
- *
- * This is the canonical rehydrate used by BOTH the sandbox persistence
- * serializer and the SharedWorker wire protocol, so the IDB format and the
- * MessagePort wire format are guaranteed identical.
- */
+/** Restore persisted marker trees to rules values, including nested maps and arrays. */
 export function rehydrateDocValue(value: unknown): unknown {
-  return rehydrateValue(value, true);
+  return rehydrateValue(value, true, rulesValues, false);
 }
 
-function rehydrateValue(value: unknown, registerRootIdentity: boolean): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) {
-    const hydrated = value.map((item) => rehydrateValue(item, false));
+/** Decode explicitly declared wire values; absent declarations retain the legacy marker contract. */
+export function rehydrateEncodedDocValue(value: unknown, encoding: DocValueEncoding | undefined): unknown {
+  const allowsEscapedMaps = resolveMapEncoding(encoding);
+  return rehydrateValue(value, true, rulesValues, allowsEscapedMaps);
+}
+
+/** Decode values for an SDK owner while retaining the unary persistence decoder. */
+export function decodeDocValue(value: unknown, references: ReferenceDecoder, encoding?: DocValueEncoding): unknown {
+  const allowsEscapedMaps = resolveMapEncoding(encoding);
+  return rehydrateValue(value, true, {
+    bytes: (value) => Bytes.fromUint8Array(value),
+    geoPoint: (latitude, longitude) => new GeoPoint(latitude, longitude),
+    reference: (path) => references.create(path),
+    timestamp: (seconds, nanoseconds) => new Timestamp(seconds, nanoseconds),
+    vector: (values) => VectorValue.create(values.slice()),
+  }, allowsEscapedMaps);
+}
+
+function rehydrateValue(value: unknown, registerRootIdentity: boolean, constructors: ValueConstructors, allowsEscapedMaps: boolean): unknown {
+  const isScalar = value === null || typeof value !== 'object';
+  if (isScalar) return value;
+  const isArray = Array.isArray(value);
+  if (isArray) {
+    const hydrated = value.map((item) => rehydrateValue(item, false, constructors, allowsEscapedMaps));
     if (registerRootIdentity) {
       registerActivityValue(hydrated, trustedWireActivityValue(value));
     }
@@ -130,43 +173,58 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean): unknown 
     return withActivityIdentity(hydrated);
   };
 
-  if (obj.__type__ === '__vector__' && Array.isArray(obj.value)) {
+  const isVector = obj.__type__ === '__vector__' && Array.isArray(obj.value);
+  if (isVector) {
     const values = Object.freeze((obj.value as number[]).slice());
-    return withQueryIdentity(new Vector(values), { type: 'vector', values });
+    return withQueryIdentity(constructors.vector(values), { type: 'vector', values });
   }
 
   // pyric/rules wrapper marker form (used for IDB persistence + wire).
-  if (typeof obj.__type === 'string') {
+  const hasWrapperMarker = typeof obj.__type === 'string';
+  if (hasWrapperMarker) {
     switch (obj.__type) {
       case 'timestamp':
         return withQueryIdentity(
-          new Timestamp(obj.seconds as number, obj.nanos as number),
+          constructors.timestamp(obj.seconds as number, obj.nanos as number),
           { type: 'timestamp', seconds: obj.seconds, nanoseconds: obj.nanos },
         );
       case 'bytes': {
         const bytes = base64UrlDecode(obj.base64 as string);
         return withQueryIdentity(
-          new Bytes(bytes),
+          constructors.bytes(bytes),
           { type: 'bytes', values: Object.freeze(Array.from(bytes)) },
         );
       }
       case 'latlng':
         return withQueryIdentity(
-          new LatLng(obj.lat as number, obj.lng as number),
+          constructors.geoPoint(obj.lat as number, obj.lng as number),
           { type: 'geo-point', latitude: obj.lat, longitude: obj.lng },
         );
       case 'duration':
         return withActivityIdentity(new Duration(obj.seconds as number, obj.nanos as number));
-      case 'reference':
-        return withActivityIdentity(new Reference(obj.path as string));
+      case 'reference': {
+        const path = obj.path as string;
+        return withActivityIdentity(constructors.reference(path));
+      }
       case 'path':
         return withActivityIdentity(new Path(obj.segments as string[]));
     }
   }
 
-  // firebase/firestore SDK marker form (produced when pyric/firestore's
-  // getDoc returns fb-SDK class instances and JSON.stringify is called).
-  if (typeof obj.type === 'string') {
+  const isEscapedMap = allowsEscapedMaps && obj.type === 'pyric/map/1.0';
+  if (isEscapedMap) {
+    const fields = obj.fields;
+    const hasInvalidMapFields = fields === null || typeof fields !== 'object' || Array.isArray(fields);
+    if (hasInvalidMapFields) throw new TypeError('Invalid encoded map fields.');
+    const hydrated = Object.fromEntries(
+      Object.entries(fields).map(([key, item]) => [key, rehydrateValue(item, false, constructors, allowsEscapedMaps)]),
+    );
+    return withActivityIdentity(hydrated);
+  }
+
+  // Versioned markers distinguish SDK values from escaped user maps.
+  const hasVersionedMarker = typeof obj.type === 'string';
+  if (hasVersionedMarker) {
     switch (obj.type) {
       case 'firestore/timestamp/1.0': {
         // fb.Timestamp.toJSON() emits { type, seconds, nanoseconds }.
@@ -174,7 +232,7 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean): unknown 
         const seconds = obj.seconds as number;
         const nanoseconds = obj.nanoseconds as number;
         return withQueryIdentity(
-          new Timestamp(seconds, nanoseconds),
+          constructors.timestamp(seconds, nanoseconds),
           { type: 'timestamp', seconds, nanoseconds },
         );
       }
@@ -182,21 +240,26 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean): unknown 
         // fb.Bytes.toJSON() emits { type, bytes } where bytes is standard base64.
         const bytes = base64StdDecode(obj.bytes as string);
         return withQueryIdentity(
-          new Bytes(bytes),
+          constructors.bytes(bytes),
           { type: 'bytes', values: Object.freeze(Array.from(bytes)) },
         );
       }
       case 'firestore/geoPoint/1.0': {
         // fb.GeoPoint.toJSON() emits { latitude, longitude, type }.
         return withQueryIdentity(
-          new LatLng(obj.latitude as number, obj.longitude as number),
+          constructors.geoPoint(obj.latitude as number, obj.longitude as number),
           { type: 'geo-point', latitude: obj.latitude, longitude: obj.longitude },
         );
+      }
+      case 'firestore/vectorValue/1.0': {
+        const vector = VectorValue.fromJSON(obj);
+        const values = Object.freeze(vector.toArray());
+        return withQueryIdentity(constructors.vector(values), { type: 'vector', values });
       }
     }
   }
 
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) out[k] = rehydrateValue(v, false);
+  for (const [k, v] of Object.entries(obj)) out[k] = rehydrateValue(v, false, constructors, allowsEscapedMaps);
   return withActivityIdentity(out);
 }

@@ -20,17 +20,17 @@ import {
   isBridgeMessage,
   PEER_REPLACED_CLOSE_CODE,
   PEER_REPLACED_CLOSE_REASON,
-  type AttachFromConsumer,
   type BridgeMessage,
-  type RemoteSetLensFrame,
-  type WorkerOpFrame,
-  type WorkerSubFrame,
+  type RemoteSetLensAckFrame,
+  type WorkerResFrame,
 } from '../protocol.js';
 import { cliVersion } from '../../pkg-version.js';
+import type { WorkerSessionLease } from './worker-sessions.js';
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
   ws: WebSocket,
+  allowSandboxPeer = true,
 ): void {
   let disconnect: (() => void) | null = null;
   /** Peer generation captured at registration — tags every inbound frame so
@@ -41,17 +41,23 @@ export function attachPeer(
   let consumer: ConsumerSession | null = null;
 
   ws.on('message', (raw) => {
-    let msg: unknown;
+    let parsed: unknown;
     try {
-      msg = JSON.parse(raw.toString());
+      parsed = JSON.parse(raw.toString());
     } catch {
       return;
     }
-    if (!isBridgeMessage(msg)) return;
-    if (msg.type === 'attach') {
+    const msg = parsed;
+    const isUnrecognizedMessage = !isBridgeMessage(msg);
+    if (isUnrecognizedMessage) return;
+    const isAttach = msg.type === 'attach';
+    if (isAttach) {
       // Worker-relay consumer (Node client). NOT a peer: attaching never
       // kicks the browser tab out of last-connection-wins.
-      if (helloed || consumer) return;
+      const isAlreadyAttached = helloed || consumer !== null;
+      if (isAlreadyAttached) return;
+      const ownsWorkerPort = msg.transport === 'worker-port';
+      const requestedSessionId = ownsWorkerPort ? undefined : msg.clientSessionId ?? msg.sessionId;
       consumer = createConsumerSession(
         bridge,
         (out: BridgeMessage) => {
@@ -59,18 +65,35 @@ export function attachPeer(
             ws.send(JSON.stringify(out));
           } catch {}
         },
-        msg.clientSessionId ?? msg.sessionId,
+        requestedSessionId,
       );
-      consumer.handleMessage(msg); // acks with attach-ack
+      try {
+        consumer.handleMessage(msg); // acks with attach-ack
+      } catch {
+        consumer.dispose();
+        ws.close(1008, 'Hosted session admission failed.');
+      }
       return;
     }
-    if (consumer) {
-      consumer.handleMessage(msg);
+    const currentConsumer = consumer;
+    const hasConsumer = currentConsumer !== null;
+    if (hasConsumer) {
+      currentConsumer.handleMessage(msg);
       return;
     }
-    if (msg.type === 'hello') {
+    const isHello = msg.type === 'hello';
+    if (isHello) {
+      const requiresNodeHost = !allowSandboxPeer;
+      if (requiresNodeHost) {
+        ws.close(1008, 'This bridge has an authoritative Node sandbox.');
+        return;
+      }
       if (helloed) return;
       helloed = true;
+      const hasToolNames = Array.isArray(msg.tools);
+      const tools = hasToolNames ? msg.tools : [];
+      const hasCapabilities = Array.isArray(msg.capabilities);
+      const capabilities = hasCapabilities ? msg.capabilities : [];
       disconnect = bridge.registerSandboxPeer(
         (out: BridgeMessage) => {
           try {
@@ -81,9 +104,9 @@ export function attachPeer(
         // and feed `new Set(...)` in the bridge core — a non-array value
         // (e.g. `capabilities: 42`) would throw inside this message
         // listener, escape uncaught, and crash the serve process.
-        Array.isArray(msg.tools) ? msg.tools : [],
+        tools,
         msg.sandboxId,
-        Array.isArray(msg.capabilities) ? msg.capabilities : [],
+        capabilities,
         // On replacement, close THIS socket: the browser side's onclose
         // handler tears down its relayed worker subscriptions, so a
         // replaced tab's SharedWorker listeners don't keep streaming
@@ -113,14 +136,15 @@ export function attachPeer(
       bridge.broadcastConsumerPresence();
       return;
     }
-    if (!helloed) return;
+    const isUnregistered = !helloed;
+    if (isUnregistered) return;
     bridge.handleSandboxMessage(msg, peerGen);
   });
 
   ws.on('close', () => {
-    if (disconnect) disconnect();
+    disconnect?.();
     disconnect = null;
-    if (consumer) consumer.detach();
+    consumer?.detach();
     consumer = null;
   });
   ws.on('error', () => {});
@@ -157,10 +181,19 @@ export function createConsumerSession(
 ): ConsumerSession {
   let clientSessionId = initialSessionId ?? randomUUID();
   let disposed = false;
+  let ownsWorkerPort = false;
+  let workerSession: WorkerSessionLease | null = null;
   /** consumer subId → bridge-side unsubscribe. */
   const subs = new Map<string, () => void>();
 
   function detach(): void {
+    const retainedSession = workerSession;
+    const hasRetainedSession = retainedSession !== null;
+    if (hasRetainedSession) {
+      disposed = true;
+      retainedSession.detach();
+      return;
+    }
     for (const unsubscribe of subs.values()) unsubscribe();
     subs.clear();
     bridge.detachConsumer(clientSessionId);
@@ -170,6 +203,12 @@ export function createConsumerSession(
 
   function dispose(): void {
     disposed = true;
+    const retainedSession = workerSession;
+    const hasRetainedSession = retainedSession !== null;
+    if (hasRetainedSession) {
+      retainedSession.close();
+      return;
+    }
     for (const unsubscribe of subs.values()) unsubscribe();
     subs.clear();
     bridge.disconnectConsumer(clientSessionId);
@@ -178,8 +217,11 @@ export function createConsumerSession(
   }
 
   function handleMessage(msg: BridgeMessage): void {
+    const isStaleConnection = workerSession !== null && !workerSession.isCurrent();
+    if (isStaleConnection) return;
     if (disposed) {
-      if (msg.type === 'worker-op') {
+      const isOperation = msg.type === 'worker-op';
+      if (isOperation) {
         send({
           type: 'worker-res',
           id: msg.id,
@@ -193,11 +235,20 @@ export function createConsumerSession(
     bridge.consumers.touch(clientSessionId);
     switch (msg.type) {
       case 'attach': {
-        const attachMsg = msg as AttachFromConsumer;
-        if (attachMsg.clientSessionId) {
-          clientSessionId = attachMsg.clientSessionId;
-        } else if (attachMsg.sessionId) {
-          clientSessionId = attachMsg.sessionId;
+        const attachMsg = msg;
+        ownsWorkerPort = attachMsg.transport === 'worker-port';
+        if (ownsWorkerPort) {
+          workerSession = bridge.workerSessions.attach(attachMsg.resumeToken);
+          clientSessionId = workerSession.clientSessionId;
+        }
+        const requestedClientId = attachMsg.clientSessionId;
+        const requestedAlias = attachMsg.sessionId;
+        const mayResumeClientId = !ownsWorkerPort && requestedClientId !== undefined;
+        const mayResumeAlias = !ownsWorkerPort && requestedAlias !== undefined;
+        if (mayResumeClientId) {
+          clientSessionId = requestedClientId;
+        } else if (mayResumeAlias) {
+          clientSessionId = requestedAlias;
         }
         bridge.consumers.register({
           clientSessionId,
@@ -211,60 +262,76 @@ export function createConsumerSession(
         send({
           type: 'attach-ack',
           protocol: 1,
+          capabilities: bridge.peerCapabilities(),
+          projectKey: bridge.projectKey,
           bridgeVersion: bridge.version,
           peerConnected: bridge.isSandboxConnected(),
           sandboxConnected: bridge.isSandboxConnected(),
           serveVersion: cliVersion(),
           clientSessionId,
           sessionId: clientSessionId,
+          resumeToken: workerSession?.resumeToken,
         });
         bridge.broadcastConsumerPresence();
         return;
       }
       case 'remote-set-lens': {
-        const frame = msg as RemoteSetLensFrame;
+        const frame = msg;
         const ok = bridge.consumers.setLens(frame.clientSessionId, frame.lens);
         bridge.broadcastConsumerPresence();
-        if (frame.id) {
-          send({
+        const needsAcknowledgement = Boolean(frame.id);
+        if (needsAcknowledgement) {
+          const acknowledgement: RemoteSetLensAckFrame = {
             type: 'remote-set-lens-ack',
             id: frame.id,
             clientSessionId: frame.clientSessionId,
             ok,
-            ...(ok ? {} : { error: { code: 'not-found', message: 'Client session not found' } }),
-          });
+          };
+          const wasNotFound = !ok;
+          if (wasNotFound) acknowledgement.error = { code: 'not-found', message: 'Client session not found' };
+          send(acknowledgement);
         }
         return;
       }
       case 'worker-op': {
-        const opSessionId = (msg as WorkerOpFrame).clientSessionId ?? clientSessionId;
+        const opSessionId = msg.clientSessionId ?? clientSessionId;
         const opPayload = {
-          ...(msg as WorkerOpFrame).op,
+          ...msg.op,
           resumeSession: true,
         };
         bridge.dispatchWorkerOp(opPayload, opSessionId).then(
           (value) => send({ type: 'worker-res', id: msg.id, clientSessionId: opSessionId, ok: true, value }),
-          (err: Error & { code?: string; denialContext?: unknown; envelope?: unknown }) =>
+          (err: Error & { code?: string; denialContext?: unknown; envelope?: unknown }) => {
+            const error: WorkerResFrame['error'] = { code: err.code ?? 'unknown', message: err.message };
+            const hasDenialContext = err.denialContext !== undefined;
+            if (hasDenialContext) error.denialContext = err.denialContext;
+            const hasEnvelope = err.envelope !== undefined;
+            if (hasEnvelope) error.envelope = err.envelope;
             send({
               type: 'worker-res',
               id: msg.id,
               clientSessionId: opSessionId,
               ok: false,
-              error: {
-                code: err.code ?? 'unknown',
-                message: err.message,
-                ...(err.denialContext !== undefined ? { denialContext: err.denialContext } : {}),
-                ...(err.envelope !== undefined ? { envelope: err.envelope } : {}),
-              },
-            }),
+              error,
+            });
+          },
         );
         return;
       }
+      case 'worker-message': {
+        const usesLegacyRelay = !ownsWorkerPort;
+        if (usesLegacyRelay) return;
+        const deletesApp = msg.message.t === 'disconnect';
+        if (deletesApp) workerSession?.retire();
+        bridge.forwardWorkerMessage(msg.message, clientSessionId);
+        return;
+      }
       case 'worker-sub': {
-        if (subs.has(msg.subId)) return; // idempotent
-        const subSessionId = (msg as WorkerSubFrame).clientSessionId ?? clientSessionId;
+        const isAlreadySubscribed = subs.has(msg.subId);
+        if (isAlreadySubscribed) return;
+        const subSessionId = msg.clientSessionId ?? clientSessionId;
         const subPayload = {
-          ...(msg as WorkerSubFrame).sub,
+          ...msg.sub,
           resumeSession: true,
         };
         const unsubscribe = bridge.subscribeWorker(
@@ -277,7 +344,8 @@ export function createConsumerSession(
       }
       case 'worker-unsub': {
         const unsubscribe = subs.get(msg.subId);
-        if (!unsubscribe) return;
+        const isUnsubscribed = unsubscribe === undefined;
+        if (isUnsubscribed) return;
         subs.delete(msg.subId);
         unsubscribe();
         return;

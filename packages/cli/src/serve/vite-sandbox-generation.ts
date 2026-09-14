@@ -42,6 +42,7 @@ import {
 } from './vite-generation-functions.js';
 import { attachViteGenerationMiddleware } from './vite-generation-middleware.js';
 import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
+import { claimProjectState } from './hosted/project-ownership.js';
 
 export interface ViteSandboxGenerationOptions {
   flow?: FlowConfig;
@@ -118,20 +119,26 @@ export async function createViteSandboxGeneration(
   let bridgeAttachment: BridgeHostAttachment | null = null;
   let functionsAttachment: ViteFunctionsDevelopmentAttachment | null = null;
   let closePromise: Promise<void> | null = null;
+  let stateOwner: Awaited<ReturnType<typeof claimProjectState>> | undefined;
 
   const close = (): Promise<void> => {
-    if (closePromise) return closePromise;
+    const pendingClose = closePromise;
+    const hasStartedClosing = pendingClose !== null;
+    if (hasStartedClosing) return pendingClose;
     closePromise = (async () => {
       for (const dispose of listenerDisposers.splice(0).reverse()) dispose();
       await functionsAttachment?.close();
       await bridgeAttachment?.close();
       await bridge?.close();
       await session?.close();
+      stateOwner?.close();
     })();
     return closePromise;
   };
 
   try {
+    const persistsState = options.persist === true;
+    if (persistsState) stateOwner = await claimProjectState(cwd);
     let firebaseConfig: FirebaseJson | null = null;
     try {
       firebaseConfig = await dependencies.readFirebaseJson(cwd);
@@ -148,8 +155,10 @@ export async function createViteSandboxGeneration(
       const epochSalt = viteWorkerEpochSalt(cwd, ai.engineWire, ai.mode);
       await dependencies.prepareWorker(workerRuntime, epochSalt);
     } catch (error) {
+      const isError = error instanceof Error;
+      const message = isError ? error.message : String(error);
       server.config.logger.warn(
-        `  ⚠ [pyric] SharedWorker bundle failed — using the in-page sandbox (single-tab, ephemeral): ${error instanceof Error ? error.message : String(error)}`,
+        `  ⚠ [pyric] SharedWorker bundle failed — using the in-page sandbox (single-tab, ephemeral): ${message}`,
       );
     }
 
@@ -172,9 +181,11 @@ export async function createViteSandboxGeneration(
     const serverOptions = server.config.server;
 
     let siteUiDir: string | undefined;
-    if (options.ui) {
+    const mountsStudio = options.ui;
+    if (mountsStudio) {
       siteUiDir = dependencies.resolveSiteUiDir() ?? undefined;
-      if (!siteUiDir) {
+      const hasNoSiteUi = !siteUiDir;
+      if (hasNoSiteUi) {
         server.config.logger.warn(
           '[pyric] ui: built Astro site not found; /__pyric/ui/ will 404 ' +
             '(run the full build, or reinstall @pyric/cli).',
@@ -183,16 +194,24 @@ export async function createViteSandboxGeneration(
     }
     const { sdkDir, epoch: workerVersion } = dependencies.workerStatus(workerRuntime);
     const sdk = { dir: sdkDir, workerVersion: workerVersion ?? undefined };
-    const persistence = options.persist ? { fresh: options.fresh } : undefined;
-    const studio = options.ui ? { siteUiDir } : false;
-    const aiOptions = ai.engineWire ? { engine: ai.engineWire } : null;
+    const persistence = persistsState ? { fresh: options.fresh } : undefined;
+    const studio = mountsStudio ? { siteUiDir } : false;
+    const hasAiEngine = ai.engineWire !== undefined;
+    const aiOptions = hasAiEngine ? { engine: ai.engineWire } : null;
     const bridgeUrl = (): string | null => {
-      if (!bridge) return null;
+      const activeBridge = bridge;
+      const hasNoBridge = activeBridge === null;
+      if (hasNoBridge) return null;
       const address = server.httpServer?.address();
-      const port = address && typeof address === 'object' ? address.port : 0;
-      const host = (typeof serverOptions.host === 'string' && serverOptions.host) || 'localhost';
-      if (port <= 0) return null;
-      return bridge.wsUrl({ host, port });
+      const hasAddress = address !== undefined && address !== null;
+      const hasTcpAddress = hasAddress && typeof address === 'object';
+      const port = hasTcpAddress ? address.port : 0;
+      const configuredHost = serverOptions.host;
+      const hasHostname = typeof configuredHost === 'string' && configuredHost.length > 0;
+      const host = hasHostname ? configuredHost : 'localhost';
+      const hasNoListeningPort = port <= 0;
+      if (hasNoListeningPort) return null;
+      return activeBridge.wsUrl({ host, port });
     };
     const sessionOptions: SandboxSessionOptions = {
       projectDir: cwd,
@@ -217,8 +236,10 @@ export async function createViteSandboxGeneration(
       session = await dependencies.createSession(sessionOptions);
     } catch (error) {
       await close();
-      if (error instanceof SandboxSeedError) {
-        if (error.kind === 'read') {
+      const isSeedError = error instanceof SandboxSeedError;
+      if (isSeedError) {
+        const failedSeedRead = error.kind === 'read';
+        if (failedSeedRead) {
           throw new Error(`@pyric/cli/vite: failed to read seed ${error.path}: ${error.detail}`);
         }
         throw new Error('@pyric/cli/vite: seed must be a JSON object of "collection/doc" → fields');
@@ -226,7 +247,8 @@ export async function createViteSandboxGeneration(
       throw error;
     }
 
-    if (options.persist && options.fresh) {
+    const resetsPersistedState = persistsState && options.fresh === true;
+    if (resetsPersistedState) {
       server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
     }
 
@@ -265,10 +287,12 @@ export async function createViteSandboxGeneration(
 
     const rulesWatchInput = { server, session };
     const stopRulesWatch = watchViteGenerationRules(rulesWatchInput);
-    if (stopRulesWatch) listenerDisposers.push(stopRulesWatch);
+    const watchesRules = stopRulesWatch !== null;
+    if (watchesRules) listenerDisposers.push(stopRulesWatch);
 
-    if (server.httpServer) {
-      const httpServer = server.httpServer;
+    const httpServer = server.httpServer;
+    const hasHttpServer = httpServer !== undefined && httpServer !== null;
+    if (hasHttpServer) {
       const onServerClose = (): void => { void close(); };
       httpServer.once('close', onServerClose);
       listenerDisposers.push(() => httpServer.removeListener('close', onServerClose));

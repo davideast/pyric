@@ -11,6 +11,7 @@
 import type { Firestore } from 'pyric/firestore';
 import type { Database } from 'pyric/database';
 import type { LocalSandbox, PersistenceBackend } from 'pyric/sandbox';
+import type { CheckpointBackend } from 'pyric/sandbox/checkpoints';
 import type { Auth, MintedSession } from 'pyric/auth';
 import type { FirebaseStorage } from 'pyric/storage';
 import type { SandboxDispatch } from '../../bridge/client/dispatch.js';
@@ -62,6 +63,8 @@ export interface HostCtx {
   db: Firestore;
   /** The underlying Sandbox, for setRules + direct sandbox ops. */
   sandbox: LocalSandbox;
+  /** Persistence acknowledgment policy supplied by the owning runtime. */
+  flushPersistence?: () => Promise<void>;
   /** Stable worker-lifetime activity identity for each page/app port. */
   activityJourneyIds?: WeakMap<PortLike, string>;
   activityJourneySequence?: number;
@@ -161,6 +164,8 @@ export interface HostCtx {
    * mirroring how the real SDK owns persistence in the client (#754).
    */
   sessionBackend?: PersistenceBackend;
+  /** Hosted checkpoints use the project's shared directory backend. */
+  checkpointBackend?: CheckpointBackend;
   /**
    * Accepted `auth.setPersistence` mode, kept for surface parity. The
    * worker itself no longer writes a session record — the CLIENT's
@@ -255,23 +260,19 @@ export function fail(port: PortLike, id: string, err: unknown): void {
 }
 
 /**
- * Await a persistence flush BEFORE acking a mutating op, so an acknowledged
- * write is durable in IndexedDB when the reply reaches the client. This is
- * the worker's ONLY durability mechanism: there is no beforeterminate-style
- * event for a SharedWorker, so a teardown on last-tab close/reload can kill
- * the worker inside the controller's debounce window — an un-flushed write
- * would be silently lost (the reload-durability bug).
- *
- * "Best-effort" refers to the REPLY, not the flush: a flush failure (e.g.
- * storage quota) must not turn a successful in-memory mutation into a wire
- * error, but it IS logged — a silently swallowed flush failure is exactly
- * how a broken flush contract stays invisible.
+ * Flush before acknowledgment. The owning runtime may require persistence
+ * failures to reach the caller. SharedWorker retains its existing policy:
+ * await the flush, but log storage failures and acknowledge the memory write.
+ * Flushing here avoids relying on a debounce timer that worker termination
+ * could interrupt after the caller has already received success.
  */
 export async function bestEffortFlush(ctx: HostCtx): Promise<void> {
+  const flushPersistence = ctx.flushPersistence;
+  const hasRuntimePolicy = flushPersistence !== undefined;
+  if (hasRuntimePolicy) return flushPersistence();
   try {
     await ctx.sandbox.flush?.();
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.warn('[pyric worker] persistence flush after acked write failed:', e);
   }
 }

@@ -61,6 +61,10 @@ export const deleteField = D.deleteField;
 // ── Value class — path-independent (builds data; the worker serializes it via
 //    the shared codec) ──────────────────────────────────────────────────────
 export const Timestamp = ip.Timestamp;
+export const Bytes = ip.Bytes;
+export const GeoPoint = ip.GeoPoint;
+export const VectorValue = ip.VectorValue;
+export const vector = ip.vector;
 
 // ── Composite filters — path-independent (issue #144). The worker query
 //    protocol carries the composite filter tree end-to-end: the client `or`/

@@ -147,8 +147,18 @@ jobs:
     timeout-minutes: 30
     needs: plan
     if: needs.plan.outputs.check-set == 'full'
+    env:
+      # PRs check the actual merge candidate against its target. Pushes check
+      # the full pushed range; scheduled/manual runs check the latest commit.
+      CODE_FORM_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Fetch code-form baseline
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        run: git fetch --no-tags --depth=1 origin "$CODE_FORM_BASE"
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -169,6 +179,27 @@ jobs:
         # of this job's build, conformance, or test commands enter that workspace.
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
+      - name: Test code-form and isolated-test commands
+        run: bun test scripts/check-code-form.test.ts scripts/check-changed-code-form.test.ts scripts/test-isolated.test.ts
+
+      - name: Test support contract command
+        run: bun test scripts/check-support-contract.test.ts
+
+      - name: Check hosted/live support declarations
+        run: bun scripts/check-support-contract.ts docs/hosted-sandbox-live-mode-support.json > "$RUNNER_TEMP/pyric-support-contract.json"
+
+      - name: Upload support declaration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: support-contract-declarations
+          path: ${{ runner.temp }}/pyric-support-contract.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Typecheck verification tools
+        run: bun x tsc --noEmit --strict --skipLibCheck --target ESNext --module NodeNext --moduleResolution NodeNext --types bun scripts/check-code-form.ts scripts/check-code-form.test.ts scripts/check-changed-code-form.ts scripts/check-changed-code-form.test.ts scripts/test-isolated.ts scripts/test-isolated.test.ts packages/cli/scripts/check-browser-boundaries.ts packages/cli/scripts/check-browser-boundaries.test.ts scripts/check-support-contract.ts scripts/check-support-contract.test.ts
+
       - name: Oracle observation version guard
         # Fails if any packages/conformance/observations/*.json was captured against
         # a firebase version other than the one bun.lock currently resolves —
@@ -184,6 +215,39 @@ jobs:
         uses: ./.github/actions/restore-dist
         with:
           flavor: packages
+
+      - name: Test browser boundary command
+        run: bun test packages/cli/scripts/check-browser-boundaries.test.ts
+
+      - name: Check browser leaf boundaries
+        run: |
+          bun packages/cli/scripts/check-browser-boundaries.ts packages/cli/src/serve/worker/client.ts 98304 > "$RUNNER_TEMP/pyric-browser-worker-client.json"
+          bun packages/cli/scripts/check-browser-boundaries.ts packages/cli/src/serve/worker/client/websocket-connection.ts 16384 > "$RUNNER_TEMP/pyric-browser-hosted-socket.json"
+          bun packages/cli/scripts/check-browser-boundaries.ts packages/cli/src/serve/worker/client/rtdb-listeners.ts 32768 > "$RUNNER_TEMP/pyric-browser-rtdb-listeners.json"
+          bun packages/cli/scripts/check-browser-boundaries.ts packages/pyric/src/firestore/internal/value-codec.ts 24576 > "$RUNNER_TEMP/pyric-browser-value-codec.json"
+          bun packages/cli/scripts/check-browser-boundaries.ts packages/cli/src/serve/entries/live/firestore.ts 524288 > "$RUNNER_TEMP/pyric-browser-live-firestore.json"
+
+      - name: Upload browser boundary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-boundary-reports
+          path: ${{ runner.temp }}/pyric-browser-*.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Check changed TypeScript code form
+        # Resolve workspace SDK declaration types from the actual build.
+        run: bun scripts/check-changed-code-form.ts "$CODE_FORM_BASE" > "$RUNNER_TEMP/pyric-code-form.json"
+
+      - name: Upload code-form evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-form-report
+          path: ${{ runner.temp }}/pyric-code-form.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Agent tool exposure contract
         # Every tool visible through the default MCP bridge, Playground agent,

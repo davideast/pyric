@@ -17,19 +17,20 @@ import { randomUUID } from 'node:crypto';
 import type {
   BridgeMessage,
   HealthReport,
-  RemoteSetLensFrame,
-  ToolCallResponse,
+  RemoteSetLensAckFrame,
+  ToolCallRequest,
   WorkerOpPayload,
   WorkerSubPayload,
-  WorkerResFrame,
-  WorkerSnapFrame,
+  WorkerMessageFrame,
 } from '../protocol.js';
 import {
   NO_SANDBOX_ERROR_MESSAGE,
   NO_WORKER_RELAY_ERROR_MESSAGE,
   WORKER_RELAY_CAPABILITY,
+  WORKER_PORT_CAPABILITY,
 } from '../protocol.js';
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
+import { createWorkerSessions } from './worker-sessions.js';
 import { createCallerIdentity, type CallerIdentityStore } from '../../auth/identity.js';
 
 /** Subset of `@inbrowser/agent`'s `ToolResult` shape the bridge emits. */
@@ -45,6 +46,8 @@ export type SendToPeer = (msg: BridgeMessage) => void;
 export interface BridgeOptions {
   /** Sandbox label surfaced in /health and audit-log paths. */
   project?: string;
+  /** Local project directory identity supplied by the owning serve session. */
+  projectKey?: string;
   /** Bridge version surfaced in /health + Hello messages. */
   version: string;
   /**
@@ -113,12 +116,14 @@ export interface BridgeToolEvent {
 
 export interface Bridge {
   readonly project: string;
+  readonly projectKey?: string;
   readonly version: string;
   readonly startedAt: string;
   /** Stable per-process identity (see HealthReport.instanceId). */
   readonly instanceId: string;
   /** Registry of connected remote consumers. */
   readonly consumers: ConsumerRegistry;
+  readonly workerSessions: ReturnType<typeof createWorkerSessions>;
   /**
    * The identity this bridge attributes to its own MCP callers, written by
    * `auth_impersonate` / `auth_reset` and read by `auth_whoami`. Held per
@@ -170,6 +175,8 @@ export interface Bridge {
    * peer's pending call or deliver a stale subscription snapshot.
    */
   peerGeneration(): number;
+  peerCapabilities(): string[];
+  forwardWorkerMessage(message: WorkerMessageFrame['message'], clientSessionId: string): void;
 
   /** Tool names the bridge currently exposes to MCP. */
   toolNames(): string[];
@@ -274,10 +281,19 @@ export function createBridge(opts: BridgeOptions): Bridge {
   const workerPending = new Map<string, PendingWorkerOp>();
   const workerSubs = new Map<string, WorkerSubEntry>();
   const consumers = createConsumerRegistry();
+  const workerSessions = createWorkerSessions({
+    detach(clientSessionId) {
+      detachConsumer(clientSessionId);
+      consumers.unregister(clientSessionId);
+      broadcastConsumerPresence();
+      peer?.send({ type: 'worker-client-interrupted', clientSessionId });
+    },
+    close: disconnectConsumer,
+  });
   const callerIdentity = createCallerIdentity();
 
   function broadcastConsumerPresence(): void {
-    consumers.broadcastPresence(peer ? peer.send : undefined);
+    consumers.broadcastPresence(peer?.send);
   }
 
   function failAllPending(reason: string) {
@@ -304,7 +320,9 @@ export function createBridge(opts: BridgeOptions): Bridge {
     capabilities: string[] = [],
     onReplaced?: () => void,
   ): () => void {
-    if (peer) {
+    const previousPeer = peer;
+    const replacesPeer = previousPeer !== null;
+    if (replacesPeer) {
       // Last-wins: kick the old peer and reject its pending calls.
       failAllPending('sandbox peer replaced by a newer connection');
       // Tear the old peer down (the transport closes its socket). The
@@ -313,7 +331,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
       // listeners would keep posting snaps this bridge drops as
       // stale-generation until the tab closed.
       try {
-        peer.onReplaced?.();
+        previousPeer.onReplaced?.();
       } catch {
         // A failing transport hook must not block the new registration.
       }
@@ -334,7 +352,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
     // per-sub dedup (see WorkerSubEntry) — without it, tabs cycling through
     // last-wins registration re-fire every consumer listener with
     // byte-identical data on every registration.
-    if (myPeer.capabilities.has(WORKER_RELAY_CAPABILITY)) {
+    const canRestoreSubscriptions = myPeer.capabilities.has(WORKER_RELAY_CAPABILITY);
+    if (canRestoreSubscriptions) {
       for (const [subId, entry] of workerSubs) {
         entry.awaitingReissueSnap = true;
         try {
@@ -348,7 +367,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
       }
     }
     return () => {
-      if (peer === myPeer) {
+      const isCurrentPeer = peer === myPeer;
+      if (isCurrentPeer) {
         failAllPending(NO_SANDBOX_ERROR_MESSAGE);
         peer = null;
       }
@@ -364,7 +384,10 @@ export function createBridge(opts: BridgeOptions): Bridge {
   }
 
   function toolNames(): string[] {
-    return peer ? Array.from(peer.tools).sort() : [];
+    const currentPeer = peer;
+    const hasNoPeer = currentPeer === null;
+    if (hasNoPeer) return [];
+    return Array.from(currentPeer.tools).sort();
   }
 
   async function dispatch(
@@ -376,12 +399,14 @@ export function createBridge(opts: BridgeOptions): Bridge {
     try {
       result = await dispatchSandbox(name, args);
     } catch (err) {
+      const isError = err instanceof Error;
       result = {
         ok: false,
-        summary: err instanceof Error ? err.message : String(err),
+        summary: isError ? err.message : String(err),
       };
     }
-    if (onToolEvent) {
+    const recordsToolEvents = onToolEvent !== undefined;
+    if (recordsToolEvents) {
       try {
         onToolEvent({
           timestamp: new Date(startedAtMs).toISOString(),
@@ -403,14 +428,18 @@ export function createBridge(opts: BridgeOptions): Bridge {
     name: string,
     args: Record<string, unknown>,
   ): Promise<BridgeToolResult> {
-    if (!peer) return Promise.resolve({ ok: false, summary: NO_SANDBOX_ERROR_MESSAGE });
-    if (!peer.tools.has(name)) {
+    const currentPeer = peer;
+    const hasNoPeer = currentPeer === null;
+    if (hasNoPeer) return Promise.resolve({ ok: false, summary: NO_SANDBOX_ERROR_MESSAGE });
+    const isUnregisteredTool = !currentPeer.tools.has(name);
+    if (isUnregisteredTool) {
       return Promise.resolve({ ok: false, summary: `tool '${name}' is not registered with the connected sandbox peer` });
     }
     return new Promise<BridgeToolResult>((resolve) => {
       const id = randomUUID();
       const timer = setTimeout(() => {
-        if (pending.delete(id)) {
+        const wasPending = pending.delete(id);
+        if (wasPending) {
           resolve({ ok: false, summary: `sandbox call timed out after ${callTimeoutMs}ms (tool: ${name})` });
         }
       }, callTimeoutMs);
@@ -421,38 +450,48 @@ export function createBridge(opts: BridgeOptions): Bridge {
         // sent as an ABSENT field so an un-impersonated call stays exactly the
         // frame the bridge has always sent.
         const identity = callerIdentity.get();
-        peer!.send({
+        const request: ToolCallRequest = {
           type: 'tool-call',
           id,
           name,
           args,
-          ...(identity.mode === 'app-session' ? {} : { actAs: identity }),
-        });
+        };
+        const hasIdentityOverride = identity.mode !== 'app-session';
+        if (hasIdentityOverride) request.actAs = identity;
+        currentPeer.send(request);
       } catch (err) {
         clearTimeout(timer);
         pending.delete(id);
-        resolve({ ok: false, summary: `failed to send tool call to sandbox: ${err instanceof Error ? err.message : String(err)}` });
+        const isError = err instanceof Error;
+        const detail = isError ? err.message : String(err);
+        resolve({ ok: false, summary: `failed to send tool call to sandbox: ${detail}` });
       }
     });
   }
 
   function dispatchWorkerOp(op: WorkerOpPayload, clientSessionId?: string): Promise<unknown> {
-    if (!peer) return Promise.reject(workerOpError('unavailable', NO_SANDBOX_ERROR_MESSAGE));
-    if (!peerHasRelay()) return Promise.reject(workerOpError('unimplemented', NO_WORKER_RELAY_ERROR_MESSAGE));
+    const currentPeer = peer;
+    const hasNoPeer = currentPeer === null;
+    if (hasNoPeer) return Promise.reject(workerOpError('unavailable', NO_SANDBOX_ERROR_MESSAGE));
+    const hasNoWorkerRelay = !peerHasRelay();
+    if (hasNoWorkerRelay) return Promise.reject(workerOpError('unimplemented', NO_WORKER_RELAY_ERROR_MESSAGE));
     return new Promise<unknown>((resolve, reject) => {
       const id = randomUUID();
       const timer = setTimeout(() => {
-        if (workerPending.delete(id)) {
+        const wasPending = workerPending.delete(id);
+        if (wasPending) {
           reject(workerOpError('deadline-exceeded', `sandbox worker op timed out after ${callTimeoutMs}ms (op: ${op.method})`));
         }
       }, callTimeoutMs);
       workerPending.set(id, { resolve, reject, timer, method: op.method, clientSessionId });
       try {
-        peer!.send({ type: 'worker-op', id, clientSessionId, op });
+        currentPeer.send({ type: 'worker-op', id, clientSessionId, op });
       } catch (err) {
         clearTimeout(timer);
         workerPending.delete(id);
-        reject(workerOpError('unavailable', `failed to send worker op to sandbox: ${err instanceof Error ? err.message : String(err)}`));
+        const isError = err instanceof Error;
+        const detail = isError ? err.message : String(err);
+        reject(workerOpError('unavailable', `failed to send worker op to sandbox: ${detail}`));
       }
     });
   }
@@ -464,17 +503,20 @@ export function createBridge(opts: BridgeOptions): Bridge {
   ): () => void {
     const subId = randomUUID();
     workerSubs.set(subId, { sub, onSnap, clientSessionId });
-    if (peerHasRelay()) {
+    const canRelaySubscription = peerHasRelay();
+    if (canRelaySubscription) {
       try {
-        peer!.send({ type: 'worker-sub', subId, clientSessionId, sub });
+        peer?.send({ type: 'worker-sub', subId, clientSessionId, sub });
       } catch {}
     }
     return () => {
       const entry = workerSubs.get(subId);
-      if (!workerSubs.delete(subId)) return;
-      if (peerHasRelay()) {
+      const wasUnsubscribed = !workerSubs.delete(subId);
+      if (wasUnsubscribed) return;
+      const canRelayRemoval = peerHasRelay();
+      if (canRelayRemoval) {
         try {
-          peer!.send({ type: 'worker-unsub', subId, clientSessionId: entry?.clientSessionId });
+          peer?.send({ type: 'worker-unsub', subId, clientSessionId: entry?.clientSessionId });
         } catch {}
       }
     };
@@ -482,7 +524,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
 
   function detachConsumer(clientSessionId: string): void {
     for (const [id, op] of workerPending) {
-      if (op.clientSessionId === clientSessionId) {
+      const belongsToConsumer = op.clientSessionId === clientSessionId;
+      if (belongsToConsumer) {
         clearTimeout(op.timer);
         workerPending.delete(id);
         op.reject(workerOpError('unavailable', 'consumer socket detached'));
@@ -492,16 +535,19 @@ export function createBridge(opts: BridgeOptions): Bridge {
 
   function disconnectConsumer(clientSessionId: string): void {
     for (const [subId, entry] of workerSubs) {
-      if (entry.clientSessionId === clientSessionId) {
+      const belongsToConsumer = entry.clientSessionId === clientSessionId;
+      if (belongsToConsumer) {
         workerSubs.delete(subId);
-        if (peerHasRelay()) {
-          try { peer!.send({ type: 'worker-unsub', subId, clientSessionId }); } catch {}
+        const canRelayRemoval = peerHasRelay();
+        if (canRelayRemoval) {
+          try { peer?.send({ type: 'worker-unsub', subId, clientSessionId }); } catch {}
         }
       }
     }
     detachConsumer(clientSessionId);
-    if (peerHasRelay()) {
-      try { peer!.send({ type: 'worker-client-disconnect', clientSessionId }); } catch {}
+    const supportsDisconnect = peerHasRelay() || peer?.capabilities.has(WORKER_PORT_CAPABILITY) === true;
+    if (supportsDisconnect) {
+      try { peer?.send({ type: 'worker-client-disconnect', clientSessionId }); } catch {}
     }
     consumers.unregister(clientSessionId);
     broadcastConsumerPresence();
@@ -513,14 +559,21 @@ export function createBridge(opts: BridgeOptions): Bridge {
     // refresh: the old tab's worker port keeps firing until its WS dies).
     const stale = msgGeneration !== undefined && msgGeneration !== generation;
     switch (msg.type) {
+      case 'worker-message-result': {
+        if (stale) return;
+        consumers.get(msg.clientSessionId)?.send(msg);
+        return;
+      }
       case 'worker-res': {
         if (stale) return;
-        const res = msg as WorkerResFrame;
+        const res = msg;
         const op = workerPending.get(res.id);
-        if (!op) return; // late or unknown — drop silently
+        const isUnknownOperation = op === undefined;
+        if (isUnknownOperation) return;
         clearTimeout(op.timer);
         workerPending.delete(res.id);
-        if (res.ok) {
+        const succeeded = res.ok;
+        if (succeeded) {
           op.resolve(res.value);
         } else {
           op.reject(
@@ -528,7 +581,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
               res.error?.code ?? 'unknown',
               res.error?.message ?? 'unknown sandbox error',
               res.error?.denialContext,
-              (res.error as any)?.envelope,
+              res.error?.envelope,
             ),
           );
         }
@@ -536,9 +589,10 @@ export function createBridge(opts: BridgeOptions): Bridge {
       }
       case 'worker-snap': {
         if (stale) return;
-        const snap = msg as WorkerSnapFrame;
+        const snap = msg;
         const entry = workerSubs.get(snap.subId);
-        if (!entry) return; // unsubscribed or unknown — drop silently
+        const isUnknownSubscription = entry === undefined;
+        if (isUnknownSubscription) return;
         const json = JSON.stringify(snap.value);
         const duplicate = entry.awaitingReissueSnap === true && json === entry.lastDeliveredJson;
         entry.awaitingReissueSnap = false;
@@ -554,37 +608,47 @@ export function createBridge(opts: BridgeOptions): Bridge {
     }
     switch (msg.type) {
       case 'tool-result': {
-        const response = msg as ToolCallResponse;
+        const response = msg;
         const call = pending.get(response.id);
-        if (!call) return; // late or unknown — drop silently
+        const isUnknownCall = call === undefined;
+        if (isUnknownCall) return;
         clearTimeout(call.timer);
         pending.delete(response.id);
-        if (response.ok && response.result) {
-          call.resolve({ ok: response.result.ok, summary: response.result.summary, data: response.result.data });
-        } else {
-          call.resolve({ ok: false, summary: response.error?.message ?? 'unknown sandbox error' });
+        const succeeded = response.ok;
+        if (succeeded) {
+          const result = response.result;
+          const hasResult = !!result;
+          if (hasResult) {
+            call.resolve({ ok: result.ok, summary: result.summary, data: result.data });
+            break;
+          }
         }
+        call.resolve({ ok: false, summary: response.error?.message ?? 'unknown sandbox error' });
         break;
       }
       case 'remote-set-lens': {
-        const frame = msg as RemoteSetLensFrame;
+        const frame = msg;
         const ok = consumers.setLens(frame.clientSessionId, frame.lens);
         broadcastConsumerPresence();
-        if (peer && frame.id) {
-          peer.send({
+        const currentPeer = peer;
+        const needsAcknowledgement = currentPeer !== null && Boolean(frame.id);
+        if (needsAcknowledgement) {
+          const acknowledgement: RemoteSetLensAckFrame = {
             type: 'remote-set-lens-ack',
             id: frame.id,
             clientSessionId: frame.clientSessionId,
             ok,
-            ...(ok ? {} : { error: { code: 'not-found', message: 'Client session not found' } }),
-          });
+          };
+          const wasNotFound = !ok;
+          if (wasNotFound) acknowledgement.error = { code: 'not-found', message: 'Client session not found' };
+          currentPeer.send(acknowledgement);
         }
         break;
       }
       case 'pong':
         break;
       case 'ping':
-        if (peer) peer.send({ type: 'pong', id: msg.id });
+        peer?.send({ type: 'pong', id: msg.id });
         break;
       case 'hello':
         break;
@@ -606,7 +670,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
   }
 
   function recordToolEvent(event: BridgeToolEvent): void {
-    if (!onToolEvent) return;
+    const hasNoRecorder = onToolEvent === undefined;
+    if (hasNoRecorder) return;
     try {
       onToolEvent(event);
     } catch {}
@@ -614,16 +679,26 @@ export function createBridge(opts: BridgeOptions): Bridge {
 
   return {
     project,
+    projectKey: opts.projectKey,
     version,
     startedAt,
     instanceId,
     consumers,
+    workerSessions,
     callerIdentity,
     broadcastConsumerPresence,
     recordToolEvent,
     registerSandboxPeer,
     isSandboxConnected,
     peerGeneration,
+    peerCapabilities: () => [...(peer?.capabilities ?? [])],
+    forwardWorkerMessage(message, clientSessionId) {
+      const isWorkerPortUnavailable = peer?.capabilities.has(WORKER_PORT_CAPABILITY) !== true;
+      if (isWorkerPortUnavailable) {
+        throw workerOpError('unimplemented', 'This sandbox does not support browser worker ports.');
+      }
+      peer?.send({ type: 'worker-message', clientSessionId, message });
+    },
     toolNames,
     dispatch,
     dispatchWorkerOp,

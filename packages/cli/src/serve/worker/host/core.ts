@@ -39,7 +39,7 @@ import {
   type CollectionReference,
   type Query,
 } from 'pyric/firestore';
-import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
+import { decodeDocValue } from 'pyric/firestore/internal/value-codec';
 import {
   getDatabase as pyricGetDatabase,
   getAdminDatabase as pyricGetAdminDatabase,
@@ -73,22 +73,26 @@ export function resolveTarget(
   db: Firestore,
   target: TargetDescriptor,
 ): DocumentReference | CollectionReference | Query {
-  if (target.__ref === 'doc') {
+  const isDocument = target.__ref === 'doc';
+  if (isDocument) {
     return pyricDoc(db, target.path);
   }
-  if (target.__ref === 'collection') {
+  const isCollection = target.__ref === 'collection';
+  if (isCollection) {
     return pyricCollection(db, target.path);
   }
-  if (target.__ref === 'group') {
+  const isGroup = target.__ref === 'group';
+  if (isGroup) {
     return pyricCollectionGroup(db, target.collectionId);
   }
   // query descriptor
   const source = resolveTarget(db, target.source) as CollectionReference | Query;
-  const constraints = target.constraints.map((c) => resolveConstraint(c));
+  const constraints = target.constraints.map((c) => resolveConstraint(c, db));
   return pyricQuery(source, ...constraints);
 }
 
-function resolveConstraint(c: QueryConstraintDescriptor): ReturnType<typeof pyricWhere> {
+function resolveConstraint(c: QueryConstraintDescriptor, db: Firestore): ReturnType<typeof pyricWhere> {
+  const references = { create: (path: string) => pyricDoc(db, path) };
   switch (c.kind) {
     case 'where':
       // Rehydrate the comparison value (same rationale as prepareWriteData,
@@ -96,15 +100,15 @@ function resolveConstraint(c: QueryConstraintDescriptor): ReturnType<typeof pyri
       // Node-side Timestamp/Bytes/GeoPoint arrives as its marker shape;
       // without rehydration the comparison would see a plain map and the
       // filter would silently mismatch typed stored values.
-      return pyricWhere(c.field, c.op as Parameters<typeof pyricWhere>[1], rehydrateDocValue(c.value));
+      return pyricWhere(c.field, c.op as Parameters<typeof pyricWhere>[1], decodeDocValue(c.value, references, c.valueEncoding));
     // Composite filters rebuild through the modular `and`/`or` factories,
     // which validate operands: an empty composite or a nested non-filter
     // throws the same TypeError the in-page SDK raises (surfaces as an
     // error res / snap-error, never a crash).
     case 'and':
-      return pyricAnd(...c.filters.map(resolveConstraint));
+      return pyricAnd(...c.filters.map((filter) => resolveConstraint(filter, db)));
     case 'or':
-      return pyricOr(...c.filters.map(resolveConstraint));
+      return pyricOr(...c.filters.map((filter) => resolveConstraint(filter, db)));
     case 'orderBy':
       return pyricOrderBy(c.field, c.direction);
     case 'limit':
@@ -114,13 +118,13 @@ function resolveConstraint(c: QueryConstraintDescriptor): ReturnType<typeof pyri
     // Cursor values rehydrate for the same reason as `where` values —
     // `startAfter(<timestamp>)` must position against real Timestamps.
     case 'startAt':
-      return pyricStartAt(...c.values.map(rehydrateDocValue));
+      return pyricStartAt(...c.values.map((value) => decodeDocValue(value, references, c.valueEncoding)));
     case 'startAfter':
-      return pyricStartAfter(...c.values.map(rehydrateDocValue));
+      return pyricStartAfter(...c.values.map((value) => decodeDocValue(value, references, c.valueEncoding)));
     case 'endAt':
-      return pyricEndAt(...c.values.map(rehydrateDocValue));
+      return pyricEndAt(...c.values.map((value) => decodeDocValue(value, references, c.valueEncoding)));
     case 'endBefore':
-      return pyricEndBefore(...c.values.map(rehydrateDocValue));
+      return pyricEndBefore(...c.values.map((value) => decodeDocValue(value, references, c.valueEncoding)));
   }
 }
 

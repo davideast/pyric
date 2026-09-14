@@ -73,7 +73,7 @@ import {
   handlePresenceUnsub,
   cleanupPortPresence,
 } from './presence.js';
-import { handleSub, handleRtdbSub, handleUnsub, dropPortSessionSubs } from './subscriptions.js';
+import { handleSub, handleRtdbSub, handleUnsub, dropPortSubscriptionIntents } from './subscriptions.js';
 
 function configConflictError(): Error & { code: string } {
   return Object.assign(
@@ -368,11 +368,11 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
     }
   };
   // Drop the port's auth subscriptions (routing entries — no real listener
-  // to tear down), its per-port session, and its session-bound sub records
+  // to tear down), its per-port session, and its retained subscription intents
   // (#754).
   attempt(() => { authSubsFor(ctx).delete(port); });
   attempt(() => { cleanupPortSession(ctx, port); });
-  attempt(() => { dropPortSessionSubs(ctx, port); });
+  attempt(() => { dropPortSubscriptionIntents(ctx, port); });
 
   // Drop the port's event-stream subscriptions too (also routing entries off
   // the single shared `sandbox.onEvent` subscription — nothing to unsubscribe,
@@ -391,12 +391,15 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   attempt(() => { unsubscribeClock(ctx, port); });
 
   const portSubs = ctx.subs.get(port);
-  if (portSubs) {
+  const hasPortSubscriptions = portSubs !== undefined;
+  if (hasPortSubscriptions) {
     for (const unsub of portSubs.values()) attempt(unsub);
     ctx.subs.delete(port);
   }
-  if (failures.length === 1) throw failures[0];
-  if (failures.length > 1) {
+  const hasOneFailure = failures.length === 1;
+  if (hasOneFailure) throw failures[0];
+  const hasMultipleFailures = failures.length > 1;
+  if (hasMultipleFailures) {
     throw new AggregateError(failures, 'Multiple SharedWorker port resources failed to tear down');
   }
 }
