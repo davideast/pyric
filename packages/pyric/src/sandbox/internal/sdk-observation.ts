@@ -9,6 +9,8 @@ export function observationService(service: EventService | 'database'): EventSer
 
 /** Public SDK evidence only. No results, credentials, query values or DOM owners. */
 export interface SdkObservation {
+  /** Journal-local delivery order, used to reject replay without retaining IDs. */
+  readonly sequence: number;
   /** Unique within this journal session, including repeated listener deliveries. */
   readonly id: string;
   readonly activityId: string;
@@ -32,10 +34,12 @@ export function sdkObservation(
   event: SdkActivityEvent,
   at: number,
   monotonicAt: number,
+  sequence: number,
 ): SdkObservation | undefined {
   if (event.phase === 'transport') return undefined;
   const { record, phase } = event;
   return Object.freeze({
+    sequence,
     id: `${record.id}/${phase}/${record.deliveryCount}`,
     activityId: record.id,
     appId: record.appId,

@@ -43,6 +43,7 @@ describe('SDK observation contract', () => {
     expect(observed.map(event => event.phase)).toEqual(['start', 'delivery', 'delivery', 'end', 'remove']);
     expect(observed.map(event => event.deliveryNumber)).toEqual([0, 1, 2, 2, 2]);
     expect(new Set(observed.map(event => event.id)).size).toBe(5);
+    expect(observed.map(event => event.sequence)).toEqual([1, 2, 3, 4, 5]);
     expect(observed[3].status).toBe('closed');
   });
 
@@ -98,5 +99,19 @@ describe('SDK observation contract', () => {
     journal.observe(event => observed.push(event));
     journal.begin({ app: {}, source, method: 'get', kind: 'operation' });
     expect(observed).toHaveLength(1);
+  });
+
+  it('delivers in order when another observer synchronously starts a call', () => {
+    const journal = createSdkActivityJournal();
+    const observed: SdkObservation[] = [];
+    const input = { app: {}, source, method: 'get', kind: 'operation' as const };
+    journal.observe(event => {
+      if (event.sequence === 1) journal.begin(input).complete();
+    });
+    journal.observe(event => observed.push(event));
+    journal.begin(input).fail();
+    expect(observed.map(event => event.sequence)).toEqual([1, 2, 3, 4]);
+    expect(observed.map(event => event.phase)).toEqual(['start', 'start', 'end', 'end']);
+    journal.dispose();
   });
 });
