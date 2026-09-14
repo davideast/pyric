@@ -193,8 +193,9 @@ completion. Cleanup and connection-control messages do not consume operation
 capacity, so saturation cannot prevent deletion. Where a browser port relays
 several consumers, each logical client has its own allowance. Browser/worker
 client and Node host admission are enforced. The Node host counts executing
-and queued operations until their handlers finish; a failed handler releases
-its slot. Legacy consumer operations use their admitted session rather than
+and queued operations and their JSON UTF-8 message bytes until their handlers
+finish, using the shared 256-call/24 MiB admission policy. A failed handler
+releases its reservation. Legacy consumer operations use their admitted session rather than
 a supplied per-operation client ID. The public remote client also refuses
 operation 257 before allocating a correlation record, timer or event-loop
 hold. Replies, timeouts and disposal remove its existing pending records.
