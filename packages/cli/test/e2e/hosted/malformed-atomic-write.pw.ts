@@ -13,6 +13,7 @@ type AtomicFault =
   | 'missing-read-json'
   | 'invalid-read-json'
   | 'scalar-read-json'
+  | 'over-depth-read-json'
   | 'unsupported-read-encoding';
 type AtomicOperation = 'batch' | 'transaction';
 type Transport = 'hosted' | 'SharedWorker';
@@ -28,14 +29,17 @@ const cases: { fault: AtomicFault; input: string; outcome: string; operations: A
   { fault: 'missing-read-json', input: 'missing serialized read JSON', outcome: 'any document', operations: ['transaction'] },
   { fault: 'invalid-read-json', input: 'malformed serialized read JSON', outcome: 'any document', operations: ['transaction'] },
   { fault: 'scalar-read-json', input: 'a scalar serialized read document', outcome: 'any document', operations: ['transaction'] },
+  { fault: 'over-depth-read-json', input: 'a read document beyond 64 encoded containers', outcome: 'any document', operations: ['transaction'] },
   { fault: 'unsupported-read-encoding', input: 'an unsupported read encoding', outcome: 'any document', operations: ['transaction'] },
 ];
 const transports: Transport[] = ['hosted', 'SharedWorker'];
+const overDepthReadJson = '{"nested":'.repeat(65) + '"leaf"' + '}'.repeat(65);
 const readDataFaults: Partial<Record<AtomicFault, { data?: unknown }>> = {
   'missing-read-data': {},
   'missing-read-json': { data: {} },
   'invalid-read-json': { data: { json: '{' } },
   'scalar-read-json': { data: { json: '0' } },
+  'over-depth-read-json': { data: { json: overDepthReadJson } },
   'unsupported-read-encoding': { data: { json: '{}', valueEncoding: 'pyric/firestore-values/999' } },
 };
 
@@ -60,7 +64,10 @@ async function rejectMalformedAtomicWrite(browser: Browser, fault: AtomicFault, 
   const usesTransaction = operation === 'transaction';
   if (usesTransaction) {
     write = `
+      let attempts = 0;
       await runTransaction(db, async (transaction) => {
+        attempts += 1;
+        result.dataset.attempts = String(attempts);
         await transaction.get(first);
         transaction.set(first, { message: 'First' });
         transaction.set(second, { message: 'Second' });
@@ -222,6 +229,8 @@ async function rejectMalformedAtomicWrite(browser: Browser, fault: AtomicFault, 
     await healthyPage.getByRole('button', { name: 'Read documents', exact: true }).click();
     await expect(healthyPage.locator('#result')).toHaveText('["Missing","Missing"]');
     await expect(brokenPage.locator('#result')).toHaveText('invalid-argument');
+    const rejectsOverDepthRead = fault === 'over-depth-read-json';
+    if (rejectsOverDepthRead) await expect(brokenPage.locator('#result')).toHaveAttribute('data-attempts', '1');
     await healthyPage.getByRole('button', { name: 'Write documents', exact: true }).click();
     await expect(healthyPage.locator('#result')).toHaveText('Written');
     await healthyPage.getByRole('button', { name: 'Read documents', exact: true }).click();

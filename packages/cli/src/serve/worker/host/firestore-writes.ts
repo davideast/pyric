@@ -341,6 +341,7 @@ export async function handleFirestoreWriteOp(
         } catch {
           throw new FirebaseError('invalid-argument', 'Firestore transaction read JSON must contain valid JSON.');
         }
+        assertEncodedDocValueDepth(data);
         const document = requireDocumentData(rehydrateEncodedDocValue(data, valueEncoding));
         return JSON.stringify(document, (_key, v: unknown) => {
           const isNonMapValue = v === null || typeof v !== 'object' || Array.isArray(v);

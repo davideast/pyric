@@ -1,27 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { startSoakServe } from '../soak/harness.js';
-
-type Shape = 'maps' | 'arrays' | 'escaped';
-
-/** The encoded root counts once; escaping a marker-shaped map adds its fields container. */
-function nestedDocument(encodedDepth: number, shape: Shape): Record<string, unknown> {
-  let nested: unknown = 'leaf';
-  let remaining = encodedDepth - 1;
-  const needsEscaping = shape === 'escaped';
-  if (needsEscaping) remaining -= 1;
-  let hasContainersRemaining = remaining > 0;
-  while (hasContainersRemaining) {
-    const needsArray = shape === 'arrays' && remaining % 2 === 0;
-    if (needsArray) nested = [nested];
-    else nested = { nested };
-    remaining -= 1;
-    hasContainersRemaining = remaining > 0;
-  }
-  const data: Record<string, unknown> = { nested };
-  if (needsEscaping) data.type = 'ordinary';
-  return data;
-}
+import { nestedDocument, type DocumentShape } from './document-depth-fixture.js';
 
 for (const mode of ['hosted', 'shared-worker']) {
   test(`${mode} enforces encoded document depth across SDK write families`, async ({ page }) => {
@@ -39,7 +19,7 @@ for (const mode of ['hosted', 'shared-worker']) {
       await page.goto(fixture.info.url);
       await expect(page.locator('#write')).toBeEnabled();
       await expect.poll(() => page.evaluate(() => globalThis.__pyricRuntime?.getSnapshot().mode)).toBe(mode);
-      const shapes: Shape[] = ['maps', 'arrays', 'escaped'];
+      const shapes: DocumentShape[] = ['maps', 'arrays', 'escaped'];
       for (const shape of shapes) {
         for (const depth of [63, 64, 65, 256]) {
           const data = nestedDocument(depth, shape);
