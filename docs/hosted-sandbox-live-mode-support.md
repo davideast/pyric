@@ -178,7 +178,8 @@ browser network buffer through that API.
 | Hosted init and attach | 5 seconds per stage | Reject startup and close its resources; no fallback store. |
 | Inbound or outbound encoded frame | 12 MiB | Refuse before dispatch/send; isolate the offending request or connection. |
 | Encoded document nesting | 64 containers | Refuse before recursive decoding or execution. |
-| Mounted MCP sessions / retained Node execution owners | 64 per layer | Refuse new session/owner allocation at capacity; unfinished host work retains its owner after session closure until it drains. |
+| Mounted MCP sessions / retained Node MCP execution owners | 64 per layer | Refuse new session/owner allocation at capacity; unfinished host work retains its owner after session closure until it drains. |
+| Direct-command active/retained connection owners | 64 | Refuse new execution owners at capacity. Closing an HTTP connection does not release unfinished work's owner; last-call settlement returns capacity. This is separate from the MCP allowance. |
 | Pending operations per client | 256 | Reject new work with resource exhaustion before accepting it. |
 | Queued operation bytes per client | 24 MiB | Reject new work before accepting it; do not discard an acknowledged operation. |
 | Observation queue per consumer | 1,000 events or 16 MiB, whichever comes first | Report the dropped sequence range; keep operation/control traffic independent. |
@@ -248,8 +249,12 @@ Count saturation, refusal without mutation, and full reuse after successful
 and failed calls are verified. Direct HTTP characterization covers one byte
 below/exactly/above 24 MiB with UTF-8 input, partial byte-capacity recovery while
 another command remains held, and full refill after successful or failed
-reads on the same connection. Connection churn and broader shutdown accounting
-remain unfinished. Accepted
+reads on the same connection. Direct execution retains at most 64 connection
+owners, including those whose sockets have closed. Existing owners keep their
+per-connection allowance at this cap; new owners refuse. Two full churn/drain
+cycles verify capacity recovery, continued SDK/MCP reads and completion of
+accepted queued mutations after caller closure. Broader shutdown accounting
+remains unfinished. Accepted
 Node MCP work uses the permitted drain path: up to 64 execution owners may
 remain active, including those whose MCP session has closed; capacity returns
 as their last accepted calls settle. Native SharedWorker

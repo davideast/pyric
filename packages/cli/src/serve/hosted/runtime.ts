@@ -21,7 +21,7 @@ import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
-import type { HostedMethodRequest } from './method-protocol.js';
+import { MAX_HOSTED_METHOD_OWNERS, type HostedMethodRequest } from './method-protocol.js';
 
 type HostedTransport = 'worker-port' | 'worker-relay';
 
@@ -274,7 +274,15 @@ export async function createHostedRuntime(
       const isOutsideProject = namesParentDirectory || isAbsolute(projectDistance);
       if (isOutsideProject) return Promise.resolve({ ok: false, summary: 'The discovered host belongs to another project.' });
       const method = methodByKey(key);
-      const owned = methodWork.get(connection) ?? { pending: Promise.resolve(), budget: createOperationBudget() };
+      const existing = methodWork.get(connection);
+      const needsQueue = existing === undefined;
+      const isAtConnectionCapacity = needsQueue && methodWork.size >= MAX_HOSTED_METHOD_OWNERS;
+      if (isAtConnectionCapacity) {
+        return Promise.resolve({ ok: false,
+          summary: `The hosted sandbox is at its direct-command connection cap (${MAX_HOSTED_METHOD_OWNERS}).`,
+        });
+      }
+      const owned = existing ?? { pending: Promise.resolve(), budget: createOperationBudget() };
       const reservation = owned.budget.reserve(call);
       const isRefused = !reservation.accepted;
       if (isRefused) return Promise.resolve({ ok: false, summary: reservation.error.message });
