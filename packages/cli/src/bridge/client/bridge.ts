@@ -25,7 +25,7 @@
  */
 
 import type { LocalSandbox } from 'pyric/sandbox';
-import { BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../frame-output.js';
+import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../frame-output.js';
 import type {
   AuthLens,
   BridgeMessage,
@@ -230,7 +230,7 @@ export function connectBridge(
         const payload = encodeBridgeMessage(msg);
         const exceedsFrameLimit = payload === undefined;
         if (exceedsFrameLimit) {
-          socket.close(1009, BRIDGE_FRAME_LIMIT_MESSAGE);
+          socket.close(BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE);
           return;
         }
         socket.send(payload);

@@ -21,6 +21,8 @@ export function encodeBridgeMessage(frame: BridgeMessage): string | undefined {
 
 function reduceOversizedFrame(frame: BridgeMessage): BridgeMessage {
   switch (frame.type) {
+    case 'tool-result':
+      return { type: 'tool-result', id: frame.id, ok: false, error: frameLimitError };
     case 'worker-message-result':
       return { ...frame, message: reduceOversizedWorkerMessage(frame.message) };
     case 'worker-res':
