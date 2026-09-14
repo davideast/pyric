@@ -26,7 +26,7 @@ Do not modify the manual demo project. Commit and push each verified slice.
 17. Rules hot reload with active apps — pending. Valid Rules changes update enforcement and active listeners according to the existing service contract; invalid edits report their failure without falsely claiming successful enforcement.
 18. Client/host version compatibility — pending. Actual packed consumers within the declared compatibility range work against the candidate host; unsupported combinations refuse clearly before mutation and never silently select another runtime.
 19. Fault diagnostics and redaction — pending. Existing CLI, runtime and Studio diagnostics distinguish connection, restoration and persistence failures while excluding credentials and private document contents from default support output.
-20. Combined verification and morning handoff — verified locally for the completed milestone slices. See `docs/hosted-hardening-handoff.md`: 216 affected browser scenarios, 1,138 regressions, strict types, 123-file code form, scoped import review, matching browser budgets and four rebuilt copied-standalone checks. Remote backup remains blocked; item 8 is partial and 9–19 remain open.
+20. Combined verification and morning handoff — verified locally for the completed milestone slices. See `docs/hosted-hardening-handoff.md`: 216 affected browser scenarios, 1,138 regressions, strict types, 123-file code form, scoped import review, matching browser budgets and four rebuilt copied-standalone checks. Remote backup is complete following direct user authorization; item 8 is partial and 9–19 remain open.
 
 ### Added follow-on gates
 
@@ -92,6 +92,8 @@ Red/green logs, fixture copies and current input hashes are archived in `ignored
 No new resource owner, Buffer/browser fallback, or conformance registry row was added. Existing Rules evaluation is exercised through both allowed and denied public SDK reads/writes. The copied standalone artifact and whole feature/release gates remain unverified; final milestone integration will cover applicable packaging. The manual demo was not changed.
 
 ## Remote backup
+
+Resolved: the user explicitly authorized pushing after the QA handoff. The push to `origin/hosted-live-mode` succeeded from `6b0728b8` through `3f3a4ed6`, backing up all 43 verified commits. The earlier blocked-state record below is historical.
 
 Tooling commit `506c0383` is local. Automatic approval review rejected its push twice, requiring direct user authorization despite the active goal's explicit push instruction. An asynchronous approval question is pending for this and subsequent verified hardening commits. Continue independent local work; do not bypass the rejection or claim the branch is remotely backed up beyond `6b0728b8`.
 

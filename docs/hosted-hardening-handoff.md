@@ -1,8 +1,8 @@
 # Hosted hardening QA handoff
 
-Status: local milestone verification complete; remote backup blocked. This is the bounded hardening milestone, not completion of hosted sandbox or live mode.
+Status: milestone verification and remote backup complete. This is the bounded hardening milestone, not completion of hosted sandbox or live mode.
 
-The last remote checkpoint is `6b0728b830faa788b53ea97fc764f5c3397fe14d` on `origin/hosted-live-mode`. The verified implementation candidate is `136da70991cbdca838adbe6ccaeb121089d10f82`, with 42 local commits before this handoff commit. Combined runtime verification ran against `b306dd3b`; the subsequent review refactor preserves all existing emitted JavaScript byte for byte. No PR or release has been created. The manual demo and its data were left untouched.
+The starting remote checkpoint was `6b0728b830faa788b53ea97fc764f5c3397fe14d` on `origin/hosted-live-mode`. The verified implementation candidate is `136da70991cbdca838adbe6ccaeb121089d10f82`, with 42 verified commits before the handoff commit `3f3a4ed6`. All 43 commits were pushed to `origin/hosted-live-mode` after direct user authorization. Combined runtime verification ran against `b306dd3b`; the subsequent review refactor preserves all existing emitted JavaScript byte for byte. No PR or release has been created. The manual demo and its data were left untouched.
 
 ## Completed locally
 
@@ -26,7 +26,7 @@ Item 8 is partial: protocol admission, malformed envelopes/correlation fields, m
 - Item 8 still needs detailed request/reply shapes, structural query/composite bounds, other decode paths and remaining outbound senders. Empty-array query behavior is characterized as existing Pyric behavior, not a new upstream compatibility claim.
 - Checkpoint guarantees are limited to the specified round trips and corruption refusal. General rollback after later service/I/O failures, coherent concurrent capture, arbitrary buckets and downgrade compatibility remain unproven.
 - Items 9–19 are untouched as queue tasks: cleanup; delayed disconnect notification; identity/tenant isolation; RTDB disconnect semantics; concurrent transactions/lost acknowledgments; actual packed installation/Vite/HMR; origin/project isolation; slow consumers; Rules reload; actual version combinations; fault diagnostics/redaction. Incidental coverage does not complete these items.
-- Push is blocked by automatic approval review, which requires a direct reply to the existing push-authorization question. No retry or alternative push route was attempted.
+- The earlier push-approval blocker is resolved. The user explicitly authorized the push, and `origin/hosted-live-mode` accepted the verified commits through `3f3a4ed6`.
 
 ## Verification
 
@@ -58,7 +58,7 @@ Use disposable local data for destructive checks. Keep two independent browsers 
 
 Record the mode, action, expected result and observed result for any failure. Start follow-up implementation with the remaining item 8 contract gaps and item 9 cleanup; keep the in-page tenant-token failure visible for item 11.
 
-## Local commit inventory
+## Verified commit inventory
 
 The following commits follow the remote checkpoint; this handoff is committed separately.
 
