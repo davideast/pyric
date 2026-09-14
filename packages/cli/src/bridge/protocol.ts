@@ -116,6 +116,8 @@ export interface HelloFromBridge {
 /** Bridge → browser: please dispatch this tool call into the sandbox. */
 export interface ToolCallRequest {
   type: 'tool-call';
+  /** Server-owned MCP caller identity for execution ordering, separate from its auth lens. */
+  callerId?: string;
   /** Correlation id — browser must echo in `ToolCallResponse`. */
   id: string;
   /** Tool name (e.g. `firestore_simulator_create`). */

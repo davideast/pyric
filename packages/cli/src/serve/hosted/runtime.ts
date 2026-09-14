@@ -117,7 +117,8 @@ export async function createHostedRuntime(
   }
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir);
   const ports = new Map<string, HostedPort>();
-  let toolWork = Promise.resolve();
+  let methodWork = Promise.resolve();
+  const toolWork = new Map<string, Promise<void>>();
   let closed = false;
 
   async function handleToolCall(message: ToolCallRequest): Promise<void> {
@@ -133,6 +134,19 @@ export async function createHostedRuntime(
     } catch (error) {
       send({ type: 'tool-result', id: message.id, ok: false, error: serializeError(error) });
     }
+  }
+
+  function enqueueToolCall(message: ToolCallRequest): void {
+    const callerId = message.callerId ?? 'legacy';
+    const previous = toolWork.get(callerId) ?? Promise.resolve();
+    const pending = previous.then(() => handleToolCall(message)).catch((error: unknown) => {
+      console.error('[pyric hosted] tool result delivery failed:', error);
+    });
+    toolWork.set(callerId, pending);
+    void pending.then(() => {
+      const isLastCall = toolWork.get(callerId) === pending;
+      if (isLastCall) toolWork.delete(callerId);
+    });
   }
 
   function relayMessage(clientSessionId: string, message: OutboundMessage): void {
@@ -237,7 +251,7 @@ export async function createHostedRuntime(
       const isOutsideProject = namesParentDirectory || isAbsolute(projectDistance);
       if (isOutsideProject) return Promise.resolve({ ok: false, summary: 'The discovered host belongs to another project.' });
       const method = methodByKey(key);
-      const result = toolWork.then(async () => {
+      const result = methodWork.then(async () => {
         const hasMutationEffect = method.effect === 'write' || method.effect === 'destructive';
         // Held identity belongs to this caller, not the persisted sandbox.
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
@@ -249,14 +263,14 @@ export async function createHostedRuntime(
         if (isRead) return describeRead(outcome);
         return outcome;
       });
-      toolWork = result.then(() => {}, () => {});
+      methodWork = result.then(() => {}, () => {});
       return result;
     },
     receive(message: BridgeMessage): void {
       if (closed) return;
       switch (message.type) {
         case 'tool-call':
-          toolWork = toolWork.then(() => handleToolCall(message));
+          enqueueToolCall(message);
           return;
         case 'worker-message': {
           const clientSessionId = message.clientSessionId;
@@ -309,7 +323,7 @@ export async function createHostedRuntime(
       closed = true;
       initialized.dispose();
       try {
-        await Promise.all([toolWork, ...[...ports.keys()].map(closePort)]);
+        await Promise.all([methodWork, ...toolWork.values(), ...[...ports.keys()].map(closePort)]);
       } finally {
         sandbox.dispose();
       }

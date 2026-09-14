@@ -230,7 +230,12 @@ after success or failure, including resource refusal while tools occupy the
 allowance. Complete active-work shutdown and downstream host execution
 admission remain open. SDK request cancellation or session deletion
 settles forwarded bridge calls and clears their correlation timers. Cancellation
-does not imply rollback of an already dispatched mutation. Native SharedWorker
+does not imply rollback of an already dispatched mutation. The Node host orders
+forwarded MCP tools per server-assigned execution caller, allowing another
+session to read while one waits on persistence. This caller ID does not change
+the bridge's held authentication policy. Legacy frames without it share a
+legacy queue. Authoritative host tool admission and cancellation propagation
+remain unfinished. Native SharedWorker
 ports now enforce the same operation count per logical client, preserving
 client order while allowing another client to progress. Native MessagePort
 admission also measures the complete operation message's JSON UTF-8 encoding

@@ -183,7 +183,7 @@ export interface Bridge {
   toolNames(): string[];
 
   /** Dispatch a tool call to the connected sandbox peer. */
-  dispatch(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<BridgeToolResult>;
+  dispatch(name: string, args: Record<string, unknown>, signal?: AbortSignal, callerId?: string): Promise<BridgeToolResult>;
 
   /**
    * Relay a generic worker op to the peer's SharedWorker. Resolves with the
@@ -396,11 +396,12 @@ export function createBridge(opts: BridgeOptions): Bridge {
     name: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
+    callerId?: string,
   ): Promise<BridgeToolResult> {
     const startedAtMs = Date.now();
     let result: BridgeToolResult;
     try {
-      result = await dispatchSandbox(name, args, signal);
+      result = await dispatchSandbox(name, args, signal, callerId);
     } catch (err) {
       const isError = err instanceof Error;
       result = {
@@ -431,6 +432,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
     name: string,
     args: Record<string, unknown>,
     signal?: AbortSignal,
+    callerId?: string,
   ): Promise<BridgeToolResult> {
     const currentPeer = peer;
     const hasNoPeer = currentPeer === null;
@@ -472,6 +474,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
           name,
           args,
         };
+        const hasCaller = callerId !== undefined;
+        if (hasCaller) request.callerId = callerId;
         const hasIdentityOverride = identity.mode !== 'app-session';
         if (hasIdentityOverride) request.actAs = identity;
         currentPeer.send(request);

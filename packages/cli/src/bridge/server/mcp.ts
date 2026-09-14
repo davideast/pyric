@@ -148,6 +148,7 @@ export function buildMcpServer(
   });
   const registerTool = server.tool as RegisterMcpTool;
   const operationBudget = createOperationBudget();
+  const callerId = crypto.randomUUID();
 
   async function admitToolCall(
     tool: string,
@@ -196,7 +197,7 @@ export function buildMcpServer(
       async (args, extra) => {
         markHandlerRan(extra);
         return admitToolCall(meta.name, args ?? {}, async () => {
-          const result = await bridge.dispatch(meta.name, args ?? {}, extra.signal);
+          const result = await bridge.dispatch(meta.name, args ?? {}, extra.signal, callerId);
           return toMcpResult(result, bridge.project);
         });
       },
