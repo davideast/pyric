@@ -1,4 +1,7 @@
 import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
+import { INDEX_STYLES, indexDetailsHtml, indexActionHtml } from './chip-indexes.js';
+import { createIndexInspector, createIndexConfigClient, type IndexConfigClient } from './index-config-client.js';
+import type { IndexQuery } from 'pyric/sandbox/internal';
 import { rulesEvidenceHtml, rulesSummary } from './chip-rules-evidence.js';
 import { activityOccurrences } from './activity-occurrences.js';
 import { presentActivityOccurrence } from './activity-occurrence-presentation.js';
@@ -59,6 +62,7 @@ import {
 } from '../worker/client/core.js';
 
 export interface PyricRuntimeChipOptions {
+  indexConfig?: IndexConfigClient | null;
   runtime: PyricRuntimeStatus;
   document?: Document;
   /** Where Traffic's Copy writes. Defaults to the page's own clipboard. */
@@ -231,7 +235,7 @@ const styles = `
   .pagination .section-meta { font-variant-numeric: tabular-nums; }
   .slot { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); grid-column: 3; grid-row: 1 / 3; color: var(--pyric-muted); font-size: 11px; min-width: 0; }
   .slot > span { min-width: 0; overflow-wrap: anywhere; }
-  .slot .verdict { width: 52px; min-width: 52px; }
+  .slot .verdict { width: 80px; min-width: 80px; }
   .row.problem .slot, .row.problem .c1 { color: var(--pyric-error); }
   .row.pending .slot, .row.pending .c1 { color: var(--pyric-warning); }
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); width: 88px; height: 32px; flex: 0 0 88px; border: 1px solid #454b59; border-radius: 6px; background: #282d37; color: #dbe1ed; cursor: pointer; font-size: 11px; font-weight: 550; line-height: 16px; text-decoration: none; white-space: nowrap; }
@@ -268,10 +272,10 @@ const styles = `
   .listener-fact { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
   .listener-fact strong { color: #dce2ed; font-weight: 550; font-variant-numeric: tabular-nums; }
   .row[aria-pressed="true"] .listener-fact { color: var(--pyric-accent); }
-  .traffic-row .row-content { grid-template-columns: minmax(0, 1fr) 72px 52px; grid-template-rows: 20px auto; align-items: start; column-gap: var(--space-2); }
-  .traffic-row .c1 { grid-column: 1; grid-row: 1; color: var(--pyric-muted); font-size: 11px; font-weight: 400; line-height: 20px; }
+  .traffic-row .row-content { grid-template-columns: minmax(0, 1fr) 72px 80px; grid-template-rows: 24px auto; align-items: start; column-gap: var(--space-2); }
+  .traffic-row .c1 { grid-column: 1; grid-row: 1; color: var(--pyric-muted); font-size: 11px; font-weight: 400; line-height: 24px; }
   .traffic-row .c2 { grid-column: 1 / -1; grid-row: 2; }
-  .traffic-row .s1 { grid-column: 2; grid-row: 1; text-align: left; line-height: 20px; }
+  .traffic-row .s1 { grid-column: 2; grid-row: 1; text-align: left; line-height: 24px; }
   .traffic-row .s1 .mono { font-size: 11px; }
   .traffic-row .s2 { grid-column: 1 / -1; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
   .traffic-row .s2:empty { display: none; }
@@ -291,6 +295,7 @@ const styles = `
   .breadcrumb-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .source-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
   ${RULE_EVIDENCE_STYLES}
+  ${INDEX_STYLES}
   .request-facts { all: unset; }
   .request-detail, .request-facts { display: grid; gap: 16px; }
   .request-fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; font-size: 12px; }
@@ -324,8 +329,14 @@ const styles = `
   .toggle-track::after { content: ''; grid-column: 2; width: 10px; height: 10px; background: #dce1eb; border-radius: 50%; justify-self: start; }
   .listener-toggle[aria-pressed="true"] .toggle-track { background: #536b9d; border-color: var(--pyric-accent); }
   .listener-toggle[aria-pressed="true"] .toggle-track::after { justify-self: end; }
-  .verdict { display: flex; align-items: center; justify-content: center; gap: var(--space-1); min-width: 52px; height: 20px; border: 1px solid #49404a; border-radius: 4px; background: #38282d; color: var(--pyric-error); }
-  .verdict.ok { color: #b3c7bd; border-color: #3b4943; background: #232e29; }
+  .verdict { --verdict-border: #705b62; display: grid; grid-template-columns: 24px minmax(0, 1fr) 8px; align-items: center; box-sizing: border-box; width: 80px; min-width: 80px; height: 24px; border: 1px solid var(--verdict-border); border-radius: 4px; background: #2c282e; color: #d2c6ca; font-size: 11px; font-weight: 500; line-height: 16px; white-space: nowrap; }
+  .verdict-icon { display: grid; place-items: center; height: 100%; border-right: 1px solid var(--verdict-border); color: #d6a7ae; }
+  .verdict-label { text-align: right; }
+  .verdict .icon { width: 12px; height: 12px; }
+  .verdict.ok { --verdict-border: #586b60; background: #252e2c; color: #c4d2cb; }
+  .verdict.ok .verdict-icon { color: #a4c7b5; }
+  .traffic-row.problem .c1 { color: #d6a7ae; }
+  .traffic-row.pending .c1 { color: #d6c096; }
   .empty { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--space-4); border: 1px dashed #454b59; border-radius: 8px; }
   .empty > .intro { grid-column: 2; grid-row: 2; }
   .empty .section-title { font-size: 13px; }
@@ -354,6 +365,9 @@ function iconHtml(name: string): string {
   const paths: Record<string, string> = {
     traffic: '<path d="M7 3v18m-4-4 4 4 4-4M17 21V3m-4 4 4-4 4 4"/>',
     settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--pyric-content)"/><circle cx="15" cy="17" r="3" fill="var(--pyric-content)"/>',
+    check: '<path d="m5 12 4 4L19 6"/>',
+    unavailable: '<circle cx="12" cy="12" r="9"/><path d="m6 18 12-12"/>',
+    warning: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 3v1"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v12h5"/>',
     chevron: '<path d="m9 5 7 7-7 7"/>',
     minimize: '<path d="M5 12h14"/>',
@@ -489,6 +503,20 @@ function isTextField(element: Element | null | undefined): element is HTMLInputE
 /** The one button, wherever it sits. */
 function buttonHtml(attributes: string, label: string, title?: string): string {
   return `<button class="btn" type="button" ${attributes}${title ? ` title="${escapeAttribute(title)}"` : ''}>${escapeAttribute(label)}</button>`;
+}
+
+/** A shared icon and label track keeps request statuses aligned across rows. */
+function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean): string {
+  const badges = {
+    ok: { label: 'Allowed', icon: 'check', tone: 'ok', title: 'Succeeded' },
+    denied: { label: 'Denied', icon: 'unavailable', tone: '', title: 'Denied' },
+    error: { label: 'Failed', icon: 'warning', tone: '', title: 'Failed' },
+    unsupported: { label: 'N/A', icon: 'unavailable', tone: '', title: 'Unsupported operation' },
+  };
+  const badge = verdict === 'ok' && indexMissing
+    ? { label: 'Index', icon: 'warning', tone: 'index-warning', title: 'Index missing from config' }
+    : badges[verdict];
+  return `<span class="verdict ${badge.tone}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
 }
 
 /** The action bar: up to three buttons against R, the primary one rightmost. */
@@ -690,12 +718,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   // ── Which view is showing ──────────────────────────────────────────────────
   const tabStorage = pageChipTabStorage(documentLike);
+  const indexClient = options.indexConfig === null ? undefined : options.indexConfig ?? (documentLike.defaultView?.fetch ? createIndexConfigClient(documentLike.defaultView.fetch.bind(documentLike.defaultView)) : undefined);
+  const indexInspector = createIndexInspector(indexClient, () => { if (mounted) render(); });
+  const missingIndex = (query: IndexQuery | undefined): boolean => query !== undefined && indexInspector.finding(query).status === 'missing';
   const signals = (): ChipTabSignals => {
     const now = Date.now();
     const failedRecently = trafficFeed?.failedRecently(now) === true
       || snapshot.errors.some((error) => now - error.at <= RECENT_FAILURE_MS);
     return {
       failedRecently,
+      missingIndex: (trafficFeed?.requests() ?? []).some(request => missingIndex(request.indexQuery)) || listenerOutlines.some(outline => missingIndex(outline.activity?.indexQuery)),
       duplicateListener: listenerOutlines.some((outline) => outline.incident?.pattern === 'duplicate-listener'),
       updatePending: snapshot.updateAvailable,
     };
@@ -737,6 +769,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   /** The listener a row click singled out on the page, if any. */
   let selectedSourceKey: string | undefined;
+  const indexTargets = new Map<string, { query: IndexQuery; sourceId?: string }>();
+  const queryForSource = (id: string): IndexQuery | undefined =>
+    listenerOutlines.find(outline => outline.activity?.sourceId === id)?.activity?.indexQuery
+    ?? listenerMode?.history?.snapshot().entries.find(entry => entry.sourceId === id && entry.indexQuery)?.indexQuery;
+  const indexBlock = (query: IndexQuery | undefined, key: string, sourceId?: string): string => {
+    if (!query) return '';
+    indexTargets.set(key, { query, sourceId });
+    indexInspector.prepare(key, query);
+    return indexDetailsHtml(query, key, indexInspector, escapeAttribute, iconHtml('chevron'), iconHtml('copy'));
+  };
   let activeListenerId: string | null = null;
   let selectedHistory: number | null = null;
   let historyPage = 0;
@@ -900,12 +942,14 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const stopped = group.members.some(member => member.activity?.kind === 'subscription') && group.members.every(member => member.activity && (member.activity.kind !== 'subscription' || member.activity.status === 'closed'));
       const calls = counts?.calls ?? group.members.length;
       const deliveries = counts?.deliveries ?? group.members.reduce((sum, member) => sum + member.deliveryCount, 0);
+      const indexMissing = missingIndex(queryForSource(group.id));
       return buttonRowHtml({
         c1: dataPathHtml(group.target),
+        s2: indexMissing ? '<span class="index-status">Index missing from config</span>' : '',
         s1: `${group.service === 'database' ? 'Realtime Database node' : group.members.some(member => member.isQuery) || group.target.split('/').filter(Boolean).length % 2 === 1 ? 'Firestore collection' : 'Firestore document'}${stopped ? ' — Stopped' : ''}${group.members.some(member => member.incident) ? ' — Duplicate subscriptions' : ''}`,
         slot: `<span class="listener-fact"><span>${counts?.partial ? '≥ ' : ''}${pluralize(calls, 'call')}</span><span>${counts?.partial ? '≥ ' : ''}${pluralize(deliveries, 'delivery', 'deliveries')}</span></span>`,
         leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(listenerColors(group.id).swatch)}"></span>`,
-        className: group.members.some(member => member.incident) ? 'listener-row problem' : 'listener-row', title: `Inspect ${group.target}`,
+        className: group.members.some(member => member.incident) ? 'listener-row problem' : indexMissing ? 'listener-row pending' : 'listener-row', title: `Inspect ${group.target}`,
         attributes: `${group.members.some(member => member.incident) ? 'data-listener-incident="true" ' : ''}data-listener-row="${escapeAttribute(group.activityId)}" data-activate-listener="${escapeAttribute(group.activityId)}"`,
         label: `Inspect ${group.target}`, expanded: false,
       });
@@ -918,12 +962,17 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const picker = treatment ? `<select id="pyric-flow-treatment" data-flow-treatment aria-label="Flow treatment" title="${escapeAttribute(description)}">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}" title="${escapeAttribute(entry.description)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>` : '<span></span>';
     const notice = treatment?.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span>${buttonHtml(`data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}"`, 'Retry')}` : treatment?.loading ? '<span class="hint" role="status">Loading treatment…</span>' : '';
     const toolbar = `<div class="listener-toolbar"><div class="paint-switch" role="group" aria-label="Highlight mode">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')}</div>${picker}<button type="button" class="btn icon-button" data-open-overlay-theme aria-label="Highlight settings" title="Highlight settings">${iconHtml('settings')}</button>${notice ? `<span class="listener-toolbar-notice">${notice}</span>` : ''}</div>`;
-    const bar = barHtml([toolbar]);
+    let bar = barHtml([toolbar]);
     const guidance = blocked ?? flowReason;
     const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
     let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : 'Recorded history', toggle);
     if (selected) {
       body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${selected.service === 'database' ? 'Realtime Database' : 'Firestore'}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
+    }
+    if (selected) body += `<div class="history-context">${indexBlock(queryForSource(selected.id), selected.id, selected.id)}</div>`;
+    if (selected) {
+      const action = indexActionHtml(queryForSource(selected.id), selected.id, indexInspector, escapeAttribute);
+      if (action) bar = barHtml([`<div class="index-toolbar">${toolbar}<div class="index-submit">${action}</div></div>`]);
     }
     if (guidance) body += `<span class="hint" data-flow-unavailable>${escapeAttribute(guidance)}</span>`;
     return { body, bar };
@@ -946,16 +995,18 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       if (request.service === 'firestore') {
         reasonFact = fact('Reason', rulesSummary(request), '');
         evidenceDetails = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
+        evidenceDetails += indexBlock(request.indexQuery, request.id);
       }
       const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
       return {
         body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
           + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
-        bar: barHtml([]),
+        bar: barHtml([indexActionHtml(request.indexQuery, request.id, indexInspector, escapeAttribute)]),
       };
     }
     const rows = trafficRows().map((request) => {
       // Keep named cells stable for copying while the path owns the main line.
+      const indexMissing = missingIndex(request.indexQuery);
       const named = request.service !== null && request.method !== null;
       const call = named ? `${request.service}.${request.method}` : 'runtime';
       const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
@@ -964,8 +1015,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         c2: named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
-        slot: `<span class="verdict ${request.verdict === 'ok' ? 'ok' : ''}">${request.verdict}</span>`,
-        className: `traffic-row${request.verdict === 'ok' ? '' : ' problem'}`,
+        slot: trafficBadgeHtml(request.verdict, indexMissing),
+        className: `traffic-row${request.verdict === 'ok' ? indexMissing ? ' pending' : '' : ' problem'}`,
         title: [call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
         label: `Inspect ${call}: ${what}. ${request.verdict}`,
@@ -999,6 +1050,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   const render = (next = snapshot): void => {
+    indexTargets.clear();
+    const openIndexJson = root.querySelector<HTMLDetailsElement>('[data-index-json][open]')?.dataset.indexJson;
     const openRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details][open]')?.dataset.ruleDetails;
     const previousRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
     const previousExpressions = [...(previousRuleDetails?.querySelectorAll<HTMLElement>('.rule-expression') ?? [])];
@@ -1011,6 +1064,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const scrollTop = previousView?.dataset.chipView === tab ? previousView.scrollTop : 0;
     const active = root.activeElement as HTMLElement | null;
     const focusAttribute = [
+      'data-index-action',
       'data-identity-query',
       'data-collapse',
       'data-expand',
@@ -1060,10 +1114,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const problem = problemTab(current);
     // The pill's border is the page's state: the error colour outranks the
     // warning colour because a failure is about the page as it is running.
-    const chipTone = current.failedRecently || current.duplicateListener ? ' error' : current.updatePending ? ' warning' : '';
+    const chipTone = current.failedRecently || current.duplicateListener ? ' error' : (current.missingIndex || current.updatePending) ? ' warning' : '';
     const chipTitle = current.failedRecently
       ? 'A request failed in the last minute'
-      : current.duplicateListener ? 'A listener is attached twice' : current.updatePending ? 'New worker available' : '';
+      : current.duplicateListener ? 'A listener is attached twice' : current.missingIndex ? 'A query is missing an index in local configuration' : current.updatePending ? 'New worker available' : '';
     const tabsHtml = CHIP_TABS.map((candidate) => {
       const tone = candidate !== problem
         ? ''
@@ -1099,6 +1153,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       </div></section>`
       : `<button class="chip${chipTone}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric</button>`;
 
+    const indexJson = root.querySelector<HTMLDetailsElement>('[data-index-json]');
+    if (indexJson) indexJson.open = indexJson.dataset.indexJson === openIndexJson;
     const ruleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
     if (ruleDetails) {
       ruleDetails.open = ruleDetails.dataset.ruleDetails === openRuleDetails;
@@ -1116,11 +1172,26 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     const scrollView = root.querySelector<HTMLElement>('[data-chip-view]');
     if (scrollView) scrollView.scrollTop = scrollTop;
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-index-action]')) {
+      button.addEventListener('click', async () => {
+        const key = button.dataset.indexKey!;
+        const target = indexTargets.get(key);
+        if (!target) return;
+        switch (button.dataset.indexAction) {
+          case 'apply':
+            await indexInspector.apply(key, target.query);
+            root.querySelector<HTMLButtonElement>('[data-index-action=copy]')?.focus({ preventScroll: true });
+            break;
+          case 'copy': await indexInspector.copy(target.query, clipboard ?? undefined); break;
+
+        }
+      });
+    }
     for (const photo of root.querySelectorAll<HTMLImageElement>('[data-avatar]')) {
       photo.addEventListener('error', () => { photo.hidden = true; });
     }
 
-    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
+    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
 
     if (renderedOpen !== open) {
@@ -1371,6 +1442,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   mounted = true;
   render();
+  void indexInspector.refresh();
   // The chip fades in once, when the page first gets it. The class sits on the
   // stable container rather than on the chip, so a render right behind the
   // mount can neither replay the animation nor cut it short.
@@ -1385,6 +1457,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
       themeDialogController?.dispose();
       trafficFeed?.dispose();
+      indexInspector.dispose();
       denials.dispose();
       listenerMode?.dispose();
       host.remove();

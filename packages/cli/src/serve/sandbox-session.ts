@@ -1,4 +1,5 @@
 import { createFlowTreatmentHost } from './flow-treatment-host.js';
+import { createIndexConfigStore } from './index-config-store.js';
 import type { FlowConfig } from './flow-config.js';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -275,6 +276,7 @@ export async function createSandboxSession(
   };
 
   const namespace = createPyricNamespace({
+    indexes: createIndexConfigStore(options.projectDir),
     sdkDir: options.sdk.dir,
     initPayload: payload,
     events,

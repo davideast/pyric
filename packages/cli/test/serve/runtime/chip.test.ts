@@ -452,10 +452,10 @@ describe('the Traffic view', () => {
     expect(denied.querySelector('.c2')!.textContent).toBe('conversations/c1');
     expect(denied.querySelector('.s1')!.textContent).toMatch(/^\d\d:\d\d:\d\d$/);
     expect(denied.querySelector('.s2')!.textContent).toBe('signed out');
-    expect(denied.querySelector('.slot')!.textContent).toBe('denied');
+    expect(denied.querySelector('.slot')!.textContent).toBe('Denied');
     const ok = rows[1]!;
     expect(ok.querySelector('.s2')!.textContent).toBe('');
-    expect(ok.querySelector('.slot')!.textContent).toBe('ok');
+    expect(ok.querySelector('.slot')!.textContent).toBe('Allowed');
   });
 
   it('drills into the selected request and returns through its breadcrumb', () => {
@@ -507,7 +507,7 @@ describe('the Traffic view', () => {
     expect(root.querySelector('[data-traffic-denied]')!.getAttribute('aria-pressed')).toBe('true');
     root.querySelector<HTMLButtonElement>('[data-copy-traffic]')!.click();
     await Promise.resolve();
-    expect(written[0]).toContain('firestore.set  conversations/c1  denied');
+    expect(written[0]).toContain('firestore.set  conversations/c1  Denied');
     expect(written[0]).toContain('u9');
   });
 
@@ -518,6 +518,6 @@ describe('the Traffic view', () => {
     const row = root.querySelector('[data-request-row]')!;
     expect(row.querySelector('.c1')!.textContent).toBe('runtime');
     expect(row.querySelector('.c2')!.textContent).toBe('worker crashed');
-    expect(row.querySelector('.slot')!.textContent).toBe('error');
+    expect(row.querySelector('.slot')!.textContent).toBe('Failed');
   });
 });

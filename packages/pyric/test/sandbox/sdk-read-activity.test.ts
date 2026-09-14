@@ -1,7 +1,7 @@
 import { expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
-import { getFirestore, doc, collection, query, limit, getDoc, getDocs } from '../../src/firestore/index.js';
+import { getFirestore, doc, collection, query, limit, getDoc, getDocs, where, orderBy, onSnapshot } from '../../src/firestore/index.js';
 import { getDatabase, ref, get, set, sandbox as databaseSandbox } from '../../src/database/index.js';
 import { sdkActivity, type SdkActivityEvent } from '../../src/sandbox/internal/sdk-activity.js';
 
@@ -88,4 +88,25 @@ it('keeps read settlement ordering and rejection handling when diagnostics are e
     stop();
     process.off('unhandledRejection', onUnhandled);
   }
+});
+
+
+it('retains index query shape through listener registration, delivery and stop', async () => {
+  const sandbox = initializeSandbox();
+  const db = getFirestore(sandbox);
+  setRules(sandbox, "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /projects/{id} { allow read: if true; } } }");
+  seedDocuments(sandbox, { 'projects/one': { status: 'private-draft-value', budget: 12 } });
+  const events: SdkActivityEvent[] = [];
+  const stopRecording = sdkActivity.subscribe(event => events.push(event));
+  let stopListener = () => {};
+  try {
+    await new Promise<void>((resolve, reject) => {
+      stopListener = onSnapshot(query(collection(db, 'projects'), where('status', '==', 'private-draft-value'), orderBy('budget', 'desc')), () => resolve(), reject);
+    });
+    stopListener();
+    const subscription = events.filter(event => event.record.kind === 'subscription');
+    expect(subscription.map(event => event.phase)).toEqual(['start', 'delivery', 'end']);
+    for (const event of subscription) expect(event.record.indexQuery).toEqual({ collectionGroup: 'projects', queryScope: 'COLLECTION', filters: [{ field: 'status', op: '==' }], orders: [{ field: 'budget', direction: 'desc' }] });
+    expect(JSON.stringify(subscription.map(event => event.record.indexQuery))).not.toContain('private-draft-value');
+  } finally { stopListener(); stopRecording(); }
 });

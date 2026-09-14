@@ -296,7 +296,7 @@ for (const runtime of ['inpage', 'worker']) {
       await page.getByRole('tab', { name: 'Traffic' }).click();
       const back = page.locator('[data-clear-traffic-source]');
       if (await back.count()) await back.click();
-      const row = page.locator('[data-request-row]').filter({ hasText: 'projects/' }).filter({ hasText: 'denied' }).first();
+      const row = page.locator('[data-request-row]').filter({ hasText: 'projects/' }).filter({ hasText: 'Denied' }).first();
       await row.click();
       await expect(page.locator('[data-traffic-detail]')).toContainText('alice');
         await expect(page.locator('.rule-comparison')).not.toHaveCount(0);
