@@ -6,7 +6,7 @@ import {
   type PortLike,
 } from './host.js';
 import type { ServiceWorkerChannelMessage } from './service-worker-channel.js';
-import { MAX_PENDING_OPERATIONS } from '../../bridge/protocol.js';
+import { createOperationBudget } from '../../bridge/operation-budget.js';
 
 type HostEnvelope = Extract<ServiceWorkerChannelMessage, { direction: 'host' }>;
 
@@ -14,7 +14,7 @@ interface RelayState {
   readonly sessionId: string;
   readonly port: PortLike;
   queue: Promise<void>;
-  readonly admission: { pendingOperations: number };
+  readonly admission: ReturnType<typeof createOperationBudget>;
 }
 
 export interface ServiceWorkerRelay {
@@ -53,7 +53,7 @@ export function createServiceWorkerRelay(options: {
         const state: RelayState = {
           sessionId: envelope.sessionId,
           // A replacement realm still shares the client's previously accepted work.
-          admission: previous?.admission ?? { pendingOperations: 0 },
+          admission: previous?.admission ?? createOperationBudget(),
           port: makePort(envelope.clientId, envelope.sessionId),
           queue: (previous?.queue ?? Promise.resolve()).then(async () => {
             const hasNoPrevious = previous === undefined;
@@ -75,17 +75,19 @@ export function createServiceWorkerRelay(options: {
       const isStaleSession = state === undefined || state.sessionId !== envelope.sessionId;
       if (isStaleSession) return;
       const message = envelope.message;
+      let releaseOperation: (() => void) | undefined;
       const isOperation = message.t === 'op' || message.t === 'tool';
       if (isOperation) {
-        const hasReachedCapacity = state.admission.pendingOperations >= MAX_PENDING_OPERATIONS;
-        if (hasReachedCapacity) {
+        const reservation = state.admission.reserve(message);
+        const isRefused = !reservation.accepted;
+        if (isRefused) {
           state.port.postMessage({
             t: 'res', id: message.id, clientSessionId: message.clientSessionId, ok: false,
-            error: { code: 'resource-exhausted', message: 'This client already has 256 pending operations.' },
+            error: reservation.error,
           });
           return;
         }
-        state.admission.pendingOperations += 1;
+        releaseOperation = reservation.release;
       }
       state.queue = state.queue.then(async () => {
         try {
@@ -99,7 +101,7 @@ export function createServiceWorkerRelay(options: {
         } catch (error) {
           options.onError?.(error, envelope);
         } finally {
-          if (isOperation) state.admission.pendingOperations -= 1;
+          releaseOperation?.();
         }
       });
       await state.queue;

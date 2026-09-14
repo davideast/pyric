@@ -214,7 +214,8 @@ exactly 24 MiB and refuses the next byte; accepted/executing calls count until
 their handlers settle. Other operation-byte owners remain unfinished. A physical disconnect
 waits for its accepted client work; later traffic cannot create a logical
 client through that closed port. Service Worker BroadcastChannel admission
-also counts accepted service/tool calls by logical client. A replacement realm
+also counts accepted service/tool calls and their JSON UTF-8 message bytes by
+logical client. Both worker paths use the same admission policy. A replacement realm
 shares the allowance until the old realm's work settles; replacement cannot
 reset capacity. Completion, failure and disconnect release it. MCP execution
 fairness inside the worker and aggregate queued-byte accounting remain
