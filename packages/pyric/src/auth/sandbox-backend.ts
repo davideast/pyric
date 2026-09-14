@@ -133,7 +133,6 @@ export class SandboxBackend {
   /** Monotonic uid counter for `createUser` calls without a uid. */
   private readonly sharedCounters: {
     nextAdminUserId: number;
-    nextAnonymousId: number;
   };
 
   /** Popup / redirect / credential flow-staging machinery — the
@@ -795,8 +794,11 @@ export class SandboxBackend {
       // in (AUTH-B9) — otherwise both emails would resolve, the old one
       // to a now-orphaned record.
       const prior = this.usersByUid.get(u.uid);
-      if (prior?.email && prior.email.toLowerCase() !== u.email?.toLowerCase()) {
-        this.usersByEmail.delete(prior.email.toLowerCase());
+      const priorEmail = prior?.email;
+      const hasPriorEmail = typeof priorEmail === 'string' && priorEmail.length > 0;
+      const changesEmail = hasPriorEmail && priorEmail.toLowerCase() !== u.email?.toLowerCase();
+      if (changesEmail) {
+        this.usersByEmail.delete(priorEmail.toLowerCase());
       }
       const isAnonymousSeed = u.providerId === 'anonymous';
       const providerUserInfo = isAnonymousSeed ? [] : [{ providerId: u.providerId ?? 'password' }];
@@ -814,10 +816,17 @@ export class SandboxBackend {
         providerUserInfo,
         tenantId: u.tenantId ?? null,
       });
-      if (!isAnonymousSeed && u.email !== undefined) this.usersByEmail.set(u.email.toLowerCase(), record);
+      const { createdAt, lastLoginAt, email } = u;
+      const hasCreatedAt = createdAt !== undefined;
+      if (hasCreatedAt) record.createdAt = createdAt;
+      const hasLastLoginAt = lastLoginAt !== undefined;
+      if (hasLastLoginAt) record.lastLoginAt = lastLoginAt;
+      const indexesEmail = !isAnonymousSeed && email !== undefined;
+      if (indexesEmail) this.usersByEmail.set(email.toLowerCase(), record);
       this.usersByUid.set(u.uid, record);
     }
-    if (users.length > 0) this.notifyUsersChanged();
+    const hasSeedUsers = users.length > 0;
+    if (hasSeedUsers) this.notifyUsersChanged();
   }
 
   /**
@@ -835,30 +844,39 @@ export class SandboxBackend {
   exportUsers(): SeedUser[] {
     const out: SeedUser[] = [];
     for (const u of this.usersByUid.values()) {
-      if (u.isAnonymous) {
-        const seed: SeedUser = { uid: u.uid, providerId: 'anonymous' };
-        if (u.displayName !== null) seed.displayName = u.displayName;
-        if (u.photoUrl !== null) seed.photoUrl = u.photoUrl;
-        if (Object.keys(u.customClaims).length > 0) seed.customClaims = u.customClaims;
-        if (u.disabled) seed.disabled = true;
-        if (u.tenantId !== null) seed.tenantId = u.tenantId;
+      const { email, displayName, photoUrl, tenantId, phoneNumber, isAnonymous, disabled, emailVerified } = u;
+      const hasDisplayName = displayName !== null;
+      const hasPhotoUrl = photoUrl !== null;
+      const hasCustomClaims = Object.keys(u.customClaims).length > 0;
+      const hasTenant = tenantId !== null;
+      if (isAnonymous) {
+        const seed: SeedUser = { uid: u.uid, providerId: 'anonymous', createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
+        if (hasDisplayName) seed.displayName = displayName;
+        if (hasPhotoUrl) seed.photoUrl = photoUrl;
+        if (hasCustomClaims) seed.customClaims = u.customClaims;
+        if (disabled) seed.disabled = true;
+        if (hasTenant) seed.tenantId = tenantId;
         out.push(seed);
         continue;
       }
-      if (u.email === null) continue; // credential-less, non-anonymous: not round-trippable
+      const hasNoEmail = email === null;
+      if (hasNoEmail) continue; // credential-less, non-anonymous: not round-trippable
       const seed: SeedUser = {
         uid: u.uid,
-        email: u.email,
+        createdAt: u.createdAt,
+        lastLoginAt: u.lastLoginAt,
+        email,
         password: u.password ?? NO_PASSWORD_SENTINEL,
         providerId: u.providerUserInfo[0]?.providerId ?? 'password',
       };
-      if (u.displayName !== null) seed.displayName = u.displayName;
-      if (u.photoUrl !== null) seed.photoUrl = u.photoUrl;
-      if (u.phoneNumber !== null) seed.phoneNumber = u.phoneNumber;
-      if (Object.keys(u.customClaims).length > 0) seed.customClaims = u.customClaims;
-      if (u.emailVerified) seed.emailVerified = true;
-      if (u.disabled) seed.disabled = true;
-      if (u.tenantId !== null) seed.tenantId = u.tenantId;
+      if (hasDisplayName) seed.displayName = displayName;
+      if (hasPhotoUrl) seed.photoUrl = photoUrl;
+      const hasPhoneNumber = phoneNumber !== null;
+      if (hasPhoneNumber) seed.phoneNumber = phoneNumber;
+      if (hasCustomClaims) seed.customClaims = u.customClaims;
+      if (emailVerified) seed.emailVerified = true;
+      if (disabled) seed.disabled = true;
+      if (hasTenant) seed.tenantId = tenantId;
       out.push(seed);
     }
     return out;
@@ -1827,7 +1845,7 @@ export class SandboxBackend {
    *  the emulator) so `listIdentities` / future user-admin surfaces
    *  see anonymous accounts too. */
   mintAnonymousUser(): User {
-    const uid = `anonymous-${this.sharedCounters.nextAnonymousId++}`;
+    const uid = `anonymous-${globalThis.crypto.randomUUID()}`;
     const record = this.makeStored({ uid, isAnonymous: true });
     this.usersByUid.set(uid, record);
     this.notifyUsersChanged();

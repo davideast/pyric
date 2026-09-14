@@ -28,6 +28,9 @@ export const NO_PASSWORD_SENTINEL = '__pyric_no_password__';
 
 export interface SeedUser {
   uid: string;
+  /** Account timestamps retained by export, checkpoints, and host restart. */
+  createdAt?: string;
+  lastLoginAt?: string | null;
   /** Absent for an anonymous account (`providerId: 'anonymous'`), which has
    *  no address to sign in with. Required for every other provider. */
   email?: string;

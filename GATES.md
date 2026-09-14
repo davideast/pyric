@@ -8,7 +8,13 @@ Execution: sequential vertical TDD slices. S1–S6 and their documented scope we
 
 Pending seam clarification: permission was requested to extend S3 from CLI commands to the exported BridgeMount lifecycle API, using the real host and its existing public readiness diagnostic. No reply has arrived and no test at that additional interface has been written. The existing S1–S6 approval remains in force for independent work.
 
-## Current slice: hosted app recovery after process restart
+## Current milestone: hosted hardening for manual QA
+
+The user narrowed the active goal to the ten-item reliability queue in `docs/hosted-hardening-progress.md`; the full hosted/live-mode goal stays incomplete. Task 1 now has two public-boundary red/green cycles: anonymous UID allocation no longer resets with a host process, and existing account creation/last-login times survive restore. The shared Auth owner fixes all runtime paths. Scoped final checks pass 32 browser cases, six minimum-Node cases, 487 isolated regressions, strict types, code form and applicable browser boundaries. Session retention expiry is next; the other milestone tasks remain open.
+
+A separate S6 tooling commit corrects class-member scope to match U3's modified-function rule. Modified members stay checked in full, with explicit unchanged-member reporting and whole-class checking for new classes or changed headers. Twenty-eight checker tests and strict types pass. Pushes are blocked by automatic approval review pending the direct authorization question; verified local commits remain available.
+
+## Previous repair: hosted app recovery after process restart
 
 Manual QA reproduced a permanent closed connection in existing pages after restarting the host. A new S1/S2/S3 regression reproduced the reported error twice. Process identity now distinguishes fresh admission to a replacement host from resuming the same host; app configuration and existing Auth restoration precede observer restoration and readiness. A separate red/green case preserves invalid-grant refusal when process identity is missing or malformed.
 

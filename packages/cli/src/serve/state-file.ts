@@ -28,6 +28,8 @@ export class StateFileError extends Error {
 // retained so reading a fixture does not silently discard its contents.
 const userFields = {
   uid: z.string(),
+  createdAt: z.string().optional(),
+  lastLoginAt: z.string().nullable().optional(),
   email: z.string().optional(),
   password: z.string().optional(),
   displayName: z.string().optional(),

@@ -34,7 +34,7 @@ describe('sandbox.exportUsers', () => {
 
   it('round-trips photoUrl, phoneNumber, emailVerified and disabled', () => {
     const a = wire();
-    authSandbox.createUser(a, {
+    const original = authSandbox.createUser(a, {
       uid: 'full',
       email: 'full@x.com',
       password: 'pw-full',
@@ -49,6 +49,8 @@ describe('sandbox.exportUsers', () => {
     expect(exported).toEqual([
       {
         uid: 'full',
+        createdAt: original.createdAt,
+        lastLoginAt: null,
         email: 'full@x.com',
         password: 'pw-full',
         providerId: 'password',
@@ -82,14 +84,18 @@ describe('sandbox.exportUsers', () => {
     const [seed] = authSandbox.exportUsers(a);
     expect(seed).toEqual({
       uid: 'bare',
+      createdAt: expect.any(String),
+      lastLoginAt: null,
       email: 'bare@x.com',
       password: 'pw',
       providerId: 'password',
     });
-    expect('photoUrl' in seed!).toBe(false);
-    expect('phoneNumber' in seed!).toBe(false);
-    expect('emailVerified' in seed!).toBe(false);
-    expect('disabled' in seed!).toBe(false);
+    const hasNoSeed = seed === undefined;
+    if (hasNoSeed) throw new Error('Expected the exported account');
+    expect('photoUrl' in seed).toBe(false);
+    expect('phoneNumber' in seed).toBe(false);
+    expect('emailVerified' in seed).toBe(false);
+    expect('disabled' in seed).toBe(false);
   });
 
   it('passwordless provider identities export with the sentinel; anonymous export too', async () => {
@@ -114,7 +120,9 @@ describe('sandbox.exportUsers', () => {
     // way real Firebase keeps anonymous accounts in its user pool.
     expect(authSandbox.listIdentities(a).some((i) => i.isAnonymous)).toBe(true);
     const anonymousSeed = exported.find((u) => u.uid === anon.user.uid);
-    expect(anonymousSeed).toEqual({ uid: anon.user.uid, providerId: 'anonymous' });
+    const original = authSandbox.listUsers(a).find(user => user.uid === anon.user.uid);
+    expect(anonymousSeed).toEqual({ uid: anon.user.uid, providerId: 'anonymous',
+      createdAt: original?.createdAt, lastLoginAt: original?.lastLoginAt });
     expect(exported).toHaveLength(2);
   });
 
