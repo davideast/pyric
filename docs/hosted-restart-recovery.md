@@ -43,6 +43,6 @@ Restart the demo using the rebuilt CLI, then reload each page once to load the u
 
 This is a scoped repair on top of checkpoint `4b2ae881`. The broad implementation JSON ledger describes the earlier checkpoint; it is historical evidence, not verification of this repair. This document records the subsequent repair checks. No full hosted/live-mode or release gate is closed here; the full browser suite and copied standalone binary were not rerun.
 
-Recovery after session retention expires in the same process still needs separate work. This change distinguishes a replacement process from the process that issued the grant.
+Same-process retention expiry was repaired in the subsequent [hardening milestone](hosted-hardening-progress.md). The original restart repair described here distinguishes a replacement process from the process that issued the grant.
 
-Review also found that an explicit anonymous sign-in can reuse a deleted UID after restart. The failing assertion and fixture are preserved separately in the local QA archive. The reconnect check verifies that automatic recovery leaves the deleted account absent and the app signed out; anonymous UID allocation remains an unfixed Auth issue. Startup restoration counts also remain misleading even when SDK reads confirm restored data.
+Review also found anonymous UID reuse after restart; the subsequent hardening milestone repairs allocation and account timestamps. The reconnect check verifies that automatic recovery leaves a deleted account absent and the app signed out. Startup restoration counts remain misleading even when SDK reads confirm restored data.

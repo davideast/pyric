@@ -8,8 +8,8 @@ Do not modify the manual demo project. Commit and push each verified slice.
 ## Ordered queue
 
 1. Anonymous UID uniqueness — verified locally. Deletion/restart cannot transfer UID-owned data to a new identity; retained accounts preserve their UID, claims, creation time and last-login time.
-2. Session retention expiry — next. Fresh admission restores the legitimate app; invalid/revoked grants remain refused and uncertain writes never replay.
-3. Checkpoint restoration — pending. Supported Firestore/Auth/RTDB/Storage data and identity metadata round trip; corruption refuses before replacing healthy state.
+2. Session retention expiry — verified locally. The original app obtains fresh admission after the retention window, with Auth restored before listeners. Expired/invalid grants remain refused; app deletion cancels recovery; uncertain writes never replay.
+3. Checkpoint restoration — next. Supported Firestore/Auth/RTDB/Storage data and identity metadata round trip; corruption refuses before replacing healthy state.
 4. Restoration diagnostics — pending. Startup text and readiness JSON match authoritative SDK state.
 5. Interrupted recovery — pending. A second interruption restores identity/listeners once; obsolete callbacks and app deletion cannot revive sessions.
 6. Reset/import with active apps — pending. Both browsers see replacement; removed listeners stay removed and stale work cannot resurrect data.
@@ -56,3 +56,15 @@ No new resource owner, Buffer/browser fallback, or conformance registry row was 
 ## Remote backup
 
 Tooling commit `506c0383` is local. Automatic approval review rejected its push twice, requiring direct user authorization despite the active goal's explicit push instruction. An asynchronous approval question is pending for this and subsequent verified hardening commits. Continue independent local work; do not bypass the rejection or claim the branch is remotely backed up beyond `6b0728b8`.
+
+Identity task commit: `9b418216627fa53d892dbc0580d7e51b0db2616b`, also local pending push authorization.
+
+## Task 2 verification
+
+`bun x playwright test --config packages/cli/test/e2e/hosted/playwright.config.ts session-expiry.pw.ts` failed at the intended SDK listener assertion: expected `After expiry`, received `Before expiry` after the real 60-second host retention window. The isolated fixture drops attach frames for 62 seconds, keeps another remote consumer writing, then permits reconnection. It also requires a subsequent owner-authorized write, the original UID, and no new anonymous account. Report: `/tmp/pyric-hardening-session-expiry-red.log`, terminal exit 1 (`4cd3d4`). The unchanged fixture passed after the repair (`/tmp/pyric-hardening-session-expiry-green.log`, terminal exit 0 `381fc1`). The original fixture and reports are preserved in `ignored/hardening/session-expiry/`.
+
+The client previously retried the expired grant and treated its refusal as terminal. It now measures the observed interruption with the monotonic browser clock across connection attempts, discards the resume grant after the shared 60-second policy window, and explicitly requests fresh admission. The existing restoration owner configures Auth before observers and operations. A failed fresh attempt keeps retrying; a protocol refusal remains terminal. The host's resume validation and resource-expiry behavior are unchanged. No secrets are persisted and no second session owner is introduced.
+
+Review added a direct old-grant refusal after the real window and four short browser-clock cases: deleted user, deleted app, invalid grant, and a failed first fresh-admission attempt. The clock cases exercise client decisions; the real-clock case separately proves the host actually expires the old grant.
+
+Final current checks: 26 focused browser cases in 2.0 minutes, four short cases on Node 22.15.0 in 10.3 seconds, 59 session/relay regressions in six isolated processes, strict CLI/fixture types, four-file code form with zero findings, and three browser boundaries. Socket: 7,259/16,384 bytes; worker client: 54,943/98,304; RTDB listeners: 12,930/32,768. Reports use `/tmp/pyric-hardening-session-expiry-`; archived input hashes bind them to the source and emitted CLI files. The minimum-Node run did not repeat the long real-clock scenario. Whole-feature and copied-standalone checks remain reserved for the final milestone join.

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { FirebaseError } from 'pyric/app';
+import { WORKER_SESSION_RETENTION_MS } from '../protocol.js';
 
 interface WorkerSession {
   clientSessionId: string;
@@ -73,7 +74,7 @@ export function createWorkerSessions(callbacks: {
           session.expiry = setTimeout(() => {
             const ownsSession = isCurrent();
             if (ownsSession) release(session);
-          }, 60_000);
+          }, WORKER_SESSION_RETENTION_MS);
           session.expiry.unref();
         },
         close(): void {

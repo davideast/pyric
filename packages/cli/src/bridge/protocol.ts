@@ -162,6 +162,9 @@ export const WORKER_RELAY_CAPABILITY = 'worker-relay';
 /** Full port traffic, including app configuration, clock updates, and teardown. */
 export const WORKER_PORT_CAPABILITY = 'worker-port';
 
+/** After this interruption window a client must request a fresh logical session. */
+export const WORKER_SESSION_RETENTION_MS = 60_000;
+
 export interface WorkerMessageFrame {
   type: 'worker-message';
   clientSessionId?: string;

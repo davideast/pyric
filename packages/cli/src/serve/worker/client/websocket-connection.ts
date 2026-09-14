@@ -1,4 +1,4 @@
-import { isBridgeMessage, WORKER_PORT_CAPABILITY, type BridgeMessage } from '../../../bridge/protocol.js';
+import { isBridgeMessage, WORKER_PORT_CAPABILITY, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreFirestoreSubscriptions, wirePort } from './core.js';
@@ -18,6 +18,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
   let needsSessionRestore = false;
   let hasEverAttached = false;
   let reconnectAttempt = 0;
+  let interruptedAt: number | undefined;
   let attachDeadline: ReturnType<typeof setTimeout> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -65,6 +66,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       connectionListeners.clear();
       queued.length = 0;
       resumeToken = undefined;
+      interruptedAt = undefined;
       hostInstanceId = undefined;
       appConfig = undefined;
       port.restoreAuth = undefined;
@@ -128,6 +130,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     state = 'attached';
     hasEverAttached = true;
     reconnectAttempt = 0;
+    interruptedAt = undefined;
     for (const request of queued.splice(0)) port.postMessage(request);
     if (isResume) {
       postMessage({ t: 'clock-subscribe' });
@@ -140,6 +143,9 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     const isClosed = state === 'closed';
     if (isClosed) return;
     state = 'connecting';
+    const retentionExpired = interruptedAt !== undefined && performance.now() - interruptedAt >= WORKER_SESSION_RETENTION_MS;
+    if (retentionExpired) resumeToken = undefined;
+    const requestsFreshSession = resumeToken === undefined;
     const connection = new WebSocket(target.url);
     socket = connection;
     attachDeadline = setTimeout(() => {
@@ -182,7 +188,9 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
           const isResume = hasEverAttached;
           const hasHostIdentity = typeof message.hostInstanceId === 'string' && message.hostInstanceId.length > 0;
           const changedHost = isResume && hostInstanceId !== undefined && hasHostIdentity && message.hostInstanceId !== hostInstanceId;
-          const changedSessionUnexpectedly = isResume && message.resumeToken !== resumeToken && !changedHost;
+          const attemptsResume = isResume && !requestsFreshSession;
+          const receivedDifferentGrant = message.resumeToken !== resumeToken;
+          const changedSessionUnexpectedly = attemptsResume && receivedDifferentGrant && !changedHost;
           if (changedSessionUnexpectedly) {
             failConnection('The hosted session could not be resumed.');
             return;
@@ -190,7 +198,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
           const hasResumeToken = typeof message.resumeToken === 'string' && message.resumeToken.length > 0;
           resumeToken = hasResumeToken ? message.resumeToken : undefined;
           hostInstanceId = hasHostIdentity ? message.hostInstanceId : undefined;
-          if (changedHost) needsSessionRestore = true;
+          const restoresSession = isResume && (changedHost || requestsFreshSession);
+          if (restoresSession) needsSessionRestore = true;
           void finishAttachment(connection, isResume).catch(() => {
             const isCurrentConnection = isCurrent(connection);
             if (isCurrentConnection) failConnection('Could not restore the hosted app session.');
@@ -206,8 +215,9 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
       clearTimeout(attachDeadline);
-      const canResume = hasEverAttached && resumeToken !== undefined && event.code !== 1008;
+      const canResume = hasEverAttached && event.code !== 1008;
       if (canResume) {
+        interruptedAt ??= performance.now();
         state = 'interrupted';
         socket = undefined;
         notifyConnectionChange();
