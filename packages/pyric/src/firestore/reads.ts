@@ -35,13 +35,22 @@ import type {
 } from './types.js';
 import { clientStateFor } from './client-state.js';
 import { beginFirestoreActivity } from './sdk-activity.js';
-import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
+import { finishSdkRead, type SdkActivityHandle } from '../sandbox/internal/sdk-activity.js';
 
-export async function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promise<DocumentSnapshot<T>> {
+export function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promise<DocumentSnapshot<T>> {
+  return readDocumentAs(ref, 'getDoc');
+}
+
+/** Keep served aliases on the same backend path while preserving their public name. */
+export function readDocumentAs<T = DocumentData>(ref: DocumentReference<T>, method: string): Promise<DocumentSnapshot<T>> {
+  return readDocument(ref, beginFirestoreActivity(targetOf(ref), ref, method, 'operation'));
+}
+
+/** Shared executor; the public caller supplies its own activity identity. */
+export async function readDocument<T = DocumentData>(ref: DocumentReference<T>, activity: SdkActivityHandle): Promise<DocumentSnapshot<T>> {
   const target = targetOf(ref);
   const client = clientStateFor(target);
   client.markStarted();
-  const activity = beginFirestoreActivity(target, ref, 'getDoc', 'operation');
   try {
     const conv = converterOf(ref);
     const snap = await chainDocFor(target, ref).get();
@@ -62,11 +71,20 @@ export async function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promi
   }
 }
 
-export async function getDocs<T = DocumentData>(query: Query<T>): Promise<QuerySnapshot<T>> {
+export function getDocs<T = DocumentData>(query: Query<T>): Promise<QuerySnapshot<T>> {
+  return readQueryAs(query, 'getDocs');
+}
+
+/** Keep served aliases on the same backend path while preserving their public name. */
+export function readQueryAs<T = DocumentData>(query: Query<T>, method: string): Promise<QuerySnapshot<T>> {
+  return readQuery(query, beginFirestoreActivity(targetOf(query), query, method, 'operation'));
+}
+
+/** Shared executor; the public caller supplies its own activity identity. */
+export async function readQuery<T = DocumentData>(query: Query<T>, activity: SdkActivityHandle): Promise<QuerySnapshot<T>> {
   const target = targetOf(query);
   const client = clientStateFor(target);
   client.markStarted();
-  const activity = beginFirestoreActivity(target, query, 'getDocs', 'operation');
   try {
     const conv = converterOf(query);
     const snap = await withFirestoreFirebaseError(() => chainQueryFor(target, query).get());

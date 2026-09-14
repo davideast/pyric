@@ -23,3 +23,9 @@ export function beginFirestoreActivity(
     owners: listenerAttachOwners(attribution?.owner, attribution?.owners),
   });
 }
+
+/** Batch/transaction identity is the app database, not an arbitrary first document. */
+export function beginFirestoreGroupActivity(target: Target, method: string): SdkActivityHandle {
+  return sdkActivity.begin({ app: target.activityApp ?? target, method, kind: 'operation',
+    source: { service: 'firestore', target: '/', key: 'database' } });
+}
