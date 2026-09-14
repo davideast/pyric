@@ -21,6 +21,7 @@ import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
+import type { HostedMethodRequest } from './method-protocol.js';
 
 type HostedTransport = 'worker-port' | 'worker-relay';
 
@@ -120,7 +121,7 @@ export async function createHostedRuntime(
   }
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir);
   const ports = new Map<string, HostedPort>();
-  const methodWork = new Map<object, Promise<void>>();
+  const methodWork = new Map<object, OperationQueue>();
   const toolWork = new Map<string, OperationQueue>();
   let closed = false;
 
@@ -265,17 +266,21 @@ export async function createHostedRuntime(
     instanceId,
     toolNames: SANDBOX_TOOL_NAMES,
     /** The admitted transport connection owns command ordering; JSON cannot choose another caller. */
-    runMethod(key: string, args: Record<string, unknown>, callerProjectDir: string, connection: object): Promise<OperationResult> {
+    runMethod(call: HostedMethodRequest, connection: object): Promise<OperationResult> {
       if (closed) return Promise.resolve({ ok: false, summary: 'The hosted sandbox is closed.' });
+      const { key, args, projectDir: callerProjectDir } = call;
       const projectDistance = relative(ownedProjectDir, callerProjectDir);
       const namesParentDirectory = projectDistance === '..' || projectDistance.startsWith(`..${sep}`);
       const isOutsideProject = namesParentDirectory || isAbsolute(projectDistance);
       if (isOutsideProject) return Promise.resolve({ ok: false, summary: 'The discovered host belongs to another project.' });
       const method = methodByKey(key);
-      const previous = methodWork.get(connection) ?? Promise.resolve();
-      const result = previous.then(async () => {
+      const owned = methodWork.get(connection) ?? { pending: Promise.resolve(), budget: createOperationBudget() };
+      const reservation = owned.budget.reserve(call);
+      const isRefused = !reservation.accepted;
+      if (isRefused) return Promise.resolve({ ok: false, summary: reservation.error.message });
+      const result = owned.pending.then(async () => {
         const hasMutationEffect = method.effect === 'write' || method.effect === 'destructive';
-        // Held identity belongs to this caller, not the persisted sandbox.
+        // Switching the held identity is a memory-only control.
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
         const changesDurableState = hasMutationEffect && !changesHeldIdentity;
         if (changesDurableState) requireHealthyPersistence();
@@ -284,11 +289,12 @@ export async function createHostedRuntime(
         const isRead = method.effect === 'read';
         if (isRead) return describeRead(outcome);
         return outcome;
-      });
+      }).finally(reservation.release);
       const pending = result.then(() => {}, () => {});
-      methodWork.set(connection, pending);
+      owned.pending = pending;
+      methodWork.set(connection, owned);
       void pending.then(() => {
-        const isLastCall = methodWork.get(connection) === pending;
+        const isLastCall = owned.pending === pending;
         if (isLastCall) methodWork.delete(connection);
       });
       return result;
@@ -350,7 +356,8 @@ export async function createHostedRuntime(
       closed = true;
       initialized.dispose();
       try {
-        await Promise.all([...methodWork.values(), ...[...toolWork.values()].map(queue => queue.pending), ...[...ports.keys()].map(closePort)]);
+        const pendingCalls = [...methodWork.values(), ...toolWork.values()].map(queue => queue.pending);
+        await Promise.all([...pendingCalls, ...[...ports.keys()].map(closePort)]);
       } finally {
         sandbox.dispose();
       }

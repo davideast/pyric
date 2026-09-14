@@ -10,6 +10,8 @@ export const hostedMethodRequest = z.object({
   args: z.record(z.unknown()),
 }).strict();
 
+export type HostedMethodRequest = z.infer<typeof hostedMethodRequest>;
+
 export const hostedMethodResult = z.object({
   ok: z.boolean(),
   summary: z.string(),

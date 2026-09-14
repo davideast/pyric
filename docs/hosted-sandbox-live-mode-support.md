@@ -240,8 +240,13 @@ complete forwarded messages, held until host execution settles. Canceling
 bridge requests cannot free these still-occupied host reservations. Direct
 service commands are ordered by the HTTP connection admitted by the server;
 a stalled command does not block reads from another connection. The request
-body cannot choose that execution owner. Direct-command count/byte admission
-and broader shutdown accounting remain unfinished. Accepted
+body cannot choose that execution owner. Each connection reserves the shared
+256-call/24 MiB allowance before queue insertion, measuring the parsed request
+envelope's JSON UTF-8 encoding (instance, project, method and arguments;
+excluding HTTP headers). Execution retains the reservation until settlement.
+Count saturation, refusal without mutation, and full reuse after successful
+and failed calls are verified. Direct-command aggregate-byte boundaries,
+connection churn and broader shutdown accounting remain unfinished. Accepted
 Node MCP work uses the permitted drain path: up to 64 execution owners may
 remain active, including those whose MCP session has closed; capacity returns
 as their last accepted calls settle. Native SharedWorker

@@ -16,17 +16,19 @@ export async function openMethodWire(baseUrl: string, projectDir: string) {
   socket.on('error', error => { failure = error; });
   await once(socket, 'connect');
   const ended = new Promise<void>(resolve => { socket.once('close', () => resolve()); });
+  function markPipeline(connection: 'keep-alive' | 'close') {
+    // The platform HTTP diagnostic in the host preload observes this marker
+    // after the parser has delivered all preceding request bodies.
+    socket.write(`GET /__pyric/health HTTP/1.1\r\nHost: ${url.host}\r\nX-Pyric-Test-Pipeline-End: 1\r\nConnection: ${connection}\r\n\r\n`);
+  }
   return {
     received: () => received,
     command(key: string, args: Record<string, unknown>) {
       const body = JSON.stringify({ instanceId: health.instanceId, projectDir: realpathSync(projectDir), key, args });
       socket.write(`POST /__pyric/hosted/method HTTP/1.1\r\nHost: ${url.host}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
     },
-    finish() {
-      // The platform HTTP diagnostic in the host preload observes this marker
-      // after the parser has delivered all preceding request bodies.
-      socket.write(`GET /__pyric/health HTTP/1.1\r\nHost: ${url.host}\r\nX-Pyric-Test-Pipeline-End: 1\r\nConnection: close\r\n\r\n`);
-    },
+    checkpoint() { markPipeline('keep-alive'); },
+    finish() { markPipeline('close'); },
     async result() {
       await ended;
       const failed = failure !== undefined;
