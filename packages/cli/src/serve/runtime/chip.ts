@@ -1,7 +1,8 @@
+import { serviceLabel, sourceLabel } from './service-presentation.js';
 import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
 import { INDEX_STYLES, indexDetailsHtml, indexActionHtml } from './chip-indexes.js';
 import { createIndexInspector, createIndexConfigClient, type IndexConfigClient } from './index-config-client.js';
-import type { IndexQuery } from 'pyric/sandbox/internal';
+import type { ServiceIndexQuery } from 'pyric/sandbox/internal';
 import { rulesEvidenceHtml, rulesSummary } from './chip-rules-evidence.js';
 import { activityOccurrences } from './activity-occurrences.js';
 import { presentActivityOccurrence } from './activity-occurrence-presentation.js';
@@ -513,7 +514,7 @@ function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean
     error: { label: 'Failed', icon: 'warning', tone: '', title: 'Failed' },
     unsupported: { label: 'N/A', icon: 'unavailable', tone: '', title: 'Unsupported operation' },
   };
-  const badge = verdict === 'ok' && indexMissing
+  const badge = indexMissing && verdict !== 'denied'
     ? { label: 'Index', icon: 'warning', tone: 'index-warning', title: 'Index missing from config' }
     : badges[verdict];
   return `<span class="verdict ${badge.tone}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
@@ -720,14 +721,18 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const tabStorage = pageChipTabStorage(documentLike);
   const indexClient = options.indexConfig === null ? undefined : options.indexConfig ?? (documentLike.defaultView?.fetch ? createIndexConfigClient(documentLike.defaultView.fetch.bind(documentLike.defaultView)) : undefined);
   const indexInspector = createIndexInspector(indexClient, () => { if (mounted) render(); });
-  const missingIndex = (query: IndexQuery | undefined): boolean => query !== undefined && indexInspector.finding(query).status === 'missing';
+  const missingIndex = (query: ServiceIndexQuery | undefined): boolean => query !== undefined && indexInspector.finding(query).status === 'missing';
+  const requestMissingIndex = (request: ChipRequest): boolean => {
+    if (missingIndex(request.indexQuery)) return true;
+    return request.indexFailure === true && (!request.indexQuery || indexInspector.finding(request.indexQuery).status === 'unavailable');
+  };
   const signals = (): ChipTabSignals => {
     const now = Date.now();
     const failedRecently = trafficFeed?.failedRecently(now) === true
       || snapshot.errors.some((error) => now - error.at <= RECENT_FAILURE_MS);
     return {
       failedRecently,
-      missingIndex: (trafficFeed?.requests() ?? []).some(request => missingIndex(request.indexQuery)) || listenerOutlines.some(outline => missingIndex(outline.activity?.indexQuery)),
+      missingIndex: (trafficFeed?.requests() ?? []).some(requestMissingIndex) || listenerOutlines.some(outline => missingIndex(outline.activity?.indexQuery)),
       duplicateListener: listenerOutlines.some((outline) => outline.incident?.pattern === 'duplicate-listener'),
       updatePending: snapshot.updateAvailable,
     };
@@ -769,11 +774,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   /** The listener a row click singled out on the page, if any. */
   let selectedSourceKey: string | undefined;
-  const indexTargets = new Map<string, { query: IndexQuery; sourceId?: string }>();
-  const queryForSource = (id: string): IndexQuery | undefined =>
+  const indexTargets = new Map<string, { query: ServiceIndexQuery; sourceId?: string }>();
+  const queryForSource = (id: string): ServiceIndexQuery | undefined =>
     listenerOutlines.find(outline => outline.activity?.sourceId === id)?.activity?.indexQuery
     ?? listenerMode?.history?.snapshot().entries.find(entry => entry.sourceId === id && entry.indexQuery)?.indexQuery;
-  const indexBlock = (query: IndexQuery | undefined, key: string, sourceId?: string): string => {
+  const indexBlock = (query: ServiceIndexQuery | undefined, key: string, sourceId?: string): string => {
     if (!query) return '';
     indexTargets.set(key, { query, sourceId });
     indexInspector.prepare(key, query);
@@ -946,7 +951,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       return buttonRowHtml({
         c1: dataPathHtml(group.target),
         s2: indexMissing ? '<span class="index-status">Index missing from config</span>' : '',
-        s1: `${group.service === 'database' ? 'Realtime Database node' : group.members.some(member => member.isQuery) || group.target.split('/').filter(Boolean).length % 2 === 1 ? 'Firestore collection' : 'Firestore document'}${stopped ? ' — Stopped' : ''}${group.members.some(member => member.incident) ? ' — Duplicate subscriptions' : ''}`,
+        s1: `${sourceLabel(group.service, group.target, group.members.some(member => member.isQuery))}${stopped ? ' — Stopped' : ''}${group.members.some(member => member.incident) ? ' — Duplicate subscriptions' : ''}`,
         slot: `<span class="listener-fact"><span>${counts?.partial ? '≥ ' : ''}${pluralize(calls, 'call')}</span><span>${counts?.partial ? '≥ ' : ''}${pluralize(deliveries, 'delivery', 'deliveries')}</span></span>`,
         leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(listenerColors(group.id).swatch)}"></span>`,
         className: group.members.some(member => member.incident) ? 'listener-row problem' : indexMissing ? 'listener-row pending' : 'listener-row', title: `Inspect ${group.target}`,
@@ -967,7 +972,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
     let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : 'Recorded history', toggle);
     if (selected) {
-      body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${selected.service === 'database' ? 'Realtime Database' : 'Firestore'}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
+      body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(selected.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
     }
     if (selected) body += `<div class="history-context">${indexBlock(queryForSource(selected.id), selected.id, selected.id)}</div>`;
     if (selected) {
@@ -985,18 +990,18 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const request = selectedRequest;
       const method = request.method ?? 'Request';
       const target = request.path ?? request.label ?? 'Request';
-      const service = request.service === 'database' ? 'Realtime Database' : request.service === 'firestore' ? 'Firestore' : request.service ?? 'Runtime';
+      const service = serviceLabel(request.service);
       const outcome = { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
       const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
       let identityFact = '';
       if (request.identity) identityFact = fact('Identity', request.identity, 's2');
       let evidenceDetails = '';
-      let reasonFact = '';
+      let reasonFact = request.indexFailure ? fact('Reason', 'The required index was missing.', '') : '';
       if (request.service === 'firestore') {
         reasonFact = fact('Reason', rulesSummary(request), '');
         evidenceDetails = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
-        evidenceDetails += indexBlock(request.indexQuery, request.id);
       }
+      evidenceDetails += indexBlock(request.indexQuery, request.id);
       const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
       return {
         body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
@@ -1006,7 +1011,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     const rows = trafficRows().map((request) => {
       // Keep named cells stable for copying while the path owns the main line.
-      const indexMissing = missingIndex(request.indexQuery);
+      const indexMissing = requestMissingIndex(request);
       const named = request.service !== null && request.method !== null;
       const call = named ? `${request.service}.${request.method}` : 'runtime';
       const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
@@ -1016,7 +1021,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
         slot: trafficBadgeHtml(request.verdict, indexMissing),
-        className: `traffic-row${request.verdict === 'ok' ? indexMissing ? ' pending' : '' : ' problem'}`,
+        className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' ? '' : ' problem'}`,
         title: [call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
         label: `Inspect ${call}: ${what}. ${request.verdict}`,
@@ -1026,7 +1031,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const bar = barHtml([
       buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only'),
     ]);
-    return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${trafficSource.service === 'database' ? 'Realtime Database' : 'Firestore'}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
+    return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
   };
 
   const sandboxViewHtml = (): ChipView => {

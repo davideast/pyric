@@ -15,7 +15,7 @@
  */
 import type { SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
-import { captureIndexQuery, type IndexQuery } from 'pyric/sandbox/internal';
+import { captureIndexQuery, captureDatabaseIndexQuery, type ServiceIndexQuery } from 'pyric/sandbox/internal';
 
 /** One line of the Traffic view. */
 export interface ChipRequest {
@@ -41,7 +41,8 @@ export interface ChipRequest {
   rulesEvidence?: Extract<SandboxEvent, { kind: 'request' }>['rulesEvidence'];
   rules?: RulesDisposition;
   evidenceExpired?: boolean;
-  indexQuery?: IndexQuery;
+  indexQuery?: ServiceIndexQuery;
+  indexFailure?: boolean;
 }
 
 /** Identity context for a denied request. */
@@ -100,6 +101,11 @@ export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
       if (diagnostic && Array.isArray(diagnostic.filters) && Array.isArray(diagnostic.orderBy)) {
         request.indexQuery = captureIndexQuery(event.path, diagnostic.scope?.kind === 'collection-group', diagnostic.filters, diagnostic.orderBy);
       }
+    }
+    if (event.kind === 'operation' && event.service === 'rtdb' && event.path && event.request?.query) {
+      const spec = event.request.query as Parameters<typeof captureDatabaseIndexQuery>[1];
+      request.indexQuery = captureDatabaseIndexQuery(event.path, spec);
+      request.indexFailure = event.detail?.failure === 'missing-index';
     }
     return request;
   }

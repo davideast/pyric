@@ -1,3 +1,8 @@
 {
-  "firestore": { "indexes": "firestore.indexes.json" }
+  "firestore": {
+    "indexes": "firestore.indexes.json"
+  },
+  "database": {
+    "rules": "database.rules.json"
+  }
 }

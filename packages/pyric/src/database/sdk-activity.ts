@@ -1,3 +1,4 @@
+import { captureDatabaseIndexQuery } from '../rules/indexes/service-query.js';
 import { sdkActivity, type SdkActivityHandle, type SdkActivityRecord } from '../sandbox/internal/sdk-activity.js';
 import { listenerAttachOwners, type ListenerAttribution } from '../sandbox/attribution/listener-owners.js';
 import { queryIdentifier, isQuery } from './query-shape.js';
@@ -18,6 +19,7 @@ export function beginDatabaseActivity(
       service: 'database', target: base._path,
       key: JSON.stringify([target.activityScope, base._path, queryIdentifier(ref._spec)]),
       isQuery: isQuery(ref),
+      ...(isQuery(ref) ? { indexQuery: captureDatabaseIndexQuery(base._path, ref._spec) } : {}),
     },
     method, kind, owners: listenerAttachOwners(attribution?.owner, attribution?.owners),
   });

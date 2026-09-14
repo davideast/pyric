@@ -14,15 +14,15 @@ import { sdkActivity } from 'pyric/sandbox/internal';
 import {
   ref as rtdbRef,
   get as rtdbGet,
-  set as rtdbSet,
-  setPriority as rtdbSetPriority,
-  setWithPriority as rtdbSetWithPriority,
-  update as rtdbUpdate,
-  remove as rtdbRemove,
+  set as rawRtdbSet,
+  setPriority as rawRtdbSetPriority,
+  setWithPriority as rawRtdbSetWithPriority,
+  update as rawRtdbUpdate,
+  remove as rawRtdbRemove,
   onDisconnect as rtdbOnDisconnect,
   serverTimestamp as rtdbServerTimestamp,
-  runTransaction as rtdbRunTransaction,
-  push as rtdbPush,
+  runTransaction as rawRtdbRunTransaction,
+  push as rawRtdbPush,
   QUERY_SYMBOL,
   sandbox as rtdbSandbox,
   type DataSnapshot,
@@ -38,6 +38,15 @@ import type { OpMessage, RtdbQuerySpec } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { lensRtdb } from './core.js';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
+
+/** Host execution is transport work, not another public SDK call. */
+const rtdbSet = (...args: Parameters<typeof rawRtdbSet>) => sdkActivity.silence(() => rawRtdbSet(...args));
+const rtdbUpdate = (...args: Parameters<typeof rawRtdbUpdate>) => sdkActivity.silence(() => rawRtdbUpdate(...args));
+const rtdbRemove = (...args: Parameters<typeof rawRtdbRemove>) => sdkActivity.silence(() => rawRtdbRemove(...args));
+const rtdbPush = (...args: Parameters<typeof rawRtdbPush>) => sdkActivity.silence(() => rawRtdbPush(...args));
+const rtdbSetPriority = (...args: Parameters<typeof rawRtdbSetPriority>) => sdkActivity.silence(() => rawRtdbSetPriority(...args));
+const rtdbSetWithPriority = (...args: Parameters<typeof rawRtdbSetWithPriority>) => sdkActivity.silence(() => rawRtdbSetWithPriority(...args));
+const rtdbRunTransaction = (...args: Parameters<typeof rawRtdbRunTransaction>) => sdkActivity.silence(() => rawRtdbRunTransaction(...args));
 
 export function rtdbSnapToWire(snap: DataSnapshot): unknown {
   const entries: Array<{

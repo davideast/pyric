@@ -1,8 +1,9 @@
-import type { IndexQuery, IndexFinding } from 'pyric/sandbox/internal';
+import { indexPresentation } from './service-presentation.js';
+import type { ServiceIndexQuery, ServiceIndexFinding } from 'pyric/sandbox/internal';
 import type { createIndexInspector } from './index-config-client.js';
 
 type Inspector = ReturnType<typeof createIndexInspector>;
-export function indexLabel(finding: IndexFinding): string {
+export function indexLabel(finding: ServiceIndexFinding): string {
   if (finding.status === 'missing') return 'Missing from config';
   if (finding.status === 'covered') return finding.basis === 'automatic' ? 'Automatic' : 'Configured';
   return 'Check unavailable';
@@ -39,30 +40,28 @@ export const INDEX_STYLES = `
 `;
 
 /** Index information inherits Traffic's record and field tracks. Every sentence explains an action or a limit. */
-export function indexDetailsHtml(query: IndexQuery, key: string, inspector: Inspector, escape: (text: string) => string, chevron: string, copyIcon: string): string {
-  const state = inspector.state();
+export function indexDetailsHtml(query: ServiceIndexQuery, key: string, inspector: Inspector, escape: (text: string) => string, chevron: string, copyIcon: string): string {
+  const state = inspector.state(query);
   const finding = inspector.finding(query);
   const attr = `data-index-key="${escape(key)}"`;
   const fact = (label: string, value: string) => `<div class="request-fact"><dt>${label}</dt><dd>${value}</dd></div>`;
   const field = (value: string) => `<code class="mono">${escape(value)}</code>`;
   const preview = state.preview?.key === key ? state.preview.value : null;
   const addition = preview?.addition ?? (finding.status === 'covered' ? undefined : finding.index);
-  const filters = query.filters.map(filter => `<span>${field(filter.field)}${filter.op === '==' ? '' : ` (${escape(filter.op)})`}</span>`).join('');
-  const sorts = query.orders.map(order => `<span>${field(order.field)} ${order.direction === 'asc' ? 'Ascending' : 'Descending'}</span>`).join('');
+  const presentation = indexPresentation(query, addition);
   const facts = fact('Index', (finding.status === 'missing' ? `<span class="index-status">${indexLabel(finding)}</span>` : indexLabel(finding)))
-    + (filters ? fact('Filters', `<span class="index-fields">${filters}</span>`) : '')
-    + (sorts ? fact('Sort', `<span class="index-fields">${sorts}</span>`) : '')
-    + fact('Scope', query.queryScope === 'COLLECTION' ? 'Collection' : 'Collection group')
+    + presentation.facts.map(item => fact(item.label, `<span class="index-fields">${item.values.map(value => `<span>${value.code ? field(value.code) : ''}${value.text ? ` ${escape(value.text)}` : ''}</span>`).join('')}</span>`)).join('')
     + (state.config ? fact('File', field(state.config.path)) : '')
-    + (finding.status === 'unavailable' ? fact('Reason', escape(state.error ?? finding.reason)) : '');
-  const code = addition ? `<div class="rules-record"><div class="rules-record-body"><div class="index-definition-header"><strong>Index definition</strong><button type="button" class="btn icon-button index-copy" data-index-action="copy" ${attr} aria-label="Copy index definition" title="${state.copied ? 'Copied' : 'Copy index definition'}">${state.copied ? statusIcon('saved') : copyIcon}</button></div><div class="index-preview-fields">${addition.fields.map(item => `<div class="index-preview-field">${field(item.fieldPath)}<span>${item.arrayConfig ? 'Array contains' : item.order === 'DESCENDING' ? 'Descending' : 'Ascending'}</span></div>`).join('')}</div><details class="rules-disclosure" data-index-json="${escape(key)}"><summary><span>JSON definition</span><span class="rules-chevron">${chevron}</span></summary><pre class="index-code" tabindex="0" aria-label="Index addition">${escape(JSON.stringify(addition, null, 2))}</pre></details></div></div>` : '';
+    + (finding.status === 'unavailable' ? fact('Reason', escape(state.error ?? finding.reason)) : '')
+    + (finding.status === 'missing' && finding.editBlocked ? fact('Action', escape(finding.editBlocked)) : '');
+  const code = addition ? `<div class="rules-record"><div class="rules-record-body"><div class="index-definition-header"><strong>Index definition</strong><button type="button" class="btn icon-button index-copy" data-index-action="copy" ${attr} aria-label="Copy index definition" title="${state.copied ? 'Copied' : 'Copy index definition'}">${state.copied ? statusIcon('saved') : copyIcon}</button></div><div class="index-preview-fields">${presentation.fields.map(item => `<div class="index-preview-field">${field(item.code)}${item.text ? `<span>${escape(item.text)}</span>` : ''}</div>`).join('')}</div><details class="rules-disclosure" data-index-json="${escape(key)}"><summary><span>JSON definition</span><span class="rules-chevron">${chevron}</span></summary><pre class="index-code" tabindex="0" aria-label="Index addition">${escape(JSON.stringify(presentation.definition, null, 2))}</pre></details></div></div>` : '';
   return `<section class="index-section" data-index-details><div class="rows"><div class="rules-record"><div class="rules-record-body"><dl class="rules-facts">${facts}</dl></div></div>${code}</div>${state.error && finding.status !== 'unavailable' ? `<span class="index-error" role="alert">${escape(state.error)}</span>` : ''}${state.message ? `<span role="status">${escape(state.message)}</span>` : ''}</section>`;
 }
 
 
-export function indexActionHtml(query: IndexQuery | undefined, key: string, inspector: Inspector, escape: (text: string) => string): string {
+export function indexActionHtml(query: ServiceIndexQuery | undefined, key: string, inspector: Inspector, escape: (text: string) => string): string {
   if (!query) return '';
-  const state = inspector.state();
+  const state = inspector.state(query);
   if (state.preview?.key !== key || !state.preview.value.addition) return '';
   const added = inspector.finding(query).status === 'covered';
   const status = added ? 'saved' : state.pending === 'apply' ? 'saving' : state.saveFailed ? 'failed' : 'ready';

@@ -1,5 +1,5 @@
 import type { ListenerOwner } from '../types/events.js';
-import type { IndexQuery } from '../../rules/indexes/query-analysis.js';
+import type { ServiceIndexQuery } from '../../rules/indexes/service-query.js';
 import { sdkObservation, type SdkObservation } from './sdk-observation.js';
 
 /** Page-side SDK evidence. Transport messages are deliberately not deliveries. */
@@ -9,7 +9,7 @@ export interface SdkActivitySource {
   /** Canonical adapter descriptor, used only for identity, never exposed in records. */
   readonly key: string;
   readonly isQuery?: boolean;
-  readonly indexQuery?: IndexQuery;
+  readonly indexQuery?: ServiceIndexQuery;
 }
 
 export interface SdkActivityRecord {
@@ -19,7 +19,7 @@ export interface SdkActivityRecord {
   readonly service: SdkActivitySource['service'];
   readonly target: string;
   readonly isQuery: boolean;
-  readonly indexQuery?: IndexQuery;
+  readonly indexQuery?: ServiceIndexQuery;
   readonly method: string;
   readonly kind: 'operation' | 'subscription';
   readonly status: 'pending' | 'active' | 'completed' | 'failed' | 'closed';

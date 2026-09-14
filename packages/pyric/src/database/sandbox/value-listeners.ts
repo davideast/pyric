@@ -48,6 +48,7 @@ export class ValueListeners {
   ): () => void {
     const at = this.state.clock.now();
     const evaluation = this.state.rules.evaluate('read', path === '/' ? '/' : path, {
+      indexMethod: 'listen',
       auth,
       mockData: this.state.tree.snapshot() as Record<string, unknown>,
       querySpec: query,
