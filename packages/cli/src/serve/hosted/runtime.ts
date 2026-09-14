@@ -121,6 +121,7 @@ export async function createHostedRuntime(
   }
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir);
   const ports = new Map<string, HostedPort>();
+  const closingPorts = new Set<Promise<void>>();
   const methodWork = new Map<object, OperationQueue>();
   const toolWork = new Map<string, OperationQueue>();
   let closed = false;
@@ -249,8 +250,13 @@ export async function createHostedRuntime(
     const isMissingPort = owned === undefined;
     if (isMissingPort) return;
     ports.delete(clientSessionId);
-    await owned.pending;
-    await cleanupPortWithDisconnect(ctx, owned.port);
+    const closing = owned.pending.then(() => cleanupPortWithDisconnect(ctx, owned.port));
+    closingPorts.add(closing);
+    try {
+      await closing;
+    } finally {
+      closingPorts.delete(closing);
+    }
   }
 
   function interruptPort(clientSessionId: string): void {
@@ -365,7 +371,8 @@ export async function createHostedRuntime(
       initialized.dispose();
       try {
         const pendingCalls = [...methodWork.values(), ...toolWork.values()].map(queue => queue.pending);
-        await Promise.all([...pendingCalls, ...[...ports.keys()].map(closePort)]);
+        const portClosures = [...ports.keys()].map(closePort);
+        await Promise.all([...pendingCalls, ...portClosures, ...closingPorts]);
       } finally {
         sandbox.dispose();
       }

@@ -5,6 +5,11 @@ This investigation ran existing tests against disposable projects using fresh
 CLI output, Node 22.15.0 and headless Chromium. Independent browser contexts
 are not a Safari/Firefox compatibility claim. The manual demo was untouched.
 
+Follow-up: the focused pending-work investigation subsequently reproduced and fixed
+early project release after app deletion. See the progress document's
+“S1-L4: shutdown after app deletion with accepted work” entry. The results below
+remain the record of this earlier existing-test investigation.
+
 **No current product failure was reproduced in the selected checks.** This is
 enough to proceed with manual verification of the normal workflows. It does not
 establish completion of every requirement in the existing Section 1 goal.
