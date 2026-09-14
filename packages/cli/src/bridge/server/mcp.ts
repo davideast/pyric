@@ -14,7 +14,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import type { Bridge, BridgeToolResult } from './bridge.js';
 import type { ToolMetadata } from './tool-metadata.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
-import { MAX_PENDING_OPERATIONS } from '../protocol.js';
+import { createOperationBudget } from '../operation-budget.js';
 
 export interface RegisterToolsOptions {
   /** Metadata for tools whose dispatch goes to the bridge peer. */
@@ -147,27 +147,27 @@ export function buildMcpServer(
     version: bridge.version,
   });
   const registerTool = server.tool as RegisterMcpTool;
-  let pendingToolCalls = 0;
+  const operationBudget = createOperationBudget();
 
   async function admitToolCall(
     tool: string,
     args: Record<string, unknown>,
     run: () => Promise<ReturnType<typeof toMcpResult>>,
   ): Promise<ReturnType<typeof toMcpResult>> {
-    const hasReachedCapacity = pendingToolCalls >= MAX_PENDING_OPERATIONS;
-    if (hasReachedCapacity) {
-      const result = { ok: false, summary: 'resource-exhausted: This client already has 256 pending operations.' };
+    const reservation = operationBudget.reserve({ name: tool, arguments: args });
+    const isRefused = !reservation.accepted;
+    if (isRefused) {
+      const result = { ok: false, summary: `${reservation.error.code}: ${reservation.error.message}` };
       bridge.recordToolEvent({
         timestamp: new Date().toISOString(), mode: 'sandbox', project: bridge.project,
         tool, args, result, durationMs: 0, isError: true,
       });
       return toMcpResult(result, bridge.project);
     }
-    pendingToolCalls += 1;
     try {
       return await run();
     } finally {
-      pendingToolCalls -= 1;
+      reservation.release();
     }
   }
 

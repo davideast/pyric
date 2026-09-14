@@ -213,9 +213,13 @@ outgoing frame, including its bridge-issued correlation and session metadata,
 before forwarding or allocating a correlation timer. Pending records share
 the client budget without a separate retained client registry. Settlement
 releases each reservation, including when other calls remain pending. The
-same consumer can refill its allowance after replies, timeout or explicit disposal. Each MCP server instance also admits at most
-256 forwarded/in-process tool calls for its owning session; replies, failures
-and timeout release slots. SDK request cancellation or session deletion
+same consumer can refill its allowance after replies, timeout or explicit disposal. The served bridge MCP registration path also admits at most
+256 forwarded/in-process tool calls and 24 MiB of normalized call parameters
+for its owning session. It measures JSON UTF-8 `{name, arguments}` before
+handler execution; this is not the complete HTTP/JSON-RPC envelope or the
+reminted peer frame. Replies, failures and timeout release reservations.
+The separate rendered MCP/service-tool registration path still needs admission
+verification. SDK request cancellation or session deletion
 settles forwarded bridge calls and clears their correlation timers. Cancellation
 does not imply rollback of an already dispatched mutation. Native SharedWorker
 ports now enforce the same operation count per logical client, preserving
