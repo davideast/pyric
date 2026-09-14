@@ -37,6 +37,7 @@ export const collectionGroup = D.collectionGroup;
 export const doc = D.doc;
 export const getDoc = D.getDoc;
 export const getDocs = D.getDocs;
+export const getCountFromServer = D.getCountFromServer;
 export const setDoc = D.setDoc;
 export const addDoc = D.addDoc;
 export const updateDoc = D.updateDoc;
