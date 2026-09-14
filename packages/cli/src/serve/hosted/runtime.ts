@@ -6,7 +6,7 @@ import { createSandboxRoot } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { FirebaseError } from 'pyric/app';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
-import { assertJsonSafeRelayValue, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
+import { assertJsonSafeRelayValue, MAX_PENDING_OPERATIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
 import { createSurfaceContext } from '../../bridge/surface/context.js';
@@ -26,6 +26,7 @@ type HostedTransport = 'worker-port' | 'worker-relay';
 interface HostedPort {
   port: PortLike;
   pending: Promise<void>;
+  pendingOperations: number;
 }
 
 /** One Node-owned sandbox; each admitted consumer owns its ordered work. */
@@ -169,13 +170,24 @@ export async function createHostedRuntime(
         else send({ type: 'worker-message-result', clientSessionId, message });
       },
     };
-    const owned = { port, pending: Promise.resolve() };
+    const owned = { port, pending: Promise.resolve(), pendingOperations: 0 };
     ports.set(clientSessionId, owned);
     return owned;
   }
 
   function enqueue(clientSessionId: string, incoming: InboundMessage, transport: HostedTransport): void {
     const owned = portFor(clientSessionId, transport);
+    const isOperation = incoming.t === 'op' || incoming.t === 'tool';
+    if (isOperation) {
+      const hasReachedCapacity = owned.pendingOperations >= MAX_PENDING_OPERATIONS;
+      if (hasReachedCapacity) {
+        owned.port.postMessage({ t: 'res', id: incoming.id, ok: false, error: {
+          code: 'resource-exhausted', message: 'This client already has 256 pending operations.',
+        } });
+        return;
+      }
+      owned.pendingOperations += 1;
+    }
     // Admission owns identity. A payload cannot address another app's port.
     const message = { ...incoming, clientSessionId: undefined, resumeSession: undefined };
     owned.pending = owned.pending.then(() => {
@@ -191,6 +203,8 @@ export async function createHostedRuntime(
       if (isSubscription) {
         owned.port.postMessage({ t: 'snap', subId: message.subId, value: { __error: serializeError(error) } });
       }
+    }).finally(() => {
+      if (isOperation) owned.pendingOperations -= 1;
     });
   }
 

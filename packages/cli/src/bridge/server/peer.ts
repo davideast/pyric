@@ -308,7 +308,7 @@ export function createConsumerSession(
         return;
       }
       case 'worker-op': {
-        const opSessionId = msg.clientSessionId ?? clientSessionId;
+        const opSessionId = clientSessionId;
         const opPayload = {
           ...msg.op,
           resumeSession: true,

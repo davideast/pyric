@@ -192,8 +192,12 @@ The pending-operation budget counts one-shot service and tool calls awaiting
 completion. Cleanup and connection-control messages do not consume operation
 capacity, so saturation cannot prevent deletion. Where a browser port relays
 several consumers, each logical client has its own allowance. Browser/worker
-client admission is enforced; authoritative host/bridge admission, public
-remote admission and aggregate queued-byte accounting remain unfinished.
+client and Node host admission are enforced. The Node host counts executing
+and queued operations until their handlers finish; a failed handler releases
+its slot. Legacy consumer operations use their admitted session rather than
+a supplied per-operation client ID. Bridge/public remote admission,
+authoritative SharedWorker admission and aggregate queued-byte accounting
+remain unfinished.
 
 A consumer attachment is refused with the existing admission policy close
 (`1008`) if its proposed registration would make the complete presence frame
