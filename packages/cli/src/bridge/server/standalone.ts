@@ -14,7 +14,7 @@
  *    PYRIC_VERBOSE=1.
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -29,6 +29,7 @@ import {
 } from './logger.js';
 import {
   DEFAULT_BRIDGE_PORT,
+  MAX_BRIDGE_FRAME_BYTES,
   DEFAULT_HEALTH_PATH,
   DEFAULT_MCP_PATH,
   DEFAULT_SANDBOX_PATH,
@@ -81,26 +82,29 @@ export async function startServer(
   // would silently slip through to the http server and produce
   // "options.port should be >= 0 and < 65536. Received NaN."
   // Resolve the env var separately so the default actually wins.
-  const envPort = process.env.PYRIC_PORT ? Number(process.env.PYRIC_PORT) : undefined;
-  const port = opts.port ?? (Number.isFinite(envPort) ? envPort : undefined) ?? DEFAULT_BRIDGE_PORT;
-  const project = opts.project ?? process.env.PYRIC_PROJECT ?? 'sandbox';
-  const logger =
-    opts.logger ?? (opts.silent ? createSilentLogger() : createConsoleLogger());
+  const envPort = Number(process.env.PYRIC_PORT);
+  const hasEnvPort = Boolean(process.env.PYRIC_PORT) && Number.isFinite(envPort);
+  let defaultPort = DEFAULT_BRIDGE_PORT;
+  if (hasEnvPort) defaultPort = envPort;
+  const port = opts.port ?? defaultPort;
+  const defaultProject = process.env.PYRIC_PROJECT ?? 'sandbox';
+  const project = opts.project ?? defaultProject;
+  const logger = opts.logger ?? defaultLogger(opts.silent);
   const sessionIdleMs = opts.sessionIdleMs ?? DEFAULT_SESSION_IDLE_MS;
   const maxSessions = opts.maxSessions ?? DEFAULT_MAX_SESSIONS;
 
-  // Set up audit log writer (best-effort).
-  const auditWriter = opts.disableAuditLog
-    ? null
-    : opts.auditWriter ?? createAuditWriter(project);
+  let auditWriter: AuditWriter | null = null;
+  const recordsAudit = opts.disableAuditLog !== true;
+  if (recordsAudit) auditWriter = opts.auditWriter ?? createAuditWriter(project);
 
   const bridge = createBridge({
     project,
     version: BRIDGE_VERSION,
     onToolEvent: (event: BridgeToolEvent) => {
       auditWriter?.write(event);
+      const succeeded = event.result.ok;
       logger.verbose(
-        `tool ${event.tool} → ${event.result.ok ? 'ok' : 'fail'} (${event.durationMs}ms) [${event.mode}]`,
+        `tool ${event.tool} → ${succeeded ? 'ok' : 'fail'} (${event.durationMs}ms) [${event.mode}]`,
       );
     },
   });
@@ -123,11 +127,15 @@ export async function startServer(
   const pendingSessions = new Set<Session>();
 
   function bumpIdle(session: Session): void {
-    if (session.idleTimer) clearTimeout(session.idleTimer);
+    const idleTimer = session.idleTimer;
+    const hasIdleTimer = idleTimer !== null;
+    if (hasIdleTimer) clearTimeout(idleTimer);
     session.idleTimer = setTimeout(() => {
-      if (session.sessionId) {
-        logger.verbose(`session ${session.sessionId.slice(0, 8)}… idle-closed`);
-        sessions.delete(session.sessionId);
+      const sessionId = session.sessionId;
+      const hasSessionId = Boolean(sessionId) && sessionId !== null;
+      if (hasSessionId) {
+        logger.verbose(`session ${sessionId.slice(0, 8)}… idle-closed`);
+        sessions.delete(sessionId);
       }
       pendingSessions.delete(session);
       void session.close();
@@ -135,20 +143,15 @@ export async function startServer(
   }
 
   async function newSession(): Promise<Session> {
-    if (sessions.size >= maxSessions) {
+    const isAtSessionCap = sessions.size >= maxSessions;
+    if (isAtSessionCap) {
       const err = new Error(
         `pyric bridge: refusing new session — at session cap (${maxSessions}). Existing sessions: ${sessions.size}.`,
       );
-      (err as { statusCode?: number }).statusCode = 503;
+      Object.assign(err, { statusCode: 503 });
       throw err;
     }
-    const session: Session = {
-      transport: null as unknown as StreamableHTTPServerTransport,
-      close: async () => {},
-      idleTimer: null,
-      sessionId: null,
-    };
-    session.transport = new StreamableHTTPServerTransport({
+    const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
         session.sessionId = id;
@@ -159,11 +162,18 @@ export async function startServer(
       },
     });
     const server = buildMcpServer(bridge, { forwarded, inProcess });
-    session.close = async () => {
-      if (session.idleTimer) clearTimeout(session.idleTimer);
-      session.idleTimer = null;
-      await server.close().catch(() => {});
-      await session.transport.close().catch(() => {});
+    const session: Session = {
+      transport,
+      idleTimer: null,
+      sessionId: null,
+      async close() {
+        const idleTimer = session.idleTimer;
+        const hasIdleTimer = idleTimer !== null;
+        if (hasIdleTimer) clearTimeout(idleTimer);
+        session.idleTimer = null;
+        await server.close().catch(() => {});
+        await transport.close().catch(() => {});
+      },
     };
     pendingSessions.add(session);
     await server.connect(session.transport);
@@ -173,48 +183,70 @@ export async function startServer(
   // ── HTTP server ─────────────────────────────────────────────────
   const http = createServer(async (req, res) => {
     const url = req.url ?? '/';
-    if (process.env.PYRIC_DEBUG) {
+    const debugEnabled = Boolean(process.env.PYRIC_DEBUG);
+    if (debugEnabled) {
       process.stderr.write(`[pyric debug] ${req.method} ${url}\n`);
     }
-    if (url === DEFAULT_HEALTH_PATH && req.method === 'GET') {
+    const requestsHealth = url === DEFAULT_HEALTH_PATH && req.method === 'GET';
+    if (requestsHealth) {
       const body = JSON.stringify(bridge.health());
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(body);
       return;
     }
-    if (url === DEFAULT_MCP_PATH && (req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE')) {
-      if (!isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts)) {
+    const supportsMcpMethod = req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE';
+    const requestsMcp = url === DEFAULT_MCP_PATH && supportsMcpMethod;
+    if (requestsMcp) {
+      const refusesOrigin = !isAllowedLoopbackRequest(req, '127.0.0.1', opts.allowedHosts);
+      if (refusesOrigin) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
         return;
       }
       try {
-        const sessionId = (req.headers['mcp-session-id'] ?? req.headers['Mcp-Session-Id']) as string | undefined;
+        const sessionId = req.headers['mcp-session-id'] ?? req.headers['Mcp-Session-Id'];
+        const hasSessionId = typeof sessionId === 'string' && sessionId.length > 0;
         let session: Session | undefined;
-        if (sessionId && sessions.has(sessionId)) {
-          session = sessions.get(sessionId);
-          if (session) bumpIdle(session);
-        } else {
-          session = await newSession();
+        if (hasSessionId) session = sessions.get(sessionId);
+        const retainedSession = session;
+        const needsSession = retainedSession === undefined;
+        if (needsSession) session = await newSession();
+        else {
+          session = retainedSession;
+          bumpIdle(session);
         }
-        if (req.method === 'DELETE' && sessionId) {
-          if (session) await session.close();
+        const deletesSession = req.method === 'DELETE' && hasSessionId;
+        if (deletesSession) {
+          await session.close();
           sessions.delete(sessionId);
           res.writeHead(204);
           res.end();
           return;
         }
-        await session!.transport.handleRequest(
-          req as IncomingMessage,
-          res as ServerResponse,
-        );
+        await session.transport.handleRequest(req, res);
       } catch (err) {
-        const statusCode = (err as { statusCode?: number })?.statusCode ?? 500;
-        const msg = err instanceof Error ? err.stack ?? err.message : String(err);
-        logger.error(`MCP transport error: ${msg}`);
-        if (!res.headersSent) {
+        let statusCode = 500;
+        const hasStatusCode = typeof err === 'object' && err !== null && 'statusCode' in err;
+        if (hasStatusCode) {
+          const code = err.statusCode;
+          const hasNumericCode = typeof code === 'number';
+          if (hasNumericCode) statusCode = code;
+        }
+        const isError = err instanceof Error;
+        let message: string;
+        let diagnostic: string;
+        if (isError) {
+          message = err.message;
+          diagnostic = err.stack ?? message;
+        } else {
+          message = String(err);
+          diagnostic = message;
+        }
+        logger.error(`MCP transport error: ${diagnostic}`);
+        const canSendError = !res.headersSent;
+        if (canSendError) {
           res.writeHead(statusCode, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+          res.end(JSON.stringify({ error: message }));
         }
       }
       return;
@@ -224,16 +256,18 @@ export async function startServer(
   });
 
   // ── WebSocket server (mounted on /sandbox) ──────────────────────
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_BRIDGE_FRAME_BYTES });
   http.on('upgrade', (req, socket, head) => {
-    if ((req.url ?? '') !== DEFAULT_SANDBOX_PATH) {
+    const hasWrongPath = (req.url ?? '') !== DEFAULT_SANDBOX_PATH;
+    if (hasWrongPath) {
       socket.destroy();
       return;
     }
     // DNS-rebinding + cross-origin hijack guard (the request-time isAllowedHost
     // runs on the `request` event only — `upgrade` bypasses it). The standalone
     // bridge binds 127.0.0.1 only, so the allowlist is the loopback set.
-    if (!isAllowedUpgrade(req.headers, '127.0.0.1', opts.allowedHosts)) {
+    const refusesUpgrade = !isAllowedUpgrade(req.headers, '127.0.0.1', opts.allowedHosts);
+    if (refusesUpgrade) {
       logger.error(
         `refused WS upgrade — Host='${req.headers.host ?? ''}' Origin='${req.headers.origin ?? ''}' (rebinding/origin guard)`,
       );
@@ -255,7 +289,8 @@ export async function startServer(
   });
 
   const address = http.address();
-  const boundPort = typeof address === 'object' && address ? address.port : port;
+  const hasBoundAddress = typeof address === 'object' && address !== null;
+  const boundPort = hasBoundAddress ? address.port : port;
   const url = `http://127.0.0.1:${boundPort}`;
 
   logger.info(`bridge ${BRIDGE_VERSION} listening on ${url} — sandbox: ${project}`);
@@ -352,4 +387,10 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
   ws.on('error', () => {
     // ws will follow up with a 'close' event; cleanup happens there.
   });
+}
+
+/** Construct a default logger only when the caller did not supply one. */
+function defaultLogger(silent = false): BridgeLogger {
+  if (silent) return createSilentLogger();
+  return createConsoleLogger();
 }

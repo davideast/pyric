@@ -191,3 +191,8 @@ This turn makes implementation progress. The in-process runtime, snapshot and St
 ### Hardening item 8: mounted inbound message bounds
 
 The serve/Vite mount enforces the existing 12 MiB encoded-message contract before dispatch, including fragmented messages. Original red/green evidence and reviewed hosted/SharedWorker boundary and 8 MiB Storage controls are recorded in `docs/hosted-hardening-progress.md`. Final checks pass 18 browser cases (36.7s, Node 22.15.0), 49 regressions in five isolated files, strict types, seven-file source form and current browser budgets. A separate Vite fixture repair runs the host on Node and fails on teardown errors; the original Bun close timeout is not a passing result. Standalone input, outbound bounds, depth/payload validation and later queue items remain open.
+
+
+### Hardening item 8: standalone inbound message bounds
+
+The standalone CLI now applies the same 12 MiB encoded-message limit as the serve/Vite mount. The unchanged public-wire red/green fixture retains a healthy MCP-to-peer-to-SDK write and clean CLI exit. Final review passes 14 runtime cases (25.2s, Node 22.15.0), 25 regressions in five isolated files, strict types and three-file source form. The touched server function's casts and conditions were reviewed without introducing a resource owner. Standalone peer admission/schema validation, outbound/depth limits and broader lifecycle gates remain open; the existing idle test's health assertion does not establish resource disposal.
