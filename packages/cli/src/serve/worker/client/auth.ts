@@ -12,6 +12,7 @@ import type {
   SerializedIdTokenResult,
   AuthPersistenceMode,
   ResolvedIdentity,
+  OpMessage,
 } from '../protocol.js';
 import { closeSubscription, isDisconnectedPort, nextId, nextSubId, openSnapshotSubscription, rpc, wirePort } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
@@ -124,23 +125,25 @@ function toClientUser(port: ClientPort, raw: SerializedUser | null): ClientUser 
  */
 export function getAuth(source: ClientDb | string | URL, name?: string): ClientAuth {
   let port: ClientPort;
-  if (typeof source === 'object' && '__kind' in source && source.__kind === 'client-db') {
-    port = source.port;
-  } else {
-    if (typeof SharedWorker === 'undefined') {
+  const isWorkerSource = typeof source === 'string' || source instanceof URL;
+  if (isWorkerSource) {
+    const isSharedWorkerUnavailable = typeof SharedWorker === 'undefined';
+    if (isSharedWorkerUnavailable) {
       throw new Error(
         'SharedWorker is not available. ' +
         'Open this page over http:// (not file://) and use a supported browser ' +
         '(Chrome 4+, Firefox 29+, Safari 16.4+).',
       );
     }
-    const worker = new SharedWorker(source as string | URL, {
+    const worker = new SharedWorker(source, {
       type: 'classic',
       name: name ?? 'pyric-shared-worker',
     });
     port = worker.port;
     port.start();
     wirePort(port);
+  } else {
+    port = source.port;
   }
 
   let _tenantId: string | null = null;
@@ -155,6 +158,13 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
       _tenantId = val;
       void rpc(port, { t: 'op', id: nextId(), method: 'auth.setTenantId', tenantId: val });
     },
+  };
+
+  port.restoreAuth = async (request) => {
+    await request({ t: 'op', id: nextId(), method: 'auth.setTenantId', tenantId: auth.tenantId });
+    const user = auth.currentUser;
+    const isSignedIn = user !== null;
+    if (isSignedIn) await restorePortSession(auth, user.uid, request);
   };
 
   // Internal authState subscription keeps `auth.currentUser` live.
@@ -242,8 +252,9 @@ export async function acceptProviderCredential(
 export async function restorePortSession(
   auth: ClientAuth,
   uid: string,
+  request: (message: OpMessage) => Promise<unknown> = message => rpc(auth.port, message),
 ): Promise<ClientUser | null> {
-  const raw = (await rpc(auth.port, {
+  const raw = (await request({
     t: 'op', id: nextId(), method: 'auth.restorePortSession', uid,
     tenantId: auth.tenantId,
   })) as SerializedUser | null;

@@ -8,7 +8,15 @@ Execution: sequential vertical TDD slices. S1–S6 and their documented scope we
 
 Pending seam clarification: permission was requested to extend S3 from CLI commands to the exported BridgeMount lifecycle API, using the real host and its existing public readiness diagnostic. No reply has arrived and no test at that additional interface has been written. The existing S1–S6 approval remains in force for independent work.
 
-## Current slice: checkpoint persistence and restore subscriptions
+## Current slice: hosted app recovery after process restart
+
+Manual QA reproduced a permanent closed connection in existing pages after restarting the host. A new S1/S2/S3 regression reproduced the reported error twice. Process identity now distinguishes fresh admission to a replacement host from resuming the same host; app configuration and existing Auth restoration precede observer restoration and readiness. A separate red/green case preserves invalid-grant refusal when process identity is missing or malformed.
+
+Current scoped evidence is in `docs/hosted-restart-recovery.md`: 11 focused browser cases, 14 cross-runtime RTDB cases, four minimum-Node cases, 79 isolated regressions, strict CLI/fixture types, seven-file code form, and three browser entry budgets. The broad implementation JSON ledger remains a historical checkpoint and is not current proof for this repair. No full feature or release gate is closed.
+
+The user-authorized restart fix is separate from continued feature expansion. Same-process retention expiry, anonymous UID reuse after explicit sign-in, misleading startup counts, and the previously recorded full-plan gaps remain open.
+
+## Previous slice: checkpoint persistence and restore subscriptions
 
 The preceding Auth slice was verified progress and its evidence was revalidated before implementation. Three S1/S2/S3 red/green cycles now persist hosted checkpoints in the existing project directory backend, restore app and explicitly lensed subscriptions without resurrecting unsubscribed listeners, and await durable restore before acknowledgment. SharedWorker keeps its IndexedDB checkpoint backend. The shared intent registry and original page provenance are reused; review preserves guard semantics and names changed teardown decisions.
 

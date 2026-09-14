@@ -238,7 +238,11 @@ export function createConsumerSession(
         const attachMsg = msg;
         ownsWorkerPort = attachMsg.transport === 'worker-port';
         if (ownsWorkerPort) {
-          workerSession = bridge.workerSessions.attach(attachMsg.resumeToken);
+          const hasHostIdentity = typeof attachMsg.hostInstanceId === 'string' && attachMsg.hostInstanceId.length > 0;
+          const changedHost = hasHostIdentity && attachMsg.hostInstanceId !== bridge.instanceId;
+          let resumeToken = attachMsg.resumeToken;
+          if (changedHost) resumeToken = undefined;
+          workerSession = bridge.workerSessions.attach(resumeToken);
           clientSessionId = workerSession.clientSessionId;
         }
         const requestedClientId = attachMsg.clientSessionId;
@@ -271,6 +275,7 @@ export function createConsumerSession(
           clientSessionId,
           sessionId: clientSessionId,
           resumeToken: workerSession?.resumeToken,
+          hostInstanceId: bridge.instanceId,
         });
         bridge.broadcastConsumerPresence();
         return;

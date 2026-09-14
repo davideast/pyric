@@ -107,13 +107,28 @@ export function openEventSubscription(
 }
 
 /** Re-establish document listener intent without repeating one-shot operations. */
-export function restoreFirestoreSubscriptions(port: ClientPort): void {
+export function restoreFirestoreSubscriptions(
+  port: ClientPort,
+  postMessage: ClientPort['postMessage'] = message => port.postMessage(message),
+): void {
   for (const [subId, subscription] of _snapSubs) {
     const message = subscription.message;
     const ownsDocumentListener = subscription.port === port && subscription.service === 'firestore' && message?.t === 'sub';
     if (ownsDocumentListener) {
-      port.postMessage({ t: 'unsub', subId });
-      port.postMessage(message);
+      postMessage({ t: 'unsub', subId });
+      postMessage(message);
+    }
+  }
+}
+
+/** A replacement host has no Auth observers, even when the app retains its handle. */
+export function restoreAuthSubscriptions(port: ClientPort, postMessage: ClientPort['postMessage']): void {
+  for (const subscription of _snapSubs.values()) {
+    const message = subscription.message;
+    const ownsSubscription = subscription.port === port && message?.t === 'sub';
+    if (ownsSubscription) {
+      const observesAuth = message.target === 'authState' || message.target === 'idToken';
+      if (observesAuth) postMessage(message);
     }
   }
 }
@@ -452,7 +467,11 @@ export function stampIssuer<T extends { t?: string }>(msg: T): T {
  * implicit stamping. The RELAY path ({@link relayWorkerOp}) explicitly owns
  * the final remote provenance fields before sending through this function.
  */
-export function rawRpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
+export function rawRpc(
+  port: ClientPort,
+  msg: InboundMessage,
+  postMessage: ClientPort['postMessage'] = message => port.postMessage(message),
+): Promise<unknown> {
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) return Promise.reject(appDeletedError());
   return new Promise<unknown>((resolve, reject) => {
@@ -463,7 +482,7 @@ export function rawRpc(port: ClientPort, msg: InboundMessage): Promise<unknown> 
       reject,
     });
     try {
-      port.postMessage(msg);
+      postMessage(msg);
     } catch (error) {
       _pending.delete(opMsg.id);
       reject(error);

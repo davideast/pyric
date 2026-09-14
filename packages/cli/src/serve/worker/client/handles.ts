@@ -10,6 +10,7 @@ import type {
   QueryDescriptor,
   InboundMessage,
   OutboundMessage,
+  OpMessage,
 } from '../protocol.js';
 import type { FirestoreDataConverter, DocumentData } from 'pyric/firestore';
 
@@ -20,6 +21,8 @@ export interface ClientPort {
   start(): void;
   close(): void;
   observeConnection?(listener: (connected: boolean) => void): () => void;
+  /** Restore this app's Auth state before a replacement host receives data operations. */
+  restoreAuth?(request: (message: OpMessage) => Promise<unknown>): Promise<void>;
 }
 
 /** Opaque client-side Firestore handle. Holds the MessagePort to the worker. */

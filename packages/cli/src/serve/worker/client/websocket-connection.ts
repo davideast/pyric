@@ -1,7 +1,7 @@
 import { isBridgeMessage, WORKER_PORT_CAPABILITY, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
-import { nextId, rejectPendingRequests, restoreFirestoreSubscriptions, wirePort } from './core.js';
+import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreFirestoreSubscriptions, wirePort } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
@@ -10,9 +10,12 @@ const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests alread
 export function getHostedFirestore(target: { url: string; projectKey: string }): ClientDb {
   const queued: InboundMessage[] = [];
   const connectionListeners = new Set<(connected: boolean) => void>();
-  let state: 'connecting' | 'attached' | 'interrupted' | 'closed' = 'connecting';
+  let state: 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed' = 'connecting';
   let socket: WebSocket | undefined;
   let resumeToken: string | undefined;
+  let hostInstanceId: string | undefined;
+  let appConfig: Extract<InboundMessage, { t: 'appConfig' }> | undefined;
+  let needsSessionRestore = false;
   let hasEverAttached = false;
   let reconnectAttempt = 0;
   let attachDeadline: ReturnType<typeof setTimeout> | undefined;
@@ -23,6 +26,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     postMessage(message) {
       const isClosed = state === 'closed';
       if (isClosed) throw new FirebaseError('unavailable', 'The hosted sandbox connection is closed.');
+      const configuresApp = message.t === 'appConfig';
+      if (configuresApp) appConfig = message;
       const isAttached = state === 'attached';
       const cancelsStartup = !isAttached && message.t === 'disconnect';
       if (cancelsStartup) {
@@ -60,6 +65,9 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       connectionListeners.clear();
       queued.length = 0;
       resumeToken = undefined;
+      hostInstanceId = undefined;
+      appConfig = undefined;
+      port.restoreAuth = undefined;
       clearTimeout(attachDeadline);
       clearTimeout(reconnectTimer);
       const closingSocket = socket;
@@ -99,6 +107,35 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     return socket === connection && state !== 'closed';
   }
 
+  async function finishAttachment(connection: WebSocket, isResume: boolean): Promise<void> {
+    const postMessage = (message: InboundMessage): void => {
+      const isStaleConnection = !isCurrent(connection);
+      if (isStaleConnection) throw new FirebaseError('unavailable', CONNECTION_LOST);
+      send(connection, { type: 'worker-message', message });
+    };
+    if (needsSessionRestore) {
+      state = 'restoring';
+      const configuration = appConfig;
+      const hasConfiguration = configuration !== undefined;
+      if (hasConfiguration) postMessage(configuration);
+      await port.restoreAuth?.(message => rawRpc(port, message, postMessage));
+      const isStaleConnection = !isCurrent(connection);
+      if (isStaleConnection) return;
+      restoreAuthSubscriptions(port, postMessage);
+      needsSessionRestore = false;
+    }
+    clearTimeout(attachDeadline);
+    state = 'attached';
+    hasEverAttached = true;
+    reconnectAttempt = 0;
+    for (const request of queued.splice(0)) port.postMessage(request);
+    if (isResume) {
+      postMessage({ t: 'clock-subscribe' });
+      restoreFirestoreSubscriptions(port, postMessage);
+    }
+    notifyConnectionChange();
+  }
+
   function connect(): void {
     const isClosed = state === 'closed';
     if (isClosed) return;
@@ -115,7 +152,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     connection.addEventListener('open', () => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
-      send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, clientInfo: { platform: 'browser' } });
+      send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId, clientInfo: { platform: 'browser' } });
     });
     connection.addEventListener('message', (event: MessageEvent<string>) => {
       const isStaleConnection = !isCurrent(connection);
@@ -143,23 +180,21 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
             return;
           }
           const isResume = hasEverAttached;
-          const changedSession = isResume && message.resumeToken !== resumeToken;
-          if (changedSession) {
+          const hasHostIdentity = typeof message.hostInstanceId === 'string' && message.hostInstanceId.length > 0;
+          const changedHost = isResume && hostInstanceId !== undefined && hasHostIdentity && message.hostInstanceId !== hostInstanceId;
+          const changedSessionUnexpectedly = isResume && message.resumeToken !== resumeToken && !changedHost;
+          if (changedSessionUnexpectedly) {
             failConnection('The hosted session could not be resumed.');
             return;
           }
-          clearTimeout(attachDeadline);
           const hasResumeToken = typeof message.resumeToken === 'string' && message.resumeToken.length > 0;
           resumeToken = hasResumeToken ? message.resumeToken : undefined;
-          state = 'attached';
-          hasEverAttached = true;
-          reconnectAttempt = 0;
-          for (const request of queued.splice(0)) port.postMessage(request);
-          if (isResume) {
-            port.postMessage({ t: 'clock-subscribe' });
-            restoreFirestoreSubscriptions(port);
-          }
-          notifyConnectionChange();
+          hostInstanceId = hasHostIdentity ? message.hostInstanceId : undefined;
+          if (changedHost) needsSessionRestore = true;
+          void finishAttachment(connection, isResume).catch(() => {
+            const isCurrentConnection = isCurrent(connection);
+            if (isCurrentConnection) failConnection('Could not restore the hosted app session.');
+          });
           return;
         }
         case 'worker-message-result':

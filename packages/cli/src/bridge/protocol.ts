@@ -202,6 +202,8 @@ export interface AttachFromConsumer {
   transport?: 'worker-port';
   /** Host-issued capability for resuming a worker port's original identity. */
   resumeToken?: string;
+  /** The process that issued the resume grant; a replacement requires fresh admission. */
+  hostInstanceId?: string;
   /** Optional client-supplied session ID to resume an existing session across reconnects. */
   clientSessionId?: string;
   /** Alias for clientSessionId (backward/cross-platform compatibility). */
@@ -240,6 +242,8 @@ export interface AttachAckFromBridge {
   sessionId?: string;
   /** Private to this connection; never included in consumer presence. */
   resumeToken?: string;
+  /** Process identity, independent of the stable project identity. */
+  hostInstanceId?: string;
 }
 
 /** Toward the worker: dispatch this one-shot op. (consumer→bridge and
