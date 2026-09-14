@@ -524,6 +524,17 @@ Strict Pyric build and downstream CLI types pass. All 1,027 previously emitted J
 
 ## Section 1 acceptance: request bounds and lifecycle cleanup
 
+Current [blocker assessment](hosted-blocker-assessment.md): 26 selected browser
+scenarios and 30 lifecycle regressions pass at `4249b996`; no product failure
+was reproduced in that selection. Busy shutdown, silent connection loss,
+interrupted startup and the remaining protocol acceptance inventory still need
+their specific proof. This is not Section 1 completion.
+
+Execution planning at `4249b996`: the [Section 1 completion map](hosted-section-one-completion.md)
+breaks these requirements into lifecycle-first work records, fixes the source
+inventory, and distinguishes recorded coverage from missing proof. It adds no new
+passing evidence and does not change the acceptance requirements below.
+
 Start: `5432686c` on `hosted-live-mode`, after the completed overnight QA checkpoint. This section is active and ends at its own manual QA checkpoint. It does not complete the hosted sandbox release or begin section 2. The initial reconciliation below is a finite gate inventory derived from queue items 8–9, original gates 1C/2A–C/3A–C/3E/5B–C and universal gates U1–U7. A row closes only after its whole stated boundary is covered. Existing passing slices are evidence for their exact assertions, not blanket completion of a row.
 
 | ID | Remaining acceptance requirement | Existing evidence to reconcile | Status |
