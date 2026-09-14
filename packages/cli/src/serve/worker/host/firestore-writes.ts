@@ -29,7 +29,7 @@ import {
   type DocumentReference,
   type SetOptions,
 } from 'pyric/firestore';
-import { rehydrateEncodedDocValue, requireDocumentData, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
+import { assertEncodedDocValueDepth, rehydrateEncodedDocValue, requireDocumentData, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
 import { FirebaseError } from 'pyric/app';
 
 import type { OpMessage, WriteDescriptor, SentinelMarker, SerializedDocData } from '../protocol.js';
@@ -86,6 +86,7 @@ function resolveSentinels(value: unknown): unknown {
  * decoded scalar instances and prepares transforms for the sandbox write.
  */
 export function prepareWriteData(value: unknown, valueEncoding?: DocValueEncoding): unknown {
+  assertEncodedDocValueDepth(value);
   return resolveSentinels(rehydrateEncodedDocValue(value, valueEncoding));
 }
 

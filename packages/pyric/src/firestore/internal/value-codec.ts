@@ -34,6 +34,7 @@ import {
 import { registerQueryValue, registeredReferenceQueryValuePath } from '../sandbox/query-value-registry.js';
 export { registerReferenceQueryValue } from '../sandbox/query-value-registry.js';
 export { requireDocumentData } from './document-data.js';
+export { assertEncodedDocValueDepth } from './value-depth.js';
 
 export const DOC_VALUE_ENCODING = 'pyric/firestore-values/1';
 export type DocValueEncoding = typeof DOC_VALUE_ENCODING;
