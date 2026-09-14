@@ -68,6 +68,8 @@ export function attachPeer(
   let consumer: ConsumerSession | null = null;
 
   ws.on('message', (raw) => {
+    const isClosingConnection = ws.readyState !== ws.OPEN;
+    if (isClosingConnection) return;
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw.toString());
@@ -80,6 +82,14 @@ export function attachPeer(
     if (isUnrecognizedMessage) {
       ws.close(1002, 'Unrecognized bridge message envelope.');
       return;
+    }
+    const isHandshake = msg.type === 'attach' || msg.type === 'hello';
+    if (isHandshake) {
+      const isUnsupportedProtocol = msg.protocol !== 1;
+      if (isUnsupportedProtocol) {
+        ws.close(1008, 'Unsupported bridge protocol. Expected version 1.');
+        return;
+      }
     }
     const isWorkerMessage = msg.type === 'worker-message';
     if (isWorkerMessage) {
