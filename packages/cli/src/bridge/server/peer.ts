@@ -26,6 +26,7 @@ import {
 import { cliVersion } from '../../pkg-version.js';
 import type { WorkerSessionLease } from './worker-sessions.js';
 import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
+import { sendBridgeMessage } from './socket-message.js';
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
@@ -74,7 +75,7 @@ export function attachPeer(
         bridge,
         (out: BridgeMessage) => {
           try {
-            ws.send(JSON.stringify(out));
+            sendBridgeMessage(ws, out);
           } catch {}
         },
         requestedSessionId,
