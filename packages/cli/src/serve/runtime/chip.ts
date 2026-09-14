@@ -1,4 +1,5 @@
-import { rulesEvidenceHtml } from './chip-rules-evidence.js';
+import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
+import { rulesEvidenceHtml, rulesSummary } from './chip-rules-evidence.js';
 import { activityOccurrences } from './activity-occurrences.js';
 import { presentActivityOccurrence } from './activity-occurrence-presentation.js';
 import { createDenialMarkers } from './denial-markers.js';
@@ -289,14 +290,7 @@ const styles = `
   .breadcrumb-service { font-weight: 600; white-space: nowrap; }
   .breadcrumb-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .source-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
-  .rules-evidence, .rule-evaluations, .rule-evaluation, .rule-check { display: grid; gap: 8px; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
-  .rule-evaluations { gap: 16px; }
-  .rule-check { grid-template-columns: var(--rule-depth, 0px) minmax(0, 1fr); column-gap: 0; }
-  .rule-check > * { grid-column: 2; }
-  .rules-evidence code { font-family: var(--pyric-font-mono, 'Geist Mono', monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
-  .rules-evidence details[open] { display: grid; gap: 12px; }
-  .rules-evidence summary { cursor: pointer; color: var(--pyric-accent); }
-  .rule-check span, .rule-check small { color: var(--pyric-muted); }
+  ${RULE_EVIDENCE_STYLES}
   .request-facts { all: unset; }
   .request-detail, .request-facts { display: grid; gap: 16px; }
   .request-fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; font-size: 12px; }
@@ -948,11 +942,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       let identityFact = '';
       if (request.identity) identityFact = fact('Identity', request.identity, 's2');
       let evidenceDetails = '';
-      if (request.service === 'firestore') evidenceDetails = rulesEvidenceHtml(request, escapeAttribute);
+      let reasonFact = '';
+      if (request.service === 'firestore') {
+        reasonFact = fact('Reason', rulesSummary(request), '');
+        evidenceDetails = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
+      }
       const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
       return {
         body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
-          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}</dl>${evidenceDetails}</section></div>`,
+          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
         bar: barHtml([]),
       };
     }
@@ -1001,6 +999,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
 
   const render = (next = snapshot): void => {
+    const openRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details][open]')?.dataset.ruleDetails;
+    const previousRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
+    const previousExpressions = [...(previousRuleDetails?.querySelectorAll<HTMLElement>('.rule-expression') ?? [])];
+    const expressionScroll = previousExpressions.map(expression => expression.scrollLeft);
+    const focusedExpression = previousExpressions.findIndex(expression => expression === root.activeElement);
+    const ruleDetailsFocus = root.activeElement?.closest('[data-rule-details]')?.getAttribute('data-rule-details');
     const openProviders = [...root.querySelectorAll<HTMLDetailsElement>('[data-user-providers][open]')].map((details) => details.dataset.userProviders);
     const providerFocus = root.activeElement?.closest('[data-user-providers]')?.getAttribute('data-user-providers');
     const previousView = root.querySelector<HTMLElement>('[data-chip-view]');
@@ -1095,6 +1099,17 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       </div></section>`
       : `<button class="chip${chipTone}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric</button>`;
 
+    const ruleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
+    if (ruleDetails) {
+      ruleDetails.open = ruleDetails.dataset.ruleDetails === openRuleDetails;
+      if (ruleDetails.dataset.ruleDetails === ruleDetailsFocus) ruleDetails.querySelector('summary')?.focus({ preventScroll: true });
+      // Captured conditions are stable for a request, even when new traffic refreshes the chip.
+      if (ruleDetails.dataset.ruleDetails === previousRuleDetails?.dataset.ruleDetails) {
+        const expressions = [...ruleDetails.querySelectorAll<HTMLElement>('.rule-expression')];
+        expressions.forEach((expression, index) => { expression.scrollLeft = expressionScroll[index] ?? 0; });
+        expressions[focusedExpression]?.focus({ preventScroll: true });
+      }
+    }
     for (const details of root.querySelectorAll<HTMLDetailsElement>('[data-user-providers]')) {
       details.open = openProviders.includes(details.dataset.userProviders);
       if (providerFocus === details.dataset.userProviders) details.querySelector('summary')?.focus({ preventScroll: true });

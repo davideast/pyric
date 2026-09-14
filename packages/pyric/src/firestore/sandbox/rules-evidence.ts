@@ -25,6 +25,7 @@ class EvidenceBudget {
 function captureCheck(entry: ExpressionEntry, budget: EvidenceBudget): RuleCheck {
   const location = {
     expression: budget.text(entry.source), parent: entry.parent,
+    operator: entry.operator, kind: entry.kind,
     helper: entry.inlinedFrom?.name,
     binding: entry.letBinding?.name,
   };

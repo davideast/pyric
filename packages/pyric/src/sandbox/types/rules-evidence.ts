@@ -3,6 +3,8 @@ export type RuleScalar = string | number | boolean | null;
 interface RuleCheckLocation {
   expression: string;
   parent: number | null;
+  operator?: string;
+  kind?: string;
   helper?: string;
   binding?: string;
 }

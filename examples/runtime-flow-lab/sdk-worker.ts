@@ -1,3 +1,4 @@
+import { flowRules, securityScenarios } from './security-scenarios.ts';
 import { initializeSandbox, createMemoryBackend } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import { getFirestore } from 'pyric/firestore';
@@ -5,7 +6,8 @@ import { getDatabase, sandbox as databaseSandbox } from 'pyric/database';
 import { handleMessage, type HostCtx } from '../../packages/cli/src/serve/worker/host.ts';
 
 const sandbox = initializeSandbox();
-setRules(sandbox, "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /messages/{id} { allow read: if true; allow write: if request.resource.data.version >= 0; } } }");
+setRules(sandbox, flowRules);
+  for (const scenario of securityScenarios) sandbox.admin.setDocument(scenario.path, { ...scenario.project });
 databaseSandbox.setDefaultPolicy(getDatabase(sandbox), 'allow');
 const ready = sandbox.enablePersistence({ key: 'sdk-flow-demo', injectedBackend: createMemoryBackend() });
 const context: HostCtx = {
