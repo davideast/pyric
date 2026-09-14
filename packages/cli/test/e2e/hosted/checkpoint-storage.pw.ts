@@ -5,6 +5,37 @@ import { expect, test } from '@playwright/test';
 import type { Checkpoint } from 'pyric/sandbox/checkpoints';
 import { startStoragePersistenceFixture } from './storage-persistence-fixture.js';
 
+test('SharedWorker checkpoint validation preserves empty bytes and every base64 padding remainder', async ({ page }) => {
+  const fixture = await startStoragePersistenceFixture(['--no-capture']);
+  try {
+    await page.goto(fixture.info.url);
+    await expect(page.locator('#ready')).toHaveText('Ready');
+    await page.evaluate(async () => {
+      const { getStorage, ref, uploadBytes } = await import('firebase/storage');
+      const payloads = [[], [0], [0, 128], [0, 128, 255]];
+      for (const [index, bytes] of payloads.entries()) {
+        await uploadBytes(ref(getStorage(), `padding/${index}.bin`), Uint8Array.from(bytes));
+      }
+    });
+    const control = await connectRemoteSandbox({ url: fixture.info.url });
+    try {
+      await control.channel.op({ method: 'checkpoint', name: 'padding' });
+      await expect(control.channel.op({ method: 'restore', name: 'padding' })).resolves.toMatchObject({ ok: true });
+      const restored = await page.evaluate(async () => {
+        const { getStorage, ref, getBytes, listAll } = await import('firebase/storage');
+        const { items } = await listAll(ref(getStorage(), 'padding'));
+        return Promise.all(items.map(async object => Array.from(new Uint8Array(await getBytes(object)))));
+      });
+      expect(restored).toEqual([[], [0], [0, 128], [0, 128, 255]]);
+    } finally {
+      control.close();
+    }
+  } finally {
+    await page.close();
+    await fixture.stop();
+  }
+});
+
 for (const mode of ['hosted', 'sharedworker', 'inpage'] as const) {
   test(`${mode} checkpoint restore retains the saved Storage object metadata`, async ({ page }) => {
     const flags = ['--no-capture'];

@@ -9,7 +9,7 @@ Do not modify the manual demo project. Commit and push each verified slice.
 
 1. Anonymous UID uniqueness — verified locally. Deletion/restart cannot transfer UID-owned data to a new identity; retained accounts preserve their UID, claims, creation time and last-login time.
 2. Session retention expiry — verified locally. The original app obtains fresh admission after the retention window, with Auth restored before listeners. Expired/invalid grants remain refused; app deletion cancels recovery; uncertain writes never replay.
-3. Checkpoint restoration — in progress. Account refresh preserves restored claims; the supported four-service state, account metadata and Storage metadata round trip, including host restart. Corruption refusal remains open.
+3. Checkpoint restoration — in progress. Account and Storage metadata round trip, including host restart. Corrupt envelopes, service records and fallible Storage inputs now refuse before reset. Firestore special-value fidelity is the remaining round-trip check before closing this item.
 4. Restoration diagnostics — pending. Startup text and readiness JSON match authoritative SDK state.
 5. Interrupted recovery — pending. A second interruption restores identity/listeners once; obsolete callbacks and app deletion cannot revive sessions.
 6. Reset/import with active apps — pending. Both browsers see replacement; removed listeners stay removed and stale work cannot resurrect data.
@@ -90,3 +90,28 @@ The minimized regression failed at the metadata equality assertion (`/tmp/pyric-
 Review verifies exact metadata and bytes, removal of newer objects, legacy checkpoint records, all three runtime paths, exact public account metadata immediately after restore, and SDK state after SIGKILL/restart with credential sign-in. Final checks pass 30 affected browser cases in 51.6 seconds, five minimum-Node cases in 12.9 seconds, and 117 full-state/checkpoint/branch/Storage regressions in eleven isolated files. Strict Pyric/CLI/fixture types pass; three-file source form and client/live browser boundaries have zero findings (54,943/98,304 and 387,843/524,288 bytes). Reports use `/tmp/pyric-hardening-checkpoint-storage-`; current hashes and original fixtures are archived in `ignored/hardening/checkpoint/`.
 
 The full-state contract covers the default Storage bucket. Arbitrary-bucket checkpoint coverage, coherent concurrent capture, all-service atomic apply and branch-promotion metadata fidelity are not established by this slice. Corrupt-state refusal is still the next scoped requirement; task 3 and the milestone remain incomplete. The manual demo is unchanged.
+
+Storage round-trip commit: `0c834446`, local pending push authorization.
+
+## Task 3: Corruption refusal slice
+
+The first public SDK regression proved a failed restore had already erased the current document: malformed `auth.users` reached the service only after the sandbox reset. Seven sequential red/green cycles cover account arrays, other service containers, account/object records, corrupt bytes/Storage rules/RTDB envelopes, empty paths and incorrect byte lengths, invalid checkpoint counts, and a slash-only path that normalizes to the bucket root. Original fixtures and each red/green pair are retained in `ignored/hardening/checkpoint/corruption-*.{log,pw.ts.txt}`; their commands are in the reports.
+
+The restore owner now validates the serialized state before reset. The existing host account and object metadata schemas moved unchanged into `sandbox/internal/state-schemas.ts`, used by both host state and checkpoints. The 78-line checkpoint validator composes those schemas with the existing Storage path normalizer, byte decoder and rule compiler. Envelope validation requires finite timestamps and nonnegative integer counts. This adds no dependency, persistence owner, rollback engine or new runtime branch.
+
+A diagnostic initially treated invalid Firestore syntax as corrupt state. Source inspection showed this is deliberately allowed during rule editing: Firestore installs the source and reports lint errors. That probe remains archived as `content-contract-probe.*`; it is not counted as a valid corruption red. A separate compatibility test saves and restores an intentionally invalid Firestore source. Storage differs: its normal setter compiles before installation, so an unparseable saved Storage source must refuse before state replacement.
+
+Final verification is terminal, with no retries or skipped cases:
+
+| Check | Result | Report |
+| --- | --- | --- |
+| Corruption, all-service round trip, Auth, Storage durability, legacy state and three runtimes | 45 passed in 1.2 minutes | `/tmp/pyric-hardening-checkpoint-corruption-final-browser.log` |
+| Scoped corruption and checkpoint cases under Node 22.15.0 | 20 passed in 32.5 seconds | `/tmp/pyric-hardening-checkpoint-corruption-minimum-node.log` |
+| State codec, checkpoints, branches and Storage persistence, 13 isolated files | 131 passed, zero skips | `/tmp/pyric-hardening-checkpoint-corruption-final-regressions.log` |
+| Strict Pyric, CLI and fixture types | Passed | `/tmp/pyric-hardening-checkpoint-corruption-{pyric-build,cli-build,fixture-types}.log` |
+| Changed code form | Eight TypeScript files, zero findings | `/tmp/pyric-hardening-checkpoint-corruption-form.json` |
+| Client/live browser boundaries | 54,943/98,304 and 387,843/524,288 bytes; zero findings | `/tmp/pyric-hardening-checkpoint-corruption-browser-{client,live}.json` |
+
+Every corruption case checks the healthy SDK document, the unchanged public account list, and a successful subsequent write. One also kills/restarts the host and checks the durable document. The SharedWorker path verifies empty bytes and all base64 padding remainders. Malformed-file fault injection is hosted; valid restoration is checked across all three runtimes. No production Firebase or manual demo data was used.
+
+These checks establish structural corruption refusal and the specified object consistency checks, not detection of arbitrary edits that remain valid data. Atomic rollback after a later resource/I/O failure, concurrent capture, general input resource limits and arbitrary buckets remain separate gaps. Task 3 stays open until ordinary Firestore special values are checked; the existing full-service fixture currently uses plain document fields. Applicable packaging remains at the milestone join.
