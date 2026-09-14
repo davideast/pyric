@@ -126,7 +126,7 @@ export function toMcpResult(result: BridgeToolResult, project: string) {
 }
 
 // Limit the SDK's recursive Zod overload expansion at this registration boundary.
-type RegisterMcpTool = (
+export type RegisterMcpTool = (
   name: string,
   description: string,
   shape: object,
