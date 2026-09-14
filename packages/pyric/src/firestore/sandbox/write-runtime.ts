@@ -101,6 +101,10 @@ export class WriteRuntime {
     return priors;
   }
 
+  captureEvidence(result: import('pyric/rules/internal').TestResult) {
+    return this.rules.captureEvidence(result);
+  }
+
   runSimulate(
     testCases: TestCase[],
     bypassRules: boolean | undefined,

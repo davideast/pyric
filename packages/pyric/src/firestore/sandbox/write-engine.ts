@@ -220,9 +220,11 @@ export class WriteEngine {
     }
 
     const result = simResult.data.results[0];
+    const rulesEvidence = this.runtime.captureEvidence(result);
     if (result.state === 'UNSUPPORTED') {
       this.runtime.emitRequest({
         at: evalAt, evalMs, method, path, auth, result: 'unsupported',
+        rulesEvidence,
         debugMessages: renderLegacyDebugMessages(result),
         ...(data ? { resourceData: data } : {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
@@ -339,6 +341,7 @@ export class WriteEngine {
       result: isAllowed ? 'allow' : 'deny',
       debugMessages: renderLegacyDebugMessages(result),
       evaluatedRule: projectEvaluatedRule(result),
+      rulesEvidence,
       ...(data ? { resourceData: data } : {}),
       resourceBefore: { data: priorDoc, exists: priorDoc !== null },
       ...(method !== 'delete'

@@ -13,7 +13,7 @@
  * which line went wrong; the full disposition, the rule that matched, and the
  * payload are Studio's job, which is where a row's click goes.
  */
-import type { SandboxEvent } from 'pyric/sandbox';
+import type { SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
 
 /** One line of the Traffic view. */
@@ -34,18 +34,21 @@ export interface ChipRequest {
    * `denied` is a Rules verdict, `error` any other failure the sandbox raised
    * against the same call, `ok` everything that went through.
    */
-  verdict: 'ok' | 'denied' | 'error';
-  /** Plain words for a denial: who the request ran as. `null` when it went through. */
-  reason: string | null;
+  verdict: 'ok' | 'denied' | 'error' | 'unsupported';
+  /** Identity is context, never an explanation of the rules decision. */
+  identity: string | null;
+  rulesEvidence?: Extract<SandboxEvent, { kind: 'request' }>['rulesEvidence'];
+  rules?: RulesDisposition;
+  evidenceExpired?: boolean;
 }
 
-/** The denial's reason in the words a developer acts on: the identity that was denied. */
-function denialReason(event: SandboxEvent, verdict: 'ok' | 'denied' | 'error'): string | null {
+/** Identity context for a denied request. */
+function requestIdentity(event: SandboxEvent, verdict: ChipRequest['verdict']): string | null {
   if (verdict !== 'denied') return null;
   const auth = (event as { auth?: unknown }).auth;
   if (auth === null || auth === undefined) return 'signed out';
   const uid = (auth as { uid?: unknown }).uid;
-  return typeof uid === 'string' ? `denied for ${uid}` : 'denied for this user';
+  return typeof uid === 'string' ? uid : 'Signed-in user';
 }
 
 /** How many rows the tail keeps. The view shows eight of them. */
@@ -75,15 +78,22 @@ export function isPermissionDeniedCode(code: string | undefined): boolean {
 export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
   const record = toOperationRecord(event);
   if (record !== null) {
-    return {
-      id: record.id,
-      at: record.at,
-      service: record.service,
+    let verdict: ChipRequest['verdict'] = 'ok';
+    if (record.rules.kind === 'evaluated' && record.rules.verdict === 'deny') verdict = 'denied';
+    if (record.rules.kind === 'not-evaluated' && record.rules.reason === 'unsupported') verdict = 'unsupported';
+    if (record.rules.kind === 'not-evaluated' && record.rules.reason === 'runtime-error') verdict = 'error';
+    const request: ChipRequest = {
+      id: record.id, at: record.at, service: record.service,
       method: record.eventKind === 'listener' ? 'listen' : record.method,
-      path: record.path ?? null,
-      verdict: record.rules.kind === 'evaluated' && record.rules.verdict === 'deny' ? 'denied' : 'ok',
-      reason: denialReason(event, record.rules.kind === 'evaluated' && record.rules.verdict === 'deny' ? 'denied' : 'ok'),
+      path: record.path ?? null, verdict,
+      identity: requestIdentity(event, verdict),
     };
+    if (record.rules.kind !== 'evaluated') request.rules = record.rules;
+    if (event.kind === 'request' && event.rulesEvidence !== undefined) {
+      request.rulesEvidence = structuredClone(event.rulesEvidence);
+    }
+    if (event.kind === 'request' && event.rulesEvidenceExpired) request.evidenceExpired = true;
+    return request;
   }
   if (event.kind === 'listener' && event.phase === 'attach') {
     return {
@@ -93,7 +103,7 @@ export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
       method: 'listen',
       path: event.target.path ?? null,
       verdict: event.result === 'deny' ? 'denied' : 'ok',
-      reason: denialReason(event, event.result === 'deny' ? 'denied' : 'ok'),
+      identity: requestIdentity(event, event.result === 'deny' ? 'denied' : 'ok'),
     };
   }
   if (event.kind === 'listener_attach' || event.kind === 'listener_errored') {
@@ -107,7 +117,7 @@ export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
       verdict: failed
         ? isPermissionDeniedCode(event.error?.code) ? 'denied' : 'error'
         : 'ok',
-      reason: denialReason(event, failed && isPermissionDeniedCode(event.error?.code) ? 'denied' : 'ok'),
+      identity: requestIdentity(event, failed && isPermissionDeniedCode(event.error?.code) ? 'denied' : 'ok'),
     };
   }
   return null;

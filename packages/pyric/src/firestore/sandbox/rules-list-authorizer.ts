@@ -172,6 +172,7 @@ export class RulesListAuthorizer {
     }
 
     const result = simulation.data.results[0]!;
+    const rulesEvidence = this.rules.captureEvidence(result, 'query-residual');
     const debugMessages = renderLegacyDebugMessages(result);
     if (result.state === 'UNSUPPORTED') {
       this.emitRequest({
@@ -181,6 +182,7 @@ export class RulesListAuthorizer {
         path,
         auth,
         result: 'unsupported',
+        rulesEvidence,
         debugMessages,
         origin,
         ...(detail ? { detail } : {}),
@@ -197,7 +199,7 @@ export class RulesListAuthorizer {
     const isNotPassed = result.state !== 'PASSED';
     if (isNotPassed) {
       return this.denyQuery(request, proof, evalAt, evalMs, detail,
-        debugMessages, projectEvaluatedRule(result));
+         { reasons: debugMessages, rule: projectEvaluatedRule(result), evidence: rulesEvidence });
     }
 
     this.emitRequest({
@@ -209,6 +211,7 @@ export class RulesListAuthorizer {
       result: 'allow',
       debugMessages,
       evaluatedRule: projectEvaluatedRule(result),
+      rulesEvidence,
       origin,
       ...(detail ? { detail } : {}),
       ...(triggeredBy ? { triggeredBy } : {}),
@@ -224,9 +227,9 @@ export class RulesListAuthorizer {
     at: number,
     evalMs: number,
     detail: EmitRequestInput['detail'],
-    residualReasons: string[] = [],
-    evaluatedRule?: EvaluatedRuleInfo,
+    residual: { reasons: string[]; rule?: EvaluatedRuleInfo; evidence?: EmitRequestInput['rulesEvidence'] } = { reasons: [] },
   ): ListAuthorizationResult {
+    const { reasons: residualReasons, rule: evaluatedRule } = residual;
     const failures = proof.kind === 'no-rule' ? [] : proof.failures;
     const primary = failures.find(failure => failure.kind !== 'constraints-not-satisfied') ?? failures[0];
     const queryProof: QueryProofDiagnostic = {
@@ -252,7 +255,7 @@ export class RulesListAuthorizer {
     });
     this.emitRequest({
       at, evalMs, method: 'list', path: request.path, auth: request.auth,
-      result: 'deny', debugMessages: reasons, queryProof,
+      result: 'deny', debugMessages: reasons, queryProof, rulesEvidence: this.rules.captureQueryEvidence(queryProof, residual.evidence),
       ...(evaluatedRule ? { evaluatedRule } : {}),
       origin: request.origin,
       ...(detail ? { detail } : {}),

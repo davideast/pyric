@@ -269,6 +269,15 @@ for (const runtime of ['inpage', 'worker']) {
     await marker.click();
     await expect(page.locator('[data-traffic-detail]')).toHaveAttribute('data-request-row', id!);
     await expect(page.locator('[data-traffic-detail]')).toContainText('Denied');
+    await expect(page.locator('[data-traffic-detail]')).toContainText('No matching rule granted access');
+    await page.getByText('Deciding checks', { exact: true }).click();
+    await expect(page.locator('.rules-evidence')).toContainText('version');
+    await expect(page.locator('.rules-evidence')).toContainText('false');
+    await page.getByText('Full evaluation', { exact: true }).click();
+    await expect(page.locator('.rules-evidence')).toContainText('Captured rules version');
+    await expect(page.locator('.rules-evidence')).toContainText('-1');
+    await page.setViewportSize({ width: 360, height: 800 });
+    await expect.poll(() => page.locator('.rules-evidence').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
     await page.screenshot({ path: `/tmp/denial-${runtime}.png` });
     await expect(page.locator('[data-pyric-denials]')).toHaveCount(0, { timeout: 10000 });
   });

@@ -36,6 +36,16 @@ That last field earns its place. A listener silently dropping documents because 
 
 If you are running with Studio on (the Vite plugin default), you do not have to write the subscription. The Traffic tab in Studio shows the same stream live, and a denial row opens into the rule, the path, and the data. The stream itself, and what else it can tell you, is covered in [see what's happening](../observe/see-whats-happening.md).
 
+## Inspect the original Firestore evaluation in the runtime chip
+
+Open a denied request in the chip's **Traffic** tab. **Identity** describes who made the request; it is not a diagnosis. The explanation below it comes from the evaluation that handled that request, even if you subsequently change the rules, documents, or signed-in user.
+
+**Deciding checks** shows the matching conditions and the observed scalar operands beneath failed checks. **Full evaluation** adds retained path matches, helper and binding context, nested expression results, short-circuited branches, and errors. A false condition is not enough to deny access when another applicable rule grants it. The summary uses the evaluator's final decision across those alternatives.
+
+Query constraint proofs are separate from the evaluation of remaining conditions. Locations labeled **Residual line** refer to generated evaluation source, not deployed rules. Unsupported evaluations, admin bypass, and missing evidence are identified explicitly. These are local evaluator results, not a claim that Pyric can explain a production Firebase response.
+
+The sandbox keeps evidence for its latest **64 evaluated requests**, alongside the normal request history. Each snapshot retains at most **32 rules**, **128 expression checks** across those rules, **32 path matches**, and **32 query-proof failures**; text fields are capped at **256 characters**. Truncation and expired evidence are explicit. The chip retains its latest 64 Traffic rows and a separate snapshot of the request currently being inspected. Full document objects and token maps are omitted from the evidence; accessed scalar values can still contain application data. Opening details never replays the request.
+
 ## The other kind of denial bug
 
 A denial that should not happen is one failure mode. The quieter one is its opposite: an operation that should be denied and no longer is, because a rules edit removed a predicate somewhere. This usually happens while making a failing test pass.

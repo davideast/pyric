@@ -485,7 +485,7 @@ describe('the Traffic view', () => {
     root.querySelector<HTMLButtonElement>('[data-copy-traffic]')!.click();
     await Promise.resolve();
     expect(written[0]).toContain('firestore.set  conversations/c1  denied');
-    expect(written[0]).toContain('denied for u9');
+    expect(written[0]).toContain('u9');
   });
 
   it('carries the failures that are not requests from the runtime error feed', () => {

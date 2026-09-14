@@ -1,3 +1,4 @@
+import { rulesEvidenceHtml } from './chip-rules-evidence.js';
 import { activityOccurrences } from './activity-occurrences.js';
 import { presentActivityOccurrence } from './activity-occurrence-presentation.js';
 import { createDenialMarkers } from './denial-markers.js';
@@ -288,6 +289,14 @@ const styles = `
   .breadcrumb-service { font-weight: 600; white-space: nowrap; }
   .breadcrumb-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .source-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+  .rules-evidence, .rule-evaluations, .rule-evaluation, .rule-check { display: grid; gap: 8px; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+  .rule-evaluations { gap: 16px; }
+  .rule-check { grid-template-columns: var(--rule-depth, 0px) minmax(0, 1fr); column-gap: 0; }
+  .rule-check > * { grid-column: 2; }
+  .rules-evidence code { font-family: var(--pyric-font-mono, 'Geist Mono', monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .rules-evidence details[open] { display: grid; gap: 12px; }
+  .rules-evidence summary { cursor: pointer; color: var(--pyric-accent); }
+  .rule-check span, .rule-check small { color: var(--pyric-muted); }
   .request-facts { all: unset; }
   .request-detail, .request-facts { display: grid; gap: 16px; }
   .request-fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; font-size: 12px; }
@@ -676,7 +685,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         // nor method, the message is the only true thing to print.
         label: error.message,
         verdict: isPermissionDeniedCode(error.code) ? 'denied' : 'error',
-        reason: null,
+        identity: null,
       });
     }
     const ordered = orderChipRequests([...byId.values()], Date.now());
@@ -934,12 +943,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const method = request.method ?? 'Request';
       const target = request.path ?? request.label ?? 'Request';
       const service = request.service === 'database' ? 'Realtime Database' : request.service === 'firestore' ? 'Firestore' : request.service ?? 'Runtime';
-      const outcome = { ok: 'Succeeded', denied: 'Denied', error: 'Failed' }[request.verdict];
-      const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
+      const outcome = { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
       const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
+      let identityFact = '';
+      if (request.identity) identityFact = fact('Identity', request.identity, 's2');
+      let evidenceDetails = '';
+      if (request.service === 'firestore') evidenceDetails = rulesEvidenceHtml(request, escapeAttribute);
+      const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
       return {
         body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
-          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${request.reason ? fact('Reason', request.reason, 's2') : ''}</dl></section></div>`,
+          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}</dl>${evidenceDetails}</section></div>`,
         bar: barHtml([]),
       };
     }
@@ -952,10 +965,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         c1: escapeAttribute(call),
         c2: named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
-        s2: escapeAttribute(request.reason ?? ''),
+        s2: escapeAttribute(request.identity ?? ''),
         slot: `<span class="verdict ${request.verdict === 'ok' ? 'ok' : ''}">${request.verdict}</span>`,
         className: `traffic-row${request.verdict === 'ok' ? '' : ' problem'}`,
-        title: [call, what, request.reason].filter(Boolean).join(' —'),
+        title: [call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
         label: `Inspect ${call}: ${what}. ${request.verdict}`,
       });

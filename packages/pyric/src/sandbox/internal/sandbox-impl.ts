@@ -1,3 +1,4 @@
+import { RulesEvidenceRetention } from './rules-evidence-retention.js';
 /**
  * Internal `Sandbox` implementation — backs the public interface from
  * `/app` and exposes the hook (`getEnv`) that other in-package modules
@@ -93,6 +94,7 @@ export class SandboxImpl implements LocalSandbox {
    *  so the boundary is the last entry of the old session's history.
    *  v1 doesn't cap; consumers persist the snapshot they need. */
   private eventHistory: SandboxEvent[] = [];
+  private readonly rulesEvidenceRetention = new RulesEvidenceRetention();
 
   /** Ambient provenance for the current {@link runWithProvenance} window
    *  (undefined outside any window). Purely synchronous — set on entry,
@@ -290,6 +292,7 @@ export class SandboxImpl implements LocalSandbox {
     // sandbox.history() expect every event the sandbox saw, regardless
     // of whether onEvent subscribers were attached at emit time.
     this.eventHistory.push(event);
+    this.rulesEvidenceRetention.record(this.eventHistory, this.eventHistory.length - 1);
     this.dispatchedCount++;
     if (this.eventSubs.size === 0) return;
     for (const cb of this.eventSubs) {
@@ -362,6 +365,7 @@ export class SandboxImpl implements LocalSandbox {
     if (this.eventHistory.length > 0) return 0;
     if (events.length === 0) return 0;
     this.eventHistory.push(...events);
+    for (let index = 0; index < events.length; index++) this.rulesEvidenceRetention.record(this.eventHistory, index);
     return events.length;
   }
 
@@ -395,6 +399,7 @@ export class SandboxImpl implements LocalSandbox {
     // history AFTER emit so consumers that took a snapshot before
     // reset() retain the boundary in their copy.
     this.eventHistory = [];
+    this.rulesEvidenceRetention.clear();
 
     // Clear currentUser to null and notify — a reset wipes everything
     // including signed-in identity. Subscribers see the sign-out so
