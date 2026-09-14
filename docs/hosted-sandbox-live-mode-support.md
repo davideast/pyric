@@ -209,9 +209,12 @@ does not imply rollback of an already dispatched mutation. Native SharedWorker
 ports now enforce the same operation count per logical client, preserving
 client order while allowing another client to progress. A physical disconnect
 waits for its accepted client work; later traffic cannot create a logical
-client through that closed port. Service Worker BroadcastChannel admission,
-MCP execution fairness inside the worker, and aggregate queued-byte accounting
-remain unfinished.
+client through that closed port. Service Worker BroadcastChannel admission
+also counts accepted service/tool calls by logical client. A replacement realm
+shares the allowance until the old realm's work settles; replacement cannot
+reset capacity. Completion, failure and disconnect release it. MCP execution
+fairness inside the worker and aggregate queued-byte accounting remain
+unfinished.
 
 A consumer attachment is refused with the existing admission policy close
 (`1008`) if its proposed registration would make the complete presence frame

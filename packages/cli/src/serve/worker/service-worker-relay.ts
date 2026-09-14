@@ -6,6 +6,7 @@ import {
   type PortLike,
 } from './host.js';
 import type { ServiceWorkerChannelMessage } from './service-worker-channel.js';
+import { MAX_PENDING_OPERATIONS } from '../../bridge/protocol.js';
 
 type HostEnvelope = Extract<ServiceWorkerChannelMessage, { direction: 'host' }>;
 
@@ -13,6 +14,7 @@ interface RelayState {
   readonly sessionId: string;
   readonly port: PortLike;
   queue: Promise<void>;
+  readonly admission: { pendingOperations: number };
 }
 
 export interface ServiceWorkerRelay {
@@ -40,17 +42,22 @@ export function createServiceWorkerRelay(options: {
 
   return {
     async handle(envelope) {
-      if (envelope.phase === 'attach') {
+      const isAttach = envelope.phase === 'attach';
+      if (isAttach) {
         const previous = ports.get(envelope.clientId);
-        if (previous?.sessionId === envelope.sessionId) {
+        const isCurrentSession = previous?.sessionId === envelope.sessionId;
+        if (isCurrentSession) {
           await previous.queue;
           return;
         }
         const state: RelayState = {
           sessionId: envelope.sessionId,
+          // A replacement realm still shares the client's previously accepted work.
+          admission: previous?.admission ?? { pendingOperations: 0 },
           port: makePort(envelope.clientId, envelope.sessionId),
           queue: (previous?.queue ?? Promise.resolve()).then(async () => {
-            if (!previous) return;
+            const hasNoPrevious = previous === undefined;
+            if (hasNoPrevious) return;
             try {
               const ctx = await options.getCtx();
               await cleanupPortWithDisconnect(ctx, previous.port);
@@ -65,19 +72,34 @@ export function createServiceWorkerRelay(options: {
       }
 
       const state = ports.get(envelope.clientId);
-      if (!state || state.sessionId !== envelope.sessionId) return;
+      const isStaleSession = state === undefined || state.sessionId !== envelope.sessionId;
+      if (isStaleSession) return;
+      const message = envelope.message;
+      const isOperation = message.t === 'op' || message.t === 'tool';
+      if (isOperation) {
+        const hasReachedCapacity = state.admission.pendingOperations >= MAX_PENDING_OPERATIONS;
+        if (hasReachedCapacity) {
+          state.port.postMessage({
+            t: 'res', id: message.id, clientSessionId: message.clientSessionId, ok: false,
+            error: { code: 'resource-exhausted', message: 'This client already has 256 pending operations.' },
+          });
+          return;
+        }
+        state.admission.pendingOperations += 1;
+      }
       state.queue = state.queue.then(async () => {
         try {
           const ctx = await options.getCtx();
-          await handleMessage(ctx, state.port, envelope.message);
-          if (
-            envelope.message.t === 'disconnect'
-            && ports.get(envelope.clientId) === state
-          ) {
+          await handleMessage(ctx, state.port, message);
+          const disconnectsCurrentSession = message.t === 'disconnect'
+            && ports.get(envelope.clientId) === state;
+          if (disconnectsCurrentSession) {
             ports.delete(envelope.clientId);
           }
         } catch (error) {
           options.onError?.(error, envelope);
+        } finally {
+          if (isOperation) state.admission.pendingOperations -= 1;
         }
       });
       await state.queue;
