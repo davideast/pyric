@@ -5,7 +5,7 @@
 /**
  * Maximum RAW byte size a single storage op may carry (`storage.putBytes`
  * payloads and `storage.getBytes` results). 8 MiB raw ≈ 11 MiB base64 —
- * comfortably under `ws`'s 100 MiB default `maxPayload` while keeping the
+ * within the bridge's 12 MiB encoded-frame budget while keeping the
  * four-hop whole-object buffering (Node → bridge → page → worker and back)
  * sane. Enforced on BOTH ends: the Node conveniences / pyric-admin remote
  * arm reject before sending, and the worker host rejects oversized inputs

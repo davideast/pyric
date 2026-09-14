@@ -30,7 +30,7 @@ import { createAuditWriter } from '../bridge/server/audit.js';
 import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
 import { pyricVersion } from './standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from './server.js';
-import { WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
+import { MAX_BRIDGE_FRAME_BYTES, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import type { InitPayload } from './init-payload.js';
 import type { createHostedRuntime } from './hosted/runtime.js';
 import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, hostedMethodRequest } from './hosted/method-protocol.js';
@@ -392,7 +392,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       closeOnServerClose = true,
     }) {
       if (closed) throw new Error('pyric bridge: cannot attach a closed mount');
-      const wss = new WebSocketServer({ noServer: true });
+      const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_BRIDGE_FRAME_BYTES });
       const guard = opts.upgradeGuard;
       const pointer = join(projectDir, '.pyric', 'serve.json');
       const upgradedSockets = new Set<Duplex>();

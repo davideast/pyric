@@ -47,6 +47,9 @@ export interface HealthReport {
 /** Default port the standalone bridge binds to. */
 export const DEFAULT_BRIDGE_PORT = 5174;
 
+/** Encoded bridge message limit, including its envelope and base64 payloads. */
+export const MAX_BRIDGE_FRAME_BYTES = 12 * 1024 * 1024;
+
 /** Default WS path the browser connects to. */
 export const DEFAULT_SANDBOX_PATH = '/sandbox';
 
