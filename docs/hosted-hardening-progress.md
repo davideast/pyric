@@ -26,7 +26,7 @@ Do not modify the manual demo project. Commit and push each verified slice.
 17. Rules hot reload with active apps — pending. Valid Rules changes update enforcement and active listeners according to the existing service contract; invalid edits report their failure without falsely claiming successful enforcement.
 18. Client/host version compatibility — pending. Actual packed consumers within the declared compatibility range work against the candidate host; unsupported combinations refuse clearly before mutation and never silently select another runtime.
 19. Fault diagnostics and redaction — pending. Existing CLI, runtime and Studio diagnostics distinguish connection, restoration and persistence failures while excluding credentials and private document contents from default support output.
-20. Combined verification and morning handoff — pending. Current affected matrix, runtime parity, types, source form, applicable packaging; fixes, reports, remaining failures and manual QA steps.
+20. Combined verification and morning handoff — verified locally for the completed milestone slices. See `docs/hosted-hardening-handoff.md`: 216 affected browser scenarios, 1,138 regressions, strict types, 123-file code form, scoped import review, matching browser budgets and four rebuilt copied-standalone checks. Remote backup remains blocked; item 8 is partial and 9–19 remain open.
 
 ### Added follow-on gates
 
