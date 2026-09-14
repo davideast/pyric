@@ -143,6 +143,27 @@ function recordCall(
   bridge.recordToolEvent(event);
 }
 
+/** Tools and resource reads share one reservation until their handler settles. */
+async function executeAdmitted(
+  budget: ReturnType<typeof createOperationBudget>,
+  name: string,
+  args: Record<string, unknown>,
+  execute: () => Promise<OperationResult>,
+): Promise<OperationResult> {
+  const reservation = budget.reserve({ name, arguments: args });
+  const isRefused = !reservation.accepted;
+  if (isRefused) {
+    return { ok: false, summary: `${reservation.error.code}: ${reservation.error.message}` };
+  }
+  try {
+    return normalise(await execute());
+  } catch (err) {
+    return failure(err);
+  } finally {
+    reservation.release();
+  }
+}
+
 function registerTool(
   server: McpServer,
   bridge: Bridge,
@@ -168,20 +189,9 @@ function registerTool(
       markHandlerRan(extra);
       const startedAtMs = Date.now();
       const callArgs = args ?? {};
-      let result: OperationResult;
-      const reservation = budget.reserve({ name: tool.name, arguments: callArgs });
-      const isRefused = !reservation.accepted;
-      if (isRefused) {
-        result = { ok: false, summary: `${reservation.error.code}: ${reservation.error.message}` };
-      } else {
-        try {
-          result = normalise(await tool.execute(callArgs, ctx));
-        } catch (err) {
-          result = failure(err);
-        } finally {
-          reservation.release();
-        }
-      }
+      const result = await executeAdmitted(
+        budget, tool.name, callArgs, () => tool.execute(callArgs, ctx),
+      );
       const resolved = surface.resolve(tool.name, callArgs);
       recordCall(bridge, {
         tool: tool.name,
@@ -204,24 +214,22 @@ function registerResource(
   resource: RenderedResource,
   ctx: SurfaceContext,
   options: RegisterRenderedSurfaceOptions,
+  budget: ReturnType<typeof createOperationBudget>,
 ): void {
   const template = new ResourceTemplate(sdkUriTemplate(resource.uriTemplate), { list: undefined });
-  (server.resource as unknown as Function)(
+  server.resource(
     resource.name,
     template,
     { description: resource.description, mimeType: RESOURCE_MIME_TYPE },
     async (uri: URL, variables: Record<string, unknown>) => {
       const startedAtMs = Date.now();
       const requested = uri.toString();
-      let result: OperationResult;
-      try {
-        result = normalise(await resource.read(requested, ctx));
-      } catch (err) {
-        result = failure(err);
-      }
       // A resource read carries no arguments of its own: the uri and the
       // template variables the SDK parsed out of it are what the event records.
       const args: Record<string, unknown> = { uri: requested, ...variables };
+      const result = await executeAdmitted(
+        budget, resource.name, args, () => resource.read(requested, ctx),
+      );
       const resolved = surface.resolve(resource.name, args);
       recordCall(bridge, {
         tool: resource.name,
@@ -271,7 +279,7 @@ export function registerRenderedSurface(
     registerTool(server, bridge, surface, tool, ctx, options, markHandlerRan, budget);
   }
   for (const resource of surface.resources ?? []) {
-    registerResource(server, bridge, surface, resource, ctx, options);
+    registerResource(server, bridge, surface, resource, ctx, options, budget);
   }
   return server;
 }

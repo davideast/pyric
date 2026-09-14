@@ -1,10 +1,11 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { CLI_PATH } from '../soak/harness.js';
+import { writeHeldStorageReadPreload } from './held-storage-read.js';
 
 test('rendered MCP refuses an oversized call before replacing a document', async () => {
   const project = mkdtempSync(join(tmpdir(), 'pyric-rendered-admission-'));
@@ -42,29 +43,7 @@ for (const completion of ['success', 'failure']) {
     const project = mkdtempSync(join(tmpdir(), 'pyric-rendered-capacity-'));
     const preload = join(project, 'hold-storage-read.mjs');
     const failsFirstReads = completion === 'failure';
-    writeFileSync(preload, `
-      const readBytes = Blob.prototype.arrayBuffer;
-      let holding = true;
-      let failsReads = ${failsFirstReads};
-      const held = [];
-      process.on('SIGUSR2', () => {
-        holding = !holding;
-        if (holding) { process.stderr.write('ARMED\\n'); return; }
-        for (const request of held.splice(0)) {
-          if (failsReads) request.reject(new Error('Controlled binary read failure'));
-          else request.resolve();
-        }
-        failsReads = false;
-      });
-      Blob.prototype.arrayBuffer = async function () {
-        const pausesRead = holding && this.type === 'application/x-pyric-held';
-        if (pausesRead) {
-          process.stderr.write('HELD\\n');
-          await new Promise((resolve, reject) => held.push({ resolve, reject }));
-        }
-        return readBytes.call(this);
-      };
-    `);
+    writeHeldStorageReadPreload(preload, failsFirstReads);
     const transport = new StdioClientTransport({
       command: process.execPath, args: ['--import', preload, CLI_PATH, 'mcp', '--in-process'],
       cwd: project, stderr: 'pipe',

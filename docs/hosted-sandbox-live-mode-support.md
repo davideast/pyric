@@ -218,11 +218,14 @@ same consumer can refill its allowance after replies, timeout or explicit dispos
 for its owning session. It measures JSON UTF-8 `{name, arguments}` before
 handler execution; this is not the complete HTTP/JSON-RPC envelope or the
 reminted peer frame. Replies, failures and timeout release reservations.
-The separate rendered MCP/service-tool path now has its own shared tool
-budget using the same normalized call parameters. It refuses oversized calls
-and operation 257 before tool execution, preserving state and releasing
-reservations after success or failure. Resource-template reads and complete
-active-work shutdown/byte-boundary verification remain open. SDK request cancellation or session deletion
+The separate rendered MCP/service-tool path shares one budget across tools
+and resource-template reads. It charges normalized name/arguments; resource
+arguments retain the requested URI and parsed template variables. Admission
+refuses oversized calls and operation 257 before execution, releasing
+reservations after success or failure. Real stdio checks cover shared count
+admission and repeated resource-read cleanup; the SDK separately rejects
+resource URIs above one million characters. Complete active-work shutdown
+and aggregate byte-boundary verification remain open. SDK request cancellation or session deletion
 settles forwarded bridge calls and clears their correlation timers. Cancellation
 does not imply rollback of an already dispatched mutation. Native SharedWorker
 ports now enforce the same operation count per logical client, preserving
