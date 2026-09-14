@@ -40,12 +40,15 @@ import type {
 } from '../protocol.js';
 import {
   isBridgeMessage,
+  MAX_BRIDGE_FRAME_BYTES,
   assertJsonSafeRelayValue,
   PEER_REPLACED_CLOSE_CODE,
   WORKER_RELAY_CAPABILITY,
 } from '../protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from './dispatch.js';
 import { bridgeHealthUrls, resolveBridgeUrl } from './bridge-url.js';
+
+const utf8 = new TextEncoder();
 
 export interface ConnectBridgeOptions {
   /**
@@ -267,11 +270,17 @@ export function connectBridge(
       send(hello);
     };
 
-    socket.onmessage = (event: MessageEvent) => {
+    socket.onmessage = (event: MessageEvent<unknown>) => {
+      const data = event.data;
+      const isText = typeof data === 'string';
+      const exceedsFrameLimit = isText && utf8.encode(data).byteLength > MAX_BRIDGE_FRAME_BYTES;
+      if (exceedsFrameLimit) {
+        socket.close(BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE);
+        return;
+      }
       let value: unknown;
       try {
-        const isText = typeof event.data === 'string';
-        value = JSON.parse(isText ? event.data : '');
+        value = JSON.parse(isText ? data : '');
       } catch {
         return;
       }
