@@ -14,6 +14,7 @@ import type { ToolHandler } from '@inbrowser/agent';
 import type { Bridge, BridgeToolResult } from './bridge.js';
 import type { ToolMetadata } from './tool-metadata.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
+import { MAX_PENDING_OPERATIONS } from '../protocol.js';
 
 export interface RegisterToolsOptions {
   /** Metadata for tools whose dispatch goes to the bridge peer. */
@@ -124,6 +125,14 @@ export function toMcpResult(result: BridgeToolResult, project: string) {
   };
 }
 
+// Limit the SDK's recursive Zod overload expansion at this registration boundary.
+type RegisterMcpTool = (
+  name: string,
+  description: string,
+  shape: object,
+  run: (args: Record<string, unknown>, extra: { signal: AbortSignal }) => Promise<ReturnType<typeof toMcpResult>>,
+) => unknown;
+
 /**
  * Build an MCP server seeded with the supplied tool surface. Caller
  * connects the returned server to a transport (e.g.
@@ -137,32 +146,59 @@ export function buildMcpServer(
     name: 'pyric',
     version: bridge.version,
   });
+  const registerTool = server.tool as RegisterMcpTool;
+  let pendingToolCalls = 0;
+
+  async function admitToolCall(
+    tool: string,
+    args: Record<string, unknown>,
+    run: () => Promise<ReturnType<typeof toMcpResult>>,
+  ): Promise<ReturnType<typeof toMcpResult>> {
+    const hasReachedCapacity = pendingToolCalls >= MAX_PENDING_OPERATIONS;
+    if (hasReachedCapacity) {
+      const result = { ok: false, summary: 'resource-exhausted: This client already has 256 pending operations.' };
+      bridge.recordToolEvent({
+        timestamp: new Date().toISOString(), mode: 'sandbox', project: bridge.project,
+        tool, args, result, durationMs: 0, isError: true,
+      });
+      return toMcpResult(result, bridge.project);
+    }
+    pendingToolCalls += 1;
+    try {
+      return await run();
+    } finally {
+      pendingToolCalls -= 1;
+    }
+  }
 
   // Installed before the first tool registration, because that is when the SDK
   // installs the `tools/call` handler this wraps.
   let handlerRan: WeakSet<object> | null = null;
-  if (options.onCallRejected) {
-    handlerRan = observeRejectedCalls(server, options.onCallRejected);
+  const onCallRejected = options.onCallRejected;
+  const observesRejections = onCallRejected !== undefined;
+  if (observesRejections) {
+    handlerRan = observeRejectedCalls(server, onCallRejected);
   }
   const markHandlerRan = (extra: object | undefined): void => {
-    if (handlerRan && extra) handlerRan.add(extra);
+    const handlers = handlerRan;
+    const recordsInvocation = handlers !== null && extra !== undefined;
+    if (recordsInvocation) handlers.add(extra);
   };
 
   // Forwarded tools: bridge.dispatch handles the wire round-trip.
   for (const meta of options.forwarded) {
     const shape = jsonSchemaToZodShape(meta.parameters as never);
-    // The MCP SDK's `tool()` overloads have a deep generic tree
-    // that trips `Type instantiation is excessively deep` at the call
-    // site for the variadic shape argument. The cast collapses the
-    // inference; the runtime contract is the same.
-    (server.tool as unknown as Function)(
+    registerTool.call(
+      server,
       meta.name,
       meta.description,
       shape,
-      async (args: Record<string, unknown>, extra: object | undefined) => {
+      async (args, extra) => {
         markHandlerRan(extra);
-        const result = await bridge.dispatch(meta.name, args ?? {});
-        return toMcpResult(result, bridge.project);
+        return admitToolCall(meta.name, args ?? {}, async () => {
+          const result = await bridge.dispatch(meta.name, args ?? {}, extra.signal);
+          return toMcpResult(result, bridge.project);
+        });
       },
     );
   }
@@ -171,52 +207,56 @@ export function buildMcpServer(
   // touch real Firebase. Execute them directly and record the result.
   for (const handler of options.inProcess) {
     const shape = jsonSchemaToZodShape(handler.parameters as never);
-    (server.tool as unknown as Function)(
+    registerTool.call(
+      server,
       handler.name,
       handler.description,
       shape,
-      async (args: Record<string, unknown>, extra: object | undefined) => {
+      async (args, extra) => {
         markHandlerRan(extra);
-        const startedAtMs = Date.now();
-        try {
-          // The bridge supplies an AbortSignal-less ToolContext; tools
-          // that genuinely need cancellation should still respect a
-          // signal supplied via the MCP transport in the future.
-          const ctx = {
-            signal: new AbortController().signal,
-          } as never;
-          const result = await handler.execute(args ?? {}, ctx);
-          const normalised = {
-            ok: result.ok,
-            summary: result.summary,
-            data: result.data,
-          };
-          bridge.recordToolEvent({
-            timestamp: new Date(startedAtMs).toISOString(),
-            mode: 'sandbox',
-            project: bridge.project,
-            tool: handler.name,
-            args: args ?? {},
-            result: normalised,
-            durationMs: Date.now() - startedAtMs,
-          });
-          return toMcpResult(normalised, bridge.project);
-        } catch (err) {
-          const result = {
-            ok: false,
-            summary: err instanceof Error ? err.message : String(err),
-          };
-          bridge.recordToolEvent({
-            timestamp: new Date(startedAtMs).toISOString(),
-            mode: 'sandbox',
-            project: bridge.project,
-            tool: handler.name,
-            args: args ?? {},
-            result,
-            durationMs: Date.now() - startedAtMs,
-          });
-          return toMcpResult(result, bridge.project);
-        }
+        return admitToolCall(handler.name, args ?? {}, async () => {
+          const startedAtMs = Date.now();
+          try {
+            // The bridge supplies an AbortSignal-less ToolContext; tools
+            // that genuinely need cancellation should still respect a
+            // signal supplied via the MCP transport in the future.
+            const ctx = {
+              signal: new AbortController().signal,
+            } as never;
+            const result = await handler.execute(args ?? {}, ctx);
+            const normalised = {
+              ok: result.ok,
+              summary: result.summary,
+              data: result.data,
+            };
+            bridge.recordToolEvent({
+              timestamp: new Date(startedAtMs).toISOString(),
+              mode: 'sandbox',
+              project: bridge.project,
+              tool: handler.name,
+              args: args ?? {},
+              result: normalised,
+              durationMs: Date.now() - startedAtMs,
+            });
+            return toMcpResult(normalised, bridge.project);
+          } catch (err) {
+            const isError = err instanceof Error;
+            const result = {
+              ok: false,
+              summary: isError ? err.message : String(err),
+            };
+            bridge.recordToolEvent({
+              timestamp: new Date(startedAtMs).toISOString(),
+              mode: 'sandbox',
+              project: bridge.project,
+              tool: handler.name,
+              args: args ?? {},
+              result,
+              durationMs: Date.now() - startedAtMs,
+            });
+            return toMcpResult(result, bridge.project);
+          }
+        });
       },
     );
   }

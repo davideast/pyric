@@ -201,7 +201,11 @@ hold. Replies, timeouts and disposal remove its existing pending records.
 The bridge also counts pending legacy worker-relay operations by admitted
 consumer identity, refusing operation 257 before forwarding or allocating a
 correlation timer. The same consumer can refill its allowance after replies,
-timeout or explicit disposal. Bridge tool-call admission, authoritative
+timeout or explicit disposal. Each MCP server instance also admits at most
+256 forwarded/in-process tool calls for its owning session; replies, failures
+and timeout release slots. SDK request cancellation or session deletion
+settles forwarded bridge calls and clears their correlation timers. Cancellation
+does not imply rollback of an already dispatched mutation. Authoritative
 SharedWorker admission and aggregate queued-byte accounting remain unfinished.
 
 A consumer attachment is refused with the existing admission policy close

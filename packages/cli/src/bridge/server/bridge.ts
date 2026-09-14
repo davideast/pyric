@@ -183,7 +183,7 @@ export interface Bridge {
   toolNames(): string[];
 
   /** Dispatch a tool call to the connected sandbox peer. */
-  dispatch(name: string, args: Record<string, unknown>): Promise<BridgeToolResult>;
+  dispatch(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<BridgeToolResult>;
 
   /**
    * Relay a generic worker op to the peer's SharedWorker. Resolves with the
@@ -394,11 +394,12 @@ export function createBridge(opts: BridgeOptions): Bridge {
   async function dispatch(
     name: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<BridgeToolResult> {
     const startedAtMs = Date.now();
     let result: BridgeToolResult;
     try {
-      result = await dispatchSandbox(name, args);
+      result = await dispatchSandbox(name, args, signal);
     } catch (err) {
       const isError = err instanceof Error;
       result = {
@@ -428,6 +429,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
   function dispatchSandbox(
     name: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<BridgeToolResult> {
     const currentPeer = peer;
     const hasNoPeer = currentPeer === null;
@@ -436,8 +438,19 @@ export function createBridge(opts: BridgeOptions): Bridge {
     if (isUnregisteredTool) {
       return Promise.resolve({ ok: false, summary: `tool '${name}' is not registered with the connected sandbox peer` });
     }
+    const cancellationResult = { ok: false, summary: 'Tool call canceled; any dispatched mutation may already have committed.' };
+    const isCanceled = signal?.aborted === true;
+    if (isCanceled) return Promise.resolve(cancellationResult);
+    const id = randomUUID();
+    const cancelPendingCall = (): void => {
+      const call = pending.get(id);
+      const hasSettled = call === undefined;
+      if (hasSettled) return;
+      clearTimeout(call.timer);
+      pending.delete(id);
+      call.resolve(cancellationResult);
+    };
     return new Promise<BridgeToolResult>((resolve) => {
-      const id = randomUUID();
       const timer = setTimeout(() => {
         const wasPending = pending.delete(id);
         if (wasPending) {
@@ -445,6 +458,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
         }
       }, callTimeoutMs);
       pending.set(id, { id, resolve, timer, tool: name });
+      signal?.addEventListener('abort', cancelPendingCall, { once: true });
       try {
         // The caller's identity governs the tools it forwards. `app-session`
         // is the default every caller holds until it impersonates, and it is
@@ -467,7 +481,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
         const detail = isError ? err.message : String(err);
         resolve({ ok: false, summary: `failed to send tool call to sandbox: ${detail}` });
       }
-    });
+    }).finally(() => signal?.removeEventListener('abort', cancelPendingCall));
   }
 
   function dispatchWorkerOp(op: WorkerOpPayload, clientSessionId?: string): Promise<unknown> {
