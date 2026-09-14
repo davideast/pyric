@@ -207,7 +207,11 @@ and timeout release slots. SDK request cancellation or session deletion
 settles forwarded bridge calls and clears their correlation timers. Cancellation
 does not imply rollback of an already dispatched mutation. Native SharedWorker
 ports now enforce the same operation count per logical client, preserving
-client order while allowing another client to progress. A physical disconnect
+client order while allowing another client to progress. Native MessagePort
+admission also measures the complete operation message's JSON UTF-8 encoding
+and retains its byte charge until completion. Aggregate admission allows
+exactly 24 MiB and refuses the next byte; accepted/executing calls count until
+their handlers settle. Other operation-byte owners remain unfinished. A physical disconnect
 waits for its accepted client work; later traffic cannot create a logical
 client through that closed port. Service Worker BroadcastChannel admission
 also counts accepted service/tool calls by logical client. A replacement realm

@@ -53,6 +53,9 @@ export const MAX_BRIDGE_FRAME_BYTES = 12 * 1024 * 1024;
 /** Maximum accepted operations awaiting completion for one client. */
 export const MAX_PENDING_OPERATIONS = 256;
 
+/** Encoded UTF-8 bytes of accepted operation messages awaiting completion per client. */
+export const MAX_QUEUED_OPERATION_BYTES = 24 * 1024 * 1024;
+
 /** Default WS path the browser connects to. */
 export const DEFAULT_SANDBOX_PATH = '/sandbox';
 

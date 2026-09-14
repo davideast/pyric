@@ -151,10 +151,10 @@ workerScope.onconnect = (e: MessageEvent) => {
         console.error('[pyric worker] message handler error:', error, 'msg:', message);
       }
     },
-    refuse(message) {
+    refuse(message, error) {
       port.postMessage({
         t: 'res', id: message.id, clientSessionId: message.clientSessionId, ok: false,
-        error: { code: 'resource-exhausted', message: 'This client already has 256 pending operations.' },
+        error,
       });
     },
   });
