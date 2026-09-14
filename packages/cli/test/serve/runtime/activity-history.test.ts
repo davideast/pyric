@@ -1,6 +1,8 @@
+import { activityOccurrences } from '../../../src/serve/runtime/activity-occurrences.js';
+import { presentActivityOccurrence } from '../../../src/serve/runtime/activity-occurrence-presentation.js';
 import { describe, expect, it } from 'bun:test';
 import { createSdkActivityJournal } from 'pyric/sandbox/internal';
-import { activityDisplayTarget, activityOccurrences, createActivityHistory } from '../../../src/serve/runtime/activity-history.js';
+import { activityDisplayTarget, createActivityHistory } from '../../../src/serve/runtime/activity-history.js';
 
 describe('activity history', () => {
   it('distinguishes repeated equal reads, deliveries and shared commits', () => {
@@ -19,7 +21,7 @@ describe('activity history', () => {
     expect(history.snapshot().entries.filter(entry => entry.phase === 'render')).toHaveLength(3);
     now = 30_001;
     expect(history.counts().calls).toBe(0);
-    expect(history.counts(undefined, Infinity).calls).toBe(3);
+    expect(history.counts({ scope: { kind: 'retained' } }).calls).toBe(3);
     journal.dispose();
   });
   it('bounds metadata, exposes truncation, and clearing leaves live registrations intact', () => {
@@ -72,17 +74,17 @@ it('shows one read occurrence and one row per subscription update, merging rende
   read.delivered(); read.complete(); history.rendered(journal.records()[0], 1);
   let occurrences = activityOccurrences(history.snapshot().entries);
   expect(occurrences).toHaveLength(1);
-  expect(occurrences[0]).toMatchObject({ label: 'Read collection', outcome: 'Rendered', registration: null });
+  expect(occurrences[0]).toMatchObject({ kind: 'operation', render: 'observed', registration: null });
   const subscription = journal.begin({ app, source: { service: 'database', target: '/items', key: 'items' }, method: 'onValue', kind: 'subscription' });
   subscription.delivered(); subscription.delivered(); history.rendered(journal.records()[1], 2);
   occurrences = activityOccurrences(history.snapshot().entries);
   expect(occurrences.filter(item => item.registration === 1)).toHaveLength(2);
-  expect(occurrences.every(item => item.outcome === 'Rendered')).toBe(true);
+  expect(occurrences.every(item => item.render === 'observed')).toBe(true);
   const failed = journal.begin({ app, source: { service: 'firestore', target: 'private', key: 'private' }, method: 'getDoc', kind: 'operation' });
   failed.fail();
-  expect(activityOccurrences(history.snapshot().entries)[0].outcome).toBe('Failed');
+  expect(presentActivityOccurrence(activityOccurrences(history.snapshot().entries)[0]).outcome).toBe('Failed');
   const renderOnly = history.snapshot().entries.filter(entry => entry.phase === 'render');
-  expect(activityOccurrences(renderOnly).every(item => item.outcome === 'Rendered')).toBe(true);
+  expect(activityOccurrences(renderOnly).every(item => item.render === 'observed')).toBe(true);
   journal.dispose();
 });
 

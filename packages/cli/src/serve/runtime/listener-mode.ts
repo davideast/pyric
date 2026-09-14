@@ -230,7 +230,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   };
 
   const displayOutline = (outline: ListenerOutline): ListenerOutline => outline.activity
-    ? { ...outline, deliveryCount: history.counts(outline.activity.sourceId, Infinity).deliveries }
+    ? { ...outline, deliveryCount: history.counts({ sourceId: outline.activity.sourceId, scope: { kind: 'retained' } }).deliveries }
     : outline;
   const paint = (): void => {
     if (overlay === null) return;

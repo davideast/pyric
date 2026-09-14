@@ -1,5 +1,7 @@
+import { activityOccurrences } from './activity-occurrences.js';
+import { presentActivityOccurrence } from './activity-occurrence-presentation.js';
 import { createDenialMarkers } from './denial-markers.js';
-import { activityDisplayTarget, activityOccurrences, type ActivityHistoryEntry } from './activity-history.js';
+import { activityDisplayTarget, type ActivityHistoryEntry } from './activity-history.js';
 /**
  * A compact inspector for the app's identity, listeners, traffic, and sandbox.
  * Header, tabs, scroll viewport, and action bar share one fixed panel frame.
@@ -608,7 +610,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       // it is what takes the waiting fact away.
       const waiting = listenerMode?.flowWaiting() === true;
       const treatmentState = JSON.stringify(listenerMode?.treatmentState?.());
-      const historyState = JSON.stringify([listenerMode?.history?.snapshot(), listenerMode?.history?.counts(undefined, Infinity)]);
+      const historyState = JSON.stringify([listenerMode?.history?.snapshot(), listenerMode?.history?.counts({ scope: { kind: 'retained' } })]);
       const inspected = listenerMode?.selectedActivity?.() ?? null;
       const inspectionVersion = listenerMode?.inspectionVersion?.() ?? 0;
       const inspectionChanged = inspectionVersion !== inspectedFromPage;
@@ -858,8 +860,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const sourceId = selectedSourceId();
     const entries = activityOccurrences(snapshot.entries.filter(entry => entry.sourceId === sourceId));
     historyPage = Math.min(historyPage, Math.max(0, Math.ceil(entries.length / 10) - 1));
-    const shown = entries.slice(historyPage * 10, historyPage * 10 + 10);
-    const counts = history.counts(sourceId, Infinity);
+    const shown = entries.slice(historyPage * 10, historyPage * 10 + 10).map(occurrence => ({ ...occurrence, ...presentActivityOccurrence(occurrence) }));
+    const counts = history.counts({ sourceId, scope: { kind: 'retained' } });
     const rows = shown.map(({ event: entry, label, outcome, registration }) => buttonRowHtml({
       c1: escapeAttribute(label),
       s1: escapeAttribute(registration === null ? entry.method : `${entry.method} #${registration}`),
@@ -891,7 +893,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const groups = sourceGroups();
     const selected = groups.find(group => group.id === selectedSourceId());
     const rows = groups.map(group => {
-      const counts = group.members.some(member => !member.activity) ? undefined : listenerMode?.history?.counts(group.id, Infinity);
+      const counts = group.members.some(member => !member.activity) ? undefined : listenerMode?.history?.counts({ sourceId: group.id, scope: { kind: 'retained' } });
       const stopped = group.members.some(member => member.activity?.kind === 'subscription') && group.members.every(member => member.activity && (member.activity.kind !== 'subscription' || member.activity.status === 'closed'));
       const calls = counts?.calls ?? group.members.length;
       const deliveries = counts?.deliveries ?? group.members.reduce((sum, member) => sum + member.deliveryCount, 0);
@@ -916,7 +918,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const bar = barHtml([toolbar]);
     const guidance = blocked ?? flowReason;
     const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
-    let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts(undefined, Infinity).partial ? 'Retained history / incomplete' : 'Recorded history', toggle);
+    let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : 'Recorded history', toggle);
     if (selected) {
       body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${selected.service === 'database' ? 'Realtime Database' : 'Firestore'}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
     }
