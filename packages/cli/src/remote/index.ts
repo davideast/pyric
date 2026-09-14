@@ -45,8 +45,9 @@ import type {
   WorkerOpPayload,
   WorkerSubPayload,
 } from '../bridge/protocol.js';
-import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, MAX_PENDING_OPERATIONS, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
+import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
 import { encodeBridgeMessage } from '../bridge/frame-output.js';
+import { createOperationBudget } from '../bridge/operation-budget.js';
 import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { discoverServe } from '../serve/discovery.js';
@@ -256,6 +257,7 @@ export function createRemoteSandboxCore(
   const serveUrl = opts.serveUrl;
   const opTimeoutMs = opts.opTimeoutMs ?? DEFAULT_OP_TIMEOUT_MS;
 
+  const operationBudget = createOperationBudget();
   let opCounter = 0;
   let subCounter = 0;
   let disposed: string | null = null;
@@ -317,12 +319,15 @@ export function createRemoteSandboxCore(
     if (isDisposed) {
       return Promise.reject(remoteError('unavailable', disposalReason));
     }
-    const hasReachedCapacity = pending.size >= MAX_PENDING_OPERATIONS;
-    if (hasReachedCapacity) {
-      return Promise.reject(remoteError('resource-exhausted', 'This client already has 256 pending operations.'));
+    const id = `rop-${opCounter + 1}`;
+    const message: BridgeMessage = { type: 'worker-op', id, op: payload };
+    const reservation = operationBudget.reserve(message);
+    const isRefused = !reservation.accepted;
+    if (isRefused) {
+      return Promise.reject(remoteError(reservation.error.code, reservation.error.message));
     }
+    opCounter += 1;
     return new Promise<unknown>((resolve, reject) => {
-      const id = `rop-${++opCounter}`;
       const timer = setTimeout(() => {
         const isPending = pending.has(id);
         if (isPending) {
@@ -343,7 +348,7 @@ export function createRemoteSandboxCore(
       pending.set(id, { resolve, reject, timer });
       updateLoopHold();
       try {
-        send({ type: 'worker-op', id, op: payload });
+        send(message);
       } catch (err) {
         clearTimeout(timer);
         pending.delete(id);
@@ -356,7 +361,7 @@ export function createRemoteSandboxCore(
           ),
         );
       }
-    });
+    }).finally(reservation.release);
   }
 
   function subscribe(
