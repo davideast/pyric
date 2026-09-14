@@ -234,9 +234,11 @@ describe('the Listeners view', () => {
     page.chip.dispose();
   });
 
-  it('offers a Show all toggle and Flow and Theme actions with nothing pressed initially', () => {
+  it('keeps display controls in the footer and the activity list first', () => {
     const page = setup({ rememberedPaintMode: 'flow', react: true });
-    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.textContent)).toEqual(['Theme']);
+    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Overview', 'Flow', 'Highlight settings']);
+    expect(page.root.querySelector('.view [data-listener-mode]')).toBeNull();
+    expect(page.root.querySelector('.view [data-flow-treatment]')).toBeNull();
     expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
     expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('false');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
@@ -294,7 +296,7 @@ describe('the Listeners view', () => {
     expect(bar(page.root, 'flow').disabled).toBe(false);
     bar(page.root, 'flow').click();
     expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('true');
-    expect(page.root.querySelector('.view')!.textContent).toContain('Waiting for the next delivery');
+    expect(page.root.querySelector('.view [data-listener-row]')).not.toBeNull();
     page.flowDelivery('L1');
     expect(page.root.querySelector('.view')!.textContent).not.toContain('Waiting for the next delivery');
   });

@@ -100,3 +100,23 @@ for (const runtime of ['inpage', 'worker']) {
 
   });
 }
+
+test('Listeners puts activity before a fixed compact display toolbar', async ({ page }) => {
+  for (const width of [1100, 360]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(`${server.url}/?runtime=inpage`);
+    await page.getByRole('tab', { name: 'Listeners' }).click();
+    await page.locator('[data-read=document]').click();
+    await expect(page.locator('[data-listener-row]')).toHaveCount(1);
+    const toolbar = page.locator('[data-action-bar]');
+    await expect(toolbar.locator('[data-listener-mode=flow]')).toBeVisible();
+    await expect(toolbar.locator('[data-flow-treatment]')).toBeVisible();
+    await expect(toolbar.getByRole('button', { name: 'Highlight settings' })).toBeVisible();
+    await expect(page.locator('[data-chip-view=listeners] [data-flow-treatment]')).toHaveCount(0);
+    const row = await page.locator('[data-listener-row]').boundingBox();
+    const bar = await toolbar.boundingBox();
+    expect(row!.y + row!.height).toBeLessThan(bar!.y);
+    expect(await toolbar.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.screenshot({ path: `/tmp/chip-list-layout-${width}.png` });
+  }
+});
