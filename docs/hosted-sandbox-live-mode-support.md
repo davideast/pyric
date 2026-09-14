@@ -224,8 +224,11 @@ arguments retain the requested URI and parsed template variables. Admission
 refuses oversized calls and operation 257 before execution, releasing
 reservations after success or failure. Real stdio checks cover shared count
 admission and repeated resource-read cleanup; the SDK separately rejects
-resource URIs above one million characters. Complete active-work shutdown
-and aggregate byte-boundary verification remain open. SDK request cancellation or session deletion
+resource URIs above one million characters. Aggregate stdio characterization
+accepts exactly 24 MiB, refuses the next byte and verifies partial/full refill
+after success or failure, including resource refusal while tools occupy the
+allowance. Complete active-work shutdown and downstream host execution
+admission remain open. SDK request cancellation or session deletion
 settles forwarded bridge calls and clears their correlation timers. Cancellation
 does not imply rollback of an already dispatched mutation. Native SharedWorker
 ports now enforce the same operation count per logical client, preserving

@@ -7,13 +7,19 @@ export function writeHeldStorageReadPreload(preload: string, failsFirstReads: bo
     let holding = true;
     let failsReads = ${failsFirstReads};
     const held = [];
+    const release = request => {
+      if (failsReads) request.reject(new Error('Controlled binary read failure'));
+      else request.resolve();
+    };
+    process.on('SIGUSR1', () => {
+      const request = held.shift();
+      const hasRequest = request !== undefined;
+      if (hasRequest) release(request);
+    });
     process.on('SIGUSR2', () => {
       holding = !holding;
       if (holding) { process.stderr.write('ARMED\\n'); return; }
-      for (const request of held.splice(0)) {
-        if (failsReads) request.reject(new Error('Controlled binary read failure'));
-        else request.resolve();
-      }
+      for (const request of held.splice(0)) release(request);
       failsReads = false;
     });
     Blob.prototype.arrayBuffer = async function () {
