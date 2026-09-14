@@ -121,6 +121,16 @@ Open [the in-page sandbox](http://localhost:5198/?runtime=inpage) or [the Shared
 
 The chip records each read separately and each listener registration separately. Successful reads count once even if the value is unchanged. Completed records remain visible for up to 30 seconds; after the render-correlation window, the oldest terminal records are evicted when more than 100 are retained. Active registrations remain until stopped. Flow describes an observed render after delivery, not proven data lineage. Keep Flow enabled while exercising the example to observe commits.
 
+### Check a query's local index configuration
+
+In either SDK runtime, choose **Read sorted projects** to read draft projects ordered by budget. Open the chip's **Data** tab and select the `projects` query; its index details also appear in the matching **Traffic** request.
+
+The example's `firebase.json` points to `firestore.indexes.json`, initially containing no composite indexes. The query shows **Missing from config**. The proposed fields appear automatically, with an optional **JSON definition** and a copy icon beside the definition. Choose **Add index** in the fixed footer to append the index to that local file. The status becomes **Configured**. Opening details never writes a file. If the file changes before saving, the chip refreshes the proposal and asks you to review it before adding.
+
+The same flow in a supported local host uses the project-relative `firestore.indexes` path in its `firebase.json`. A standalone page without that connection shows **Check unavailable** and offers the definition’s copy icon when the query has a supported composite definition. Copying does not write a file.
+
+These findings compare captured query fields with local configuration; they do not contact Firebase, deploy indexes, or prove a deployed index is ready. Analysis supports equality filters, sorting, and bounded range or array queries. OR, `in`, `not-in`, `!=`, `array-contains-any`, multiple range fields, combined range/array filters, document-ID queries, and escaped field paths remain unavailable. Single-field exemptions and unsupported shapes require review rather than an automatic composite addition.
+
 Run the actual SDK browser checks from the repository root:
 
 ```sh

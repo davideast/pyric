@@ -3,11 +3,13 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createIndexConfigStore } from '../../packages/cli/src/serve/index-config-store.ts';
+import { createPyricNamespace } from '../../packages/cli/src/serve/namespace.ts';
 
 const { build } = createRequire(new URL('../../packages/cli/package.json', import.meta.url))('esbuild') as typeof import('esbuild');
 
 /** Real SDK example: independent in-page and SharedWorker execution paths. */
-export async function startSdkFlowServer(port = 0) {
+export async function startSdkFlowServer(port = 0, projectDir?: string) {
   const here = fileURLToPath(new URL('.', import.meta.url));
   const resolve = createRequire(new URL('../../packages/studio/package.json', import.meta.url));
   const outdir = join(tmpdir(), 'sdk-flow-example');
@@ -22,8 +24,11 @@ export async function startSdkFlowServer(port = 0) {
   const worker = await build({ entryPoints: [join(here, 'sdk-worker.ts')], bundle: true, platform: 'browser', format: 'iife', target: 'es2022', write: false });
   const assets = new Map(result.outputFiles.map(file => [file.path.slice(outdir.length), file.text]));
   assets.set('/sdk-worker.js', worker.outputFiles[0]!.text);
-  const server = createServer((req, res) => {
-    const path = new URL(req.url!, 'http://localhost').pathname;
+  const namespace = createPyricNamespace({ sdkDir: outdir, indexes: createIndexConfigStore(projectDir ?? here), initPayload: () => ({ rules: null, rulesHash: null, storageRules: null, storageRulesHash: null, bridgeUrl: null, seed: null }) });
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url!, 'http://localhost');
+    const path = url.pathname;
+    if (path === '/__pyric/indexes' || path === '/__pyric/init.json') { await namespace(req, res, url); return; }
     if (assets.has(path)) { res.setHeader('Content-Type', 'text/javascript'); res.end(assets.get(path)); return; }
     if (path === '/__pyric/flow/manifest.json') { res.setHeader('Content-Type', 'application/json'); res.end('{"treatments":[]}'); return; }
     res.setHeader('Content-Type', 'text/html');

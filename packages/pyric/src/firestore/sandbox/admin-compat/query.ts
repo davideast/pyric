@@ -1,3 +1,4 @@
+import { captureIndexQuery } from '../../../rules/indexes/query-analysis.js';
 /** Admin-compatible query builders and snapshot shaping.
  * Candidate gathering, rule enforcement, and execution live behind
  * `LocalEnvironment.runQuery`; this adapter only builds immutable plan
@@ -273,6 +274,7 @@ export class QueryImpl implements Query {
       target: scope.kind === 'collection' ? scope.path : scope.collectionId,
       key: activityStructuralIdentity({ scope, query: this.activityQuery() }),
       isQuery: true,
+      indexQuery: captureIndexQuery(scope.kind === 'collection' ? scope.path : scope.collectionId, scope.kind === 'collection-group', this.clauses, this.orders),
     };
   }
 

@@ -24,6 +24,7 @@ let denied: () => Promise<unknown>;
 let deniedWrite: () => Promise<unknown>;
 let readProject: (path: string) => Promise<unknown>;
 let updateProject: (path: string, value: ProjectDocument) => Promise<unknown>;
+let readIndexedProjects: () => Promise<unknown[]>;
 let version = 0;
 if (kind === 'worker') {
   const sdk = await import('../../packages/cli/src/serve/worker/client.ts');
@@ -39,6 +40,7 @@ if (kind === 'worker') {
   };
   readProject = path => asAlice(async () => (await sdk.getDoc(sdk.doc(db, path))).data());
   updateProject = (path, value) => asAlice(() => sdk.setDoc(sdk.doc(db, path), { ...value }));
+  readIndexedProjects = () => asAlice(async () => (await sdk.getDocs(sdk.query(sdk.collection(db, 'projects'), sdk.where('status', '==', 'draft'), sdk.orderBy('budget', 'desc')))).docs.map(doc => doc.data()));
   const document = sdk.doc(db, 'messages/current');
   const node = database.rtdbRef(database.rtdbGetDatabase(db), 'messages/current');
   readDocument = async () => (await sdk.getDoc(document)).data();
@@ -64,6 +66,7 @@ if (kind === 'worker') {
   const signedInDb = sdk.getFirestore(sandbox.withAuth(securityIdentity));
   readProject = async path => (await sdk.getDoc(sdk.doc(signedInDb, path))).data();
   updateProject = (path, value) => sdk.setDoc(sdk.doc(signedInDb, path), { ...value });
+  readIndexedProjects = async () => (await sdk.getDocs(sdk.query(sdk.collection(signedInDb, 'projects'), sdk.where('status', '==', 'draft'), sdk.orderBy('budget', 'desc')))).docs.map(doc => doc.data());
   const document = sdk.doc(db, 'messages/current');
   const node = database.ref(rtdb, 'messages/current');
   readDocument = async () => (await sdk.getDoc(document)).data();
@@ -115,7 +118,16 @@ function DataPanel() {
     h('article', { 'data-result': '' }, result),
   );
 }
-createRoot(document.querySelector('#app')!).render(h(React.Fragment, null, h(DataPanel), h(SecurityLab)));
+createRoot(document.querySelector('#app')!).render(h(React.Fragment, null, h(DataPanel), h(IndexLab), h(SecurityLab)));
+
+function IndexLab() {
+  const [projects, setProjects] = React.useState<unknown[]>([]);
+  return h('section', { 'data-component': 'IndexLab' },
+    h('h2', null, 'Draft projects by budget'),
+    h('button', { 'data-index-read': '', onClick: async () => setProjects(await readIndexedProjects()) }, 'Read sorted projects'),
+    h('article', { 'data-index-results': '' }, projects.length ? `${projects.length} draft projects` : 'No query run yet'),
+  );
+}
 
 function SecurityLab() {
   const [scenarioId, setScenarioId] = React.useState('ownership');

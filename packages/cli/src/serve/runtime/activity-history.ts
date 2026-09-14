@@ -13,6 +13,7 @@ export interface ActivityHistoryEntry {
   readonly method: string;
   readonly kind: SdkActivityRecord['kind'];
   readonly status: SdkActivityRecord['status'];
+  readonly indexQuery?: SdkActivityRecord['indexQuery'];
   readonly subscriptionNumber?: number;
   readonly commitId?: number;
   readonly deliverySequences?: readonly number[];
@@ -94,6 +95,7 @@ export function createActivityHistory(options: ActivityHistoryOptions = {}): Act
       method: record.method,
       kind: record.kind,
       status: record.status,
+      ...(record.indexQuery ? { indexQuery: record.indexQuery } : {}),
       subscriptionNumber: subscriptionNumbers.get(record.id),
       ...(input.phase === 'render' ? { commitId: input.commitId, deliverySequences: Object.freeze([...input.deliverySequences]) } : {}),
     });

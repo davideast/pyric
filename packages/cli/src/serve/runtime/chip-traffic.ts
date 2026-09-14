@@ -15,6 +15,7 @@
  */
 import type { SandboxEvent, RulesDisposition } from 'pyric/sandbox';
 import { toOperationRecord } from 'pyric/sandbox';
+import { captureIndexQuery, type IndexQuery } from 'pyric/sandbox/internal';
 
 /** One line of the Traffic view. */
 export interface ChipRequest {
@@ -40,6 +41,7 @@ export interface ChipRequest {
   rulesEvidence?: Extract<SandboxEvent, { kind: 'request' }>['rulesEvidence'];
   rules?: RulesDisposition;
   evidenceExpired?: boolean;
+  indexQuery?: IndexQuery;
 }
 
 /** Identity context for a denied request. */
@@ -93,6 +95,12 @@ export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
       request.rulesEvidence = structuredClone(event.rulesEvidence);
     }
     if (event.kind === 'request' && event.rulesEvidenceExpired) request.evidenceExpired = true;
+    if (event.kind === 'request' && event.method === 'list') {
+      const diagnostic = event.detail?.activityQuery as { scope?: { kind?: string }; filters?: unknown[]; orderBy?: unknown[] } | undefined;
+      if (diagnostic && Array.isArray(diagnostic.filters) && Array.isArray(diagnostic.orderBy)) {
+        request.indexQuery = captureIndexQuery(event.path, diagnostic.scope?.kind === 'collection-group', diagnostic.filters, diagnostic.orderBy);
+      }
+    }
     return request;
   }
   if (event.kind === 'listener' && event.phase === 'attach') {

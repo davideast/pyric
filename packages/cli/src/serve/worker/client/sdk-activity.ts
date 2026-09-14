@@ -1,4 +1,4 @@
-import { sdkActivity, type SdkActivityHandle, type SdkActivityRecord } from 'pyric/sandbox/internal';
+import { captureIndexQuery, sdkActivity, type SdkActivityHandle, type SdkActivityRecord } from 'pyric/sandbox/internal';
 import { activityValue, activityStructuralIdentity } from 'pyric/firestore/internal';
 import { queryIdentifier } from 'pyric/database/internal';
 import type { ListenerOwner } from 'pyric/sandbox';
@@ -25,10 +25,12 @@ export function beginWorkerFirestoreActivity(
   const descriptor = target.descriptor;
   const base = descriptor.__ref === 'query' ? descriptor.source : descriptor;
   const path = base.__ref === 'group' ? base.collectionId : base.path;
+  const constraints = descriptor.__ref === 'query' ? descriptor.constraints : [];
   return sdkActivity.begin({
     app: target.port, method, kind, owners,
     source: {
       service: 'firestore', target: path, isQuery: descriptor.__ref !== 'doc',
+      ...(descriptor.__ref === 'doc' ? {} : { indexQuery: captureIndexQuery(path, base.__ref === 'group', constraints.filter(item => ['where', 'and', 'or'].includes(item.kind)), constraints.filter(item => item.kind === 'orderBy').map(item => ({ ...item, direction: item.direction ?? 'asc' }))) }),
       key: activityStructuralIdentity({ base, constraints: descriptor.__ref === 'query' ? descriptor.constraints.map(constraint) : [] }),
     },
   });

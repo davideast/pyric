@@ -56,3 +56,24 @@ it('counts public worker reads and callbacks once while isolating independent ap
     globalThis.SharedWorker = previous;
   }
 });
+
+
+it('carries index descriptors through worker query listener lifecycle without operands', async () => {
+  const previous = globalThis.SharedWorker;
+  const ctx = await makeHostCtx();
+  setRules(ctx.sandbox, 'rules_version = "2"; service cloud.firestore { match /databases/{db}/documents { match /projects/{id} { allow read: if true; } } }');
+  const { db } = connectClientToHost(ctx, 'worker://index-query');
+  const events: SdkActivityEvent[] = [];
+  const stopRecording = sdkActivity.subscribe(event => events.push(event));
+  let stopListener = () => {};
+  try {
+    await new Promise<void>((resolve, reject) => {
+      stopListener = client.onSnapshot(client.query(client.collection(db, 'projects'), client.where('status', '==', 'private-draft-value'), client.orderBy('budget', 'desc')), () => resolve(), reject);
+    });
+    stopListener();
+    const subscription = events.filter(event => event.record.kind === 'subscription');
+    expect(subscription.map(event => event.phase)).toEqual(['start', 'transport', 'delivery', 'end']);
+    for (const event of subscription) expect(event.record.indexQuery).toEqual({ collectionGroup: 'projects', queryScope: 'COLLECTION', filters: [{ field: 'status', op: '==' }], orders: [{ field: 'budget', direction: 'desc' }] });
+    expect(JSON.stringify(subscription.map(event => event.record.indexQuery))).not.toContain('private-draft-value');
+  } finally { stopListener(); stopRecording(); globalThis.SharedWorker = previous; }
+});

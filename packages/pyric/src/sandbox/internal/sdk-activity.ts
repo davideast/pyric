@@ -1,4 +1,5 @@
 import type { ListenerOwner } from '../types/events.js';
+import type { IndexQuery } from '../../rules/indexes/query-analysis.js';
 
 /** Page-side SDK evidence. Transport messages are deliberately not deliveries. */
 export interface SdkActivitySource {
@@ -7,6 +8,7 @@ export interface SdkActivitySource {
   /** Canonical adapter descriptor, used only for identity, never exposed in records. */
   readonly key: string;
   readonly isQuery?: boolean;
+  readonly indexQuery?: IndexQuery;
 }
 
 export interface SdkActivityRecord {
@@ -16,6 +18,7 @@ export interface SdkActivityRecord {
   readonly service: SdkActivitySource['service'];
   readonly target: string;
   readonly isQuery: boolean;
+  readonly indexQuery?: IndexQuery;
   readonly method: string;
   readonly kind: 'operation' | 'subscription';
   readonly status: 'pending' | 'active' | 'completed' | 'failed' | 'closed';
@@ -155,6 +158,7 @@ export function createSdkActivityJournal(options: {
         id, appId: app.id, sourceId: source.id,
         service: input.source.service, target: input.source.target,
         isQuery: input.source.isQuery ?? false,
+        ...(input.source.indexQuery ? { indexQuery: structuredClone(input.source.indexQuery) } : {}),
         method: input.method, kind: input.kind,
         status: input.kind === 'operation' ? 'pending' : 'active',
         startedAt: now(), deliveryCount: 0,

@@ -20,6 +20,7 @@ import { basename, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { collectBody } from '../bridge/server/peer.js';
+import { handleIndexConfig } from './index-config-route.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
@@ -93,6 +94,7 @@ export function createEventHub(): ServeEventHub {
 }
 
 export interface NamespaceOptions {
+  indexes?: import('./index-config-store.js').IndexConfigStore;
   /** The bundle output dir (`BundleResult.outDir`). */
   sdkDir: string;
   /** Producer for `/__pyric/init.json` — a function so hot-reload serves
@@ -457,6 +459,14 @@ export function createPyricNamespace(opts: NamespaceOptions) {
   // init.json before this capability is disclosed to the served runtime.
   const activityToken = opts.activity ? randomBytes(24).toString('base64url') : undefined;
   return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
+    if (opts.indexes && url.pathname === '/__pyric/indexes') {
+      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) return true;
+      if (!isAllowedSessionToken(req, url, sessionToken)) {
+        res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }));
+        return true;
+      }
+      return handleIndexConfig(opts.indexes, req, res);
+    }
     if (
       studioRoutes &&
       (url.pathname.startsWith('/__pyric/workspace') ||
