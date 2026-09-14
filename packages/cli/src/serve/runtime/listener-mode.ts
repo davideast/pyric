@@ -1,3 +1,5 @@
+import { activityDisplayTarget, createActivityHistory, type ActivityHistory } from './activity-history.js';
+import type { FlowPaint } from './listener-flow-painter.js';
 import { createTreatmentController } from './flow-treatments/controller.js';
 import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatments/types.js';
 /**
@@ -92,6 +94,11 @@ export interface ListenerModeOptions {
 }
 
 export interface ListenerMode {
+  history?: ActivityHistory;
+  inspectHistory?(sequence: number | null): boolean;
+  clearActivityHistory?(): void;
+  selectedActivity?(): string | null;
+  inspectionVersion?(): number;
   clearTreatmentHistory?(): void;
   treatmentState?(): FlowTreatmentState;
   setTreatment?(id: string): Promise<void>;
@@ -186,6 +193,20 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   /** Listeners the developer switched off. Page session only, never stored. */
   const hidden = new Set<string>();
   const observed = new Set<string>();
+  const history = createActivityHistory();
+  const regions = new Map<number, { paint: Omit<FlowPaint, 'subtree'>; nodes: { element: WeakRef<Element>; name: string; depth: number; kind: 'component' | 'host' }[] }>();
+  let selectedActivityId: string | null = null;
+  let inspectionVersion = 0;
+  let highlightedHistory: { sequence: number; listenerId: string } | null = null;
+  const clearHistoryHighlight = () => {
+    if (highlightedHistory) flow?.clearListener(highlightedHistory.listenerId);
+    highlightedHistory = null;
+  };
+  const pruneRegions = () => {
+    const retained = new Set(history.snapshot().entries.map(entry => entry.sequence));
+    for (const id of regions.keys()) if (!retained.has(id)) regions.delete(id);
+    if (highlightedHistory && !retained.has(highlightedHistory.sequence)) clearHistoryHighlight();
+  };
   const treatments = createTreatmentController({
     document: documentLike, manifest: options.treatments, storage: options.treatmentStorage,
     onChange: () => options.onChange?.(current),
@@ -199,15 +220,10 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   const visibleOutlines = (): readonly ListenerOutline[] =>
     current.filter((outline) => !hidden.has(outline.listenerId));
 
-  const openStudio = (outline: ListenerOutline): void => {
-    const studioUrl = options.studioUrl;
-    if (studioUrl === null || studioUrl === undefined) return;
-    const url = studioListenerUrl(studioUrl, outline);
-    if (options.openStudio) {
-      options.openStudio(url);
-      return;
-    }
-    documentLike.defaultView?.open(url, '_blank', 'noopener');
+  const inspect = (outline: ListenerOutline): void => {
+    selectedActivityId = outline.listenerId;
+    inspectionVersion++;
+    options.onChange?.(current);
   };
 
   const paint = (): void => {
@@ -259,6 +275,18 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       recentDeliveries: () => visibleOutlines()
         .filter((outline) => outline.lastDeliveryAt !== undefined && (!outline.activity || outline.observedRender))
         .map((outline) => ({ listenerId: outline.listenerId, at: outline.lastDeliveryAt! })),
+      onObserved: (paint, commitId) => {
+        const record = current.find(outline => outline.listenerId === paint.listenerId)?.activity;
+        if (!record) return;
+        const entry = history.rendered(record, commitId, options.flow?.windowMs);
+        const { subtree, ...metadata } = paint;
+        regions.set(entry.sequence, { paint: { ...metadata, target: activityDisplayTarget(metadata.target) }, nodes: subtree.components.slice(0, 100).map(node => ({
+          element: new WeakRef(node.element), name: node.name, depth: node.depth, kind: node.kind,
+        })) });
+        observed.add(paint.listenerId);
+        pruneRegions();
+        recompute();
+      },
       onPaint: (id) => {
         observed.add(id);
         flowPainted = true;
@@ -290,7 +318,14 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     events.push(...batch);
     recompute();
   });
-  const stopActivity = activity.subscribe(() => recompute());
+  const stopActivity = activity.subscribe(event => {
+    history.record(event);
+    pruneRegions();
+    recompute();
+  });
+  // Refresh the explicitly named rolling window even on idle pages.
+  const historyClock = setInterval(() => options.onChange?.(current), 1000);
+  if (typeof historyClock === 'object' && 'unref' in historyClock) historyClock.unref();
   recompute();
 
   const hidePainting = (): void => {
@@ -302,7 +337,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   const showPainting = (): void => {
     overlay = createListenerOverlay({
       document: documentLike,
-      onSelect: openStudio,
+      onSelect: inspect,
       theme: effectiveTheme(),
       mode: paintMode,
     });
@@ -319,8 +354,47 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     overlay?.setTheme(effectiveTheme());
   };
   view?.addEventListener('storage', onStorage);
+  // Opt-in modifier leaves ordinary app interactions untouched. The chip's
+  // rows and Overview badges provide the equivalent keyboard interaction.
+  const inspectRegion = (event: MouseEvent) => {
+    if (!event.altKey) return;
+    const target = event.target as Node | null;
+    if (!target) return;
+    const match = [...regions.values()].reverse().find(region => region.nodes.some(node => {
+      const element = node.element.deref();
+      return element?.isConnected && element.contains(target);
+    }));
+    if (!match) return;
+    selectedActivityId = match.paint.listenerId;
+    inspectionVersion++;
+    options.onChange?.(current);
+  };
+  documentLike.addEventListener('click', inspectRegion, true);
 
   return {
+    history,
+    selectedActivity: () => selectedActivityId,
+    inspectionVersion: () => inspectionVersion,
+    clearActivityHistory() { clearHistoryHighlight(); history.clear(); regions.clear(); options.onChange?.(current); },
+    inspectHistory(sequence) {
+      clearHistoryHighlight();
+      if (sequence === null) return false;
+      const retained = regions.get(sequence);
+      if (!retained) return false;
+      const components = retained.nodes.flatMap(node => {
+        const element = node.element.deref();
+        return element?.isConnected ? [{ ...node, element }] : [];
+      });
+      if (!components.length) return false;
+      if (!readAttribution() || !flowAvailable()) return false;
+      if (!overlay) showPainting();
+      if (paintMode !== 'flow') {
+        paintMode = 'flow'; overlay!.setMode('flow'); paint(); startFlow();
+      }
+      highlightedHistory = { sequence, listenerId: retained.paint.listenerId };
+      flow?.highlight({ ...retained.paint, subtree: { components, root: components[0], leaves: components } });
+      return true;
+    },
     clearTreatmentHistory: treatments.clear,
     treatmentState: treatments.state,
     setTreatment: treatments.select,
@@ -387,7 +461,11 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       overlay?.setTheme(effectiveTheme());
     },
     dispose() {
+      clearInterval(historyClock);
+      history.clear();
+      regions.clear();
       treatments.dispose();
+      documentLike.removeEventListener('click', inspectRegion, true);
       view?.removeEventListener('storage', onStorage);
       hidePainting();
       unsubscribe?.();

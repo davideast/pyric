@@ -120,3 +120,45 @@ test('Listeners puts activity before a fixed compact display toolbar', async ({ 
     await page.screenshot({ path: `/tmp/chip-list-layout-${width}.png` });
   }
 });
+
+for (const runtime of ['inpage', 'worker']) {
+  test(`${runtime}: recent history explains repeated reads and clearing preserves subscriptions`, async ({ page }) => {
+    await page.setViewportSize({ width: 1100, height: 850 });
+    await page.goto(`${server.url}/?runtime=${runtime}`);
+    await page.getByRole('tab', { name: 'Listeners' }).click();
+    for (let i = 0; i < 3; i++) await page.locator('[data-read=document]').click();
+    await expect(page.locator('[data-listener-row]')).toHaveCount(3);
+    await page.locator('[data-listener-row]').first().click();
+    await expect(page.locator('[data-activity-detail]')).toContainText('3 calls, 3 deliveries, 3 associated commits');
+    await expect(page.locator('[data-activity-detail]')).toContainText('not proof of data ownership');
+    await expect(page.locator('[data-activity-history]')).toBeVisible();
+    const renders = page.locator('[data-history-entry]').filter({ hasText: 'Rendered after' });
+    await renders.first().click();
+    await expect(page.getByRole('status').filter({ hasText: 'Highlighting' })).toContainText('Highlighting the surviving region');
+    await page.locator('[data-flow-treatment]').selectOption('scan');
+    await expect(page.locator('[data-activity-detail]').first()).toContainText('3 associated commits');
+    await page.screenshot({ path: `/tmp/activity-history-${runtime}-desktop.png` });
+    await page.setViewportSize({ width: 360, height: 800 });
+    await renders.first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `/tmp/activity-history-${runtime}-mobile-detail.png` });
+    const next = page.locator('[data-history-page]').filter({ hasText: 'Next' });
+    await next.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `/tmp/activity-history-${runtime}-mobile-pagination.png` });
+    expect(await page.locator('[data-chip-view=listeners]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await next.click();
+    await expect(page.locator('[data-history-entry]')).toHaveCount(2);
+    await page.setViewportSize({ width: 1100, height: 850 });
+    // Clear affects the diagnostic history only, including while a listener is live.
+    await page.locator('[data-listen]').click();
+    await page.locator('[data-clear-activity-history]').click();
+    await expect(page.locator('[data-history-entry]')).toHaveCount(0);
+    await expect(page.locator('[data-listener-row]').filter({ hasText: '/ active' })).toHaveCount(2);
+    await page.locator('[data-listener-all]').click();
+    await page.locator('[data-listener-mode=flow]').click();
+    await page.locator('[data-write]').click();
+    await expect(page.locator('[data-history-entry]').filter({ hasText: 'Delivered' })).toHaveCount(2);
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.screenshot({ path: `/tmp/activity-history-${runtime}-mobile.png` });
+    expect(await page.locator('[data-action-bar]').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  });
+}

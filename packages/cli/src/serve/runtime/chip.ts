@@ -1,3 +1,4 @@
+import { activityDisplayTarget, type ActivityHistoryEntry } from './activity-history.js';
 /**
  * A compact inspector for the app's identity, listeners, traffic, and sandbox.
  * Header, tabs, scroll viewport, and action bar share one fixed panel frame.
@@ -272,6 +273,13 @@ const styles = `
   .traffic-row[aria-expanded="true"] .c2 { white-space: normal; overflow-wrap: anywhere; }
   [data-chip-view="sandbox"] .s1 { white-space: normal; overflow-wrap: anywhere; }
   .traffic-row .slot { grid-column: 3; grid-row: 1; align-self: start; }
+  .activity-detail { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--record-inset); border-top: 1px solid var(--pyric-border-soft); }
+  .activity-detail-content { grid-column: 2; grid-row: 2; display: grid; gap: var(--space-2); font-size: 11px; }
+  .activity-path { overflow-wrap: anywhere; }
+  .history-context { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--record-inset); }
+  .history-context > * { grid-column: 2; }
+  .history-pagination { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+  .history-row .s2 { grid-column: 1 / -1; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
   .listener-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: var(--space-2); width: 100%; min-width: 0; }
   .paint-switch { display: grid; grid-template-columns: repeat(2, 64px); gap: 4px; }
   .paint-switch .btn { width: 64px; min-width: 0; font-size: 11px; }
@@ -559,6 +567,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let outlinesRefused: string | null = null;
   /** Whether the last rendered panel carried the Flow waiting fact. */
   let renderedFlowWaiting = false;
+  let renderedHistoryState = '';
+  let inspectedFromPage = 0;
   let renderedTreatmentState = '';
   const ensureListenerMode = (): ListenerMode | null => {
     if (listenerMode !== null) return listenerMode;
@@ -571,7 +581,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       // it is what takes the waiting fact away.
       const waiting = listenerMode?.flowWaiting() === true;
       const treatmentState = JSON.stringify(listenerMode?.treatmentState?.());
-      if (sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting && treatmentState === renderedTreatmentState) return;
+      const historyState = JSON.stringify([listenerMode?.history?.snapshot(), listenerMode?.history?.counts()]);
+      const inspected = listenerMode?.selectedActivity?.() ?? null;
+      const inspectionVersion = listenerMode?.inspectionVersion?.() ?? 0;
+      const inspectionChanged = inspectionVersion !== inspectedFromPage;
+      if (inspectionChanged) {
+        inspectedFromPage = inspectionVersion;
+        if (inspected) { activeListenerId = inspected; tab = 'listeners'; open = true; }
+      }
+      if (historyState === renderedHistoryState && !inspectionChanged && sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting && treatmentState === renderedTreatmentState) return;
+      renderedHistoryState = historyState;
       renderedTreatmentState = treatmentState;
       renderedFlowWaiting = waiting;
       listenerOutlines = outlines;
@@ -672,6 +691,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   /** The listener a row click singled out on the page, if any. */
   let activeListenerId: string | null = null;
+  let selectedHistory: number | null = null;
+  let historyPage = 0;
+  let historyMessage = '';
+
 
   /** The pending worker update as the first tab's first row, while it lasts. */
   const updateRowHtml = (): string => {
@@ -754,6 +777,60 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     };
   };
 
+  const activityDetailHtml = (id: string, event?: ActivityHistoryEntry): string => {
+    const history = listenerMode?.history;
+    const entries = history?.snapshot().entries.filter(entry => entry.activityId === id) ?? [];
+    const latest = entries.at(-1);
+    const record = listenerOutlines.find(outline => outline.listenerId === id)?.activity;
+    if (!latest && !record) return '';
+    const source = latest ?? record!;
+    const counts = history?.counts(source.sourceId);
+    const association = event ? history?.association(event.sequence) : undefined;
+    const commits = entries.filter(entry => entry.phase === 'render' && (!event || entry.sequence === association?.sequence));
+    const commitIds = new Set(commits.map(entry => entry.commitId));
+    const candidates = history?.snapshot().entries.filter(entry => entry.phase === 'render' && commitIds.has(entry.commitId) && entry.activityId !== id) ?? [];
+    const unique = [...new Map(candidates.map(entry => [entry.activityId, entry])).values()];
+    return `<div class="activity-detail" data-activity-detail="${escapeAttribute(id)}"><div class="activity-detail-content">
+      <span class="mono activity-path">${escapeAttribute(activityDisplayTarget(source.target))}</span>
+      <span>${escapeAttribute(source.service === 'database' ? 'Realtime Database' : 'Firestore')} / ${escapeAttribute(source.method)} / ${escapeAttribute(source.kind === 'subscription' ? 'Subscription' : 'One-shot read')}</span>
+      <span>${escapeAttribute(record?.status ?? latest?.status ?? '')} / ${escapeAttribute(source.appId)}</span>
+      ${counts ? `<span class="hint">${counts.partial ? 'Retained events in' : 'Observed in'} last 30 seconds: ${counts.calls} calls, ${counts.deliveries} deliveries, ${counts.commits} associated commits for this source.</span>` : ''}
+      <span class="hint">${commits.length ? 'Rendered after delivery. This is a timing association, not proof of data ownership.' : 'No associated visual update. Render observation runs while Flow is on.'}</span>
+      ${unique.length ? `<span class="hint">Other candidates in the same commit:</span>${unique.map(entry => `<span class="mono activity-path">${escapeAttribute(entry.method)} ${escapeAttribute(entry.target)} (${escapeAttribute(entry.activityId)})</span>`).join('')}` : ''}
+    </div></div>`;
+  };
+  const historyHtml = (): string => {
+    const history = listenerMode?.history;
+    if (!history) return '';
+    const snapshot = history.snapshot();
+    const sourceId = listenerOutlines.find(outline => outline.listenerId === activeListenerId)?.activity?.sourceId;
+    const entries = snapshot.entries.filter(entry => !sourceId || entry.sourceId === sourceId).reverse();
+    historyPage = Math.min(historyPage, Math.max(0, Math.ceil(entries.length / 10) - 1));
+    const shown = entries.slice(historyPage * 10, historyPage * 10 + 10);
+    const counts = history.counts(sourceId);
+    const phaseLabel = (entry: ActivityHistoryEntry) => {
+      const names = { start: 'Called', delivery: 'Delivered', render: 'Rendered after', end: entry.status };
+      return names[entry.phase];
+    };
+    const rows = shown.map(entry => buttonRowHtml({
+      c1: `${escapeAttribute(entry.method)} / ${escapeAttribute(phaseLabel(entry))}`,
+      s1: `<span class="mono">${escapeAttribute(entry.target)}</span>`,
+      s2: `<span class="hint">${escapeAttribute(entry.activityId)}${entry.commitId === undefined ? '' : ` / commit ${entry.commitId}`}</span>`,
+      slot: `<span class="mono">${escapeAttribute(new Date(entry.at).toLocaleTimeString([], { hour12: false }))}</span>`,
+      className: 'history-row', attributes: `data-history-entry="${entry.sequence}"`,
+      label: `Inspect ${entry.method} ${phaseLabel(entry)} ${entry.target}`, expanded: selectedHistory === entry.sequence,
+    }) + (selectedHistory === entry.sequence ? activityDetailHtml(entry.activityId, entry) : '')).join('');
+    const inset = (html: string) => `<div class="history-context">${html}</div>`;
+    return sectionHtml(sourceId ? 'Recent for this source' : 'Recent activity', `
+      ${inset(`<span class="hint">${counts.partial ? 'Retained in' : 'Last'} 30 seconds: ${counts.calls} calls / ${counts.deliveries} deliveries / ${counts.commits} associated commits</span>`)}
+      <div class="rows" data-activity-history>${rows}</div>
+      ${!entries.length ? inset('<span class="hint">No events recorded since this view started or was cleared.</span>') : ''}
+      ${entries.length > 10 ? inset(`<div class="history-pagination">${buttonHtml(`data-history-page="${historyPage - 1}"${historyPage === 0 ? ' disabled' : ''}`, 'Previous')}<span class="hint">${historyPage * 10 + 1}–${Math.min(entries.length, historyPage * 10 + 10)} of ${entries.length} events</span>${buttonHtml(`data-history-page="${historyPage + 1}"${(historyPage + 1) * 10 >= entries.length ? ' disabled' : ''}`, 'Next')}</div>`) : ''}
+      ${inset(`<span class="hint">Alt-click a highlighted region to inspect its sources. Latest ${snapshot.limit} events since opening or clearing this view; reload resets history. ${snapshot.discarded ? `${snapshot.discarded} older events discarded; counts may be incomplete.` : ''} Clear history keeps subscriptions and their lifetime delivery counts.</span>`)}
+      ${historyMessage ? inset(`<span role="status" class="hint">${escapeAttribute(historyMessage)}</span>`) : ''}
+    `, '', buttonHtml('data-clear-activity-history', 'Clear', 'Clear recent activity history'));
+  };
+
   const listenersViewHtml = (): ChipView => {
     const outlinesOn = listenerMode?.enabled() === true;
     const paintMode: ListenerPaintMode = listenerMode?.mode() ?? paintModeBeforeBuild;
@@ -776,20 +853,21 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         pressed: activeListenerId === outline.listenerId,
       })),
       ...ordered.map((outline) => {
-        const target = displayTarget(outline);
+        const target = activityDisplayTarget(displayTarget(outline));
         const hue = listenerColors(outline.listenerId).swatch;
         return buttonRowHtml({
           c1: escapeAttribute(outline.labelIsOwner ? outline.label : target),
           s1: outline.labelIsOwner ? `<span class="mono">${escapeAttribute(target)}</span>` : escapeAttribute(outline.service === 'database' ? 'Realtime Database' : 'Firestore'),
           s2: outline.activity ? escapeAttribute(`${outline.activity.method} / ${outline.activity.status}${outline.observedRender ? ' / Rendered after delivery' : ' / No associated visual update'}`) : '',
           leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(hue)}"></span>`,
-          slot: `<span class="listener-fact"><strong>${outline.deliveryCount}</strong><span>${activeListenerId === outline.listenerId ? 'Highlighted' : 'deliveries'}</span></span>`,
+          slot: `<span class="listener-fact"><strong>${outline.deliveryCount}</strong><span>deliveries</span></span>`,
           className: 'listener-row',
-          title: `${target} — ${activeListenerId === outline.listenerId ? 'Click to show all listeners' : 'Click to highlight on the page'}`,
+          title: `${target} — Inspect activity and highlight on the page`,
           attributes: `data-listener-row="${escapeAttribute(outline.listenerId)}" data-activate-listener="${escapeAttribute(outline.listenerId)}"`,
           label: `Outline ${outline.labelIsOwner ? outline.label : target} on the page`,
           pressed: activeListenerId === outline.listenerId,
-        });
+          expanded: activeListenerId === outline.listenerId,
+        }) + (activeListenerId === outline.listenerId ? activityDetailHtml(outline.activity?.id ?? outline.listenerId) : '');
       }),
     ];
     const blocked = outlinesRefused;
@@ -803,7 +881,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const bar = barHtml([toolbar]);
     const guidance = blocked ?? flowReason;
     const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
-    return { body: `${sectionHtml(pluralize(listenerOutlines.length, 'activity', 'activities'), list, '', toggle)}${guidance ? `<span class="hint" data-flow-unavailable>${escapeAttribute(guidance)}</span>` : ''}`, bar };
+    return { body: `${sectionHtml(pluralize(listenerOutlines.length, 'activity', 'activities'), list, '', toggle)}${historyHtml()}${guidance ? `<span class="hint" data-flow-unavailable>${escapeAttribute(guidance)}</span>` : ''}`, bar };
 
   };
 
@@ -872,6 +950,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-create-user',
       'data-user-previous',
       'data-user-next',
+      'data-history-entry',
+      'data-history-page',
+      'data-clear-activity-history',
       'data-listener-all',
       'data-listener-mode',
       'data-flow-treatment',
@@ -1067,11 +1148,32 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     // A listener row singles its listener out on the page: the outlines come
     // on if they were off, and only that listener is painted until the row is
     // pressed again.
+    root.querySelector('[data-clear-activity-history]')?.addEventListener('click', () => {
+      selectedHistory = null; historyPage = 0; historyMessage = '';
+      listenerMode?.clearActivityHistory?.(); render();
+    });
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-history-page]')) {
+      button.addEventListener('click', () => { historyPage = Number(button.dataset.historyPage); render(); });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-history-entry]')) {
+      button.addEventListener('click', () => {
+        const sequence = Number(button.dataset.historyEntry);
+        selectedHistory = selectedHistory === sequence ? null : sequence;
+        const entry = listenerMode?.history?.snapshot().entries.find(entry => entry.sequence === sequence);
+        const associated = listenerMode?.history?.association(sequence);
+        const highlightSequence = selectedHistory === null ? null : associated?.sequence ?? null;
+        const highlighted = listenerMode?.inspectHistory?.(highlightSequence);
+        historyMessage = '';
+        if (selectedHistory !== null) historyMessage = highlighted ? 'Highlighting the surviving region observed after this delivery.' : 'No surviving observed region for this event.';
+        render();
+      });
+    }
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-activate-listener]')) {
       button.addEventListener('click', () => {
         const mode = ensureListenerMode();
         const listenerId = button.dataset.activateListener;
         if (mode === null || listenerId === undefined) return;
+        historyPage = 0; selectedHistory = null; historyMessage = '';
         activeListenerId = activeListenerId === listenerId ? null : listenerId;
         for (const outline of mode.outlines()) {
           mode.setListenerVisible(outline.listenerId, activeListenerId === null || outline.listenerId === activeListenerId);
@@ -1081,7 +1183,6 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
           mode.setEnabled(true);
         }
         if (!mode.enabled()) {
-          activeListenerId = null;
           outlinesRefused = 'Listener attribution is off in this build, so there are no owners to outline.';
         } else {
           outlinesRefused = null;
