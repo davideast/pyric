@@ -26,7 +26,7 @@ import {
 } from '../protocol.js';
 import { cliVersion } from '../../pkg-version.js';
 import type { WorkerSessionLease } from './worker-sessions.js';
-import { requestEnvelopeError } from './request-envelope.js';
+import { requestEnvelopeError, requestProtocolError } from './request-envelope.js';
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
@@ -57,13 +57,11 @@ export function attachPeer(
       ws.close(1002, 'Unrecognized bridge message envelope.');
       return;
     }
-    const isHandshake = msg.type === 'attach' || msg.type === 'hello';
-    if (isHandshake) {
-      const isUnsupportedProtocol = msg.protocol !== 1;
-      if (isUnsupportedProtocol) {
-        ws.close(1008, 'Unsupported bridge protocol. Expected version 1.');
-        return;
-      }
+    const protocolError = requestProtocolError(msg);
+    const hasProtocolError = protocolError !== undefined;
+    if (hasProtocolError) {
+      ws.close(1008, protocolError);
+      return;
     }
     const envelopeError = requestEnvelopeError(msg);
     const hasEnvelopeError = envelopeError !== undefined;

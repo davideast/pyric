@@ -196,3 +196,8 @@ The serve/Vite mount enforces the existing 12 MiB encoded-message contract befor
 ### Hardening item 8: standalone inbound message bounds
 
 The standalone CLI now applies the same 12 MiB encoded-message limit as the serve/Vite mount. The unchanged public-wire red/green fixture retains a healthy MCP-to-peer-to-SDK write and clean CLI exit. Final review passes 14 runtime cases (25.2s, Node 22.15.0), 25 regressions in five isolated files, strict types and three-file source form. The touched server function's casts and conditions were reviewed without introducing a resource owner. Standalone peer admission/schema validation, outbound/depth limits and broader lifecycle gates remain open; the existing idle test's health assertion does not establish resource disposal.
+
+
+### Hardening item 8: standalone protocol admission
+
+Standalone peer handshakes use the same version policy as mounted handshakes and discard buffered work after refusal begins. Original public CLI/MCP/SDK red/green evidence and eight invalid-version controls are retained. Final checks pass 18 runtime cases (32.2s, Node 22.15.0), 36 regressions in four files, strict types and four-file source form. This shares validation only; standalone consumer capabilities and connection ownership are unchanged. Other peer fields, outer JSON/envelopes, detailed payloads and outbound/depth limits remain open.

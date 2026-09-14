@@ -102,3 +102,12 @@ export function requestEnvelopeError(frame: BridgeMessage): string | undefined {
       return;
   }
 }
+
+/** Handshake versions share one admission policy across mounted and standalone bridges. */
+export function requestProtocolError(frame: BridgeMessage): string | undefined {
+  const isHandshake = frame.type === 'attach' || frame.type === 'hello';
+  if (isHandshake) {
+    const isUnsupportedProtocol = frame.protocol !== 1;
+    if (isUnsupportedProtocol) return 'Unsupported bridge protocol. Expected version 1.';
+  }
+}

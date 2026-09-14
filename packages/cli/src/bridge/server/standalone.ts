@@ -36,6 +36,7 @@ import {
   type BridgeMessage,
   isBridgeMessage,
 } from '../protocol.js';
+import { requestProtocolError } from './request-envelope.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from '../../serve/server.js';
 
@@ -334,15 +335,26 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
   let sandboxId: string | null = null;
 
   ws.on('message', (raw) => {
-    let msg: unknown;
+    const isClosingConnection = ws.readyState !== ws.OPEN;
+    if (isClosingConnection) return;
+    let parsed: unknown;
     try {
-      msg = JSON.parse(raw.toString());
+      parsed = JSON.parse(raw.toString());
     } catch {
       return; // ignore malformed
     }
-    if (!isBridgeMessage(msg)) return;
+    const msg = parsed;
+    const isUnknownMessage = !isBridgeMessage(msg);
+    if (isUnknownMessage) return;
 
-    if (msg.type === 'hello') {
+    const isHello = msg.type === 'hello';
+    if (isHello) {
+      const protocolError = requestProtocolError(msg);
+      const hasProtocolError = protocolError !== undefined;
+      if (hasProtocolError) {
+        ws.close(1008, protocolError);
+        return;
+      }
       if (helloed) return; // ignore duplicate hellos
       helloed = true;
       sandboxId = msg.sandboxId;
@@ -370,16 +382,21 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
       return;
     }
 
-    if (!helloed) return; // ignore messages before hello
+    const isUnregistered = !helloed;
+    if (isUnregistered) return; // ignore messages before hello
     bridge.handleSandboxMessage(msg);
   });
 
   ws.on('close', () => {
-    if (disconnect) {
-      disconnect();
-      logger.info(
-        `peer disconnected — sandboxId=${sandboxId ? sandboxId.slice(0, 12) : 'unknown'}`,
-      );
+    const releasePeer = disconnect;
+    const hasPeer = releasePeer !== null;
+    if (hasPeer) {
+      releasePeer();
+      const id = sandboxId;
+      const hasId = id !== null && id.length > 0;
+      let label = 'unknown';
+      if (hasId) label = id.slice(0, 12);
+      logger.info(`peer disconnected — sandboxId=${label}`);
     }
     disconnect = null;
   });
