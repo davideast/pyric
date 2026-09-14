@@ -108,12 +108,34 @@ test('a served page attributes a listener to the owner the page passed', async (
   if (await expand.isVisible()) await expand.click();
   await chipHost.locator('[data-chip-tab="listeners"]').click();
 
-  // Nothing on the page can be outlined for a name-only owner, so the listener
-  // lands in the chip's own list. Its label is the name the page passed, not a
-  // function out of the worker bundle.
+  // Data rows identify sources; owner attribution remains evidence on the
+  // worker's attach event rather than a replacement for the source path.
   const rows = chipHost.locator('[data-listener-rows] [data-listener-row]');
-  await expect(rows.filter({ hasText: 'notes-panel' })).toHaveCount(1, { timeout: 10_000 });
   await expect(rows.filter({ hasText: 'notes/astro-host' })).toHaveCount(1);
+  await expect(rows.filter({ hasText: 'Firestore document' })).toHaveCount(1);
+  const ownerEvents = await app.evaluate(async () => {
+    const generation = localStorage.getItem('pyric:worker-generation');
+    const worker = new SharedWorker('/__pyric/sdk/worker.js', {
+      name: generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker',
+    });
+    worker.port.start();
+    return await new Promise<unknown[]>(resolve => {
+      worker.port.onmessage = event => {
+        if (event.data.t !== 'event' || event.data.subId !== 'owner-evidence') return;
+        const events = event.data.events.filter((entry: { kind: string; owners?: unknown[] }) =>
+          entry.kind === 'listener_attach' || entry.kind === 'listener');
+        worker.port.postMessage({ t: 'unsub', subId: 'owner-evidence' });
+        worker.port.close();
+        resolve(events);
+      };
+      worker.port.postMessage({ t: 'sub', subId: 'owner-evidence', target: 'events' });
+    });
+  });
+  expect(ownerEvents).toEqual(expect.arrayContaining([
+    expect.objectContaining({ owners: expect.arrayContaining([
+      expect.objectContaining({ kind: 'tag', name: 'notes-panel' }),
+    ]) }),
+  ]));
   await context.close();
 });
 
