@@ -46,6 +46,7 @@ import type {
   WorkerSubPayload,
 } from '../bridge/protocol.js';
 import { isBridgeMessage, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
+import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
 import { discoverServe } from '../serve/discovery.js';
@@ -801,7 +802,26 @@ export async function connectRemoteSandbox(
 
   const core = createRemoteSandboxCore(
     {
-      send: (msg) => ws.send(JSON.stringify(msg)),
+      send(msg) {
+        const payload = encodeBridgeMessage(msg);
+        const exceedsFrameLimit = payload === undefined;
+        if (exceedsFrameLimit) {
+          const error = { code: 'resource-exhausted', message: 'Bridge request exceeds the 12 MiB encoded frame limit.' };
+          // Deliver local refusal through the same owner that settles replies and releases work.
+          const isOperation = msg.type === 'worker-op';
+          if (isOperation) {
+            core.handleMessage({ type: 'worker-res', id: msg.id, ok: false, error });
+            return;
+          }
+          const isSubscription = msg.type === 'worker-sub';
+          if (isSubscription) {
+            core.handleMessage({ type: 'worker-snap', subId: msg.subId, value: { __error: error } });
+            return;
+          }
+          throw remoteError(error.code, error.message);
+        }
+        ws.send(payload);
+      },
       ref: () => wsSocket()?.ref(),
       unref: () => wsSocket()?.unref(),
     },
