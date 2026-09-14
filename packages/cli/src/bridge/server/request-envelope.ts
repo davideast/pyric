@@ -1,4 +1,4 @@
-import type { BridgeMessage } from '../protocol.js';
+import { isBridgeMessage, type BridgeMessage } from '../protocol.js';
 import { validateAuthState } from 'pyric/sandbox';
 import type { InboundMessage } from '../../serve/worker/protocol.js';
 
@@ -122,4 +122,22 @@ export function requestProtocolError(frame: BridgeMessage): string | undefined {
     const isUnsupportedProtocol = frame.protocol !== 1;
     if (isUnsupportedProtocol) return 'Unsupported bridge protocol. Expected version 1.';
   }
+}
+
+type ParsedBridgeMessage =
+  | { kind: 'message'; message: BridgeMessage }
+  | { kind: 'invalid'; reason: string };
+
+/** Decode the outer JSON envelope; request validators check its specific fields. */
+export function parseBridgeMessage(raw: string): ParsedBridgeMessage {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { kind: 'invalid', reason: 'Invalid bridge message JSON.' };
+  }
+  const message = parsed;
+  const isKnownMessage = isBridgeMessage(message);
+  if (isKnownMessage) return { kind: 'message', message };
+  return { kind: 'invalid', reason: 'Unrecognized bridge message envelope.' };
 }

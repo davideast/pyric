@@ -17,7 +17,6 @@ import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { createBridge, type Bridge } from './bridge.js';
 import {
-  isBridgeMessage,
   PEER_REPLACED_CLOSE_CODE,
   PEER_REPLACED_CLOSE_REASON,
   type BridgeMessage,
@@ -26,7 +25,7 @@ import {
 } from '../protocol.js';
 import { cliVersion } from '../../pkg-version.js';
 import type { WorkerSessionLease } from './worker-sessions.js';
-import { requestEnvelopeError, requestProtocolError } from './request-envelope.js';
+import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
@@ -44,19 +43,13 @@ export function attachPeer(
   ws.on('message', (raw) => {
     const isClosingConnection = ws.readyState !== ws.OPEN;
     if (isClosingConnection) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw.toString());
-    } catch {
-      ws.close(1002, 'Invalid bridge message JSON.');
+    const parsed = parseBridgeMessage(raw.toString());
+    const isInvalidMessage = parsed.kind === 'invalid';
+    if (isInvalidMessage) {
+      ws.close(1002, parsed.reason);
       return;
     }
-    const msg = parsed;
-    const isUnrecognizedMessage = !isBridgeMessage(msg);
-    if (isUnrecognizedMessage) {
-      ws.close(1002, 'Unrecognized bridge message envelope.');
-      return;
-    }
+    const msg = parsed.message;
     const protocolError = requestProtocolError(msg);
     const hasProtocolError = protocolError !== undefined;
     if (hasProtocolError) {

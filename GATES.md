@@ -206,3 +206,8 @@ Standalone peer handshakes use the same version policy as mounted handshakes and
 ### Hardening item 8: peer handshake field validation
 
 Shared envelope validation now refuses malformed peer identity, tool lists and optional capability lists before standalone or mounted registration. Three original public red/green pairs and 42 malformed-handshake controls retain healthy MCP-to-SDK writes, reject buffered registration and preserve supported valid handshakes. Final verification passes 24 runtime cases (54.9s, Node 22.15.0), 39 regressions in five files, strict types and five-file source form. The old malformed-list coercion regression now expects explicit refusal. Standalone outer JSON/envelopes, other fields, detailed payloads, outbound/depth bounds and later queue gates remain open.
+
+
+### Hardening item 8: shared outer parsing
+
+Standalone malformed JSON and unrecognised envelopes now refuse before buffered work. Both connection handlers reuse one outer parser while retaining their lifetime policy. Two original public red/green pairs and eleven invalid-input controls preserve healthy MCP-to-SDK writes. Final checks pass 27 runtime cases (1.0m, Node 22.15.0), 39 regressions in five files, strict types and seven-file source form, including every caller of the extracted test fixture. Known-field/service validation, outbound frames, nesting bounds and later queue gates remain open.

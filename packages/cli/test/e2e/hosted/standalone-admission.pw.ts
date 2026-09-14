@@ -1,42 +1,27 @@
 import { WebSocket } from 'ws';
 import { expect, test } from '@playwright/test';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { initializeSandbox } from 'pyric/sandbox';
 import { doc, getDoc, getAdminFirestore } from 'pyric/firestore';
-import { connectBridge } from '../../../src/bridge/client/bridge.js';
+import { withBridgePeer } from './bridge-peer-fixture.js';
 import { startStandaloneBridge } from './standalone-bridge-fixture.js';
 
 test('standalone CLI refuses an incompatible peer and its buffered handshake', async () => {
   const fixture = await startStandaloneBridge();
-  const sandbox = initializeSandbox();
-  let connected = false;
-  const peer = connectBridge(sandbox, {
-    url: fixture.url.replace('http:', 'ws:') + '/sandbox', noReconnect: true,
-    onStateChange: state => { connected = state.kind === 'connected'; },
-  });
-  const client = new Client({ name: 'admission', version: '1' });
   try {
-    await expect.poll(() => connected).toBe(true);
-    await client.connect(new StreamableHTTPClientTransport(new URL(fixture.url + '/mcp')));
-    const incompatibleVersions: unknown[] = [999, 0, undefined, null, '1', false, [], {}];
-    for (const protocol of incompatibleVersions) {
-      await refusesPeer(fixture.url, protocol);
-      const result = await client.callTool({ name: 'firestore_create_document', arguments: {
-        path: 'shared/healthy', data: { message: 'Healthy peer still receives writes' },
-      } });
-      expect(result.isError).not.toBe(true);
-      expect((await getDoc(doc(getAdminFirestore(sandbox), 'shared/healthy'))).data()).toEqual({ message: 'Healthy peer still receives writes' });
-    }
+    await withBridgePeer(fixture.url.replace('http:', 'ws:') + '/sandbox', fixture.url + '/mcp', async ({ client, sandbox }) => {
+      const incompatibleVersions: unknown[] = [999, 0, undefined, null, '1', false, [], {}];
+      for (const protocol of incompatibleVersions) {
+        await refusesPeer(fixture.url, protocol);
+        const result = await client.callTool({ name: 'firestore_create_document', arguments: {
+          path: 'shared/healthy', data: { message: 'Healthy peer still receives writes' },
+        } });
+        expect(result.isError).not.toBe(true);
+        expect((await getDoc(doc(getAdminFirestore(sandbox), 'shared/healthy'))).data()).toEqual({ message: 'Healthy peer still receives writes' });
+      }
+    });
   } finally {
-    peer.disconnect();
-    try {
-      await client.close();
-    } finally {
-      const code = await fixture.stop();
-      await test.info().attach('bridge-output', { body: fixture.output(), contentType: 'text/plain' });
-      expect(code).toBe(0);
-    }
+    const code = await fixture.stop();
+    await test.info().attach('bridge-output', { body: fixture.output(), contentType: 'text/plain' });
+    expect(code).toBe(0);
   }
 });
 

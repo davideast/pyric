@@ -1,10 +1,7 @@
 import { WebSocket } from 'ws';
+import { withBridgePeer } from './bridge-peer-fixture.js';
 import { expect, test } from '@playwright/test';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { initializeSandbox } from 'pyric/sandbox';
 import { doc, getDoc, getAdminFirestore } from 'pyric/firestore';
-import { connectBridge } from '../../../src/bridge/client/bridge.js';
 import { startSoakServe } from '../soak/harness.js';
 import { startStandaloneBridge } from './standalone-bridge-fixture.js';
 
@@ -40,16 +37,7 @@ test('mounted bridge refuses malformed peer fields without losing its healthy pe
 });
 
 async function checkPeerFields(socketUrl: string, mcpUrl: string): Promise<void> {
-  const sandbox = initializeSandbox();
-  let connected = false;
-  const peer = connectBridge(sandbox, {
-    url: socketUrl, noReconnect: true,
-    onStateChange: state => { connected = state.kind === 'connected'; },
-  });
-  const client = new Client({ name: 'peer-fields', version: '1' });
-  try {
-    await expect.poll(() => connected).toBe(true);
-    await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl)));
+  await withBridgePeer(socketUrl, mcpUrl, async ({ client, sandbox }) => {
     for (const [index, fields] of malformedFields.entries()) {
       await checkHello(socketUrl, fields, false);
       const message = `Healthy peer after malformed frame ${index}`;
@@ -62,10 +50,7 @@ async function checkPeerFields(socketUrl: string, mcpUrl: string): Promise<void>
     await checkHello(socketUrl, {}, true);
     await checkHello(socketUrl, { sandboxId: '', tools: [], capabilities: [] }, true);
     await checkHello(socketUrl, { tools: ['future-tool'], capabilities: ['future-capability'] }, true);
-  } finally {
-    peer.disconnect();
-    await client.close();
-  }
+  });
 }
 
 async function checkHello(url: string, fields: Record<string, unknown>, acceptsPeer: boolean): Promise<void> {

@@ -34,9 +34,8 @@ import {
   DEFAULT_MCP_PATH,
   DEFAULT_SANDBOX_PATH,
   type BridgeMessage,
-  isBridgeMessage,
 } from '../protocol.js';
-import { requestEnvelopeError, requestProtocolError } from './request-envelope.js';
+import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from '../../serve/server.js';
 
@@ -337,16 +336,13 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
   ws.on('message', (raw) => {
     const isClosingConnection = ws.readyState !== ws.OPEN;
     if (isClosingConnection) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw.toString());
-    } catch {
-      return; // ignore malformed
+    const parsed = parseBridgeMessage(raw.toString());
+    const isInvalidMessage = parsed.kind === 'invalid';
+    if (isInvalidMessage) {
+      ws.close(1002, parsed.reason);
+      return;
     }
-    const msg = parsed;
-    const isUnknownMessage = !isBridgeMessage(msg);
-    if (isUnknownMessage) return;
-
+    const msg = parsed.message;
     const isHello = msg.type === 'hello';
     if (isHello) {
       const protocolError = requestProtocolError(msg);
