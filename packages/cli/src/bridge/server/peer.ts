@@ -26,6 +26,26 @@ import {
 } from '../protocol.js';
 import { cliVersion } from '../../pkg-version.js';
 import type { WorkerSessionLease } from './worker-sessions.js';
+import type { InboundMessage } from '../../serve/worker/protocol.js';
+
+const workerMessageTypes: Record<InboundMessage['t'], true> = {
+  op: true,
+  sub: true,
+  unsub: true,
+  disconnect: true,
+  appConfig: true,
+  'clock-subscribe': true,
+  tool: true,
+};
+
+/** Recognize the envelope before reading its tag; service handlers validate payloads. */
+function isWorkerMessageEnvelope(message: unknown): boolean {
+  const isMalformedObject = message === null || typeof message !== 'object' || Array.isArray(message);
+  if (isMalformedObject) return false;
+  const isMissingType = !('t' in message);
+  if (isMissingType) return false;
+  return typeof message.t === 'string' && Object.hasOwn(workerMessageTypes, message.t);
+}
 
 export function attachPeer(
   bridge: ReturnType<typeof createBridge>,
@@ -50,6 +70,14 @@ export function attachPeer(
     const msg = parsed;
     const isUnrecognizedMessage = !isBridgeMessage(msg);
     if (isUnrecognizedMessage) return;
+    const isWorkerMessage = msg.type === 'worker-message';
+    if (isWorkerMessage) {
+      const isMalformedMessage = !isWorkerMessageEnvelope(msg.message);
+      if (isMalformedMessage) {
+        ws.close(1002, 'Invalid worker message envelope.');
+        return;
+      }
+    }
     const isAttach = msg.type === 'attach';
     if (isAttach) {
       // Worker-relay consumer (Node client). NOT a peer: attaching never
