@@ -55,6 +55,7 @@ export interface ListenerOutlineIncident {
 
 /** One listener as the overlay draws it. */
 export interface ListenerOutline {
+  readonly colorKey?: string;
   readonly activity?: SdkActivityRecord;
   readonly observedRender?: boolean;
   readonly listenerId: string;
@@ -158,7 +159,7 @@ function labelIsOwner(owners: readonly unknown[]): boolean {
 }
 
 /** The geometry, most specific owner first, then the latest delivery's regions. */
-function outlineSelectors(owners: readonly unknown[]): readonly string[] {
+export function outlineSelectors(owners: readonly unknown[]): readonly string[] {
   const component = componentOwner(owners);
   if (component !== null && typeof component.element === 'string') return [component.element];
   const tag = tagOwner(owners);

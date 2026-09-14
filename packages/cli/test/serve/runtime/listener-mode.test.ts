@@ -120,6 +120,8 @@ function harness(options: {
     push: (events: readonly SandboxEvent[]) => deliver?.(events),
     subscriptions: () => subscriptions,
     flowWatching: () => delivered !== null,
+    queueDelivery: (id: string) => delivered?.(id),
+    commitNodes: (nodes: unknown[]) => { changedNodes = nodes; commits.fire(); },
     /** A delivery the worker client reported, and the render that followed. */
     flowDelivery: (listenerId: string, nodes: unknown[]) => {
       delivered?.(listenerId);
@@ -246,8 +248,8 @@ describe('incident marking', () => {
   });
 });
 
-describe('studio hand-off', () => {
-  it('opens the Studio listeners view filtered to the clicked listener', () => {
+describe('in-app inspection', () => {
+  it('selects the clicked listener in the app without opening Studio', () => {
     const dom = new JSDOM('<!doctype html><body><div id="todos"></div></body>', { url: 'http://localhost/' });
     const doc = dom.window.document;
     const opened: string[] = [];
@@ -268,7 +270,8 @@ describe('studio hand-off', () => {
     deliver?.([attach('e1', 'l1', { kind: 'query', collection: 'todos' }, [{ kind: 'tag', name: 'TodoList', element: '#todos' }])]);
     doc.querySelector<HTMLElement>('[data-pyric-listener-badge]')?.click();
 
-    expect(opened).toEqual(['/__pyric/ui/traffic/?view=listeners&listener=l1&target=todos']);
+    expect(opened).toEqual([]);
+    expect(mode.selectedActivity?.()).toBe('l1');
     mode.dispose();
   });
 });
@@ -323,7 +326,7 @@ describe('the two painting modes', () => {
     page.mode.dispose();
   });
 
-  it('brings the Overview boxes back and stops watching when it switches back', () => {
+  it('brings the Overview boxes back and keeps observing when it switches back', () => {
     const page = harness();
     page.mode.setEnabled(true);
     page.push([todosAttach]);
@@ -331,7 +334,7 @@ describe('the two painting modes', () => {
     page.mode.setMode('overview');
 
     expect(boxes(page.doc)).toHaveLength(1);
-    expect(page.flowWatching()).toBe(false);
+    expect(page.flowWatching()).toBe(true);
     page.mode.dispose();
   });
 
@@ -534,4 +537,41 @@ it('does not invent a render association by replaying an unmapped completed SDK 
   expect(flowMarks(page.doc)).toHaveLength(0);
   expect(page.mode.outlines().find(outline => outline.listenerId === activity.id)?.observedRender).toBe(false);
   page.mode.dispose();
+});
+
+
+it('preserves interleaved commit sources and rejects removed history regions', () => {
+  const page = harness();
+  const app = {};
+  const begin = (target: string) => page.activity.begin({ app, method: 'onValue', kind: 'subscription', source: { service: 'database', target, key: target }, owners: [{ kind: 'tag', name: target, element: '#todos' }] });
+  const a = begin('/a');
+  const b = begin('/b');
+  page.mode.setMode('flow'); page.mode.setEnabled(true);
+  for (const call of [a, b, a]) { call.delivered(); page.queueDelivery(call.id); }
+  page.commitNodes([page.rowEl]);
+  const history = page.mode.history!;
+  const rendered = history.snapshot().entries.filter(entry => entry.phase === 'render');
+  expect(rendered).toHaveLength(2);
+  expect(history.counts()).toMatchObject({ calls: 2, deliveries: 3, commits: 1 });
+  const bEntry = rendered.find(entry => entry.activityId === b.id)!;
+  expect(page.mode.inspectHistory?.(bEntry.sequence)).toBe(true);
+  expect(page.rowEl.getAttribute('data-pyric-flow-listener')).toBe(b.id);
+  expect(history.counts().commits).toBe(1);
+  expect(page.mode.inspectHistory?.(-1)).toBe(false);
+  expect(page.rowEl.hasAttribute('data-pyric-flow')).toBe(false);
+  page.mode.inspectHistory?.(bEntry.sequence);
+  page.mode.inspectHistory?.(null);
+  expect(page.rowEl.hasAttribute('data-pyric-flow')).toBe(false);
+  page.mode.inspectHistory?.(bEntry.sequence);
+  page.rowEl.dispatchEvent(new page.doc.defaultView!.MouseEvent('click', { bubbles: true, altKey: true }));
+  const version = page.mode.inspectionVersion?.();
+  page.rowEl.dispatchEvent(new page.doc.defaultView!.MouseEvent('click', { bubbles: true, altKey: true }));
+  expect(page.mode.inspectionVersion?.()).toBe(version! + 1);
+  page.rowEl.remove();
+  const replacement = page.doc.createElement('span'); replacement.id = 'row'; page.doc.querySelector('#todos')!.append(replacement);
+  expect(page.mode.inspectHistory?.(bEntry.sequence)).toBe(false);
+  page.mode.clearActivityHistory?.();
+  expect(history.snapshot().entries).toHaveLength(0);
+  expect(page.activity.records()).toHaveLength(2);
+  page.mode.dispose(); page.activity.dispose();
 });

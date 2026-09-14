@@ -20,6 +20,7 @@ let listenDocument: (next: (data: unknown) => void) => () => void;
 let listenDatabase: (next: (data: unknown) => void) => () => void;
 let write: () => Promise<void>;
 let denied: () => Promise<unknown>;
+let deniedWrite: () => Promise<unknown>;
 let version = 0;
 if (kind === 'worker') {
   const sdk = await import('../../packages/cli/src/serve/worker/client.ts');
@@ -37,6 +38,7 @@ if (kind === 'worker') {
   listenDatabase = next => listeners.rtdbOnValue(node, snap => next(snap.val()));
   write = async () => { ++version; await sdk.setDoc(document, { version }); await writes.rtdbSet(node, { version }); };
   denied = () => sdk.getDoc(sdk.doc(db, 'private/denied'));
+  deniedWrite = () => sdk.setDoc(document, { version: -1 });
   subscribeEvents = listener => sdk.subscribeEvents(db, listener);
 } else {
   const { initializeSandbox } = await import('pyric/sandbox');
@@ -44,7 +46,7 @@ if (kind === 'worker') {
   const sdk = await import('pyric/firestore');
   const database = await import('pyric/database');
   const sandbox = initializeSandbox();
-  setRules(sandbox, "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /messages/{id} { allow read, write: if true; } } }");
+  setRules(sandbox, "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /messages/{id} { allow read: if true; allow write: if request.resource.data.version >= 0; } } }");
   const db = sdk.getFirestore(sandbox);
   const rtdb = database.getDatabase(sandbox);
   database.sandbox.setDefaultPolicy(rtdb, 'allow');
@@ -57,6 +59,7 @@ if (kind === 'worker') {
   listenDatabase = next => database.onValue(node, snap => next(snap.val()));
   write = async () => { ++version; await sdk.setDoc(document, { version }); await database.set(node, { version }); };
   denied = () => sdk.getDoc(sdk.doc(db, 'private/denied'));
+  deniedWrite = () => sdk.setDoc(document, { version: -1 });
   subscribeEvents = listener => { listener(sandbox.history()); return sandbox.onEvent(event => listener([event])); };
 }
 await write();
@@ -92,6 +95,7 @@ function DataPanel() {
       h('button', { 'data-listen': '', onClick: () => setListening(!listening) }, listening ? 'Stop listeners' : 'Start listeners'),
       h('button', { 'data-write': '', onClick: write }, 'Write next version'),
       h('button', { 'data-unmapped': '', onClick: () => { void readDocument(); } }, 'Read without rendering'),
+      h('button', { 'data-denied-write': '', onClick: () => { void deniedWrite().catch(() => {}); } }, 'Write denied update'),
       h('button', { 'data-denied': '', onClick: () => { void denied().catch(() => {}); } }, 'Read denied path'),
     ),
     h('article', { 'data-result': '' }, result),

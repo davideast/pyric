@@ -28,6 +28,9 @@ import { tryAnchorOverlay } from './overlay-anchor.js';
 
 export interface ListenerOverlayOptions {
   document: Document;
+  badgeLabel?: (outline: ListenerOutline) => string;
+  /** Live observed elements when SDK owners have no selectors. */
+  observedElements?: (outline: ListenerOutline) => readonly Element[];
   /** Called when a developer clicks a badge, for the Studio hand-off. */
   onSelect?: (outline: ListenerOutline) => void;
   /** Custom property overrides for the container. See `overlay-theme.ts`. */
@@ -120,9 +123,17 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
     for (const entry of drawn) entry.release?.();
     for (const previous of [...container.querySelectorAll(`[${BOX_ATTRIBUTE}]`)]) previous.remove();
     drawn = [];
-    for (const outline of outlines) {
-      const hue = String(listenerHueIndex(outline.listenerId));
-      for (const element of ownedElements(documentLike, outline)) {
+    const drawnSources = new Map<string, Set<Element>>();
+    // The newest invocation supplies the badge action; repeated reads of the
+    // same source and element share one box and the source delivery total.
+    for (const outline of [...outlines.filter(outline => !outline.activity), ...outlines.filter(outline => outline.activity).reverse()]) {
+      const hue = String(listenerHueIndex(outline.colorKey ?? outline.activity?.sourceId ?? outline.listenerId));
+      for (const element of [...new Set([...ownedElements(documentLike, outline), ...(options.observedElements?.(outline) ?? [])])]) {
+        const source = outline.activity?.sourceId ?? outline.listenerId;
+        const elements = drawnSources.get(source) ?? new Set<Element>();
+        if (elements.has(element)) continue;
+        elements.add(element);
+        drawnSources.set(source, elements);
         const box = documentLike.createElement('div');
         box.setAttribute(BOX_ATTRIBUTE, '');
         box.dataset.pyricRole = 'region';
@@ -141,7 +152,7 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
         badge.dataset.listenerId = outline.listenerId;
         badge.dataset.hue = hue;
         if (outline.incident !== null) badge.dataset.incident = outline.incident.pattern;
-        badge.textContent = badgeText(outline);
+        badge.textContent = options.badgeLabel?.(outline) ?? badgeText(outline);
         badge.addEventListener('click', () => {
           options.onSelect?.(outline);
         });
@@ -186,7 +197,10 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
   resize?.observe(documentLike.documentElement);
   if (documentLike.body) resize?.observe(documentLike.body);
   const mutations = view?.MutationObserver ? new view.MutationObserver((records) => {
-    if (records.some(record => !container.contains(record.target))) scheduleReposition();
+    if (records.some(record => {
+      const element = record.target.nodeType === 1 ? record.target as Element : record.target.parentElement;
+      return !element?.closest('[data-pyric-listener-overlay]');
+    })) scheduleReposition();
   }) : null;
   if (documentLike.body) mutations?.observe(documentLike.body, { subtree: true, childList: true, characterData: true, attributes: true });
 
