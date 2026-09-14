@@ -21,7 +21,12 @@ Do not modify the manual demo project. Commit and push each verified slice.
 12. RTDB disconnect behavior — pending. Connectivity signals and registered disconnect operations follow the declared session-lifetime contract across transient loss, expiry and explicit app deletion.
 13. Concurrent transactions and atomic writes — pending. Two clients contend through normal SDK calls without lost updates; rejected batches remain atomic and ambiguous acknowledgments do not trigger transport replay.
 14. Packed installation and runtime selection — pending. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.
-15. Combined verification and morning handoff — pending. Current affected matrix, runtime parity, types, source form, applicable packaging; fixes, reports, remaining failures and manual QA steps.
+15. Origin and project admission isolation — pending. An unrelated browser origin or another project's discovery/session credentials cannot attach to, inspect or mutate this host; intended clients still connect.
+16. Slow-client isolation and bounded event delivery — pending. A stalled Studio/event consumer cannot exhaust retained queues or starve another app's SDK operations; overflow and lost history remain explicit.
+17. Rules hot reload with active apps — pending. Valid Rules changes update enforcement and active listeners according to the existing service contract; invalid edits report their failure without falsely claiming successful enforcement.
+18. Client/host version compatibility — pending. Actual packed consumers within the declared compatibility range work against the candidate host; unsupported combinations refuse clearly before mutation and never silently select another runtime.
+19. Fault diagnostics and redaction — pending. Existing CLI, runtime and Studio diagnostics distinguish connection, restoration and persistence failures while excluding credentials and private document contents from default support output.
+20. Combined verification and morning handoff — pending. Current affected matrix, runtime parity, types, source form, applicable packaging; fixes, reports, remaining failures and manual QA steps.
 
 ### Added follow-on gates
 
@@ -36,6 +41,20 @@ These five additions extend the ordered queue; they do not promise overnight com
 | 14. Packed consumer | Completed source fixes and cleanup (9) | Install the actual package in an isolated directory outside the workspace. Verify selected runtime and an SDK write/listener round trip through served imports and Vite, including reload/HMR without duplicate delivery. Run applicable minimum-Node and browser-boundary checks; retain package identity and commands so final verification can reuse this evidence. |
 
 Every item also requires the advancement checks below. Broader redesigns discovered by these probes are recorded separately, with the failing scoped requirement left open. At the stopping point, perform the final verification and handoff for completed slices even if later queue items remain untouched.
+
+### Second five additions
+
+Items 15–19 extend the existing queue at the user's request; final verification moves to item 20. They audit existing hosted behavior and do not expand live-mode implementation. Current work and its prerequisite order remain intact. These are completion conditions, not claims that failures have already been reproduced.
+
+| Item | Prerequisites | Required evidence before completion |
+| --- | --- | --- |
+| 15. Admission isolation | Request validation and packed consumer (8, 14) | Through real browser/socket and CLI discovery boundaries, try an unrelated origin, another project's discovery record and a grant issued by another host. Prohibited attempts refuse before exposing state or changing data; an authorized client still completes a write/listener round trip. Record the existing admission policy and test supported configurations without broadening network exposure. |
+| 16. Slow-client isolation | Request bounds and cleanup (8, 9) | Stall one event consumer while another app performs SDK operations. Before implementation, record workload, configured queue/history bounds, duration sufficient to reach those bounds, and numerical memory/latency budgets. Measure bounded retention and healthy-client responsiveness, assert the declared overflow/gap signal, then verify disconnect cleanup. A short happy-path run or undefined budget cannot pass. |
+| 17. Rules hot reload | Active-app replacement and identity isolation (6, 11) | Edit real fixture Rules files while two clients retain listeners. Check allowed and denied SDK operations before and after valid changes, listener behavior, an invalid edit and subsequent repair. Preserve each service's established invalid-source policy; do not assume every service retains its last valid Rules. Assert diagnostics agree with actual enforcement and compare supported SharedWorker behavior. |
+| 18. Version compatibility | Packed installation (14) | Record the supported client/host version range first. Install representative actual artifacts in isolated consumers, retaining versions and package hashes. Supported combinations pass Auth, SDK write/listener and reconnect checks. Unsupported combinations produce an actionable compatibility error before mutation or runtime fallback. Malformed-version frame coverage from item 8 alone is insufficient; this does not create a new backwards-compatibility promise. |
+| 19. Fault diagnostics | Restoration, persistence recovery and event delivery (4, 7, 16) | Induce connection refusal, restoration failure and persistence failure in disposable fixtures. Existing public diagnostics identify the selected runtime and failing stage without contradicting SDK outcomes. Seed recognizable credential and private-data markers; verify default diagnostic/support output excludes them and recovery clears stale failure status. Reuse existing surfaces rather than introducing a new telemetry system. |
+
+Apply the same approved seams, vertical TDD and universal gates to these additions. Reuse matching existing evidence; a characterization that already passes needs no invented fix. If the night ends earlier, prepare item 20's handoff for completed slices and explicitly list untouched items. Production Firebase and the manual demo remain outside this work.
 
 ## Advancement requirements
 
