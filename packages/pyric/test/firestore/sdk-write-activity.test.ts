@@ -60,7 +60,7 @@ it('preserves public read aliases and aggregate methods without nested getDoc/ge
       'getDocFromServer', 'getDocsFromServer', 'getDocFromCache', 'getDocsFromCache', 'getCountFromServer', 'getAggregateFromServer', 'getDocFromCache',
     ]);
     expect(events.filter(event => event.phase === 'delivery')).toHaveLength(6);
-    expect(events.at(-1)?.record.status).toBe('failed');
+    expect(events.filter(event => event.phase === 'end').at(-1)?.record.status).toBe('failed');
   } finally { stop(); }
 });
 
