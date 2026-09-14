@@ -293,7 +293,7 @@ export function createConsumerSession(
       }
       case 'remote-set-lens': {
         const frame = msg;
-        const ok = bridge.consumers.setLens(frame.clientSessionId, frame.lens);
+        const result = bridge.consumers.setLens(frame.clientSessionId, frame.lens);
         bridge.broadcastConsumerPresence();
         const needsAcknowledgement = Boolean(frame.id);
         if (needsAcknowledgement) {
@@ -301,10 +301,8 @@ export function createConsumerSession(
             type: 'remote-set-lens-ack',
             id: frame.id,
             clientSessionId: frame.clientSessionId,
-            ok,
+            ...result,
           };
-          const wasNotFound = !ok;
-          if (wasNotFound) acknowledgement.error = { code: 'not-found', message: 'Client session not found' };
           send(acknowledgement);
         }
         return;

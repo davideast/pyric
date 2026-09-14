@@ -52,13 +52,17 @@ export interface SessionRecord {
   activeLens: AuthLens;
 }
 
+export type SessionIdentityUpdate =
+  | { ok: true }
+  | { ok: false; error: { code: 'not-found' | 'resource-exhausted'; message: string } };
+
 /**
  * The slice of the bridge's `ConsumerRegistry` these operations need.
  * `createConsumerRegistry()` satisfies it structurally.
  */
 export interface SessionRegistry {
   list(): SessionRecord[];
-  setLens(clientSessionId: string, lens: AuthLens): boolean;
+  setLens(clientSessionId: string, lens: AuthLens): SessionIdentityUpdate;
 }
 
 /**
@@ -238,22 +242,26 @@ export function setSessionIdentity(
   identity: AuthLens,
   command: string,
 ): IdentityResult {
-  if (!registry) return failure('auth/no-bridge', NO_BRIDGE_MESSAGE);
-  if (typeof target !== 'string' || target.length === 0) {
+  const hasNoRegistry = registry === undefined;
+  if (hasNoRegistry) return failure('auth/no-bridge', NO_BRIDGE_MESSAGE);
+  const isInvalidTarget = typeof target !== 'string' || target.length === 0;
+  if (isInvalidTarget) {
     return failure('auth/argument-error', `${command}: target must be a non-empty string.`);
   }
-  if (!registry.setLens(target, identity)) {
+  const result = registry.setLens(target, identity);
+  const wasNotFound = !result.ok && result.error.code === 'not-found';
+  if (wasNotFound) {
     const connected = registry.list().map((session) => session.clientSessionId);
+    const hasNoClients = connected.length === 0;
+    const available = hasNoClients ? 'No clients are connected.' : `Connected: ${connected.join(', ')}.`;
     return {
       ok: false,
-      summary:
-        `No connected client has target id ${target}. ` +
-        (connected.length === 0
-          ? 'No clients are connected.'
-          : `Connected: ${connected.join(', ')}.`),
+      summary: `No connected client has target id ${target}. ${available}`,
       data: { code: 'auth/unknown-session', connected },
     };
   }
+  const wasRefused = !result.ok;
+  if (wasRefused) return failure(result.error.code, result.error.message);
   return {
     ok: true,
     summary: `${target} now acts as ${describeIdentity(identity)}. ${TARGET_SCOPE_NOTE}`,

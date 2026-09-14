@@ -193,6 +193,13 @@ A consumer attachment is refused with the existing admission policy close
 exceed 12 MiB. This is admission refusal for a valid input frame; it leaves
 existing consumer records intact.
 
+Identity updates use the same prospective presence capacity check before
+changing the target session. Consumer and sandbox-peer acknowledgments, and
+targeted MCP identity results, report `resource-exhausted` on refusal. The
+previous identity and its listeners remain active. Native serialization depth
+exhaustion also returns a bounded refusal; this guard does not establish the
+separate 64-container encoded-document policy.
+
 An oversized observation batch first loses optional snapshot samples. If it still
 cannot fit, its consumer receives an `observation_gap` in the existing event
 stream, carrying the omitted count and first/last source event IDs. The gap

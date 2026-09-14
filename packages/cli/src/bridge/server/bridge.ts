@@ -628,7 +628,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
       }
       case 'remote-set-lens': {
         const frame = msg;
-        const ok = consumers.setLens(frame.clientSessionId, frame.lens);
+        const result = consumers.setLens(frame.clientSessionId, frame.lens);
         broadcastConsumerPresence();
         const currentPeer = peer;
         const needsAcknowledgement = currentPeer !== null && Boolean(frame.id);
@@ -637,10 +637,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
             type: 'remote-set-lens-ack',
             id: frame.id,
             clientSessionId: frame.clientSessionId,
-            ok,
+            ...result,
           };
-          const wasNotFound = !ok;
-          if (wasNotFound) acknowledgement.error = { code: 'not-found', message: 'Client session not found' };
           currentPeer.send(acknowledgement);
         }
         break;

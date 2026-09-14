@@ -10,6 +10,9 @@ import type {
   RemoteConsumerRecord,
 } from '../protocol.js';
 import { encodeBridgeMessage } from '../frame-output.js';
+import type { SessionIdentityUpdate } from '../../auth/identity.js';
+
+const PRESENCE_CAPACITY_MESSAGE = 'Consumer metadata exceeds the 12 MiB presence frame limit.';
 
 export interface RegisteredConsumer {
   clientSessionId: string;
@@ -25,7 +28,7 @@ export interface ConsumerRegistry {
   register(consumer: RegisteredConsumer): void;
   unregister(clientSessionId: string): RegisteredConsumer | undefined;
   touch(clientSessionId: string): void;
-  setLens(clientSessionId: string, lens: AuthLens): boolean;
+  setLens(clientSessionId: string, lens: AuthLens): SessionIdentityUpdate;
   get(clientSessionId: string): RegisteredConsumer | undefined;
   list(): RemoteConsumerRecord[];
   broadcastPresence(sendToPeer?: ((msg: BridgeMessage) => void) | null): void;
@@ -45,18 +48,39 @@ export function createConsumerRegistry(): ConsumerRegistry {
     };
   }
 
+  function validatePresence(consumer: RegisteredConsumer): SessionIdentityUpdate {
+    const records: RemoteConsumerRecord[] = [];
+    for (const existing of consumers.values()) {
+      const isReplacement = existing.clientSessionId === consumer.clientSessionId;
+      if (isReplacement) continue;
+      records.push(toRecord(existing));
+    }
+    records.push(toRecord(consumer));
+    let payload: string | undefined;
+    try {
+      payload = encodeBridgeMessage({ type: 'consumer-presence', consumers: records });
+    } catch (error) {
+      const exceedsSerializationDepth = error instanceof RangeError;
+      if (exceedsSerializationDepth) {
+        return { ok: false, error: {
+          code: 'resource-exhausted',
+          message: 'Consumer metadata exceeds the serialization depth limit.',
+        } };
+      }
+      throw error;
+    }
+    const exceedsCapacity = payload === undefined;
+    if (exceedsCapacity) {
+      return { ok: false, error: { code: 'resource-exhausted', message: PRESENCE_CAPACITY_MESSAGE } };
+    }
+    return { ok: true };
+  }
+
   return {
     register(consumer: RegisteredConsumer): void {
-      const records: RemoteConsumerRecord[] = [];
-      for (const existing of consumers.values()) {
-        const isReplacement = existing.clientSessionId === consumer.clientSessionId;
-        if (isReplacement) continue;
-        records.push(toRecord(existing));
-      }
-      records.push(toRecord(consumer));
-      const presence: ConsumerPresenceFrame = { type: 'consumer-presence', consumers: records };
-      const exceedsFrameLimit = encodeBridgeMessage(presence) === undefined;
-      if (exceedsFrameLimit) throw new Error('Consumer metadata exceeds the 12 MiB presence frame limit.');
+      const result = validatePresence(consumer);
+      const isRejected = !result.ok;
+      if (isRejected) throw new Error(result.error.message);
       consumers.set(consumer.clientSessionId, consumer);
     },
 
@@ -72,12 +96,16 @@ export function createConsumerRegistry(): ConsumerRegistry {
       if (isRegistered) c.lastSeen = Date.now();
     },
 
-    setLens(clientSessionId: string, lens: AuthLens): boolean {
+    setLens(clientSessionId: string, lens: AuthLens): SessionIdentityUpdate {
       const c = consumers.get(clientSessionId);
       const isUnknownConsumer = c === undefined;
-      if (isUnknownConsumer) return false;
+      if (isUnknownConsumer) return { ok: false, error: { code: 'not-found', message: 'Client session not found' } };
+      const updated = { ...c, activeLens: lens, lastSeen: Date.now() };
+      const result = validatePresence(updated);
+      const isRejected = !result.ok;
+      if (isRejected) return result;
       c.activeLens = lens;
-      c.lastSeen = Date.now();
+      c.lastSeen = updated.lastSeen;
       try {
         c.send({
           type: 'worker-event',
@@ -86,7 +114,7 @@ export function createConsumerRegistry(): ConsumerRegistry {
           lens,
         });
       } catch {}
-      return true;
+      return { ok: true };
     },
 
     get(clientSessionId: string): RegisteredConsumer | undefined {

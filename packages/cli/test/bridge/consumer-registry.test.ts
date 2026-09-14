@@ -34,8 +34,8 @@ describe('ConsumerRegistry', () => {
     expect(registry.get('sess-1')?.lastSeen).toBeGreaterThanOrEqual(1000);
 
     // Set lens sends worker-event to consumer
-    const ok = registry.setLens('sess-1', { mode: 'as', uid: 'alice' });
-    expect(ok).toBe(true);
+    const result = registry.setLens('sess-1', { mode: 'as', uid: 'alice' });
+    expect(result).toEqual({ ok: true });
     expect(sentFrames).toHaveLength(1);
     const event = sentFrames[0] as WorkerEventFrame;
     expect(event.type).toBe('worker-event');
@@ -47,7 +47,7 @@ describe('ConsumerRegistry', () => {
     const removed = registry.unregister('sess-1');
     expect(removed?.clientSessionId).toBe('sess-1');
     expect(registry.list()).toHaveLength(0);
-    expect(registry.setLens('sess-1', { mode: 'admin' })).toBe(false);
+    expect(registry.setLens('sess-1', { mode: 'admin' })).toMatchObject({ ok: false, error: { code: 'not-found' } });
   });
 
   it('broadcasts presence to browser peer and Studio consumers', () => {
