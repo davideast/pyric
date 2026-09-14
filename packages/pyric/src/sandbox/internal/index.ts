@@ -17,6 +17,7 @@
 export { getInternalEnv } from './sandbox-impl.js';
 export { captureIndexQuery, analyzeIndexQuery, readIndexConfig, type IndexQuery, type IndexFinding } from '../../rules/indexes/query-analysis.js';
 export type { IndexesConfig, IndexesConfigEntry } from '../../rules/indexes/types.js';
+export { observationService, type SdkObservation } from './sdk-observation.js';
 export {
   createSdkActivityJournal,
   finishSdkRead,

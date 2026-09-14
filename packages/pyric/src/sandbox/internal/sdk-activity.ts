@@ -1,5 +1,6 @@
 import type { ListenerOwner } from '../types/events.js';
 import type { IndexQuery } from '../../rules/indexes/query-analysis.js';
+import { sdkObservation, type SdkObservation } from './sdk-observation.js';
 
 /** Page-side SDK evidence. Transport messages are deliberately not deliveries. */
 export interface SdkActivitySource {
@@ -57,12 +58,15 @@ interface AppIdentity {
  */
 export function createSdkActivityJournal(options: {
   now?: () => number;
+  /** Independent of the sandbox clock and wall-clock adjustments. */
+  monotonicNow?: () => number;
   retentionMs?: number;
   maxCompleted?: number;
   /** Protect completed deliveries until the page's render window has elapsed. */
   correlationWindowMs?: number;
 } = {}) {
   const now = options.now ?? Date.now;
+  const monotonicNow = options.monotonicNow ?? (() => performance.now());
   const correlationWindowMs = options.correlationWindowMs ?? 250;
   const retentionMs = Math.max(options.retentionMs ?? 30_000, correlationWindowMs);
   const maxCompleted = options.maxCompleted ?? 100;
@@ -70,6 +74,7 @@ export function createSdkActivityJournal(options: {
   const records = new Map<string, SdkActivityRecord>();
   const releaseSources = new Map<string, () => void>();
   const subscribers = new Set<(event: SdkActivityEvent) => void>();
+  const observers = new Set<(observation: SdkObservation) => void>();
   let appSerial = 0;
   let sourceSerial = 0;
   let activitySerial = 0;
@@ -80,6 +85,12 @@ export function createSdkActivityJournal(options: {
   let pruning = false;
 
   function notify(phase: SdkActivityEvent['phase'], record: SdkActivityRecord): void {
+    const observation = sdkObservation({ phase, record }, now(), monotonicNow());
+    if (observation) {
+      for (const observer of [...observers]) {
+        try { observer(observation); } catch { /* Diagnostics cannot alter SDK behavior. */ }
+      }
+    }
     for (const subscriber of [...subscribers]) {
       try { subscriber({ phase, record }); } catch { /* Diagnostics cannot alter SDK behavior. */ }
     }
@@ -206,11 +217,17 @@ export function createSdkActivityJournal(options: {
       if (!disposed) subscribers.add(subscriber);
       return () => { subscribers.delete(subscriber); };
     },
+    /** Live observations, independent of history retention and Flow rendering. */
+    observe(observer: (observation: SdkObservation) => void): () => void {
+      if (!disposed) observers.add(observer);
+      return () => { observers.delete(observer); };
+    },
     dispose(): void {
       disposed = true;
       clearTimeout(timer);
       for (const record of [...records.values()]) remove(record);
       subscribers.clear();
+      observers.clear();
     },
   };
 }
