@@ -23,7 +23,8 @@ test('missing indexes emit failed query operations without deliveries, then succ
     expect((await get(source)).exists()).toBe(true);
     expect(events).toContain('delivery');
     const stop = onValue(source, () => {});
+    events.length = 0;
     stop();
-    expect(events.at(-1)).toBe('end');
+    expect(events.filter(phase => phase !== 'remove')).toEqual(['end']);
   } finally { detach(); }
 });
