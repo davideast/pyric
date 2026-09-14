@@ -28,6 +28,8 @@
 import { copyFileSync, mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseStateFile, StateFileError, STATE_FILE_VERSION, type PyricStateFile } from './state-file.js';
+import { firestoreDocCount } from './state-summary.js';
+export { firestoreDocCount } from './state-summary.js';
 export { StateFileError, STATE_FILE_VERSION, EXPECTED_CONTROLLER_BLOB_VERSION } from './state-file.js';
 export type { ExportedUsers, PyricStateFile } from './state-file.js';
 
@@ -117,11 +119,4 @@ export function createStateStore(projectDir: string): StateStore {
       writeAtomic({ ...current, [section]: value });
     },
   };
-}
-
-/** Doc count inside a controller firestore blob (`{…, firestore: {path:
- *  fields}}`), 0 for null/empty/malformed. */
-export function firestoreDocCount(section: unknown): number {
-  const docs = (section as { firestore?: Record<string, unknown> } | null)?.firestore;
-  return docs && typeof docs === 'object' ? Object.keys(docs).length : 0;
 }

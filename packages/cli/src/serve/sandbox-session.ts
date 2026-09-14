@@ -24,9 +24,9 @@ import { createAssetResolver, type AssetRequest, type AssetResolver } from './as
 import type { ResolvedAvatarsConfig } from './avatars-config.js';
 import {
   createStateStore,
-  firestoreDocCount,
   type StateStore,
 } from './state-store.js';
+import { restoredStateCounts } from './state-summary.js';
 import { parseStateFile } from './state-file.js';
 
 export interface SandboxSessionOptions {
@@ -230,8 +230,7 @@ export async function createSandboxSession(
     const isStateFixture = hasStateVersion && hasStateSections;
     if (isStateFixture) {
       const fixture = parseStateFile(record, seedPath);
-      const restoredDocs = firestoreDocCount(fixture.firestore);
-      const restoredUsers = fixture.auth?.users?.length ?? 0;
+      const { restoredDocs, restoredUsers } = restoredStateCounts(fixture);
       seedLabel = `${restoredDocs} doc(s) + ${restoredUsers} user(s) from state fixture`;
       const initializesStateStore = hasStateStore && !state.exists();
       if (initializesStateStore) {
@@ -281,6 +280,7 @@ export async function createSandboxSession(
     };
   };
 
+  const restoredCounts = restoredStateCounts(persisted);
   const summary: SandboxSessionSummary = {
     rules: {
       firestore: { sourcePath: firestore.sourcePath, hash: firestore.rulesHash },
@@ -291,8 +291,7 @@ export async function createSandboxSession(
       ? {
           path: state.path,
           backupPath: state.backupPath,
-          restoredDocs: firestoreDocCount(persisted?.firestore),
-          restoredUsers: persisted?.auth?.users?.length ?? 0,
+          ...restoredCounts,
           restored: persisted !== null,
         }
       : null,

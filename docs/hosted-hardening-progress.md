@@ -10,7 +10,7 @@ Do not modify the manual demo project. Commit and push each verified slice.
 1. Anonymous UID uniqueness — verified locally. Deletion/restart cannot transfer UID-owned data to a new identity; retained accounts preserve their UID, claims, creation time and last-login time.
 2. Session retention expiry — verified locally. The original app obtains fresh admission after the retention window, with Auth restored before listeners. Expired/invalid grants remain refused; app deletion cancels recovery; uncertain writes never replay.
 3. Checkpoint restoration — verified locally. Account/Storage metadata, Firestore typed values and literal maps survive the scoped round trips and host restart. Corrupt service inputs refuse before reset; legacy records and branch consumers retain their value semantics. Broader atomicity/concurrency gaps remain explicit.
-4. Restoration diagnostics — pending. Startup text and readiness JSON match authoritative SDK state.
+4. Restoration diagnostics — verified locally. Startup text and readiness JSON count bucketed documents and controller Auth accounts correctly, including Auth-only and fresh state.
 5. Interrupted recovery — pending. A second interruption restores identity/listeners once; obsolete callbacks and app deletion cannot revive sessions.
 6. Reset/import with active apps — pending. Both browsers see replacement; removed listeners stay removed and stale work cannot resurrect data.
 7. Persistence-failure recovery — pending. Accurate uncertainty, later mutation refusal, and repaired-storage restart preserve the last durable state.
@@ -150,3 +150,13 @@ Final compatibility review passes legacy full-state maps without an encoding dec
 The three added review cases pass individually; the two branch cases plus legacy/mixed-bucket cases pass together under Node 22.15.0 (four cases, 7.0 seconds). Final fixture types and fifteen-file code form pass. Production and emitted input hashes match the preceding 42-case combined browser run, eight-case minimum-Node run, 107 regressions, production typechecks and browser boundaries, so that evidence is reused. `ignored/hardening/checkpoint-values/verified-inputs.json` binds the final inputs and reports. All processes are terminal, without retries or skipped cases.
 
 Task 3's scoped round trips and corruption refusal are verified. Current readers accept legacy records; downgrade compatibility with older readers is not established. General checkpoint atomicity, coherent concurrent capture and arbitrary buckets remain separate. Applicable packaging remains at the milestone join. Later queue items are untouched; the manual demo has not been changed.
+
+## Task 4: Restoration diagnostics — verified locally
+
+The S1/S3 restart regression read both saved documents through the SDK while readiness reported zero documents and zero users. Startup summary code only inspected the older top-level document and Auth sections; the current controller stores documents in buckets and accounts in its service metadata. The original fixture passed unchanged after the shared state-count helper learned both representations (`/tmp/pyric-hardening-restoration-diagnostics-{red,green}.log`).
+
+`state-summary.ts` counts document paths without rehydrating values or serialising the keyspace. Controller account counts take precedence over the older separate Auth section, including an empty account list. Startup diagnostics and seed labels use that summary, and the existing state-store recovery-backup check reuses its document count. This adds no persisted fields, runtime owner or transport change.
+
+Separate review verifies both the human-readable startup line and JSON, empty/fresh startup, and Auth-only restoration checked against the public remote account list. The affected matrix passes 18 browser cases in 35.6 seconds (restart, reset, seed and runtime parity); 34 state-store/persistence/session regressions pass in four isolated files. Both diagnostics cases pass on Node 22.15.0 in 6.7 seconds. CLI/fixture strict types and five-file code form pass. Reports and source/emitted hashes are archived in `ignored/hardening/restoration-diagnostics/verified-inputs.json`; every process is terminal. Browser runtime modules were unchanged; applicable packaging remains at the final milestone join.
+
+Checkpoint value commit: `d5f1c10775d063bbdd80d4f3d5fe34b94e17b57c`, local pending push authorization. Task 5 is next. The manual demo remains untouched.

@@ -35,6 +35,7 @@ export function startHost(
   return {
     child,
     startup: startup.promise,
+    stdout: () => stdout,
     stderr: () => stderr,
     async stop(): Promise<void> {
       const hasExited = child.exitCode !== null || child.signalCode !== null;
