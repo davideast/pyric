@@ -5,8 +5,23 @@ import { startSoakServe } from '../soak/harness.js';
 
 const invalidProtocols = [999, 0, null, undefined, '1', false, [], {}];
 
-for (const protocol of invalidProtocols) {
-  test(`host acknowledgment protocol ${JSON.stringify(protocol)} rejects a queued SDK write before mutation`, async ({ browser }) => {
+const invalidCapabilities: unknown[] = [42, null, undefined, false, 'worker-port', {}, [], ['other'], ['worker-port', 42], ['worker-port', null], ['worker-port', {}]];
+
+const invalidAcknowledgments = [
+  ...invalidProtocols.map(protocol => ({
+    name: `protocol ${JSON.stringify(protocol)}`,
+    fields: { protocol },
+    error: 'unavailable: The hosted sandbox uses an unsupported bridge protocol. Expected version 1.',
+  })),
+  ...invalidCapabilities.map(capabilities => ({
+    name: `capabilities ${JSON.stringify(capabilities)}`,
+    fields: { capabilities },
+    error: 'unavailable: The selected host does not support browser worker ports.',
+  })),
+];
+
+for (const acknowledgment of invalidAcknowledgments) {
+  test(`host acknowledgment ${acknowledgment.name} rejects a queued SDK write before mutation`, async ({ browser }) => {
     test.setTimeout(30_000);
     const fixture = await startSoakServe({
       flags: ['--hosted', '--no-capture'],
@@ -50,15 +65,18 @@ for (const protocol of invalidProtocols) {
           const acknowledgesAttach = isBridgeMessage(frame) && frame.type === 'attach-ack';
           if (acknowledgesAttach) {
             corrupted = true;
-            route.send(JSON.stringify({ ...frame, protocol }));
+            route.send(JSON.stringify({ ...frame, ...acknowledgment.fields }));
             return;
           }
           route.send(data);
         });
       });
       const broken = await brokenContext.newPage();
+      const pageErrors: string[] = [];
+      broken.on('pageerror', error => pageErrors.push(error.message));
       await broken.goto(`${fixture.info.url}/writer.html`);
-      await expect(broken.locator('#result')).toHaveText('unavailable: The hosted sandbox uses an unsupported bridge protocol. Expected version 1.');
+      await expect(broken.locator('#result')).toHaveText(acknowledgment.error);
+      expect(pageErrors).toEqual([]);
       expect(corrupted).toBe(true);
       expect(writesSent).toBe(0);
       const healthy = await healthyContext.newPage();

@@ -180,7 +180,11 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
             failConnection('The hosted sandbox uses an unsupported bridge protocol. Expected version 1.');
             return;
           }
-          const isIncompatibleHost = message.capabilities?.includes(WORKER_PORT_CAPABILITY) !== true;
+          const capabilities = message.capabilities;
+          const hasCapabilityList = Array.isArray(capabilities);
+          const hasNamedCapabilities = hasCapabilityList && capabilities.every(capability => typeof capability === 'string');
+          const supportsWorkerPorts = hasNamedCapabilities && capabilities.includes(WORKER_PORT_CAPABILITY);
+          const isIncompatibleHost = !supportsWorkerPorts;
           if (isIncompatibleHost) {
             failConnection('The selected host does not support browser worker ports.');
             return;
