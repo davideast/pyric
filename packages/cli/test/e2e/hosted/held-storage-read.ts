@@ -3,6 +3,11 @@ import { writeFileSync } from 'node:fs';
 /** Pause the fixture object's real binary reads; SIGUSR2 releases/rearms them. */
 export function writeHeldStorageReadPreload(preload: string, failsFirstReads: boolean): void {
   writeFileSync(preload, `
+    import { subscribe } from 'node:diagnostics_channel';
+    subscribe('http.server.request.start', ({ request }) => {
+      const isPipelineEnd = request.headers['x-pyric-test-pipeline-end'] === '1';
+      if (isPipelineEnd) process.stderr.write('HTTP pipeline received\\n');
+    });
     const readBytes = Blob.prototype.arrayBuffer;
     let holding = true;
     let failsReads = ${failsFirstReads};

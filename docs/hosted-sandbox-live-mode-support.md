@@ -245,8 +245,11 @@ body cannot choose that execution owner. Each connection reserves the shared
 envelope's JSON UTF-8 encoding (instance, project, method and arguments;
 excluding HTTP headers). Execution retains the reservation until settlement.
 Count saturation, refusal without mutation, and full reuse after successful
-and failed calls are verified. Direct-command aggregate-byte boundaries,
-connection churn and broader shutdown accounting remain unfinished. Accepted
+and failed calls are verified. Direct HTTP characterization covers one byte
+below/exactly/above 24 MiB with UTF-8 input, partial byte-capacity recovery while
+another command remains held, and full refill after successful or failed
+reads on the same connection. Connection churn and broader shutdown accounting
+remain unfinished. Accepted
 Node MCP work uses the permitted drain path: up to 64 execution owners may
 remain active, including those whose MCP session has closed; capacity returns
 as their last accepted calls settle. Native SharedWorker
