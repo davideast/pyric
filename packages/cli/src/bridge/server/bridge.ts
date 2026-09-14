@@ -24,6 +24,7 @@ import type {
   WorkerMessageFrame,
 } from '../protocol.js';
 import {
+  MAX_PENDING_OPERATIONS,
   NO_SANDBOX_ERROR_MESSAGE,
   NO_WORKER_RELAY_ERROR_MESSAGE,
   WORKER_RELAY_CAPABILITY,
@@ -475,6 +476,15 @@ export function createBridge(opts: BridgeOptions): Bridge {
     if (hasNoPeer) return Promise.reject(workerOpError('unavailable', NO_SANDBOX_ERROR_MESSAGE));
     const hasNoWorkerRelay = !peerHasRelay();
     if (hasNoWorkerRelay) return Promise.reject(workerOpError('unimplemented', NO_WORKER_RELAY_ERROR_MESSAGE));
+    let pendingOperations = 0;
+    for (const operation of workerPending.values()) {
+      const belongsToClient = operation.clientSessionId === clientSessionId;
+      if (belongsToClient) pendingOperations += 1;
+    }
+    const hasReachedCapacity = pendingOperations >= MAX_PENDING_OPERATIONS;
+    if (hasReachedCapacity) {
+      return Promise.reject(workerOpError('resource-exhausted', 'This client already has 256 pending operations.'));
+    }
     return new Promise<unknown>((resolve, reject) => {
       const id = randomUUID();
       const timer = setTimeout(() => {

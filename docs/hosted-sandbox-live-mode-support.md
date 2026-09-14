@@ -198,8 +198,11 @@ its slot. Legacy consumer operations use their admitted session rather than
 a supplied per-operation client ID. The public remote client also refuses
 operation 257 before allocating a correlation record, timer or event-loop
 hold. Replies, timeouts and disposal remove its existing pending records.
-Bridge admission, authoritative SharedWorker admission and aggregate
-queued-byte accounting remain unfinished.
+The bridge also counts pending legacy worker-relay operations by admitted
+consumer identity, refusing operation 257 before forwarding or allocating a
+correlation timer. The same consumer can refill its allowance after replies,
+timeout or explicit disposal. Bridge tool-call admission, authoritative
+SharedWorker admission and aggregate queued-byte accounting remain unfinished.
 
 A consumer attachment is refused with the existing admission policy close
 (`1008`) if its proposed registration would make the complete presence frame
