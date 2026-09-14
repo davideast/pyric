@@ -6,7 +6,30 @@ export const BRIDGE_FRAME_LIMIT_MESSAGE = 'Bridge response exceeds the 12 MiB en
 export const BROWSER_FRAME_LIMIT_CLOSE_CODE = 4009;
 
 const frameLimitError = { code: 'resource-exhausted', message: BRIDGE_FRAME_LIMIT_MESSAGE };
+const requestLimitError = { code: 'resource-exhausted', message: 'Bridge request exceeds the 12 MiB encoded frame limit.' };
 const utf8 = new TextEncoder();
+
+/** Refuse an unsent request through its existing correlated reply owner. */
+export function refuseBridgeRequest(frame: BridgeMessage): BridgeMessage | undefined {
+  const isToolCall = frame.type === 'tool-call';
+  if (isToolCall) {
+    return { type: 'tool-result', id: frame.id, ok: false, error: requestLimitError };
+  }
+  const isWorkerOperation = frame.type === 'worker-op';
+  if (isWorkerOperation) {
+    return {
+      type: 'worker-res', id: frame.id, clientSessionId: frame.clientSessionId, ok: false,
+      error: requestLimitError,
+    };
+  }
+  const isWorkerSubscription = frame.type === 'worker-sub';
+  if (isWorkerSubscription) {
+    return {
+      type: 'worker-snap', subId: frame.subId, clientSessionId: frame.clientSessionId,
+      value: { __error: requestLimitError },
+    };
+  }
+}
 
 /** Encode bounded output, retaining correlation when an oversized result can be refused. */
 export function encodeBridgeMessage(frame: BridgeMessage): string | undefined {

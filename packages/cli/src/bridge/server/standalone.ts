@@ -36,6 +36,7 @@ import {
   type BridgeMessage,
 } from '../protocol.js';
 import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
+import { sendBridgeMessage } from './socket-message.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from '../../serve/server.js';
 
@@ -366,7 +367,7 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
       disconnect = bridge.registerSandboxPeer(
         (out: BridgeMessage) => {
           try {
-            ws.send(JSON.stringify(out));
+            sendBridgeMessage(ws, out, bridge.handleSandboxMessage);
           } catch {
             // socket likely closed; the close handler runs disconnect.
           }
@@ -374,13 +375,11 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
         msg.tools,
         msg.sandboxId,
       );
-      ws.send(
-        JSON.stringify({
-          type: 'hello-ack',
-          protocol: 1,
-          bridgeVersion: bridge.version,
-        }),
-      );
+      sendBridgeMessage(ws, {
+        type: 'hello-ack',
+        protocol: 1,
+        bridgeVersion: bridge.version,
+      });
       return;
     }
 

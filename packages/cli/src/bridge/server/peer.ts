@@ -107,7 +107,7 @@ export function attachPeer(
       disconnect = bridge.registerSandboxPeer(
         (out: BridgeMessage) => {
           try {
-            ws.send(JSON.stringify(out));
+            sendBridgeMessage(ws, out, bridge.handleSandboxMessage);
           } catch {}
         },
         msg.tools,
@@ -129,13 +129,11 @@ export function attachPeer(
       );
       peerGen = bridge.peerGeneration();
       try {
-        ws.send(
-          JSON.stringify({
-            type: 'hello-ack',
-            protocol: 1,
-            bridgeVersion: bridge.version,
-          }),
-        );
+        sendBridgeMessage(ws, {
+          type: 'hello-ack',
+          protocol: 1,
+          bridgeVersion: bridge.version,
+        });
       } catch {
         // Socket died between hello and ack — the close handler unwinds.
       }
