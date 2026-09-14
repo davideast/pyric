@@ -24,10 +24,13 @@ import { requiresHealthyPersistence } from './persistence-admission.js';
 
 type HostedTransport = 'worker-port' | 'worker-relay';
 
-interface HostedPort {
-  port: PortLike;
+interface OperationQueue {
   pending: Promise<void>;
   budget: ReturnType<typeof createOperationBudget>;
+}
+
+interface HostedPort extends OperationQueue {
+  port: PortLike;
 }
 
 /** One Node-owned sandbox; each admitted consumer owns its ordered work. */
@@ -118,7 +121,7 @@ export async function createHostedRuntime(
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir);
   const ports = new Map<string, HostedPort>();
   let methodWork = Promise.resolve();
-  const toolWork = new Map<string, Promise<void>>();
+  const toolWork = new Map<string, OperationQueue>();
   let closed = false;
 
   async function handleToolCall(message: ToolCallRequest): Promise<void> {
@@ -138,13 +141,20 @@ export async function createHostedRuntime(
 
   function enqueueToolCall(message: ToolCallRequest): void {
     const callerId = message.callerId ?? 'legacy';
-    const previous = toolWork.get(callerId) ?? Promise.resolve();
-    const pending = previous.then(() => handleToolCall(message)).catch((error: unknown) => {
+    const owned = toolWork.get(callerId) ?? { pending: Promise.resolve(), budget: createOperationBudget() };
+    const reservation = owned.budget.reserve(message);
+    const isRefused = !reservation.accepted;
+    if (isRefused) {
+      send({ type: 'tool-result', id: message.id, ok: false, error: reservation.error });
+      return;
+    }
+    const pending = owned.pending.then(() => handleToolCall(message)).catch((error: unknown) => {
       console.error('[pyric hosted] tool result delivery failed:', error);
-    });
-    toolWork.set(callerId, pending);
+    }).finally(reservation.release);
+    owned.pending = pending;
+    toolWork.set(callerId, owned);
     void pending.then(() => {
-      const isLastCall = toolWork.get(callerId) === pending;
+      const isLastCall = owned.pending === pending;
       if (isLastCall) toolWork.delete(callerId);
     });
   }
@@ -323,7 +333,7 @@ export async function createHostedRuntime(
       closed = true;
       initialized.dispose();
       try {
-        await Promise.all([methodWork, ...toolWork.values(), ...[...ports.keys()].map(closePort)]);
+        await Promise.all([methodWork, ...[...toolWork.values()].map(queue => queue.pending), ...[...ports.keys()].map(closePort)]);
       } finally {
         sandbox.dispose();
       }

@@ -234,8 +234,10 @@ does not imply rollback of an already dispatched mutation. The Node host orders
 forwarded MCP tools per server-assigned execution caller, allowing another
 session to read while one waits on persistence. This caller ID does not change
 the bridge's held authentication policy. Legacy frames without it share a
-legacy queue. Authoritative host tool admission and cancellation propagation
-remain unfinished. Native SharedWorker
+legacy queue. Each Node tool caller also owns a 256-call/24 MiB budget for
+complete forwarded messages, held until host execution settles. Canceling
+bridge requests cannot free these still-occupied host reservations. Direct
+command admission and cancellation propagation remain unfinished. Native SharedWorker
 ports now enforce the same operation count per logical client, preserving
 client order while allowing another client to progress. Native MessagePort
 admission also measures the complete operation message's JSON UTF-8 encoding
