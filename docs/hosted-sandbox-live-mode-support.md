@@ -188,6 +188,11 @@ browser network buffer through that API.
 | Connection heartbeat | Every 15 seconds; interrupted after 45 seconds without liveness | Apply the same loss transition as a closed socket. |
 | Reconnect delay | 250 ms initial, exponential backoff capped at 5 seconds, with bounded jitter | One reconnect owner per app; cancel on deletion. |
 
+A consumer attachment is refused with the existing admission policy close
+(`1008`) if its proposed registration would make the complete presence frame
+exceed 12 MiB. This is admission refusal for a valid input frame; it leaves
+existing consumer records intact.
+
 An oversized observation batch first loses optional snapshot samples. If it still
 cannot fit, its consumer receives an `observation_gap` in the existing event
 stream, carrying the omitted count and first/last source event IDs. The gap

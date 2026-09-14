@@ -185,6 +185,7 @@ export function createConsumerSession(
 ): ConsumerSession {
   let clientSessionId = initialSessionId ?? randomUUID();
   let disposed = false;
+  let registered = false;
   let ownsWorkerPort = false;
   let workerSession: WorkerSessionLease | null = null;
   /** consumer subId → bridge-side unsubscribe. */
@@ -198,6 +199,8 @@ export function createConsumerSession(
       retainedSession.detach();
       return;
     }
+    const hasNoRegistration = !registered;
+    if (hasNoRegistration) return;
     for (const unsubscribe of subs.values()) unsubscribe();
     subs.clear();
     bridge.detachConsumer(clientSessionId);
@@ -213,6 +216,9 @@ export function createConsumerSession(
       retainedSession.close();
       return;
     }
+    // A rejected attachment has not acquired ownership of this client ID.
+    const hasNoRegistration = !registered;
+    if (hasNoRegistration) return;
     for (const unsubscribe of subs.values()) unsubscribe();
     subs.clear();
     bridge.disconnectConsumer(clientSessionId);
@@ -267,6 +273,7 @@ export function createConsumerSession(
           activeLens: { mode: 'app-session' },
           send,
         });
+        registered = true;
         send({
           type: 'attach-ack',
           protocol: 1,

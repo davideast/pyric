@@ -9,6 +9,7 @@ import type {
   ConsumerPresenceFrame,
   RemoteConsumerRecord,
 } from '../protocol.js';
+import { encodeBridgeMessage } from '../frame-output.js';
 
 export interface RegisteredConsumer {
   clientSessionId: string;
@@ -46,6 +47,16 @@ export function createConsumerRegistry(): ConsumerRegistry {
 
   return {
     register(consumer: RegisteredConsumer): void {
+      const records: RemoteConsumerRecord[] = [];
+      for (const existing of consumers.values()) {
+        const isReplacement = existing.clientSessionId === consumer.clientSessionId;
+        if (isReplacement) continue;
+        records.push(toRecord(existing));
+      }
+      records.push(toRecord(consumer));
+      const presence: ConsumerPresenceFrame = { type: 'consumer-presence', consumers: records };
+      const exceedsFrameLimit = encodeBridgeMessage(presence) === undefined;
+      if (exceedsFrameLimit) throw new Error('Consumer metadata exceeds the 12 MiB presence frame limit.');
       consumers.set(consumer.clientSessionId, consumer);
     },
 
@@ -57,12 +68,14 @@ export function createConsumerRegistry(): ConsumerRegistry {
 
     touch(clientSessionId: string): void {
       const c = consumers.get(clientSessionId);
-      if (c) c.lastSeen = Date.now();
+      const isRegistered = c !== undefined;
+      if (isRegistered) c.lastSeen = Date.now();
     },
 
     setLens(clientSessionId: string, lens: AuthLens): boolean {
       const c = consumers.get(clientSessionId);
-      if (!c) return false;
+      const isUnknownConsumer = c === undefined;
+      if (isUnknownConsumer) return false;
       c.activeLens = lens;
       c.lastSeen = Date.now();
       try {
@@ -91,14 +104,16 @@ export function createConsumerRegistry(): ConsumerRegistry {
         consumers: records,
       };
 
-      if (sendToPeer) {
+      const hasPeer = sendToPeer !== undefined && sendToPeer !== null;
+      if (hasPeer) {
         try {
           sendToPeer(frame);
         } catch {}
       }
 
       for (const c of consumers.values()) {
-        if (c.platform === 'studio') {
+        const isStudio = c.platform === 'studio';
+        if (isStudio) {
           try {
             c.send(frame);
           } catch {}
