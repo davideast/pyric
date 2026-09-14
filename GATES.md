@@ -201,3 +201,8 @@ The standalone CLI now applies the same 12 MiB encoded-message limit as the serv
 ### Hardening item 8: standalone protocol admission
 
 Standalone peer handshakes use the same version policy as mounted handshakes and discard buffered work after refusal begins. Original public CLI/MCP/SDK red/green evidence and eight invalid-version controls are retained. Final checks pass 18 runtime cases (32.2s, Node 22.15.0), 36 regressions in four files, strict types and four-file source form. This shares validation only; standalone consumer capabilities and connection ownership are unchanged. Other peer fields, outer JSON/envelopes, detailed payloads and outbound/depth limits remain open.
+
+
+### Hardening item 8: peer handshake field validation
+
+Shared envelope validation now refuses malformed peer identity, tool lists and optional capability lists before standalone or mounted registration. Three original public red/green pairs and 42 malformed-handshake controls retain healthy MCP-to-SDK writes, reject buffered registration and preserve supported valid handshakes. Final verification passes 24 runtime cases (54.9s, Node 22.15.0), 39 regressions in five files, strict types and five-file source form. The old malformed-list coercion regression now expects explicit refusal. Standalone outer JSON/envelopes, other fields, detailed payloads, outbound/depth bounds and later queue gates remain open.

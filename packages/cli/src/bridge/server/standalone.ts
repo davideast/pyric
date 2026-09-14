@@ -36,7 +36,7 @@ import {
   type BridgeMessage,
   isBridgeMessage,
 } from '../protocol.js';
-import { requestProtocolError } from './request-envelope.js';
+import { requestEnvelopeError, requestProtocolError } from './request-envelope.js';
 import { pyricVersion } from '../../serve/standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from '../../serve/server.js';
 
@@ -353,6 +353,12 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
       const hasProtocolError = protocolError !== undefined;
       if (hasProtocolError) {
         ws.close(1008, protocolError);
+        return;
+      }
+      const envelopeError = requestEnvelopeError(msg);
+      const hasEnvelopeError = envelopeError !== undefined;
+      if (hasEnvelopeError) {
+        ws.close(1002, envelopeError);
         return;
       }
       if (helloed) return; // ignore duplicate hellos

@@ -109,21 +109,14 @@ export function attachPeer(
       }
       if (helloed) return;
       helloed = true;
-      const hasToolNames = Array.isArray(msg.tools);
-      const tools = hasToolNames ? msg.tools : [];
-      const hasCapabilities = Array.isArray(msg.capabilities);
-      const capabilities = hasCapabilities ? msg.capabilities : [];
+      const capabilities = msg.capabilities ?? [];
       disconnect = bridge.registerSandboxPeer(
         (out: BridgeMessage) => {
           try {
             ws.send(JSON.stringify(out));
           } catch {}
         },
-        // Harden against a malformed hello: these fields come off the wire
-        // and feed `new Set(...)` in the bridge core — a non-array value
-        // (e.g. `capabilities: 42`) would throw inside this message
-        // listener, escape uncaught, and crash the serve process.
-        tools,
+        msg.tools,
         msg.sandboxId,
         capabilities,
         // On replacement, close THIS socket: the browser side's onclose

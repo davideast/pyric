@@ -63,9 +63,21 @@ function isIdentityLens(value: unknown): boolean {
   }
 }
 
+function isStringList(value: unknown): boolean {
+  return Array.isArray(value) && value.every(item => typeof item === 'string');
+}
+
 /** Validate request envelopes before dispatch; service handlers own argument semantics. */
 export function requestEnvelopeError(frame: BridgeMessage): string | undefined {
   switch (frame.type) {
+    case 'hello': {
+      const hasMalformedTools = !isStringList(frame.tools);
+      const hasMalformedIdentity = typeof frame.sandboxId !== 'string';
+      const hasValidCapabilities = frame.capabilities === undefined || isStringList(frame.capabilities);
+      const isMalformedHandshake = hasMalformedTools || hasMalformedIdentity || !hasValidCapabilities;
+      if (isMalformedHandshake) return 'Invalid sandbox peer handshake.';
+      return;
+    }
     case 'remote-set-lens': {
       const hasSessionId = typeof frame.clientSessionId === 'string';
       const hasValidRequestId = frame.id === undefined || typeof frame.id === 'string';
