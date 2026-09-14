@@ -45,7 +45,7 @@ import type {
   WorkerOpPayload,
   WorkerSubPayload,
 } from '../bridge/protocol.js';
-import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
+import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, MAX_PENDING_OPERATIONS, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
 import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
@@ -300,32 +300,42 @@ export function createRemoteSandboxCore(
   let holdingLoop = false;
   function updateLoopHold(): void {
     const busy = pending.size + subs.size > 0;
-    if (busy && !holdingLoop) {
+    const becameBusy = busy && !holdingLoop;
+    const becameIdle = !busy && holdingLoop;
+    if (becameBusy) {
       holdingLoop = true;
       transport.ref?.();
-    } else if (!busy && holdingLoop) {
+    } else if (becameIdle) {
       holdingLoop = false;
       transport.unref?.();
     }
   }
 
   function op(payload: WorkerOpPayload): Promise<unknown> {
-    if (disposed) {
-      return Promise.reject(remoteError('unavailable', disposed));
+    const disposalReason = disposed;
+    const isDisposed = disposalReason !== null && disposalReason.length > 0;
+    if (isDisposed) {
+      return Promise.reject(remoteError('unavailable', disposalReason));
+    }
+    const hasReachedCapacity = pending.size >= MAX_PENDING_OPERATIONS;
+    if (hasReachedCapacity) {
+      return Promise.reject(remoteError('resource-exhausted', 'This client already has 256 pending operations.'));
     }
     return new Promise<unknown>((resolve, reject) => {
       const id = `rop-${++opCounter}`;
       const timer = setTimeout(() => {
-        if (pending.has(id)) {
+        const isPending = pending.has(id);
+        if (isPending) {
           pending.delete(id);
           updateLoopHold();
+          const hasVersionGuidance = Boolean(versionSkewGuidance);
           reject(
             remoteError(
               'deadline-exceeded',
               `remote sandbox op timed out after ${opTimeoutMs}ms (op: ${payload.method}). Is pyric sandbox still running?` +
                 // A version-skewed old worker accepts frames it cannot
                 // handle and never responds — a timeout is its signature.
-                (versionSkewGuidance ? ` ${versionSkewGuidance}` : ''),
+                (hasVersionGuidance ? ` ${versionSkewGuidance}` : ''),
             ),
           );
         }
@@ -338,10 +348,11 @@ export function createRemoteSandboxCore(
         clearTimeout(timer);
         pending.delete(id);
         updateLoopHold();
+        const isError = err instanceof Error;
         reject(
           remoteError(
             'unavailable',
-            `failed to send op to serve: ${err instanceof Error ? err.message : String(err)}`,
+            `failed to send op to serve: ${isError ? err.message : String(err)}`,
           ),
         );
       }
@@ -353,15 +364,19 @@ export function createRemoteSandboxCore(
     onSnap: (value: unknown) => void,
     onError?: (err: Error & { code: string }) => void,
   ): () => void {
-    if (disposed) throw remoteError('unavailable', disposed);
+    const disposalReason = disposed;
+    const isDisposed = disposalReason !== null && disposalReason.length > 0;
+    if (isDisposed) throw remoteError('unavailable', disposalReason);
     const subId = `rsub-${++subCounter}`;
     subs.set(subId, { onSnap, onError });
     updateLoopHold();
     send({ type: 'worker-sub', subId, sub });
     return () => {
-      if (!subs.delete(subId)) return;
+      const wasUnregistered = !subs.delete(subId);
+      if (wasUnregistered) return;
       updateLoopHold();
-      if (!disposed) {
+      const isConnected = !disposed;
+      if (isConnected) {
         try {
           send({ type: 'worker-unsub', subId });
         } catch {}
@@ -370,55 +385,63 @@ export function createRemoteSandboxCore(
   }
 
   function handleMessage(msg: BridgeMessage): void {
-    if (!isBridgeMessage(msg)) return;
+    const isUnknownMessage = !isBridgeMessage(msg);
+    if (isUnknownMessage) return;
     switch (msg.type) {
       case 'attach-ack': {
         // Version-skew stamp: warn ONCE when the serve process runs a
         // different @pyric/cli version (absent stamp = old server = silent).
-        if (
+        const needsVersionGuidance =
           versionSkewGuidance === null &&
           typeof msg.serveVersion === 'string' &&
-          msg.serveVersion !== cliVersion()
-        ) {
+          msg.serveVersion !== cliVersion();
+        if (needsVersionGuidance) {
           versionSkewGuidance =
             `pyric sandbox is running version ${msg.serveVersion}, this client is ` +
             `${cliVersion()}. Restart pyric sandbox and reload the browser tab.`;
           process.stderr.write(`pyric: ${versionSkewGuidance}\n`);
         }
-        if (msg.peerConnected) readyResolve();
+        const hasPeer = msg.peerConnected;
+        if (hasPeer) readyResolve();
         else readyReject(noTabError(serveUrl));
         return;
       }
       case 'worker-res': {
         const call = pending.get(msg.id);
-        if (!call) return; // late (already timed out) — drop
+        const isLateReply = call === undefined;
+        if (isLateReply) return;
         clearTimeout(call.timer);
         pending.delete(msg.id);
         updateLoopHold();
-        if (msg.ok) {
+        const succeeded = msg.ok;
+        if (succeeded) {
           call.resolve(msg.value);
         } else {
           const code = msg.error?.code ?? 'unknown';
           let message = msg.error?.message ?? 'unknown sandbox error';
           // Enrich the bridge's generic no-peer error with actionable guidance.
-          if (message === NO_SANDBOX_ERROR_MESSAGE) {
+          const hasNoSandbox = message === NO_SANDBOX_ERROR_MESSAGE;
+          const hasUnknownMethod = /^Unknown method:/.test(message);
+          if (hasNoSandbox) {
             message = noTabError(serveUrl).message;
-          } else if (/^Unknown method:/.test(message)) {
+          } else if (hasUnknownMethod) {
             // Version skew: a live tab whose SharedWorker predates this op.
             // Other open pages of this origin keep the old worker alive.
             message +=
               '. The running sandbox may predate this feature. Restart pyric sandbox ' +
               'and close other open pages of this origin, then reload.';
           }
-          call.reject(remoteError(code, message, msg.error?.denialContext, (msg.error as any)?.envelope));
+          call.reject(remoteError(code, message, msg.error?.denialContext, msg.error?.envelope));
         }
         return;
       }
       case 'worker-snap': {
         const sub = subs.get(msg.subId);
-        if (!sub) return; // unsubscribed — drop
+        const isUnsubscribed = sub === undefined;
+        if (isUnsubscribed) return;
         const value = (msg.value ?? {}) as Record<string, unknown>;
-        if (value.__error) {
+        const hasListenerError = Boolean(value.__error);
+        if (hasListenerError) {
           // A listener error is TERMINAL (Firestore's onSnapshot contract:
           // after onError, no further snapshots and the listener is dead).
           // Auto-unsubscribe BEFORE delivering: drop the local record (so a
@@ -429,14 +452,17 @@ export function createRemoteSandboxCore(
           // registration failure that never registered one).
           subs.delete(msg.subId);
           updateLoopHold();
-          if (!disposed) {
+          const isConnected = !disposed;
+          if (isConnected) {
             try {
               send({ type: 'worker-unsub', subId: msg.subId });
             } catch {}
           }
           const payload = value.__error as { code: string; message: string; denialContext?: unknown; envelope?: unknown };
           const err = remoteError(payload.code, payload.message, payload.denialContext, payload.envelope);
-          if (sub.onError) sub.onError(err);
+          const onError = sub.onError;
+          const hasErrorHandler = onError !== undefined;
+          if (hasErrorHandler) onError(err);
           else console.error('pyric remote sandbox: uncaught error in subscription:', err);
           return;
         }
@@ -457,7 +483,8 @@ export function createRemoteSandboxCore(
   }
 
   function dispose(reason?: string): void {
-    if (disposed) return;
+    const isDisposed = Boolean(disposed);
+    if (isDisposed) return;
     disposed = reason ?? 'remote sandbox connection closed';
     const err = remoteError('unavailable', disposed);
     for (const call of pending.values()) {

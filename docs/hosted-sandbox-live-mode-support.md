@@ -195,9 +195,11 @@ several consumers, each logical client has its own allowance. Browser/worker
 client and Node host admission are enforced. The Node host counts executing
 and queued operations until their handlers finish; a failed handler releases
 its slot. Legacy consumer operations use their admitted session rather than
-a supplied per-operation client ID. Bridge/public remote admission,
-authoritative SharedWorker admission and aggregate queued-byte accounting
-remain unfinished.
+a supplied per-operation client ID. The public remote client also refuses
+operation 257 before allocating a correlation record, timer or event-loop
+hold. Replies, timeouts and disposal remove its existing pending records.
+Bridge admission, authoritative SharedWorker admission and aggregate
+queued-byte accounting remain unfinished.
 
 A consumer attachment is refused with the existing admission policy close
 (`1008`) if its proposed registration would make the complete presence frame
