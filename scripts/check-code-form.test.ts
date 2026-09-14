@@ -93,6 +93,54 @@ test('code-form scope retains old violations inside a modified function', () => 
   });
 });
 
+test('code-form scope checks changed class methods in full without requiring edits to unchanged methods', () => {
+  const before = `class Host {
+    legacy() { if (count > 0) run(); }
+    changed() { if (ready > 0) run(); return 1; }
+  }`;
+  const after = before.replace('return 1', 'return 2');
+  expect(checkChangedCodeForm({ before, after, fileName: 'input.ts' })).toEqual({
+    issues: [{ rule: 'named-condition', line: 3, column: 21 }],
+    excluded: [{ startLine: 2, endLine: 2, reason: 'unchanged-class-member' }],
+  });
+});
+
+test('code-form scope checks new classes and changed class headers in full', () => {
+  const before = 'class Host { legacy() { if (count > 0) run(); } }';
+  const renamed = before.replace('class Host', 'class Replacement');
+  const derived = before.replace('class Host', 'class Host extends Base');
+  for (const after of [renamed, derived]) {
+    expect(checkChangedCodeForm({ before, after, fileName: 'input.ts' }).issues.map(issue => issue.rule))
+      .toEqual(['named-condition']);
+  }
+  expect(checkChangedCodeForm({ after: before, fileName: 'input.ts' }).issues.map(issue => issue.rule))
+    .toEqual(['named-condition']);
+});
+
+test('code-form scope checks changed constructors, properties, accessors, and static blocks', () => {
+  const before = `class Host {
+    value = condition ? 1 : 2;
+    constructor() { if (count > 0) run(); }
+    get ready() { if (count > 0) return true; return false; }
+    static { if (count > 0) run(); }
+  }`;
+  const after = before.replace('condition ? 1', 'count > 0 ? 3').replaceAll('count > 0) ', 'count > 1) ');
+  const result = checkChangedCodeForm({ before, after, fileName: 'input.ts' });
+  expect(result.excluded).toEqual([]);
+  expect(result.issues.map(issue => issue.rule)).toEqual(Array(4).fill('named-condition'));
+});
+
+test('code-form scope cannot hide duplicate members or new suppression comments', () => {
+  const member = 'legacy() { if (count > 0) run(); }';
+  const before = `class Host { ${member} }`;
+  const duplicated = `class Host { ${member} ${member} }`;
+  expect(checkChangedCodeForm({ before, after: duplicated, fileName: 'input.ts' }).issues.map(issue => issue.rule))
+    .toEqual(['named-condition']);
+  const suppressed = `class Host {\n// @ts-ignore\n${member}\nadded() {} }`;
+  expect(checkChangedCodeForm({ before, after: suppressed, fileName: 'input.ts' }).issues.map(issue => issue.rule))
+    .toEqual(['suppression']);
+});
+
 test('code-form scope checks new files and additions sharing a line with unchanged code', () => {
   const before = 'const value = 1;';
   const after = `${before} if (value > 0) run();`;

@@ -9,10 +9,10 @@ export interface CodeFormIssue {
 export interface CodeFormExclusion {
   startLine: number;
   endLine: number;
-  reason: 'unchanged-top-level-statement';
+  reason: 'unchanged-top-level-statement' | 'unchanged-class-member';
 }
 
-/** Check changed top-level statements in full, exposing every legacy exclusion. */
+/** Check changed declarations and class members in full, exposing every legacy exclusion. */
 export function checkChangedCodeForm(input: { before?: string; after: string; fileName: string; program?: ts.Program }): {
   issues: CodeFormIssue[];
   excluded: CodeFormExclusion[];
@@ -25,13 +25,32 @@ export function checkChangedCodeForm(input: { before?: string; after: string; fi
   const before = ts.createSourceFile(input.fileName, beforeSource, ts.ScriptTarget.Latest, true);
   const after = ts.createSourceFile(input.fileName, input.after, ts.ScriptTarget.Latest, true);
   const previousStatements = before.statements.map((statement) => statement.getText(before));
-  const unchanged: { start: number; end: number }[] = [];
+  const previousClasses = before.statements.filter(ts.isClassDeclaration);
+  const unchanged: { start: number; end: number; reason: CodeFormExclusion['reason'] }[] = [];
   for (const statement of after.statements) {
     const previousIndex = previousStatements.indexOf(statement.getText(after));
     const isUnchanged = previousIndex !== -1;
     if (isUnchanged) {
       previousStatements.splice(previousIndex, 1);
-      unchanged.push({ start: statement.getStart(after), end: statement.getEnd() });
+      unchanged.push({ start: statement.getStart(after), end: statement.getEnd(), reason: 'unchanged-top-level-statement' });
+      continue;
+    }
+    const isClass = ts.isClassDeclaration(statement);
+    if (isClass) {
+      const header = classHeader(statement, after);
+      const previousClass = previousClasses.find(candidate => classHeader(candidate, before) === header);
+      const hasPreviousClass = previousClass !== undefined;
+      if (hasPreviousClass) {
+        const previousMembers = previousClass.members.map(member => member.getText(before));
+        for (const member of statement.members) {
+          const previousMemberIndex = previousMembers.indexOf(member.getText(after));
+          const isUnchangedMember = previousMemberIndex !== -1;
+          if (isUnchangedMember) {
+            previousMembers.splice(previousMemberIndex, 1);
+            unchanged.push({ start: member.getStart(after), end: member.getEnd(), reason: 'unchanged-class-member' });
+          }
+        }
+      }
     }
   }
   const scopedIssues = issues.filter((issue) => {
@@ -44,9 +63,13 @@ export function checkChangedCodeForm(input: { before?: string; after: string; fi
   const excluded = unchanged.map((range): CodeFormExclusion => ({
     startLine: after.getLineAndCharacterOfPosition(range.start).line + 1,
     endLine: after.getLineAndCharacterOfPosition(range.end - 1).line + 1,
-    reason: 'unchanged-top-level-statement',
+    reason: range.reason,
   }));
   return { issues: scopedIssues, excluded };
+}
+
+function classHeader(declaration: ts.ClassDeclaration, source: ts.SourceFile): string {
+  return source.text.slice(declaration.getStart(source), declaration.members.pos);
 }
 
 function unparenthesized(expression: ts.Expression): ts.Expression {

@@ -115,8 +115,10 @@ rather than restating its boolean algebra.
 Run `bun scripts/check-changed-code-form.ts <base-revision>` from the repository
 root. The required build job runs this check, its command tests, and the
 verification-tool typecheck. The report identifies checked files by content
-digest and lists unchanged top-level statements excluded from enforcement;
-an edited function is checked in full. Generated or third-party exclusions
+digest and lists unchanged top-level statements and class members excluded
+from enforcement; an edited function or class member is checked in full.
+Class-member exclusions require an unchanged class header; new classes and
+changed class headers are checked in full. Generated or third-party exclusions
 must be explicit, never introduced just to clear a failure.
 
 The CLI checks source form and resolves condition types through a strict
