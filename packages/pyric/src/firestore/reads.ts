@@ -42,7 +42,7 @@ export function getDoc<T = DocumentData>(ref: DocumentReference<T>): Promise<Doc
 }
 
 /** Keep served aliases on the same backend path while preserving their public name. */
-export function readDocumentAs<T = DocumentData>(ref: DocumentReference<T>, method: string): Promise<DocumentSnapshot<T>> {
+export async function readDocumentAs<T = DocumentData>(ref: DocumentReference<T>, method: string): Promise<DocumentSnapshot<T>> {
   return readDocument(ref, beginFirestoreActivity(targetOf(ref), ref, method, 'operation'));
 }
 
@@ -76,7 +76,7 @@ export function getDocs<T = DocumentData>(query: Query<T>): Promise<QuerySnapsho
 }
 
 /** Keep served aliases on the same backend path while preserving their public name. */
-export function readQueryAs<T = DocumentData>(query: Query<T>, method: string): Promise<QuerySnapshot<T>> {
+export async function readQueryAs<T = DocumentData>(query: Query<T>, method: string): Promise<QuerySnapshot<T>> {
   return readQuery(query, beginFirestoreActivity(targetOf(query), query, method, 'operation'));
 }
 

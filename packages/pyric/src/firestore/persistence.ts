@@ -336,14 +336,14 @@ export function initializeFirestore(
  * same honest thing.
  *
  */
-export function getDocFromServer<T = DocumentData>(
+export async function getDocFromServer<T = DocumentData>(
   ref: DocumentReference<T>,
 ): Promise<DocumentSnapshot<T>> {
   return readDocument(ref, beginFirestoreActivity(targetOf(ref), ref, 'getDocFromServer', 'operation'));
 }
 
 /** Query-plural form of {@link getDocFromServer}. */
-export function getDocsFromServer<T = DocumentData>(
+export async function getDocsFromServer<T = DocumentData>(
   query: Query<T>,
 ): Promise<QuerySnapshot<T>> {
   return readQuery(query, beginFirestoreActivity(targetOf(query), query, 'getDocsFromServer', 'operation'));
