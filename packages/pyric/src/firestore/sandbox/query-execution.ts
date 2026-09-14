@@ -512,7 +512,8 @@ export function executeQuery(
           message: 'limitToLast() queries require at least one orderBy clause.',
         });
       }
-      filtered = filtered.slice(-finalLimit);
+      const hasZeroLimit = finalLimit === 0;
+      filtered = hasZeroLimit ? [] : filtered.slice(-finalLimit);
     } else {
       filtered = filtered.slice(0, finalLimit);
     }
