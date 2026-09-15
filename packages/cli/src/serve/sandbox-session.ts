@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { createFlowTreatmentHost } from './flow-treatment-host.js';
 import type { FlowConfig } from './flow-config.js';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
@@ -40,6 +41,7 @@ export interface SandboxSessionOptions {
   studio?: false | { siteUiDir?: string };
   bridgeUrl?: () => string | null;
   hosted?: boolean;
+  deployHostedRules?: (service: 'firestore' | 'database', source: string) => void;
   ai?: InitPayload['ai'];
   aiProxyUpstream?: string;
   /** Resolved `avatars` option (already reduced by `avatars-config.ts` from
@@ -174,6 +176,7 @@ export async function createSandboxSession(
   }
   const flowTreatments = await createFlowTreatmentHost(options.projectDir, options.flow);
   const events = createEventHub();
+  const sessionToken = randomBytes(24).toString('base64url');
   // A background generation that lands in the cache is broadcast on the same
   // hub the rules watchers use. The page, not the application, listens: it
   // re-requests that uid's avatar so the finished image replaces the
@@ -269,6 +272,7 @@ export async function createSandboxSession(
       seedState,
       persist: Boolean(state),
       capture: Boolean(capture),
+      sessionToken,
       authUsers: hasStateStore
         ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
         : seedUsers,
@@ -312,6 +316,7 @@ export async function createSandboxSession(
     state,
     stateOwner,
     capture,
+    sessionToken,
     studio: mountsStudio
       ? {
           workspace: diskWorkspace(options.projectDir),
@@ -336,6 +341,7 @@ export async function createSandboxSession(
       const raw = await readFile(sourcePath, 'utf8');
       const rules = prepareRulesSource(raw, sourcePath);
       const rulesHash = rulesHashOf(rules);
+      options.deployHostedRules?.('firestore', rules);
       live.rules = rules;
       live.rulesHash = rulesHash;
       events.broadcast('rules-changed', { rules, rulesHash });
@@ -353,6 +359,7 @@ export async function createSandboxSession(
       if (isMissingUpdatedRules) {
         return { kind: 'not-configured' };
       }
+      options.deployHostedRules?.('database', JSON.stringify(updated.rules));
       database.sourcePath = updated.sourcePath;
       live.databaseRules = updated.rules;
       live.databaseRulesHash = updated.rulesHash;

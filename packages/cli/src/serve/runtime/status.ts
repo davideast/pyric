@@ -119,10 +119,14 @@ function isAiRejectedEvent(event: SandboxEvent): boolean {
 function observationGapError(event: SandboxEvent): PyricRuntimeError | null {
   const isObservationGap = event.kind === 'observation_gap';
   if (isObservationGap) {
+    const historyWasEvicted = event.reason === 'history-limit';
+    const message = historyWasEvicted
+      ? 'Older sandbox activity was evicted from the bounded observation history.'
+      : 'Sandbox activity is incomplete because an observation batch exceeded the 12 MiB size limit.';
     return {
       id: event.id, source: 'worker', at: event.at,
       code: 'resource-exhausted', method: 'observation-delivery',
-      message: 'Sandbox activity is incomplete because an observation batch exceeded the 12 MiB size limit.',
+      message,
     };
   }
   return null;

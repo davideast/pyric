@@ -5,12 +5,12 @@ This bounded milestone leaves the broader hosted/live-mode goal incomplete.
 Use the already approved S1–S6 seams, vertical TDD, and applicable universal gates.
 Do not modify the manual demo project. Commit and push each verified slice.
 
-Latest completed section: [Section 4 — installed packages and admission isolation](hosted-section-four-progress.md),
-completed 2026-09-15. Eleven packed browser cases, 19 regressions and the final
-live Tailscale restart / installed Vite HMR procedures pass. Final procedures used
-browser automation because the Mac was locked; user phone verification is
-recorded separately. Section 5 (items 16–17) is next. Earlier entries retain their
-historical detail; each section's progress records current bounded evidence.
+Latest completed section: [Section 5 — slow consumers and Rules hot reload](hosted-section-five-progress.md),
+completed locally 2026-09-15. Twelve focused browser scenarios, 140 regressions,
+11 installed-package checks, builds/types/form and five browser budgets pass.
+The manual checkpoint is runnable; existing demos and Tailscale remain intact.
+Section 6 (items 18–19) is next. Earlier entries retain their historical detail;
+each section's progress records current bounded evidence.
 
 ## Ordered queue
 
@@ -29,8 +29,8 @@ historical detail; each section's progress records current bounded evidence.
 13. Concurrent transactions and atomic writes — verified in Section 3. Two clients contend through normal SDK calls without lost updates; rejected batches remain atomic and ambiguous acknowledgments do not trigger transport replay.
 14. Packed installation and runtime selection — verified in Section 4, including the final browser-driven checkpoint. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.
 15. Origin and project admission isolation — verified in Section 4 under the existing hostname allowlist and host-bound resume policy. Foreign discovery, misdirected SDK bridge and foreign session resume refuse; changed-host recovery intentionally obtains a fresh session. Intended clients still connect. See Section 4 for the policy boundaries.
-16. Slow-client isolation and bounded event delivery — pending. A stalled Studio/event consumer cannot exhaust retained queues or starve another app's SDK operations; overflow and lost history remain explicit.
-17. Rules hot reload with active apps — pending. Valid Rules changes update enforcement and active listeners according to the existing service contract; invalid edits report their failure without falsely claiming successful enforcement.
+16. Slow-client isolation and bounded event delivery — verified in Section 5 for the declared workload. A stalled socket closes at the shared 24 MiB output bound while another app continues SDK writes. Served observation history has count/byte limits and explicit gaps; incomplete capture/replay is refused. Broader gate 6B remains open.
+17. Rules hot reload with active apps — verified in Section 5. Actual Firestore/RTDB file edits update hosted, SharedWorker and in-page enforcement and listeners; invalid edits report failure and retain last-good file Rules, with repair and explicit listener reattachment verified. Storage file edits still require restart.
 18. Client/host version compatibility — pending. Actual packed consumers within the declared compatibility range work against the candidate host; unsupported combinations refuse clearly before mutation and never silently select another runtime.
 19. Fault diagnostics and redaction — pending. Existing CLI, runtime and Studio diagnostics distinguish connection, restoration and persistence failures while excluding credentials and private document contents from default support output.
 20. Combined verification and morning handoff — verified locally for the completed milestone slices. See `docs/hosted-hardening-handoff.md`: 216 affected browser scenarios, 1,138 regressions, strict types, 123-file code form, scoped import review, matching browser budgets and four rebuilt copied-standalone checks. Remote backup is complete following direct user authorization; item 8 is partial and 9–19 remain open.

@@ -1,3 +1,4 @@
+import { EventHistory, type EventHistoryLimits } from './event-history.js';
 /**
  * Internal `Sandbox` implementation — backs the public interface from
  * `/app` and exposes the hook (`getEnv`) that other in-package modules
@@ -91,8 +92,8 @@ export class SandboxImpl implements LocalSandbox {
   /** Append-only history of every SandboxEvent emitted on this sandbox.
    *  Cleared on `reset()` AFTER the session_boundary event is appended,
    *  so the boundary is the last entry of the old session's history.
-   *  v1 doesn't cap; consumers persist the snapshot they need. */
-  private eventHistory: SandboxEvent[] = [];
+   *  Hosted adapters may bound observation retention; direct SDK roots retain full history. */
+  private readonly eventHistory: EventHistory;
 
   /** Ambient provenance for the current {@link runWithProvenance} window
    *  (undefined outside any window). Purely synchronous — set on entry,
@@ -156,7 +157,8 @@ export class SandboxImpl implements LocalSandbox {
   /** The cross-module-instance key `getClock` reads. See `sandbox/clock.ts`. */
   declare readonly [SANDBOX_CLOCK]: SandboxClock;
 
-  private constructor(env: LocalEnvironment, clock: SandboxClock) {
+  private constructor(env: LocalEnvironment, clock: SandboxClock, historyLimits?: EventHistoryLimits) {
+    this.eventHistory = new EventHistory(historyLimits);
     this._env = env;
     this.clock = clock;
     Object.defineProperty(this, SANDBOX_CLOCK, { value: clock, enumerable: false });
@@ -164,9 +166,9 @@ export class SandboxImpl implements LocalSandbox {
   }
 
   /** Factory used by `initializeSandbox`. */
-  static createRoot(): SandboxImpl {
+  static createRoot(historyLimits?: EventHistoryLimits): SandboxImpl {
     const clock = new SandboxClock();
-    return new SandboxImpl(new LocalEnvironment(clock), clock);
+    return new SandboxImpl(new LocalEnvironment(clock), clock, historyLimits);
   }
 
   /**
@@ -289,13 +291,15 @@ export class SandboxImpl implements LocalSandbox {
     // Append to history unconditionally — consumers that call
     // sandbox.history() expect every event the sandbox saw, regardless
     // of whether onEvent subscribers were attached at emit time.
-    this.eventHistory.push(event);
+    this.eventHistory.append(event);
     this.dispatchedCount++;
-    if (this.eventSubs.size === 0) return;
+    const hasNoSubscribers = this.eventSubs.size === 0;
+    if (hasNoSubscribers) return;
     for (const cb of this.eventSubs) {
       try {
         const result = cb(event) as unknown;
-        if (result && typeof (result as { then?: unknown }).then === 'function') {
+        const isAsyncResult = result !== null && result !== undefined && typeof (result as { then?: unknown }).then === 'function';
+        if (isAsyncResult) {
           (result as Promise<unknown>).catch(() => { /* swallow */ });
         }
       } catch { /* swallow — observational */ }
@@ -335,7 +339,7 @@ export class SandboxImpl implements LocalSandbox {
    * `dispose()` leaves the boundary as the final entry.
    */
   history(): SandboxEvent[] {
-    return [...this.eventHistory];
+    return this.eventHistory.snapshot();
   }
 
   /**
@@ -359,9 +363,11 @@ export class SandboxImpl implements LocalSandbox {
    * interleave after live ones. Returns the number of events primed.
    */
   primeEventHistory(events: readonly SandboxEvent[]): number {
-    if (this.eventHistory.length > 0) return 0;
-    if (events.length === 0) return 0;
-    this.eventHistory.push(...events);
+    const hasHistory = this.eventHistory.length > 0;
+    const isEmpty = events.length === 0;
+    if (hasHistory) return 0;
+    if (isEmpty) return 0;
+    for (const event of events) this.eventHistory.append(event);
     return events.length;
   }
 
@@ -394,12 +400,13 @@ export class SandboxImpl implements LocalSandbox {
     // The boundary is now the last entry in eventHistory; clear the
     // history AFTER emit so consumers that took a snapshot before
     // reset() retain the boundary in their copy.
-    this.eventHistory = [];
+    this.eventHistory.clear();
 
     // Clear currentUser to null and notify — a reset wipes everything
     // including signed-in identity. Subscribers see the sign-out so
     // their UI / Firestore handles reflect the post-reset state.
-    if (this._currentUser !== null) {
+    const hadCurrentUser = this._currentUser !== null;
+    if (hadCurrentUser) {
       this._currentUser = null;
       this.notifyCurrentUserSubs(null);
     }

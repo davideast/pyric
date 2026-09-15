@@ -22,5 +22,10 @@ export function sendBridgeMessage(
     socket.close(1009, BRIDGE_FRAME_LIMIT_MESSAGE);
     return;
   }
+  const exceedsBacklog = socket.bufferedAmount + Buffer.byteLength(payload) > 24 * 1024 * 1024;
+  if (exceedsBacklog) {
+    socket.close(1013, 'Client output backlog exceeds 24 MiB; reconnect to resume.');
+    return;
+  }
   socket.send(payload);
 }

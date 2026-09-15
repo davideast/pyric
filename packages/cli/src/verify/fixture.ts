@@ -1,3 +1,4 @@
+import { assertCompleteHistory } from 'pyric/sandbox/internal';
 import type { EventService, Sandbox, SandboxEvent } from 'pyric/sandbox';
 import { getStorageSandbox } from 'pyric/storage';
 import { isRtdbRulesJson } from '../rtdb/rules-json.js';
@@ -151,34 +152,44 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
 }
 
 export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
-  if (!isVerifyFixtureObject(value)) {
+  const isNotObject = !isVerifyFixtureObject(value);
+  if (isNotObject) {
     throw new Error('fixture must be a JSON object.');
   }
-  if (value.schema !== VERIFY_FIXTURE_SCHEMA) {
+  const hasWrongSchema = value.schema !== VERIFY_FIXTURE_SCHEMA;
+  if (hasWrongSchema) {
     throw new Error(`fixture schema must be '${VERIFY_FIXTURE_SCHEMA}'.`);
   }
-  if (!Array.isArray(value.events)) {
+  const events = value.events;
+  const hasInvalidEvents = !Array.isArray(events);
+  if (hasInvalidEvents) {
     throw new Error('fixture.events must be an array.');
   }
-  if (!isVerifyFixtureObject(value.services)) {
+  assertCompleteHistory(events);
+  const services = value.services;
+  const hasInvalidServices = !isVerifyFixtureObject(services);
+  if (hasInvalidServices) {
     throw new Error('fixture.services must be an object.');
   }
 
-  const services = value.services;
-  if (services.firestore !== undefined) {
+  const hasFirestore = services.firestore !== undefined;
+  if (hasFirestore) {
     assertFirestoreService(services.firestore);
   }
-  if (services.rtdb !== undefined) {
+  const hasRtdb = services.rtdb !== undefined;
+  if (hasRtdb) {
     assertRtdbService(services.rtdb);
   }
-  if (services.storage !== undefined) {
+  const hasStorage = services.storage !== undefined;
+  if (hasStorage) {
     assertStorageService(services.storage);
   }
-  if (services.auth !== undefined && !isVerifyFixtureObject(services.auth)) {
+  const hasInvalidAuth = services.auth !== undefined && !isVerifyFixtureObject(services.auth);
+  if (hasInvalidAuth) {
     throw new Error('fixture.services.auth must be an object.');
   }
 
-  return value as unknown as PyricVerifyFixture;
+  return { ...value, schema: VERIFY_FIXTURE_SCHEMA, events: events as SandboxEvent[], services: services as PyricVerifyFixture['services'] };
 }
 
 export function fixtureVerifiableServices(

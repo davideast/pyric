@@ -1,3 +1,4 @@
+import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 /**
  * Worker-side serve init (Phase 3c.B) — apply `pyric dev`'s init payload
  * INSIDE the SharedWorker.
@@ -33,7 +34,7 @@ import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
 import type { PersistenceBackend } from 'pyric/sandbox';
-import { createSandboxRoot } from 'pyric/sandbox/internal';
+import { createSandboxRoot, EventHistory } from 'pyric/sandbox/internal';
 import {
   primeEventHistory,
 } from 'pyric/sandbox/internal';
@@ -425,14 +426,16 @@ export async function hydrateEventHistory(
 ): Promise<number> {
   let res: Response;
   try {
-    const headers: Record<string, string> = sessionToken
+    const hasToken = sessionToken !== undefined;
+    const headers: Record<string, string> = hasToken
       ? { 'x-pyric-session-token': sessionToken }
       : {};
     res = await env.fetch('/__pyric/capture', { headers });
   } catch {
     return 0; // standalone / no capture endpoint.
   }
-  if (res.status !== 200) return 0; // 404 → capture off or nothing captured.
+  const isUnavailable = res.status !== 200;
+  if (isUnavailable) return 0; // 404 → capture off or nothing captured.
 
   let fixture: PyricVerifyFixture;
   try {
@@ -442,14 +445,16 @@ export async function hydrateEventHistory(
   }
 
   const events = fixture.events;
-  if (!Array.isArray(events) || events.length === 0) return 0;
+  const hasNoEvents = !Array.isArray(events) || events.length === 0;
+  if (hasNoEvents) return 0;
 
   // Identity: don't show a neighbor profile's session as ours.
-  if (fixture.capturedBy && fixture.capturedBy !== ctx.instanceId) return 0;
+  const isOtherInstance = !!fixture.capturedBy && fixture.capturedBy !== ctx.instanceId;
+  if (isOtherInstance) return 0;
 
-  const capped =
-    events.length > MAX_PRIMED_EVENTS ? events.slice(-MAX_PRIMED_EVENTS) : events;
-  return primeEventHistory(ctx.sandbox, capped);
+  const retained = new EventHistory({ ...SERVE_HISTORY_LIMITS, maxEvents: MAX_PRIMED_EVENTS });
+  for (const event of events) retained.append(event);
+  return primeEventHistory(ctx.sandbox, retained.snapshot());
 }
 
 // ─── Worker boot: build the ONE shared HostCtx ──────────────────────────────
@@ -539,7 +544,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
     // plain-call wrapper doesn't need (nothing in this module uses it).
     fetch: ((...args: Parameters<typeof fetch>) => ambientFetch(...args)) as typeof fetch,
   };
-  const sandbox = createSandboxRoot();
+  const sandbox = createSandboxRoot(SERVE_HISTORY_LIMITS);
 
   // Deploy permissive starter rules via admin-firestore.
   // Callers override at runtime via the setRules op.
@@ -562,7 +567,8 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // createWorkerDurableBackend); plain IDB otherwise. The session record stays
   // on the RAW idb (local-only — it must NEVER reach the committable server
   // file), so that is what we hand the host as `sessionBackend`.
-  const durable = payload ? createWorkerDurableBackend(env.idb, payload, env) : env.idb;
+  const hasPayload = payload !== null;
+  const durable = hasPayload ? createWorkerDurableBackend(env.idb, payload, env) : env.idb;
   await sandbox.enablePersistence({
     key: env.persistenceKey ?? workerPersistenceKey(payload?.projectKey),
     injectedBackend: durable,
@@ -606,7 +612,8 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // (seed, first ops) follow. This is what makes Traffic / activity / metrics
   // survive a worker death: the DATA came back from IDB above, this restores
   // the RECORD of it. Best-effort — a failure never blocks boot.
-  if (payload?.capture) {
+  const capturesEvents = payload?.capture === true;
+  if (capturesEvents) {
     try {
       await hydrateEventHistory(ctx, env, payload?.sessionToken);
     } catch {
@@ -618,7 +625,8 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // engine slot. It wins over any op-carried `engine` field (see ensureAiBroker
   // in host-ai.ts) and is honored on the first ai op — mirroring getAI's
   // first-call-wins idempotence. Absent under `pyric dev` (no CLI surface).
-  if (payload?.ai?.engine) ctx.aiEngine = payload.ai.engine;
+  const hasAiEngine = payload?.ai?.engine !== undefined;
+  if (hasAiEngine) ctx.aiEngine = payload?.ai?.engine;
 
   // Default-on, warning-only. Start after hydration so a restored capture can
   // populate a report without replaying an old warning into a fresh terminal.
@@ -634,7 +642,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // Apply rules / seed / authUsers / capture BEFORE any port op runs (so
   // seeded users exist and project rules govern the first write), then mirror
   // auth to the committable server file (`--persist` only).
-  if (payload) {
+  if (hasPayload) {
     applyServeInit(ctx, payload, env);
     setupServerAuthFlush(ctx, payload, env);
   }
@@ -642,8 +650,10 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // The worker owns the SINGLE hot-reload stream for the origin (tabs open
   // none) — so a rules change deploys once and multi-tab pages never exhaust
   // the per-origin connection cap.
-  if (env.makeEventSource) {
-    setupWorkerHotReload(ctx, env.makeEventSource);
+  const makeEventSource = env.makeEventSource;
+  const hasEventSource = typeof makeEventSource === 'function';
+  if (hasEventSource) {
+    setupWorkerHotReload(ctx, makeEventSource);
   }
 
   return ctx;

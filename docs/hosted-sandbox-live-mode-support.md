@@ -295,6 +295,22 @@ operation/control traffic connected. These IDs delimit the omitted batch, not
 a globally contiguous sequence range. This frame refusal does not implement
 the separate queue, retained-history, or capture budgets below.
 
+The bounded [Section 5 hardening checkpoint](hosted-section-five-progress.md)
+implements a shared 24 MiB **WebSocket output** ceiling: a slow socket closes
+with 1013 before accepting another frame above that ceiling. Other clients keep
+working. This closes the affected consumer's whole transport; it is not an
+independent control channel or the proposed 1,000-event/16 MiB observation queue
+in the broader table. That separate release requirement remains open.
+
+Served observation history and capture now retain at most 10,000 events plus a
+`history-limit` gap within **8 MiB**. This smaller retention ceiling allows a
+normal late-subscriber history snapshot to fit under the existing 12 MiB frame
+limit, instead of routinely replacing a 32 MiB history with a frame-limit gap.
+Worker capture hydration retains its existing 2,000-event tail with an explicit
+gap. Incomplete captures are refused by replay and verification. Direct SDK full
+history and undo state are separate. The capture maximum-age deadline and the
+longer release workload below are not established by this bounded checkpoint.
+
 Before closing gate 6B, run a 15-minute local workload after a 2-minute warm-up:
 four active consumers, 100 total 1 KiB document operations per second, 20 live
 subscriptions per active consumer, and one stalled observation consumer.

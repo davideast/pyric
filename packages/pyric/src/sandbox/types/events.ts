@@ -576,7 +576,7 @@ export interface SandboxObservationGapEvent {
   kind: 'observation_gap';
   id: string;
   at: number;
-  reason: 'frame-limit';
+  reason: 'frame-limit' | 'history-limit';
   omittedCount: number;
   firstEventId: string;
   lastEventId: string;

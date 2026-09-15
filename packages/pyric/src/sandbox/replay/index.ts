@@ -1,3 +1,4 @@
+import { assertCompleteHistory } from '../internal/history-integrity.js';
 /**
  * Replay — capture a session via `sandbox.history()` and re-issue
  * every write against a fresh sandbox; the engine classifies any
@@ -112,6 +113,7 @@ export function replay(
   options: ReplayOptions = {},
   originalState?: Record<string, DocData>,
 ): ReplayResult {
+  assertCompleteHistory(events);
   const pinRequestTime = options.pinRequestTime !== false; // default true
   const sandbox = initializeSandbox();
   const env = getInternalEnv(sandbox);
@@ -132,7 +134,8 @@ export function replay(
       ? new Timestamp(wEv.requestTime.seconds, wEv.requestTime.nanoseconds)
       : undefined;
 
-    if (wEv.autoId) {
+    const hasAutoId = Boolean(wEv.autoId);
+    if (hasAutoId) {
       // Auto-id create: split path, mint a fresh id, record the alias.
       const collection = wEv.path.slice(0, wEv.path.lastIndexOf('/'));
       const { path: mintedPath } = env.createWithAutoId(
@@ -146,14 +149,17 @@ export function replay(
     }
 
     try {
-      env.execute({
+      const operation: Parameters<typeof env.execute>[0] = {
         method: wEv.method,
         path: wEv.path,
         auth: wEv.auth,
-        ...(data !== undefined ? { data: data as DocData } : {}),
-        ...(requestTime ? { requestTime } : {}),
-        ...(bypassRules ? { bypassRules: true } : {}),
-      });
+      };
+      const hasData = data !== undefined;
+      const hasRequestTime = requestTime !== undefined;
+      if (hasData) operation.data = data as DocData;
+      if (hasRequestTime) operation.requestTime = requestTime;
+      if (bypassRules) operation.bypassRules = true;
+      env.execute(operation);
     } catch {
       // Replay denials surface as state divergence below; keep going
       // to surface as much as possible in one pass.
@@ -161,7 +167,8 @@ export function replay(
   }
 
   const replayedState = getInternalEnv(sandbox).snapshot();
-  const divergences = originalState
+  const hasOriginalState = originalState !== undefined;
+  const divergences = hasOriginalState
     ? computeDivergences(writes, originalState, replayedState, pathAliases)
     : [];
 

@@ -1,3 +1,5 @@
+import { handleRulesOp } from '../worker/host/rules.js';
+import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
 import { realpathSync } from 'node:fs';
@@ -43,7 +45,7 @@ export async function createHostedRuntime(
 ) {
   const ownedProjectDir = realpathSync(projectDir);
   const persistence = createHostedPersistence(ownedProjectDir);
-  const sandbox = createSandboxRoot();
+  const sandbox = createSandboxRoot(SERVE_HISTORY_LIMITS);
   const instanceId = randomUUID();
   await sandbox.enablePersistence({ key: instanceId, injectedBackend: persistence.backend });
   let persistenceHealthy = true;
@@ -276,6 +278,17 @@ export async function createHostedRuntime(
   }
 
   return {
+    deployRules(service: 'firestore' | 'database', source: string): void {
+      if (closed) throw new Error('The hosted sandbox is closed.');
+      const isFirestore = service === 'firestore';
+      const method = isFirestore ? 'setFirestoreRules' : 'setDatabaseRules';
+      handleRulesOp(ctx, {
+        postMessage(reply) {
+          const failed = reply.t === 'res' && !reply.ok;
+          if (failed) throw new Error(reply.error.message);
+        },
+      }, { t: 'op', id: 'file-rules-reload', method, source }, ctx.db);
+    },
     instanceId,
     toolNames: SANDBOX_TOOL_NAMES,
     /** The admitted transport connection owns command ordering; JSON cannot choose another caller. */

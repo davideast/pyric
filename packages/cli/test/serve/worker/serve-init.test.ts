@@ -606,17 +606,18 @@ describe('hydrateEventHistory — Traffic/activity survives worker death', () =>
     expect(ctx.sandbox.history().length).toBe(before);
   });
 
-  it(`caps priming at the most recent ${MAX_PRIMED_EVENTS} events`, async () => {
+  it(`retains the most recent ${MAX_PRIMED_EVENTS} events and reports omitted history`, async () => {
     const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
     const primed = await hydrateEventHistory(ctx, {
       fetch: captureFetch(captureFixture(MAX_PRIMED_EVENTS + 50, 'inst-A')),
     });
-    expect(primed).toBe(MAX_PRIMED_EVENTS);
+    expect(primed).toBe(MAX_PRIMED_EVENTS + 1);
     const hist = ctx.sandbox.history();
     // Kept the tail (most recent), dropped the oldest 50.
-    expect(hist).toHaveLength(MAX_PRIMED_EVENTS);
-    expect(hist[0].id).toBe('cap-50');
-    expect(hist.at(-1)!.id).toBe(`cap-${MAX_PRIMED_EVENTS + 49}`);
+    expect(hist).toHaveLength(MAX_PRIMED_EVENTS + 1);
+    expect(hist[0]).toMatchObject({ kind: 'observation_gap', reason: 'history-limit', omittedCount: 50, firstEventId: 'cap-0', lastEventId: 'cap-49' });
+    expect(hist[1]?.id).toBe('cap-50');
+    expect(hist.at(-1)?.id).toBe(`cap-${MAX_PRIMED_EVENTS + 49}`);
   });
 
   it('skips a capture produced by a DIFFERENT instance (identity guard)', async () => {
@@ -640,7 +641,7 @@ describe('hydrateEventHistory — Traffic/activity survives worker death', () =>
 
   it('skips cleanly when fetch throws (standalone worker, no pyric dev)', async () => {
     const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
-    const throwing = (() => Promise.reject(new Error('offline'))) as unknown as typeof fetch;
+    const throwing: typeof fetch = Object.assign(() => Promise.reject(new Error('offline')), { preconnect: fetch.preconnect });
     const primed = await hydrateEventHistory(ctx, { fetch: throwing });
     expect(primed).toBe(0);
   });

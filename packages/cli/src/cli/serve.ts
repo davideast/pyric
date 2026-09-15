@@ -383,6 +383,7 @@ async function startServeRuntime(opts: {
   const usesPersistence = Boolean(opts.persist);
   const persistenceOptions = usesPersistence ? { fresh: opts.fresh } : undefined;
   const studioOptions: Parameters<typeof createSandboxSession>[0]['studio'] = mountsStudio ? { siteUiDir } : false;
+  const usesHostedSandbox = opts.hosted === true;
   let session: SandboxSession;
   try {
     session = await createSandboxSession({
@@ -411,6 +412,7 @@ async function startServeRuntime(opts: {
       },
       permissive: opts.permissive,
       hosted: opts.hosted,
+      deployHostedRules: usesHostedSandbox ? mount?.deployHostedRules : undefined,
       logger,
     });
   } catch (error) {
@@ -436,7 +438,6 @@ async function startServeRuntime(opts: {
     );
   }
   const payload = session.payload;
-  const usesHostedSandbox = opts.hosted === true;
   const hosted = usesHostedSandbox ? { projectKey: opts.cwd } : undefined;
   let namespaceHandler: SandboxSession['handle'] = session.handle;
   if (hasBridge) {

@@ -1,3 +1,4 @@
+import { assertCompleteHistory } from '../sandbox/internal/history-integrity.js';
 import {
   initializeSandbox,
   type Sandbox,
@@ -56,6 +57,7 @@ export async function replay(
   events: readonly SandboxEvent[],
   opts: RtdbReplayOptions,
 ): Promise<RtdbReplayResult> {
+  assertCompleteHistory(events);
   const sandbox = initializeSandbox();
   const db = getDatabase(sandbox);
   const adminDb = getAdminDatabase(sandbox);
@@ -73,7 +75,8 @@ export async function replay(
 
   for (const commit of commits) {
     const path = commit.path ?? '/';
-    if (commit.detail?.admin === true) {
+    const isAdmin = commit.detail?.admin === true;
+    if (isAdmin) {
       await replayRtdbAdminCommit(sandbox, commit, divergences);
       continue;
     }
@@ -82,11 +85,12 @@ export async function replay(
     try {
       await replayRtdbAppCommit(sandbox, commit, divergences);
     } catch (e) {
+      const isError = e instanceof Error;
       divergences.push({
         kind: 'now-denied',
         path,
         method: commit.method,
-        reason: e instanceof Error ? e.message : String(e),
+        reason: isError ? e.message : String(e),
       });
     }
   }

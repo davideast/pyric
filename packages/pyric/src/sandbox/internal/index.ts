@@ -124,3 +124,6 @@ export * from '../../firestore/sandbox/wire-encoder.js';
 // with explicit named re-exports once the admin-compat layer's
 // surface stops drifting.
 export { createSandboxRoot } from './root.js';
+
+export { assertCompleteHistory } from './history-integrity.js';
+export { EventHistory } from './event-history.js';
