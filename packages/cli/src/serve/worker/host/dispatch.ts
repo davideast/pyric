@@ -190,9 +190,16 @@ export async function handleMessage(
     }
   }
 
-  const targetPort = isRemoteClient
-    ? getOrCreateRemoteClientPort(ctx, port, clientSessionId)
-    : port;
+  let targetPort = port;
+  if (isRemoteClient) {
+    // Tools carry their identity per call and create no port-owned subscriptions.
+    // Correlate their replies without retaining a remote session after settlement.
+    const hasRemoteSession = ctx.remoteClientPorts?.has(clientSessionId) === true;
+    const needsRemoteSession = msg.t !== 'tool' || hasRemoteSession;
+    targetPort = needsRemoteSession
+      ? getOrCreateRemoteClientPort(ctx, port, clientSessionId)
+      : new RemoteClientPort(port, clientSessionId);
+  }
 
   const disconnectsRemoteClient = isDisconnect && isRemoteClient;
   if (disconnectsRemoteClient) {

@@ -153,8 +153,10 @@ export async function callTool(
   args: Record<string, unknown>,
   /** The bridge caller's identity, when it has impersonated one. Relayed verbatim. */
   actAs?: AuthLens,
+  /** Keep this MCP caller's ordering and admission separate from other callers. */
+  clientSessionId?: string,
 ): Promise<{ ok: boolean; summary: string; data?: unknown }> {
-  return (await rpc(db.port, { t: 'tool', id: nextId(), name, args, ...(actAs ? { actAs } : {}) })) as {
+  return (await rpc(db.port, { t: 'tool', id: nextId(), name, args, clientSessionId, actAs })) as {
     ok: boolean;
     summary: string;
     data?: unknown;

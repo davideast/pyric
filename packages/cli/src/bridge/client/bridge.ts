@@ -151,6 +151,8 @@ export interface SandboxToolDispatcher {
      * default `app-session`), and the dispatch runs as it always has.
      */
     actAs?: AuthLens,
+    /** Stable MCP execution owner, independent of impersonated identity. */
+    callerId?: string,
   ): Promise<{
     ok: boolean;
     summary: string;
@@ -370,7 +372,7 @@ export function connectBridge(
   async function handleToolCall(req: ToolCallRequest) {
     let response: ToolCallResponse;
     try {
-      const result = await dispatcher(sandbox, req.name, req.args ?? {}, req.actAs);
+      const result = await dispatcher(sandbox, req.name, req.args ?? {}, req.actAs, req.callerId);
       response = {
         type: 'tool-result',
         id: req.id,
