@@ -6,6 +6,8 @@ import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restor
 import type { ClientDb, ClientPort } from './handles.js';
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
+const HEARTBEAT_INTERVAL_MS = 15_000;
+const LIVENESS_TIMEOUT_MS = 45_000;
 const utf8 = new TextEncoder();
 
 /** Own one app's physical connections while retaining its logical SDK port. */
@@ -23,6 +25,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
   let interruptedAt: number | undefined;
   let attachDeadline: ReturnType<typeof setTimeout> | undefined;
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastReceivedAt = 0;
 
   const port: ClientPort = {
     onmessage: null,
@@ -75,6 +79,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       port.restoreAuth = undefined;
       clearTimeout(attachDeadline);
       clearTimeout(reconnectTimer);
+      clearTimeout(heartbeatTimer);
       const closingSocket = socket;
       socket = undefined;
       const canNotifyHost = closingSocket?.readyState === WebSocket.OPEN;
@@ -119,6 +124,44 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     return socket === connection && state !== 'closed';
   }
 
+  function interruptConnection(connection: WebSocket): void {
+    const isStaleConnection = !isCurrent(connection);
+    if (isStaleConnection) return;
+    clearTimeout(attachDeadline);
+    clearTimeout(heartbeatTimer);
+    interruptedAt ??= performance.now();
+    state = 'interrupted';
+    socket = undefined;
+    notifyConnectionChange();
+    rejectPendingRequests(port, new FirebaseError('unavailable', CONNECTION_LOST));
+    connection.close();
+    const delay = Math.min(5_000, 250 * 2 ** reconnectAttempt);
+    reconnectAttempt += 1;
+    const jitter = Math.random() * Math.min(250, delay / 10);
+    reconnectTimer = setTimeout(connect, Math.min(5_000, delay + jitter));
+  }
+
+  function scheduleHeartbeat(connection: WebSocket): void {
+    const remainingLiveness = LIVENESS_TIMEOUT_MS - (performance.now() - lastReceivedAt);
+    const delay = Math.max(0, Math.min(HEARTBEAT_INTERVAL_MS, remainingLiveness));
+    heartbeatTimer = setTimeout(() => {
+      const isStaleConnection = !isCurrent(connection);
+      if (isStaleConnection) return;
+      const hasLostLiveness = performance.now() - lastReceivedAt >= LIVENESS_TIMEOUT_MS;
+      if (hasLostLiveness) {
+        interruptConnection(connection);
+        return;
+      }
+      try {
+        send(connection, { type: 'ping', id: nextId() });
+      } catch {
+        interruptConnection(connection);
+        return;
+      }
+      scheduleHeartbeat(connection);
+    }, delay);
+  }
+
   async function finishAttachment(connection: WebSocket, isResume: boolean): Promise<void> {
     const postMessage = (message: InboundMessage): void => {
       const isStaleConnection = !isCurrent(connection);
@@ -141,6 +184,9 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     hasEverAttached = true;
     reconnectAttempt = 0;
     interruptedAt = undefined;
+    lastReceivedAt = performance.now();
+    clearTimeout(heartbeatTimer);
+    scheduleHeartbeat(connection);
     for (const request of queued.splice(0)) port.postMessage(request);
     if (isResume) {
       postMessage({ t: 'clock-subscribe' });
@@ -189,6 +235,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       const message = parsed;
       const isUnrecognizedFrame = !isBridgeMessage(message);
       if (isUnrecognizedFrame) return;
+      lastReceivedAt = performance.now();
       switch (message.type) {
         case 'attach-ack': {
           const isUnsupportedProtocol = message.protocol !== 1;
@@ -242,15 +289,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       clearTimeout(attachDeadline);
       const canResume = hasEverAttached && event.code !== 1008;
       if (canResume) {
-        interruptedAt ??= performance.now();
-        state = 'interrupted';
-        socket = undefined;
-        notifyConnectionChange();
-        rejectPendingRequests(port, new FirebaseError('unavailable', CONNECTION_LOST));
-        const delay = Math.min(5_000, 250 * 2 ** reconnectAttempt);
-        reconnectAttempt += 1;
-        const jitter = Math.random() * Math.min(250, delay / 10);
-        reconnectTimer = setTimeout(connect, Math.min(5_000, delay + jitter));
+        interruptConnection(connection);
       } else {
         failConnection(CONNECTION_LOST);
       }
