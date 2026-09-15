@@ -50,8 +50,8 @@ test('usage survives the journal without payload retention, excludes denials and
   rtdb.delivered({ val: () => ({ secret: 'never retain me' }) });
   expect(JSON.stringify(events)).not.toContain('never retain me');
   const service = () => monitor.snapshot().services.find(service => service.service === 'firestore')!;
-  expect(service().usage).toEqual({ documentReads: 0.8, documentWrites: 0.8, documentDeletes: 0.6, payloadBytes: 0, unmeasured: 0 });
+  expect(service().usage).toEqual({ documentReads: 0.8, documentWrites: 0.8, documentDeletes: 0.6, payloadBytes: 0, uploadedBytes: 0, downloadedBytes: 0, unmeasured: 0 });
   now = 5000;
-  expect(service().usage).toEqual({ documentReads: 0, documentWrites: 0, documentDeletes: 0, payloadBytes: 0, unmeasured: 0 });
+  expect(service().usage).toEqual({ documentReads: 0, documentWrites: 0, documentDeletes: 0, payloadBytes: 0, uploadedBytes: 0, downloadedBytes: 0, unmeasured: 0 });
   monitor.dispose(); journal.dispose();
 });

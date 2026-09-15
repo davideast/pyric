@@ -8,6 +8,8 @@ it('describes service-owned public operations separately from internal retries a
   expect(sdkMethodCoverage('rtdb')).toContainEqual({ method: 'onChildMoved', category: 'listener' });
   expect(sdkMethodCoverage('rtdb').map(row => row.method)).not.toContain('transactionCommit');
   expect(sdkUntrackedMethods('rtdb')).toEqual(['onDisconnect']);
-  expect(sdkMethodCoverage('storage')).toEqual([]);
+  expect(sdkMethodCoverage('storage')).toContainEqual({ method: 'getBytes', category: 'read' });
+  expect(sdkMethodCoverage('storage')).toContainEqual({ method: 'uploadBytesResumable', category: 'write' });
+  expect(sdkMethodCoverage('storage').map(row => row.method)).not.toContain('pause');
   expect(Object.isFrozen(sdkMethodCoverage('firestore'))).toBe(true);
 });
