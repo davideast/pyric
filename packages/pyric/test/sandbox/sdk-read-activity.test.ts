@@ -11,7 +11,13 @@ it('records real Firestore reads, distinct query shapes, and denied outcomes wit
   setRules(sandbox, "rules_version = '2'; service cloud.firestore { match /databases/{db}/documents { match /messages/{id} { allow read: if true; } } }");
   seedDocuments(sandbox, { 'messages/one': { text: 'hello' }, 'messages/two': { text: 'world' } });
   const events: SdkActivityEvent[] = [];
-  const stop = sdkActivity.subscribe(event => events.push(event));
+  const started = new Set<string>();
+  const stop = sdkActivity.subscribe(event => {
+    // The shared journal can evict older calls while this test is running.
+    // Only inspect calls begun here, not prior tests' path metadata.
+    if (event.phase === 'start') started.add(event.record.id);
+    if (started.has(event.record.id)) events.push(event);
+  });
   try {
     const snap = await getDoc(doc(db, 'messages/one'));
     expect(snap.data()).toEqual({ text: 'hello' });

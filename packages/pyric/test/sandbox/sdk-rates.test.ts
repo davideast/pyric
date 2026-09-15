@@ -90,10 +90,10 @@ it('seeds only live listeners on late monitor attachment and releases them when 
   monitor.dispose();
 });
 
-it('exposes unsupported coverage separately from unobserved tracked methods and freezes snapshots', () => {
+it('exposes unobserved tracked methods and freezes snapshots', () => {
   const rates = createSdkRates();
   const snapshot = rates.snapshot();
-  expect(snapshot.services.find(service => service.service === 'storage')).toMatchObject({ coverage: 'unsupported', observed: false, methods: [] });
+  expect(snapshot.services.find(service => service.service === 'storage')).toMatchObject({ coverage: 'partial', observed: false });
   expect(snapshot.services.find(service => service.service === 'rtdb')).toMatchObject({ coverage: 'partial', observed: false, untrackedMethods: ['onDisconnect'] });
   expect(Object.isFrozen(snapshot)).toBe(true);
   expect(Object.isFrozen(snapshot.services[0]!.methods[0]!.buckets)).toBe(true);

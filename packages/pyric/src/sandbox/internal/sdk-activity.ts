@@ -5,7 +5,7 @@ import { sdkObservation, type SdkObservation } from './sdk-observation.js';
 
 /** Page-side SDK evidence. Transport messages are deliberately not deliveries. */
 export interface SdkActivitySource {
-  readonly service: 'firestore' | 'database';
+  readonly service: 'firestore' | 'database' | 'storage';
   readonly target: string;
   /** Canonical adapter descriptor, used only for identity, never exposed in records. */
   readonly key: string;

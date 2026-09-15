@@ -1,5 +1,7 @@
 /** Numeric evidence only. Never retain documents, tokens, or serialized payloads. */
 export interface UsageEvidence {
+  readonly uploadedBytes?: number;
+  readonly downloadedBytes?: number;
   readonly documentReads?: number;
   readonly documentWrites?: number;
   readonly documentDeletes?: number;

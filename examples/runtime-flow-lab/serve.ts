@@ -97,7 +97,10 @@ await writeFile(join(configDir, 'firebase.json'), JSON.stringify({ database: { r
 await resetIndex();
 await writeFile(join(configDir, 'firestore.indexes.json'), JSON.stringify({ indexes: [], fieldOverrides: [] }));
 const token = randomBytes(24).toString('base64url');
+// Exact proxy hostnames (for example, a Tailscale Serve HTTPS endpoint).
+const allowedHosts = (process.env.FLOW_LAB_ALLOWED_HOSTS ?? '').split(',').map(host => host.trim()).filter(Boolean);
 const namespace = createPyricNamespace({ sdkDir: outputDir, sessionToken: token, indexes: createIndexConfigStore(configDir), thresholds: createThresholdConfigStore(configDir), rateCaptures: createRateCaptureStore(here),
+  allowedHosts,
   initPayload: () => ({ rules: null, rulesHash: null, storageRules: null, storageRulesHash: null, bridgeUrl: null, seed: null }) });
 const port = Number(process.env.FLOW_LAB_PORT ?? 5197);
 const server = createServer(async (req, res) => {

@@ -33,6 +33,13 @@ const rtdb: readonly MeasurementNote[] = [
   }
 ];
 
+const storage: readonly MeasurementNote[] = [
+  { label: 'Operations', text: 'Reads, writes and deletes count public SDK calls, including failed attempts. Resumable uploads count once; progress callbacks do not add operations.' },
+  { label: 'Transfer', text: 'Uploaded bytes count completed uploads. Downloaded bytes count data returned by getBytes and getBlob. Failed or canceled transfers contribute no bytes.' },
+  { label: 'Not measured', text: 'Fetching a download URL outside the SDK, partial transfers, retries, protocol overhead, stored bytes over time, and provider billing operation classes.' },
+  { label: 'Billing limit', text: 'These are local operation and payload measurements, not billed requests, network egress, or storage charges.' },
+];
+
 export function measurementNotes(service: string): readonly MeasurementNote[] {
-  return service === 'firestore' ? firestore : service === 'rtdb' ? rtdb : [];
+  return service === 'firestore' ? firestore : service === 'rtdb' ? rtdb : service === 'storage' ? storage : [];
 }

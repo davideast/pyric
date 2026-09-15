@@ -99,7 +99,8 @@ function payloadRate(value: number): string {
 function operationRates(service: SdkServiceRate) {
   return {
     reads: service.methods.filter(method => method.category === 'read').reduce((sum, method) => sum + method.callsPerSecond, 0),
-    writes: service.methods.filter(method => method.category === 'write').reduce((sum, method) => sum + method.callsPerSecond, 0),
+    writes: service.methods.filter(method => method.category === 'write' && (service.service !== 'storage' || method.method !== 'deleteObject')).reduce((sum, method) => sum + method.callsPerSecond, 0),
+    deletes: service.methods.filter(method => method.method === 'deleteObject').reduce((sum, method) => sum + method.callsPerSecond, 0),
     deliveries: service.methods.filter(method => method.category === 'listener').reduce((sum, method) => sum + method.deliveriesPerSecond, 0),
   };
 }
@@ -116,6 +117,13 @@ function serviceRow(service: SdkServiceRate, label: string, escape: Escape, inte
       + metric('Document writes/s', 'documentWrites', number('documentWrites'))
       + metric('Document deletes/s', 'documentDeletes', number('documentDeletes'))
       + metric('Other charges', 'excluded', 'Not measured');
+  } else if (service.service === 'storage') {
+    const operations = operationRates(service);
+    metrics = metric('Reads/s', 'reads', rateNumber(operations.reads))
+      + metric('Writes/s', 'writes', rateNumber(operations.writes))
+      + metric('Deletes/s', 'deletes', rateNumber(operations.deletes))
+      + metric('Uploaded/s', 'uploadedBytes', payloadRate(usage?.uploadedBytes ?? 0))
+      + metric('Downloaded/s', 'downloadedBytes', payloadRate(usage?.downloadedBytes ?? 0));
   } else if (service.service === 'rtdb') {
     const operations = operationRates(service);
     metrics = metric('Reads/s', 'reads', rateNumber(operations.reads))
@@ -126,7 +134,7 @@ function serviceRow(service: SdkServiceRate, label: string, escape: Escape, inte
       + metric('Stored data', 'storage', 'Not measured')
       + `<div class="usage-metric"><dt>Last activity</dt><dd data-last-activity>${service.lastActivityAt === undefined ? 'None recorded' : new Date(service.lastActivityAt).toLocaleTimeString()}</dd></div>`;
   }
-  return `<section class="usage-service" data-rate-service="${escape(service.service)}"><div class="usage-heading"><h3>${heading}</h3>${measured ? `<span class="muted">${service.service === 'rtdb' ? 'Activity & volume' : 'Partial estimate'}</span>` : ''}</div><dl>${metrics}</dl>`
+  return `<section class="usage-service" data-rate-service="${escape(service.service)}"><div class="usage-heading"><h3>${heading}</h3>${measured ? `<span class="muted">${service.service !== 'firestore' ? 'Activity & volume' : 'Partial estimate'}</span>` : ''}</div><dl>${metrics}</dl>`
     + `<p class="usage-gap" data-usage-gap ${usage?.unmeasured ? '' : 'hidden'}>Some operations could not be measured.</p></section>`;
 }
 
@@ -161,7 +169,7 @@ function recordedFrame(snapshot: SdkRateSnapshot, service: SdkServiceRate): Hist
 function activitySummary(snapshot: SdkRateSnapshot, service: SdkServiceRate): string {
   const frame = recordedFrame(snapshot, service);
   if (!frame) return 'No activity recorded';
-  return `${rateNumber(frame.totals.reads)} ${service.service === 'firestore' ? 'document reads' : 'reads'} / ${rateNumber(frame.totals.writes)} writes${service.service === 'rtdb' ? ` / ${rateNumber(frame.totals.deliveries)} deliveries` : ''} in ${frame.duration}s`;
+  return `${rateNumber(frame.totals.reads)} ${service.service === 'firestore' ? 'document reads' : 'reads'} / ${rateNumber(frame.totals.writes)} writes${service.service === 'rtdb' ? ` / ${rateNumber(frame.totals.deliveries)} deliveries` : service.service === 'storage' ? ` / ${rateNumber(frame.totals.deletes)} deletes` : ''} in ${frame.duration}s`;
 }
 function serviceList(snapshot: SdkRateSnapshot, label: (service: string) => string, escape: Escape, incidents: ReadonlyMap<string, number>): string {
   return `<div class="rows rate-service-list">${snapshot.services.map(service => {
@@ -195,7 +203,7 @@ export function rateView(
     title: serviceLabel(service.service), detail,
     body: `<div class="rate-scope" data-rate-detail="${escape(service.service)}">`
       + (history ? '' : serviceRow(service, service.service === 'rtdb' ? 'Operations & data' : 'Usage estimate', escape, false))
-      + `<dl class="rate-metadata"><dt>Scope</dt><dd>This page</dd><dt>Listeners now</dt><dd data-rate-listeners>${listeners}</dd></dl>`
+      + `<dl class="rate-metadata"><dt>Scope</dt><dd>This page</dd>${service.service === 'storage' ? '' : `<dt>Listeners now</dt><dd data-rate-listeners>${listeners}</dd>`}</dl>`
       + `<h3 class="usage-sdk-heading">SDK activity${history ? ' · selected period' : ''}</h3><div class="rows"><table class="rate-table" aria-label="SDK activity by method"><colgroup><col class="rate-name"><col><col><col></colgroup><thead><tr><th scope="col">Method</th>${history ? '<th scope="col">Calls</th><th scope="col">Results</th><th scope="col">Avg/s</th>' : '<th scope="col" title="Includes denied attempts">Calls/s</th><th scope="col" title="Read results and listener callbacks">Results/s</th><th scope="col">Listening</th>'}</tr></thead><tbody>${(history ? history.service.methods : service.methods).map(method => methodRow(method, escape, history?.duration)).join('')}${untracked}</tbody></table></div>`
       + `<details class="rules-disclosure usage-notes" data-rate-notes="${escape(service.service)}"><summary><span>How measurements work</span><span class="rules-chevron">${chevron}</span></summary><div class="usage-notes-body">${coverage(service.service)}</div></details></div>`,
   };
@@ -225,13 +233,13 @@ export function refreshRateView(root: ParentNode, snapshot: SdkRateSnapshot, his
   for (const row of root.querySelectorAll<HTMLElement>('[data-rate-service]')) {
     const service = snapshot.services.find(entry => entry.service === row.dataset.rateService);
     if (!service || service.coverage === 'unsupported') continue;
-    for (const key of ['documentReads', 'documentWrites', 'documentDeletes', 'payloadBytes'] as const) {
+    for (const key of ['documentReads', 'documentWrites', 'documentDeletes', 'payloadBytes', 'uploadedBytes', 'downloadedBytes'] as const) {
       const element = row.querySelector(`[data-usage="${key}"]`);
       const usage = service.usage;
-      const text = usage ? (key === 'payloadBytes' ? payloadRate(usage[key]) : rateNumber(usage[key])) : 'Not measured';
+      const text = usage ? (key.endsWith('Bytes') ? payloadRate(usage[key] ?? 0) : rateNumber(usage[key] ?? 0)) : 'Not measured';
       if (element && element.textContent !== text) element.textContent = text;
     }
-    if (service.service === 'rtdb') {
+    if (service.service === 'rtdb' || service.service === 'storage') {
       for (const [key, value] of Object.entries(operationRates(service))) replaceNumber(row, `[data-usage="${key}"]`, value);
     }
     const last = row.querySelector('[data-last-activity]');

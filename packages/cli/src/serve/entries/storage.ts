@@ -7,6 +7,7 @@
  * delegates to `pyric/storage` against the page sandbox.
  */
 import './init.js';
+import { observeStorageOperation } from 'pyric/storage/internal';
 import * as ip from 'pyric/storage';
 import {
   getStorage as pyricGetStorage,
@@ -43,13 +44,13 @@ export function getStorage(app?: FirebaseApp, _bucketUrl?: string): FirebaseStor
 }
 
 export const ref = (useWorker ? workerRef : ip.ref) as typeof ip.ref;
-export const listAll = (useWorker ? workerListAll : ip.listAll) as typeof ip.listAll;
+export const listAll = (useWorker ? observeStorageOperation('listAll', workerListAll) : ip.listAll) as typeof ip.listAll;
 export const getMetadata = (
-  useWorker ? workerGetMetadata : ip.getMetadata
+  useWorker ? observeStorageOperation('getMetadata', workerGetMetadata) : ip.getMetadata
 ) as typeof ip.getMetadata;
-export const getBlob = (useWorker ? workerGetBlob : ip.getBlob) as typeof ip.getBlob;
+export const getBlob = (useWorker ? observeStorageOperation('getBlob', workerGetBlob) : ip.getBlob) as typeof ip.getBlob;
 export const getDownloadURL = (
-  useWorker ? workerGetDownloadURL : ip.getDownloadURL
+  useWorker ? observeStorageOperation('getDownloadURL', workerGetDownloadURL) : ip.getDownloadURL
 ) as typeof ip.getDownloadURL;
 
 export const StorageError = ip.StorageError;
@@ -78,26 +79,24 @@ function unsupportedWorkerApi(name: string): never {
   );
 }
 
-function workerOrInPage<T extends (...args: any[]) => unknown>(name: string, fn: T): T {
-  return (useWorker ? (() => unsupportedWorkerApi(name)) : fn) as T;
-}
-
 // Byte ops use the worker protocol (base64 `storage.putBytes` /
 // `storage.getBytes` / `storage.deleteObject`) and the initiating app port's
 // authenticated session. All app ports reach the same object store and
 // ruleset; only their active Auth sessions differ. Payloads are capped at
 // 8 MiB per op.
-export const uploadBytes = (useWorker ? workerUploadBytes : ip.uploadBytes) as typeof ip.uploadBytes;
+export const uploadBytes = (useWorker ? observeStorageOperation('uploadBytes', workerUploadBytes) : ip.uploadBytes) as typeof ip.uploadBytes;
 
 let selectedUploadBytesResumable = ip.uploadBytesResumable;
 const isWorkerMode = useWorker === true;
 if (isWorkerMode) {
-  selectedUploadBytesResumable = workerUploadBytesResumable as unknown as typeof ip.uploadBytesResumable;
+  selectedUploadBytesResumable = observeStorageOperation('uploadBytesResumable', workerUploadBytesResumable) as unknown as typeof ip.uploadBytesResumable;
 }
-export const uploadBytesResumable = selectedUploadBytesResumable;
+export const uploadBytesResumable: typeof ip.uploadBytesResumable = selectedUploadBytesResumable;
 
-export const getBytes = (useWorker ? workerGetBytes : ip.getBytes) as typeof ip.getBytes;
-export const deleteObject = (useWorker ? workerDeleteObject : ip.deleteObject) as typeof ip.deleteObject;
+export const getBytes = (useWorker ? observeStorageOperation('getBytes', workerGetBytes) : ip.getBytes) as typeof ip.getBytes;
+export const deleteObject = (useWorker ? observeStorageOperation('deleteObject', workerDeleteObject) : ip.deleteObject) as typeof ip.deleteObject;
 
-export const uploadString = (useWorker ? workerUploadString : ip.uploadString) as typeof ip.uploadString;
-export const updateMetadata = workerOrInPage('updateMetadata', ip.updateMetadata);
+export const uploadString = (useWorker ? observeStorageOperation('uploadString', workerUploadString) : ip.uploadString) as typeof ip.uploadString;
+export const updateMetadata: typeof ip.updateMetadata = useWorker
+  ? observeStorageOperation('updateMetadata', (_ref: Parameters<typeof ip.updateMetadata>[0], ..._args: [Parameters<typeof ip.updateMetadata>[1]]) => unsupportedWorkerApi('updateMetadata'))
+  : ip.updateMetadata;

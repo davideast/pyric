@@ -2,9 +2,9 @@ import { createRateHistoryArchive } from './rate-history-archive.js';
 import type { RateIncident } from './rate-threshold-monitor.js';
 import type { SdkMethodRate, SdkRateSnapshot, SdkServiceRate } from 'pyric/sandbox/internal';
 
-type Counts = { reads: number; writes: number; deliveries: number; deletes: number };
+type Counts = { reads: number; writes: number; deliveries: number; deletes: number; uploadedBytes?: number; downloadedBytes?: number };
 const keys = ['reads', 'writes', 'deliveries', 'deletes'] as const;
-const visibleKeys = (service: string) => service === 'firestore' ? ['reads', 'writes', 'deletes'] as const : ['reads', 'writes', 'deliveries'] as const;
+const visibleKeys = (service: string) => service !== 'rtdb' ? ['reads', 'writes', 'deletes'] as const : ['reads', 'writes', 'deliveries'] as const;
 const labels = { reads: 'Reads', writes: 'Writes', deliveries: 'Deliveries', deletes: 'Deletes' };
 export interface HistoryFrame {
   readonly service: SdkServiceRate;
@@ -21,9 +21,9 @@ export interface HistoryFrame {
   readonly timeline?: { from: number; to: number; window: number };
   readonly warnings?: readonly { from: number; to: number }[];
 }
-function pointsFor(methods: readonly SdkMethodRate[], from: number, to: number, service: SdkServiceRate, retained = false) {
+function pointsFor(methods: readonly SdkMethodRate[], from: number, to: number, service: SdkServiceRate, retained = false): Array<Counts & { second: number }> {
   const usage = new Map((retained ? service.history?.usageBuckets : service.usageBuckets)?.map(bucket => [bucket.second, bucket]));
-  const indexedMethods = methods.map(method => ({ category: method.category, buckets: new Map(method.buckets.map(bucket => [bucket.second, bucket])) }));
+  const indexedMethods = methods.map(method => ({ method: method.method, category: method.category, buckets: new Map(method.buckets.map(bucket => [bucket.second, bucket])) }));
   return Array.from({ length: Math.max(1, to - from + 1) }, (_, index) => {
     const second = from + index;
     const counts = { second, reads: 0, writes: 0, deliveries: 0, deletes: 0 };
@@ -36,12 +36,13 @@ function pointsFor(methods: readonly SdkMethodRate[], from: number, to: number, 
       if (!bucket) continue;
       if (method.category === 'listener') counts.deliveries += bucket.deliveries;
       else if (method.category === 'read') counts.reads += bucket.calls;
+      else if (service.service === 'storage' && method.method === 'deleteObject') counts.deletes += bucket.calls;
       else counts.writes += bucket.calls;
     }
-    return counts;
+    return service.service === 'storage' ? { ...counts, uploadedBytes: usage.get(second)?.uploadedBytes ?? 0, downloadedBytes: usage.get(second)?.downloadedBytes ?? 0 } : counts;
   });
 }
-function active(point: Counts) { return keys.some(key => point[key] > 0); }
+function active(point: Counts) { return keys.some(key => point[key] > 0) || (point.uploadedBytes ?? 0) > 0 || (point.downloadedBytes ?? 0) > 0; }
 
 /** Selection owns an immutable capture, so live events cannot move its evidence. */
 export function createRateHistory(serviceName = 'rtdb') {
@@ -70,6 +71,10 @@ export function createRateHistory(serviceName = 'rtdb') {
     const totals: Counts = { reads: 0, writes: 0, deliveries: 0, deletes: 0 };
     const peaks: Counts = { reads: 0, writes: 0, deliveries: 0, deletes: 0 };
     for (const point of selected) for (const key of keys) { totals[key] += point[key]; peaks[key] = Math.max(peaks[key], point[key]); }
+    if (service.service === 'storage') for (const key of ['uploadedBytes', 'downloadedBytes'] as const) {
+      totals[key] = selected.reduce((sum, point) => sum + (point[key] ?? 0), 0);
+      peaks[key] = Math.max(0, ...selected.map(point => point[key] ?? 0));
+    }
     const projected = methods.map(method => {
       const buckets = method.buckets.filter(bucket => bucket.second >= from && bucket.second <= to);
       return { ...method, callsPerSecond: buckets.reduce((sum, bucket) => sum + bucket.calls, 0) / duration,
@@ -167,7 +172,7 @@ function graphic(frame: HistoryFrame) {
   const paths = visibleKeys(frame.service.service).map(key => `<polyline class="history-${key}${incidentKey(frame) === key ? ' history-trigger' : ''}" points="${frame.points.map((point, index) => `${index * step + step / 2},${height - point[key] / maximum * (height - 6)}`).join(' ')}"/>`).join('');
   return `<svg viewBox="0 0 600 96" preserveAspectRatio="none" aria-hidden="true">${warnings}<rect class="history-selection" x="${left}" y="0" width="${frame.duration * step}" height="90"/>${paths}</svg><span class="history-scale">${maximum}/s</span>`;
 }
-function incidentKey(frame: HistoryFrame): keyof Counts | undefined {
+function incidentKey(frame: HistoryFrame): typeof keys[number] | undefined {
   const operation = frame.incident?.operation;
   if (operation === 'documentReads') return 'reads';
   if (operation === 'documentWrites') return 'writes';
@@ -181,9 +186,15 @@ function incidentContext(frame: HistoryFrame): string {
   const fact = (label: string, value: string) => `<dt>${label}</dt><dd>${value}</dd>`;
   return `<div class="rows history-incident"><strong>${incident.label} exceeded your limit</strong><p>${labels[key]} stayed above your ${number(incident.limit)}/s limit for at least ${incident.sustainedSeconds} seconds.</p><dl>${fact('Recorded volume', `${number(frame.totals[key])} ${incident.label.toLowerCase()} in ${frame.duration} seconds`)}${fact('Limit', `${number(incident.limit)}/s`)}${fact('Peak', `${number(incident.peak)}/s (${number(incident.peak / incident.limit)}× limit)`)}${fact('Time above limit', `${incident.aboveSeconds} seconds`)}${fact('Elapsed time', `${incident.to - incident.from + 1} seconds`)}</dl></div>`;
 }
+function bytes(value: number): string {
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  const unit = Math.min(units.length - 1, Math.max(0, Math.floor(Math.log2(value || 1) / 10)));
+  const scaled = value / 1024 ** unit;
+  return `${scaled.toLocaleString('en-US', { maximumFractionDigits: scaled >= 100 ? 0 : 1 })}&nbsp;${units[unit]}`;
+}
 function summary(frame: HistoryFrame) {
   return `<div class="history-summary-heading"><div><strong>${frame.paused ? 'Selected period' : 'Live period'}</strong><div class="history-period-time"><span>${time(frame, frame.from)} to ${time(frame, frame.to + 1)}</span><span class="history-duration">${frame.duration}s</span></div></div></div>`
-    + `<table class="rate-table" aria-label="Operations in selected period"><thead><tr><th>Operation</th><th>Total</th><th>Avg/s</th><th>Peak/s</th></tr></thead><tbody>${visibleKeys(frame.service.service).map(key => `<tr${incidentKey(frame) === key ? ' class="history-trigger-row"' : ''}><th>${labels[key]}</th><td class="mono" data-history-total="${key}">${number(frame.totals[key])}</td><td class="mono">${number(frame.totals[key] / frame.duration)}</td><td class="mono">${number(frame.peaks[key])}</td></tr>`).join('')}</tbody></table>`;
+    + `<table class="rate-table" aria-label="Operations in selected period"><thead><tr><th>Operation</th><th>Total</th><th>Avg/s</th><th>Peak/s</th></tr></thead><tbody>${visibleKeys(frame.service.service).map(key => `<tr${incidentKey(frame) === key ? ' class="history-trigger-row"' : ''}><th>${labels[key]}</th><td class="mono" data-history-total="${key}">${number(frame.totals[key])}</td><td class="mono">${number(frame.totals[key] / frame.duration)}</td><td class="mono">${number(frame.peaks[key])}</td></tr>`).join('')}${frame.service.service === 'storage' ? (['uploadedBytes', 'downloadedBytes'] as const).map(key => `<tr><th>${key === 'uploadedBytes' ? 'Uploaded bytes' : 'Downloaded bytes'}</th><td class="mono">${bytes(frame.totals[key] ?? 0)}</td><td class="mono">${bytes((frame.totals[key] ?? 0) / frame.duration)}</td><td class="mono">${bytes(frame.peaks[key] ?? 0)}</td></tr>`).join('') : ''}</tbody></table>`;
 }
 function timelineHtml(frame: HistoryFrame): string {
   if (frame.imported) return '<p class="history-help">Saved capture. Live returns to this page.</p>';
@@ -191,7 +202,7 @@ function timelineHtml(frame: HistoryFrame): string {
   return `<div class="history-timeline"><div class="history-zoom"><strong title="Up to 30 minutes retained on this page">Timeline</strong><span data-timeline-window>${bounds.window}s view</span><button type="button" class="btn" data-history-zoom="2" aria-label="Zoom out"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8h10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="btn" data-history-zoom="0.5" aria-label="Zoom in"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8h10M8 3v10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button></div><input type="range" data-history-scrubber aria-label="Timeline position" min="${bounds.from}" max="${Math.max(bounds.from, bounds.to - bounds.window + 1)}" value="${frame.points[0]!.second}" step="1"><div class="history-axis" data-timeline-bounds><span>${time(frame, bounds.from)}</span><span>${time(frame, bounds.to + 1)}</span></div></div>`;
 }
 export function historyHtml(frame: HistoryFrame): string {
-  return `<section class="rate-history"><div data-incident-context>${incidentContext(frame)}</div><div class="history-period"><strong>${frame.service.service === 'firestore' ? 'Document estimates per second' : 'Operations per second'}</strong><span>1-second buckets</span></div><div class="history-legend" data-incident-operation="${incidentKey(frame) ?? ''}"><span class="history-reads">Reads</span><span class="history-writes">Writes</span><span class="history-deliveries">${frame.service.service === 'firestore' ? 'Deletes' : 'Deliveries'}</span></div><div class="history-chart" data-history-chart tabindex="${frame.imported ? -1 : 0}" aria-disabled="${frame.imported === true}" role="slider" aria-label="Activity period" aria-valuemin="${frame.points[0]!.second}" aria-valuemax="${frame.points.at(-1)!.second}" aria-valuenow="${frame.to}" aria-valuetext="${time(frame, frame.from)} to ${time(frame, frame.to + 1)}" aria-describedby="history-help">${graphic(frame)}</div><div class="history-axis" data-history-axis><span>${time(frame, frame.points[0]!.second)}</span><span>${time(frame, frame.points.at(-1)!.second + 1)}</span></div>${timelineHtml(frame)}<p class="sr-only" id="history-help">Drag or use arrow keys to select. Shift extends the period.</p><div class="rows" data-history-summary>${summary(frame)}</div></section>`;
+  return `<section class="rate-history"><div data-incident-context>${incidentContext(frame)}</div><div class="history-period"><strong>${frame.service.service === 'firestore' ? 'Document estimates per second' : 'Operations per second'}</strong><span>1-second buckets</span></div><div class="history-legend" data-incident-operation="${incidentKey(frame) ?? ''}"><span class="history-reads">Reads</span><span class="history-writes">Writes</span><span class="history-deliveries">${frame.service.service !== 'rtdb' ? 'Deletes' : 'Deliveries'}</span></div><div class="history-chart" data-history-chart tabindex="${frame.imported ? -1 : 0}" aria-disabled="${frame.imported === true}" role="slider" aria-label="Activity period" aria-valuemin="${frame.points[0]!.second}" aria-valuemax="${frame.points.at(-1)!.second}" aria-valuenow="${frame.to}" aria-valuetext="${time(frame, frame.from)} to ${time(frame, frame.to + 1)}" aria-describedby="history-help">${graphic(frame)}</div><div class="history-axis" data-history-axis><span>${time(frame, frame.points[0]!.second)}</span><span>${time(frame, frame.points.at(-1)!.second + 1)}</span></div>${timelineHtml(frame)}<p class="sr-only" id="history-help">Drag or use arrow keys to select. Shift extends the period.</p><div class="rows" data-history-summary>${summary(frame)}</div></section>`;
 }
 export function refreshHistory(root: ParentNode, frame: HistoryFrame) {
   const chart = root.querySelector<HTMLElement>('[data-history-chart]');

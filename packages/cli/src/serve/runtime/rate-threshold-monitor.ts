@@ -24,8 +24,8 @@ function count(service: SdkServiceRate, key: ThresholdOperation, second: number)
   if (key === 'documentReads' || key === 'documentWrites' || key === 'documentDeletes') {
     return service.usageBuckets?.find(bucket => bucket.second === second)?.[key] ?? 0;
   }
-  const category = { reads: 'read', writes: 'write', deliveries: 'listener' }[key];
-  return service.methods.filter(method => method.category === category).reduce((sum, method) => {
+  const category = { reads: 'read', writes: 'write', deliveries: 'listener', deletes: 'write' }[key];
+  return service.methods.filter(method => method.category === category && (service.service !== 'storage' || (key === 'deletes' ? method.method === 'deleteObject' : method.method !== 'deleteObject'))).reduce((sum, method) => {
     const bucket = method.buckets.find(bucket => bucket.second === second);
     return sum + (key === 'deliveries' ? bucket?.deliveries ?? 0 : bucket?.calls ?? 0);
   }, 0);

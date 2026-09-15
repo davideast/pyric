@@ -14,6 +14,7 @@ import { captureFullState, initializeSandbox } from "pyric/sandbox";
 import { setRules } from "pyric/sandbox/firestore";
 import { createChatData, type ChatService, type ListenOptions } from "./chat-data.ts";
 import * as database from "pyric/database";
+import * as storage from "pyric/storage";
 import { avatarAssetUrl } from "../../packages/cli/src/serve/assets/avatar-url.ts";
 import { treatments, type TreatmentId } from "./treatments.ts";
 
@@ -312,6 +313,36 @@ async function main() {
       match /conversations/design/{document=**} { allow read, write: if true; }
     }
   }`);
+  const attachments = storage.getStorageSandbox(sandbox, { dbName: 'flow-lab-attachments', rules: `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /attachments/{file} { allow read, write: if true; } } }` });
+  const attachment = storage.ref(attachments, 'attachments/design.bin');
+  const payload = new Uint8Array(16 * 1024);
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-storage]')) {
+    button.onclick = async () => {
+      const status = document.querySelector('#storage-status')!;
+      button.disabled = true;
+      try {
+        const action = button.dataset.storage;
+        if (action === 'download') {
+          const bytes = await storage.getBytes(attachment);
+          status.textContent = `Downloaded ${bytes.byteLength / 1024} KiB.`;
+        } else if (action === 'delete') {
+          await storage.deleteObject(attachment); status.textContent = 'Attachment deleted.';
+        } else if (action === 'denied') {
+          await storage.uploadBytes(storage.ref(attachments, 'private/denied.bin'), payload);
+        } else if (action === 'burst') {
+          for (let i = 0; i < 80; i++) {
+            await storage.uploadBytes(attachment, payload);
+            status.textContent = `Storage burst: ${i + 1} of 80 uploads.`;
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        } else {
+          await storage.uploadBytesResumable(attachment, payload);
+          status.textContent = 'Uploaded 16 KiB. Open Traffic → Rates → Storage to inspect.';
+        }
+      } catch (error) { status.textContent = error instanceof Error ? error.message : String(error); }
+      finally { button.disabled = false; }
+    };
+  }
   const rtdb = database.getDatabase(sandbox);
   database.sandbox.setRules(rtdb, { rules: {
     presence: { '.read': true, '.write': true },

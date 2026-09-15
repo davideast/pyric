@@ -7,7 +7,7 @@ import { readRateCapture } from './runtime/rate-capture.js';
 export interface CaptureEntry {
   id: string;
   name: string | null;
-  service: 'firestore' | 'rtdb';
+  service: 'firestore' | 'rtdb' | 'storage';
   savedAt: string;
   from: number;
   duration: number;
@@ -29,7 +29,7 @@ export function createRateCaptureStore(projectDir: string) {
   }
   function metadata(id: string, text: string, savedAt: string): CaptureEntry {
     const { frame } = readRateCapture(text);
-    if (frame.service.service !== 'firestore' && frame.service.service !== 'rtdb') throw new Error('Unsupported capture service.');
+    if (frame.service.service !== 'firestore' && frame.service.service !== 'rtdb' && frame.service.service !== 'storage') throw new Error('Unsupported capture service.');
     return { id, name: null, service: frame.service.service, savedAt, from: frame.clockOffset + frame.from * 1000, duration: frame.duration, incident: frame.incident?.label ?? null };
   }
   async function read(id: string) {
