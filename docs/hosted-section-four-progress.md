@@ -110,3 +110,27 @@ fingerprints are retained in `ignored/section4/`. The automated requirements of
 items 14–15 are verified. Section 4's interactive checkpoint remains open until
 browser control is available. Section 5 covers slow consumers and Rules hot reload
 (items 16–17); compatibility, diagnostics and release acceptance remain open.
+
+## Phone checkpoint follow-up: reconnecting feedback
+
+Remote phone testing over Tailscale confirmed a write could be attempted during
+reconnection, then succeed after recovery. The fixture left the button enabled
+and had no connection status. The checkpoint now observes the existing SDK
+`.info/connected` signal for its app's shared transport, displays `Reconnecting`
+and disables writes until connected. It also disables the button during a write.
+Connection status is separate from the last write result: an uncertain outcome
+remains visible after recovery, and the fixture never retries a write. HMR disposes
+the added subscription. No SDK transport or package implementation changed.
+
+The installed-package regression drops a committed write's acknowledgment and
+holds reconnection. Before the fix it fails at the absent reconnecting indicator;
+after the fix it verifies disabled controls, recovery, preserved uncertainty and
+exactly one request per explicit write. The unchanged test passes in 2.6 seconds.
+All **11 packed scenarios pass in 23.0 seconds** on Node 22.15.0, including the
+existing SharedWorker/in-page and Vite HMR cases. Strict fixture types, code form,
+JavaScript syntax and whitespace pass. A separate browser check through the actual
+Tailscale HTTPS URL verifies the deployed status and writes before/after reload.
+Reports are in `ignored/tailscale-diagnosis/`. The live fixture has been updated;
+refresh the phone tab to load it. Browser detection of a broken connection remains
+asynchronous, so a click before loss is observed can still return an SDK error.
+This follow-up does not mark the remaining interactive HMR checkpoint complete.

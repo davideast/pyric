@@ -11,7 +11,7 @@ Pending seam clarification: permission was requested to extend S3 from CLI comma
 ## Current milestone: hosted hardening for manual QA
 
 Current checkpoint (2026-09-15): Section 4 automated requirements are verified.
-[Section 4 progress](docs/hosted-section-four-progress.md) records 10 isolated,
+[Section 4 progress](docs/hosted-section-four-progress.md) records 11 isolated,
 actual packed-consumer browser cases on minimum Node, 19 regressions, normal npm
 installation, four installed browser-entry budgets, strict fixture types and code
 form. Its [manual procedure](docs/hosted-section-four-manual-qa.md) is runnable;

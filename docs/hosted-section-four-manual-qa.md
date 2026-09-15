@@ -44,7 +44,7 @@ node ../node_modules/@pyric/cli/dist/cli/index.js sandbox \
 ```
 
 1. Open <http://localhost:48769/>. Expect runtime `hosted`, a nonempty anonymous
-   user, module `version-one`, status `Ready` and listener updates `1`.
+   user, connection `Connected`, module `version-one`, status `Ready` and listener updates `1`.
 2. Click **Write document**. Expect `Written`, updates `2`, and a JSON document
    whose `uid` equals the displayed user. Each further click adds exactly one
    listener update and a distinct message.
@@ -53,6 +53,19 @@ node ../node_modules/@pyric/cli/dist/cli/index.js sandbox \
 4. Close the checkpoint tab. Stop the server with Ctrl+C and repeat the same
    command without deleting `.pyric`. Reopen the URL and repeat steps 1–2. This
    exercises warm startup, including the existing build cache.
+
+During an observed disconnection, **Connection** becomes `Reconnecting` and
+**Write document** is disabled. After recovery it becomes `Connected` and the
+button is enabled. The last write result remains separate: an uncertain-outcome
+error stays visible until your next explicit write. Recovery never retries it.
+Detection is asynchronous; a click made before the SDK detects a broken socket
+can still report an error.
+
+The running checkpoint is also available privately over Tailscale at
+<https://davids-macbook-pro-2.tail8926aa.ts.net:48769/>. Its server additionally uses
+`--allowed-host davids-macbook-pro-2.tail8926aa.ts.net,100.67.73.11`, and Tailscale
+Serve forwards HTTPS port 48769 to `http://127.0.0.1:48769`. Refresh the page to
+load fixture changes. The DNS name supplies the valid HTTPS certificate.
 
 For the already prepared September 15 consumer, skip building/installing and use:
 
@@ -139,7 +152,7 @@ repo_dir=/Users/davideast/.codex/worktrees/5df7/pyric
 consumer_dir="$(cat "$repo_dir/ignored/section4/consumer-dir.txt")"
 ```
 
-Expect 10 passing cases, no retries or skips. The suite creates and cleans up its
+Expect 11 passing cases, no retries or skips. The suite creates and cleans up its
 own projects and ephemeral ports. It includes all five runtime flows above plus:
 
 - Untrusted browser/socket origins and opaque `null` origins are refused by the

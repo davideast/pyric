@@ -6,7 +6,7 @@ Use the already approved S1–S6 seams, vertical TDD, and applicable universal g
 Do not modify the manual demo project. Commit and push each verified slice.
 
 Current section: [Section 4 — installed packages and admission isolation](hosted-section-four-progress.md).
-Its automated requirements passed on 2026-09-15: 10 actual packed-consumer browser
+Its automated requirements passed on 2026-09-15: 11 actual packed-consumer browser
 scenarios on minimum Node and 19 admission/session regressions. The installed
 in-app browser checkpoint loaded on 48769; interactive clicks remain pending
 because the Mac is locked. Section 3 remains complete. Earlier queue entries retain
