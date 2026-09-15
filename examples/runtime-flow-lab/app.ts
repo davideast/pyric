@@ -1,4 +1,5 @@
-import { getAI, getGenerativeModel } from 'pyric/ai';
+import { getGenerativeModel } from 'pyric/ai';
+import { createConfiguredSandboxAI } from 'pyric/ai/internal';
 import { createWarningScenarios, warningBurstPlan } from './warning-scenarios.ts';
 import type { AuthUserRecord } from "pyric/auth";
 import type { AuthLens, SandboxEvent } from "pyric/sandbox";
@@ -90,6 +91,8 @@ let selectedSource = "messages";
 let selectedTreatment: TreatmentId = "outline";
 
 async function main() {
+  // Every service, broker event, and capture belongs to this page session.
+  const sandbox = initializeSandbox();
   installChipFonts(document);
   const commits = installReactCommitSource(window);
   // The renderer must load AFTER the commit hook, including its first import.
@@ -119,6 +122,16 @@ async function main() {
   const aiModel = document.querySelector<HTMLSelectElement>('#ai-model')!;
   const modelRefresh = document.querySelector<HTMLButtonElement>('#ai-model-refresh')!;
   const modelStatus = document.querySelector<HTMLElement>('#ai-model-status')!;
+  const aiConfiguration = store(readAiConfiguration());
+  function readAiConfiguration() {
+    return {
+      backend: aiBackend.value === 'local' ? 'OpenAI-compatible' : 'Scripted',
+      requestedModel: 'gemini-2.5-flash',
+      route: aiBackend.value === 'local' ? aiModel.value || 'Select a model' : 'No model invoked',
+    };
+  }
+  const syncAiConfiguration = () => aiConfiguration.set(readAiConfiguration());
+  aiModel.onchange = syncAiConfiguration;
   async function loadAiModels() {
     const previous = aiModel.value;
     aiModel.disabled = true;
@@ -126,6 +139,7 @@ async function main() {
     modelStatus.hidden = false;
     modelStatus.textContent = 'Looking up available models…';
     aiModel.replaceChildren(new Option('Loading models…', ''));
+    syncAiConfiguration();
     try {
       const init = await (await fetch('/__pyric/init.json')).json();
       const response = await fetch('/__demo/ai-models', { headers: { 'x-pyric-session-token': init.sessionToken } });
@@ -142,12 +156,14 @@ async function main() {
       aiModel.disabled = aiBackend.value !== 'local' || !aiModel.value;
       modelRefresh.disabled = aiBackend.value !== 'local';
       modelStatus.hidden = aiBackend.value !== 'local';
+      syncAiConfiguration();
     }
   }
   aiBackend.onchange = () => {
     aiModel.disabled = aiBackend.value !== 'local' || !aiModel.value;
     modelRefresh.disabled = aiBackend.value !== 'local';
     modelStatus.hidden = aiBackend.value !== 'local';
+    syncAiConfiguration();
     if (aiBackend.value === 'local') void loadAiModels();
   };
   modelRefresh.onclick = () => { void loadAiModels(); };
@@ -157,11 +173,10 @@ async function main() {
     const upstream = aiModel.value;
     if (local && (aiModel.disabled || !upstream)) { updateAi('Select an available local model before generating.'); button.disabled = false; return; }
     const action = button.dataset.aiAction;
-    // Each scenario gets its own broker so first-call-wins configuration stays explicit.
-    const aiSandbox = initializeSandbox();
+    // Bind this action to its selected route; later selections cannot reroute it.
     const engine = local ? { kind: 'openai' as const, baseUrl: location.origin + '/__pyric/ai-proxy', modelMap: { 'gemini-2.5-flash': upstream } }
       : { kind: 'scripted' as const, script: [{ respond: action === 'fail' ? { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Demo rate limit' } } : { chunks: ['This ', 'is a ', 'scripted ', 'AI response.'] } }] };
-    const model = getGenerativeModel(getAI(aiSandbox, { engine }), { model: 'gemini-2.5-flash' });
+    const model = getGenerativeModel(createConfiguredSandboxAI(sandbox, { engine }), { model: 'gemini-2.5-flash' });
     try {
       if (action === 'burst' && local) { updateAi('Rate warning uses scripted responses so the demo does not burst against your model. Select Scripted first.'); return; }
       if (action === 'burst') {
@@ -181,7 +196,7 @@ async function main() {
         updateAi(result.response.text());
       }
     } catch (error) { updateAi(error instanceof Error ? error.message : String(error)); }
-    finally { button.disabled = false; aiSandbox.dispose(); }
+    finally { button.disabled = false; }
   };
   function Photo({ uid }: { uid: string }) {
     return h("img", {
@@ -388,7 +403,6 @@ async function main() {
   }));
   let current: RuntimeIdentity | null = users[0] ?? null;
   let authChanged = (_user: RuntimeIdentity | null) => {};
-  const sandbox = initializeSandbox();
   sandbox.currentUser = current ? { uid: current.uid } : null;
   setRules(sandbox, `rules_version = '2'; service cloud.firestore {
     match /databases/{database}/documents {
@@ -451,7 +465,9 @@ async function main() {
     studioUrl: "/__pyric/ui/studio",
     worker: { url: "/worker.js", name: "flow-lab", servedEpoch: "preview" },
   });
+  runtime.setWorker({ mode: "in-page" });
   const chip = mountPyricRuntimeChip({
+    aiConfiguration: { getSnapshot: aiConfiguration.get, subscribe: aiConfiguration.subscribe },
     runtime,
     initiallyOpen: innerWidth >= 1250,
     identity: {
@@ -530,7 +546,7 @@ async function main() {
     ];
   }
   startCommon();
-  window.addEventListener('pagehide', () => { chat.stop(); for (const stop of subscriptions) stop(); }, { once: true });
+  window.addEventListener('pagehide', () => { chat.stop(); for (const stop of subscriptions) stop(); chip.dispose(); sandbox.dispose(); }, { once: true });
 
   const examples = [
     "The unread badge should move with this message.",

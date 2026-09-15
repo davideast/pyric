@@ -36,6 +36,7 @@ function setup(options: {
   openCreateUser?: () => void;
   setLens?: (lens: AuthLens | undefined) => void;
   subscribeLens?: (listener: (lens: AuthLens | undefined) => void) => () => void;
+  aiConfiguration?: PyricRuntimeChipOptions['aiConfiguration'];
   withSandboxEvents?: boolean;
   clipboard?: Pick<Clipboard, 'writeText'>;
   useRealClient?: boolean;
@@ -72,6 +73,7 @@ function setup(options: {
 
   const chipOptions: PyricRuntimeChipOptions = {
     runtime,
+    ...(options.aiConfiguration ? { aiConfiguration: options.aiConfiguration } : {}),
     document: dom.window.document,
     identity,
   };
@@ -416,6 +418,32 @@ describe('the Sandbox view', () => {
     expect(root.querySelector('[data-running-epoch]')!.textContent).toBe('bbbbbbbb');
     expect(root.querySelector('[data-theme-row] [data-open-overlay-theme]')).not.toBeNull();
     expect(texts(root, '[data-action-bar] .btn')).toEqual(['Hide']);
+  });
+
+  it('reports live host configuration and in-page execution without inventing a pending worker', () => {
+    let configuration = { backend: 'Scripted', requestedModel: 'gemini-2.5-flash', route: 'No model invoked' };
+    const listeners = new Set<() => void>();
+    const { root, showTab, runtime, chip } = setup({ initiallyOpen: true, aiConfiguration: {
+      getSnapshot: () => configuration,
+      subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    } });
+    runtime.setWorker({ mode: 'in-page' });
+    showTab('sandbox');
+    expect(root.querySelector('[data-ai-row]')!.textContent).toContain('Scripted');
+    configuration = { ...configuration, backend: 'OpenAI-compatible', route: 'ornith:9b' };
+    for (const listener of listeners) listener();
+    expect(root.querySelector('[data-ai-row]')!.textContent).toContain('OpenAI-compatible');
+    expect(root.querySelector('[data-ai-route-row]')!.textContent).toContain('ornith:9b');
+    expect(root.querySelector('[data-runtime-row]')!.textContent).toContain('In-page');
+    expect(root.querySelector('[data-worker-row]')).toBeNull();
+    chip.dispose();
+    expect(listeners.size).toBe(0);
+  });
+
+  it('does not infer scripted execution from missing AI configuration', () => {
+    const { root, showTab } = setup({ initiallyOpen: true });
+    showTab('sandbox');
+    expect(root.querySelector('[data-ai-row]')!.textContent).toContain('Not reported');
   });
 
   it('hides the chip from the page from the bar', () => {

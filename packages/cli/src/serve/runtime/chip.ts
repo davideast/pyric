@@ -75,6 +75,11 @@ import {
 } from '../worker/client/core.js';
 
 export interface PyricRuntimeChipOptions {
+  /** Host configuration for future AI actions; request evidence remains in Traffic. */
+  aiConfiguration?: {
+    getSnapshot(): { backend: string; requestedModel: string; route: string };
+    subscribe(listener: () => void): () => void;
+  };
   rates?: Pick<typeof sdkRates, 'snapshot'>;
   indexConfig?: IndexConfigClient | null;
   thresholdConfig?: ThresholdConfigClient | null;
@@ -122,23 +127,10 @@ interface AiEngineDisplay {
 
 function aiEngineState(): AiEngineDisplay {
   const engine = (globalThis as { __PYRIC_AI_ENGINE__?: { kind?: string; model?: string } }).__PYRIC_AI_ENGINE__;
-  if (engine?.kind === 'gemini') {
-    return {
-      primary: 'gemini (production)',
-      detail: 'gemini-3.5-flash-lite → gemini-flash-lite-latest',
-    };
-  }
-  if (engine?.kind === 'openai') {
-    const modelLabel = engine.model ? ` (${engine.model})` : '';
-    return {
-      primary: `openai (proxy${modelLabel})`,
-      detail: null,
-    };
-  }
-  return {
-    primary: 'sandbox (scripted)',
-    detail: null,
-  };
+  if (engine?.kind === 'gemini') return { primary: 'Gemini', detail: 'Configured provider' };
+  if (engine?.kind === 'openai') return { primary: 'OpenAI-compatible', detail: engine.model ? `Configured model: ${engine.model}` : 'Configured provider' };
+  if (engine?.kind === 'scripted') return { primary: 'Scripted', detail: 'No model invoked' };
+  return { primary: 'Not reported', detail: 'AI configuration is unavailable' };
 }
 
 const styles = `
@@ -239,7 +231,9 @@ const styles = `
   .s1.split > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .right { display: flex; gap: var(--space-1); flex: none; max-width: 56px; }
   .provider-disclosure { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; gap: var(--space-3); }
-  .request-response-body { margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--pyric-font-mono); font-size: 12px; line-height: 1.5; padding: var(--space-3); background: var(--pyric-content); border: 1px solid var(--pyric-border-soft); border-radius: 8px; }
+  .request-response { position:relative; background:var(--pyric-content); border:1px solid var(--pyric-border-soft); border-radius:8px; overflow:hidden; }
+  .request-response-body { margin:0; max-height:320px; overflow:auto; white-space:pre; overflow-wrap:normal; line-height:1.5; padding:var(--space-3); padding-right:52px; }
+  .request-response-copy { position:absolute; top:8px; right:8px; }
   .provider-details { grid-column: 2; min-width: 0; }
   .provider-body { display: grid; grid-template-rows: 0 auto; row-gap: var(--space-2); }
   .provider-details > summary { grid-column: 2; display: flex; align-items: center; gap: var(--space-1); font-size: 11px; color: var(--pyric-accent); cursor: pointer; min-height: 24px; list-style: none; }
@@ -1100,7 +1094,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       if (request.aiRequest) {
         const response = request.aiRequest.response;
         const content = response
-          ? `<pre class="request-response-body" tabindex="0" aria-label="Returned response">${escapeAttribute(response.text)}</pre>${response.truncated ? '<p class="rules-privacy">Preview limited to the first 65,536 characters.</p>' : ''}`
+          ? `<div class="request-response"><pre class="request-response-body mono" tabindex="0" aria-label="Returned response">${escapeAttribute(response.text)}</pre><button class="btn icon-button request-response-copy" type="button" data-copy-response aria-label="Copy response" title="Copy response"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button></div>${response.truncated ? '<p class="rules-privacy">Preview limited to the first 65,536 characters.</p>' : ''}`
           : `<p class="rules-privacy">${request.aiRequest.status === 'pending' ? 'Waiting for the completed response.' : request.aiRequest.status === 'failed' ? 'No successful response was returned.' : 'Response content was not recorded for this request.'}</p>`;
         evidenceDetails += `<details class="rules-disclosure" data-request-response="${escapeAttribute(request.id)}"><summary><span>Response</span><span class="rules-chevron">${iconHtml('chevron')}</span></summary><div class="rules-detail-body">${content}</div></details>`;
       }
@@ -1137,9 +1131,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   const sandboxViewHtml = (): ChipView => {
     const aiState = aiEngineState();
+    const configuration = options.aiConfiguration?.getSnapshot();
     const rows = [
-      rowHtml({ c1: 'Model', s1: aiState.detail ? escapeAttribute(aiState.detail) : aiState.primary === 'sandbox (scripted)' ? 'Scripted responses for local development' : 'Responses use the configured provider', slot: escapeAttribute(aiState.primary.replace(/^sandbox \((.*)\)$/, '$1')), attributes: 'data-ai-row', title: aiState.detail ?? aiState.primary }),
-      rowHtml({ c1: 'Worker', s1: snapshot.updateAvailable ? 'A newer version is available' : snapshot.runningEpoch ? 'Current sandbox version' : 'Waiting for the sandbox to connect', slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch }),
+      ...(configuration ? [
+        rowHtml({ c1: 'AI backend', s1: 'Configuration for new actions', slot: escapeAttribute(configuration.backend), attributes: 'data-ai-row' }),
+        rowHtml({ c1: 'Requested', slot: escapeAttribute(configuration.requestedModel), attributes: 'data-ai-requested-row' }),
+        rowHtml({ c1: 'Configured route', slot: escapeAttribute(configuration.route), attributes: 'data-ai-route-row' }),
+      ] : [rowHtml({ c1: 'Model', s1: escapeAttribute(aiState.detail ?? ''), slot: escapeAttribute(aiState.primary), attributes: 'data-ai-row' })]),
+      snapshot.mode === 'in-page'
+        ? rowHtml({ c1: 'Runtime', s1: 'Services run in this page', slot: 'In-page', attributes: 'data-runtime-row' })
+        : rowHtml({ c1: 'Worker', s1: snapshot.updateAvailable ? 'A newer version is available' : snapshot.runningEpoch ? 'Current sandbox version' : 'Waiting for the sandbox to connect', slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch }),
     ];
     const theme = rowHtml({ c1: 'Theme', s1: 'Colors and outlines for listeners', slot: buttonHtml(`data-open-overlay-theme${options.listeners ? '' : ' disabled'}`, 'Edit', options.listeners ? "Edit the overlay's custom properties" : 'Listener overlays are unavailable on this page'), attributes: 'data-theme-row' });
     return {
@@ -1233,6 +1234,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-threshold-cancel',
       'data-rate-incident',
       'data-copy-traffic',
+      'data-copy-response',
       'data-open-overlay-theme',
       'data-update-worker',
       'data-dismiss-chip',
@@ -1697,6 +1699,21 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       trafficFilter = trafficFilter === 'denied' ? 'all' : 'denied';
       render();
     });
+    root.querySelector('[data-copy-response]')?.addEventListener('click', async (event) => {
+      if (!clipboard) return;
+      const button = event.currentTarget as HTMLButtonElement;
+      const text = root.querySelector('[data-request-response] pre')?.textContent;
+      if (text === undefined || text === null) return;
+      try {
+        await clipboard.writeText(text);
+        button.innerHTML = iconHtml('check');
+        button.title = 'Copied';
+        button.setAttribute('aria-label', 'Response copied');
+      } catch {
+        button.title = 'Copy failed';
+        button.setAttribute('aria-label', 'Copy response failed; try again');
+      }
+    });
     root.querySelector('[data-copy-traffic]')?.addEventListener('click', (event) => {
       if (!clipboard) return;
       const button = event.currentTarget as HTMLButtonElement;
@@ -1742,6 +1759,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
   documentLike.addEventListener('astro:after-swap', reattachAfterAstroSwap);
   const unsubscribe = options.runtime.subscribe(render);
+  const unsubscribeAiConfiguration = options.aiConfiguration?.subscribe(() => { if (open && tab === 'sandbox') render(); });
   const aiTrafficSignatures = new Map<string, string>();
   const unsubscribeAi = sdkActivity.subscribe(event => {
     if (event.record.service !== 'ai' || (event.phase !== 'end' && event.phase !== 'transport')) return;
@@ -1799,6 +1817,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       documentLike.removeEventListener('pointercancel', finishPointer);
       unsubscribe();
       unsubscribeAi();
+      unsubscribeAiConfiguration?.();
       unsubLens();
       unsubAuth();
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);

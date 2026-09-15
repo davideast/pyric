@@ -71,3 +71,18 @@ In **Data**, select **Flow** to see React renders observed after responses or co
 No CLI commands or MCP tools are added. Existing capture save/list/open tools accept AI Logic captures, and the runtime threshold configuration gains the `ai` section. Internal worker messages carry diagnostic identity separately from the Firebase response and error surfaces. Traffic’s collapsed Response section retains a local JSON preview of the completed response, limited to 65,536 characters per request. Previews are bounded to the retained request list and excluded from rate captures. Counters and observation events do not include response content; prompts and request payloads are not recorded by this preview.
 
 `countTokens` on the OpenAI-compatible engine runs a local estimate. Its details name the configured route for context but explicitly say no model was invoked.
+
+The demo uses one page-lifetime sandbox for its data, AI broker events, and session
+captures. Changing the AI controls affects new actions; an action already running
+keeps its original route. Sandbox shows the configuration for new actions, while
+Traffic records the route and backend-reported identity for each request. The demo
+runs in-page, so it has no worker waiting to connect.
+
+Hosts that need explicit configuration revisions can use
+`createConfiguredSandboxAI(sandbox, options)` from `pyric/ai/internal`. Each handle
+binds a broker to the existing sandbox without changing the ordinary `getAI()` cache
+or its first-configuration-wins contract. Keep the handle for the lifetime of an
+action or chat; changing controls must not replace a handle mid-request. This is an
+internal in-page host seam, not a new Firebase SDK method, CLI command, or MCP tool.
+Session fixtures include the shared AI event history; they do not serialize model
+credentials, an in-flight backend connection, or a replayable AI engine.

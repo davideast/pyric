@@ -62,3 +62,6 @@ export function createTransportAI(
 }
 
 export { packAiEvidence, unpackAiEvidence, getAiEvidence, setAiEvidence, type AiEvidence } from '../sandbox/internal/ai-evidence.js';
+
+/** Explicit host configuration revisions sharing one sandbox event/state owner. */
+export { createConfiguredSandboxAI } from './instances.js';
