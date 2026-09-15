@@ -65,8 +65,9 @@ Actual file-edit tests exposed a hosted-only defect: the session advertised new
 Rules but never applied them to the Node runtime. The file watcher now invokes
 the existing shared Rules handler before updating the payload or broadcasting
 success. Invalid Firestore and RTDB file edits retain their validated last-good
-policy. Permission-denied listeners terminate according to their service
-contract and are explicitly attached again after repair. Direct SDK invalid-
+policy. Listener recovery follows the service/runtime contract; explicit replacement
+after repair is verified. The subsequent manual walkthrough below records
+in-page Firestore’s automatic recovery distinction. Direct SDK invalid-
 Rules semantics and unsupported Storage file watching remain unchanged.
 
 The hosted capture check exposed another boundary defect: the runtime received
@@ -133,3 +134,14 @@ in `ignored/section5/`. The manual procedure uses the same fixture and file edit
 as the browser checks. Verification here is automated Chromium, not a claimed
 native in-app walkthrough or another phone test. Phase 6 (items 18–19) and the
 broader release acceptance remain open.
+
+
+## Subsequent manual walkthrough
+
+The [executed checkpoint](hosted-section-five-manual-qa.md#executed-checkpoint--2026-09-15)
+now records a fresh 12-scenario pass and 96 actual in-app browser button actions
+across all six service/runtime combinations. It also corrects the listener
+recovery wording: in-page Firestore resumed automatically after Rules repair;
+other tested service/runtime combinations required explicit reattachment.
+Temporary tabs, server and fallback override were cleaned up; existing demos
+and Tailscale routes remain unchanged.

@@ -76,7 +76,9 @@ node "$repo_dir/packages/cli/dist/cli/index.js" sandbox \
    checks: red succeeds; blue remains denied.
 4. Restore the original Firestore rules from the setup command. Blue's reads
    and writes must succeed again. Click **Start listener** in blue: a listener
-   terminated by permission denial must be explicitly attached again.
+   terminated by permission denial must be explicitly attached again. In-page
+   Firestore can resume automatically when repaired Rules allow it; clicking
+   **Start listener** still replaces that listener and must not duplicate delivery.
 5. Repeat using `service=database` in both URLs. Copy the new red UID and restrict
    the actual RTDB file with:
 
@@ -102,3 +104,41 @@ within 8 MiB. Worker capture hydration retains its existing 2,000-event tail,
 now with an explicit gap. A truncated capture cannot be replayed or verified as
 complete; start a fresh capture session for verification. Direct SDK full history
 and Firestore undo history retain their existing contracts.
+
+## Executed checkpoint — 2026-09-15
+
+Executed against commit `f7a4860d` using Node 22.18.0, including fresh Pyric/CLI builds and all
+12 focused scenarios (passed in 2.1 minutes, no skips or retries).
+
+The actual in-app browser walkthrough completed 96 button actions across
+Firestore and RTDB in hosted, default SharedWorker and in-page modes:
+
+| Check | Observed result in all six combinations |
+| --- | --- |
+| Initial access | Red and blue had distinct users; both reads and writes succeeded. |
+| Red-only Rules | Blue reads/writes were denied and its listener stopped delivering; red continued, with one delivery per write. |
+| Invalid file edit | Terminal reported `NOT reloaded (last-good stays live)`; the same permissions remained enforced. |
+| Repaired Rules | Blue reads/writes succeeded; explicit listener replacement restored delivery without duplication. |
+
+Hosted and SharedWorker Firestore, and RTDB in all three modes, retained a
+permission error until **Start listener** was clicked. In-page Firestore resumed
+its listener automatically after repair, before that click. The steps above now
+state this distinction. Expected denial codes were `permission-denied` for
+Firestore and `PERMISSION_DENIED` for RTDB; deliberate denials also appeared in
+the runtime error counter.
+
+For the interactive fallback check, the disposable page temporarily made
+`SharedWorker` unavailable before its module script ran. Both pages visibly
+reported `in-page`; this was the current in-app browser with simulated API
+absence, not a claim of testing an older browser engine. The temporary override
+was removed afterward.
+
+The slow-reader run stayed within its declared budgets: healthy-write p95 was
+95.8 / 74.1 ms and RSS growth was 127,074,304 / 178,618,368 bytes across two
+cycles. Both slow readers closed with code 1013. Count/byte history eviction,
+subsequent live delivery and incomplete-capture refusal all passed.
+
+Logs and the disposable project path are retained under
+`ignored/section5/manual-run/`. The checkpoint server on 48770 and the two test
+tabs were closed after verification. Existing demos and Tailscale routes were
+not changed. No product code changed during this walkthrough.
