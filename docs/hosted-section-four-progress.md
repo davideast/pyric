@@ -1,5 +1,10 @@
 # Section 4: installed packages and admission isolation
 
+Completed 2026-09-15 for hardening items 14–15. The final restart and Vite
+checkpoint procedures were executed with browser automation; the locked Mac
+prevented an additional native in-app walkthrough. User phone testing separately
+confirmed hosted writes and reconnection over Tailscale.
+
 Started 2026-09-15 at `7b47e2af` on `hosted-live-mode`. Scope is hardening items
 14–15 through the approved SDK, bridge and CLI seams. Production behavior already
 satisfies the scoped automated checks; this section adds characterization tests,
@@ -12,7 +17,7 @@ reusable manual fixtures and runnable commands. No production source changed.
 | P3 | Installed Vite cold/warm startup, reload and HMR preserve selected runtimes and one listener delivery per new write. | Verified: Vite 5.4.21 with SharedWorker and in-page, preserving Auth identity through HMR. |
 | A1 | Existing origin policy refuses untrusted browser origins before state exposure or mutation, while intended clients remain usable. | Verified: installed hosted and Vite browser/socket refusal, HTTP MCP refusal and healthy SDK controls. |
 | A2 | Foreign project discovery and invalid host-bound resume credentials refuse before data access/mutation; valid clients continue working. | Verified: foreign beacon, misdirected SDK bridge, foreign resume refusal and issuing-host resume. Changed-host fresh admission remains intentional. |
-| J | Applicable minimum-Node, types, form, browser boundaries and regressions pass; reviewed changes are pushed with runnable manual steps. | Automated checks verified; interactive checkpoint loaded, then blocked by the locked Mac. Interactive write/reload/HMR steps remain pending. |
+| J | Applicable minimum-Node, types, form, browser boundaries and regressions pass; reviewed changes are pushed with runnable manual steps. | Verified: 11 packed cases, 19 regressions, builds/types/form/budgets, runnable checkpoint steps, live Tailscale restart and both Vite HMR flows. Native in-app walkthrough unavailable; browser-driven procedure and phone evidence are distinguished below. |
 
 ## Verification
 
@@ -93,8 +98,8 @@ The [manual procedure](hosted-section-four-manual-qa.md) includes exact installa
 server, reload, warm-start, HMR and automated admission commands. The installed
 hosted page on **48769** opened in the in-app browser showing `hosted`, an anonymous
 UID, `version-one`, `Ready`, one initial update and no runtime errors. The Mac
-then locked and automatic unlock failed. Interactive writes/reload/HMR are
-**pending**, although the automated suite passed those flows. Earlier manual
+then locked and automatic unlock failed. At that point interactive
+writes/reload/HMR remained pending. The final procedure results are recorded below. Earlier manual
 projects on 43110, 48765 and 48768 were untouched.
 
 Initial diagnostic failures were fixture/environment issues, not product defects:
@@ -107,8 +112,8 @@ unexecuted attempts are excluded from passing counts.
 
 Reports, commands, the consumer lock hash, artifact hashes and 1,112 input-file
 fingerprints are retained in `ignored/section4/`. The automated requirements of
-items 14–15 are verified. Section 4's interactive checkpoint remains open until
-browser control is available. Section 5 covers slow consumers and Rules hot reload
+items 14–15 are verified. The final browser-driven checkpoint below closes this
+section while disclosing the unavailable native walkthrough. Section 5 covers slow consumers and Rules hot reload
 (items 16–17); compatibility, diagnostics and release acceptance remain open.
 
 ## Phone checkpoint follow-up: reconnecting feedback
@@ -133,4 +138,42 @@ Tailscale HTTPS URL verifies the deployed status and writes before/after reload.
 Reports are in `ignored/tailscale-diagnosis/`. The live fixture has been updated;
 refresh the phone tab to load it. Browser detection of a broken connection remains
 asynchronous, so a click before loss is observed can still return an SDK error.
-This follow-up does not mark the remaining interactive HMR checkpoint complete.
+This fix initially left the final restart and HMR checkpoint pending; its execution
+is recorded below.
+
+
+## Final checkpoint execution
+
+Completed on 2026-09-15 against source `79d64fae` and the unchanged isolated npm
+installation. No implementation changes were required in this closeout.
+
+- **Live Tailscale restart: passed in 3.5 seconds.** The browser opened the actual
+  HTTPS endpoint on 48769 and wrote a document. The running host was terminated
+  gracefully while the page remained open. The page showed `Reconnecting` with
+  the button disabled. A replacement started against the same project and state;
+  the original page recovered `Connected`, the same UID and document without
+  reload. One restored snapshot arrived, and the next explicit write produced
+  exactly one additional snapshot. The replacement host remains running.
+- **Installed Vite checkpoint: both modes passed in 7.1 seconds.** SharedWorker
+  and genuine in-page each performed an SDK write, changed the module marker
+  through HMR, retained the user, reset to one initial listener delivery and
+  delivered once for the next write. Both then passed page reload and warm Vite
+  restart with caches retained. These two cases repeat part of the 11-case
+  suite; they are not counted as additional distinct scenarios.
+- Existing evidence remains current: the final 11 packed cases (23.0 seconds),
+  19 admission/session regressions, builds, strict types, form and four browser
+  budgets. Verification reconciled 1,113 production/fixture input hashes and all
+  four candidate tarball hashes against the original and UI-fix manifests.
+
+The Mac was still locked, so these final procedures used automated Chromium,
+not the native in-app browser or control of the user's phone. The user separately
+confirmed a successful phone write after transient connection recovery. This
+closes the behavioural acceptance steps; it does not claim a native walkthrough,
+physical phone sleep test, additional browser-engine coverage or release approval.
+
+Exact executable restart/checkpoint scripts, logs and reconciled fingerprints are
+under `ignored/section4/closeout/`. The reusable Vite procedure remains in the
+tracked packed-runtime tests and manual guide. The hosted endpoint remains
+<https://davids-macbook-pro-2.tail8926aa.ts.net:48769/>. Earlier manual demos and
+existing Tailscale routes remain unchanged. Section 4 is complete for its bounded
+scope; Section 5 (items 16–17: slow consumers and Rules hot reload) is next.

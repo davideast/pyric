@@ -10,15 +10,15 @@ Pending seam clarification: permission was requested to extend S3 from CLI comma
 
 ## Current milestone: hosted hardening for manual QA
 
-Current checkpoint (2026-09-15): Section 4 automated requirements are verified.
-[Section 4 progress](docs/hosted-section-four-progress.md) records 11 isolated,
-actual packed-consumer browser cases on minimum Node, 19 regressions, normal npm
-installation, four installed browser-entry budgets, strict fixture types and code
-form. Its [manual procedure](docs/hosted-section-four-manual-qa.md) is runnable;
-the installed hosted page loaded on 48769, but interactive writes/reload/HMR are
-pending because the Mac is locked. Section 4 is not marked fully complete while
-that checkpoint remains open. Section 3 remains complete. Production source is
-unchanged; later hardening sections and release acceptance remain open.
+Current checkpoint (2026-09-15): Section 4 is complete for hardening items 14–15.
+[Section 4 progress](docs/hosted-section-four-progress.md) records 11 packed browser
+cases, 19 regressions, builds/types/form/budgets, normal npm installation and
+artifact identity. The remaining procedures passed against the live Tailscale
+host (restart without reloading the page) and installed Vite (HMR, reload and warm
+startup in SharedWorker and in-page modes). The locked Mac prevented a native
+in-app walkthrough; these procedures used browser automation, with separate user
+phone evidence. The [manual guide](docs/hosted-section-four-manual-qa.md) remains
+runnable. Section 5 covers items 16–17; release acceptance remains open.
 
 The active milestone is the ordered reliability queue in `docs/hosted-hardening-progress.md`, extended to twenty items at the user's request; the full hosted/live-mode goal stays incomplete. Tasks 1–5 are verified locally: unique identities, observed session-expiry recovery, bounded checkpoint fidelity/corruption refusal, restoration diagnostics and interrupted recovery. Task 6 is verified locally: reset/import retain active listeners, paused transactions retry against replacement state, and complete portable imports restore Storage data durably through the existing checkpoint and persistence foundations. The import join passes 28 affected browser cases, two minimum-Node cases, fifteen regressions, strict types and source form. The final replacement join passes 42 affected browser cases, ten minimum-Node cases, twenty regressions, strict types, eight-file source form and browser boundaries. A runtime-selection audit withdrew old in-page checkpoint parity claims: the selector actually ran SharedWorker. Corrected fixtures assert runtime mode; in-page worker controls are explicitly unavailable. Genuine in-page MCP/SDK tests exposed and now verify a shared Auth token-to-Rules claim propagation fix. Its tenant-token namespace omission remains open for item 11. Earlier slice evidence is recorded below and in the progress document; later tasks and final combined/package verification remain open.
 

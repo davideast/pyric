@@ -5,12 +5,12 @@ This bounded milestone leaves the broader hosted/live-mode goal incomplete.
 Use the already approved S1–S6 seams, vertical TDD, and applicable universal gates.
 Do not modify the manual demo project. Commit and push each verified slice.
 
-Current section: [Section 4 — installed packages and admission isolation](hosted-section-four-progress.md).
-Its automated requirements passed on 2026-09-15: 11 actual packed-consumer browser
-scenarios on minimum Node and 19 admission/session regressions. The installed
-in-app browser checkpoint loaded on 48769; interactive clicks remain pending
-because the Mac is locked. Section 3 remains complete. Earlier queue entries retain
-historical detail; see each section's progress for current bounded evidence.
+Latest completed section: [Section 4 — installed packages and admission isolation](hosted-section-four-progress.md),
+completed 2026-09-15. Eleven packed browser cases, 19 regressions and the final
+live Tailscale restart / installed Vite HMR procedures pass. Final procedures used
+browser automation because the Mac was locked; user phone verification is
+recorded separately. Section 5 (items 16–17) is next. Earlier entries retain their
+historical detail; each section's progress records current bounded evidence.
 
 ## Ordered queue
 
@@ -27,8 +27,8 @@ historical detail; see each section's progress for current bounded evidence.
 11. Identity and tenant isolation across clients — verified in Section 2. Switching or signing out in one app cannot change another app's identity, tenant, claims or Rules access, including after recovery.
 12. RTDB disconnect behavior — verified in Section 3. Connectivity signals and registered disconnect operations follow the declared session-lifetime contract across transient loss, expiry and explicit app deletion.
 13. Concurrent transactions and atomic writes — verified in Section 3. Two clients contend through normal SDK calls without lost updates; rejected batches remain atomic and ambiguous acknowledgments do not trigger transport replay.
-14. Packed installation and runtime selection — automated requirements verified in Section 4; interactive checkpoint pending. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.
-15. Origin and project admission isolation — automated requirements verified in Section 4 under the existing hostname allowlist and host-bound resume policy. Foreign discovery, misdirected SDK bridge and foreign session resume refuse; changed-host recovery intentionally obtains a fresh session. Intended clients still connect. See Section 4 for the policy boundaries.
+14. Packed installation and runtime selection — verified in Section 4, including the final browser-driven checkpoint. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.
+15. Origin and project admission isolation — verified in Section 4 under the existing hostname allowlist and host-bound resume policy. Foreign discovery, misdirected SDK bridge and foreign session resume refuse; changed-host recovery intentionally obtains a fresh session. Intended clients still connect. See Section 4 for the policy boundaries.
 16. Slow-client isolation and bounded event delivery — pending. A stalled Studio/event consumer cannot exhaust retained queues or starve another app's SDK operations; overflow and lost history remain explicit.
 17. Rules hot reload with active apps — pending. Valid Rules changes update enforcement and active listeners according to the existing service contract; invalid edits report their failure without falsely claiming successful enforcement.
 18. Client/host version compatibility — pending. Actual packed consumers within the declared compatibility range work against the candidate host; unsupported combinations refuse clearly before mutation and never silently select another runtime.
