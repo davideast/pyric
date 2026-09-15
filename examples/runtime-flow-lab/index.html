@@ -102,6 +102,17 @@
           Choose an update. Watch the changed components, not the whole page.
         </p>
       </section>
+      <section class="delivery-controls" aria-label="Problem scenarios">
+        <div class="delivery-heading"><h2>Trigger a problem</h2></div>
+        <div class="delivery-buttons scenario-buttons">
+          <button class="lab-button" data-scenario="firestore-denial">Deny Firestore write</button>
+          <button class="lab-button" data-scenario="rtdb-denial">Deny RTDB write</button>
+          <button class="lab-button" data-scenario="firestore-index">Missing Firestore index</button>
+          <button class="lab-button" data-scenario="rtdb-index">Missing RTDB .indexOn</button>
+          <button class="lab-button" id="rate-burst">Test rate warning</button>
+        </div>
+        <p class="delivery-status" id="scenario-status" role="status">Rate warnings use the selected Messages service. Denials and index tests use the service named on the button.</p>
+      </section>
       <div id="demo-app"></div>
       <div class="lab-legend">
         <span><i></i>Fresh update</span

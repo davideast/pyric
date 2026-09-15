@@ -1,3 +1,10 @@
+import { projectCaptures, captureList, captureEditor } from './project-captures.js';
+import type { CaptureEntry } from '../rate-capture-store.js';
+import { buildRateCapture, readRateCapture, readSessionFixture } from './rate-capture.js';
+import { createThresholdConfigClient, type ThresholdConfigClient } from './threshold-config-client.js';
+import { createThresholdSettings, thresholdSettingsHtml, refreshThresholdForm, THRESHOLD_STYLES } from './threshold-settings.js';
+import { createRateThresholdMonitor } from './rate-threshold-monitor.js';
+import { isThresholdService } from './rate-threshold-config.js';
 import { createRateHistory, bindHistory } from './rate-history.js';
 import { serviceLabel, sourceLabel } from './service-presentation.js';
 import { RATE_STYLES, rateView, refreshRateView } from './chip-rates.js';
@@ -68,6 +75,7 @@ import {
 export interface PyricRuntimeChipOptions {
   rates?: Pick<typeof sdkRates, 'snapshot'>;
   indexConfig?: IndexConfigClient | null;
+  thresholdConfig?: ThresholdConfigClient | null;
   runtime: PyricRuntimeStatus;
   document?: Document;
   /** Where Traffic's Copy writes. Defaults to the page's own clipboard. */
@@ -89,6 +97,8 @@ export interface PyricRuntimeChipOptions {
    * without an event source has.
    */
   sandboxEvents?: SandboxEventSource | null;
+  /** Optional in-page session fixture provider; otherwise use the protected CLI capture endpoint. */
+  captureSession?: () => Promise<unknown>;
   /**
    * Build the Listeners mode this chip toggles. Called once, on the first
    * toggle, with the callback the mode reports each recomputation through.
@@ -310,6 +320,7 @@ const styles = `
   ${RULE_EVIDENCE_STYLES}
   ${INDEX_STYLES}
   ${RATE_STYLES}
+  ${THRESHOLD_STYLES}
   .request-facts { all: unset; }
   .request-detail, .request-facts { display: grid; gap: 16px; }
   .request-fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; font-size: 12px; }
@@ -669,7 +680,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       renderedTreatmentState = treatmentState;
       renderedFlowWaiting = waiting;
       listenerOutlines = outlines;
-      render();
+      if (open && tab === 'listeners') render();
     });
     return listenerMode;
   };
@@ -680,9 +691,28 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let trafficFilter: 'all' | 'denied' = 'all';
   let trafficDisplay: 'requests' | 'rates' = 'requests';
   let selectedRateService: string | null = null;
+  let rateSection: 'chart' | 'incidents' | 'measurements' | 'captures' | 'capture-rename' | 'capture-delete' = 'chart';
   const serviceHistories = { firestore: createRateHistory('firestore'), rtdb: createRateHistory('rtdb') };
   const currentRateHistory = () => selectedRateService === 'firestore' ? serviceHistories.firestore : serviceHistories.rtdb;
   const rates = options.rates ?? sdkRates;
+  let captureError = '';
+  let savedCaptureList: CaptureEntry[] | null = null;
+  let capturesLoading = false;
+  let selectedSavedCapture: CaptureEntry | null = null;
+  let captureEditBusy = false;
+  let captureNameDraft = '';
+  const captureClient = projectCaptures(documentLike.defaultView?.fetch?.bind(documentLike.defaultView) ?? fetch);
+  const importedCaptures = new Map<string, string>();
+  const captureEvents: import('pyric/sandbox').SandboxEvent[] = [];
+  const unsubscribeCapture = options.sandboxEvents?.(events => {
+    captureEvents.push(...events);
+    const cutoff = Date.now() - 1800_000;
+    while (captureEvents.length && (captureEvents[0]!.at < cutoff || captureEvents.length > 20000)) captureEvents.shift();
+  });
+  const thresholdMonitor = createRateThresholdMonitor();
+  let thresholdSignature = '';
+  const thresholdClient = options.thresholdConfig === null ? undefined : options.thresholdConfig ?? (documentLike.defaultView?.fetch && /^https?:$/.test(documentLike.defaultView.location.protocol) ? createThresholdConfigClient(documentLike.defaultView.fetch.bind(documentLike.defaultView)) : undefined);
+  const thresholdSettings = createThresholdSettings(thresholdClient, () => { if (mounted) render(); });
   /** `false` until the first render. The fold's history batch arrives while this
    * function is still running, before there is a view for it to rebuild. */
   let mounted = false;
@@ -701,7 +731,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       subscribeEvents: options.sandboxEvents,
       onRequest: (request, event) => { if (mounted && listenerMode?.enabled()) denials.show(request, event); },
       onChange: () => {
-        if (mounted) render();
+        if (mounted && (!open || (tab === 'traffic' && trafficDisplay === 'requests'))) render();
       },
     })
     : null;
@@ -751,6 +781,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       || snapshot.errors.some((error) => now - error.at <= RECENT_FAILURE_MS);
     return {
       failedRecently,
+      rateThreshold: thresholdMonitor.pending(),
       missingIndex: (trafficFeed?.requests() ?? []).some(requestMissingIndex) || listenerOutlines.some(outline => missingIndex(outline.activity?.indexQuery)),
       duplicateListener: listenerOutlines.some((outline) => outline.incident?.pattern === 'duplicate-listener'),
       updatePending: snapshot.updateAvailable,
@@ -762,6 +793,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let renderedOpen: boolean | null = null;
   const openPanel = (): void => {
     tab = openingChipTab(signals(), readRememberedChipTab(tabStorage));
+    if (thresholdMonitor.pending() && !signals().failedRecently) { trafficDisplay = 'rates'; selectedRateService = null; }
     if (tab === 'identity' && usersFailed) usersRequested = false;
     open = true;
   };
@@ -1009,18 +1041,40 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const modes = `<div class="paint-switch" role="group" aria-label="Traffic view">${buttonHtml(`data-traffic-display="requests" aria-pressed="${trafficDisplay === 'requests'}"`, 'Requests')}${buttonHtml(`data-traffic-display="rates" aria-pressed="${trafficDisplay === 'rates'}"`, 'Rates')}</div>`;
     let filter = '';
     if (trafficDisplay === 'requests') filter = buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only');
-    if (trafficDisplay === 'rates' && (selectedRateService === 'rtdb' || selectedRateService === 'firestore')) {
-      const paused = currentRateHistory().view(rates.snapshot())?.paused ?? false;
-      filter = `<div class="paint-switch" role="group" aria-label="History playback">${buttonHtml(`data-history-mode="live" aria-pressed="${!paused}"`, 'Live')}${buttonHtml(`data-history-mode="pause" aria-pressed="${paused}"`, 'Pause')}</div>`;
+    if (trafficDisplay === 'rates' && isThresholdService(selectedRateService)) {
+      if (rateSection === 'capture-rename' || rateSection === 'capture-delete') return barHtml([`<div class="traffic-toolbar"><div class="traffic-view-switch">${buttonHtml('data-capture-edit-cancel', 'Cancel')}</div><div class="traffic-actions">${buttonHtml(`data-capture-edit-save ${captureEditBusy ? 'disabled' : ''}`, rateSection === 'capture-delete' ? 'Delete' : 'Save')}</div></div>`]);
+      const frame = currentRateHistory().view(rates.snapshot());
+      const label = frame?.imported ? 'Return to live' : frame?.paused ? 'Resume live' : 'Pause';
+      const primary = rateSection === 'chart' ? buttonHtml(`data-history-toggle data-history-mode="${frame?.paused ? 'live' : 'pause'}"`, label) : buttonHtml('data-rate-chart', 'Back to activity');
+      const captureActions = `<button type="button" data-capture-open>Open capture…</button>${frame?.imported ? '<button type="button" data-capture-download>Download JSON</button>' : ''}`;
+      const menuActions = rateSection === 'captures' ? '<button type="button" data-capture-import>Open file…</button>'
+        : frame?.imported && selectedSavedCapture ? `<button type="button" data-capture-rename>Rename…</button><button type="button" data-capture-delete>Delete…</button>${captureActions}`
+        : `<button type="button" data-capture-export>Save capture…</button>${captureActions}${frame?.imported ? '' : `<button type="button" data-open-thresholds>Thresholds…</button><button type="button" data-rate-incidents="${selectedRateService}">Incidents</button><button type="button" data-rate-measurements>Measurements</button>`}`;
+      const menu = `<details class="rate-menu"><summary class="btn" role="button" aria-label="More actions" title="More actions"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="3" cy="8" r="1" fill="currentColor"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="13" cy="8" r="1" fill="currentColor"/></svg></summary><div class="rate-menu-items">${menuActions}</div></details>`;
+      return barHtml([`<div class="traffic-toolbar">${primary}${menu}</div>`]);
     }
     return barHtml([`<div class="traffic-toolbar">${modes}${filter}</div>`]);
   };
   const trafficViewHtml = (): ChipView => {
     if (trafficDisplay === 'rates') {
-      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, (selectedRateService === 'rtdb' || selectedRateService === 'firestore') ? currentRateHistory().view(rates.snapshot()) : undefined, iconHtml('chevron'));
-      let breadcrumb = '';
-      if (selectedRateService) breadcrumb = `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(serviceLabel(selectedRateService))}</span></nav></div>`;
-      return { body: breadcrumb + sectionHtml(measured.title, measured.body, measured.detail), bar: trafficToolbar() };
+      const settings = thresholdSettings.state();
+      const crumbs = (service: string, editing = false) => `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}${editing ? `<button type="button" data-threshold-cancel>${escapeAttribute(serviceLabel(service))}</button>${iconHtml('chevron')}<span aria-current="page">Thresholds</span>` : `<span aria-current="page">${escapeAttribute(serviceLabel(service))}</span>`}</nav></div>`;
+      if (settings.service) {
+        const footer = `<div class="threshold-footer"><button type="button" class="btn" data-threshold-defaults ${settings.busy ? 'disabled' : ''}>Use defaults</button><span><button type="button" class="btn" data-threshold-cancel ${settings.busy ? 'disabled' : ''}>Cancel</button><button type="button" class="btn" data-threshold-save ${settings.busy || !settings.loaded || !settings.dirty || settings.invalid ? 'disabled' : ''}>${settings.saving ? 'Saving' : 'Save'}</button></span></div>`;
+        return { body: crumbs(settings.service, true) + sectionHtml('Thresholds', thresholdSettingsHtml(thresholdSettings, escapeAttribute), settings.saving ? 'Saving' : settings.busy ? 'Loading' : settings.project ? 'Project' : 'This session'), bar: barHtml([footer]) };
+      }
+      const alerts = thresholdMonitor.incidents().filter(incident => !selectedRateService || incident.service === selectedRateService);
+      const alertHtml = alerts.length ? sectionHtml('Recorded incidents', `<div class="rows">${alerts.map(incident => `<button type="button" class="rate-alert" data-rate-incident="${escapeAttribute(incident.id)}"><span>${escapeAttribute(incident.label)}<small>${escapeAttribute(serviceLabel(incident.service))} · ${new Date(incident.at).toLocaleTimeString()}</small><small>Peak ${incident.peak}/s · limit ${incident.limit}/s</small><small>${incident.aboveSeconds}s above limit / ${incident.to - incident.from + 1}s elapsed</small></span><span class="rate-alert-status">${iconHtml('warning')}<span>Exceeded</span></span></button>`).join('')}</div>`) : '';
+      const incidentCounts = new Map(['firestore', 'rtdb'].map(service => [service, thresholdMonitor.incidents().filter(incident => incident.service === service).length]));
+      const frame = isThresholdService(selectedRateService) ? currentRateHistory().view(rates.snapshot()) : undefined;
+      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart');
+      if (!selectedRateService) return { body: sectionHtml(measured.title, measured.body), bar: trafficToolbar() };
+      const secondary = rateSection === 'capture-rename' ? 'Rename capture' : rateSection === 'capture-delete' ? 'Delete capture' : rateSection === 'chart' ? '' : rateSection === 'incidents' ? 'Incidents' : rateSection === 'captures' ? 'Captures' : 'Measurements';
+      const breadcrumb = frame?.imported && selectedSavedCapture && rateSection === 'chart'
+        ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}<button type="button" data-capture-open>Captures</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(selectedSavedCapture.name || serviceLabel(selectedRateService))}</span></nav></div>`
+        : secondary ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}${rateSection === 'captures' ? '' : rateSection === 'capture-rename' || rateSection === 'capture-delete' ? `<button type="button" data-capture-open>Captures</button>${iconHtml('chevron')}` : `<button type="button" data-rate-chart>${escapeAttribute(serviceLabel(selectedRateService))}</button>${iconHtml('chevron')}`}<span aria-current="page">${secondary}</span></nav></div>` : crumbs(selectedRateService);
+      const body = selectedSavedCapture && (rateSection === 'capture-rename' || rateSection === 'capture-delete') ? captureEditor(rateSection === 'capture-rename' ? { ...selectedSavedCapture, name: captureNameDraft } : selectedSavedCapture, rateSection === 'capture-delete', escapeAttribute) : rateSection === 'captures' ? `<section class="section">${captureList(savedCaptureList, capturesLoading, escapeAttribute)}</section>` : rateSection === 'incidents' ? alertHtml || emptyHtml('No incidents', 'No thresholds have been exceeded.') : `<section class="section">${measured.body}</section>`;
+      return { body: breadcrumb + `<input type="file" data-capture-file accept="application/json,.json" hidden><p class="threshold-error" data-capture-error role="alert" ${captureError ? '' : 'hidden'}>${escapeAttribute(captureError)}</p>` + body, bar: trafficToolbar() };
     }
     if (selectedRequest) {
       const request = selectedRequest;
@@ -1088,8 +1142,26 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     return sandboxViewHtml();
   };
 
+  let pointerActive = false;
+  let deferredRender = false;
+  let pointerRenderTimer: ReturnType<typeof setTimeout> | undefined;
+  root.addEventListener('pointerdown', event => {
+    pointerActive = true;
+    if (!(event.target as Element).closest('.rate-menu')) root.querySelector<HTMLDetailsElement>('.rate-menu')?.removeAttribute('open');
+  });
+  const finishPointer = () => {
+    pointerActive = false;
+    if (deferredRender) {
+      clearTimeout(pointerRenderTimer);
+      pointerRenderTimer = setTimeout(() => { deferredRender = false; render(); }, 0);
+    }
+  };
+  documentLike.addEventListener('pointerup', finishPointer);
+  documentLike.addEventListener('pointercancel', finishPointer);
   const render = (next = snapshot): void => {
+    if (pointerActive) { snapshot = next; deferredRender = true; return; }
     indexTargets.clear();
+    const menuOpen = root.querySelector<HTMLDetailsElement>('.rate-menu')?.open;
     const openRateNotes = root.querySelector<HTMLDetailsElement>('[data-rate-notes][open]')?.dataset.rateNotes;
     const focusedRateNotes = root.activeElement?.closest('[data-rate-notes]')?.getAttribute('data-rate-notes');
     const openIndexJson = root.querySelector<HTMLDetailsElement>('[data-index-json][open]')?.dataset.indexJson;
@@ -1137,6 +1209,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-traffic-display',
       'data-inspect-rates',
       'data-rates-back',
+      'data-open-thresholds',
+      'data-threshold-input',
+      'data-threshold-save',
+      'data-threshold-defaults',
+      'data-threshold-cancel',
+      'data-rate-incident',
       'data-copy-traffic',
       'data-open-overlay-theme',
       'data-update-worker',
@@ -1162,10 +1240,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const problem = problemTab(current);
     // The pill's border is the page's state: the error colour outranks the
     // warning colour because a failure is about the page as it is running.
-    const chipTone = current.failedRecently || current.duplicateListener ? ' error' : (current.missingIndex || current.updatePending) ? ' warning' : '';
+    const chipTone = current.failedRecently || current.duplicateListener ? ' error' : (current.missingIndex || current.rateThreshold || current.updatePending) ? ' warning' : '';
     const chipTitle = current.failedRecently
       ? 'A request failed in the last minute'
-      : current.duplicateListener ? 'A listener is attached twice' : current.missingIndex ? 'A query is missing an index in local configuration' : current.updatePending ? 'New worker available' : '';
+      : current.duplicateListener ? 'A listener is attached twice' : current.missingIndex ? 'A query is missing an index in local configuration' : current.rateThreshold ? 'Activity exceeded a threshold. Open Traffic to review.' : current.updatePending ? 'New worker available' : '';
     const tabsHtml = CHIP_TABS.map((candidate) => {
       const tone = candidate !== problem
         ? ''
@@ -1240,20 +1318,146 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-inspect-rates]')) {
       button.addEventListener('click', () => {
         selectedRateService = button.dataset.inspectRates ?? null;
+        rateSection = 'chart';
         if ((selectedRateService === 'rtdb' || selectedRateService === 'firestore')) currentRateHistory().open(rates.snapshot());
         render();
         root.querySelector<HTMLButtonElement>('[data-rates-back]')?.focus({ preventScroll: true });
       });
     }
+    for (const button of root.querySelectorAll<HTMLElement>('[data-rate-incidents]')) button.addEventListener('click', () => {
+      selectedRateService = button.dataset.rateIncidents!; rateSection = 'incidents'; render();
+    });
+    for (const button of root.querySelectorAll('[data-rate-chart]')) button.addEventListener('click', () => { rateSection = 'chart'; render(); });
+    root.querySelector('[data-rate-measurements]')?.addEventListener('click', () => { rateSection = 'measurements'; render(); });
+    const menu = root.querySelector<HTMLDetailsElement>('.rate-menu');
+    if (menu && menuOpen) menu.open = true;
+    menu?.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.open = false; menu.querySelector<HTMLElement>('summary')?.focus(); } });
+    menu?.addEventListener('click', event => { if ((event.target as Element).closest('button')) menu.open = false; }, { capture: true });
     const refreshHistoryView = () => { const snapshot = rates.snapshot(); refreshRateView(root, snapshot, currentRateHistory().view(snapshot)); };
     bindHistory(root, currentRateHistory(), rates.snapshot, refreshHistoryView);
     for (const button of root.querySelectorAll<HTMLElement>('[data-history-mode]')) {
       button.addEventListener('click', () => {
+        const imported = currentRateHistory().view(rates.snapshot())?.imported;
         if (button.dataset.historyMode === 'live') currentRateHistory().live(); else currentRateHistory().pause(rates.snapshot());
-        refreshHistoryView();
+        if (imported) render(); else refreshHistoryView();
       });
     }
-    root.querySelector('[data-rates-back]')?.addEventListener('click', () => { selectedRateService = null; render(); });
+    async function showCaptures() {
+      rateSection = 'captures'; capturesLoading = true; captureError = ''; render();
+      try { savedCaptureList = await captureClient.list(); }
+      catch (error) { captureError = error instanceof Error ? error.message : 'Unable to list captures.'; }
+      finally { capturesLoading = false; render(); }
+    }
+    for (const button of root.querySelectorAll('[data-capture-open]')) button.addEventListener('click', showCaptures);
+    for (const mode of ['rename', 'delete'] as const) root.querySelector(`[data-capture-${mode}]`)?.addEventListener('click', () => {
+      captureNameDraft = selectedSavedCapture?.name ?? '';
+      rateSection = mode === 'rename' ? 'capture-rename' : 'capture-delete'; captureError = ''; render();
+      root.querySelector<HTMLInputElement>('[data-capture-name]')?.focus();
+    });
+    root.querySelector<HTMLInputElement>('[data-capture-name]')?.addEventListener('input', event => { captureNameDraft = (event.currentTarget as HTMLInputElement).value; });
+    root.querySelector<HTMLInputElement>('[data-capture-name]')?.addEventListener('keydown', event => { if (event.key === 'Enter') root.querySelector<HTMLButtonElement>('[data-capture-edit-save]')?.click(); });
+    root.querySelector('[data-capture-edit-cancel]')?.addEventListener('click', () => { if (!captureEditBusy) { rateSection = 'chart'; captureError = ''; render(); } });
+    root.querySelector<HTMLButtonElement>('[data-capture-edit-save]')?.addEventListener('click', async event => {
+      if (!selectedSavedCapture || captureEditBusy) return;
+      captureEditBusy = true; (event.currentTarget as HTMLButtonElement).disabled = true;
+      try {
+        if (rateSection === 'capture-delete') {
+          await captureClient.remove(selectedSavedCapture.id);
+          importedCaptures.delete(selectedSavedCapture.service); selectedSavedCapture = null;
+          currentRateHistory().live(); await showCaptures();
+        } else {
+          selectedSavedCapture = await captureClient.rename(selectedSavedCapture.id, root.querySelector<HTMLInputElement>('[data-capture-name]')!.value);
+          rateSection = 'chart'; captureError = '';
+        }
+      } catch (error) { captureError = error instanceof Error ? error.message : 'Unable to update capture.'; }
+      finally { captureEditBusy = false; render(); }
+    });
+    root.querySelector('[data-capture-import]')?.addEventListener('click', () => root.querySelector<HTMLInputElement>('[data-capture-file]')?.click());
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-project-capture]')) button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const text = await captureClient.read(button.dataset.projectCapture!);
+        selectedSavedCapture = savedCaptureList?.find(entry => entry.id === button.dataset.projectCapture) ?? null;
+        const capture = readRateCapture(text);
+        importedCaptures.set(capture.frame.service.service, text);
+        selectedRateService = capture.frame.service.service; rateSection = 'chart';
+        currentRateHistory().load(capture.frame); captureError = ''; render();
+      } catch (error) { captureError = error instanceof Error ? error.message : 'Unable to open capture.'; render(); }
+    });
+    function downloadCapture(text: string, name: string) {
+      const blob = new Blob([text], { type: 'application/json' });
+      if (blob.size > 32 * 1024 * 1024) throw new Error('Capture exceeds 32 MB.');
+      const url = URL.createObjectURL(blob);
+      const link = documentLike.createElement('a'); link.href = url; link.download = name;
+      documentLike.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    root.querySelector('[data-capture-download]')?.addEventListener('click', () => {
+      const text = importedCaptures.get(selectedRateService!);
+      if (text) downloadCapture(text, `pyric-${selectedRateService}.capture.json`);
+    });
+    root.querySelector<HTMLInputElement>('[data-capture-file]')?.addEventListener('change', async event => {
+      const file = (event.currentTarget as HTMLInputElement).files?.[0];
+      selectedSavedCapture = null;
+      if (!file) return;
+      try {
+        if (file.size > 32 * 1024 * 1024) throw new Error('Capture exceeds 32 MB.');
+        const text = await file.text();
+        const capture = readRateCapture(text);
+        importedCaptures.set(capture.frame.service.service, text);
+        selectedRateService = capture.frame.service.service;
+        rateSection = 'chart';
+        currentRateHistory().load(capture.frame);
+        captureError = ''; render();
+      } catch (error) { captureError = error instanceof Error ? error.message : 'Unable to open capture.'; render(); }
+    });
+    root.querySelector<HTMLButtonElement>('[data-capture-export]')?.addEventListener('click', async event => {
+      const frame = currentRateHistory().view(rates.snapshot());
+      if (!frame) return;
+      const selected = structuredClone(frame);
+      const config = structuredClone(thresholdSettings.config());
+      const events = [...captureEvents];
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      try {
+        const fetcher = documentLike.defaultView?.fetch?.bind(documentLike.defaultView);
+        const saved = selected.imported ? importedCaptures.get(selected.service.service) : undefined;
+        let fixture: unknown = null;
+        let attachmentError: string | null = null;
+        if (!saved) {
+          try { fixture = options.captureSession ? await options.captureSession() : fetcher ? await readSessionFixture(fetcher) : null; }
+          catch { attachmentError = 'Session state could not be read. Measurements and retained operations are included.'; }
+        }
+        const capture = buildRateCapture(selected, config, events, fixture, attachmentError);
+        const text = saved ?? JSON.stringify(capture, null, 2);
+        const entry = await captureClient.save(text);
+        if (entry) await showCaptures();
+        else downloadCapture(text, `pyric-${selected.service.service}-${Math.round(selected.clockOffset + selected.from * 1000)}.capture.json`);
+        captureError = '';
+      } catch (error) { captureError = error instanceof Error ? error.message : 'Unable to export capture.'; }
+      finally { button.disabled = false; render(); }
+    });
+    root.querySelector('[data-open-thresholds]')?.addEventListener('click', () => {
+      if (isThresholdService(selectedRateService)) thresholdSettings.open(selectedRateService);
+    });
+    root.querySelector('[data-threshold-defaults]')?.addEventListener('click', () => thresholdSettings.defaults());
+    root.querySelector('[data-threshold-save]')?.addEventListener('click', async () => { await thresholdSettings.save(); root.querySelector<HTMLElement>('[data-open-thresholds]')?.focus(); });
+    for (const button of root.querySelectorAll('[data-threshold-cancel]')) button.addEventListener('click', () => thresholdSettings.cancel());
+    for (const input of root.querySelectorAll<HTMLInputElement>('[data-threshold-input]')) input.addEventListener('input', () => {
+      thresholdSettings.edit(input.dataset.thresholdInput as import('./rate-threshold-config.js').ThresholdOperation | 'sustainedSeconds', input.value);
+      refreshThresholdForm(root, thresholdSettings);
+    });
+    for (const button of root.querySelectorAll<HTMLElement>('[data-rate-incident]')) button.addEventListener('click', () => {
+      const incident = thresholdMonitor.review(button.dataset.rateIncident!);
+      if (!incident) return;
+      selectedRateService = incident.service;
+      rateSection = 'chart';
+      currentRateHistory().inspect(incident.evidence, incident.from, incident.to, incident);
+      render();
+      const chart = root.querySelector<HTMLElement>('[data-history-chart]');
+      root.querySelector('[data-incident-context]')?.scrollIntoView({ block: 'start' }); chart?.focus({ preventScroll: true });
+    });
+    root.querySelector('[data-rates-back]')?.addEventListener('click', () => { selectedRateService = null; rateSection = 'chart'; thresholdSettings.cancel(); });
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-index-action]')) {
       button.addEventListener('click', async () => {
         const key = button.dataset.indexKey!;
@@ -1273,7 +1477,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       photo.addEventListener('error', () => { photo.hidden = true; });
     }
 
-    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
+    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
 
     if (renderedOpen !== open) {
@@ -1533,10 +1737,19 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   // Sampling the clock advances idle rates. Updating cells preserves controls,
   // horizontal method scrolling and focus while the developer inspects them.
   const rateClock = setInterval(() => {
-    if (open && tab === 'traffic' && trafficDisplay === 'rates') { const snapshot = rates.snapshot(); refreshRateView(root, snapshot, (selectedRateService === 'rtdb' || selectedRateService === 'firestore') ? currentRateHistory().view(snapshot) : undefined); }
+    const retainedSnapshot = rates.snapshot();
+    for (const history of Object.values(serviceHistories)) history.record(retainedSnapshot);
+    if (thresholdSettings.ready()) {
+      thresholdMonitor.sample(rates.snapshot(), thresholdSettings.config());
+      for (const service of ['firestore', 'rtdb'] as const) serviceHistories[service].markWarnings(thresholdMonitor.incidents().filter(incident => incident.service === service).flatMap(incident => incident.aboveRanges));
+      const nextSignature = JSON.stringify(thresholdMonitor.incidents().map(incident => [incident.id, incident.recovered, incident.reviewed]));
+      if (thresholdSignature !== nextSignature) { thresholdSignature = nextSignature; render(); }
+    }
+    if (open && tab === 'traffic' && trafficDisplay === 'rates' && !thresholdSettings.state().service) { const snapshot = rates.snapshot(); refreshRateView(root, snapshot, (selectedRateService === 'rtdb' || selectedRateService === 'firestore') ? currentRateHistory().view(snapshot) : undefined); }
   }, 1000);
   if (typeof rateClock === 'object' && 'unref' in rateClock) rateClock.unref();
   void indexInspector.refresh();
+  void thresholdSettings.load();
   // The chip fades in once, when the page first gets it. The class sits on the
   // stable container rather than on the chip, so a render right behind the
   // mount can neither replay the animation nor cut it short.
@@ -1546,6 +1759,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     element: host,
     dispose() {
       clearInterval(rateClock);
+      unsubscribeCapture?.();
+      clearTimeout(pointerRenderTimer);
+      documentLike.removeEventListener('pointerup', finishPointer);
+      documentLike.removeEventListener('pointercancel', finishPointer);
       unsubscribe();
       unsubLens();
       unsubAuth();
@@ -1553,6 +1770,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       themeDialogController?.dispose();
       trafficFeed?.dispose();
       indexInspector.dispose();
+      thresholdSettings.dispose();
       denials.dispose();
       listenerMode?.dispose();
       host.remove();

@@ -10,7 +10,7 @@ export default {
   effect: 'write',
   signature: 'advanceClock(ms)',
   description:
-    'Move the clock forward ms; from the wall clock it keeps flowing, from a pin it stays frozen at the new instant.',
+    'Advance ms; a running clock keeps running, a pinned clock stays frozen.',
   args: z.object({
     ms: z.number().int().positive().describe('Milliseconds to advance the clock by.'),
   }),

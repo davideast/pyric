@@ -1,4 +1,5 @@
-import { historyHtml, refreshHistory, HISTORY_STYLES, type HistoryFrame } from './rate-history.js';
+import { measurementNotes } from './rate-measurement-notes.js';
+import { createRateHistory, historyHtml, refreshHistory, HISTORY_STYLES, type HistoryFrame } from './rate-history.js';
 import type { SdkMethodRate, SdkRateSnapshot, SdkServiceRate } from 'pyric/sandbox/internal';
 
 export interface RateView {
@@ -31,6 +32,26 @@ export const RATE_STYLES = HISTORY_STYLES + `
   .rate-table code { display:block; max-width:100%; overflow-x:auto; white-space:nowrap; font-size:12px; line-height:28px; scrollbar-width:thin; }
   .rate-table tr > .rate-unavailable { grid-column:3 / 6; color:var(--pyric-muted); font-family:inherit; }
   .rate-scope { display:grid; gap:8px; }
+  .rate-service-item { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:var(--space-3); align-items:center; padding:var(--space-3); font-size:12px; }
+  .rate-service-item + .rate-service-item { border-top:1px solid var(--pyric-border-soft); }
+  .rate-service-item button { border:0; background:none; color:var(--pyric-accent); text-align:left; font:inherit; padding:0; cursor:pointer; }
+  .rate-service-item button:focus-visible { outline:2px solid var(--pyric-accent); outline-offset:4px; }
+  .rate-service-item small { display:block; color:var(--pyric-muted); font-size:11px; line-height:1.5; margin-top:var(--space-1); }
+  .rate-service-item .rate-incident-count { color:var(--pyric-warning); white-space:nowrap; font-size:11px; }
+  .rate-no-incidents { color:var(--pyric-muted); font-size:11px; }
+  .bar:has(.rate-menu) { overflow:visible; position:relative; z-index:2; }
+  .rate-menu { position:relative; }
+  .rate-menu summary { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:center; width:32px; height:32px; }
+  .rate-menu summary::-webkit-details-marker { display:none; }
+  .rate-menu-items { position:absolute; bottom:calc(100% + 8px); right:0; width:180px; display:grid; padding:var(--space-1); border:1px solid var(--pyric-border); border-radius:6px; background:var(--pyric-content); box-shadow:0 4px 16px #0005; }
+  .rate-menu-items button { font:inherit; font-size:12px; padding:var(--space-2); text-align:left; border:0; color:var(--pyric-text); background:none; cursor:pointer; border-radius:3px; }
+  .rate-menu-items button:hover,.rate-menu-items button:focus-visible { background:var(--pyric-bg); outline:1px solid var(--pyric-accent); }
+  [data-history-toggle], .traffic-toolbar [data-rate-chart] { min-width:110px; }
+  [data-capture-file] { display:none; }
+  .capture-name-form { display:grid; grid-template-columns:60px minmax(0,1fr); align-items:center; gap:var(--space-3); padding:var(--space-3); background:var(--pyric-content); border:1px solid var(--pyric-border-soft); border-radius:8px; }
+  .capture-name-form input { min-width:0; width:100%; box-sizing:border-box; font:inherit; color:var(--pyric-text); background:var(--pyric-bg); border:1px solid var(--pyric-border); border-radius:4px; padding:var(--space-2); }
+  .capture-name { overflow-wrap:anywhere; }
+
   .rate-metadata { display:grid; grid-template-columns:4px minmax(0,1fr) auto 4px; gap:var(--space-2); margin:0; font-size:12px; }
   .rate-metadata dt { grid-column:2; color:var(--pyric-muted); }
   .rate-metadata dd { grid-column:3; margin:0; text-align:right; }
@@ -110,8 +131,7 @@ function serviceRow(service: SdkServiceRate, label: string, escape: Escape, inte
 }
 
 function coverage(service: string): string {
-  if (service === 'firestore') return '<dl class="usage-coverage"><dt>Includes</dt><dd>Document fetches, initial listener results, added and updated documents, successful writes and deletes.</dd><dt>Not measured</dt><dd>Index scans, rules-dependent reads, transactions, query removals, storage and network charges.</dd><dt>Assumption</dt><dd>Local listener registrations represent new connections. Production caching, reconnects and shared connections can change charges.</dd></dl>';
-  return '<dl class="usage-coverage"><dt>Operations</dt><dd>Reads and writes count SDK requests, including failed attempts. Listener deliveries count callbacks, including initial results.</dd><dt>Payload</dt><dd>UTF-8 JSON size of fetched values and listener snapshots.</dd><dt>Not measured</dt><dd>Wire deltas, connection sharing, protocol and encryption overhead, stored data and onDisconnect execution.</dd><dt>Billing limit</dt><dd>Snapshot size is not billed download size. A callback can contain a full value when the server only sends a change.</dd></dl>';
+  return `<dl class="usage-coverage">${measurementNotes(service).map(note => `<dt>${note.label}</dt><dd>${note.text}</dd>`).join('')}</dl>`;
 }
 
 function methodRow(method: SdkMethodRate, escape: Escape, duration?: number): string {
@@ -131,6 +151,27 @@ function methodRow(method: SdkMethodRate, escape: Escape, duration?: number): st
     + `<td class="mono" data-rate-results>${results}</td><td class="mono" data-rate-active>${listening}</td></tr>`;
 }
 
+function recordedFrame(snapshot: SdkRateSnapshot, service: SdkServiceRate): HistoryFrame | undefined {
+  if (!service.history) return;
+  const history = createRateHistory(service.service);
+  const retained = { ...snapshot, monotonicAt: Math.max(snapshot.monotonicAt, (service.history.endSecond + 3) * 1000) };
+  history.open(retained);
+  return history.view(retained);
+}
+function activitySummary(snapshot: SdkRateSnapshot, service: SdkServiceRate): string {
+  const frame = recordedFrame(snapshot, service);
+  if (!frame) return 'No activity recorded';
+  return `${rateNumber(frame.totals.reads)} ${service.service === 'firestore' ? 'document reads' : 'reads'} / ${rateNumber(frame.totals.writes)} writes${service.service === 'rtdb' ? ` / ${rateNumber(frame.totals.deliveries)} deliveries` : ''} in ${frame.duration}s`;
+}
+function serviceList(snapshot: SdkRateSnapshot, label: (service: string) => string, escape: Escape, incidents: ReadonlyMap<string, number>): string {
+  return `<div class="rows rate-service-list">${snapshot.services.map(service => {
+    const name = escape(label(service.service));
+    if (service.coverage === 'unsupported') return `<div class="rate-service-item"><span>${name}<small>Not measured</small></span></div>`;
+    const count = incidents.get(service.service) ?? 0;
+    return `<div class="rate-service-item"><button type="button" data-inspect-rates="${escape(service.service)}" aria-label="${name}"><strong>${name}</strong><small data-service-summary="${escape(service.service)}">${activitySummary(snapshot, service)}</small></button>${count ? `<button type="button" class="rate-incident-count" data-rate-incidents="${escape(service.service)}">${count} ${count === 1 ? 'incident' : 'incidents'}</button>` : '<span class="rate-no-incidents">No incidents</span>'}</div>`;
+  }).join('')}</div>`;
+}
+
 /** Service-specific usage leads; public SDK method counts remain diagnostic detail. */
 export function rateView(
   snapshot: SdkRateSnapshot,
@@ -139,22 +180,21 @@ export function rateView(
   escape: Escape,
   history?: HistoryFrame,
   chevron = '',
+  incidents: ReadonlyMap<string, number> = new Map(),
+  display: 'chart' | 'measurements' = 'chart',
 ): RateView {
   const service = snapshot.services.find(entry => entry.service === selectedService);
-  const detail = history ? '' : `${snapshot.windowSeconds}-second average`;
+  const detail = history ? '' : `Last ${snapshot.windowSeconds} seconds`;
   if (!service || service.coverage === 'unsupported') {
-    const rows = snapshot.services.map(entry => serviceRow(entry, serviceLabel(entry.service), escape));
-    return {
-      title: 'Usage estimates', detail,
-      body: `<div class="rows usage-services" data-service-rates>${rows.join('')}</div>`,
-    };
+    return { title: 'Services', detail: '', body: serviceList(snapshot, serviceLabel, escape, incidents) };
   }
+  if (history && display === 'chart') return { title: '', detail: '', body: `<div class="rate-scope" data-rate-detail="${escape(service.service)}">${historyHtml(history)}</div>` };
   const listeners = service.methods.reduce((total, method) => total + method.activeListeners, 0);
   const untracked = service.untrackedMethods.map(method => `<tr data-rate-method="${escape(method)}"><th scope="row"><code class="mono">${escape(method)}</code></th><td colspan="3" class="rate-unavailable">Not measured</td></tr>`).join('');
   return {
     title: serviceLabel(service.service), detail,
     body: `<div class="rate-scope" data-rate-detail="${escape(service.service)}">`
-      + (history ? historyHtml(history) : serviceRow(service, service.service === 'rtdb' ? 'Operations & data' : 'Usage estimate', escape, false))
+      + (history ? '' : serviceRow(service, service.service === 'rtdb' ? 'Operations & data' : 'Usage estimate', escape, false))
       + `<dl class="rate-metadata"><dt>Scope</dt><dd>This page</dd><dt>Listeners now</dt><dd data-rate-listeners>${listeners}</dd></dl>`
       + `<h3 class="usage-sdk-heading">SDK activity${history ? ' · selected period' : ''}</h3><div class="rows"><table class="rate-table" aria-label="SDK activity by method"><colgroup><col class="rate-name"><col><col><col></colgroup><thead><tr><th scope="col">Method</th>${history ? '<th scope="col">Calls</th><th scope="col">Results</th><th scope="col">Avg/s</th>' : '<th scope="col" title="Includes denied attempts">Calls/s</th><th scope="col" title="Read results and listener callbacks">Results/s</th><th scope="col">Listening</th>'}</tr></thead><tbody>${(history ? history.service.methods : service.methods).map(method => methodRow(method, escape, history?.duration)).join('')}${untracked}</tbody></table></div>`
       + `<details class="rules-disclosure usage-notes" data-rate-notes="${escape(service.service)}"><summary><span>How measurements work</span><span class="rules-chevron">${chevron}</span></summary><div class="usage-notes-body">${coverage(service.service)}</div></details></div>`,
@@ -170,6 +210,18 @@ function replaceNumber(root: ParentNode, selector: string, value: number): void 
 /** Refresh measurements without replacing focused controls or scrolled code. */
 export function refreshRateView(root: ParentNode, snapshot: SdkRateSnapshot, history?: HistoryFrame): void {
   if (history) refreshHistory(root, history);
+  for (const element of root.querySelectorAll<HTMLElement>('[data-service-summary]')) {
+    const service = snapshot.services.find(service => service.service === element.dataset.serviceSummary);
+    if (service) element.textContent = activitySummary(snapshot, service);
+  }
+  for (const row of root.querySelectorAll<HTMLElement>('[data-recorded-service]')) {
+    const service = snapshot.services.find(service => service.service === row.dataset.recordedService);
+    const frame = service && recordedFrame(snapshot, service);
+    if (!frame) continue;
+    for (const key of ['reads', 'writes', 'deletes', 'deliveries'] as const) replaceNumber(row, `[data-recorded-total="${key}"]`, frame.totals[key]);
+    const duration = row.querySelector('[data-recorded-duration]');
+    if (duration) duration.textContent = `${frame.duration}s recorded`;
+  }
   for (const row of root.querySelectorAll<HTMLElement>('[data-rate-service]')) {
     const service = snapshot.services.find(entry => entry.service === row.dataset.rateService);
     if (!service || service.coverage === 'unsupported') continue;

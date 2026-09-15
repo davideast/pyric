@@ -113,6 +113,7 @@ describe('destructive refusal', () => {
     const destructiveRecords = METHODS.filter((method) => method.effect === 'destructive');
     expect(destructiveRecords.map((method) => method.key).sort()).toEqual([
       'firestore.writeIndexes',
+      'sandbox.deleteCapture',
       'sandbox.deleteCheckpoint',
       'sandbox.promote',
       'sandbox.reset',

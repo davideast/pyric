@@ -94,6 +94,7 @@ export interface BridgeHostAttachment {
 }
 
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
+  let captureProjectDir = process.cwd();
   const project = opts.project ?? 'sandbox';
   const auditWriter = opts.disableAuditLog ? null : createAuditWriter(project);
 
@@ -171,6 +172,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       pendingSessions.delete(session);
     };
     const surface = getBridgeToolSurface({
+      projectDir: captureProjectDir,
       consumers: bridge.consumers,
       callerIdentity: bridge.callerIdentity,
     });
@@ -293,6 +295,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       closeOnServerClose = true,
     }) {
       if (closed) throw new Error('pyric bridge: cannot attach a closed mount');
+      captureProjectDir = projectDir;
       const wss = new WebSocketServer({ noServer: true });
       const guard = opts.upgradeGuard;
       const pointer = join(projectDir, '.pyric', 'serve.json');

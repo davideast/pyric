@@ -351,6 +351,11 @@ export const controlSandboxEnvironmentSchema = z.object({
       'events',
       'listeners',
       'activity',
+      'rename_capture',
+      'delete_capture',
+      'save_capture',
+      'list_captures',
+      'open_capture',
       'export_fixture',
       'seed_fixture',
     ])
@@ -365,6 +370,9 @@ export const controlSandboxEnvironmentSchema = z.object({
     .describe(
       "Checkpoint name (when action is 'checkpoint', 'restore', or 'delete_checkpoint').",
     ),
+  capture: z.string().optional().describe('Rate capture JSON to save.'),
+  captureName: z.string().optional().describe('Name for the saved capture.'),
+  captureId: z.string().optional().describe('Saved capture id to inspect. Omit for the latest.'),
   fixturePath: z
     .string()
     .optional()

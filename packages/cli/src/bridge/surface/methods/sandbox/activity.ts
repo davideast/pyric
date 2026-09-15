@@ -44,7 +44,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `activity(since?, pattern?: ${PATTERNS.join('|')})`,
-  description: 'Report Firestore activity incidents: repeated reads, duplicate listeners, listener churn.',
+  description: 'Report repeated reads, duplicate listeners and listener churn in Firestore.',
   args: z.object({
     since: z.string().optional().describe('A prior event id; keep only incidents with newer evidence.'),
     pattern: z.enum(PATTERNS).optional(),

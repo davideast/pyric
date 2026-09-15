@@ -18,6 +18,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.assertThrows
 import java.net.URI
 import java.util.concurrent.CountDownLatch
@@ -107,7 +108,8 @@ class ConformanceTest {
         assertFalse(result.additionalUserInfo?.isNewUser == true)
     }
 
-    @Test
+    // Catch the rare initial-null delivery racing with create-user completion.
+    @RepeatedTest(500)
     @DisplayName("auth-kotlin#7: FirebaseAuth.createUserWithEmailAndPassword registers user")
     fun `auth-kotlin#7 FirebaseAuth createUserWithEmailAndPassword registers user`() {
         val task = harness.auth.createUserWithEmailAndPassword("new@example.com", "pass123")

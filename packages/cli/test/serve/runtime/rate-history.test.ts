@@ -84,3 +84,48 @@ test('Firestore selects document evidence rather than SDK calls and keeps its ca
   rtdb.live();
   expect(state.view(both)!.paused).toBe(true);
 });
+
+test('incident context retains the triggering operation and clears when the period changes', () => {
+  const state = createRateHistory();
+  const evidence = snapshot();
+  state.inspect(evidence, 10, 11, { id: 'writes/10', service: 'rtdb', operation: 'writes', label: 'Writes', limit: 1, sustainedSeconds: 2, from: 10, to: 11, peak: 4, aboveSeconds: 2, aboveRanges: [{ from: 10, to: 11 }], recovered: true, reviewed: true, at: 0, evidence });
+  const document = new JSDOM(historyHtml(state.view(snapshot(1000))!)).window.document;
+  expect(document.querySelector('[data-incident-context]')!.textContent).toContain('6 writes in 2 seconds');
+  expect(document.querySelector('[data-incident-context]')!.textContent).toContain('4/s (4× limit)');
+  expect(document.querySelector('.history-trigger-row th')!.textContent).toBe('Writes');
+  state.select(evidence, 9, 12);
+  refreshHistory(document, state.view(evidence)!);
+  expect(document.querySelector('[data-incident-context]')!.textContent).toBe('');
+  expect(document.querySelector('.history-trigger-row')).toBeNull();
+});
+
+for (const service of ['firestore', 'rtdb']) {
+  test(`${service}: scrub and zoom recover older measurements after the live minute expires`, () => {
+    const state = createRateHistory(service);
+    const early = snapshot(20);
+    early.services[0]!.service = service;
+    early.services[0]!.usageBuckets = [{ second: 10, documentReads: 4, documentWrites: 6, documentDeletes: 0, payloadBytes: 0, unmeasured: 0 }];
+    state.record(early);
+    const late = snapshot(200);
+    late.services[0]!.service = service;
+    late.services[0]!.methods = [];
+    late.services[0]!.history = { startedSecond: 140, endSecond: 200, methods: [] };
+    late.services[0]!.usageBuckets = [];
+    state.record(late);
+    state.live();
+    state.pan(late, 0);
+    expect(state.view(late)!.totals.writes).toBe(6);
+    expect(state.view(late)!.points[0]!.second).toBe(0);
+    state.zoom(late, 2);
+    expect(state.view(late)!.points).toHaveLength(120);
+    expect(state.view(late)!.totals.writes).toBe(6);
+    state.live();
+    state.pan(late, 0);
+    expect(state.view(late)!.totals.writes).toBe(6);
+    const expired = { ...late, monotonicAt: 2000_000 };
+    state.record(expired);
+    state.pan(expired, 0);
+    expect(state.view(expired)!.points[0]!.second).toBe(201);
+    expect(state.view(expired)!.totals.writes).toBe(0);
+  });
+}

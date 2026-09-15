@@ -17,6 +17,11 @@ describe('the sandbox state routes', () => {
   it('take every action they carry to its canonical operation', () => {
     const operations = SANDBOX_STATE_ROUTES.map((route) => [route.action, route.operation]);
     expect(operations).toEqual([
+      ['rename_capture', 'rename_rate_capture'],
+      ['delete_capture', 'delete_rate_capture'],
+      ['save_capture', 'save_rate_capture'],
+      ['list_captures', 'list_rate_captures'],
+      ['open_capture', 'open_rate_capture'],
       ['reset_all', 'reset_sandbox'],
       ['set_clock', 'set_clock'],
       ['advance_clock', 'advance_clock'],

@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.RepeatedTest
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -36,6 +37,11 @@ class FirestoreAuthIntegrationTest {
     private val sentOps = CopyOnWriteArrayList<Map<String, Any?>>()
     private val sentSubs = CopyOnWriteArrayList<Map<String, Any?>>()
     private val sentUnsubs = CopyOnWriteArrayList<String>()
+    private fun orderedServer(handler: (String) -> Unit) {
+        val lock = Any()
+        transport.onServerReceive { message -> synchronized(lock) { handler(message) } }
+    }
+    private var serverUser: Map<String, Any?>? = null
     private var authStateSubId: String? = null
     private var idTokenSubId: String? = null
     @Volatile private var tokenClaims: Map<String, Any?> = emptyMap()
@@ -50,11 +56,14 @@ class FirestoreAuthIntegrationTest {
         authStateSubId = null
         idTokenSubId = null
         tokenClaims = emptyMap()
+        serverUser = null
 
         transport = InMemoryBridgeTransport()
         bridgeClient = PyricBridgeClient(transport)
 
-        transport.onServerReceive { messageJson ->
+        // Subscription registration and its initial snapshot must not interleave
+        // with sign-in responses, matching the bridge's ordered message handling.
+        orderedServer { messageJson ->
             val msg = JsonCodec.decodeMap(messageJson)
             val type = msg["type"] as? String
 
@@ -98,6 +107,7 @@ class FirestoreAuthIntegrationTest {
                             @Suppress("UNCHECKED_CAST")
                             val customClaims = userMap["customClaims"] as? Map<String, Any?> ?: emptyMap()
                             tokenClaims = customClaims + mapOf("sub" to userMap["uid"])
+                            serverUser = userMap
                             val userJson = JsonCodec.encodeToString(userMap)
                             transport.sendToClient(
                                 """{"type":"worker-res","id":"$id","ok":true,"value":{"user":$userJson,"operationType":"signIn"}}"""
@@ -116,6 +126,7 @@ class FirestoreAuthIntegrationTest {
                             )
                         }
                         "auth.signOut" -> {
+                            serverUser = null
                             transport.sendToClient("""{"type":"worker-res","id":"$id","ok":true,"value":null}""")
                             authStateSubId?.let { sId ->
                                 transport.sendToClient("""{"type":"worker-snap","subId":"$sId","value":null}""")
@@ -157,12 +168,13 @@ class FirestoreAuthIntegrationTest {
                         ?: (sub["target"] as? Map<*, *>)?.get("target") as? String
                     if (targetName == "authState") {
                         authStateSubId = subId
-                        transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":null}""")
-                        return@onServerReceive
+                        val currentUserJson = JsonCodec.encodeToString(serverUser)
+                        transport.sendToClient("""{"type":"worker-snap","subId":"$subId","value":$currentUserJson}""")
+                        return@orderedServer
                     }
                     if (targetName == "idToken") {
                         idTokenSubId = subId
-                        return@onServerReceive
+                        return@orderedServer
                     }
 
                     @Suppress("UNCHECKED_CAST")
@@ -259,7 +271,9 @@ class FirestoreAuthIntegrationTest {
         assertEquals(mapOf("mode" to "anon"), deleteOp?.get("actAs"))
     }
 
-    @Test
+    // Exercise the IO-dispatcher race between initial auth delivery and sign-in.
+    // Every request after the sign-in task completes must carry the user lens.
+    @RepeatedTest(50)
     fun testDocCrudStampsActAsUserWhenSignedIn() {
         Tasks.await(auth.signInWithEmailAndPassword("alice@example.com", "secret"))
         val docRef = firestore.document("users/alice")
@@ -302,7 +316,7 @@ class FirestoreAuthIntegrationTest {
         assertEquals("user-alice", actAsDelete["uid"])
     }
 
-    @Test
+    @RepeatedTest(50)
     fun testQueriesAndAggregationsStampActAs() {
         Tasks.await(auth.signInWithEmailAndPassword("alice@example.com", "secret"))
         val coll = firestore.collection("items")

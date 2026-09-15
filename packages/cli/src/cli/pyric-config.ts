@@ -17,6 +17,7 @@ export interface PyricRulesConfig {
 }
 
 export interface PyricConfig {
+  runtime?: { thresholds?: import('../serve/runtime/rate-threshold-config.js').ThresholdConfig };
   /** Listener Flow default and browser treatment modules. */
   flow?: FlowConfig;
   /** Default command to execute under the sandbox if none is passed on CLI. */
