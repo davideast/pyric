@@ -1,0 +1,1 @@
+{"rules":{".read":"auth != null",".write":"auth != null","atomic":{"blocked":{".validate":false}}}}

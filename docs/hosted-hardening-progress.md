@@ -5,10 +5,10 @@ This bounded milestone leaves the broader hosted/live-mode goal incomplete.
 Use the already approved S1–S6 seams, vertical TDD, and applicable universal gates.
 Do not modify the manual demo project. Commit and push each verified slice.
 
-Current section: [Section 2 — recovery and identity](hosted-section-two-progress.md),
-started 2026-09-15 after Section 1's completed automated checkpoint. Its identity and delayed-recovery acceptance checks are complete;
-the manual checkpoint and evidence are recorded there. The queue and investigation entries below retain their
-historical detail.
+Current section: [Section 3 — disconnect behavior and concurrent writes](hosted-section-three-progress.md),
+completed 2026-09-15 after Section 2's automated and manual checkpoints. Section 3
+closes items 12–13 with 49 distinct browser scenarios, 37 regressions and a runnable
+manual checkpoint. Earlier queue and investigation entries retain historical detail.
 
 ## Ordered queue
 
@@ -23,8 +23,8 @@ historical detail.
 9. Lifecycle cleanup — pending. Repeated startup failures, interrupted initialization, reconnect, deletion and shutdown release resources and ownership.
 10. Sleep/resume with delayed disconnect notification — verified in Section 2. An expired host session recovers even when the browser observes the interruption late; invalid grants remain refused and uncertain writes never replay.
 11. Identity and tenant isolation across clients — verified in Section 2. Switching or signing out in one app cannot change another app's identity, tenant, claims or Rules access, including after recovery.
-12. RTDB disconnect behavior — pending. Connectivity signals and registered disconnect operations follow the declared session-lifetime contract across transient loss, expiry and explicit app deletion.
-13. Concurrent transactions and atomic writes — pending. Two clients contend through normal SDK calls without lost updates; rejected batches remain atomic and ambiguous acknowledgments do not trigger transport replay.
+12. RTDB disconnect behavior — verified in Section 3. Connectivity signals and registered disconnect operations follow the declared session-lifetime contract across transient loss, expiry and explicit app deletion.
+13. Concurrent transactions and atomic writes — verified in Section 3. Two clients contend through normal SDK calls without lost updates; rejected batches remain atomic and ambiguous acknowledgments do not trigger transport replay.
 14. Packed installation and runtime selection — pending. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.
 15. Origin and project admission isolation — pending. An unrelated browser origin or another project's discovery/session credentials cannot attach to, inspect or mutate this host; intended clients still connect.
 16. Slow-client isolation and bounded event delivery — pending. A stalled Studio/event consumer cannot exhaust retained queues or starve another app's SDK operations; overflow and lost history remain explicit.
