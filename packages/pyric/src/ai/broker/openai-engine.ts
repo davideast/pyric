@@ -1,3 +1,4 @@
+import { setAiEvidence } from '../../sandbox/internal/ai-evidence.js';
 /**
  * The OpenAI AnswerEngine: Gemini wire in, OpenAI-compatible upstream
  * (Ollama, llama.cpp, any /v1/chat/completions) out, Gemini wire back.
@@ -518,7 +519,7 @@ export class OpenAiEngine implements AnswerEngine {
     const res = await this.post(body);
     const upstream = (await res.json()) as OpenAIResponse;
     const translated = openAIToGeminiResponse(upstream);
-    return this.synth.decorate(translated, { model, promptText: promptTextOf(req) });
+    return setAiEvidence(this.synth.decorate(translated, { model, promptText: promptTextOf(req) }), { reportedModel: upstream.model, usageSource: upstream.usage ? 'backend' : 'estimated' });
   }
 
   streamGenerateContent(req: GenerateContentRequest, model: string): AsyncIterable<WireChunk> {
@@ -540,6 +541,7 @@ export class OpenAiEngine implements AnswerEngine {
       const decoder = new TextDecoder();
       let emittedText = '';
       let upstreamUsage: OpenAIStreamChunk['usage'];
+      let reportedModel: string | undefined;
       let pendingFinish: string | null = null;
 
       /**
@@ -563,7 +565,7 @@ export class OpenAiEngine implements AnswerEngine {
               candidatesTokenCount,
               totalTokenCount: promptTokenCount + candidatesTokenCount,
             };
-        return {
+        return setAiEvidence({
           candidates: [
             {
               content: { parts: parts.length ? parts : [{ text: '' }], role: 'model' },
@@ -578,7 +580,7 @@ export class OpenAiEngine implements AnswerEngine {
           },
           modelVersion,
           responseId,
-        };
+        }, { reportedModel, usageSource: upstreamUsage ? 'backend' : 'estimated' });
       }
 
       const reader = res.body.getReader();
@@ -599,6 +601,7 @@ export class OpenAiEngine implements AnswerEngine {
               continue; // non-JSON keepalive/comment frames
             }
             if (chunk.usage) upstreamUsage = chunk.usage;
+            if (chunk.model) reportedModel = chunk.model;
             const choice = chunk.choices?.[0];
             if (!choice) continue; // usage-only final frame folds into the finish chunk
 

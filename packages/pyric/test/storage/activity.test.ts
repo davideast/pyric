@@ -58,7 +58,12 @@ test('Storage progress is observed before callbacks without counting extra calls
   const handle = storage.getStorageSandbox(sandbox, { dbName: `flow-${crypto.randomUUID()}`, rules: `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /{path=**} { allow read, write: if true; } } }` });
   const monitor = createSdkRateMonitor();
   const phases: string[] = [];
-  const stop = sdkActivity.subscribe(event => { if (event.record.service === 'storage') phases.push(event.phase); });
+  let activityId: string | undefined;
+  const stop = sdkActivity.subscribe(event => {
+    if (event.record.service !== 'storage') return;
+    if (event.phase === 'start') activityId ??= event.record.id;
+    if (event.record.id === activityId) phases.push(event.phase);
+  });
   try {
     const task = storage.uploadBytesResumable(storage.ref(handle, 'flow.bin'), new Uint8Array(1024));
     let callbacks = 0;
@@ -76,7 +81,7 @@ test('Storage progress is observed before callbacks without counting extra calls
     const upload = service.methods.find(method => method.method === 'uploadBytesResumable')!;
     expect(upload.buckets.reduce((sum, bucket) => sum + bucket.calls, 0)).toBe(1);
     expect(service.usageBuckets!.reduce((sum, bucket) => sum + (bucket.uploadedBytes ?? 0), 0)).toBe(1024);
-  } finally { stop(); monitor.dispose(); }
+  } finally { stop(); monitor.dispose(); sandbox.dispose(); }
 });
 
 test('each completion observer and late successful observer has a render signal without duplicate results', async () => {
@@ -85,7 +90,15 @@ test('each completion observer and late successful observer has a render signal 
   const handle = storage.getStorageSandbox(sandbox, { dbName: `late-${crypto.randomUUID()}`, rules: `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /{path=**} { allow read, write: if true; } } }` });
   const signals: string[] = [];
   let results = 0;
-  const stop = sdkActivity.subscribe(event => { if (event.record.service === 'storage') { signals.push(event.phase); if (event.phase === 'delivery') results++; } });
+  let activityId: string | undefined;
+  const stop = sdkActivity.subscribe(event => {
+    if (event.record.service !== 'storage') return;
+    if (event.phase === 'start') activityId ??= event.record.id;
+    // Retention may remove older uploads during this one's progress notification.
+    if (event.record.id !== activityId) return;
+    signals.push(event.phase);
+    if (event.phase === 'delivery') results++;
+  });
   try {
     const task = storage.uploadBytesResumable(storage.ref(handle, 'late'), new Uint8Array(3));
     const callbackSignals: string[] = [];
@@ -99,5 +112,5 @@ test('each completion observer and late successful observer has a render signal 
     task.on('state_changed', { next: completion, complete: completion });
     expect(callbackSignals).toEqual(['progress', 'progress', 'progress', 'progress']);
     expect(results).toBe(1);
-  } finally { stop(); }
+  } finally { stop(); sandbox.dispose(); }
 });

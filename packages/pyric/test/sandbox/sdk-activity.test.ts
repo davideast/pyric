@@ -106,3 +106,19 @@ it('expires terminal metadata by timer without a consumer polling records', asyn
   expect(journal.records()).toHaveLength(0);
   journal.dispose();
 });
+
+it('response previews are bounded and never enter observation events', () => {
+  const journal = createSdkActivityJournal();
+  const observations: unknown[] = [];
+  journal.observe(event => observations.push(event));
+  const request = journal.begin({ app: {}, kind: 'operation', method: 'generateContent', source: { service: 'ai', target: 'model', key: 'model' } });
+  request.ai({ requestedModel: 'model', engine: 'scripted', usageSource: 'scripted' });
+  request.response({ text: 'x'.repeat(70000) });
+  const preview = journal.records()[0]!.response!;
+  expect(preview.text.length).toBe(65536);
+  expect(preview.truncated).toBe(true);
+  expect(observations.every(event => !Object.hasOwn(event as object, 'response'))).toBe(true);
+  const circular: { self?: unknown } = {}; circular.self = circular;
+  expect(() => request.response(circular)).not.toThrow();
+  journal.dispose();
+});

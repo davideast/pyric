@@ -1,5 +1,12 @@
 /** Numeric evidence only. Never retain documents, tokens, or serialized payloads. */
 export interface UsageEvidence {
+  readonly aiInputTokens?: number;
+  readonly aiOutputTokens?: number;
+  readonly aiEstimatedTokens?: number;
+  readonly aiUnknownUsage?: number;
+  readonly aiCompleted?: number;
+  readonly aiFailures?: number;
+
   readonly uploadedBytes?: number;
   readonly downloadedBytes?: number;
   readonly documentReads?: number;

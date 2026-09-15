@@ -1,3 +1,4 @@
+import { isThresholdService, type ThresholdService } from './runtime/rate-threshold-config.js';
 /** Project-owned investigation snapshots, separate from the live session fixture. */
 import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile, realpath, lstat, link, unlink, rename } from 'node:fs/promises';
@@ -7,7 +8,7 @@ import { readRateCapture } from './runtime/rate-capture.js';
 export interface CaptureEntry {
   id: string;
   name: string | null;
-  service: 'firestore' | 'rtdb' | 'storage';
+  service: ThresholdService;
   savedAt: string;
   from: number;
   duration: number;
@@ -29,7 +30,7 @@ export function createRateCaptureStore(projectDir: string) {
   }
   function metadata(id: string, text: string, savedAt: string): CaptureEntry {
     const { frame } = readRateCapture(text);
-    if (frame.service.service !== 'firestore' && frame.service.service !== 'rtdb' && frame.service.service !== 'storage') throw new Error('Unsupported capture service.');
+    if (!isThresholdService(frame.service.service)) throw new Error('Unsupported capture service.');
     return { id, name: null, service: frame.service.service, savedAt, from: frame.clockOffset + frame.from * 1000, duration: frame.duration, incident: frame.incident?.label ?? null };
   }
   async function read(id: string) {

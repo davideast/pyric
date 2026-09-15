@@ -1,3 +1,4 @@
+import { aiModelLabel } from './ai-model-label.js';
 /**
  * The boxes the chip's Listeners mode paints over the page.
  *
@@ -75,7 +76,7 @@ const BOX_ATTRIBUTE = 'data-pyric-listener-box';
 
 /** The words on a badge: what owns the listener, and what it listens to. */
 function badgeText(outline: ListenerOutline): string {
-  const target = outline.isQuery ? `${outline.target} (query)` : outline.target;
+  const target = outline.activity?.ai ? aiModelLabel(outline.activity.ai, outline.activity.method) : outline.isQuery ? `${outline.target} (query)` : outline.target;
   const base = `${outline.label} · ${target} · ${outline.deliveryCount}`;
   if (outline.incident === null) return base;
   const word = outline.incident.pattern === 'duplicate-listener' ? 'duplicate' : 'churn';

@@ -13,6 +13,7 @@ export interface ActivityHistoryEntry {
   readonly method: string;
   readonly kind: SdkActivityRecord['kind'];
   readonly status: SdkActivityRecord['status'];
+  readonly ai?: SdkActivityRecord['ai'];
   readonly indexQuery?: SdkActivityRecord['indexQuery'];
   readonly subscriptionNumber?: number;
   readonly commitId?: number;
@@ -67,6 +68,8 @@ export function createActivityHistory(options: ActivityHistoryOptions = {}): Act
   const limit = Math.max(1, options.limit ?? 100);
   let entries: ActivityHistoryEntry[] = [];
   let discarded = 0;
+  const aiStarts = new Map<string, ActivityHistoryEntry>();
+  const aiResults = new Map<string, ActivityHistoryEntry>();
   let sequence = 0;
   let since = now();
   let subscriptionSerial = 0;
@@ -95,10 +98,16 @@ export function createActivityHistory(options: ActivityHistoryOptions = {}): Act
       method: record.method,
       kind: record.kind,
       status: record.status,
+      ...(record.ai ? { ai: record.ai } : {}),
       ...(record.indexQuery ? { indexQuery: record.indexQuery } : {}),
       subscriptionNumber: subscriptionNumbers.get(record.id),
       ...(input.phase === 'render' ? { commitId: input.commitId, deliverySequences: Object.freeze([...input.deliverySequences]) } : {}),
     });
+    if (record.service === 'ai' && phase === 'start') {
+      aiStarts.set(record.id, entry);
+      if (aiStarts.size > limit) { const oldest = aiStarts.keys().next().value!; aiStarts.delete(oldest); aiResults.delete(oldest); }
+    }
+    if (record.service === 'ai' && phase === 'delivery' && aiStarts.has(record.id)) aiResults.set(record.id, entry);
     entries.push(entry);
     if (entries.length > limit) {
       entries.shift();
@@ -151,14 +160,15 @@ export function createActivityHistory(options: ActivityHistoryOptions = {}): Act
       return entries.find(entry => entry.activityId === selected.activityId && entry.phase === 'render');
     },
     snapshot() {
-      return { entries: [...entries], discarded, since, limit };
+      return { entries: [...aiStarts.values(), ...aiResults.values()].filter(start => !entries.includes(start)).concat(entries), discarded, since, limit };
     },
     counts({ sourceId, scope = { kind: 'recent', windowMs: 30_000 } } = {}) {
       const cutoff = scope.kind === 'recent' ? now() - scope.windowMs : null;
       let calls = 0;
       let deliveries = 0;
       const commits = new Set<number>();
-      for (const entry of entries) {
+      const countEntries = [...aiStarts.values(), ...aiResults.values()].filter(start => !entries.includes(start)).concat(entries);
+      for (const entry of countEntries) {
         if (cutoff !== null && entry.at <= cutoff) continue;
         if (sourceId !== undefined && entry.sourceId !== sourceId) continue;
         switch (entry.phase) {
@@ -174,12 +184,16 @@ export function createActivityHistory(options: ActivityHistoryOptions = {}): Act
     },
     clear() {
       entries = [];
+      aiStarts.clear();
+      aiResults.clear();
       discarded = 0;
       since = now();
       pruneNumbers();
     },
     dispose() {
       entries = [];
+      aiStarts.clear();
+      aiResults.clear();
       active.clear();
       subscriptionNumbers.clear();
     },

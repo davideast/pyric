@@ -1,3 +1,4 @@
+import { aiEndpoint, getAiEvidence, setAiEvidence, type AiEvidence } from '../../sandbox/internal/ai-evidence.js';
 /**
  * The sandbox AI broker — the ONE in-process Gemini-wire model every plane
  * consumes (house pattern: the messaging broker):
@@ -134,6 +135,24 @@ export class AiBroker {
     console.info(this.describeEngine());
   }
 
+  /** Snapshot routing before execution; never treat a scripted modelVersion as identity. */
+  observationIdentity(model: string): AiEvidence {
+    let routed: ModelResolution | undefined;
+    try { routed = this.engine.resolveEffectiveModel?.(model); } catch { /* Diagnostic only. */ }
+    return { requestedModel: model, engine: this.engineKind,
+      ...(routed ? { routedModel: routed.model, mappingReason: routed.reason } : {}),
+      endpoint: aiEndpoint(this.engineBaseUrl ?? (this.engineKind === 'gemini' ? GEMINI_DEFAULT_BASE_URL : undefined)),
+      usageSource: this.engineKind === 'scripted' ? 'scripted' : 'unknown' };
+  }
+  private annotate<T extends WireResponse>(response: T, identity: AiEvidence): T {
+    const usage = response.usageMetadata;
+    const original = getAiEvidence(response);
+    const valid = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : undefined;
+    return setAiEvidence(response, { ...identity,
+      ...(identity.engine === 'gemini' ? { reportedModel: response.modelVersion, usageSource: usage ? 'backend' as const : 'unknown' as const } : {}),
+      ...original, inputTokens: valid(usage?.promptTokenCount), outputTokens: valid(usage?.candidatesTokenCount), totalTokens: valid(usage?.totalTokenCount) });
+  }
+
   /** One-line construction-time summary of what this broker resolved to. */
   private describeEngine(): string {
     const isOpenAiEngine = this.engineKind === 'openai';
@@ -255,6 +274,7 @@ export class AiBroker {
   }
 
   async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
+    const identity = this.observationIdentity(model);
     this.validate(req, model);
     this.emitModelSubstitution(model);
     try {
@@ -266,7 +286,7 @@ export class AiBroker {
         responseId: response.responseId,
       });
       this.emitBlockIfBlocked(model, response);
-      return response;
+      return this.annotate(response, identity);
     } catch (err) {
       this.emitRejectionIfBrokerError(model, err);
       throw err;
@@ -280,9 +300,11 @@ export class AiBroker {
    * an HTTP error instead of a stream.
    */
   streamGenerateContent(req: GenerateContentRequest, model: string): AsyncIterable<WireChunk> {
+    const identity = this.observationIdentity(model);
     this.validate(req, model);
     this.emitModelSubstitution(model);
     const inner = this.engine.streamGenerateContent(req, model);
+    const annotate = (chunk: WireChunk) => this.annotate(chunk, identity);
     const emit = (chunkCount: number) =>
       this.emit('stream_generate_content', model, {
         contentCount: req.contents.length,
@@ -304,7 +326,7 @@ export class AiBroker {
         for await (const chunk of inner) {
           chunkCount++;
           emitBlock(chunk);
-          yield chunk;
+          yield annotate(chunk);
         }
         emit(chunkCount);
       } catch (err) {
@@ -315,11 +337,12 @@ export class AiBroker {
   }
 
   async countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse> {
+    const identity = this.observationIdentity(model);
     this.validateContents(req, model);
     try {
       const response = await this.engine.countTokens(req, model);
       this.emit('count_tokens', model, { totalTokens: response.totalTokens });
-      return response;
+      return setAiEvidence(response, { ...identity, totalTokens: response.totalTokens, usageSource: this.engineKind === 'gemini' ? 'backend' : this.engineKind === 'openai' ? 'estimated' : this.engineKind === 'scripted' ? 'scripted' : 'unknown' });
     } catch (err) {
       this.emitRejectionIfBrokerError(model, err);
       throw err;

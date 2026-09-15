@@ -10,7 +10,7 @@ export interface SdkMethodCoverage {
 }
 // Statically aggregate only service-owned data, never import service executors.
 // This keeps the foundation usable before SDK construction and prevents cycles.
-const services = [firestoreActivityCoverage, databaseActivityCoverage, storageActivityCoverage];
+const services = [{ service: 'ai' as const, read: ['generateContent', 'generateContentStream', 'countTokens'], write: [], listener: [], untrackedMethods: [] }, firestoreActivityCoverage, databaseActivityCoverage, storageActivityCoverage];
 const methods = new Map<EventService, readonly SdkMethodCoverage[]>();
 const untracked = new Map<EventService, readonly string[]>();
 for (const service of services) {

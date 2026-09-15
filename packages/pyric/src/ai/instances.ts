@@ -97,7 +97,7 @@ export function getAI(target?: Sandbox | FirebaseApp, options?: AIOptions): AI {
 
 function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: FirebaseApp): AI {
   const backend = options?.backend ?? new GoogleAIBackend();
-  const { key, location } = describeBackend(backend);
+  const { key } = describeBackend(backend);
   const handles = cachedHandles(app ?? sandbox);
   const existing = handles.get(key);
   if (existing) {
@@ -113,6 +113,27 @@ function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: FirebaseApp): AI
     brokersBySandbox.set(sandbox, broker);
     brokerEngineBySandbox.set(sandbox, options?.engine);
   }
+  const handle = sandboxHandle(sandbox, broker, options, app);
+  handles.set(key, handle);
+  return handle;
+}
+
+/**
+ * Host-only configuration lifecycle: a new handle binds a new broker to the
+ * SAME sandbox. Existing handles and in-flight requests keep their broker.
+ * Does not alter getAI's per-owner cache or first-configuration-wins contract.
+ */
+export function createConfiguredSandboxAI(sandbox: Sandbox, options: AIOptions): AI {
+  const supplied = options.engine;
+  const engine = supplied && !isCustomEngine(supplied) && supplied.kind === 'openai'
+    ? { ...supplied, modelMap: { ...supplied.modelMap } }
+    : supplied;
+  return sandboxHandle(sandbox, new AiBroker({ sandbox, engine }), { ...options, engine });
+}
+
+function sandboxHandle(sandbox: Sandbox, broker: AiBroker, options?: AIOptions, app?: FirebaseApp): AI {
+  const backend = options?.backend ?? new GoogleAIBackend();
+  const { location } = describeBackend(backend);
   const handle: AI = {
     ...(app !== undefined ? { app } : {}),
     backend,
@@ -131,6 +152,5 @@ function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: FirebaseApp): AI
       : {}),
   };
   Object.defineProperty(handle, TARGET_SYMBOL, { value: target, enumerable: false });
-  handles.set(key, handle);
   return handle;
 }
