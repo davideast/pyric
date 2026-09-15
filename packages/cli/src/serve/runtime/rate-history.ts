@@ -163,7 +163,9 @@ export function bindHistory(root: ParentNode, state: ReturnType<typeof createRat
   });
 }
 export const HISTORY_STYLES = `
-.rate-history { display:grid; gap:var(--space-2); }
+.rate-history { display:grid; grid-template-columns:var(--record-inset) minmax(0,1fr) var(--record-inset); row-gap:var(--space-2); }
+.rate-history > * { grid-column:2; min-width:0; }
+.rate-history > .rows { grid-column:1 / -1; }
 .rate-history .rate-table th,.rate-history .rate-table td { min-height:28px; }
 .history-period,.history-axis,.history-legend { display:flex; justify-content:space-between; gap:var(--space-2); font-size:11px; }
 .history-period { flex-wrap:wrap; }

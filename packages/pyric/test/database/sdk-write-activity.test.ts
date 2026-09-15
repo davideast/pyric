@@ -28,7 +28,7 @@ it('records one RTDB public call for multipath updates and pushes, denied attemp
     ]);
     expect(events.filter(event => event.phase === 'delivery' && event.record.kind === 'operation')).toHaveLength(0);
     expect(events.filter(event => event.phase === 'delivery' && event.record.kind === 'subscription').length).toBeGreaterThan(1);
-    expect(events.at(-1)?.record.status).toBe('failed');
+    expect(events.filter(event => event.phase === 'end').at(-1)?.record.status).toBe('failed');
   } finally { unsubscribe(); stop(); }
 });
 

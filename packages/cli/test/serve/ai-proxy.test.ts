@@ -60,15 +60,16 @@ async function startServe(aiProxyUpstream?: string, logger?: ServeLogger): Promi
   return h;
 }
 
-function closedLoopbackUrl(path = ''): string {
-  const server = Bun.serve({
-    hostname: '127.0.0.1',
-    port: 0,
-    fetch: () => new Response(),
+async function disconnectedLoopbackUrl(path = ''): Promise<string> {
+  // Keep the port reserved: closing it before startServe lets the proxy itself
+  // claim that port, turning the intended network failure into an HTTP response.
+  const server = createNetServer(socket => socket.destroy());
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
   });
-  const url = `http://127.0.0.1:${server.port}${path}`;
-  server.stop(true);
-  return url;
+  upstreams.push({ stop: () => { server.close(); } });
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}${path}`;
 }
 
 describe('/__pyric/ai-proxy', () => {
@@ -201,8 +202,8 @@ describe('/__pyric/ai-proxy', () => {
     expect(res.headers.get('allow')).toBe('POST');
   });
 
-  it('answers 502 with a pointer when the upstream is unreachable', async () => {
-    const h = await startServe(closedLoopbackUrl('/v1'));
+  it('answers 502 with a pointer when the upstream disconnects before responding', async () => {
+    const h = await startServe(await disconnectedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -216,9 +217,9 @@ describe('/__pyric/ai-proxy', () => {
 });
 
 describe('/__pyric/ai-proxy terminal diagnostics', () => {
-  it('warns on the dev logger when the upstream is unreachable', async () => {
+  it('warns on the dev logger when the upstream disconnects before responding', async () => {
     const { logger, notes } = recordingLogger();
-    const upstream = closedLoopbackUrl('/v1');
+    const upstream = await disconnectedLoopbackUrl('/v1');
     const h = await startServe(upstream, logger);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
@@ -234,7 +235,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     // The upstream host must be identifiable in the terminal.
     expect(line).toContain(new URL(upstream).host);
     // …with the underlying cause and a cheap latency stamp.
-    expect(line).toMatch(/ECONNREFUSED|refused|Unable to connect|fetch failed/i);
+    expect(line).toMatch(/ECONNRESET|closed|socket|fetch failed/i);
     expect(line).toMatch(/\d+ms/);
   });
 
@@ -348,7 +349,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
 
   it('redacts key-bearing query params from the logged upstream URL', async () => {
     const { logger, notes } = recordingLogger();
-    const h = await startServe(closedLoopbackUrl('/v1'), logger);
+    const h = await startServe(await disconnectedLoopbackUrl('/v1'), logger);
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions?key=AIzaSuperSecretValue`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -362,7 +363,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
 
   it('throttles a failing upstream: repeated identical failures print once', async () => {
     const { logger, notes } = recordingLogger();
-    const h = await startServe(closedLoopbackUrl('/v1'), logger);
+    const h = await startServe(await disconnectedLoopbackUrl('/v1'), logger);
     for (let i = 0; i < 4; i += 1) {
       const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
         method: 'POST',
@@ -377,7 +378,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
   });
 
   it('redacts key-bearing query params from the 502 body, not just the log', async () => {
-    const h = await startServe(closedLoopbackUrl('/v1'));
+    const h = await startServe(await disconnectedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions?key=AIzaSuperSecretValue`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -390,7 +391,7 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
   });
 
   it('drops diagnostics entirely when no logger is wired (never throws)', async () => {
-    const h = await startServe(closedLoopbackUrl('/v1'));
+    const h = await startServe(await disconnectedLoopbackUrl('/v1'));
     const res = await fetch(`${h.url}/__pyric/ai-proxy/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

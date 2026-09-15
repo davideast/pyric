@@ -57,7 +57,7 @@ export const RATE_STYLES = HISTORY_STYLES + `
   .usage-coverage { display:grid; grid-template-columns:88px minmax(0,1fr); gap:var(--space-2); font-size:12px; margin:0; }
   .usage-coverage dt { color:var(--pyric-muted); }
   .usage-coverage dd { margin:0; line-height:1.5; }
-  .usage-sdk-heading { min-height:32px; display:flex; align-items:flex-end; }
+  .usage-sdk-heading { min-height:32px; display:flex; align-items:flex-end; padding-inline:var(--record-inset); }
   .traffic-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; }
 `;
 
