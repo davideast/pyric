@@ -1,4 +1,5 @@
 import { JSDOM } from 'jsdom';
+import { createSdkActivityJournal, createSdkRateMonitor } from 'pyric/sandbox/internal';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
@@ -71,7 +72,12 @@ function setup(options: {
   if (options.openCreateUser) identity.openCreateUser = options.openCreateUser;
   if (options.listUsers) identity.listUsers = options.listUsers;
 
+  // Each mounted test page owns its rates; other suites share the process journal.
+  const journal = createSdkActivityJournal();
+  const rates = createSdkRateMonitor(journal);
+  cleanups.push(() => { rates.dispose(); journal.dispose(); });
   const chipOptions: PyricRuntimeChipOptions = {
+    rates,
     runtime,
     ...(options.aiConfiguration ? { aiConfiguration: options.aiConfiguration } : {}),
     document: dom.window.document,

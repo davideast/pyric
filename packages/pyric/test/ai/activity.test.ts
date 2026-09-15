@@ -5,7 +5,7 @@ import { createSdkRateMonitor } from '../../src/sandbox/internal/sdk-rates.js';
 import { sdkActivity } from '../../src/sandbox/internal/sdk-activity.js';
 import { packAiEvidence, unpackAiEvidence } from '../../src/sandbox/internal/ai-evidence.js';
 import { createTransportAI } from '../../src/ai/internal.js';
-import { initializeApp } from '../../src/app/index.js';
+import type { FirebaseApp } from '../../src/app/types.js';
 import { AiBroker } from '../../src/ai/broker/broker.js';
 
 function upstream(usage = true) {
@@ -55,7 +55,9 @@ test('worker metadata survives serialization; streaming counts once and only fin
     { model: 'qwen-reported', choices: [], usage: { prompt_tokens: 11, completion_tokens: 3, total_tokens: 14 } },
   ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('')) } });
   const wire = <T extends object>(value: T) => unpackAiEvidence(structuredClone(packAiEvidence(value)));
-  const ai = createTransportAI(initializeApp({ projectId: 'ai-flow' }, `ai-${crypto.randomUUID()}`), undefined, {
+  // A transport-owned app handle must not initialize the in-page app registry.
+  const app: FirebaseApp = { name: 'ai-flow', options: { projectId: 'ai-flow' }, automaticDataCollectionEnabled: false };
+  const ai = createTransportAI(app, undefined, {
     generateContent: async (req, model) => wire(await broker.generateContent(req, model)),
     streamGenerateContent: (req, model) => (async function* () { for await (const chunk of broker.streamGenerateContent(req, model)) yield wire(chunk); })(),
     countTokens: async (req, model) => wire(await broker.countTokens(req, model)),
