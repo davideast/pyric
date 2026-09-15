@@ -242,6 +242,17 @@ function relayDenial(
   }
 }
 
+function hasValidReplyOutcome(reply: { ok?: unknown; error?: unknown }): boolean {
+  const isSuccess = reply.ok === true;
+  if (isSuccess) return true;
+  const error = reply.error;
+  const isErrorRecord = error !== null && typeof error === 'object';
+  const hasCode = isErrorRecord && 'code' in error && typeof error.code === 'string';
+  const hasMessage = isErrorRecord && 'message' in error && typeof error.message === 'string';
+  const isFailure = reply.ok === false && hasCode && hasMessage;
+  return isFailure;
+}
+
 /** Wire up the port's onmessage handler (idempotent per-port). */
 export function wirePort(port: ClientPort): void {
   port.onmessage = (ev: MessageEvent<OutboundMessage>) => {
@@ -255,6 +266,11 @@ export function wirePort(port: ClientPort): void {
       const pending = takePendingRequest(msg.id);
       const isUnknownRequest = pending === undefined;
       if (isUnknownRequest) return;
+      const hasInvalidOutcome = !hasValidReplyOutcome(msg);
+      if (hasInvalidOutcome) {
+        pending.reject(new FirebaseError('unavailable', 'The sandbox sent a malformed operation reply. The operation may have completed; check state before retrying.'));
+        return;
+      }
       const succeeded = msg.ok;
       if (succeeded) {
         pending.resolve(msg.value);
