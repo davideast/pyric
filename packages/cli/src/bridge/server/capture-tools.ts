@@ -10,11 +10,26 @@ import { runCaptureMethod } from '../../serve/rate-capture-service.js';
 /** File operations execute on the project host, never in the browser peer. */
 export function createCaptureTools(projectDir = process.cwd()): ToolHandler[] {
   const entries = [
-    { record: save, method: 'saveCapture', name: 'sandbox_save_capture' },
-    { record: list, method: 'listCaptures', name: 'sandbox_list_captures' },
-    { record: open, method: 'openCapture', name: 'sandbox_open_capture' },
-    { record: rename, method: 'renameCapture', name: 'sandbox_rename_capture' },
-    { record: remove, method: 'deleteCapture', name: 'sandbox_delete_capture' },
+    {
+      record: save, method: 'saveCapture',
+      name: 'sandbox_save_capture',
+    },
+    {
+      record: list, method: 'listCaptures',
+      name: 'sandbox_list_captures',
+    },
+    {
+      record: open, method: 'openCapture',
+      name: 'sandbox_open_capture',
+    },
+    {
+      record: rename, method: 'renameCapture',
+      name: 'sandbox_rename_capture',
+    },
+    {
+      record: remove, method: 'deleteCapture',
+      name: 'sandbox_delete_capture',
+    },
   ] as const;
   return entries.map(({ record, method, name }) => ({
     name,
