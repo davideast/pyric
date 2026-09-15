@@ -23,11 +23,18 @@ public final class ConformanceMockHarness: WebSocketTransport, @unchecked Sendab
     public private(set) var client: PyricBridgeClient!
     public private(set) var firestore: Firestore!
 
-    public init() {}
+    private let sendDelayNanoseconds: UInt64
+
+    public init(sendDelayNanoseconds: UInt64 = 0) {
+        self.sendDelayNanoseconds = sendDelayNanoseconds
+    }
 
     // MARK: - WebSocketTransport Protocol
 
     public func send(_ string: String) async throws {
+        if sendDelayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: sendDelayNanoseconds)
+        }
         let (response, continuationToResume) = try handleSendSync(string)
         if let continuationToResume, let response {
             continuationToResume.resume(returning: response)
@@ -290,10 +297,22 @@ public final class ConformanceMockHarness: WebSocketTransport, @unchecked Sendab
         return sentMessages.last
     }
 
+    /// Wait for the observed protocol frame, rather than assuming scheduler latency.
+    public func waitForSentMessage(type: String) async throws -> [String: AnySendable] {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while ContinuousClock.now < deadline {
+            if let message = lastSentMessage(), message["type"]?.stringValue == type {
+                return message
+            }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        throw PyricBridgeError.unavailable("Timed out waiting for sent \(type) message.")
+    }
+
     // MARK: - Factory Lifecycle
 
-    public static func create() async throws -> ConformanceMockHarness {
-        let harness = ConformanceMockHarness()
+    public static func create(sendDelayNanoseconds: UInt64 = 0) async throws -> ConformanceMockHarness {
+        let harness = ConformanceMockHarness(sendDelayNanoseconds: sendDelayNanoseconds)
         let client = PyricBridgeClient(channel: harness)
         try await client.connect()
         let firestore = Firestore(bridgeClient: client)

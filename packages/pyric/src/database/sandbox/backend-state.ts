@@ -29,7 +29,11 @@ export class BackendState {
   constructor(sandbox?: Sandbox) {
     this.events = new OperationEvents(sandbox);
     this.clock = sandbox ? getClock(sandbox) : new SandboxClock();
-    this.rules = new RulesEvaluator(this.clock);
+    this.rules = new RulesEvaluator(this.clock, (path, spec, ctx) => {
+      this.events.operation(ctx.auth, ctx.indexMethod ?? 'get', path, 'error', undefined, {
+        request: { query: spec }, detail: { failure: 'missing-index' },
+      });
+    });
   }
 
   notifyWrite(): void {

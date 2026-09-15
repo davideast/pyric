@@ -103,13 +103,14 @@ export class RulesOperationReader {
     }
 
     const result = simResult.data.results[0];
+    const rulesEvidence = this.rules.captureEvidence(result);
     const isUnsupported = result.state === 'UNSUPPORTED';
     if (isUnsupported) {
       // Issue #307 — surface the eval-time event BEFORE throwing so
       // subscribers see the unsupported request alongside everything else.
       const unsupReqEvent: any = {
         at: evalAt, evalMs, method, path, auth, result: 'unsupported',
-        debugMessages: renderLegacyDebugMessages(result), origin: 'user',
+        rulesEvidence, debugMessages: renderLegacyDebugMessages(result), origin: 'user',
       };
       const hasDetail = detail !== undefined;
       if (hasDetail) {
@@ -196,6 +197,7 @@ export class RulesOperationReader {
       result: 'allow' | 'deny';
       debugMessages: string[];
       evaluatedRule?: unknown;
+      rulesEvidence: import('../../sandbox/types/rules-evidence.js').RulesEvidence;
       origin: 'user';
       resourceBefore?: { data: DocumentData | null; exists: boolean };
       detail?: unknown;
@@ -204,6 +206,7 @@ export class RulesOperationReader {
       result: resultStr,
       debugMessages: renderLegacyDebugMessages(result),
       evaluatedRule: evalRule,
+      rulesEvidence,
       origin: 'user',
     };
     const isEventGet = method === 'get';

@@ -216,8 +216,11 @@ export function createTreatmentController(options: TreatmentControllerOptions) {
     select,
     async attach(next: HTMLElement) {
       container = next;
+      const request = serial;
       await initialize();
-      if (disposed || container !== next) return;
+      // Configuration discovery must not replace an explicit choice made while
+      // it was pending, or compete with a treatment already being loaded.
+      if (disposed || container !== next || request !== serial || loading) return;
       await select(selected, false);
       if (!implementation && error && !disposed && container === next) {
         const failed = retry,
@@ -257,8 +260,11 @@ export function createTreatmentController(options: TreatmentControllerOptions) {
           "--pyric-flow-heat",
           String(Math.max(32, 210 - count * 22)),
         );
-        for (const animation of el.getAnimations?.() ?? []) {
+        // Pseudo-element animations require subtree lookup. Restrict the
+        // effect target so a parent paint cannot restart child animations.
+        for (const animation of el.getAnimations?.({ subtree: true }) ?? []) {
           if (
+            (animation.effect as KeyframeEffect | null)?.target === el &&
             "animationName" in animation &&
             String(animation.animationName).startsWith("pyric-treatment-")
           ) {

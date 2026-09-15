@@ -1,0 +1,62 @@
+import type { UsageEvidence } from './usage-evidence.js';
+import type { EventService } from '../types/operation.js';
+import type { SdkActivityEvent, SdkActivityRecord } from './sdk-activity.js';
+
+/** SDK adapters use `database`; sandbox operation records use `rtdb`. */
+export function observationService(service: EventService | 'database'): EventService {
+  if (service === 'database') return 'rtdb';
+  return service;
+}
+
+/** Public SDK evidence only. No results, credentials, query values or DOM owners. */
+export interface SdkObservation {
+  readonly ai?: SdkActivityRecord['ai'];
+  /** Numeric usage evidence; never the result payload. */
+  readonly usage?: UsageEvidence;
+  /** Journal-local delivery order, used to reject replay without retaining IDs. */
+  readonly sequence: number;
+  /** Unique within this journal session, including repeated listener deliveries. */
+  readonly id: string;
+  readonly activityId: string;
+  readonly appId: string;
+  /** A retained source identity, not a permanent metric-series identifier. */
+  readonly sourceId: string;
+  readonly service: EventService;
+  readonly method: string;
+  readonly kind: SdkActivityRecord['kind'];
+  readonly status: SdkActivityRecord['status'];
+  /** `remove` releases retained state. It is never a call or delivery. */
+  readonly phase: Exclude<SdkActivityEvent['phase'], 'progress'>;
+  readonly deliveryNumber: number;
+  /** Wall-clock observation time for display. */
+  readonly at: number;
+  /** Monotonic observation time for rate windows, local to this realm. */
+  readonly monotonicAt: number;
+}
+
+export function sdkObservation(
+  event: SdkActivityEvent,
+  at: number,
+  monotonicAt: number,
+  sequence: number,
+): SdkObservation | undefined {
+  if (event.phase === 'progress' || (event.phase === 'transport' && !event.record.ai)) return undefined;
+  const { record, phase } = event;
+  return Object.freeze({
+    ...(event.usage ? { usage: Object.freeze({ ...event.usage }) } : {}),
+    ...(record.ai ? { ai: record.ai } : {}),
+    sequence,
+    id: `${record.id}/${phase}/${record.deliveryCount}`,
+    activityId: record.id,
+    appId: record.appId,
+    sourceId: record.sourceId,
+    service: observationService(record.service),
+    method: record.method,
+    kind: record.kind,
+    status: record.status,
+    phase,
+    deliveryNumber: record.deliveryCount,
+    at,
+    monotonicAt,
+  });
+}

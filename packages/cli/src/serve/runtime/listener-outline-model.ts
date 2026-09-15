@@ -11,6 +11,7 @@
 import { activeListeners, type ActiveListener, type ActiveListenerTarget } from 'pyric/sandbox';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
+import type { SdkActivityRecord } from 'pyric/sandbox/internal';
 
 /**
  * A `component` owner names the React or framework component that created the
@@ -54,6 +55,9 @@ export interface ListenerOutlineIncident {
 
 /** One listener as the overlay draws it. */
 export interface ListenerOutline {
+  readonly colorKey?: string;
+  readonly activity?: SdkActivityRecord;
+  readonly observedRender?: boolean;
   readonly listenerId: string;
   /** The page client's own subscription id, when the attach carried it; a
    * delivery observed on the page names the listener by this id. */
@@ -69,13 +73,35 @@ export interface ListenerOutline {
   /** Collection path for a query, document or node path otherwise. */
   readonly target: string;
   readonly isQuery: boolean;
-  readonly service: 'firestore' | 'database';
+  readonly service: 'firestore' | 'database' | 'storage' | 'ai';
   readonly deliveryCount: number;
   /** When this listener last handed the application a snapshot, when it has. */
   readonly lastDeliveryAt?: number;
   /** Selectors to outline. Empty when nothing on the page could be found. */
   readonly selectors: readonly string[];
   readonly incident: ListenerOutlineIncident | null;
+}
+
+/** Public SDK activity takes precedence over its matching backend registration. */
+export function activityOutlines(
+  legacy: readonly ListenerOutline[],
+  records: readonly SdkActivityRecord[],
+  observed: ReadonlySet<string>,
+): readonly ListenerOutline[] {
+  const ids = new Set(records.flatMap(record => [record.id, record.transportId]));
+  const unmatched = legacy.filter(outline => !ids.has(outline.clientListenerId ?? outline.listenerId));
+  return [...unmatched, ...records.map(record => {
+    const backend = legacy.find(outline => outline.clientListenerId === (record.transportId ?? record.id));
+    const owners = record.owners;
+    return {
+      listenerId: record.id, clientListenerId: record.transportId,
+      label: outlineLabel(owners, record.method), labelIsOwner: labelIsOwner(owners),
+      target: record.target, isQuery: record.isQuery, service: record.service,
+      deliveryCount: record.deliveryCount, lastDeliveryAt: record.lastProgressAt === undefined ? record.lastDeliveryAt : Math.max(record.lastDeliveryAt ?? 0, record.lastProgressAt),
+      selectors: outlineSelectors(owners), incident: backend?.incident ?? null,
+      activity: record, observedRender: observed.has(record.id),
+    };
+  })];
 }
 
 function componentOwner(owners: readonly unknown[]): ComponentOwner | null {
@@ -133,7 +159,7 @@ function labelIsOwner(owners: readonly unknown[]): boolean {
 }
 
 /** The geometry, most specific owner first, then the latest delivery's regions. */
-function outlineSelectors(owners: readonly unknown[]): readonly string[] {
+export function outlineSelectors(owners: readonly unknown[]): readonly string[] {
   const component = componentOwner(owners);
   if (component !== null && typeof component.element === 'string') return [component.element];
   const tag = tagOwner(owners);

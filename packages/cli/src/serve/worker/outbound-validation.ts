@@ -1,3 +1,4 @@
+import type { AiEvidence } from 'pyric/ai/internal';
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -40,6 +41,7 @@ interface SnapshotError {
   message: string;
   denialContext?: unknown;
   aiEnvelope?: unknown;
+  aiEvidence?: Partial<AiEvidence>;
   envelope?: unknown;
 }
 
@@ -60,6 +62,8 @@ export function snapshotError(frame: { value?: unknown }): SnapshotError | undef
   const message = error.message;
   const isInvalidError = typeof code !== 'string' || typeof message !== 'string';
   if (isInvalidError) return malformed;
+  const evidence = error.aiEvidence;
+  const hasEvidence = isRecord(evidence);
   return { code, message, denialContext: error.denialContext,
-    aiEnvelope: error.aiEnvelope, envelope: error.envelope };
+    aiEnvelope: error.aiEnvelope, aiEvidence: hasEvidence ? evidence : undefined, envelope: error.envelope };
 }

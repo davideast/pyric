@@ -1,5 +1,6 @@
+import { createSdkActivityJournal } from 'pyric/sandbox/internal';
 import { JSDOM } from 'jsdom';
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mountPyricRuntimeChip } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
@@ -8,6 +9,11 @@ import type { ActivityIncident } from 'pyric/firestore/internal';
 import { createListenerMode } from '../../../src/serve/runtime/listener-mode.js';
 import type { ListenerPaintMode } from '../../../src/serve/runtime/listener-paint-mode.js';
 import { LISTENER_PAINT_MODE_KEY } from '../../../src/serve/runtime/listener-paint-mode.js';
+
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+});
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -115,6 +121,7 @@ function setup(options: {
     setLens: () => {},
     subscribeLens: () => () => {},
     listeners: (onChange) => createListenerMode({
+    activity: createSdkActivityJournal(),
       document: doc,
       onChange,
       attributionEnabled: () => options.attributionEnabled ?? true,
@@ -157,6 +164,7 @@ function setup(options: {
   });
   const root = chip.element.shadowRoot!;
   root.querySelector<HTMLButtonElement>('[data-chip-tab="listeners"]')!.click();
+  cleanups.push(() => { chip.dispose(); dom.window.close(); });
   return {
     doc,
     chip,
@@ -183,11 +191,11 @@ describe('the Listeners view', () => {
     const page = setup();
     page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner]), delivery('d1', 'L1', { kind: 'query', collection: 'todos' })]);
     const row = page.root.querySelector('[data-listener-row="L1"]')!;
-    expect(row.querySelector('.c1')!.textContent).toBe('TodoList');
-    expect(row.querySelector('.s1')!.textContent).toBe('todos (query)');
+    expect(row.querySelector('.c1')!.textContent).toBe('todos');
+    expect(row.querySelector('.s1')!.textContent).toBe('Firestore collection');
     expect(row.querySelector<HTMLElement>('.listener-mark')!.style.getPropertyValue('--listener-color')).not.toBe('');
-    expect(row.querySelector('.slot strong')!.textContent).toBe('1');
-    expect(row.querySelector('.slot')!.textContent).toContain('deliveries');
+    expect(row.querySelector('.slot')!.textContent).toContain('1 call');
+    expect(row.querySelector('.slot')!.textContent).toContain('delivery');
     expect(row.querySelector('.slot .btn')).toBeNull();
     expect(row.tagName).toBe('BUTTON');
   });
@@ -201,13 +209,13 @@ describe('the Listeners view', () => {
     const first = page.root.querySelector('[data-listener-rows] .row')!;
     expect(first.getAttribute('data-listener-incident')).not.toBeNull();
     expect(first.classList.contains('problem')).toBe(true);
-    expect(first.querySelector('.c1')!.textContent).toBe('Duplicate subscription');
-    expect(first.querySelector('.s1')!.textContent).toBe('todos (query)');
-    expect(first.querySelector('.slot')!.textContent).toBe('2');
+    expect(first.querySelector('.s1')!.textContent).toContain('Duplicate subscriptions');
+    expect(first.querySelector('.c1')!.textContent).toBe('todos');
+    expect(first.querySelector('.slot')!.textContent).toContain('call');
     expect(page.root.querySelector('[data-chip-tab="listeners"]')!.classList.contains('problem')).toBe(true);
   });
 
-  it('selects grouped built-ins in Flow and removes the selector in Overview', async () => {
+  it('keeps grouped treatment choices available in Overview without applying Flow styling', async () => {
     const page = setup({ react: true });
     page.root.querySelector<HTMLButtonElement>('[data-listener-mode="flow"]')!.click();
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -221,14 +229,16 @@ describe('the Listeners view', () => {
     expect(select.value).toBe('corners');
     expect(page.doc.documentElement.dataset.pyricTreatment).toBe('corners');
     page.root.querySelector<HTMLButtonElement>('[data-listener-mode="overview"]')!.click();
-    expect(page.root.querySelector('[data-flow-treatment]')).toBeNull();
+    expect(page.root.querySelector<HTMLSelectElement>('[data-flow-treatment]')!.value).toBe('corners');
     expect(page.doc.documentElement.hasAttribute('data-pyric-treatment')).toBe(false);
     page.chip.dispose();
   });
 
-  it('offers a Show all toggle and Flow and Theme actions with nothing pressed initially', () => {
+  it('keeps display controls in the footer and the activity list first', () => {
     const page = setup({ rememberedPaintMode: 'flow', react: true });
-    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.textContent)).toEqual(['Theme']);
+    expect([...page.root.querySelectorAll('[data-action-bar] .btn')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Overview', 'Flow', 'Highlight settings']);
+    expect(page.root.querySelector('.view [data-listener-mode]')).toBeNull();
+    expect(page.root.querySelector('.view [data-flow-treatment]')).toBeNull();
     expect(bar(page.root, 'overview').getAttribute('aria-pressed')).toBe('false');
     expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('false');
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
@@ -252,28 +262,32 @@ describe('the Listeners view', () => {
     expect(bar(page.root, 'flow').getAttribute('title')).toContain('React');
   });
 
-  it('singles a listener out on the page from its row, and clears it on the second press', () => {
+  it('highlights from the eye without coupling history navigation to visibility', () => {
     const page = setup();
     page.push([
       attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [owner]),
       attach('a2', 'L2', { kind: 'doc', path: 'profiles/p1' }, [{ kind: 'component', name: 'Profile', element: '#profile' }]),
     ]);
+    page.root.querySelector<HTMLButtonElement>('[data-highlight-source="L1"]')!.click();
+    expect(page.root.querySelector('[data-sources-back]')).toBeNull();
     page.root.querySelector<HTMLButtonElement>('[data-listener-row="L1"]')!.click();
-    expect(page.root.querySelector('[data-listener-row="L1"]')!.getAttribute('aria-pressed')).toBe('true');
-    expect(page.root.querySelector('[data-listener-row="L2"]')!.getAttribute('aria-pressed')).toBe('false');
+    expect(page.root.querySelector('[data-sources-back]')).not.toBeNull();
+    expect(page.root.querySelector('[data-listener-row]')).toBeNull();
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
-    page.root.querySelector<HTMLButtonElement>('[data-listener-row="L1"]')!.click();
-    expect(page.root.querySelector('[data-listener-row="L1"]')!.getAttribute('aria-pressed')).toBe('false');
-    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(2);
+    page.root.querySelector<HTMLButtonElement>('[data-sources-back]')!.click();
+    expect(page.root.querySelectorAll('[data-listener-row]')).toHaveLength(2);
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
+    page.root.querySelector<HTMLButtonElement>('[data-highlight-source="L1"]')!.click();
+    expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
 
   it('restores all listeners from a selected row, including listeners beyond the old seven-row cap', () => {
     const page = setup();
     page.push(Array.from({ length: 12 }, (_, i) => attach(`a${i}`, `L${i}`, { kind: 'doc', path: `todos/${i}` }, [owner])));
     expect(page.root.querySelectorAll('[data-listener-row]').length).toBe(12);
-    page.root.querySelector<HTMLButtonElement>('[data-listener-row="L9"]')!.click();
+    page.root.querySelector<HTMLButtonElement>('[data-highlight-source="L9"]')!.click();
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(1);
-    bar(page.root, 'overview').click();
+    page.root.querySelector<HTMLButtonElement>('[data-listener-all]')!.click();
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(12);
     expect(page.root.querySelectorAll('[data-listener-row][aria-pressed="true"]').length).toBe(0);
     bar(page.root, 'overview').click();
@@ -286,7 +300,7 @@ describe('the Listeners view', () => {
     expect(bar(page.root, 'flow').disabled).toBe(false);
     bar(page.root, 'flow').click();
     expect(bar(page.root, 'flow').getAttribute('aria-pressed')).toBe('true');
-    expect(page.root.querySelector('.view')!.textContent).toContain('Waiting for the next delivery');
+    expect(page.root.querySelector('.view [data-listener-row]')).not.toBeNull();
     page.flowDelivery('L1');
     expect(page.root.querySelector('.view')!.textContent).not.toContain('Waiting for the next delivery');
   });

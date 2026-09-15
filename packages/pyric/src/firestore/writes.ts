@@ -5,6 +5,8 @@
  * `SetOptions` shape. Operations route through the sandbox's chainable
  * adapter, running any converter on `setDoc` / `addDoc`.
  */
+import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
+import { beginFirestoreActivity } from './sdk-activity.js';
 import type {
   DocumentData,
   SetOptions as ChainSetOptions,
@@ -64,16 +66,18 @@ export async function setDoc<T = DocumentData>(
   options?: SetOptions,
 ): Promise<void> {
   const target = targetOf(ref);
-  const conv = converterOf(ref);
-  const payload = conv
-    ? (conv as FirestoreDataConverter<T>).toFirestore(data)
-    : (data as unknown as DocumentData);
-  return clientStateFor(target).runWrite(
-    () => withFirestoreFirebaseError(() =>
-      chainDocFor(target, ref).set(payload, options as ChainSetOptions | undefined),
-    ),
-    ref.path,
-  );
+  return runSdkWrite(beginFirestoreActivity(target, ref, 'setDoc', 'operation'), async () => {
+    const conv = converterOf(ref);
+    const payload = conv
+      ? (conv as FirestoreDataConverter<T>).toFirestore(data)
+      : (data as unknown as DocumentData);
+    return clientStateFor(target).runWrite(
+      () => withFirestoreFirebaseError(() =>
+        chainDocFor(target, ref).set(payload, options as ChainSetOptions | undefined),
+      ),
+      ref.path,
+    );
+  });
 }
 
 /**
@@ -86,18 +90,22 @@ export async function setDoc<T = DocumentData>(
  */
 export async function updateDoc(ref: DocumentReference, data: DocumentData): Promise<void> {
   const target = targetOf(ref);
-  return clientStateFor(target).runWrite(
-    () => withFirestoreFirebaseError(() => chainDocFor(target, ref).update(data)),
-    ref.path,
-  );
+  return runSdkWrite(beginFirestoreActivity(target, ref, 'updateDoc', 'operation'), async () => {
+    return clientStateFor(target).runWrite(
+      () => withFirestoreFirebaseError(() => chainDocFor(target, ref).update(data)),
+      ref.path,
+    );
+  });
 }
 
 export async function deleteDoc(ref: DocumentReference): Promise<void> {
   const target = targetOf(ref);
-  return clientStateFor(target).runWrite(
-    () => withFirestoreFirebaseError(() => chainDocFor(target, ref).delete()),
-    ref.path,
-  );
+  return runSdkWrite(beginFirestoreActivity(target, ref, 'deleteDoc', 'operation'), async () => {
+    return clientStateFor(target).runWrite(
+      () => withFirestoreFirebaseError(() => chainDocFor(target, ref).delete()),
+      ref.path,
+    );
+  });
 }
 
 export async function addDoc<T = DocumentData>(
@@ -105,33 +113,35 @@ export async function addDoc<T = DocumentData>(
   data: T,
 ): Promise<DocumentReference<T>> {
   const target = targetOf(coll);
-  const conv = converterOf(coll);
-  const payload = conv
-    ? (conv as FirestoreDataConverter<T>).toFirestore(data)
-    : (data as unknown as DocumentData);
-  const ref = await clientStateFor(target).runWrite(async () => {
-    const created = await withFirestoreFirebaseError(() => chainCollFor(target, coll).add(payload));
-    clientStateFor(target).cachePath(created.path);
-    return created;
-  });
-  const absPath = (ref as unknown as { path: string }).path;
-  const tagged = tagSandboxRef(
-    ref as object,
-    target,
-    (fresh) => fresh.doc(absPath) as unknown as object,
-  );
-  registerActivityValue(tagged, boundedActivityIdentity('reference', absPath));
-  registerReferenceQueryValue(tagged, absPath, target, tagged);
-  if (conv) {
-    const shell = buildSandboxShell(
-      tagged as { id: string; path: string },
+  return runSdkWrite(beginFirestoreActivity(target, coll, 'addDoc', 'operation'), async () => {
+    const conv = converterOf(coll);
+    const payload = conv
+      ? (conv as FirestoreDataConverter<T>).toFirestore(data)
+      : (data as unknown as DocumentData);
+    const ref = await clientStateFor(target).runWrite(async () => {
+      const created = await withFirestoreFirebaseError(() => chainCollFor(target, coll).add(payload));
+      clientStateFor(target).cachePath(created.path);
+      return created;
+    });
+    const absPath = (ref as unknown as { path: string }).path;
+    const tagged = tagSandboxRef(
+      ref as object,
       target,
-      conv,
+      (fresh) => fresh.doc(absPath) as unknown as object,
     );
-    copyQueryValueRegistration(tagged, shell);
-    return shell as DocumentReference<T>;
-  }
-  return tagged as DocumentReference<T>;
+    registerActivityValue(tagged, boundedActivityIdentity('reference', absPath));
+    registerReferenceQueryValue(tagged, absPath, target, tagged);
+    if (conv) {
+      const shell = buildSandboxShell(
+        tagged as { id: string; path: string },
+        target,
+        conv,
+      );
+      copyQueryValueRegistration(tagged, shell);
+      return shell as DocumentReference<T>;
+    }
+    return tagged as DocumentReference<T>;
+  });
 }
 
 import { writeBatch } from './transactions.js';

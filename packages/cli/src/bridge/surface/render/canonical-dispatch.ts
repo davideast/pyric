@@ -325,6 +325,11 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   promote_sandbox_branch: { key: 'sandbox.promote' },
   discard_sandbox_branch: { key: 'sandbox.discard' },
   list_sandbox_branches: { key: 'sandbox.listBranches' },
+  rename_rate_capture: { key: 'sandbox.renameCapture' },
+  delete_rate_capture: { key: 'sandbox.deleteCapture' },
+  save_rate_capture: { key: 'sandbox.saveCapture' },
+  list_rate_captures: { key: 'sandbox.listCaptures' },
+  open_rate_capture: { key: 'sandbox.openCapture' },
 };
 
 /** The record a route names, or the one its arguments choose among. */

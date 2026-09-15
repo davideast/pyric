@@ -1,7 +1,8 @@
 // Minimal firebase/* app for the served-mode auth repro. Under `pyric dev`
 // these imports are swapped to the pyric sandbox (worker-backed auth).
 import { deleteApp, initializeApp } from 'firebase/app';
-import { doc, getFirestore, onSnapshot } from 'firebase/firestore';
+import { getDatabase, onValue, ref } from 'firebase/database';
+import { doc, getDoc, getFirestore, onSnapshot } from 'firebase/firestore';
 import {
   getAuth,
   onAuthStateChanged,
@@ -75,4 +76,22 @@ document.getElementById('listen').addEventListener('click', async () => {
       if (panel) panel.textContent = JSON.stringify(snap.data() ?? null);
     },
   );
+});
+
+// Enough unrelated requests to roll the Studio traffic window past an attach.
+document.getElementById('read-traffic').addEventListener('click', async () => {
+  for (let i = 0; i < 550; i++) await getDoc(doc(db, 'notes/other'));
+  document.getElementById('read-traffic-status').textContent = '550 reads complete';
+});
+
+let stopPresence;
+document.getElementById('listen-presence').addEventListener('click', () => {
+  stopPresence?.();
+  stopPresence = onValue(ref(getDatabase(app), 'presence'), () => {
+    document.getElementById('presence-status').textContent = 'Presence subscribed';
+  });
+});
+document.getElementById('stop-presence').addEventListener('click', () => {
+  stopPresence?.();
+  stopPresence = undefined;
 });

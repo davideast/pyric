@@ -153,10 +153,11 @@ export class RulesReadEngine implements ListenerDispatchHost {
       };
     }
     const result = simResult.data.results[0]!;
+    const rulesEvidence = this.rules.captureEvidence(result);
     if (result.state === 'UNSUPPORTED') {
       this.emitRequest({
         at: evalAt, evalMs, method: 'get', path, auth, result: 'unsupported',
-        debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
+        rulesEvidence, debugMessages: renderLegacyDebugMessages(result), origin: 'listener',
         ...(this.triggerScope.current() ? { triggeredBy: this.triggerScope.current() } : {}),
       });
       throw new SimulatorUnsupportedError(
@@ -181,6 +182,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       result: 'allow' | 'deny';
       debugMessages: string[];
       evaluatedRule?: unknown;
+      rulesEvidence: import('../../sandbox/types/rules-evidence.js').RulesEvidence;
       origin: 'listener';
       resourceBefore: { data: Record<string, unknown> | null; exists: boolean };
       triggeredBy?: unknown;
@@ -193,6 +195,7 @@ export class RulesReadEngine implements ListenerDispatchHost {
       result: resultStr,
       debugMessages: renderLegacyDebugMessages(result),
       evaluatedRule: evalRule,
+      rulesEvidence,
       origin: 'listener',
       resourceBefore: { data, exists: isDataNotNull },
     };

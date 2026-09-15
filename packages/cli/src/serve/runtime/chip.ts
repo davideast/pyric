@@ -1,3 +1,24 @@
+import { aiModelHtml } from './ai-model-label.js';
+import { projectCaptures, captureList, captureEditor } from './project-captures.js';
+import type { CaptureEntry } from '../rate-capture-store.js';
+import { buildRateCapture, readRateCapture, readSessionFixture } from './rate-capture.js';
+import { createThresholdConfigClient, type ThresholdConfigClient } from './threshold-config-client.js';
+import { createThresholdSettings, thresholdSettingsHtml, refreshThresholdForm, THRESHOLD_STYLES } from './threshold-settings.js';
+import { createRateThresholdMonitor } from './rate-threshold-monitor.js';
+import { isThresholdService } from './rate-threshold-config.js';
+import { createRateHistory, bindHistory } from './rate-history.js';
+import { serviceLabel, sourceLabel } from './service-presentation.js';
+import { RATE_STYLES, rateView, refreshRateView } from './chip-rates.js';
+import { sdkRates, sdkActivity } from 'pyric/sandbox/internal';
+import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
+import { INDEX_STYLES, indexDetailsHtml, indexActionHtml } from './chip-indexes.js';
+import { createIndexInspector, createIndexConfigClient, type IndexConfigClient } from './index-config-client.js';
+import type { ServiceIndexQuery } from 'pyric/sandbox/internal';
+import { rulesEvidenceHtml, rulesSummary } from './chip-rules-evidence.js';
+import { activityOccurrences } from './activity-occurrences.js';
+import { presentActivityOccurrence } from './activity-occurrence-presentation.js';
+import { createDenialMarkers } from './denial-markers.js';
+import { activityDisplayTarget, type ActivityHistoryEntry } from './activity-history.js';
 /**
  * A compact inspector for the app's identity, listeners, traffic, and sandbox.
  * Header, tabs, scroll viewport, and action bar share one fixed panel frame.
@@ -34,6 +55,7 @@ import {
 } from './chip-tab.js';
 import {
   createTrafficFeed,
+  aiTrafficRequest,
   isPermissionDeniedCode,
   orderChipRequests,
   RECENT_FAILURE_MS,
@@ -53,6 +75,14 @@ import {
 } from '../worker/client/core.js';
 
 export interface PyricRuntimeChipOptions {
+  /** Host configuration for future AI actions; request evidence remains in Traffic. */
+  aiConfiguration?: {
+    getSnapshot(): { backend: string; requestedModel: string; route: string };
+    subscribe(listener: () => void): () => void;
+  };
+  rates?: Pick<typeof sdkRates, 'snapshot'>;
+  indexConfig?: IndexConfigClient | null;
+  thresholdConfig?: ThresholdConfigClient | null;
   runtime: PyricRuntimeStatus;
   document?: Document;
   /** Where Traffic's Copy writes. Defaults to the page's own clipboard. */
@@ -74,6 +104,8 @@ export interface PyricRuntimeChipOptions {
    * without an event source has.
    */
   sandboxEvents?: SandboxEventSource | null;
+  /** Optional in-page session fixture provider; otherwise use the protected CLI capture endpoint. */
+  captureSession?: () => Promise<unknown>;
   /**
    * Build the Listeners mode this chip toggles. Called once, on the first
    * toggle, with the callback the mode reports each recomputation through.
@@ -95,23 +127,10 @@ interface AiEngineDisplay {
 
 function aiEngineState(): AiEngineDisplay {
   const engine = (globalThis as { __PYRIC_AI_ENGINE__?: { kind?: string; model?: string } }).__PYRIC_AI_ENGINE__;
-  if (engine?.kind === 'gemini') {
-    return {
-      primary: 'gemini (production)',
-      detail: 'gemini-3.5-flash-lite → gemini-flash-lite-latest',
-    };
-  }
-  if (engine?.kind === 'openai') {
-    const modelLabel = engine.model ? ` (${engine.model})` : '';
-    return {
-      primary: `openai (proxy${modelLabel})`,
-      detail: null,
-    };
-  }
-  return {
-    primary: 'sandbox (scripted)',
-    detail: null,
-  };
+  if (engine?.kind === 'gemini') return { primary: 'Gemini', detail: 'Configured provider' };
+  if (engine?.kind === 'openai') return { primary: 'OpenAI-compatible', detail: engine.model ? `Configured model: ${engine.model}` : 'Configured provider' };
+  if (engine?.kind === 'scripted') return { primary: 'Scripted', detail: 'No model invoked' };
+  return { primary: 'Not reported', detail: 'AI configuration is unavailable' };
 }
 
 const styles = `
@@ -159,7 +178,7 @@ const styles = `
   /* Zero-size outer tracks turn gaps into insets. The shell, section frames,
      and records all use this same construction, with no additive spacing. */
   .panel { display: grid; width: 440px; height: 568px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); background: var(--pyric-bg); border: 1px solid var(--pyric-border); border-radius: 12px; box-shadow: 0 18px 60px #0007; overflow: hidden; }
-  .panel-column { display: grid; grid-template-rows: 64px 44px minmax(0, 1fr) 64px; min-width: 0; min-height: 0; }
+  .panel-column { display: grid; grid-template-rows: 64px 44px minmax(0, 1fr) auto; min-width: 0; min-height: 0; }
   .panel-header, .bar { display: grid; grid-template-columns: 0 minmax(0, 1fr) auto 0; align-items: center; column-gap: var(--content-inset); overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
   .brand { display: flex; align-items: center; gap: var(--space-2); grid-column: 2; }
   .panel-name { font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
@@ -212,6 +231,9 @@ const styles = `
   .s1.split > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .right { display: flex; gap: var(--space-1); flex: none; max-width: 56px; }
   .provider-disclosure { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; gap: var(--space-3); }
+  .request-response { position:relative; background:var(--pyric-content); border:1px solid var(--pyric-border-soft); border-radius:8px; overflow:hidden; }
+  .request-response-body { margin:0; max-height:320px; overflow:auto; white-space:pre; overflow-wrap:normal; line-height:1.5; padding:var(--space-3); padding-right:52px; }
+  .request-response-copy { position:absolute; top:8px; right:8px; }
   .provider-details { grid-column: 2; min-width: 0; }
   .provider-body { display: grid; grid-template-rows: 0 auto; row-gap: var(--space-2); }
   .provider-details > summary { grid-column: 2; display: flex; align-items: center; gap: var(--space-1); font-size: 11px; color: var(--pyric-accent); cursor: pointer; min-height: 24px; list-style: none; }
@@ -225,7 +247,7 @@ const styles = `
   .pagination .section-meta { font-variant-numeric: tabular-nums; }
   .slot { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-1); grid-column: 3; grid-row: 1 / 3; color: var(--pyric-muted); font-size: 11px; min-width: 0; }
   .slot > span { min-width: 0; overflow-wrap: anywhere; }
-  .slot .verdict { width: 52px; min-width: 52px; }
+  .slot .verdict { width: 80px; min-width: 80px; }
   .row.problem .slot, .row.problem .c1 { color: var(--pyric-error); }
   .row.pending .slot, .row.pending .c1 { color: var(--pyric-warning); }
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2); width: 88px; height: 32px; flex: 0 0 88px; border: 1px solid #454b59; border-radius: 6px; background: #282d37; color: #dbe1ed; cursor: pointer; font-size: 11px; font-weight: 550; line-height: 16px; text-decoration: none; white-space: nowrap; }
@@ -234,7 +256,7 @@ const styles = `
   .btn[aria-pressed="true"] { background: #35435e; border-color: #829ac9; color: #dce6ff; }
   .btn.icon-button { width: 32px; flex-basis: 32px; background: transparent; }
   [data-open-studio] { background: transparent; border-color: var(--pyric-border-soft); }
-  .bar { border-top: 1px solid var(--pyric-border-soft); background: var(--pyric-content); }
+  .bar { min-height: 64px; border-top: 1px solid var(--pyric-border-soft); background: var(--pyric-content); }
   .bar-hint { grid-column: 2; color: var(--pyric-muted); font-size: 11px; }
   .bar > .actions { grid-column: 3; }
   .bar.no-hint { grid-template-columns: 0 minmax(0, 1fr) 0; }
@@ -255,37 +277,88 @@ const styles = `
   .avatar img[hidden] { display: none; }
   .provider { display: grid; place-items: center; width: 16px; height: 16px; color: #c6cfdf; }
   .provider .icon { width: 13px; height: 13px; }
+  .source-row { display:grid; grid-template-columns:minmax(0,1fr) 32px var(--space-3); align-items:center; }
+  .source-row + .source-row { border-top:1px solid var(--pyric-border-soft); }
+  .source-row .row { min-width:0; }
+  .source-highlight { width:32px; height:32px; display:flex; align-items:center; justify-content:center; color:var(--pyric-muted); border:1px solid transparent; border-radius:4px; cursor:pointer; }
+  .source-highlight .icon { width:16px; height:16px; }
+  .source-highlight:hover,.source-highlight[aria-pressed="true"] { color:var(--pyric-accent); background:var(--pyric-content); border-color:var(--pyric-border); }
+  .source-highlight:focus-visible { outline:2px solid var(--pyric-accent); outline-offset:2px; }
   .listener-mark { width: 10px; height: 10px; border: 2px solid var(--listener-color); border-radius: 3px; }
+  .source-row:has(.source-highlight[aria-pressed="true"]) .listener-mark { background: var(--listener-color); }
   .listener-row .row-content { grid-template-columns: 12px minmax(0, 1fr) 88px; }
   .listener-row .c1.wide, .listener-row .s1.wide { grid-column: 2; }
+  .listener-row .s2 { grid-column: 2; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
   .listener-fact { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-1); }
   .listener-fact strong { color: #dce2ed; font-weight: 550; font-variant-numeric: tabular-nums; }
   .row[aria-pressed="true"] .listener-fact { color: var(--pyric-accent); }
-  .traffic-row .row-content { grid-template-columns: minmax(0, 1fr) 72px 52px; grid-template-rows: 20px auto; align-items: start; column-gap: var(--space-2); }
-  .traffic-row .c1 { grid-column: 1; grid-row: 1; color: var(--pyric-muted); font-size: 11px; font-weight: 400; line-height: 20px; }
+  .traffic-row .row-content { grid-template-columns: minmax(0, 1fr) 72px 80px; grid-template-rows: 24px auto; align-items: start; column-gap: var(--space-2); }
+  .traffic-row .c1 { grid-column: 1; grid-row: 1; color: var(--pyric-muted); font-size: 11px; font-weight: 400; line-height: 24px; }
   .traffic-row .c2 { grid-column: 1 / -1; grid-row: 2; }
-  .traffic-row .s1 { grid-column: 2; grid-row: 1; text-align: left; line-height: 20px; }
+  .traffic-row .s1 { grid-column: 2; grid-row: 1; text-align: left; line-height: 24px; }
   .traffic-row .s1 .mono { font-size: 11px; }
   .traffic-row .s2 { grid-column: 1 / -1; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
   .traffic-row .s2:empty { display: none; }
   .traffic-row[aria-expanded="true"] .c2 { white-space: normal; overflow-wrap: anywhere; }
   [data-chip-view="sandbox"] .s1 { white-space: normal; overflow-wrap: anywhere; }
   .traffic-row .slot { grid-column: 3; grid-row: 1; align-self: start; }
-  .paint-controls { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--record-inset); row-gap: 12px; min-width: 0; }
-  .paint-controls > * { grid-column: 2; }
-  .paint-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .paint-switch .btn { width: 100%; }
-  .treatment-field { display: grid; gap: 6px; min-width: 0; }
-  .treatment-field select { font: inherit; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 34px; min-width: 0; }
-  .treatment-field select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
-  .treatment-field .hint { overflow-wrap: anywhere; }
+  .activity-detail { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--record-inset); border-top: 1px solid var(--pyric-border-soft); }
+  .activity-detail-content { grid-column: 2; grid-row: 2; display: grid; gap: var(--space-2); font-size: 11px; }
+  .activity-path { overflow-wrap: anywhere; }
+  .data-path { display: flex; align-items: baseline; min-width: 0; font-family: "Pyric Geist Mono", ui-monospace, monospace; font-size: 12px; font-weight: 400; }
+  .data-path-parent { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pyric-muted); }
+  .data-path-leaf { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--pyric-text); }
+  .data-breadcrumbs { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 24px; font-size: 12px; }
+  .data-breadcrumbs button { font: inherit; color: var(--pyric-accent); background: transparent; border: 0; height: 28px; cursor: pointer; }
+  .data-breadcrumbs .icon { width: 12px; height: 12px; flex: 0 0 12px; }
+  .breadcrumb-service { font-weight: 600; white-space: nowrap; }
+  .breadcrumb-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .source-navigation { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+  ${RULE_EVIDENCE_STYLES}
+  ${INDEX_STYLES}
+  ${RATE_STYLES}
+  ${THRESHOLD_STYLES}
+  .request-facts { all: unset; }
+  .request-detail, .request-facts { display: grid; gap: 16px; }
+  .request-fact { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; font-size: 12px; }
+  .request-fact dt { color: var(--pyric-muted); }
+  .request-fact dd { all: unset; min-width: 0; overflow-wrap: anywhere; }
+  .nav-link { display: inline-flex; align-items: center; gap: 4px; height: 28px; font-size: 12px; color: var(--pyric-accent); text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+  .nav-link .icon { width: 12px; height: 12px; }
+  .source-actions, .history-summary, .activity-fact { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .source-actions { font-weight: 600; }
+  .history-body { display: grid; gap: 12px; min-width: 0; }
+  .history-summary { font-size: 11px; color: var(--pyric-muted); }
+  .history-summary .btn { width: 48px; flex-basis: 48px; height: 28px; }
+  .history-context { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; column-gap: var(--record-inset); }
+  .history-context > * { grid-column: 2; }
+  .history-pagination { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+  .history-row .row-content { grid-template-columns: minmax(0, 1fr) 132px; }
+  .history-row .c1.wide, .history-row .s1.wide { grid-column: 1; }
+  .history-row .slot { grid-column: 2; grid-row: 1 / 3; align-self: start; }
+  .history-row .listener-fact { font-size: 11px; }
+  .history-row .s2 { grid-column: 1 / -1; grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
+  .listener-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: var(--space-2); width: 100%; min-width: 0; }
+  .paint-switch { display: grid; grid-template-columns: repeat(2, 64px); gap: 4px; }
+  .paint-switch .btn { width: 64px; min-width: 0; font-size: 11px; }
+  .listener-toolbar select { font: inherit; font-size: 11px; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 32px; min-width: 0; text-overflow: ellipsis; }
+  .listener-toolbar select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
+  .listener-toolbar .icon-button { grid-column: 3; }
+  .listener-toolbar-notice { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2); }
+
   .listener-toggle { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; font-size: 11px; color: var(--pyric-muted); height: 32px; }
   .toggle-track { width: 28px; height: 16px; display: grid; grid-template-columns: 0 1fr 0; gap: 2px; align-items: center; background: #3a3e49; border: 1px solid #697488; border-radius: 8px; }
   .toggle-track::after { content: ''; grid-column: 2; width: 10px; height: 10px; background: #dce1eb; border-radius: 50%; justify-self: start; }
   .listener-toggle[aria-pressed="true"] .toggle-track { background: #536b9d; border-color: var(--pyric-accent); }
   .listener-toggle[aria-pressed="true"] .toggle-track::after { justify-self: end; }
-  .verdict { display: flex; align-items: center; justify-content: center; gap: var(--space-1); min-width: 52px; height: 20px; border: 1px solid #49404a; border-radius: 4px; background: #38282d; color: var(--pyric-error); }
-  .verdict.ok { color: #b3c7bd; border-color: #3b4943; background: #232e29; }
+  .verdict { --verdict-border: #705b62; display: grid; grid-template-columns: 24px minmax(0, 1fr) 8px; align-items: center; box-sizing: border-box; width: 80px; min-width: 80px; height: 24px; border: 1px solid var(--verdict-border); border-radius: 4px; background: #2c282e; color: #d2c6ca; font-size: 11px; font-weight: 500; line-height: 16px; white-space: nowrap; }
+  .verdict-icon { display: grid; place-items: center; height: 100%; border-right: 1px solid var(--verdict-border); color: #d6a7ae; }
+  .verdict-label { text-align: right; }
+  .verdict .icon { width: 12px; height: 12px; }
+  .verdict.ok { --verdict-border: #586b60; background: #252e2c; color: #c4d2cb; }
+  .verdict.ok .verdict-icon { color: #a4c7b5; }
+  .traffic-row.problem .c1 { color: #d6a7ae; }
+  .traffic-row.pending .c1 { color: #d6c096; }
   .empty { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; grid-template-rows: 0 auto 0; gap: var(--space-4); border: 1px dashed #454b59; border-radius: 8px; }
   .empty > .intro { grid-column: 2; grid-row: 2; }
   .empty .section-title { font-size: 13px; }
@@ -312,10 +385,16 @@ function escapeAttribute(value: string): string {
 /** Small, shared stroke icons; provider marks use their recognizable silhouettes. */
 function iconHtml(name: string): string {
   const paths: Record<string, string> = {
+    traffic: '<path d="M7 3v18m-4-4 4 4 4-4M17 21V3m-4 4 4-4 4 4"/>',
+    settings: '<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="var(--pyric-content)"/><circle cx="15" cy="17" r="3" fill="var(--pyric-content)"/>',
+    check: '<path d="m5 12 4 4L19 6"/>',
+    unavailable: '<circle cx="12" cy="12" r="9"/><path d="m6 18 12-12"/>',
+    warning: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 3v1"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v12h5"/>',
     chevron: '<path d="m9 5 7 7-7 7"/>',
     minimize: '<path d="M5 12h14"/>',
     external: '<path d="M14 4h6v6M20 4l-9 9M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',
     password: '<rect x="4" y="9" width="16" height="12" rx="2"/><path d="M8 9V6a4 4 0 0 1 8 0v3M12 14v3"/>',
@@ -360,6 +439,9 @@ function sameOutlines(a: readonly ListenerOutline[], b: readonly ListenerOutline
       && outline.target === other.target
       && outline.isQuery === other.isQuery
       && outline.deliveryCount === other.deliveryCount
+      && outline.activity?.method === other.activity?.method
+      && outline.activity?.status === other.activity?.status
+      && outline.observedRender === other.observedRender
       && outline.incident?.pattern === other.incident?.pattern
       && outline.incident?.count === other.incident?.count
       && outline.incident?.windowMs === other.incident?.windowMs;
@@ -420,7 +502,7 @@ function rowHtml(cells: RowCells): string {
       html += `<span class="s1 wide split"><span>${cells.s1 ?? ''}</span><span class="right">${cells.s1Right}</span></span>`;
     } else {
       html += `<span class="s1${wide ? ' wide' : ''}">${cells.s1 ?? ''}</span>`;
-      if (!wide) html += `<span class="s2">${cells.s2 ?? ''}</span>`;
+      if (!wide || cells.s2) html += `<span class="s2">${cells.s2 ?? ''}</span>`;
     }
   }
   return `<div class="${classes}"${title}${attributes}><span class="row-content">${cells.leading ? `<span class="leading">${cells.leading}</span>` : ''}${html}</span></div>`;
@@ -444,6 +526,20 @@ function isTextField(element: Element | null | undefined): element is HTMLInputE
 /** The one button, wherever it sits. */
 function buttonHtml(attributes: string, label: string, title?: string): string {
   return `<button class="btn" type="button" ${attributes}${title ? ` title="${escapeAttribute(title)}"` : ''}>${escapeAttribute(label)}</button>`;
+}
+
+/** A shared icon and label track keeps request statuses aligned across rows. */
+function trafficBadgeHtml(verdict: ChipRequest['verdict'], indexMissing: boolean): string {
+  const badges = {
+    ok: { label: 'Allowed', icon: 'check', tone: 'ok', title: 'Succeeded' },
+    denied: { label: 'Denied', icon: 'unavailable', tone: '', title: 'Denied' },
+    error: { label: 'Failed', icon: 'warning', tone: '', title: 'Failed' },
+    unsupported: { label: 'N/A', icon: 'unavailable', tone: '', title: 'Unsupported operation' },
+  };
+  const badge = indexMissing && verdict !== 'denied'
+    ? { label: 'Index', icon: 'warning', tone: 'index-warning', title: 'Index missing from config' }
+    : badges[verdict];
+  return `<span class="verdict ${badge.tone}" title="${badge.title}" aria-label="${badge.title}"><span class="verdict-icon">${iconHtml(badge.icon)}</span><span class="verdict-label">${badge.label}</span></span>`;
 }
 
 /** The action bar: up to three buttons against R, the primary one rightmost. */
@@ -558,6 +654,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let outlinesRefused: string | null = null;
   /** Whether the last rendered panel carried the Flow waiting fact. */
   let renderedFlowWaiting = false;
+  let renderedHistoryState = '';
+  let inspectedFromPage = 0;
   let renderedTreatmentState = '';
   const ensureListenerMode = (): ListenerMode | null => {
     if (listenerMode !== null) return listenerMode;
@@ -570,11 +668,20 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       // it is what takes the waiting fact away.
       const waiting = listenerMode?.flowWaiting() === true;
       const treatmentState = JSON.stringify(listenerMode?.treatmentState?.());
-      if (sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting && treatmentState === renderedTreatmentState) return;
+      const historyState = JSON.stringify([listenerMode?.history?.snapshot(), listenerMode?.history?.counts({ scope: { kind: 'retained' } })]);
+      const inspected = listenerMode?.selectedActivity?.() ?? null;
+      const inspectionVersion = listenerMode?.inspectionVersion?.() ?? 0;
+      const inspectionChanged = inspectionVersion !== inspectedFromPage;
+      if (inspectionChanged) {
+        inspectedFromPage = inspectionVersion;
+        if (inspected) { selectedSourceKey = undefined; activeListenerId = inspected; selectedHistory = null; historyPage = 0;  tab = 'listeners'; open = true; }
+      }
+      if (historyState === renderedHistoryState && !inspectionChanged && sameOutlines(outlines, listenerOutlines) && waiting === renderedFlowWaiting && treatmentState === renderedTreatmentState) return;
+      renderedHistoryState = historyState;
       renderedTreatmentState = treatmentState;
       renderedFlowWaiting = waiting;
       listenerOutlines = outlines;
-      render();
+      if (open && tab === 'listeners') render();
     });
     return listenerMode;
   };
@@ -583,16 +690,59 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   /** Which requests Traffic lists. A page session remembers nothing here: the
    * filter is a way of reading the last minute, not a preference. */
   let trafficFilter: 'all' | 'denied' = 'all';
+  let trafficDisplay: 'requests' | 'rates' = 'requests';
+  let selectedRateService: string | null = null;
+  let rateSection: 'chart' | 'incidents' | 'measurements' | 'captures' | 'capture-rename' | 'capture-delete' = 'chart';
+  const serviceHistories = { ai: createRateHistory('ai'), firestore: createRateHistory('firestore'), rtdb: createRateHistory('rtdb'), storage: createRateHistory('storage') };
+  const currentRateHistory = () => serviceHistories[isThresholdService(selectedRateService) ? selectedRateService : 'rtdb'];
+  const rates = options.rates ?? sdkRates;
+  let captureError = '';
+  let savedCaptureList: CaptureEntry[] | null = null;
+  let capturesLoading = false;
+  let selectedSavedCapture: CaptureEntry | null = null;
+  let captureEditBusy = false;
+  let captureNameDraft = '';
+  const captureClient = projectCaptures(documentLike.defaultView?.fetch?.bind(documentLike.defaultView) ?? fetch);
+  const importedCaptures = new Map<string, string>();
+  const captureEvents: import('pyric/sandbox').SandboxEvent[] = [];
+  const unsubscribeCapture = options.sandboxEvents?.(events => {
+    captureEvents.push(...events);
+    const cutoff = Date.now() - 1800_000;
+    while (captureEvents.length && (captureEvents[0]!.at < cutoff || captureEvents.length > 20000)) captureEvents.shift();
+  });
+  const thresholdMonitor = createRateThresholdMonitor();
+  let thresholdSignature = '';
+  const pageWindow = documentLike.defaultView;
+  const canFetchThresholds = pageWindow?.fetch !== undefined && /^https?:$/.test(pageWindow.location.protocol);
+  const disablesThresholds = options.thresholdConfig === null;
+  let thresholdClient = options.thresholdConfig ?? undefined;
+  const needsThresholdClient = !disablesThresholds && thresholdClient === undefined && canFetchThresholds;
+  if (needsThresholdClient) thresholdClient = createThresholdConfigClient(pageWindow.fetch.bind(pageWindow));
+  const thresholdSettings = createThresholdSettings(thresholdClient, () => { if (mounted) render(); });
   /** `false` until the first render. The fold's history batch arrives while this
    * function is still running, before there is a view for it to rebuild. */
   let mounted = false;
+  const denials = createDenialMarkers({
+    document: documentLike,
+    related: (service, path) => listenerMode?.relatedRegion?.(service, path) ?? null,
+    select: request => {
+      selectedRequest = request;
+      open = true;
+      showTab('traffic');
+      root.querySelector<HTMLButtonElement>('[data-request-back]')?.focus();
+    },
+  });
   const sandboxEvents = options.sandboxEvents;
   const observesSandboxEvents = sandboxEvents !== undefined && sandboxEvents !== null;
   const trafficFeed: TrafficFeed | null = observesSandboxEvents
     ? createTrafficFeed({
       subscribeEvents: sandboxEvents,
+      onRequest: (request, event) => {
+        const showsDenials = mounted && listenerMode?.enabled() === true;
+        if (showsDenials) denials.show(request, event);
+      },
       onChange: () => {
-        if (mounted) render();
+        if (mounted && (!open || (tab === 'traffic' && trafficDisplay === 'requests'))) render();
       },
     })
     : null;
@@ -602,8 +752,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
    * error feed for the failures that are not requests at all. An operation that
    * reached both is one row, keyed by the sandbox event id both carry.
    */
+  let trafficSource: { service: string; target: string } | null = null;
   const trafficRows = (): ChipRequest[] => {
     const byId = new Map<string, ChipRequest>();
+    for (const request of rates.snapshot().services.find(service => service.service === 'ai')?.aiRequests ?? []) byId.set(request.id, aiTrafficRequest(request));
     for (const request of trafficFeed?.requests() ?? []) byId.set(request.id, request);
     for (const error of snapshot.errors) {
       if (byId.has(error.id)) continue;
@@ -617,22 +769,35 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         // nor method, the message is the only true thing to print.
         label: error.message,
         verdict: isPermissionDeniedCode(error.code) ? 'denied' : 'error',
-        reason: null,
+        identity: null,
       });
     }
     const ordered = orderChipRequests([...byId.values()], Date.now());
     const kept = trafficFilter === 'denied' ? ordered.filter((request) => request.verdict !== 'ok') : ordered;
-    return kept.slice(0, MAX_ROWS);
+    const matching = kept.filter(request => !trafficSource || ((request.service === trafficSource.service || (request.service === 'rtdb' && trafficSource.service === 'database')) && activityDisplayTarget(request.path ?? '').replace(/^\//, '') === trafficSource.target.replace(/^\//, '')));
+    return matching.slice(0, MAX_ROWS);
   };
 
   // ── Which view is showing ──────────────────────────────────────────────────
   const tabStorage = pageChipTabStorage(documentLike);
+  const disablesIndexes = options.indexConfig === null;
+  let indexClient = options.indexConfig ?? undefined;
+  const needsIndexClient = !disablesIndexes && indexClient === undefined && pageWindow?.fetch !== undefined;
+  if (needsIndexClient) indexClient = createIndexConfigClient(pageWindow.fetch.bind(pageWindow));
+  const indexInspector = createIndexInspector(indexClient, () => { if (mounted) render(); });
+  const missingIndex = (query: ServiceIndexQuery | undefined): boolean => query !== undefined && indexInspector.finding(query).status === 'missing';
+  const requestMissingIndex = (request: ChipRequest): boolean => {
+    if (missingIndex(request.indexQuery)) return true;
+    return request.indexFailure === true && (!request.indexQuery || indexInspector.finding(request.indexQuery).status === 'unavailable');
+  };
   const signals = (): ChipTabSignals => {
     const now = Date.now();
     const failedRecently = trafficFeed?.failedRecently(now) === true
       || snapshot.errors.some((error) => now - error.at <= RECENT_FAILURE_MS);
     return {
       failedRecently,
+      rateThreshold: thresholdMonitor.pending(),
+      missingIndex: (trafficFeed?.requests() ?? []).some(requestMissingIndex) || listenerOutlines.some(outline => missingIndex(outline.activity?.indexQuery)),
       duplicateListener: listenerOutlines.some((outline) => outline.incident?.pattern === 'duplicate-listener'),
       updatePending: snapshot.updateAvailable,
     };
@@ -643,11 +808,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let renderedOpen: boolean | null = null;
   const openPanel = (): void => {
     tab = openingChipTab(signals(), readRememberedChipTab(tabStorage));
+    if (thresholdMonitor.pending() && !signals().failedRecently) { trafficDisplay = 'rates'; selectedRateService = null; }
     if (tab === 'identity' && usersFailed) usersRequested = false;
     open = true;
   };
 
   const showTab = (next: ChipTab): void => {
+    if (next !== 'listeners') { listenerMode?.inspectHistory?.(null); selectedHistory = null; }
     if (next === 'identity' && usersFailed) usersRequested = false;
     tab = next;
     writeRememberedChipTab(tabStorage, next);
@@ -672,7 +839,22 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   // ── The four views ─────────────────────────────────────────────────────────
 
   /** The listener a row click singled out on the page, if any. */
+  let selectedSourceKey: string | undefined;
+  let highlightedSourceKey: string | undefined;
+  const indexTargets = new Map<string, { query: ServiceIndexQuery; sourceId?: string }>();
+  const queryForSource = (id: string): ServiceIndexQuery | undefined =>
+    listenerOutlines.find(outline => outline.activity?.sourceId === id)?.activity?.indexQuery
+    ?? listenerMode?.history?.snapshot().entries.find(entry => entry.sourceId === id && entry.indexQuery)?.indexQuery;
+  const indexBlock = (query: ServiceIndexQuery | undefined, key: string, sourceId?: string): string => {
+    if (!query) return '';
+    indexTargets.set(key, { query, sourceId });
+    indexInspector.prepare(key, query);
+    return indexDetailsHtml(query, key, indexInspector, escapeAttribute, iconHtml('chevron'), iconHtml('copy'));
+  };
   let activeListenerId: string | null = null;
+  let selectedHistory: number | null = null;
+  let historyPage = 0;
+
 
   /** The pending worker update as the first tab's first row, while it lasts. */
   const updateRowHtml = (): string => {
@@ -755,80 +937,213 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     };
   };
 
+  const selectedSourceId = (): string | undefined => {
+    if (selectedSourceKey) return selectedSourceKey;
+    const live = listenerOutlines.find(outline => outline.listenerId === activeListenerId);
+    if (live) return live.activity?.sourceId ?? live.listenerId;
+    return listenerMode?.history?.snapshot().entries.find(entry => entry.activityId === activeListenerId)?.sourceId;
+  };
+  const sourceGroups = () => {
+    const groups = new Map<string, { id: string; activityId: string; target: string; service: string; members: ListenerOutline[] }>();
+    for (const entry of listenerMode?.history?.snapshot().entries ?? []) {
+      if (!groups.has(entry.sourceId)) groups.set(entry.sourceId, { id: entry.sourceId, activityId: entry.activityId, target: entry.target, service: entry.service, members: [] });
+    }
+    for (const outline of listenerOutlines) {
+      const id = outline.activity?.sourceId ?? outline.listenerId;
+      const group = groups.get(id) ?? { id, activityId: outline.listenerId, target: activityDisplayTarget(outline.target), service: outline.service, members: [] };
+      group.members.push(outline);
+      groups.set(id, group);
+    }
+    return [...groups.values()];
+  };
+  const activityDetailHtml = (id: string, event?: ActivityHistoryEntry): string => {
+    const history = listenerMode?.history;
+    const entries = history?.snapshot().entries.filter(entry => entry.activityId === id) ?? [];
+    const start = entries.find(entry => entry.phase === 'start');
+    const end = entries.find(entry => entry.phase === 'end');
+    const association = event ? history?.association(event.sequence) : undefined;
+    const candidates = history?.snapshot().entries.filter(entry => entry.phase === 'render' && association && entry.commitId === association.commitId && entry.activityId !== id) ?? [];
+    const targets = [...new Set(candidates.map(entry => entry.target))];
+    const facts: string[] = [];
+    if (start?.kind === 'operation' && end) facts.push(`<div class="activity-fact"><span>Response time</span><span class="mono">${Math.max(0, end.at - start.at)} ms</span></div>`);
+    if (targets.length) facts.push(`<span>Also observed in this render</span>${targets.map(target => `<span class="mono activity-path">${escapeAttribute(target)}</span>`).join('')}`);
+    if (!facts.length) return '';
+    return `<div class="activity-detail" data-activity-detail="${escapeAttribute(id)}"><div class="activity-detail-content">${facts.join('')}</div></div>`;
+  };
+  const historyHtml = (): string => {
+    const history = listenerMode?.history;
+    if (!history) return '';
+    const snapshot = history.snapshot();
+    const sourceId = selectedSourceId();
+    const entries = activityOccurrences(snapshot.entries.filter(entry => entry.sourceId === sourceId));
+    historyPage = Math.min(historyPage, Math.max(0, Math.ceil(entries.length / 10) - 1));
+    const shown = entries.slice(historyPage * 10, historyPage * 10 + 10).map(occurrence => ({ ...occurrence, ...presentActivityOccurrence(occurrence) }));
+    const counts = history.counts({ sourceId, scope: { kind: 'retained' } });
+    const rows = shown.map(({ event: entry, label, outcome, registration }) => buttonRowHtml({
+      c1: escapeAttribute(label),
+      s1: escapeAttribute(registration === null ? entry.method : `${entry.method} #${registration}`),
+      slot: `<span class="listener-fact"><span class="mono">${escapeAttribute(clockTime(entry.at))}</span><span>${outcome}</span></span>`,
+      className: 'history-row', attributes: `data-history-entry="${entry.sequence}"`,
+      label: `Inspect ${label}: ${outcome}${registration === null ? '' : `, Subscription ${registration}`}`, pressed: selectedHistory === entry.sequence, expanded: selectedHistory === entry.sequence && activityDetailHtml(entry.activityId, entry) !== '',
+    }) + (selectedHistory === entry.sequence ? activityDetailHtml(entry.activityId, entry) : '')).join('');
+    const inset = (html: string) => `<div class="history-context">${html}</div>`;
+    return `<div class="history-body">
+      ${inset(`<div class="history-summary"><span>${counts.partial ? '≥ ' : ''}${counts.calls} calls <span aria-hidden="true">/</span> ${counts.partial ? '≥ ' : ''}${counts.deliveries} results <span aria-hidden="true">/</span> ${counts.partial ? '≥ ' : ''}${counts.commits} renders</span>${buttonHtml('data-clear-activity-history', 'Clear', 'Clear all recorded history')}</div>`)}
+      <div class="rows" data-activity-history>${rows}</div>
+      ${!entries.length ? inset('<span class="hint">No events recorded since this view started or was cleared.</span>') : ''}
+      ${entries.length > 10 ? inset(`<div class="history-pagination">${buttonHtml(`data-history-page="${historyPage - 1}"${historyPage === 0 ? ' disabled' : ''}`, 'Previous')}<span class="hint">${historyPage * 10 + 1}–${Math.min(entries.length, historyPage * 10 + 10)} of ${entries.length} items</span>${buttonHtml(`data-history-page="${historyPage + 1}"${(historyPage + 1) * 10 >= entries.length ? ' disabled' : ''}`, 'Next')}</div>`) : ''}
+      ${inset(`<span class="hint">${snapshot.discarded ? `${snapshot.discarded} older events removed. Counts cover retained history.` : 'Counts cover recorded history.'} Clear or reload to reset.</span>`)}
+    </div>`;
+
+  };
+
+  const dataPathHtml = (path: string): string => {
+    const split = path.lastIndexOf('/') + 1;
+    return `<span class="data-path" title="${escapeAttribute(path)}"><span class="data-path-parent">${escapeAttribute(path.slice(0, split))}</span><span class="data-path-leaf">${escapeAttribute(path.slice(split))}</span></span>`;
+  };
   const listenersViewHtml = (): ChipView => {
     const outlinesOn = listenerMode?.enabled() === true;
     const paintMode: ListenerPaintMode = listenerMode?.mode() ?? paintModeBeforeBuild;
     const flowReason = listenerMode === null ? null : listenerMode.flowUnavailableReason();
     const pressed = (candidate: ListenerPaintMode): boolean => outlinesOn && paintMode === candidate;
 
-    const incidents = listenerOutlines.filter((outline) => outline.incident?.pattern === 'duplicate-listener');
-    const ordered = [...listenerOutlines]
-      .sort((a, b) => b.deliveryCount - a.deliveryCount || a.label.localeCompare(b.label));
-
-    const rows = [
-      ...incidents.map((outline) => buttonRowHtml({
-        c1: 'Duplicate subscription',
-        s1: `<span class="mono">${escapeAttribute(displayTarget(outline))}</span>`,
-        title: displayTarget(outline),
-        slot: `<span class="mono">${outline.incident!.count}</span>`,
-        className: 'problem',
-        attributes: `data-listener-incident="${escapeAttribute(outline.listenerId)}" data-activate-listener="${escapeAttribute(outline.listenerId)}"`,
-        label: `Outline the ${outline.incident!.count} subscriptions to ${displayTarget(outline)}`,
-        pressed: activeListenerId === outline.listenerId,
-      })),
-      ...ordered.map((outline) => {
-        const target = displayTarget(outline);
-        const hue = listenerColors(outline.listenerId).swatch;
-        return buttonRowHtml({
-          c1: escapeAttribute(outline.labelIsOwner ? outline.label : target),
-          s1: outline.labelIsOwner ? `<span class="mono">${escapeAttribute(target)}</span>` : escapeAttribute(outline.service === 'database' ? 'Realtime Database' : 'Firestore'),
-          leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(hue)}"></span>`,
-          slot: `<span class="listener-fact"><strong>${outline.deliveryCount}</strong><span>${activeListenerId === outline.listenerId ? 'Highlighted' : 'deliveries'}</span></span>`,
-          className: 'listener-row',
-          title: `${target} — ${activeListenerId === outline.listenerId ? 'Click to show all listeners' : 'Click to highlight on the page'}`,
-          attributes: `data-listener-row="${escapeAttribute(outline.listenerId)}" data-activate-listener="${escapeAttribute(outline.listenerId)}"`,
-          label: `Outline ${outline.labelIsOwner ? outline.label : target} on the page`,
-          pressed: activeListenerId === outline.listenerId,
-        });
-      }),
-    ];
+    const groups = sourceGroups();
+    const selected = groups.find(group => group.id === selectedSourceId());
+    const rows = groups.map(group => {
+      const modelActivity = group.members.find(member => member.activity?.ai)?.activity;
+      const modelIdentity = modelActivity?.ai;
+      const counts = group.members.some(member => !member.activity) ? undefined : listenerMode?.history?.counts({ sourceId: group.id, scope: { kind: 'retained' } });
+      const stopped = group.members.some(member => member.activity?.kind === 'subscription') && group.members.every(member => member.activity && (member.activity.kind !== 'subscription' || member.activity.status === 'closed'));
+      const calls = counts?.calls ?? group.members.length;
+      const deliveries = counts?.deliveries ?? group.members.reduce((sum, member) => sum + member.deliveryCount, 0);
+      const indexMissing = missingIndex(queryForSource(group.id));
+      return '<div class="source-row">' + buttonRowHtml({
+        c1: modelIdentity ? aiModelHtml(modelIdentity, escapeAttribute, modelActivity?.method) : dataPathHtml(group.target),
+        s2: indexMissing ? '<span class="index-status">Index missing from config</span>' : '',
+        s1: `${sourceLabel(group.service, group.target, group.members.some(member => member.isQuery))}${stopped ? ' — Stopped' : ''}${group.members.some(member => member.incident) ? ' — Duplicate subscriptions' : ''}`,
+        slot: `<span class="listener-fact"><span>${counts?.partial ? '≥ ' : ''}${pluralize(calls, 'call')}</span><span>${counts?.partial ? '≥ ' : ''}${pluralize(deliveries, 'delivery', 'deliveries')}</span></span>`,
+        leading: `<span class="listener-mark" style="--listener-color:${escapeAttribute(listenerColors(group.id).swatch)}"></span>`,
+        className: group.members.some(member => member.incident) ? 'listener-row problem' : indexMissing ? 'listener-row pending' : 'listener-row', title: `Inspect ${group.target}`,
+        attributes: `${group.members.some(member => member.incident) ? 'data-listener-incident="true" ' : ''}data-listener-row="${escapeAttribute(group.activityId)}" data-activate-listener="${escapeAttribute(group.activityId)}"`,
+        label: `Inspect ${group.target}`, expanded: false,
+      }) + `<button type="button" class="source-highlight" data-highlight-source="${escapeAttribute(group.id)}" aria-label="Highlight ${escapeAttribute(group.target)}" title="Highlight ${escapeAttribute(group.target)}" aria-pressed="${outlinesOn && highlightedSourceKey === group.id}">${iconHtml('eye')}</button></div>`;
+    });
     const blocked = outlinesRefused;
-    const allOn = outlinesOn && paintMode === 'overview' && activeListenerId === null && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
+    const allOn = outlinesOn && paintMode === 'overview' && highlightedSourceKey === undefined && listenerOutlines.every((outline) => listenerMode?.isListenerVisible(outline.listenerId));
     const toggle = `<button type="button" class="listener-toggle" data-listener-all aria-pressed="${allOn}"><span class="toggle-track" aria-hidden="true"></span>Show all</button>`;
     const treatment = listenerMode?.treatmentState?.();
-    const paintControls = `<div class="paint-controls"><div class="paint-switch">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')
-    }</div>${paintMode === 'flow' && treatment ? `<div class="treatment-field"><label class="section-title" for="pyric-flow-treatment">Treatment</label><select id="pyric-flow-treatment" data-flow-treatment aria-describedby="flow-treatment-description">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select><span class="hint" id="flow-treatment-description">${escapeAttribute(treatment.choices.find(entry => entry.id === treatment.selected)?.description ?? '')}</span>${treatment.loading ? '<span class="hint" role="status">Loading treatment…</span>' : ''}${treatment.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span><button type="button" class="btn" data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}">Retry</button>` : ''}</div>` : ''}</div>`;
-    const bar = barHtml([buttonHtml('data-open-overlay-theme', 'Theme', "Edit the overlay's custom properties")]);
-    const detail = blocked ?? (listenerMode?.flowWaiting() ? 'Waiting for the next delivery to show what rendered.' : activeListenerId ? 'Selected listener highlighted. Use Show all to restore every outline.' : 'Select a listener to highlight its components on your page.');
-    const flowHint = flowReason ? `<span class="hint" data-flow-unavailable>${escapeAttribute(flowReason)}</span>` : '';
-    return { body: `${introHtml('Listeners on this page', detail, flowHint)}${paintControls}${sectionHtml(pluralize(listenerOutlines.length, 'listener'), `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No listeners attached', 'Open a part of your app that subscribes to data to see it here.')}`, '', toggle)}`, bar };
+    const description = treatment?.choices.find(entry => entry.id === treatment.selected)?.description ?? '';
+    const picker = treatment ? `<select id="pyric-flow-treatment" data-flow-treatment aria-label="Flow treatment" title="${escapeAttribute(description)}">${['Standard', 'Experimental', 'Custom'].map(group => { const entries = treatment.choices.filter(entry => entry.group === group); return entries.length ? `<optgroup label="${group}">${entries.map(entry => `<option value="${escapeAttribute(entry.id)}" title="${escapeAttribute(entry.description)}"${entry.id === treatment.selected ? ' selected' : ''}>${escapeAttribute(entry.name)}</option>`).join('')}</optgroup>` : ''; }).join('')}</select>` : '<span></span>';
+    const notice = treatment?.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span>${buttonHtml(`data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}"`, 'Retry')}` : treatment?.loading ? '<span class="hint" role="status">Loading treatment…</span>' : '';
+    const toolbar = `<div class="listener-toolbar"><div class="paint-switch" role="group" aria-label="Highlight mode">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')}</div>${picker}<button type="button" class="btn icon-button" data-open-overlay-theme aria-label="Highlight settings" title="Highlight settings">${iconHtml('settings')}</button>${notice ? `<span class="listener-toolbar-notice">${notice}</span>` : ''}</div>`;
+    let bar = barHtml([toolbar]);
+    const guidance = blocked ?? flowReason;
+    const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
+    let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : '', toggle);
+    if (selected) {
+      body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(selected.service)}</span>${iconHtml('chevron')}<span class="breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${selected.service === 'ai' ? 'Model requests' : escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
+    }
+    if (selected) body += `<div class="history-context">${indexBlock(queryForSource(selected.id), selected.id, selected.id)}</div>`;
+    if (selected) {
+      const action = indexActionHtml(queryForSource(selected.id), selected.id, indexInspector, escapeAttribute);
+      if (action) bar = barHtml([`<div class="index-toolbar">${toolbar}<div class="index-submit">${action}</div></div>`]);
+    }
+    if (guidance) body += `<span class="hint" data-flow-unavailable>${escapeAttribute(guidance)}</span>`;
+    return { body, bar };
+
   };
 
-  let expandedRequestId: string | null = null;
+  let selectedRequest: ChipRequest | null = null;
+  const trafficToolbar = (): string => {
+    const modes = `<div class="paint-switch" role="group" aria-label="Traffic view">${buttonHtml(`data-traffic-display="requests" aria-pressed="${trafficDisplay === 'requests'}"`, 'Requests')}${buttonHtml(`data-traffic-display="rates" aria-pressed="${trafficDisplay === 'rates'}"`, 'Rates')}</div>`;
+    let filter = '';
+    if (trafficDisplay === 'requests') filter = buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only');
+    if (trafficDisplay === 'rates' && isThresholdService(selectedRateService)) {
+      if (rateSection === 'capture-rename' || rateSection === 'capture-delete') return barHtml([`<div class="traffic-toolbar"><div class="traffic-view-switch">${buttonHtml('data-capture-edit-cancel', 'Cancel')}</div><div class="traffic-actions">${buttonHtml(`data-capture-edit-save ${captureEditBusy ? 'disabled' : ''}`, rateSection === 'capture-delete' ? 'Delete' : 'Save')}</div></div>`]);
+      const frame = currentRateHistory().view(rates.snapshot());
+      const label = frame?.imported ? 'Return to live' : frame?.paused ? 'Resume live' : 'Pause';
+      const primary = rateSection === 'chart' ? buttonHtml(`data-history-toggle data-history-mode="${frame?.paused ? 'live' : 'pause'}"`, label) : buttonHtml('data-rate-chart', 'Back to activity');
+      const captureActions = `<button type="button" data-capture-open>Open capture…</button>${frame?.imported ? '<button type="button" data-capture-download>Download JSON</button>' : ''}`;
+      const menuActions = rateSection === 'captures' ? '<button type="button" data-capture-import>Open file…</button>'
+        : frame?.imported && selectedSavedCapture ? `<button type="button" data-capture-rename>Rename…</button><button type="button" data-capture-delete>Delete…</button>${captureActions}`
+        : `<button type="button" data-capture-export>Save capture…</button>${captureActions}${frame?.imported ? '' : `<button type="button" data-open-thresholds>Thresholds…</button><button type="button" data-rate-incidents="${selectedRateService}">Incidents</button><button type="button" data-rate-measurements>Measurements</button>`}`;
+      const menu = `<details class="rate-menu"><summary class="btn" role="button" aria-label="More actions" title="More actions"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="3" cy="8" r="1" fill="currentColor"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="13" cy="8" r="1" fill="currentColor"/></svg></summary><div class="rate-menu-items">${menuActions}</div></details>`;
+      return barHtml([`<div class="traffic-toolbar">${primary}${menu}</div>`]);
+    }
+    return barHtml([`<div class="traffic-toolbar">${modes}${filter}</div>`]);
+  };
   const trafficViewHtml = (): ChipView => {
+    if (trafficDisplay === 'rates') {
+      const settings = thresholdSettings.state();
+      const crumbs = (service: string, editing = false) => `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}${editing ? `<button type="button" data-threshold-cancel>${escapeAttribute(serviceLabel(service))}</button>${iconHtml('chevron')}<span aria-current="page">Thresholds</span>` : `<span aria-current="page">${escapeAttribute(serviceLabel(service))}</span>`}</nav></div>`;
+      if (settings.service) {
+        const footer = `<div class="threshold-footer"><button type="button" class="btn" data-threshold-defaults ${settings.busy ? 'disabled' : ''}>Use defaults</button><span><button type="button" class="btn" data-threshold-cancel ${settings.busy ? 'disabled' : ''}>Cancel</button><button type="button" class="btn" data-threshold-save ${settings.busy || !settings.loaded || !settings.dirty || settings.invalid ? 'disabled' : ''}>${settings.saving ? 'Saving' : 'Save'}</button></span></div>`;
+        return { body: crumbs(settings.service, true) + sectionHtml('Thresholds', thresholdSettingsHtml(thresholdSettings, escapeAttribute), settings.saving ? 'Saving' : settings.busy ? 'Loading' : settings.project ? 'Project' : 'This session'), bar: barHtml([footer]) };
+      }
+      const alerts = thresholdMonitor.incidents().filter(incident => !selectedRateService || incident.service === selectedRateService);
+      const alertHtml = alerts.length ? sectionHtml('Recorded incidents', `<div class="rows">${alerts.map(incident => `<button type="button" class="rate-alert" data-rate-incident="${escapeAttribute(incident.id)}"><span>${escapeAttribute(incident.label)}<small>${escapeAttribute(serviceLabel(incident.service))} · ${new Date(incident.at).toLocaleTimeString()}</small><small>Peak ${incident.peak}/s · limit ${incident.limit}/s</small><small>${incident.aboveSeconds}s above limit / ${incident.to - incident.from + 1}s elapsed</small></span><span class="rate-alert-status">${iconHtml('warning')}<span>Exceeded</span></span></button>`).join('')}</div>`) : '';
+      const incidentCounts = new Map(['firestore', 'rtdb', 'storage', 'ai'].map(service => [service, thresholdMonitor.incidents().filter(incident => incident.service === service).length]));
+      const frame = isThresholdService(selectedRateService) ? currentRateHistory().view(rates.snapshot()) : undefined;
+      const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart');
+      if (!selectedRateService) return { body: sectionHtml(measured.title, measured.body), bar: trafficToolbar() };
+      const secondary = rateSection === 'capture-rename' ? 'Rename capture' : rateSection === 'capture-delete' ? 'Delete capture' : rateSection === 'chart' ? '' : rateSection === 'incidents' ? 'Incidents' : rateSection === 'captures' ? 'Captures' : 'Measurements';
+      const breadcrumb = frame?.imported && selectedSavedCapture && rateSection === 'chart'
+        ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}<button type="button" data-capture-open>Captures</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(selectedSavedCapture.name || serviceLabel(selectedRateService))}</span></nav></div>`
+        : secondary ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-rates-back>Services</button>${iconHtml('chevron')}${rateSection === 'captures' ? '' : rateSection === 'capture-rename' || rateSection === 'capture-delete' ? `<button type="button" data-capture-open>Captures</button>${iconHtml('chevron')}` : `<button type="button" data-rate-chart>${escapeAttribute(serviceLabel(selectedRateService))}</button>${iconHtml('chevron')}`}<span aria-current="page">${secondary}</span></nav></div>` : crumbs(selectedRateService);
+      const body = selectedSavedCapture && (rateSection === 'capture-rename' || rateSection === 'capture-delete') ? captureEditor(rateSection === 'capture-rename' ? { ...selectedSavedCapture, name: captureNameDraft } : selectedSavedCapture, rateSection === 'capture-delete', escapeAttribute) : rateSection === 'captures' ? `<section class="section">${captureList(savedCaptureList, capturesLoading, escapeAttribute)}</section>` : rateSection === 'incidents' ? alertHtml || emptyHtml('No incidents', 'No thresholds have been exceeded.') : `<section class="section">${measured.body}</section>`;
+      return { body: breadcrumb + `<input type="file" data-capture-file accept="application/json,.json" hidden><p class="threshold-error" data-capture-error role="alert" ${captureError ? '' : 'hidden'}>${escapeAttribute(captureError)}</p>` + body, bar: trafficToolbar() };
+    }
+    if (selectedRequest) {
+      const request = trafficRows().find(row => row.id === selectedRequest!.id) ?? selectedRequest;
+      const method = request.method ?? 'Request';
+      const target = request.path ?? request.label ?? 'Request';
+      const service = serviceLabel(request.service);
+      const outcome = request.aiRequest?.status === 'pending' ? 'In progress' : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
+      const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
+      let identityFact = '';
+      if (request.identity) identityFact = fact('Identity', request.identity, 's2');
+      let evidenceDetails = '';
+      let reasonFact = request.indexFailure ? fact('Reason', 'The required index was missing.', '') : '';
+      if (request.service === 'firestore') {
+        reasonFact = fact('Reason', rulesSummary(request), '');
+        evidenceDetails = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
+      }
+      if (request.aiRequest) {
+        const response = request.aiRequest.response;
+        const content = response
+          ? `<div class="request-response"><pre class="request-response-body mono" tabindex="0" aria-label="Returned response">${escapeAttribute(response.text)}</pre><button class="btn icon-button request-response-copy" type="button" data-copy-response aria-label="Copy response" title="Copy response"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button></div>${response.truncated ? '<p class="rules-privacy">Preview limited to the first 65,536 characters.</p>' : ''}`
+          : `<p class="rules-privacy">${request.aiRequest.status === 'pending' ? 'Waiting for the completed response.' : request.aiRequest.status === 'failed' ? 'No successful response was returned.' : 'Response content was not recorded for this request.'}</p>`;
+        evidenceDetails += `<details class="rules-disclosure" data-request-response="${escapeAttribute(request.id)}"><summary><span>Response</span><span class="rules-chevron">${iconHtml('chevron')}</span></summary><div class="rules-detail-body">${content}</div></details>`;
+      }
+      evidenceDetails += indexBlock(request.indexQuery, request.id);
+      const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
+      return {
+        body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
+          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${request.aiRequest ? fact('Requested', target, 'c2') + fact('Routed to', request.aiRequest.detail.routedModel ?? (request.aiRequest.detail.engine === 'scripted' ? 'Scripted — no model invoked' : 'Unknown'), 'c2') + fact('Reported by backend', request.aiRequest.detail.reportedModel ?? 'Not reported', 'c2') : fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
+        bar: barHtml([indexActionHtml(request.indexQuery, request.id, indexInspector, escapeAttribute)]),
+      };
+    }
     const rows = trafficRows().map((request) => {
       // Keep named cells stable for copying while the path owns the main line.
+      const indexMissing = requestMissingIndex(request);
       const named = request.service !== null && request.method !== null;
       const call = named ? `${request.service}.${request.method}` : 'runtime';
       const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
       return buttonRowHtml({
         c1: escapeAttribute(call),
-        c2: named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
+        c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined) : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
-        s2: escapeAttribute(request.reason ?? ''),
-        slot: `<span class="verdict ${request.verdict === 'ok' ? 'ok' : ''}">${request.verdict}</span>`,
-        className: `traffic-row${request.verdict === 'ok' ? '' : ' problem'}`,
-        title: [call, what, request.reason].filter(Boolean).join(' —'),
+        s2: escapeAttribute(request.identity ?? ''),
+        slot: request.aiRequest ? `<span class="listener-fact">${request.aiRequest.status === 'pending' ? 'In progress' : request.aiRequest.status === 'failed' ? 'Failed' : 'Completed'}</span>` : trafficBadgeHtml(request.verdict, indexMissing),
+        className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' ? '' : ' problem'}`,
+        title: [call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
-        label: `${call}: ${what}. ${request.verdict}. ${expandedRequestId === request.id ? 'Collapse' : 'Expand'} full path`,
-        expanded: expandedRequestId === request.id,
+        label: `Inspect ${call}: ${what}. ${request.verdict}`,
       });
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
-    const bar = barHtml([
-      buttonHtml(`data-traffic-denied aria-pressed="${trafficFilter === 'denied'}"`, 'Denied only'),
-    ]);
-    return { body: `${introHtml('Recent traffic', 'Select a request to expand its full path.')}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
+    const bar = trafficToolbar();
+    return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
   };
 
   const sandboxViewHtml = (): ChipView => {
@@ -849,8 +1164,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (hasUpdate) workerDetail = 'A newer version is available';
     let workerRow = rowHtml({ c1: 'Worker', s1: workerDetail, slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch });
     if (isHosted) workerRow = rowHtml({ c1: 'Hosted', slot: escapeAttribute(hostedLabel), attributes: 'data-worker-row' });
+    const isInPage = snapshot.mode === 'in-page';
+    if (isInPage) workerRow = rowHtml({ c1: 'Runtime', s1: 'Services run in this page', slot: 'In-page', attributes: 'data-runtime-row' });
+    const configuration = options.aiConfiguration?.getSnapshot();
+    const hasConfiguration = configuration !== undefined;
     const rows = [
-      rowHtml({ c1: 'Model', s1: aiDetail, slot: escapeAttribute(aiState.primary.replace(/^sandbox \((.*)\)$/, '$1')), attributes: 'data-ai-row', title: aiState.detail ?? aiState.primary }),
+      ...(hasConfiguration ? [
+        rowHtml({ c1: 'AI backend', s1: 'Configuration for new actions', slot: escapeAttribute(configuration.backend), attributes: 'data-ai-row' }),
+        rowHtml({ c1: 'Requested', slot: escapeAttribute(configuration.requestedModel), attributes: 'data-ai-requested-row' }),
+        rowHtml({ c1: 'Configured route', slot: escapeAttribute(configuration.route), attributes: 'data-ai-route-row' }),
+      ] : [rowHtml({ c1: 'Model', s1: escapeAttribute(aiState.detail ?? ''), slot: escapeAttribute(aiState.primary), attributes: 'data-ai-row' })]),
       workerRow,
     ];
     const supportsListeners = options.listeners !== undefined;
@@ -864,18 +1187,54 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   const viewHtml = (activeUid: string | null, isAdmin: boolean): ChipView => {
     if (tab === 'identity') return identityViewHtml(activeUid, isAdmin);
-    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : { body: emptyHtml('Listeners unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
+    if (tab === 'listeners') return options.listeners ? listenersViewHtml() : { body: emptyHtml('Data unavailable', 'This page has no listener event source. Connect the sandbox to inspect subscriptions.'), bar: barHtml([]) };
     if (tab === 'traffic') return trafficViewHtml();
     return sandboxViewHtml();
   };
 
+  let pointerActive = false;
+  let deferredRender = false;
+  let pointerRenderTimer: ReturnType<typeof setTimeout> | undefined;
+  root.addEventListener('pointerdown', event => {
+    pointerActive = true;
+    if (!(event.target as Element).closest('.rate-menu')) root.querySelector<HTMLDetailsElement>('.rate-menu')?.removeAttribute('open');
+  });
+  const finishPointer = () => {
+    pointerActive = false;
+    if (deferredRender) {
+      clearTimeout(pointerRenderTimer);
+      pointerRenderTimer = setTimeout(() => { deferredRender = false; render(); }, 0);
+    }
+  };
+  documentLike.addEventListener('pointerup', finishPointer);
+  documentLike.addEventListener('pointercancel', finishPointer);
   const render = (next = snapshot): void => {
+    if (pointerActive) { snapshot = next; deferredRender = true; return; }
+    indexTargets.clear();
+    const menuOpen = root.querySelector<HTMLDetailsElement>('.rate-menu')?.open;
+    const openRateNotes = root.querySelector<HTMLDetailsElement>('[data-rate-notes][open]')?.dataset.rateNotes;
+    const focusedRateNotes = root.activeElement?.closest('[data-rate-notes]')?.getAttribute('data-rate-notes');
+    const openIndexJson = root.querySelector<HTMLDetailsElement>('[data-index-json][open]')?.dataset.indexJson;
+    const responseDetails = root.querySelector<HTMLDetailsElement>('[data-request-response]');
+    const responseOpen = responseDetails?.open ? responseDetails.dataset.requestResponse : undefined;
+    const responseScroll = responseDetails?.querySelector('pre')?.scrollTop ?? 0;
+    const responseFocus = responseDetails?.contains(root.activeElement) ? root.activeElement?.tagName : undefined;
+    const openRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details][open]')?.dataset.ruleDetails;
+    const previousRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
+    const previousExpressions = [...(previousRuleDetails?.querySelectorAll<HTMLElement>('.rule-expression') ?? [])];
+    const expressionScroll = previousExpressions.map(expression => expression.scrollLeft);
+    const rateMethods = [...root.querySelectorAll<HTMLElement>('[data-rate-method] code')];
+    const rateScroll = new Map(rateMethods.map(code => [code.parentElement?.parentElement?.dataset.rateMethod, code.scrollLeft]));
+    const focusedRate = rateMethods.find(code => code === root.activeElement)?.parentElement?.parentElement?.dataset.rateMethod;
+    const focusedExpression = previousExpressions.findIndex(expression => expression === root.activeElement);
+    const ruleDetailsFocus = root.activeElement?.closest('[data-rule-details]')?.getAttribute('data-rule-details');
     const openProviders = [...root.querySelectorAll<HTMLDetailsElement>('[data-user-providers][open]')].map((details) => details.dataset.userProviders);
     const providerFocus = root.activeElement?.closest('[data-user-providers]')?.getAttribute('data-user-providers');
     const previousView = root.querySelector<HTMLElement>('[data-chip-view]');
     const scrollTop = previousView?.dataset.chipView === tab ? previousView.scrollTop : 0;
     const active = root.activeElement as HTMLElement | null;
     const focusAttribute = [
+      'data-index-action',
       'data-identity-query',
       'data-collapse',
       'data-expand',
@@ -887,13 +1246,31 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-create-user',
       'data-user-previous',
       'data-user-next',
+      'data-source-traffic',
+      'data-highlight-source',
+      'data-clear-traffic-source',
+      'data-sources-back',
+      'data-history-entry',
+      'data-history-page',
+      'data-clear-activity-history',
       'data-listener-all',
       'data-listener-mode',
       'data-flow-treatment',
       'data-activate-listener',
+      'data-request-back',
       'data-inspect-request',
       'data-traffic-denied',
+      'data-traffic-display',
+      'data-inspect-rates',
+      'data-rates-back',
+      'data-open-thresholds',
+      'data-threshold-input',
+      'data-threshold-save',
+      'data-threshold-defaults',
+      'data-threshold-cancel',
+      'data-rate-incident',
       'data-copy-traffic',
+      'data-copy-response',
       'data-open-overlay-theme',
       'data-update-worker',
       'data-dismiss-chip',
@@ -918,10 +1295,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const problem = problemTab(current);
     // The pill's border is the page's state: the error colour outranks the
     // warning colour because a failure is about the page as it is running.
-    const chipTone = current.failedRecently || current.duplicateListener ? ' error' : current.updatePending ? ' warning' : '';
+    const chipTone = current.failedRecently || current.duplicateListener ? ' error' : (current.missingIndex || current.rateThreshold || current.updatePending) ? ' warning' : '';
     const chipTitle = current.failedRecently
       ? 'A request failed in the last minute'
-      : current.duplicateListener ? 'A listener is attached twice' : current.updatePending ? 'New worker available' : '';
+      : current.duplicateListener ? 'A listener is attached twice' : current.missingIndex ? 'A query is missing an index in local configuration' : current.rateThreshold ? 'Activity exceeded a threshold. Open Traffic to review.' : current.updatePending ? 'New worker available' : '';
     const tabsHtml = CHIP_TABS.map((candidate) => {
       const tone = candidate !== problem
         ? ''
@@ -957,17 +1334,212 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       </div></section>`
       : `<button class="chip${chipTone}" type="button" data-expand aria-label="Open pyric" aria-expanded="false"${chipTitle ? ` title="${chipTitle}"` : ''}>pyric</button>`;
 
+    const rateNotes = root.querySelector<HTMLDetailsElement>('[data-rate-notes]');
+    if (rateNotes) {
+      rateNotes.open = rateNotes.dataset.rateNotes === openRateNotes;
+      if (rateNotes.dataset.rateNotes === focusedRateNotes) rateNotes.querySelector('summary')?.focus({ preventScroll: true });
+    }
+    const indexJson = root.querySelector<HTMLDetailsElement>('[data-index-json]');
+    if (indexJson) indexJson.open = indexJson.dataset.indexJson === openIndexJson;
+    const nextResponse = root.querySelector<HTMLDetailsElement>('[data-request-response]');
+    if (nextResponse && nextResponse.dataset.requestResponse === responseDetails?.dataset.requestResponse) {
+      nextResponse.open = nextResponse.dataset.requestResponse === responseOpen;
+      const pre = nextResponse.querySelector('pre');
+      if (pre) pre.scrollTop = responseScroll;
+      if (responseFocus) nextResponse.querySelector<HTMLElement>(responseFocus === 'PRE' ? 'pre' : 'summary')?.focus({ preventScroll: true });
+    }
+    const ruleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
+    if (ruleDetails) {
+      ruleDetails.open = ruleDetails.dataset.ruleDetails === openRuleDetails;
+      if (ruleDetails.dataset.ruleDetails === ruleDetailsFocus) ruleDetails.querySelector('summary')?.focus({ preventScroll: true });
+      // Captured conditions are stable for a request, even when new traffic refreshes the chip.
+      if (ruleDetails.dataset.ruleDetails === previousRuleDetails?.dataset.ruleDetails) {
+        const expressions = [...ruleDetails.querySelectorAll<HTMLElement>('.rule-expression')];
+        expressions.forEach((expression, index) => { expression.scrollLeft = expressionScroll[index] ?? 0; });
+        expressions[focusedExpression]?.focus({ preventScroll: true });
+      }
+    }
     for (const details of root.querySelectorAll<HTMLDetailsElement>('[data-user-providers]')) {
       details.open = openProviders.includes(details.dataset.userProviders);
       if (providerFocus === details.dataset.userProviders) details.querySelector('summary')?.focus({ preventScroll: true });
     }
     const scrollView = root.querySelector<HTMLElement>('[data-chip-view]');
     if (scrollView) scrollView.scrollTop = scrollTop;
+    for (const code of root.querySelectorAll<HTMLElement>('[data-rate-method] code')) {
+      const method = code.parentElement?.parentElement?.dataset.rateMethod;
+      code.scrollLeft = rateScroll.get(method) ?? 0;
+      if (method === focusedRate) code.focus({ preventScroll: true });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-traffic-display]')) {
+      button.addEventListener('click', () => {
+        trafficDisplay = button.dataset.trafficDisplay === 'rates' ? 'rates' : 'requests';
+        selectedRequest = null;
+        render();
+      });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-inspect-rates]')) {
+      button.addEventListener('click', () => {
+        selectedRateService = button.dataset.inspectRates ?? null;
+        rateSection = 'chart';
+        if (isThresholdService(selectedRateService)) currentRateHistory().open(rates.snapshot());
+        render();
+        root.querySelector<HTMLButtonElement>('[data-rates-back]')?.focus({ preventScroll: true });
+      });
+    }
+    for (const button of root.querySelectorAll<HTMLElement>('[data-rate-incidents]')) button.addEventListener('click', () => {
+      selectedRateService = button.dataset.rateIncidents!; rateSection = 'incidents'; render();
+    });
+    for (const button of root.querySelectorAll('[data-rate-chart]')) button.addEventListener('click', () => { rateSection = 'chart'; render(); });
+    root.querySelector('[data-rate-measurements]')?.addEventListener('click', () => { rateSection = 'measurements'; render(); });
+    const menu = root.querySelector<HTMLDetailsElement>('.rate-menu');
+    if (menu && menuOpen) menu.open = true;
+    menu?.addEventListener('keydown', event => { if (event.key === 'Escape') { menu.open = false; menu.querySelector<HTMLElement>('summary')?.focus(); } });
+    menu?.addEventListener('click', event => { if ((event.target as Element).closest('button')) menu.open = false; }, { capture: true });
+    const refreshHistoryView = () => { const snapshot = rates.snapshot(); refreshRateView(root, snapshot, currentRateHistory().view(snapshot)); };
+    bindHistory(root, currentRateHistory(), rates.snapshot, refreshHistoryView);
+    for (const button of root.querySelectorAll<HTMLElement>('[data-history-mode]')) {
+      button.addEventListener('click', () => {
+        const imported = currentRateHistory().view(rates.snapshot())?.imported;
+        if (button.dataset.historyMode === 'live') currentRateHistory().live(); else currentRateHistory().pause(rates.snapshot());
+        if (imported) render(); else refreshHistoryView();
+      });
+    }
+    async function showCaptures() {
+      rateSection = 'captures'; capturesLoading = true; captureError = ''; render();
+      try { savedCaptureList = await captureClient.list(); }
+      catch (error) { captureError = error instanceof Error ? error.message : 'Unable to list captures.'; }
+      finally { capturesLoading = false; render(); }
+    }
+    for (const button of root.querySelectorAll('[data-capture-open]')) button.addEventListener('click', showCaptures);
+    for (const mode of ['rename', 'delete'] as const) root.querySelector(`[data-capture-${mode}]`)?.addEventListener('click', () => {
+      captureNameDraft = selectedSavedCapture?.name ?? '';
+      rateSection = mode === 'rename' ? 'capture-rename' : 'capture-delete'; captureError = ''; render();
+      root.querySelector<HTMLInputElement>('[data-capture-name]')?.focus();
+    });
+    root.querySelector<HTMLInputElement>('[data-capture-name]')?.addEventListener('input', event => { captureNameDraft = (event.currentTarget as HTMLInputElement).value; });
+    root.querySelector<HTMLInputElement>('[data-capture-name]')?.addEventListener('keydown', event => { if (event.key === 'Enter') root.querySelector<HTMLButtonElement>('[data-capture-edit-save]')?.click(); });
+    root.querySelector('[data-capture-edit-cancel]')?.addEventListener('click', () => { if (!captureEditBusy) { rateSection = 'chart'; captureError = ''; render(); } });
+    root.querySelector<HTMLButtonElement>('[data-capture-edit-save]')?.addEventListener('click', async event => {
+      if (!selectedSavedCapture || captureEditBusy) return;
+      captureEditBusy = true; (event.currentTarget as HTMLButtonElement).disabled = true;
+      try {
+        if (rateSection === 'capture-delete') {
+          await captureClient.remove(selectedSavedCapture.id);
+          importedCaptures.delete(selectedSavedCapture.service); selectedSavedCapture = null;
+          currentRateHistory().live(); await showCaptures();
+        } else {
+          selectedSavedCapture = await captureClient.rename(selectedSavedCapture.id, root.querySelector<HTMLInputElement>('[data-capture-name]')!.value);
+          rateSection = 'chart'; captureError = '';
+        }
+      } catch (error) { captureError = error instanceof Error ? error.message : 'Unable to update capture.'; }
+      finally { captureEditBusy = false; render(); }
+    });
+    root.querySelector('[data-capture-import]')?.addEventListener('click', () => root.querySelector<HTMLInputElement>('[data-capture-file]')?.click());
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-project-capture]')) button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const text = await captureClient.read(button.dataset.projectCapture!);
+        selectedSavedCapture = savedCaptureList?.find(entry => entry.id === button.dataset.projectCapture) ?? null;
+        const capture = readRateCapture(text);
+        importedCaptures.set(capture.frame.service.service, text);
+        selectedRateService = capture.frame.service.service; rateSection = 'chart';
+        currentRateHistory().load(capture.frame); captureError = ''; render();
+      } catch (error) { captureError = error instanceof Error ? error.message : 'Unable to open capture.'; render(); }
+    });
+    function downloadCapture(text: string, name: string) {
+      const blob = new Blob([text], { type: 'application/json' });
+      if (blob.size > 32 * 1024 * 1024) throw new Error('Capture exceeds 32 MB.');
+      const url = URL.createObjectURL(blob);
+      const link = documentLike.createElement('a'); link.href = url; link.download = name;
+      documentLike.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    root.querySelector('[data-capture-download]')?.addEventListener('click', () => {
+      const text = importedCaptures.get(selectedRateService!);
+      if (text) downloadCapture(text, `pyric-${selectedRateService}.capture.json`);
+    });
+    root.querySelector<HTMLInputElement>('[data-capture-file]')?.addEventListener('change', async event => {
+      const file = (event.currentTarget as HTMLInputElement).files?.[0];
+      selectedSavedCapture = null;
+      if (!file) return;
+      try {
+        if (file.size > 32 * 1024 * 1024) throw new Error('Capture exceeds 32 MB.');
+        const text = await file.text();
+        const capture = readRateCapture(text);
+        importedCaptures.set(capture.frame.service.service, text);
+        selectedRateService = capture.frame.service.service;
+        rateSection = 'chart';
+        currentRateHistory().load(capture.frame);
+        captureError = ''; render();
+      } catch (error) { captureError = error instanceof Error ? error.message : 'Unable to open capture.'; render(); }
+    });
+    root.querySelector<HTMLButtonElement>('[data-capture-export]')?.addEventListener('click', async event => {
+      const frame = currentRateHistory().view(rates.snapshot());
+      if (!frame) return;
+      const selected = structuredClone(frame);
+      const config = structuredClone(thresholdSettings.config());
+      const events = [...captureEvents];
+      const button = event.currentTarget as HTMLButtonElement;
+      button.disabled = true;
+      try {
+        const fetcher = documentLike.defaultView?.fetch?.bind(documentLike.defaultView);
+        const saved = selected.imported ? importedCaptures.get(selected.service.service) : undefined;
+        let fixture: unknown = null;
+        let attachmentError: string | null = null;
+        if (!saved) {
+          try { fixture = options.captureSession ? await options.captureSession() : fetcher ? await readSessionFixture(fetcher) : null; }
+          catch { attachmentError = 'Session state could not be read. Measurements and retained operations are included.'; }
+        }
+        const capture = buildRateCapture(selected, config, events, fixture, attachmentError);
+        const text = saved ?? JSON.stringify(capture, null, 2);
+        const entry = await captureClient.save(text);
+        if (entry) await showCaptures();
+        else downloadCapture(text, `pyric-${selected.service.service}-${Math.round(selected.clockOffset + selected.from * 1000)}.capture.json`);
+        captureError = '';
+      } catch (error) { captureError = error instanceof Error ? error.message : 'Unable to export capture.'; }
+      finally { button.disabled = false; render(); }
+    });
+    root.querySelector('[data-open-thresholds]')?.addEventListener('click', () => {
+      if (isThresholdService(selectedRateService)) thresholdSettings.open(selectedRateService);
+    });
+    root.querySelector('[data-threshold-defaults]')?.addEventListener('click', () => thresholdSettings.defaults());
+    root.querySelector('[data-threshold-save]')?.addEventListener('click', async () => { await thresholdSettings.save(); root.querySelector<HTMLElement>('[data-open-thresholds]')?.focus(); });
+    for (const button of root.querySelectorAll('[data-threshold-cancel]')) button.addEventListener('click', () => thresholdSettings.cancel());
+    for (const input of root.querySelectorAll<HTMLInputElement>('[data-threshold-input]')) input.addEventListener('input', () => {
+      thresholdSettings.edit(input.dataset.thresholdInput as import('./rate-threshold-config.js').ThresholdOperation | 'sustainedSeconds', input.value);
+      refreshThresholdForm(root, thresholdSettings);
+    });
+    for (const button of root.querySelectorAll<HTMLElement>('[data-rate-incident]')) button.addEventListener('click', () => {
+      const incident = thresholdMonitor.review(button.dataset.rateIncident!);
+      if (!incident) return;
+      selectedRateService = incident.service;
+      rateSection = 'chart';
+      currentRateHistory().inspect(incident.evidence, incident.from, incident.to, incident);
+      render();
+      const chart = root.querySelector<HTMLElement>('[data-history-chart]');
+      root.querySelector('[data-incident-context]')?.scrollIntoView({ block: 'start' }); chart?.focus({ preventScroll: true });
+    });
+    root.querySelector('[data-rates-back]')?.addEventListener('click', () => { selectedRateService = null; rateSection = 'chart'; thresholdSettings.cancel(); });
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-index-action]')) {
+      button.addEventListener('click', async () => {
+        const key = button.dataset.indexKey!;
+        const target = indexTargets.get(key);
+        if (!target) return;
+        switch (button.dataset.indexAction) {
+          case 'apply':
+            await indexInspector.apply(key, target.query);
+            root.querySelector<HTMLButtonElement>('[data-index-action=copy]')?.focus({ preventScroll: true });
+            break;
+          case 'copy': await indexInspector.copy(target.query, clipboard ?? undefined); break;
+
+        }
+      });
+    }
     for (const photo of root.querySelectorAll<HTMLImageElement>('[data-avatar]')) {
       photo.addEventListener('error', () => { photo.hidden = true; });
     }
 
-    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
+    const announcement = `${errorCount === 0 ? 'No runtime errors' : `${errorCount} runtime ${errorCount === 1 ? 'error' : 'errors'}`}.${current.missingIndex ? ' A query is missing an index in local configuration.' : ''}${current.rateThreshold ? ' Activity exceeded a threshold. Open Traffic to review.' : ''}${open ? ` ${CHIP_TAB_LABELS[tab]}.` : ''}`;
     if (announcer.textContent !== announcement) announcer.textContent = announcement;
 
     if (renderedOpen !== open) {
@@ -1047,8 +1619,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     root.querySelector('[data-listener-all]')?.addEventListener('click', () => {
       const mode = ensureListenerMode();
       if (!mode) return;
-      const allOn = mode.enabled() && mode.mode() === 'overview' && activeListenerId === null && mode.outlines().every((outline) => mode.isListenerVisible(outline.listenerId));
-      activeListenerId = null;
+      const allOn = mode.enabled() && mode.mode() === 'overview' && highlightedSourceKey === undefined && mode.outlines().every((outline) => mode.isListenerVisible(outline.listenerId));
+      activeListenerId = null; selectedSourceKey = undefined; highlightedSourceKey = undefined;
       for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
       if (!allOn) mode.setMode('overview');
       mode.setEnabled(!allOn);
@@ -1065,7 +1637,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         // else is that mode going on.
         if (mode.enabled() && mode.mode() === paint) {
           mode.setEnabled(false);
-          activeListenerId = null;
+          activeListenerId = null; selectedSourceKey = undefined; highlightedSourceKey = undefined;
           for (const outline of mode.outlines()) mode.setListenerVisible(outline.listenerId, true);
           outlinesRefused = null;
         } else {
@@ -1082,38 +1654,101 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     // A listener row singles its listener out on the page: the outlines come
     // on if they were off, and only that listener is painted until the row is
     // pressed again.
+    root.querySelector('[data-source-traffic]')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      const selected = sourceGroups().find(group => group.id === selectedSourceId());
+      if (selected) trafficSource = { service: selected.service, target: selected.target };
+      trafficFilter = 'all'; trafficDisplay = 'requests'; selectedRequest = null; showTab('traffic');
+    });
+    root.querySelector('[data-clear-traffic-source]')?.addEventListener('click', () => { trafficSource = null; selectedRequest = null; render(); });
+    root.querySelector('[data-sources-back]')?.addEventListener('click', () => {
+      activeListenerId = null; selectedSourceKey = undefined; selectedHistory = null; historyPage = 0;
+      listenerMode?.inspectHistory?.(null);
+      render();
+      const view = root.querySelector<HTMLElement>('.view'); if (view) view.scrollTop = 0;
+      root.querySelector<HTMLButtonElement>('[data-listener-row]')?.focus();
+    });
+    root.querySelector('[data-clear-activity-history]')?.addEventListener('click', () => {
+      selectedHistory = null; historyPage = 0;
+      listenerMode?.clearActivityHistory?.(); render();
+    });
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-history-page]')) {
+      button.addEventListener('click', () => { historyPage = Number(button.dataset.historyPage); render(); });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-history-entry]')) {
+      button.addEventListener('click', () => {
+        const sequence = Number(button.dataset.historyEntry);
+        selectedHistory = selectedHistory === sequence ? null : sequence;
+        const entry = listenerMode?.history?.snapshot().entries.find(entry => entry.sequence === sequence);
+        const associated = listenerMode?.history?.association(sequence);
+        const highlightSequence = selectedHistory === null ? null : associated?.sequence ?? null;
+        listenerMode?.inspectHistory?.(highlightSequence);
+
+        render();
+      });
+    }
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-highlight-source]')) {
+      button.addEventListener('click', () => {
+        const mode = ensureListenerMode();
+        if (!mode) return;
+        const sourceId = button.dataset.highlightSource;
+        const turnOff = mode.enabled() && highlightedSourceKey === sourceId;
+        highlightedSourceKey = turnOff ? undefined : sourceId;
+        mode.inspectHistory?.(null);
+        for (const outline of mode.outlines()) {
+          mode.setListenerVisible(outline.listenerId, turnOff || (outline.activity?.sourceId ?? outline.listenerId) === sourceId);
+        }
+        mode.setMode('overview');
+        mode.setEnabled(!turnOff);
+        render();
+        root.querySelectorAll<HTMLButtonElement>('[data-highlight-source]').forEach(next => {
+          if (next.dataset.highlightSource === sourceId) next.focus({ preventScroll: true });
+        });
+      });
+    }
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-activate-listener]')) {
       button.addEventListener('click', () => {
         const mode = ensureListenerMode();
         const listenerId = button.dataset.activateListener;
         if (mode === null || listenerId === undefined) return;
-        activeListenerId = activeListenerId === listenerId ? null : listenerId;
-        for (const outline of mode.outlines()) {
-          mode.setListenerVisible(outline.listenerId, activeListenerId === null || outline.listenerId === activeListenerId);
-        }
-        if (activeListenerId !== null && !mode.enabled()) {
-          mode.setMode('overview');
-          mode.setEnabled(true);
-        }
-        if (!mode.enabled()) {
-          activeListenerId = null;
-          outlinesRefused = 'Listener attribution is off in this build, so there are no owners to outline.';
-        } else {
-          outlinesRefused = null;
-        }
+        historyPage = 0; selectedHistory = null;
+        selectedSourceKey = sourceGroups().find(group => group.activityId === listenerId)?.id;
+        activeListenerId = listenerId;
         listenerOutlines = mode.outlines();
         render();
+        const view = root.querySelector<HTMLElement>('.view'); if (view) view.scrollTop = 0;
+        root.querySelector<HTMLButtonElement>('[data-sources-back]')?.focus();
       });
     }
+    root.querySelector('[data-request-back]')?.addEventListener('click', () => { selectedRequest = null; render(); });
     for (const row of root.querySelectorAll<HTMLButtonElement>('[data-inspect-request]')) {
       row.addEventListener('click', () => {
-        expandedRequestId = expandedRequestId === row.dataset.inspectRequest ? null : row.dataset.inspectRequest ?? null;
+        const request = trafficRows().find(request => request.id === row.dataset.inspectRequest);
+        if (!request) return;
+        selectedRequest = { ...request };
         render();
+        const view = root.querySelector<HTMLElement>('.view'); if (view) view.scrollTop = 0;
+        root.querySelector<HTMLButtonElement>('[data-request-back]')?.focus();
       });
     }
     root.querySelector('[data-traffic-denied]')?.addEventListener('click', () => {
       trafficFilter = trafficFilter === 'denied' ? 'all' : 'denied';
       render();
+    });
+    root.querySelector('[data-copy-response]')?.addEventListener('click', async (event) => {
+      if (!clipboard) return;
+      const button = event.currentTarget as HTMLButtonElement;
+      const text = root.querySelector('[data-request-response] pre')?.textContent;
+      if (text === undefined || text === null) return;
+      try {
+        await clipboard.writeText(text);
+        button.innerHTML = iconHtml('check');
+        button.title = 'Copied';
+        button.setAttribute('aria-label', 'Response copied');
+      } catch {
+        button.title = 'Copy failed';
+        button.setAttribute('aria-label', 'Copy response failed; try again');
+      }
     });
     root.querySelector('[data-copy-traffic]')?.addEventListener('click', (event) => {
       if (!clipboard) return;
@@ -1160,6 +1795,17 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
   documentLike.addEventListener('astro:after-swap', reattachAfterAstroSwap);
   const unsubscribe = options.runtime.subscribe(render);
+  const unsubscribeAiConfiguration = options.aiConfiguration?.subscribe(() => { if (open && tab === 'sandbox') render(); });
+  const aiTrafficSignatures = new Map<string, string>();
+  const unsubscribeAi = sdkActivity.subscribe(event => {
+    if (event.record.service !== 'ai' || (event.phase !== 'end' && event.phase !== 'transport')) return;
+    const ai = event.record.ai;
+    const signature = JSON.stringify([event.record.status, ai?.requestedModel, ai?.routedModel, ai?.reportedModel]);
+    if (aiTrafficSignatures.get(event.record.id) === signature) return;
+    aiTrafficSignatures.set(event.record.id, signature);
+    if (aiTrafficSignatures.size > 100) aiTrafficSignatures.delete(aiTrafficSignatures.keys().next().value!);
+    if (open && tab === 'traffic' && trafficDisplay === 'requests') render();
+  });
 
   const unsubLens = subscribeLensFn(() => {
     render();
@@ -1176,6 +1822,23 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   mounted = true;
   render();
+  // Sampling the clock advances idle rates. Updating cells preserves controls,
+  // horizontal method scrolling and focus while the developer inspects them.
+  const rateClock = setInterval(() => {
+    const retainedSnapshot = rates.snapshot();
+    for (const history of Object.values(serviceHistories)) history.record(retainedSnapshot);
+    if (thresholdSettings.ready()) {
+      thresholdMonitor.sample(rates.snapshot(), thresholdSettings.config());
+      for (const service of ['firestore', 'rtdb', 'storage', 'ai'] as const) serviceHistories[service].markWarnings(thresholdMonitor.incidents().filter(incident => incident.service === service).flatMap(incident => incident.aboveRanges));
+      const nextSignature = JSON.stringify(thresholdMonitor.incidents().map(incident => [incident.id, incident.recovered, incident.reviewed]));
+      if (thresholdSignature !== nextSignature) { thresholdSignature = nextSignature; render(); }
+    }
+    if (open && tab === 'traffic' && trafficDisplay === 'rates' && !thresholdSettings.state().service) { const snapshot = rates.snapshot(); refreshRateView(root, snapshot, isThresholdService(selectedRateService) ? currentRateHistory().view(snapshot) : undefined); }
+  }, 1000);
+  const canUnrefRateClock = typeof rateClock === 'object' && 'unref' in rateClock;
+  if (canUnrefRateClock) rateClock.unref();
+  void indexInspector.refresh();
+  void thresholdSettings.load();
   // The chip fades in once, when the page first gets it. The class sits on the
   // stable container rather than on the chip, so a render right behind the
   // mount can neither replay the animation nor cut it short.
@@ -1184,12 +1847,22 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   return {
     element: host,
     dispose() {
+      clearInterval(rateClock);
+      unsubscribeCapture?.();
+      clearTimeout(pointerRenderTimer);
+      documentLike.removeEventListener('pointerup', finishPointer);
+      documentLike.removeEventListener('pointercancel', finishPointer);
       unsubscribe();
+      unsubscribeAi();
+      unsubscribeAiConfiguration?.();
       unsubLens();
       unsubAuth();
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
       themeDialogController?.dispose();
       trafficFeed?.dispose();
+      indexInspector.dispose();
+      thresholdSettings.dispose();
+      denials.dispose();
       listenerMode?.dispose();
       host.remove();
     },

@@ -1,18 +1,10 @@
+import { sdkActivity } from 'pyric/sandbox/internal';
 /**
- * The moment a listener hands a snapshot to the application.
- *
- * The worker tells the page that a subscription produced data; the page is the
- * only side that knows when the application's own callback runs. Page-side
- * diagnostics that want to follow a delivery into the render it caused need
- * that moment, so the read paths report it here, immediately before invoking
- * the callback.
- *
- * The key is the worker subscription id, which is the same string the sandbox
- * records as a listener id on its attach and delivery events. So a subscriber
- * matches a delivery to a listener by identity and needs no mapping by target.
- *
- * Nothing is reported when nobody is listening, and a subscriber that throws
- * never reaches the application's callback.
+ * Compatibility delivery hook for the runtime Flow correlator and Flow Studies.
+ * SDK adapters report through the shared journal at the public callback/result
+ * boundary. Worker records carry their transport id so existing outline lookup
+ * can join backend attribution; in-page records use their activity id.
+ * Synthetic reports remain available for the demonstration fixture.
  */
 
 /** Called with the subscription id whose callback is about to run. */
@@ -23,7 +15,11 @@ const listeners = new Set<ListenerDeliveryListener>();
 /** Watch for deliveries. Returns the function that stops watching. */
 export function onListenerDelivery(listener: ListenerDeliveryListener): () => void {
   listeners.add(listener);
+  const stopActivity = sdkActivity.subscribe(event => {
+    if (event.phase === 'delivery' || event.phase === 'progress') listener(event.record.transportId ?? event.record.id);
+  });
   return () => {
+    stopActivity();
     listeners.delete(listener);
   };
 }

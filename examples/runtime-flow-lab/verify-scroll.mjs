@@ -1,6 +1,7 @@
 /** Geometry regression: run against the example with native anchors AND the
  * feature-detected fallback. Pixel assertions, not screenshots alone. */
 import { chromium, expect } from "@playwright/test";
+import { chatListenerIds } from "./verify-data.mjs";
 const browser = await chromium.launch({ headless: true });
 try {
   for (const fallback of [false, true]) {
@@ -22,12 +23,13 @@ try {
       content: ".photo { anchor-name: --application-avatar; }",
     });
     await expect(page.locator("#treatment option")).toHaveCount(15);
+    const listenerIds = await chatListenerIds(page);
     const variants = await page
       .locator("#treatment option")
       .evaluateAll((options) => options.map((option) => option.value));
-    const photo = page.locator("img[data-pyric-flow-listener=messages]").last();
+    const photo = page.locator(`img[data-pyric-flow-listener="${listenerIds.messages}"]`).last();
     const badge = page
-      .locator("[data-pyric-flow-badge][data-listener-id=messages]")
+      .locator(`[data-pyric-flow-badge][data-listener-id="${listenerIds.messages}"]`)
       .last();
     const photoError = async () => {
       const target = await photo.boundingBox(),

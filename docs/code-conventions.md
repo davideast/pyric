@@ -515,7 +515,7 @@ every rule in this section mechanically.
    that grows inline implementation.
 
 2. **No sideways surface imports.** For any file under `src/<A>/`, a relative
-   import that crosses into another surface `src/<B>/` fails, with five
+   import that crosses into another surface `src/<B>/` fails, with these
    whitelisted exceptions: (a) `database/sandbox/rules-eval.ts` importing the
    private `rules/rtdb` engine described in 8.3; (b) the
    `firestore/internal/value-codec -> rules/simulator/wrappers/*` leaf edge,
@@ -533,7 +533,9 @@ every rule in this section mechanically.
    the `pyric/auth`, `pyric/storage`, and `pyric/storage/internal` published
    surfaces and the `database/sandbox` backend seam (8.3 case 5, upward); and
    (g) `sandbox/types/service-event-records.ts` importing each surface's
-   `<surface>/events.ts` record. Any other cross-surface deep import fails.
+   `<surface>/events.ts` record; and (h) `sandbox/internal/sdk-coverage.ts`
+   importing `<surface>/activity-coverage.ts` data records.
+   Any other cross-surface deep import fails.
 
    Exception (g) in full. Every service declares what it puts on the sandbox
    event stream in one record file beside its own code, and the stream's
@@ -546,6 +548,16 @@ every rule in this section mechanically.
    the record type, so the edge costs the central runtime no capability code.
    The aggregate is the only file allowed to hold it; no other file under
    `sandbox/` may import a surface's record.
+
+   Exception (h) follows the same data-only boundary for SDK observations.
+   Each instrumented service owns its public method names and explicitly
+   unmeasured methods beside its adapters. The shared accumulator aggregates
+   those records before app code runs, so zero observed calls can be
+   distinguished from missing instrumentation. Runtime registration would
+   make that distinction depend on import order. The records have no imports
+   or executable service code; the aggregate must never import an SDK family,
+   adapter, or backend. This exception does not allow a central hand-maintained
+   list of method names or imply complete SDK coverage.
 
 3. **Central-sandbox whitelist.** The top-level entries of `src/sandbox/` must
    match the whitelist in 8.2 (`index.ts`, `internal`, `sandbox-context.ts`,

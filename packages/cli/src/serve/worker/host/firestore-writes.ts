@@ -1,3 +1,4 @@
+import { sdkActivity } from 'pyric/sandbox/internal';
 /**
  * SharedWorker host — Firestore write ops (single writes + batch + transaction).
  *
@@ -194,7 +195,7 @@ export async function handleFirestoreWriteOp(
         const path = requireFirestorePath(msg.path);
         const ref = pyricDoc(db, path);
         const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
-        await setDoc(ref, data, msg.options as SetOptions | undefined);
+        await sdkActivity.silence(() => setDoc(ref, data, msg.options as SetOptions | undefined));
         await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -205,7 +206,7 @@ export async function handleFirestoreWriteOp(
       try {
         const ref = pyricDoc(db, msg.path);
         const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
-        await updateDoc(ref, data);
+        await sdkActivity.silence(() => updateDoc(ref, data));
         await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -215,7 +216,7 @@ export async function handleFirestoreWriteOp(
     case 'deleteDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        await deleteDoc(ref);
+        await sdkActivity.silence(() => deleteDoc(ref));
         await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -226,7 +227,7 @@ export async function handleFirestoreWriteOp(
       try {
         const coll = pyricCollection(db, msg.collectionPath);
         const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
-        const ref = await addDoc(coll, data);
+        const ref = await sdkActivity.silence(() => addDoc(coll, data));
         await bestEffortFlush(ctx);
         ok(port, msg.id, { id: ref.id, path: ref.path });
       } catch (e) { fail(port, msg.id, e); }
@@ -247,7 +248,7 @@ export async function handleFirestoreWriteOp(
         for (const w of msg.writes) {
           applyAtomicWrite(db, batch, w);
         }
-        await batch.commit();
+        await sdkActivity.silence(() => batch.commit());
         await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -400,7 +401,7 @@ export async function handleFirestoreWriteOp(
       try {
         assertAtomicList(msg.writes, 'write');
         assertAtomicList(msg.reads, 'read');
-        await runTransaction(db, async (tx) => {
+        await sdkActivity.silence(() => runTransaction(db, async (tx) => {
           // ── Step 1: validate the read-set ──────────────────────────────
           // Re-read each doc the client touched and compare its current
           // serialized form against what the client recorded at read time.
@@ -445,7 +446,7 @@ export async function handleFirestoreWriteOp(
           for (const write of msg.writes) {
             applyAtomicWrite(db, tx, write);
           }
-        });
+        }));
         await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) {

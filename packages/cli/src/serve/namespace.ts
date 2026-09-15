@@ -1,3 +1,5 @@
+import { handleRateCaptures } from './rate-capture-route.js';
+import { handleThresholdConfig } from './threshold-config-route.js';
 /**
  * The `/__pyric/` reserved namespace — pyric's analog of firebase serve's
  * `/__/firebase/` namespace:
@@ -20,6 +22,7 @@ import { basename, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { collectBody } from '../bridge/server/peer.js';
+import { handleIndexConfig } from './index-config-route.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
@@ -93,6 +96,9 @@ export function createEventHub(): ServeEventHub {
 }
 
 export interface NamespaceOptions {
+  rateCaptures?: import('./rate-capture-store.js').RateCaptureStore;
+  indexes?: import('./index-config-store.js').IndexConfigStore;
+  thresholds?: import('./threshold-config-store.js').ThresholdConfigStore;
   /** The bundle output dir (`BundleResult.outDir`). */
   sdkDir: string;
   /** Producer for `/__pyric/init.json` — a function so hot-reload serves
@@ -468,6 +474,30 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     ? { sink: activity, token: randomBytes(24).toString('base64url') }
     : undefined;
   return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
+    const thresholds = opts.thresholds;
+    const isThresholdRequest = thresholds !== undefined && url.pathname === '/__pyric/thresholds';
+    if (isThresholdRequest) {
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
+      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
+      if (sessionRefused) {
+        res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }));
+        return true;
+      }
+      return handleThresholdConfig(thresholds, req, res);
+    }
+    const indexes = opts.indexes;
+    const isIndexRequest = indexes !== undefined && url.pathname === '/__pyric/indexes';
+    if (isIndexRequest) {
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
+      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
+      if (sessionRefused) {
+        res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }));
+        return true;
+      }
+      return handleIndexConfig(indexes, req, res);
+    }
     const routes = studioRoutes;
     const hasStudioRoutes = routes !== null;
     if (hasStudioRoutes) {
@@ -497,6 +527,17 @@ export function createPyricNamespace(opts: NamespaceOptions) {
         return true;
       }
       return handleState(state, stateWriterLock, req, res, url).then(() => true);
+    }
+    const rateCaptures = opts.rateCaptures;
+    const isRateCaptureRequest = rateCaptures !== undefined && url.pathname === '/__pyric/rate-captures';
+    if (isRateCaptureRequest) {
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
+      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
+      if (sessionRefused) {
+        res.writeHead(401).end('Unauthorized'); return true;
+      }
+      return handleRateCaptures(rateCaptures, req, res, url);
     }
     const capture = opts.capture;
     const isCaptureRequest = capture !== undefined && url.pathname === '/__pyric/capture';
@@ -538,7 +579,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     const isInitRequest = url.pathname === '/__pyric/init.json';
     if (isInitRequest) {
-      const payload = { ...opts.initPayload(), sessionToken };
+      const payload = { ...opts.initPayload(), sessionToken, thresholds: Boolean(opts.thresholds), rateCaptures: Boolean(opts.rateCaptures) };
       const hasActivityEndpoint = activityEndpoint !== undefined;
       if (hasActivityEndpoint) payload.activityToken = activityEndpoint.token;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -578,6 +619,13 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     }
     const servedSiteFile = siteTree?.(req, res, url) ?? false;
     if (servedSiteFile) return true;
+    const requestsStudio = url.pathname === '/__pyric/ui' || url.pathname.startsWith('/__pyric/ui/');
+    const hasMissingStudioAssets = opts.studio !== undefined && !siteTree && requestsStudio;
+    if (hasMissingStudioAssets) {
+      res.writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Studio is unavailable</title></head><body><main><h1>Studio is unavailable</h1><p>The Studio assets are missing from this Pyric installation.</p><p>In a source checkout, run the full build with <code>bash scripts/build.sh</code>. Otherwise, reinstall <code>@pyric/cli</code>. Restart the development server afterward.</p><a href="/">Return to app</a></main></body></html>');
+      return true;
+    }
     return false; // unknown /__pyric/* → caller 404s
   };
 }

@@ -1,3 +1,6 @@
+import { aiModelLabel } from './ai-model-label.js';
+import { activityDisplayTarget, createActivityHistory, type ActivityHistory } from './activity-history.js';
+import type { FlowPaint } from './listener-flow-painter.js';
 import { createTreatmentController } from './flow-treatments/controller.js';
 import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatments/types.js';
 /**
@@ -22,11 +25,13 @@ import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatment
  */
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { listenerOutlines, type ListenerOutline } from './listener-outline-model.js';
+import { activityOutlines, listenerOutlines, type ListenerOutline } from './listener-outline-model.js';
+import { sdkActivity, sdkMethodCoverage, observationService, type SdkActivityRecord } from 'pyric/sandbox/internal';
 import { createListenerOverlay, type ListenerOverlay } from './listener-overlay.js';
 import { incidentsFromEvents } from './listener-incidents.js';
 import { studioSectionUrl } from './studio-links.js';
 import { startFlowMode, type FlowMode } from './listener-flow-mode.js';
+
 import {
   installReactCommitSource,
   reactRendered,
@@ -49,7 +54,15 @@ import {
 
 export type { ListenerPaintMode } from './listener-paint-mode.js';
 
+/** Data shows returned data and listener evidence, including Storage task results. */
+function isDataActivity(record: SdkActivityRecord): boolean {
+  const method = sdkMethodCoverage(observationService(record.service)).find(entry => entry.method === record.method);
+  return record.service === 'storage' || method?.category !== 'write';
+}
+
 export interface ListenerModeOptions {
+  /** Page activity source; fixtures can supply an isolated journal. */
+  activity?: Pick<typeof sdkActivity, 'records' | 'subscribe'>;
   treatments?: FlowTreatmentManifest;
   treatmentStorage?: Pick<Storage, 'getItem' | 'setItem'> | null;
   document: Document;
@@ -89,6 +102,12 @@ export interface ListenerModeOptions {
 }
 
 export interface ListenerMode {
+  history?: ActivityHistory;
+  relatedRegion?(service: string, path: string): { sourceId: string; elements: Element[] } | null;
+  inspectHistory?(sequence: number | null): boolean;
+  clearActivityHistory?(): void;
+  selectedActivity?(): string | null;
+  inspectionVersion?(): number;
   clearTreatmentHistory?(): void;
   treatmentState?(): FlowTreatmentState;
   setTreatment?(id: string): Promise<void>;
@@ -171,6 +190,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   });
 
   const events: SandboxEvent[] = [];
+  const activity = options.activity ?? sdkActivity;
   let current: readonly ListenerOutline[] = [];
   let overlay: ListenerOverlay | null = null;
   let flow: FlowMode | null = null;
@@ -181,6 +201,21 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   let flowPainted = false;
   /** Listeners the developer switched off. Page session only, never stored. */
   const hidden = new Set<string>();
+  const observed = new Set<string>();
+  const history = createActivityHistory();
+  const regions = new Map<number, { paint: Omit<FlowPaint, 'subtree'>; nodes: { element: WeakRef<Element>; name: string; depth: number; kind: 'component' | 'host' }[] }>();
+  let selectedActivityId: string | null = null;
+  let inspectionVersion = 0;
+  let highlightedHistory: { sequence: number; listenerId: string } | null = null;
+  const clearHistoryHighlight = () => {
+    if (highlightedHistory) flow?.clearListener(highlightedHistory.listenerId);
+    highlightedHistory = null;
+  };
+  const pruneRegions = () => {
+    const retained = new Set(history.snapshot().entries.map(entry => entry.sequence));
+    for (const id of regions.keys()) if (!retained.has(id)) regions.delete(id);
+    if (highlightedHistory && !retained.has(highlightedHistory.sequence)) clearHistoryHighlight();
+  };
   const treatments = createTreatmentController({
     document: documentLike, manifest: options.treatments, storage: options.treatmentStorage,
     onChange: () => options.onChange?.(current),
@@ -191,37 +226,43 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   // installing it later would be too late to matter.
   const commits = options.commits ?? installReactCommitSource(documentLike.defaultView);
 
+  const canPaintLive = (outline: ListenerOutline): boolean =>
+    outline.activity?.kind !== 'subscription' || outline.activity.status === 'active';
   const visibleOutlines = (): readonly ListenerOutline[] =>
-    current.filter((outline) => !hidden.has(outline.listenerId));
+    current.filter((outline) => !hidden.has(outline.listenerId) && canPaintLive(outline));
 
-  const openStudio = (outline: ListenerOutline): void => {
-    const studioUrl = options.studioUrl;
-    if (studioUrl === null || studioUrl === undefined) return;
-    const url = studioListenerUrl(studioUrl, outline);
-    if (options.openStudio) {
-      options.openStudio(url);
-      return;
-    }
-    documentLike.defaultView?.open(url, '_blank', 'noopener');
+  const inspect = (outline: ListenerOutline): void => {
+    selectedActivityId = outline.listenerId;
+    inspectionVersion++;
+    options.onChange?.(current);
   };
 
+  const displayOutline = (outline: ListenerOutline): ListenerOutline => outline.activity
+    ? { ...outline, target: outline.activity.ai ? aiModelLabel(outline.activity.ai, outline.activity.method) : outline.target, deliveryCount: history.counts({ sourceId: outline.activity.sourceId, scope: { kind: 'retained' } }).deliveries }
+    : outline;
   const paint = (): void => {
     if (overlay === null) return;
     // Overview owns the boxes in the container; Flow owns its own and is
     // driven by deliveries rather than by the fold, so an Overview pass in
     // Flow mode clears the Overview boxes and leaves the flows alone.
-    overlay.update(paintMode === 'overview' ? visibleOutlines() : []);
+    overlay.update(paintMode === 'overview' ? visibleOutlines().map(displayOutline) : []);
   };
 
   const recompute = (): void => {
     const previous = current;
-    current = listenerOutlines(events, readIncidents(events));
+    current = activityOutlines(listenerOutlines(events, readIncidents(events)), activity.records().filter(isDataActivity), observed);
     // A detached listener keeps no paint. Flow holds its last subtree until
     // the next delivery, and for a listener that is gone there will not be
     // one.
     for (const outline of previous) {
-      if (current.some((next) => next.listenerId === outline.listenerId)) continue;
-      flow?.clearListener(outline.listenerId);
+      const next = current.find((next) => next.listenerId === outline.listenerId);
+      if (next) {
+        if (canPaintLive(outline) && !canPaintLive(next)) flow?.clearListener(outline.listenerId);
+        continue;
+      }
+      if (highlightedHistory?.listenerId !== outline.listenerId) flow?.clearListener(outline.listenerId);
+      observed.delete(outline.listenerId);
+      hidden.delete(outline.listenerId);
     }
     paint();
     options.onChange?.(current);
@@ -236,7 +277,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     if (flow !== null || overlay === null) return;
     if (!flowAvailable()) return;
     flowPainted = false;
-    void treatments.attach(overlay.container());
+    if (paintMode === 'flow') void treatments.attach(overlay.container());
     flow = startFlowMode({
       document: documentLike,
       container: overlay.container(),
@@ -244,20 +285,35 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       commits,
       // A delivery observed on the page carries the client's subscription id;
       // the outline knows both ids.
-      outlineFor: (listenerId) => current.find((outline) => outline.listenerId === listenerId || outline.clientListenerId === listenerId) ?? null,
-      isVisible: (listenerId) => !hidden.has(listenerId),
+      outlineFor: (listenerId) => {
+        const outline = current.find((outline) => outline.listenerId === listenerId || outline.clientListenerId === listenerId);
+        return outline ? displayOutline(outline) : null;
+      },
+      isVisible: (listenerId) => paintMode === 'flow' && !hidden.has(listenerId) && current.some(outline => outline.listenerId === listenerId && canPaintLive(outline)),
       // The switch into Flow replays what the fold already recorded, so the
       // developer sees the latest flow rather than waiting for the next
       // delivery on a page that may be idle.
       recentDeliveries: () => visibleOutlines()
-        .filter((outline) => outline.lastDeliveryAt !== undefined)
+        .filter((outline) => outline.lastDeliveryAt !== undefined && (!outline.activity || outline.observedRender))
         .map((outline) => ({ listenerId: outline.listenerId, at: outline.lastDeliveryAt! })),
-      onPaint: () => {
-        if (flowPainted) return;
+      onObserved: (paint, commitId) => {
+        const record = current.find(outline => outline.listenerId === paint.listenerId)?.activity;
+        if (!record) return;
+        const entry = history.rendered(record, commitId, options.flow?.windowMs);
+        const { subtree, ...metadata } = paint;
+        regions.set(entry.sequence, { paint: { ...metadata, target: activityDisplayTarget(metadata.target) }, nodes: subtree.components.slice(0, 100).map(node => ({
+          element: new WeakRef(node.element), name: node.name, depth: node.depth, kind: node.kind,
+        })) });
+        observed.add(paint.listenerId);
+        pruneRegions();
+        recompute();
+      },
+      onPaint: (id) => {
+        observed.add(id);
         flowPainted = true;
         // The panel's waiting hint is gone as of this paint, and the panel
         // only rebuilds when the mode says something changed.
-        options.onChange?.(current);
+        recompute();
       },
       ...(options.flow ?? {}),
     });
@@ -283,6 +339,15 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     events.push(...batch);
     recompute();
   });
+  const stopActivity = activity.subscribe(event => {
+    if (!isDataActivity(event.record)) return;
+    history.record(event);
+    pruneRegions();
+    recompute();
+  });
+  // Refresh the explicitly named rolling window even on idle pages.
+  const historyClock = setInterval(() => options.onChange?.(current), 1000);
+  if (typeof historyClock === 'object' && 'unref' in historyClock) historyClock.unref();
   recompute();
 
   const hidePainting = (): void => {
@@ -294,12 +359,19 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   const showPainting = (): void => {
     overlay = createListenerOverlay({
       document: documentLike,
-      onSelect: openStudio,
+      onSelect: inspect,
+      observedElements: (outline) => {
+        const latest = [...regions.values()].reverse().find(region => region.paint.listenerId === outline.listenerId);
+        return latest?.nodes.flatMap(node => {
+          const element = node.element.deref();
+          return element?.isConnected ? [element] : [];
+        }) ?? [];
+      },
       theme: effectiveTheme(),
       mode: paintMode,
     });
     paint();
-    if (paintMode === 'flow') startFlow();
+    startFlow();
   };
 
   // Another tab, or this page's own Theme dialog, writes the overrides; the
@@ -311,8 +383,61 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     overlay?.setTheme(effectiveTheme());
   };
   view?.addEventListener('storage', onStorage);
+  // Opt-in modifier leaves ordinary app interactions untouched. The chip's
+  // rows and Overview badges provide the equivalent keyboard interaction.
+  const inspectRegion = (event: MouseEvent) => {
+    if (!event.altKey) return;
+    const target = event.target as Node | null;
+    if (!target) return;
+    const match = [...regions.values()].reverse().find(region => region.nodes.some(node => {
+      const element = node.element.deref();
+      return element?.isConnected && element.contains(target);
+    }));
+    if (!match) return;
+    selectedActivityId = match.paint.listenerId;
+    inspectionVersion++;
+    options.onChange?.(current);
+  };
+  documentLike.addEventListener('click', inspectRegion, true);
 
   return {
+    history,
+    selectedActivity: () => selectedActivityId,
+    inspectionVersion: () => inspectionVersion,
+    clearActivityHistory() { clearHistoryHighlight(); history.clear(); regions.clear(); options.onChange?.(current); },
+    inspectHistory(sequence) {
+      clearHistoryHighlight();
+      if (sequence === null) return false;
+      const retained = regions.get(sequence);
+      if (!retained) return false;
+      const components = retained.nodes.flatMap(node => {
+        const element = node.element.deref();
+        return element?.isConnected ? [{ ...node, element }] : [];
+      });
+      if (!components.length) return false;
+      if (!readAttribution() || !flowAvailable()) return false;
+      if (!overlay) showPainting();
+      if (paintMode !== 'flow') {
+        paintMode = 'flow'; overlay!.setMode('flow'); stopFlow(); paint(); startFlow();
+      }
+      highlightedHistory = { sequence, listenerId: retained.paint.listenerId };
+      flow?.highlight({ ...retained.paint, pinned: true, subtree: { components, root: components[0], leaves: components } });
+      return true;
+    },
+    relatedRegion(service, path) {
+      if (!readAttribution()) return null;
+      const matches = current.filter(outline => outline.service === service && outline.target === path && outline.activity);
+      const sources = new Set(matches.map(outline => outline.activity!.sourceId));
+      if (sources.size !== 1) return null;
+      const sourceId = [...sources][0];
+      const ids = new Set(matches.map(outline => outline.listenerId));
+      const latest = [...regions.values()].reverse().find(region => ids.has(region.paint.listenerId));
+      const elements = latest?.nodes.flatMap(node => {
+        const element = node.element.deref();
+        return element?.isConnected ? [element] : [];
+      }) ?? [];
+      return elements.length ? { sourceId, elements } : null;
+    },
     clearTreatmentHistory: treatments.clear,
     treatmentState: treatments.state,
     setTreatment: treatments.select,
@@ -339,9 +464,9 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       writeListenerPaintMode(paintStorage, next);
       if (overlay === null) return;
       overlay.setMode(next);
-      if (next === 'overview') stopFlow();
+      stopFlow();
       paint();
-      if (next === 'flow') startFlow();
+      startFlow();
     },
     flowAvailable,
     flowUnavailableReason() {
@@ -349,7 +474,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       return reactRendered(documentLike) ? LATE_HOOK_REASON : NO_REACT_REASON;
     },
     flowWaiting() {
-      return flow !== null && !flowPainted;
+      return paintMode === 'flow' && flow !== null && !flowPainted;
     },
     outlines() {
       return current;
@@ -379,14 +504,20 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       overlay?.setTheme(effectiveTheme());
     },
     dispose() {
+      clearInterval(historyClock);
+      history.dispose();
+      regions.clear();
       treatments.dispose();
+      documentLike.removeEventListener('click', inspectRegion, true);
       view?.removeEventListener('storage', onStorage);
       hidePainting();
       unsubscribe?.();
+      stopActivity();
       unsubscribe = null;
       events.length = 0;
       current = [];
       hidden.clear();
+      observed.clear();
     },
   };
 }

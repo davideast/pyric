@@ -31,18 +31,18 @@ export type { StorageErrorCode } from './errors.js';
 export { ref } from './reference.js';
 export type { StorageReference } from './reference.js';
 
-export { uploadBytes, uploadString } from './upload.js';
+export { uploadBytes, uploadString } from './observed.js';
 export type { StringFormat } from './upload.js';
 
-export { uploadBytesResumable } from './resumable.js';
+export { uploadBytesResumable } from './observed.js';
 export type { UploadTask, UploadTaskSnapshot, TaskState, TaskEvent } from './resumable.js';
 
-export { getBytes, getBlob, getDownloadURL, deleteObject } from './download.js';
+export { getBytes, getBlob, getDownloadURL, deleteObject } from './observed.js';
 
-export { getMetadata, updateMetadata } from './metadata.js';
+export { getMetadata, updateMetadata } from './observed.js';
 export type { SettableMetadata, FullMetadata, UploadResult } from './metadata.js';
 
-export { listAll } from './list.js';
+export { listAll } from './observed.js';
 export type { ListResult } from './list.js';
 
 export { parseStorageRules, evaluateStorageRules } from './rules.js';

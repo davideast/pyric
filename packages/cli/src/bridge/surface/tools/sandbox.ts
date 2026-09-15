@@ -4,5 +4,5 @@ import type { ToolRecord } from '../method-types.js';
 export default {
   order: 60,
   intro:
-    'The sandbox: what it holds, saving it, branching it.',
+    'Local sandbox.',
 } satisfies ToolRecord;

@@ -105,3 +105,16 @@ Changing a budget or boundary requires an explained contract or dependency
 change and new measurements. A failing gate alone does not justify changing
 its limit. These artifact checks do not complete U4's source ownership,
 transport-selection, and cycle requirements.
+
+
+### Integration with main's activity diagnostics (2026-09-15)
+
+Main's public SDK instrumentation deliberately runs in the page. The exact leaf
+allowlist now also includes `sdk-activity`, `sdk-observation`, `sdk-write-activity`,
+`storage-activity`, `usage-evidence`, and `ai-evidence` under `sandbox/internal`;
+Firestore `activity-query-value`/`activity-structural-identity`; and
+`rules/indexes/query-analysis`/`service-query`. These own activity records, numeric
+usage, model metadata, operand identity, and index descriptions. They do not
+execute Security Rules, hold a sandbox database, or implement a Node host.
+The contributor audit found no Node/host imports. The broad engine exclusion and
+all five byte limits remain unchanged; these are exact module exceptions.

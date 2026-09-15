@@ -1,5 +1,8 @@
 import { randomBytes } from 'node:crypto';
+import { createRateCaptureStore } from './rate-capture-store.js';
+import { createThresholdConfigStore } from './threshold-config-store.js';
 import { createFlowTreatmentHost } from './flow-treatment-host.js';
+import { createIndexConfigStore } from './index-config-store.js';
 import type { FlowConfig } from './flow-config.js';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -310,6 +313,9 @@ export async function createSandboxSession(
   const hostOwnsState = options.hosted === true;
   const stateOwner = hostOwnsState ? 'host' : 'browser';
   const namespace = createPyricNamespace({
+    indexes: createIndexConfigStore(options.projectDir),
+    thresholds: createThresholdConfigStore(options.projectDir),
+    rateCaptures: createRateCaptureStore(options.projectDir),
     sdkDir: options.sdk.dir,
     initPayload: payload,
     events,

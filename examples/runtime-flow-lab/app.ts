@@ -1,3 +1,6 @@
+import { getGenerativeModel } from 'pyric/ai';
+import { createConfiguredSandboxAI } from 'pyric/ai/internal';
+import { createWarningScenarios, warningBurstPlan } from './warning-scenarios.ts';
 import type { AuthUserRecord } from "pyric/auth";
 import type { AuthLens, SandboxEvent } from "pyric/sandbox";
 import type { RuntimeIdentity } from "../../packages/cli/src/serve/runtime/identity.ts";
@@ -9,10 +12,15 @@ import {
   createListenerMode,
   type ListenerMode,
 } from "../../packages/cli/src/serve/runtime/listener-mode.ts";
-import { reportListenerDelivery } from "../../packages/cli/src/serve/worker/client/listener-delivery.ts";
+import { captureFullState, initializeSandbox } from "pyric/sandbox";
+import { setRules } from "pyric/sandbox/firestore";
+import { createChatData, type ChatService, type ListenOptions } from "./chat-data.ts";
+import * as database from "pyric/database";
+import * as storage from "pyric/storage";
 import { avatarAssetUrl } from "../../packages/cli/src/serve/assets/avatar-url.ts";
 import { treatments, type TreatmentId } from "./treatments.ts";
 
+const service: ChatService = new URLSearchParams(location.search).get("service") === "rtdb" ? "rtdb" : "firestore";
 const sources = [
   {
     id: "messages",
@@ -23,7 +31,7 @@ const sources = [
   { id: "typing", path: "/typing/design", label: "Typing" },
   {
     id: "receipts",
-    path: "conversations/design/read-receipts",
+    path: "conversations/design/read-receipts/current",
     label: "Read receipt",
   },
 ];
@@ -83,6 +91,8 @@ let selectedSource = "messages";
 let selectedTreatment: TreatmentId = "outline";
 
 async function main() {
+  // Every service, broker event, and capture belongs to this page session.
+  const sandbox = initializeSandbox();
   installChipFonts(document);
   const commits = installReactCommitSource(window);
   // The renderer must load AFTER the commit hook, including its first import.
@@ -94,6 +104,100 @@ async function main() {
   const { flushSync } = domModule.default ?? domModule;
   const h = React.createElement;
   const use = React.useSyncExternalStore;
+  const attachmentState = store<{ message: string; progress: number | null; preview: string | null }>({ message: 'Upload an attachment, then download it to preview.', progress: null, preview: null });
+  const updateAttachment = (patch: Partial<ReturnType<typeof attachmentState.get>>) => flushSync(() => attachmentState.set({ ...attachmentState.get(), ...patch }));
+  function AttachmentCard() {
+    const state = use(attachmentState.subscribe, attachmentState.get);
+    return h('section', { className: 'attachment-card', 'data-component': 'AttachmentCard', 'aria-label': 'Attachment' },
+      h('p', { role: 'status', id: 'storage-status' }, state.message),
+      state.progress !== null ? h('progress', { value: state.progress, max: 100, 'aria-label': 'Upload progress' }) : null,
+      state.preview ? h('img', { src: state.preview, width: 360, height: 96, alt: 'Downloaded Storage attachment' }) : null);
+  }
+  flushSync(() => createRoot(document.querySelector('#storage-preview')!).render(h(AttachmentCard)));
+  const aiState = store('Choose a scripted response or an installed local model.');
+  const updateAi = (text: string) => flushSync(() => aiState.set(text));
+  function AiReply() { const text = use(aiState.subscribe, aiState.get); return h('section', { className: 'attachment-card', 'data-component': 'AiReply' }, h('p', { id: 'ai-status', role: 'status' }, text)); }
+  flushSync(() => createRoot(document.querySelector('#ai-preview')!).render(h(AiReply)));
+  const aiBackend = document.querySelector<HTMLSelectElement>('#ai-backend')!;
+  const aiModel = document.querySelector<HTMLSelectElement>('#ai-model')!;
+  const modelRefresh = document.querySelector<HTMLButtonElement>('#ai-model-refresh')!;
+  const modelStatus = document.querySelector<HTMLElement>('#ai-model-status')!;
+  const aiConfiguration = store(readAiConfiguration());
+  function readAiConfiguration() {
+    return {
+      backend: aiBackend.value === 'local' ? 'OpenAI-compatible' : 'Scripted',
+      requestedModel: 'gemini-2.5-flash',
+      route: aiBackend.value === 'local' ? aiModel.value || 'Select a model' : 'No model invoked',
+    };
+  }
+  const syncAiConfiguration = () => aiConfiguration.set(readAiConfiguration());
+  aiModel.onchange = syncAiConfiguration;
+  async function loadAiModels() {
+    const previous = aiModel.value;
+    aiModel.disabled = true;
+    modelRefresh.disabled = true;
+    modelStatus.hidden = false;
+    modelStatus.textContent = 'Looking up available models…';
+    aiModel.replaceChildren(new Option('Loading models…', ''));
+    syncAiConfiguration();
+    try {
+      const init = await (await fetch('/__pyric/init.json')).json();
+      const response = await fetch('/__demo/ai-models', { headers: { 'x-pyric-session-token': init.sessionToken } });
+      const result = await response.json() as { models?: string[]; error?: string };
+      if (!response.ok || !Array.isArray(result.models)) throw new Error(result.error ?? 'Model discovery failed. Try refreshing.');
+      aiModel.replaceChildren(...result.models.map(name => new Option(name, name)));
+      if (result.models.includes(previous)) aiModel.value = previous;
+      if (!result.models.length) aiModel.add(new Option('No installed models', ''));
+      modelStatus.textContent = result.models.length ? `${result.models.length} models available from the configured server.` : 'No models found. Install a model in Ollama, then refresh.';
+    } catch (error) {
+      aiModel.replaceChildren(new Option('Models unavailable', ''));
+      modelStatus.textContent = error instanceof Error ? error.message : 'Model discovery failed. Try refreshing.';
+    } finally {
+      aiModel.disabled = aiBackend.value !== 'local' || !aiModel.value;
+      modelRefresh.disabled = aiBackend.value !== 'local';
+      modelStatus.hidden = aiBackend.value !== 'local';
+      syncAiConfiguration();
+    }
+  }
+  aiBackend.onchange = () => {
+    aiModel.disabled = aiBackend.value !== 'local' || !aiModel.value;
+    modelRefresh.disabled = aiBackend.value !== 'local';
+    modelStatus.hidden = aiBackend.value !== 'local';
+    syncAiConfiguration();
+    if (aiBackend.value === 'local') void loadAiModels();
+  };
+  modelRefresh.onclick = () => { void loadAiModels(); };
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-ai-action]')) button.onclick = async () => {
+    button.disabled = true;
+    const local = (document.querySelector('#ai-backend') as HTMLSelectElement).value === 'local';
+    const upstream = aiModel.value;
+    if (local && (aiModel.disabled || !upstream)) { updateAi('Select an available local model before generating.'); button.disabled = false; return; }
+    const action = button.dataset.aiAction;
+    // Bind this action to its selected route; later selections cannot reroute it.
+    const engine = local ? { kind: 'openai' as const, baseUrl: location.origin + '/__pyric/ai-proxy', modelMap: { 'gemini-2.5-flash': upstream } }
+      : { kind: 'scripted' as const, script: [{ respond: action === 'fail' ? { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Demo rate limit' } } : { chunks: ['This ', 'is a ', 'scripted ', 'AI response.'] } }] };
+    const model = getGenerativeModel(createConfiguredSandboxAI(sandbox, { engine }), { model: 'gemini-2.5-flash' });
+    try {
+      if (action === 'burst' && local) { updateAi('Rate warning uses scripted responses so the demo does not burst against your model. Select Scripted first.'); return; }
+      if (action === 'burst') {
+        for (let index = 0; index < 40; index++) {
+          const result = await model.generateContent('Summarize the design discussion.');
+          updateAi(`Scripted burst ${index + 1}/40: ${result.response.text()}`);
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+      } else if (action === 'stream') {
+        const result = await model.generateContentStream('Summarize the design discussion in a short paragraph.');
+        let text = '';
+        for await (const chunk of result.stream) { text += chunk.text(); updateAi(text); await new Promise(resolve => setTimeout(resolve, 120)); }
+        await result.response;
+      } else {
+        if (action === 'fail' && local) { updateAi('Failure scenario uses Scripted. Select Scripted first.'); return; }
+        const result = await model.generateContent('Summarize the design discussion in one sentence.');
+        updateAi(result.response.text());
+      }
+    } catch (error) { updateAi(error instanceof Error ? error.message : String(error)); }
+    finally { button.disabled = false; }
+  };
   function Photo({ uid }: { uid: string }) {
     return h("img", {
       className: "photo",
@@ -193,7 +297,7 @@ async function main() {
       "div",
       { className: "message-list", "data-component": "MessageList" },
       ...messages
-        .slice(-4)
+        .slice(service === "rtdb" ? 0 : -4)
         .map((message) => h(StableMessage, { key: message.id, message })),
     );
   }
@@ -299,14 +403,71 @@ async function main() {
   }));
   let current: RuntimeIdentity | null = users[0] ?? null;
   let authChanged = (_user: RuntimeIdentity | null) => {};
-  let eventChanged = (_events: readonly SandboxEvent[]) => {};
-  let trafficChanged = (_events: readonly SandboxEvent[]) => {};
+  sandbox.currentUser = current ? { uid: current.uid } : null;
+  setRules(sandbox, `rules_version = '2'; service cloud.firestore {
+    match /databases/{database}/documents {
+      match /scenario-denials/{id} { allow read: if true; allow write: if request.resource.data.budget >= 0; }
+      match /conversations/design/{document=**} { allow read, write: if true; }
+    }
+  }`);
+  const attachments = storage.getStorageSandbox(sandbox, { dbName: 'flow-lab-attachments', rules: `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /attachments/{file} { allow read, write: if true; } } }` });
+  const attachment = storage.ref(attachments, 'attachments/design.bin');
+  const payload = new Uint8Array(16 * 1024).fill(32);
+  payload.set(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96"><rect width="360" height="96" rx="8" fill="#263651"/><text x="20" y="55" fill="#c8d4f4" font-family="sans-serif" font-size="20">Design attachment</text></svg>'));
+  const metadata = { contentType: 'image/svg+xml' };
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-storage]')) {
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        const action = button.dataset.storage;
+        if (action === 'download') {
+          const bytes = await storage.getBytes(attachment);
+          const previous = attachmentState.get().preview;
+          updateAttachment({ message: `Downloaded ${bytes.byteLength / 1024} KiB.`, preview: URL.createObjectURL(new Blob([bytes], { type: 'image/svg+xml' })) });
+          if (previous) URL.revokeObjectURL(previous);
+        } else if (action === 'delete') {
+          await storage.deleteObject(attachment);
+          const previous = attachmentState.get().preview;
+          updateAttachment({ message: 'Attachment deleted.', preview: null, progress: null });
+          if (previous) URL.revokeObjectURL(previous);
+        } else if (action === 'denied') {
+          await storage.uploadBytes(storage.ref(attachments, 'private/denied.bin'), payload);
+        } else if (action === 'burst') {
+          for (let i = 0; i < 80; i++) {
+            await storage.uploadBytes(attachment, payload, metadata);
+            updateAttachment({ message: `Storage burst: ${i + 1} of 80 uploads.` });
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        } else {
+          const task = storage.uploadBytesResumable(attachment, payload, metadata);
+          const unsubscribe = task.on('state_changed', snapshot => updateAttachment({ message: `Uploading ${snapshot.bytesTransferred} of ${snapshot.totalBytes} bytes.`, progress: Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100) }));
+          try { await task; } finally { unsubscribe(); }
+          updateAttachment({ message: 'Uploaded 16 KiB. Download to preview.', progress: 100 });
+        }
+      } catch (error) { updateAttachment({ message: error instanceof Error ? error.message : String(error), progress: null }); }
+      finally { button.disabled = false; }
+    };
+  }
+  const rtdb = database.getDatabase(sandbox);
+  database.sandbox.setRules(rtdb, { rules: {
+    presence: { '.read': true, '.write': true },
+    typing: { '.read': true, '.write': true },
+  } });
+  database.sandbox.setData(rtdb, { presence: { online: true }, typing: { design: false } });
+  const chat = createChatData(sandbox, service, messageStore.get());
+  await chat.rules();
+  const subscribeEvents = (listener: (events: readonly SandboxEvent[]) => void) => {
+    listener(sandbox.history());
+    return sandbox.onEvent(event => listener([event]));
+  };
   let lens: AuthLens | undefined;
   const runtime = createPyricRuntimeStatus({
     studioUrl: "/__pyric/ui/studio",
     worker: { url: "/worker.js", name: "flow-lab", servedEpoch: "preview" },
   });
+  runtime.setWorker({ mode: "in-page" });
   const chip = mountPyricRuntimeChip({
+    aiConfiguration: { getSnapshot: aiConfiguration.get, subscribe: aiConfiguration.subscribe },
     runtime,
     initiallyOpen: innerWidth >= 1250,
     identity: {
@@ -318,10 +479,12 @@ async function main() {
       },
       switchUser: (uid) => {
         current = users.find((user) => user.uid === uid) ?? null;
+        sandbox.currentUser = current ? { uid: current.uid } : null;
         authChanged(current);
       },
       signOut: () => {
         current = null;
+        sandbox.currentUser = null;
         authChanged(null);
       },
     },
@@ -330,10 +493,8 @@ async function main() {
       lens = next;
     },
     subscribeLens: () => () => {},
-    sandboxEvents: (fn) => {
-      trafficChanged = fn;
-      return () => {};
-    },
+    captureSession: async () => ({ format: 'pyric.full-state', state: await captureFullState(sandbox), events: sandbox.history() }),
+    sandboxEvents: subscribeEvents,
     listeners: (onChange) =>
       (mode = createListenerMode({
         document,
@@ -346,34 +507,46 @@ async function main() {
         themeStorage: null,
         paintStorage: null,
         incidents: () => [],
-        subscribeEvents: (fn) => {
-          eventChanged = fn;
-          return () => {};
-        },
+        subscribeEvents,
         overlayTheme: {
           "--pyric-overlay-badge-font-family": '"Pyric Geist Mono",monospace',
         },
       })),
   });
-  eventChanged(
-    sources.map((source) => ({
-      kind: "listener_attach",
-      id: `attach-${source.id}`,
-      at: Date.now(),
-      listenerId: source.id,
-      target: { kind: "doc", path: source.path },
-      auth: null,
-      owners: [
-        {
-          kind: "component",
-          name: "ChatWorkspace",
-          element: "#chat-workspace",
-        },
-      ],
-    })),
-  );
   mode.setMode("flow");
   mode.setEnabled(true);
+
+  function received(id: string, update: () => void) {
+    flushSync(update);
+    const source = sources.find(source => source.id === id)!;
+    document.querySelector("#delivery-status")!.textContent =
+      `Delivery ${++sequence} / ${id === 'messages' ? chat.messagePath() : service === 'rtdb' && id === 'receipts' ? '/conversations/design/receipts' : source.path} / observed after a React commit`;
+  }
+  const owner = { kind: 'component' as const, name: 'ChatWorkspace', element: document.querySelector('#chat-workspace')! };
+  chat.connect(owner, messages => {
+    received('messages', () => {
+      const previous = new Map(messageStore.get().map(message => [message.id, message]));
+      messageStore.set(messages.map(message => {
+        const prior = previous.get(message.id);
+        return prior && JSON.stringify(prior) === JSON.stringify(message) ? prior : message;
+      }));
+    });
+  }, count => received('receipts', () => receiptStore.set(count)));
+  let subscriptions: (() => void)[] = [];
+  function stopCommon() { subscriptions.forEach(stop => stop()); subscriptions = []; }
+  function startCommon() {
+    stopCommon();
+    subscriptions = [
+    database.onValue(database.ref(rtdb, '/presence'), snapshot => {
+      received('presence', () => presenceStore.set(snapshot.child('online').val() === true));
+    }, { owner }),
+    database.onValue(database.ref(rtdb, '/typing/design'), snapshot => {
+      received('typing', () => typingStore.set(snapshot.val() === true));
+    }, { owner }),
+    ];
+  }
+  startCommon();
+  window.addEventListener('pagehide', () => { chat.stop(); for (const stop of subscriptions) stop(); chip.dispose(); sandbox.dispose(); }, { once: true });
 
   const examples = [
     "The unread badge should move with this message.",
@@ -382,92 +555,142 @@ async function main() {
     "Try Presence next: two separate regions should respond.",
     "A burst makes repeated updates easier to compare.",
   ];
-  function deliver(id: string, button?: HTMLElement) {
-    const source = sources.find((source) => source.id === id)!;
+  let nextMessageId = chat.initialCount;
+  async function deliver(id: string) {
     selectedSource = id;
-    void button;
-    sequence++;
-    eventChanged([
-      {
-        kind: "snapshot_delivery",
-        id: `delivery-${sequence}`,
-        at: Date.now(),
-        listenerId: id,
-        target: { kind: "doc", path: source.path },
-        auth: null,
-        addedCount: 0,
-        modifiedCount: 1,
-        removedCount: 0,
-        size: 1,
-      },
-    ]);
-    // Same ordering as the worker read adapters: delivery, callback, commit.
-    reportListenerDelivery(id);
-    flushSync(() => {
-      if (id === "messages") {
-        const all = messageStore.get();
-        messageStore.set([
-          ...all,
-          {
-            id: all.length + 1,
-            who: "alice",
-            name: "Alice Chen",
-            text: examples[(all.length - 3) % examples.length]!,
-            time: new Date().toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-          },
-        ]);
-      }
-      if (id === "presence") presenceStore.set(!presenceStore.get());
-      if (id === "typing") typingStore.set(!typingStore.get());
-      if (id === "receipts") receiptStore.set(receiptStore.get() + 1);
-    });
-    trafficChanged([
-      {
-        kind: "request",
-        id: `request-${sequence}`,
-        at: Date.now(),
-        evalMs: 0,
-        origin: "listener",
-        reasons: ["Simulated preview delivery"],
-        method: "get",
-        path: source.path,
-        result: "allow",
-        auth: null,
-      },
-    ]);
-    document.querySelector("#delivery-status")!.textContent =
-      `Delivery ${sequence} / ${source.path} / observed after a React commit`;
+    if (id === 'messages') {
+      const messageId = ++nextMessageId;
+      await chat.write({
+        id: messageId,
+        who: 'alice',
+        name: 'Alice Chen',
+        text: examples[(messageId - 4) % examples.length]!,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      });
+    } else if (id === 'presence') {
+      await database.update(database.ref(rtdb, '/presence'), { online: !presenceStore.get() });
+    } else if (id === 'typing') {
+      await database.set(database.ref(rtdb, '/typing/design'), !typingStore.get());
+    } else if (id === 'receipts') {
+      await chat.markRead(receiptStore.get() + 1);
+    }
   }
-  for (const button of document.querySelectorAll<HTMLButtonElement>(
-    "[data-deliver]",
-  ))
-    button.onclick = () => deliver(button.dataset.deliver!, button);
+  function reportError(error: unknown) {
+    document.querySelector('#delivery-status')!.textContent =
+      error instanceof Error ? error.message : 'The chat update failed.';
+    console.error(error);
+  }
+  async function refreshData() {
+    const [messages, presence] = await Promise.all([
+      chat.read(),
+      database.get(database.ref(rtdb, '/presence')),
+    ]);
+    document.querySelector('#delivery-status')!.textContent =
+      `Read ${messages} messages. Alice and Marcus are ${presence.child('online').val() === true ? 'online' : 'offline'}.`;
+  }
+  document.querySelector<HTMLButtonElement>('#refresh')!.onclick = () => {
+    void refreshData().catch(reportError);
+  };
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-deliver]')) {
+    button.onclick = () => { void deliver(button.dataset.deliver!).catch(reportError); };
+  }
   let bursting = false;
-  document.querySelector<HTMLButtonElement>("#burst")!.onclick = async () => {
+  async function runBurst(rateTest = false) {
     if (bursting) return;
     bursting = true;
-    const button = document.querySelector<HTMLButtonElement>("#burst")!;
-    button.disabled = true;
-    for (const id of [
-      "messages",
-      "presence",
-      "typing",
-      "messages",
-      "receipts",
-    ]) {
-      deliver(id);
-      await new Promise((resolve) => setTimeout(resolve, 650));
+    document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(".data-controls button, .data-controls select, .delivery-buttons button, .scenario-buttons button").forEach(control => { control.disabled = true; });
+    try {
+      await refreshData();
+      const plan = rateTest ? await warningBurstPlan(service) : null;
+      const updates = plan ? Array.from({ length: plan.count }, () => 'messages') : ['messages', 'presence', 'typing', 'messages', 'receipts'];
+      for (const id of updates) {
+        await deliver(id);
+        await new Promise(resolve => setTimeout(resolve, plan?.delay ?? 650));
+      }
+    } catch (error) {
+      reportError(error);
+    } finally {
+      document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(".data-controls button, .data-controls select, .delivery-buttons button, .scenario-buttons button").forEach(control => { control.disabled = false; });
+      syncDataControls();
+      bursting = false;
     }
-    button.disabled = false;
-    bursting = false;
+  }
+  document.querySelector<HTMLButtonElement>("#burst")!.onclick = () => { void runBurst(); };
+  document.querySelector<HTMLButtonElement>("#rate-burst")!.onclick = () => { void runBurst(true); };
+  const scenarios = createWarningScenarios(sandbox);
+  const scenarioStatus = document.querySelector<HTMLElement>('#scenario-status')!;
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-scenario]')) {
+    button.onclick = async () => {
+      const name = button.dataset.scenario;
+      button.disabled = true;
+      try {
+        if (name === 'firestore-index') {
+          await scenarios.firestoreIndex();
+          scenarioStatus.textContent = 'Firestore index missing. Open the query in Traffic to add it.';
+        } else {
+          const action = name === 'firestore-denial' ? scenarios.firestoreDenial : name === 'rtdb-denial' ? scenarios.rtdbDenial : scenarios.rtdbIndex;
+          await action();
+          scenarioStatus.textContent = 'The request succeeded unexpectedly.';
+        }
+      } catch (error) {
+        const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+        if (name === 'rtdb-index' && error instanceof Error && error.message.includes('.indexOn')) scenarioStatus.textContent = 'RTDB .indexOn missing. Open the query in Traffic to add it.';
+        else if (code === 'permission-denied' || code === 'PERMISSION_DENIED') scenarioStatus.textContent = `${name === 'firestore-denial' ? 'Firestore' : 'RTDB'} write denied. The budget must be zero or greater.`;
+        else scenarioStatus.textContent = error instanceof Error ? error.message : 'Unable to run this scenario.';
+      } finally { button.disabled = false; }
+    };
+  }
+  const backend = document.querySelector<HTMLSelectElement>('#chat-service')!;
+  backend.value = service;
+  backend.onchange = () => { const url = new URL(location.href); url.searchParams.set('service', backend.value); location.href = url.href; };
+  document.querySelector<HTMLElement>('#rtdb-controls')!.hidden = service !== 'rtdb';
+  let listening = true;
+  const listenerMode = document.querySelector<HTMLSelectElement>('#listener-mode')!;
+  const listenerScope = document.querySelector<HTMLSelectElement>('#listener-scope')!;
+  const listenerButton = document.querySelector<HTMLButtonElement>('#listeners')!;
+  function syncDataControls() {
+    listenerScope.disabled = listenerMode.value === 'children';
+    document.querySelector<HTMLButtonElement>('#older')!.disabled = listenerScope.value === 'conversation';
+    listenerButton.textContent = listening ? 'Stop listeners' : 'Start listeners';
+  }
+  function configureListeners() {
+    if (listenerMode.value === 'children') listenerScope.value = 'messages';
+    if (listening) chat.start({ mode: listenerMode.value, scope: listenerScope.value } as ListenOptions);
+    syncDataControls();
+  }
+  listenerMode.onchange = configureListeners;
+  listenerScope.onchange = configureListeners;
+  listenerButton.onclick = () => { listening = !listening; if (listening) { configureListeners(); startCommon(); } else { chat.stop(); stopCommon(); } syncDataControls(); };
+  document.querySelector<HTMLButtonElement>('#older')!.onclick = () => {
+    void chat.loadOlder().then(count => { document.querySelector('#delivery-status')!.textContent = `Loaded ${count} older messages.`; }).catch(reportError);
   };
+  document.querySelector<HTMLButtonElement>('#edit-message')!.onclick = () => {
+    const message = messageStore.get().at(-1);
+    if (message) void chat.write({ ...message, text: `${message.text} Edited.` }).catch(reportError);
+  };
+  document.querySelector<HTMLButtonElement>('#query-index')!.onclick = () => {
+    void chat.queryIndex().then(count => { document.querySelector('#delivery-status')!.textContent = `Found ${count} messages by Alice.`; }).catch(error => {
+      if (error instanceof Error && error.message.includes('.indexOn')) document.querySelector('#delivery-status')!.textContent = 'Missing index. Open this query in Traffic.';
+      else reportError(error);
+    });
+  };
+  document.querySelector<HTMLButtonElement>('#reset-data')!.onclick = () => {
+    stopCommon(); chat.reset(); startCommon(); nextMessageId = chat.initialCount; listening = true; syncDataControls();
+  };
+  document.querySelector<HTMLButtonElement>('#reset-index')!.onclick = () => {
+    void (async () => {
+      const init = await (await fetch('/__pyric/init.json')).json();
+      const response = await fetch('/__demo/reset-index', { method: 'POST', headers: { 'x-pyric-session-token': init.sessionToken } });
+      if (!response.ok) throw new Error('Unable to reset the demo index.');
+      await chat.rules();
+      document.querySelector('#delivery-status')!.textContent = 'Demo index reset. Run Find Alice messages again.';
+    })().catch(reportError);
+  };
+  syncDataControls();
   document.querySelector<HTMLButtonElement>("#clear")!.onclick = () => {
-    for (const source of sources) {
-      mode.setListenerVisible(source.id, false);
-      mode.setListenerVisible(source.id, true);
+    for (const source of mode.outlines()) {
+      mode.setListenerVisible(source.listenerId, false);
+      mode.setListenerVisible(source.listenerId, true);
     }
     mode.clearTreatmentHistory?.();
     document.querySelector("#delivery-status")!.textContent =
@@ -550,8 +773,8 @@ async function main() {
     if (preview) {
       mode.setMode("flow");
       mode.setEnabled(true);
-      for (const source of sources) mode.setListenerVisible(source.id, true);
-      deliver(selectedSource);
+      for (const source of mode.outlines()) mode.setListenerVisible(source.listenerId, true);
+      await deliver(selectedSource);
     }
   }
   select.onchange = () => choose(select.value as TreatmentId);
@@ -571,4 +794,4 @@ async function main() {
   // The runtime restores the project default or saved selection.
   // Rendering, metadata, and geometry now belong to the shared runtime registry.
 }
-void main();
+void main().catch(error => { console.error(error); document.querySelector("#delivery-status")!.textContent = String(error); });

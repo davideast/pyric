@@ -268,6 +268,26 @@
     "github_create_pull_request": {
       "decision": "deliberate",
       "reason": "session-workspace publish flow, playground-only — external agents use real git/GitHub directly"
+    },
+    "sandbox_save_capture": {
+      "decision": "deliberate",
+      "reason": "Project capture storage belongs on the local MCP host; the Playground has no attached project capture directory."
+    },
+    "sandbox_list_captures": {
+      "decision": "deliberate",
+      "reason": "Project capture storage belongs on the local MCP host; the Playground has no attached project capture directory."
+    },
+    "sandbox_open_capture": {
+      "decision": "deliberate",
+      "reason": "Project capture storage belongs on the local MCP host; the Playground has no attached project capture directory."
+    },
+    "sandbox_rename_capture": {
+      "decision": "deliberate",
+      "reason": "Project capture storage belongs on the local MCP host; the Playground has no attached project capture directory."
+    },
+    "sandbox_delete_capture": {
+      "decision": "deliberate",
+      "reason": "Project capture storage belongs on the local MCP host; the Playground has no attached project capture directory."
     }
   }
 }

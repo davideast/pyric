@@ -43,7 +43,7 @@ export * from './instances.js';
 export * from './equality.js';
 export * from './persistence.js';
 export * from './refs.js';
-export * from './reads.js';
+export { getDoc, getDocs } from './reads.js';
 export * from './writes.js';
 export * from './query-constraints.js';
 export * from './aggregates.js';

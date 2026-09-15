@@ -128,7 +128,9 @@ describe('RTDB worker connection lifecycle', () => {
       drainControl: { '.read': true, '.write': true },
     } });
 
-    await expect(disconnectClient(writerClient)).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    // Capture the disconnect failure before checking that the remaining writes drained.
+    const failure = await disconnectClient(writerClient).then(() => null, error => error);
+    expect(failure).toMatchObject({ code: 'PERMISSION_DENIED' });
     expect((await client.rtdbGet(client.rtdbRef(observerDb, 'rulesTarget'))).val()).toBe('seed');
     expect((await client.rtdbGet(client.rtdbRef(observerDb, 'drainControl'))).val()).toBe('drained');
   });

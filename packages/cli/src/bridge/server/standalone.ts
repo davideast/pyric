@@ -49,6 +49,7 @@ export interface StartServerOptions {
   port?: number;
   /** Sandbox label surfaced in health and audit metadata. */
   project?: string;
+  projectDir?: string;
   /** Disable the audit log writer (useful in tests). */
   disableAuditLog?: boolean;
   /** Extra hostnames allowed past the WS-upgrade rebinding/origin guard
@@ -111,6 +112,7 @@ export async function startServer(
   });
 
   const { forwarded, inProcess } = getBridgeToolSurface({
+    projectDir: opts.projectDir ?? process.cwd(),
     consumers: bridge.consumers,
     callerIdentity: bridge.callerIdentity,
   });

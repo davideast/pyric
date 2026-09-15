@@ -34,6 +34,7 @@ import {
  * Gemini-wire JSON the protocol's ai ops carry.
  */
 export interface AiBrokerLike {
+  observationIdentity?(model: string): import('pyric/ai/internal').AiEvidence;
   generateContent(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;
   streamGenerateContent(req: Record<string, unknown>, model: string): AsyncIterable<Record<string, unknown>>;
   countTokens(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>>;

@@ -202,24 +202,23 @@ struct ConformanceQueryAndCodableTests {
     }
 
     @Test func `firestore-swift#62: Query.addSnapshotListener(includeMetadataChanges:listener:) - Attaches real-time query listener receiving metadata-only change notifications.`() async throws {
-        let harness = try await ConformanceMockHarness.create()
+        let harness = try await ConformanceMockHarness.create(sendDelayNanoseconds: 50_000_000)
         let reg = harness.firestore.collection("users").addSnapshotListener(includeMetadataChanges: true) { _, _ in }
-        try await Task.sleep(nanoseconds: 20_000_000)
-        let lastMsg = harness.lastSentMessage()
-        #expect(lastMsg?["type"]?.stringValue == "worker-sub")
-        #expect(lastMsg?["sub"]?["includeMetadataChanges"]?.boolValue == true)
+        let lastMsg = try await harness.waitForSentMessage(type: "worker-sub")
+        #expect(lastMsg["type"]?.stringValue == "worker-sub")
+        #expect(lastMsg["sub"]?["includeMetadataChanges"]?.boolValue == true)
         reg.remove()
     }
 
     @Test func `firestore-swift#63: Query.addSnapshotListener(options:listener:) - Attaches real-time query listener configured with SnapshotListenOptions.`() async throws {
-        let harness = try await ConformanceMockHarness.create()
+        let harness = try await ConformanceMockHarness.create(sendDelayNanoseconds: 50_000_000)
         var options = SnapshotListenOptions()
         options.includeMetadataChanges = true
         let reg = harness.firestore.collection("users").addSnapshotListener(options: options) { _, _ in }
-        try await Task.sleep(nanoseconds: 20_000_000)
-        let lastMsg = harness.lastSentMessage()
-        #expect(lastMsg?["type"]?.stringValue == "worker-sub")
+        let lastMsg = try await harness.waitForSentMessage(type: "worker-sub")
+        #expect(lastMsg["type"]?.stringValue == "worker-sub")
         reg.remove()
+        #expect(lastMsg["sub"]?["includeMetadataChanges"]?.boolValue == true)
     }
 
     // ══════════════════════════════════════════════════════════════════════════

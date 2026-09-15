@@ -1,7 +1,10 @@
+import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
 import { generatePushId } from './sandbox/push-id.js';
 import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf } from './routing.js';
 import { isQuery } from './query-shape.js';
+import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
+import { beginDatabaseActivity } from './sdk-activity.js';
 import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from './types.js';
 import { buildSandboxRef } from './references.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
@@ -19,24 +22,27 @@ import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
  * Matches the SDK's `DataSnapshot.val()` contract.
  */
 export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
-  // Query branch — windowed read.
-  if (isQuery(r as object)) {
-    const q = r as Query;
-    const target = targetOf(q.ref as unknown as object);
-    return Promise.resolve().then(() => {
-      const rows = target.admin
-        ? target.backend.adminGetQuery(q.ref._path, q._spec)
-        : target.backend.getQuery(authFor(target), q.ref._path, q._spec);
-      return buildSandboxQuerySnap(target, q.ref, rows);
-    });
-  }
-  const ref0 = r as DatabaseReference;
-  const target = targetOf(ref0 as unknown as object);
+  const query = isQuery(r as object) ? r as Query : undefined;
+  const ref0 = query?.ref ?? r as DatabaseReference;
+  const target = targetOf(ref0 as object);
+  const activity = beginDatabaseActivity(r, 'get', 'operation');
+  // Keep the existing single Promise reaction and exact backend error object.
   return Promise.resolve().then(() => {
-    const val = target.admin
-      ? target.backend.adminGet(ref0._path)
-      : target.backend.get(authFor(target), ref0._path);
-    return buildSandboxSnap(target, ref0, val);
+    try {
+      if (query) {
+        const rows = target.admin
+          ? target.backend.adminGetQuery(query.ref._path, query._spec)
+          : target.backend.getQuery(authFor(target), query.ref._path, query._spec);
+        return finishSdkRead(activity, buildSandboxQuerySnap(target, query.ref, rows));
+      }
+      const val = target.admin
+        ? target.backend.adminGet(ref0._path)
+        : target.backend.get(authFor(target), ref0._path);
+      return finishSdkRead(activity, buildSandboxSnap(target, ref0, val));
+    } catch (error) {
+      activity.fail();
+      throw error;
+    }
   });
 }
 
@@ -49,11 +55,13 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
  */
 export async function set(r: DatabaseReference, value: unknown): Promise<void> {
   const target = targetOf(r as unknown as object);
-  if (target.admin) {
-    target.backend.adminSet(r._path, value as JsonValue);
-  } else {
-    target.backend.set(authFor(target), r._path, value as JsonValue);
-  }
+  return runSdkWrite(beginDatabaseActivity(r, 'set', 'operation'), () => {
+    if (target.admin) {
+      target.backend.adminSet(r._path, value as JsonValue);
+    } else {
+      target.backend.set(authFor(target), r._path, value as JsonValue);
+    }
+  });
 }
 
 export async function setPriority(
@@ -61,11 +69,13 @@ export async function setPriority(
   priority: string | number | null,
 ): Promise<void> {
   const target = targetOf(r as unknown as object);
-  if (target.admin) {
-    target.backend.adminSetPriority(r._path, priority);
-  } else {
-    target.backend.setPriority(authFor(target), r._path, priority);
-  }
+  return runSdkWrite(beginDatabaseActivity(r, 'setPriority', 'operation'), () => {
+    if (target.admin) {
+      target.backend.adminSetPriority(r._path, priority);
+    } else {
+      target.backend.setPriority(authFor(target), r._path, priority);
+    }
+  });
 }
 
 export async function setWithPriority(
@@ -74,11 +84,13 @@ export async function setWithPriority(
   priority: string | number | null,
 ): Promise<void> {
   const target = targetOf(r as unknown as object);
-  if (target.admin) {
-    target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
-  } else {
-    target.backend.setWithPriority(authFor(target), r._path, value as JsonValue, priority);
-  }
+  return runSdkWrite(beginDatabaseActivity(r, 'setWithPriority', 'operation'), () => {
+    if (target.admin) {
+      target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
+    } else {
+      target.backend.setWithPriority(authFor(target), r._path, value as JsonValue, priority);
+    }
+  });
 }
 
 /**
@@ -100,16 +112,18 @@ export function update(
 ): Promise<void> {
   const target = targetOf(r as unknown as object);
   validateUpdatePaths(values);
-  return Promise.resolve().then(() => {
-    if (target.admin) {
-      target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
-    } else {
-      target.backend.update(
-        authFor(target),
-        r._path,
-        values as Record<string, JsonValue>,
-      );
-    }
+  return runSdkWrite(beginDatabaseActivity(r, 'update', 'operation'), () => {
+    return Promise.resolve().then(() => {
+      if (target.admin) {
+        target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
+      } else {
+        target.backend.update(
+          authFor(target),
+          r._path,
+          values as Record<string, JsonValue>,
+        );
+      }
+    });
   });
 }
 
@@ -140,11 +154,13 @@ function validateUpdatePaths(values: Record<string, unknown>): void {
  */
 export async function remove(r: DatabaseReference): Promise<void> {
   const target = targetOf(r as unknown as object);
-  if (target.admin) {
-    target.backend.adminRemove(r._path);
-  } else {
-    target.backend.remove(authFor(target), r._path);
-  }
+  return runSdkWrite(beginDatabaseActivity(r, 'remove', 'operation'), () => {
+    if (target.admin) {
+      target.backend.adminRemove(r._path);
+    } else {
+      target.backend.remove(authFor(target), r._path);
+    }
+  });
 }
 
 /**
@@ -175,9 +191,16 @@ export function push(r: DatabaseReference, value?: unknown): ThenableReference {
   // thenable's own `then` (the self-reference unwrap trap).
   const thenablePushRef = buildSandboxRef(target, childPath);
   const pushRef = buildSandboxRef(target, childPath);
-  const promise = value === undefined
-    ? Promise.resolve(pushRef)
-    : set(pushRef, value).then(() => pushRef);
+  let promise: Promise<DatabaseReference>;
+  if (value === undefined) {
+    promise = Promise.resolve(pushRef);
+  } else {
+    promise = runSdkWrite(beginDatabaseActivity(pushRef, 'push', 'operation'), () => {
+      if (target.admin) target.backend.adminSet(childPath, value as JsonValue);
+      else target.backend.set(authFor(target), childPath, value as JsonValue);
+      return pushRef;
+    });
+  }
   return makeThenable(thenablePushRef, promise);
 }
 

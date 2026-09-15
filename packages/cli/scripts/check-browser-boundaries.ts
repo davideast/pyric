@@ -17,6 +17,17 @@ function isEngineModule(path: string): boolean {
   const isSharedLeaf = [
     'sandbox/internal/firebase-error',
     'sandbox/internal/client-app',
+    // Main adds these browser diagnostics leaves; none owns a service engine.
+    'sandbox/internal/ai-evidence',
+    'sandbox/internal/sdk-activity',
+    'sandbox/internal/sdk-observation',
+    'sandbox/internal/sdk-write-activity',
+    'sandbox/internal/storage-activity',
+    'sandbox/internal/usage-evidence',
+    'firestore/sandbox/activity-query-value',
+    'firestore/sandbox/activity-structural-identity',
+    'rules/indexes/query-analysis',
+    'rules/indexes/service-query',
     'firestore/sandbox/activity-value-registry',
     'firestore/sandbox/query-value-registry',
   ].includes(modulePath);

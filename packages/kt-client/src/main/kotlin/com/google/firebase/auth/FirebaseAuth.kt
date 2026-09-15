@@ -56,17 +56,13 @@ class FirebaseAuth internal constructor(
     private val authStateListeners = CopyOnWriteArrayList<AuthStateListener>()
     private val idTokenListeners = CopyOnWriteArrayList<IdTokenListener>()
 
+    private val authStateLock = Any()
+    private var initialBridgeSnapshotReceived = false
+
     init {
-        var initialBridgeSnapshotReceived = false
         scope.launch {
             try {
                 BridgeAuthOperations.subscribeAuthState(bridgeClient).collect { rawUser ->
-                    if (!initialBridgeSnapshotReceived) {
-                        initialBridgeSnapshotReceived = true
-                        if (rawUser == null && _currentUser.value != null) {
-                            return@collect
-                        }
-                    }
                     updateUserFromBridge(rawUser)
                 }
             } catch (_: Throwable) {}
@@ -245,8 +241,10 @@ class FirebaseAuth internal constructor(
         if (resClaims != null && user.customClaims.isEmpty()) {
             user.customClaims = resClaims
         }
-        _currentUser.value = user
-        updateAuthLens()
+        synchronized(authStateLock) {
+            _currentUser.value = user
+            updateAuthLens()
+        }
         notifyAuthStateChanged()
         notifyIdTokenChanged()
         @Suppress("UNCHECKED_CAST")
@@ -258,27 +256,36 @@ class FirebaseAuth internal constructor(
     }
 
     private fun updateUserFromBridge(userMap: Map<String, Any?>?) {
-        val prevUid = _currentUser.value?.uid
-        val uid = userMap?.get("uid") as? String
-        if (userMap == null || uid.isNullOrEmpty()) {
-            _currentUser.value = null
-            _authLens.value = AuthLens.Anon
-        } else {
-            val existingUser = _currentUser.value
-            val user = FirebaseUser(this, userMap)
-            if (existingUser != null && existingUser.uid == user.uid && user.customClaims.isEmpty() && existingUser.customClaims.isNotEmpty()) {
-                user.customClaims = existingUser.customClaims
+        val changed = synchronized(authStateLock) {
+            // Apply the initial snapshot atomically with sign-in completion;
+            // an already-checked null must not erase a newly signed-in user.
+            if (!initialBridgeSnapshotReceived) {
+                initialBridgeSnapshotReceived = true
+                if (userMap == null && _currentUser.value != null) return
             }
-            _currentUser.value = user
-            updateAuthLens()
+            val prevUid = _currentUser.value?.uid
+            val uid = userMap?.get("uid") as? String
+            if (userMap == null || uid.isNullOrEmpty()) {
+                _currentUser.value = null
+                _authLens.value = AuthLens.Anon
+            } else {
+                val existingUser = _currentUser.value
+                val user = FirebaseUser(this, userMap)
+                if (existingUser != null && existingUser.uid == user.uid && user.customClaims.isEmpty() && existingUser.customClaims.isNotEmpty()) {
+                    user.customClaims = existingUser.customClaims
+                }
+                _currentUser.value = user
+                updateAuthLens()
+            }
+            _currentUser.value?.uid != prevUid
         }
-        if (_currentUser.value?.uid != prevUid) {
+        if (changed) {
             notifyAuthStateChanged()
             notifyIdTokenChanged()
         }
     }
 
-    private fun updateAuthLens() {
+    private fun updateAuthLens() = synchronized(authStateLock) {
         val override = _lensOverride.value
         if (override != null) {
             _authLens.value = override

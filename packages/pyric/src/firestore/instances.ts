@@ -96,6 +96,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
       }
       const t: SandboxLiveTarget = {
         kind: 'sandbox-live',
+        activityApp: target as object,
         sandbox,
         getDb: makeGetDb(sandbox, () => session.currentUser),
         authScope,
@@ -108,6 +109,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
     const chainable = getChainableFirestore(target);
     const t: SandboxTarget = {
       kind: 'sandbox',
+      activityApp: target,
       db: chainable,
       sandbox: target.sandbox,
       ...createFirestoreTargetLifecycle(),
@@ -117,6 +119,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
   if (isSandbox(target)) {
     const t: SandboxLiveTarget = {
       kind: 'sandbox-live',
+      activityApp: target,
       sandbox: target,
       getDb: makeGetDb(target),
       ...createFirestoreTargetLifecycle(),

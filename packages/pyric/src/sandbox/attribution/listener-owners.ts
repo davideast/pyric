@@ -136,7 +136,12 @@ function stripFileScheme(url: string): string {
 /** A frame inside pyric itself, or inside an installed dependency. */
 function isInternalFrame(file: string): boolean {
   if (file.includes('/node_modules/')) return true;
-  if (PYRIC_ROOT.length > 0 && file.startsWith(PYRIC_ROOT)) return true;
+  if (PYRIC_ROOT.length > 0 && file.startsWith(`${PYRIC_ROOT}/`)) return true;
+  // Source and built SDK copies share the page journal. Its registration frame
+  // can therefore come from the sibling tree during workspace development.
+  const sibling = PYRIC_ROOT.endsWith('/src') ? `${PYRIC_ROOT.slice(0, -4)}/dist`
+    : PYRIC_ROOT.endsWith('/dist') ? `${PYRIC_ROOT.slice(0, -5)}/src` : '';
+  if (sibling && file.startsWith(`${sibling}/`)) return true;
   return false;
 }
 

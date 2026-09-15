@@ -1,3 +1,5 @@
+import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
+import { beginFirestoreGroupActivity } from './sdk-activity.js';
 /**
  * `pyric/firestore` — transactions + batched writes.
  *
@@ -41,7 +43,7 @@ export async function runTransaction<R>(
   // For sandbox-live, the transaction runs under the auth captured at
   // `runTransaction` start and stays identity-stable until completion.
   const database = sandboxDb(target);
-  return database.runTransaction((backing) => {
+  return runSdkWrite(beginFirestoreGroupActivity(target, 'runTransaction'), () => database.runTransaction((backing) => {
     const transaction: Transaction = {
       get: modularTransactionRead(backing.get.bind(backing), database, target),
       set(ref, data, options) {
@@ -59,7 +61,7 @@ export async function runTransaction<R>(
       },
     };
     return fn(transaction);
-  }, options);
+  }, options));
 }
 
 /** Normalize document results without moving reads outside the transaction. */
@@ -85,22 +87,29 @@ export function writeBatch(db: Firestore): WriteBatch {
   const target = targetOf(db);
   const database = sandboxDb(target);
   const backing = database.batch();
+  let writes = 0;
+  let deletes = 0;
   const batch: WriteBatch = {
     set(ref, data, options) {
       const payload = convertSetData(ref, data);
       backing.set(database.doc(ref.path), payload, options);
+      writes++;
       return batch;
     },
     update(ref, data) {
       backing.update(database.doc(ref.path), data);
+      writes++;
       return batch;
     },
     delete(ref) {
       backing.delete(database.doc(ref.path));
+      deletes++;
       return batch;
     },
     commit(options) {
-      return backing.commit(options);
+      return runSdkWrite(beginFirestoreGroupActivity(target, 'writeBatch.commit'),
+        () => backing.commit(options),
+        () => ({ documentWrites: writes, documentDeletes: deletes }));
     },
   };
   return tag(batch, target);

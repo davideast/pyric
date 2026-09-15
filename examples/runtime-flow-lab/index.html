@@ -15,6 +15,31 @@
         </div>
         <button class="lab-button" id="inspector">Inspector</button>
       </header>
+      <section class="data-controls" aria-label="Chat data">
+        <div class="data-picker">
+          <label for="chat-service">Messages</label>
+          <div class="select-field"><select id="chat-service"><option value="firestore">Firestore</option><option value="rtdb">Realtime Database</option></select></div>
+          <button class="lab-button" id="reset-data">Reset data</button>
+        </div>
+        <div id="rtdb-controls" hidden>
+          <div class="data-picker">
+            <label for="listener-mode">Listener</label>
+            <div class="select-field"><select id="listener-mode"><option value="value">Value events</option><option value="children">Child events</option></select></div>
+            <button class="lab-button" id="listeners">Stop listeners</button>
+          </div>
+          <div class="data-picker">
+            <label for="listener-scope">Scope</label>
+            <div class="select-field"><select id="listener-scope"><option value="messages">Latest 10 messages</option><option value="conversation">Whole conversation</option></select></div>
+            <button class="lab-button" id="older">Load older</button>
+          </div>
+          <div class="delivery-buttons">
+            <button class="lab-button" id="edit-message">Edit latest message</button>
+            <button class="lab-button" id="query-index">Find Alice messages</button>
+            <button class="lab-link" id="reset-index">Reset demo index</button>
+          </div>
+          <p class="study-note">Value events return the full value. Child events return one message. Callback size is not billed download size.</p>
+        </div>
+      </section>
       <section class="study" aria-label="Flow treatment">
         <div class="study-controls">
           <label for="treatment">Flow treatment</label
@@ -51,16 +76,16 @@
         </div>
         <p id="treatment-description"></p>
         <p class="study-note">
-          Choosing a treatment repeats the last delivery.
+          Choosing a treatment triggers another update.
         </p>
         <p class="study-note" id="treatment-use"></p>
       </section>
       <section
         class="delivery-controls"
-        aria-label="Simulate listener deliveries"
+        aria-label="Update chat data"
       >
         <div class="delivery-heading">
-          <h2>Trigger a delivery</h2>
+          <h2>Trigger an update</h2>
           <button class="lab-link" id="clear">Clear marks & history</button>
         </div>
         <div class="delivery-buttons">
@@ -70,11 +95,51 @@
           ><button class="lab-button" data-deliver="typing">Typing</button
           ><button class="lab-button" data-deliver="receipts">
             Read receipt</button
+          ><button class="lab-button" id="refresh">Refresh data</button
           ><button class="lab-button" id="burst">Run a burst</button>
         </div>
         <p class="delivery-status" id="delivery-status" role="status">
           Choose an update. Watch the changed components, not the whole page.
         </p>
+      </section>
+      <section class="delivery-controls" aria-label="Problem scenarios">
+        <div class="delivery-heading"><h2>Trigger a problem</h2></div>
+        <div class="delivery-buttons scenario-buttons">
+          <button class="lab-button" data-scenario="firestore-denial">Deny Firestore write</button>
+          <button class="lab-button" data-scenario="rtdb-denial">Deny RTDB write</button>
+          <button class="lab-button" data-scenario="firestore-index">Missing Firestore index</button>
+          <button class="lab-button" data-scenario="rtdb-index">Missing RTDB .indexOn</button>
+          <button class="lab-button" id="rate-burst">Test rate warning</button>
+        </div>
+        <p class="delivery-status" id="scenario-status" role="status">Rate warnings use the selected Messages service. Denials and index tests use the service named on the button.</p>
+      </section>
+      <section class="delivery-controls" aria-label="Storage attachments">
+        <div class="delivery-heading"><h2>Attachments</h2></div>
+        <div class="delivery-buttons">
+          <button class="lab-button" data-storage="upload">Upload 16 KiB</button>
+          <button class="lab-button" data-storage="download">Download</button>
+          <button class="lab-button" data-storage="delete">Delete</button>
+          <button class="lab-button" data-storage="denied">Deny upload</button>
+          <button class="lab-button" data-storage="burst">Storage burst</button>
+        </div>
+        <div id="storage-preview"></div>
+      </section>
+      <section class="delivery-controls" aria-label="AI Logic scenarios">
+        <div class="delivery-heading"><h2>AI Logic</h2></div>
+        <div class="delivery-buttons ai-options">
+          <label>Backend <span class="select-field"><select id="ai-backend"><option value="scripted">Scripted</option><option value="local">Local OpenAI-compatible</option></select></span></label>
+          <label>Local model <span class="select-field"><select id="ai-model" aria-label="Local model" disabled><option value="">Select a local backend first</option></select></span></label>
+          <button class="lab-button" id="ai-model-refresh" disabled>Refresh models</button>
+        </div>
+        <p class="delivery-status" id="ai-model-status" role="status" hidden></p>
+        <p class="delivery-status">Requests use gemini-2.5-flash. Local mode maps that alias to the model above through the development server’s AI proxy. Scripted mode invokes no model.</p>
+        <div class="delivery-buttons">
+          <button class="lab-button" data-ai-action="generate">Generate</button>
+          <button class="lab-button" data-ai-action="stream">Stream</button>
+          <button class="lab-button" data-ai-action="fail">Fail request</button>
+          <button class="lab-button" data-ai-action="burst">Rate warning</button>
+        </div>
+        <div id="ai-preview"></div>
       </section>
       <div id="demo-app"></div>
       <div class="lab-legend">
@@ -91,8 +156,8 @@
         <div id="treatment-index"></div>
       </details>
       <footer class="lab-footer">
-        Local demo: deliveries are simulated; React commits and Flow marks are
-        real. Flow shows renders observed after a delivery, not proven data
+        Local demo: chat updates use Firestore and Realtime Database SDK calls.
+        Flow shows renders observed after a delivery, not proven data
         dependencies. Treatments are shared with the runtime chip.
       </footer>
     </main>

@@ -1,5 +1,6 @@
 import { JSDOM } from 'jsdom';
-import { describe, expect, it, mock } from 'bun:test';
+import { createSdkActivityJournal, createSdkRateMonitor } from 'pyric/sandbox/internal';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mountPyricRuntimeChip, type PyricRuntimeChipOptions } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
@@ -8,6 +9,11 @@ import type { AuthUserRecord } from 'pyric/auth';
 import type { RuntimeIdentity } from '../../../src/serve/runtime/identity.js';
 import type { RuntimeIdentityBindings } from '../../../src/serve/runtime/identity.js';
 import type { ChipTab } from '../../../src/serve/runtime/chip-tab.js';
+
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+});
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -31,6 +37,7 @@ function setup(options: {
   openCreateUser?: () => void;
   setLens?: (lens: AuthLens | undefined) => void;
   subscribeLens?: (listener: (lens: AuthLens | undefined) => void) => () => void;
+  aiConfiguration?: PyricRuntimeChipOptions['aiConfiguration'];
   withSandboxEvents?: boolean;
   clipboard?: Pick<Clipboard, 'writeText'>;
   useRealClient?: boolean;
@@ -65,8 +72,14 @@ function setup(options: {
   if (options.openCreateUser) identity.openCreateUser = options.openCreateUser;
   if (options.listUsers) identity.listUsers = options.listUsers;
 
+  // Each mounted test page owns its rates; other suites share the process journal.
+  const journal = createSdkActivityJournal();
+  const rates = createSdkRateMonitor(journal);
+  cleanups.push(() => { rates.dispose(); journal.dispose(); });
   const chipOptions: PyricRuntimeChipOptions = {
+    rates,
     runtime,
+    ...(options.aiConfiguration ? { aiConfiguration: options.aiConfiguration } : {}),
     document: dom.window.document,
     identity,
   };
@@ -95,6 +108,7 @@ function setup(options: {
   }
 
   const chip = mountPyricRuntimeChip(chipOptions);
+  cleanups.push(() => { chip.dispose(); dom.window.close(); });
   const root = chip.element.shadowRoot!;
   return {
     dom,
@@ -169,7 +183,7 @@ describe('the panel shell', () => {
     const { root } = setup({ initiallyOpen: true });
     expect(root.querySelector('.panel-name')!.textContent).toBe('pyric');
     expect(texts(root, '.panel-header .btn')).toEqual(['Studio', 'Close']);
-    expect(texts(root, '[data-chip-tab]')).toEqual(['Identity', 'Listeners', 'Traffic', 'Sandbox']);
+    expect(texts(root, '[data-chip-tab]')).toEqual(['Identity', 'Data', 'Traffic', 'Sandbox']);
     expect(texts(root, '[data-chip-tab]').some((label) => /\d/.test(label))).toBe(false);
   });
 
@@ -412,6 +426,32 @@ describe('the Sandbox view', () => {
     expect(texts(root, '[data-action-bar] .btn')).toEqual(['Hide']);
   });
 
+  it('reports live host configuration and in-page execution without inventing a pending worker', () => {
+    let configuration = { backend: 'Scripted', requestedModel: 'gemini-2.5-flash', route: 'No model invoked' };
+    const listeners = new Set<() => void>();
+    const { root, showTab, runtime, chip } = setup({ initiallyOpen: true, aiConfiguration: {
+      getSnapshot: () => configuration,
+      subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    } });
+    runtime.setWorker({ mode: 'in-page' });
+    showTab('sandbox');
+    expect(root.querySelector('[data-ai-row]')!.textContent).toContain('Scripted');
+    configuration = { ...configuration, backend: 'OpenAI-compatible', route: 'ornith:9b' };
+    for (const listener of listeners) listener();
+    expect(root.querySelector('[data-ai-row]')!.textContent).toContain('OpenAI-compatible');
+    expect(root.querySelector('[data-ai-route-row]')!.textContent).toContain('ornith:9b');
+    expect(root.querySelector('[data-runtime-row]')!.textContent).toContain('In-page');
+    expect(root.querySelector('[data-worker-row]')).toBeNull();
+    chip.dispose();
+    expect(listeners.size).toBe(0);
+  });
+
+  it('does not infer scripted execution from missing AI configuration', () => {
+    const { root, showTab } = setup({ initiallyOpen: true });
+    showTab('sandbox');
+    expect(root.querySelector('[data-ai-row]')!.textContent).toContain('Not reported');
+  });
+
   it('hides the chip from the page from the bar', () => {
     const { root, showTab, chip } = setup({ initiallyOpen: true });
     showTab('sandbox');
@@ -446,24 +486,48 @@ describe('the Traffic view', () => {
     expect(denied.querySelector('.c2')!.textContent).toBe('conversations/c1');
     expect(denied.querySelector('.s1')!.textContent).toMatch(/^\d\d:\d\d:\d\d$/);
     expect(denied.querySelector('.s2')!.textContent).toBe('signed out');
-    expect(denied.querySelector('.slot')!.textContent).toBe('denied');
+    expect(denied.querySelector('.slot')!.textContent).toBe('Denied');
     const ok = rows[1]!;
     expect(ok.querySelector('.s2')!.textContent).toBe('');
-    expect(ok.querySelector('.slot')!.textContent).toBe('ok');
+    expect(ok.querySelector('.slot')!.textContent).toBe('Allowed');
   });
 
-  it('expands a request in place without changing its copyable cells', () => {
+  it('drills into the selected request and returns through its breadcrumb', () => {
     const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
     const path = 'conversations/long-conversation-id/messages/long-message-id';
     push([request('r1', Date.now(), path, 'allow')]);
     showTab('traffic');
     root.querySelector<HTMLButtonElement>('[data-request-row="r1"]')!.click();
-    const expanded = root.querySelector<HTMLButtonElement>('[data-request-row="r1"]')!;
-    expect(expanded.getAttribute('aria-expanded')).toBe('true');
+    const expanded = root.querySelector<HTMLElement>('[data-traffic-detail]')!;
+    expect(root.querySelector('[data-traffic-rows]')).toBeNull();
     expect(expanded.querySelector('.c2')!.textContent).toBe(path);
     expect(root.querySelector('[data-chip-view="traffic"]')).not.toBeNull();
-    expanded.click();
-    expect(root.querySelector('[data-request-row="r1"]')!.getAttribute('aria-expanded')).toBe('false');
+    root.querySelector<HTMLButtonElement>('[data-request-back]')!.click();
+    expect(root.querySelector('[data-traffic-detail]')).toBeNull();
+    expect(root.querySelector('[data-request-row="r1"]')).not.toBeNull();
+  });
+
+  it('keeps Reason aligned with request facts and preserves open rule details during new activity', () => {
+    const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
+    push([{
+      kind: 'request', id: 'original', at: Date.now(), evalMs: 1, method: 'get', path: 'docs/a',
+      auth: null, result: 'deny', reasons: [],
+      rulesEvidence: {
+        version: 'private-debug-id', scope: 'request', decision: 'DENY', truncated: false, paths: [],
+        rules: [{ expression: 'false', verdict: 'DENY', checks: [] }],
+      },
+    }]);
+    showTab('traffic');
+    root.querySelector<HTMLButtonElement>('[data-request-row="original"]')!.click();
+    expect(texts(root, '.request-facts dt')).toContain('Reason');
+    expect(root.textContent).not.toContain('private-debug-id');
+    const details = root.querySelector<HTMLDetailsElement>('[data-rule-details]')!;
+    details.open = true;
+    details.querySelector('summary')!.focus();
+    push([request('new', Date.now(), 'docs/b', 'allow')]);
+    expect(root.querySelector<HTMLDetailsElement>('[data-rule-details]')!.open).toBe(true);
+    expect(root.activeElement?.tagName).toBe('SUMMARY');
+    expect(root.querySelector('[data-traffic-detail]')!.getAttribute('data-request-row')).toBe('original');
   });
 
   it('narrows to the denials from the bar, and copies the rows it is showing', async () => {
@@ -477,8 +541,8 @@ describe('the Traffic view', () => {
     expect(root.querySelector('[data-traffic-denied]')!.getAttribute('aria-pressed')).toBe('true');
     root.querySelector<HTMLButtonElement>('[data-copy-traffic]')!.click();
     await Promise.resolve();
-    expect(written[0]).toContain('firestore.set  conversations/c1  denied');
-    expect(written[0]).toContain('denied for u9');
+    expect(written[0]).toContain('firestore.set  conversations/c1  Denied');
+    expect(written[0]).toContain('u9');
   });
 
   it('carries the failures that are not requests from the runtime error feed', () => {
@@ -488,6 +552,6 @@ describe('the Traffic view', () => {
     const row = root.querySelector('[data-request-row]')!;
     expect(row.querySelector('.c1')!.textContent).toBe('runtime');
     expect(row.querySelector('.c2')!.textContent).toBe('worker crashed');
-    expect(row.querySelector('.slot')!.textContent).toBe('error');
+    expect(row.querySelector('.slot')!.textContent).toBe('Failed');
   });
 });

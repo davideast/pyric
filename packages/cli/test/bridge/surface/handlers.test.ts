@@ -758,3 +758,16 @@ it('signs in with a federated credential and refuses a provider it has none for'
 
   await run('auth.actAsAdmin');
 });
+
+it('saves, lists and inspects a project rate capture through the service tool', async () => {
+  const method = METHODS.find(method => method.key === 'sandbox.saveCapture')!;
+  const saved = await run('sandbox.saveCapture', method.example);
+  expect(saved.ok).toBe(true);
+  const id = (saved.data as { id: string }).id;
+  expect((await run('sandbox.renameCapture', { id, name: 'Handoff incident' })).ok).toBe(true);
+  expect((await run('sandbox.listCaptures')).ok).toBe(true);
+  const opened = await run('sandbox.openCapture');
+  expect(opened.ok).toBe(true);
+  expect((await run('sandbox.deleteCapture', { id, confirm: false })).ok).toBe(false);
+  expect((await run('sandbox.deleteCapture', { id, confirm: true })).ok).toBe(true);
+});

@@ -547,3 +547,20 @@ select {
 .lab::after {
   content: "";
 }
+
+.data-controls, #rtdb-controls:not([hidden]) { display:grid; gap:12px; }
+.data-picker { display:grid; grid-template-columns:88px minmax(0,1fr) auto; gap:12px; align-items:center; }
+.data-picker .select-field { min-width:0; }
+@media (max-width:600px) {
+  .data-picker { grid-template-columns:minmax(0,1fr) auto; }
+  .data-picker label { grid-column:1 / -1; }
+}
+
+.attachment-card { display: grid; gap: 12px; }
+.attachment-card img, .attachment-card progress { max-width: 100%; }
+.attachment-card img { height: auto; }
+
+.ai-options label { display:grid; gap:8px; flex:1 1 200px; min-width:0; font-size:13px; color:var(--lab-muted); }
+
+.ai-options { align-items:flex-end; }
+.ai-options select { width:100%; min-width:0; height:36px; line-height:36px; appearance:auto; }

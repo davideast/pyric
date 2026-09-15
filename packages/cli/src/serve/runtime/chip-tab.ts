@@ -28,7 +28,7 @@ export const CHIP_TABS: readonly ChipTab[] = ['identity', 'listeners', 'traffic'
 /** The label each view carries in the strip. */
 export const CHIP_TAB_LABELS: Readonly<Record<ChipTab, string>> = {
   identity: 'Identity',
-  listeners: 'Listeners',
+  listeners: 'Data',
   traffic: 'Traffic',
   sandbox: 'Sandbox',
 };
@@ -47,6 +47,9 @@ export interface ChipTabSignals {
   duplicateListener: boolean;
   /** A newer worker is served than the one running. */
   updatePending: boolean;
+  /** An executed query is missing an index in local configuration. */
+  missingIndex?: boolean;
+  rateThreshold?: boolean;
 }
 
 /** `true` when this string names a view. */
@@ -67,6 +70,7 @@ export function openingChipTab(
 ): ChipTab {
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
+  if (signals.missingIndex || signals.rateThreshold) return 'traffic';
   if (signals.updatePending) return 'identity';
   return remembered ?? DEFAULT_CHIP_TAB;
 }
@@ -75,6 +79,7 @@ export function openingChipTab(
 export function problemTab(signals: ChipTabSignals): ChipTab | null {
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
+  if (signals.missingIndex || signals.rateThreshold) return 'traffic';
   if (signals.updatePending) return 'identity';
   return null;
 }

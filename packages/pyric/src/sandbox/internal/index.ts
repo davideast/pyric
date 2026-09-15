@@ -17,6 +17,28 @@
 export { getInternalEnv } from './sandbox-impl.js';
 export { decodeImportBundle } from '../persistence/import-bundle.js';
 export { seedUserSchema, storedMetadataSchema } from './state-schemas.js';
+export { captureIndexQuery, analyzeIndexQuery, readIndexConfig, type IndexQuery, type IndexFinding } from '../../rules/indexes/query-analysis.js';
+export type { IndexesConfig, IndexesConfigEntry } from '../../rules/indexes/types.js';
+export {
+  analyzeServiceIndex, captureDatabaseIndexQuery, databaseIndexLocations, indexService, isDatabaseIndexQuery,
+  type DatabaseIndexQuery, type DatabaseIndexDefinition, type DatabaseIndexConfig,
+  type ServiceIndexQuery, type ServiceIndexConfig, type ServiceIndexDefinition, type ServiceIndexFinding,
+} from '../../rules/indexes/service-query.js';
+export { observationService, type SdkObservation } from './sdk-observation.js';
+export { runSdkWrite } from './sdk-write-activity.js';
+export { createSdkRates, createSdkRateMonitor, sdkRates } from './sdk-rates.js';
+export type { AiRequestObservation, SdkRateSnapshot, SdkServiceRate, SdkMethodRate, SdkRateBucket } from './sdk-rates.js';
+export { sdkMethodCoverage } from './sdk-coverage.js';
+export type { SdkMethodCoverage, SdkMethodCategory } from './sdk-coverage.js';
+export {
+  createSdkActivityJournal,
+  finishSdkRead,
+  sdkActivity,
+  type SdkActivityEvent,
+  type SdkActivityHandle,
+  type SdkActivityRecord,
+  type SdkActivitySource,
+} from './sdk-activity.js';
 // Listener attribution: the owner records pyric stamps onto its own listener
 // events. Every mirrored surface with listeners reaches these, so they live in
 // the cross-surface runtime rather than in one surface's backend.
@@ -127,3 +149,5 @@ export { createSandboxRoot } from './root.js';
 
 export { assertCompleteHistory } from './history-integrity.js';
 export { EventHistory } from './event-history.js';
+export { firestoreReadUsage } from './usage-evidence.js';
+export type { UsageEvidence } from './usage-evidence.js';

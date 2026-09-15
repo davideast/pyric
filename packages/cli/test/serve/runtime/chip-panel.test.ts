@@ -1,5 +1,6 @@
+import { createSdkActivityJournal } from 'pyric/sandbox/internal';
 import { JSDOM } from 'jsdom';
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mountPyricRuntimeChip } from '../../../src/serve/runtime/chip.js';
 import { createPyricRuntimeStatus } from '../../../src/serve/runtime/status.js';
 import type { PyricRuntimeManifest } from '../../../src/serve/runtime/manifest.js';
@@ -14,6 +15,11 @@ import {
   readRememberedChipTab,
   writeRememberedChipTab,
 } from '../../../src/serve/runtime/chip-tab.js';
+
+const cleanups: Array<() => void> = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+});
 
 const manifest: PyricRuntimeManifest = {
   studioUrl: '/__pyric/ui/studio',
@@ -75,6 +81,7 @@ function setup(options: { rememberedTab?: string; withListeners?: boolean } = {}
     ...(options.withListeners
       ? {
           listeners: (onChange: (outlines: never) => void) => createListenerMode({
+    activity: createSdkActivityJournal(),
             document: doc,
             onChange: onChange as never,
             incidents: duplicateIncident,
@@ -89,6 +96,7 @@ function setup(options: { rememberedTab?: string; withListeners?: boolean } = {}
       : {}),
   });
   const root = chip.element.shadowRoot!;
+  cleanups.push(() => { chip.dispose(); dom.window.close(); });
   return {
     runtime,
     chip,

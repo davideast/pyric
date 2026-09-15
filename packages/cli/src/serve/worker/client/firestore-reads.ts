@@ -13,35 +13,48 @@ import type {
 import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
-import { reportListenerDelivery } from './listener-delivery.js';
 import { makeDocSnapshot, makeQuerySnapshot, makeSnapshot } from './snapshots.js';
+import { beginWorkerFirestoreActivity } from './sdk-activity.js';
+import { finishSdkRead, type UsageEvidence } from 'pyric/sandbox/internal';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot } from './snapshots.js';
 import type { DocumentData } from 'pyric/firestore';
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
 
-export async function getDoc<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>> {
-  const result = await dataRpc(ref.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'getDoc',
-    path: ref.descriptor.path,
-  }) as RawDocResult;
-  return makeDocSnapshot(result, ref.port, ref);
+export function getDoc<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>> {
+  return readDocumentAs(ref, 'getDoc');
 }
 
-export async function getDocs(
-  source: CollRefHandle | QueryHandle,
-): Promise<ClientQuerySnapshot> {
-  const result = await dataRpc(source.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'getDocs',
-    source: source.__kind === 'coll-ref'
-      ? (source as CollRefHandle).descriptor
-      : (source as QueryHandle).descriptor,
-  }) as RawQueryResult;
-  return makeQuerySnapshot(result, source.port);
+export async function readDocumentAs<T = DocumentData>(ref: DocRefHandle<T>, method: string): Promise<ClientDocSnapshot<T>> {
+  const activity = beginWorkerFirestoreActivity(ref, method, 'operation');
+  try {
+    const result = await dataRpc(ref.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'getDoc',
+      path: ref.descriptor.path,
+    }) as RawDocResult;
+    return finishSdkRead(activity, makeDocSnapshot(result, ref.port, ref));
+  } catch (error) { activity.fail(); throw error; }
+}
+
+export function getDocs(source: CollRefHandle | QueryHandle): Promise<ClientQuerySnapshot> {
+  return readQueryAs(source, 'getDocs');
+}
+
+export async function readQueryAs(source: CollRefHandle | QueryHandle, method: string): Promise<ClientQuerySnapshot> {
+  const activity = beginWorkerFirestoreActivity(source, method, 'operation');
+  try {
+    const result = await dataRpc(source.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'getDocs',
+      source: source.__kind === 'coll-ref'
+        ? (source as CollRefHandle).descriptor
+        : (source as QueryHandle).descriptor,
+    }) as RawQueryResult;
+    return finishSdkRead(activity, makeQuerySnapshot(result, source.port));
+  } catch (error) { activity.fail(); throw error; }
 }
 
 /**
@@ -73,15 +86,18 @@ export async function listSubcollections(db: ClientDb, docPath: string): Promise
 export async function getCountFromServer(
   source: CollRefHandle | QueryHandle,
 ): Promise<{ data(): { count: number } }> {
-  const result = await dataRpc(source.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'count',
-    source: source.__kind === 'coll-ref'
-      ? (source as CollRefHandle).descriptor
-      : (source as QueryHandle).descriptor,
-  }) as { count: number };
-  return { data: () => ({ count: result.count }) };
+  const activity = beginWorkerFirestoreActivity(source, 'getCountFromServer', 'operation');
+  try {
+    const result = await dataRpc(source.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'count',
+      source: source.__kind === 'coll-ref'
+        ? (source as CollRefHandle).descriptor
+        : (source as QueryHandle).descriptor,
+    }) as { count: number };
+    return finishSdkRead(activity, { data: () => ({ count: result.count }) });
+  } catch (error) { activity.fail(); throw error; }
 }
 
 // ─── Multi-field aggregates (count / sum / average) ───────────────────────
@@ -111,16 +127,19 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
   source: CollRefHandle | QueryHandle,
   spec: S,
 ): Promise<{ data(): { [K in keyof S]: number | null } }> {
-  const result = await dataRpc(source.port, {
-    t: 'op',
-    id: nextId(),
-    method: 'aggregate',
-    source: source.__kind === 'coll-ref'
-      ? (source as CollRefHandle).descriptor
-      : (source as QueryHandle).descriptor,
-    spec,
-  }) as { data: { [K in keyof S]: number | null } };
-  return { data: () => result.data };
+  const activity = beginWorkerFirestoreActivity(source, 'getAggregateFromServer', 'operation');
+  try {
+    const result = await dataRpc(source.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'aggregate',
+      source: source.__kind === 'coll-ref'
+        ? (source as CollRefHandle).descriptor
+        : (source as QueryHandle).descriptor,
+      spec,
+    }) as { data: { [K in keyof S]: number | null } };
+    return finishSdkRead(activity, { data: () => result.data });
+  } catch (error) { activity.fail(); throw error; }
 }
 
 // ─── onSnapshot ──────────────────────────────────────────────────────────
@@ -169,6 +188,8 @@ export function onSnapshot(
     : maybeError) as SnapshotErrorCallback | undefined;
   let currentSubId = nextSubId();
   const port = target.port;
+  const activity = beginWorkerFirestoreActivity(target, 'onSnapshot', 'subscription', owners);
+  activity.transport(currentSubId);
 
   const subscription = {
     port,
@@ -186,10 +207,12 @@ export function onSnapshot(
       }
       // Reported on the subscription id the sandbox also records as the
       // listener id, immediately before the application's callback runs.
-      reportListenerDelivery(currentSubId);
+      const result = raw as { usage?: UsageEvidence };
+      activity.delivered(snapshot, result.usage);
       callback(snapshot);
     },
-    error: errorCallback,
+    error: (error: unknown) => { activity.fail(); errorCallback?.(error); },
+    close: () => activity.close(),
   };
 
   const descriptor = target.descriptor;
@@ -200,6 +223,8 @@ export function onSnapshot(
     const hasOwners = owners !== undefined;
     if (hasOwners) message.owners = owners;
     const opened = openSnapshotSubscription(port, currentSubId, subscription, stampIssuer(message));
+    const failedToOpen = !opened;
+    if (failedToOpen) activity.fail();
     const reportsDeletedApp = !opened && errorCallback !== undefined;
     if (reportsDeletedApp) queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
     return opened;
@@ -211,11 +236,13 @@ export function onSnapshot(
     if (unsubscribed) return;
     closeSubscription(port, currentSubId);
     currentSubId = nextSubId();
+    activity.transport(currentSubId);
     subscribe();
   });
 
   function stop(): void {
     unsubscribed = true;
+    activity.close();
     unsubLens();
     closeSubscription(port, currentSubId);
   }

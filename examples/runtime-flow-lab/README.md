@@ -10,9 +10,11 @@ bun examples/runtime-flow-lab/serve.ts
 
 Open [the example](http://localhost:5197). Set `FLOW_LAB_PORT` to choose another port. Restart the server after editing TypeScript; CSS and HTML are read on each request.
 
-Choose a treatment, then use **New message**, **Presence**, **Typing**, **Read receipt**, or **Run a burst**. Choosing a treatment repeats the last delivery so you can compare it immediately. **Clear marks & history** clears visual history while preserving the chat data. **Inspector** opens or minimizes the actual runtime chip.
+Choose a treatment, then use **New message**, **Presence**, **Typing**, **Read receipt**, **Refresh data**, or **Run a burst**. Choosing a treatment triggers another update so you can compare it immediately. **Clear marks & history** clears visual history while preserving the chat data. **Inspector** opens or minimizes the actual runtime chip.
 
-All deliveries and user records are fixture data. The React renderer, commit hook, listener folding, and Flow painter are the real implementation. A render after a delivery is correlation, not proof that particular data reached every marked component. All fifteen treatments come from the runtime registry; the example and chip load the same styles and annotations.
+The chat starts with seeded data. Messages and read receipts use real local Firestore writes and subscriptions; presence and typing use real local Realtime Database writes and subscriptions. **Refresh data** reads messages from Firestore and presence from Realtime Database. **Run a burst** performs those two reads, then five SDK writes and their listener deliveries. The headline measurements estimate Firestore document reads (including listeners), successful writes and deletes, and RTDB snapshot payload bytes. They are partial local estimates, not a Firebase bill. Unmeasured charges and RTDB wire-size limits appear in the service detail. **Read receipt** writes a receipt. Open **Inspector → Traffic → Rates** to see usage by service, then choose a service for coverage and individual SDK methods. Rates use a five-second average and return to zero when idle. The identity directory remains fixture data.
+
+The React renderer, commit hook, listener folding, and Flow painter are the real implementation. A render after a delivery is correlation, not proof that particular data reached every marked component. All fifteen treatments come from the runtime registry; the example and chip load the same styles and annotations. This chat uses the in-page sandbox; the separate SDK example below also exercises the worker runtime.
 
 Portraits use Pyric's URL-backed avatar resolver with sample images from Pravatar. The resolver caches them in the system temporary directory; failed downloads fall back to generated avatars. Browser fonts are bundled locally.
 
@@ -49,11 +51,15 @@ With the example running:
 
 ```sh
 node examples/runtime-flow-lab/verify.mjs
+node examples/runtime-flow-lab/verify-selection.mjs
 node examples/runtime-flow-lab/verify-scroll.mjs
+node examples/runtime-flow-lab/verify-rates.mjs
 bunx --no-install tsc -p examples/runtime-flow-lab/tsconfig.json
 ```
 
 The browser check covers specific component updates, one delivery updating multiple regions, idle-time delivery, all fifteen styles, a burst, narrow-screen overflow, reduced motion, and inspector toggling. Screenshots are written to `/tmp/flow-lab-review` by default; override `FLOW_LAB_SCREENSHOTS` and `FLOW_LAB_URL` as needed.
+
+The selection check delays configuration and module loading, switches through both the page and chip selectors, and verifies actual outline CSS and decoration cleanup when returning from every treatment to Crisp outline.
 
 The scroll check exercises native CSS anchors and a forced measured fallback across all fifteen treatments: document and nested scrolling, layout changes, resizing, removed photos, and restoration of application anchor names.
 
@@ -104,3 +110,46 @@ A module exports `{ css, mount? }`. Scope styles to its treatment ID. The existi
 For vector annotations, `mount({ document, container, history })` returns `{ update, dispose }`. Mount nodes in `container`, read the last five observed paints from `history()`, update geometry in `update`, and release owned resources in `dispose`. The runtime calls `update` after paints and shared geometry changes, including captured nested scrolling. It disposes the previous treatment when switching or disabling Flow. Existing marks carry `data-pyric-flow-hits`, `data-pyric-flow-sequence`, `data-pyric-flow-name`, and `data-pyric-flow-size`; detached badges receive those fields too. Counts describe observed paints, not CPU cost or proven dependencies.
 
 Thread map uses a labeled listener origin because an incoming delivery may have no corresponding on-page button. The mini-map represents observed regions rather than requiring application-specific component attributes.
+
+## Real SDK reads and listeners
+
+The separate SDK example runs actual Firestore and Realtime Database calls through the same Flow runtime:
+
+```sh
+bun run build
+bun examples/runtime-flow-lab/sdk-server.mts
+```
+
+Open [the in-page sandbox](http://localhost:5198/?runtime=inpage) or [the SharedWorker bridge](http://localhost:5198/?runtime=worker). Use the three read buttons, start listeners, then write the next version. All results update the same React component. **Read without rendering** and **Read denied path** exercise activity without a visual association. This example uses local seeded data and permissive example rules; it does not contact a Firebase project.
+
+The chip records each read separately and each listener registration separately. Successful reads count once even if the value is unchanged. Completed records remain visible for up to 30 seconds; after the render-correlation window, the oldest terminal records are evicted when more than 100 are retained. Active registrations remain until stopped. Flow describes an observed render after delivery, not proven data lineage. Keep Flow enabled while exercising the example to observe commits.
+
+### Check a query's local index configuration
+
+In either SDK runtime, choose **Read sorted projects** to read draft projects ordered by budget. Open the chip's **Data** tab and select the `projects` query; its index details also appear in the matching **Traffic** request.
+
+The example's `firebase.json` points to `firestore.indexes.json`, initially containing no composite indexes. The query shows **Missing from config**. The proposed fields appear automatically, with an optional **JSON definition** and a copy icon beside the definition. Choose **Add index** in the fixed footer to append the index to that local file. The status becomes **Configured**. Opening details never writes a file. If the file changes before saving, the chip refreshes the proposal and asks you to review it before adding.
+
+The same flow in a supported local host uses the project-relative `firestore.indexes` path in its `firebase.json`. A standalone page without that connection shows **Check unavailable** and offers the definition’s copy icon when the query has a supported composite definition. Copying does not write a file.
+
+These findings compare captured query fields with local configuration; they do not contact Firebase, deploy indexes, or prove a deployed index is ready. Analysis supports equality filters, sorting, and bounded range or array queries. OR, `in`, `not-in`, `!=`, `array-contains-any`, multiple range fields, combined range/array filters, document-ID queries, and escaped field paths remain unavailable. Single-field exemptions and unsupported shapes require review rather than an automatic composite addition.
+
+Run the actual SDK browser checks from the repository root:
+
+```sh
+E2E_BASE=http://127.0.0.1:5198 bunx --no-install playwright test sdk-flow.pw.ts --config packages/cli/test/e2e/playwright.config.ts
+```
+
+The test starts its own example server on an available port and exercises both runtimes. `E2E_BASE` prevents the unrelated Studio server from starting. To run the example manually on another port, set `SDK_FLOW_PORT`.
+
+## RTDB chat comparison
+
+Choose **Realtime Database** in the Messages selector, or open `http://localhost:5197/?service=rtdb`. Switching services reloads the page, seeds a fresh dataset and starts fresh usage counters.
+
+RTDB seeds 30 deterministic messages and listens to the latest 10. **Load older** fetches the preceding 10 by ID without expanding the live query. **Value events** deliver the query snapshot; **Child events** maintain the same message list through added, changed and removed callbacks. Compare **Edit latest message** in each mode to see the payload difference. These callback sizes are not billed downloads.
+
+**Whole conversation** listens above messages, receipts and extra conversation metadata. It deliberately demonstrates a broader read than this screen needs. **Stop listeners** detaches all four data streams (or all child subscriptions); writes still work, and **Start listeners** reads the current state again. **Reset data** restores the deterministic seed and restarts listeners.
+
+**Find Alice messages** queries by `who`, initially without its `.indexOn`. Open the failed request in Traffic and use **Add index**, then run the query again. **Reset demo index** restores the missing-index case. The server keeps this configuration in a dedicated temporary directory; it never edits the project's rules. Restarting the demo resets that configuration too.
+
+Run `node examples/runtime-flow-lab/verify-rtdb.mjs` with the server running to verify pagination, edits, value/child payload differences, listener cleanup, broad scope, resets, index repair and narrow-screen layout.

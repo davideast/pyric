@@ -279,7 +279,7 @@ export function applyServeInit(
     ((payload.seed && Object.keys(payload.seed).length > 0) ||
       (payload.authUsers && payload.authUsers.length > 0)) &&
     sandboxHasExistingData(ctx);
-  if (hasExistingData) {
+  if (hasExistingData && (!payload.seedState || (payload.seed && Object.keys(payload.seed).length > 0))) {
     result.seedSkipped = 'existing-data';
     console.info(
       '[pyric worker] --seed skipped: the sandbox already has restored data (persisted state or ' +
@@ -288,12 +288,20 @@ export function applyServeInit(
     );
   }
 
-  // 2. Auth users — seed BEFORE docs so any owner-uid the rules reference
-  //    resolves, and before session restore so there is a DB to restore into.
-  if (!hasExistingData && payload.authUsers && payload.authUsers.length > 0) {
+  // 2. Auth users — before map-form docs and session restore. State-file
+  //    documents may already have been restored by the persistence backend.
+  if (payload.authUsers?.length && (!hasExistingData || payload.seedState)) {
     const auth = ensureAuth(ctx);
-    authOps.seedUsers(auth, payload.authUsers as unknown as ReadonlyArray<SeedUser>);
-    result.seededUsers = payload.authUsers.length;
+    const existing = authOps.exportUsers(auth);
+    // State fixtures restore their documents before this step. Add only
+    // identities absent from the restored pool; never replace lived accounts.
+    const users = (payload.authUsers as unknown as ReadonlyArray<SeedUser>).filter(user =>
+      !existing.some(record => record.tenantId === user.tenantId && (
+        record.uid === user.uid || (user.email && record.email?.toLowerCase() === user.email.toLowerCase())
+      )),
+    );
+    authOps.seedUsers(auth, users);
+    result.seededUsers = users.length;
   }
 
   // 3. Seed docs — admin-style fixture load (bypasses rules).

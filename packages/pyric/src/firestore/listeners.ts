@@ -10,6 +10,8 @@ import { AUTH_SESSION_SCOPE, FOLLOWS_CURRENT_USER } from 'pyric/firestore/intern
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { toFirestoreFirebaseError } from './errors.js';
 import { clientStateFor } from './client-state.js';
+import { beginFirestoreActivity } from './sdk-activity.js';
+import { sdkActivity, type SdkActivityHandle } from '../sandbox/internal/sdk-activity.js';
 import type {
   ListenerOwnerHint,
   RecordedListenerOwners,
@@ -71,22 +73,29 @@ export function onSnapshot(
   const target = targetOf(ref);
   clientStateFor(target).markStarted();
   const r = resolveSandboxListenable(target, ref);
-  const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target, ref as object);
+  const attribution = typeof arg2 === 'object' && arg2 !== null && !isPartialObserver(arg2) ? arg2 as SnapshotListenOptions : undefined;
+  const activity = beginFirestoreActivity(target, ref, 'onSnapshot', 'subscription', attribution);
+  const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target, ref as object, activity);
   const finalArgs = markSandboxLiveSnapshotArgs(wrappedArgs, target);
-  const unsubscribe = finalArgs.length === 3
-    ? r.onSnapshot(finalArgs[0], finalArgs[1], finalArgs[2])
-    : finalArgs.length === 2
-      ? r.onSnapshot(finalArgs[0], finalArgs[1])
-      : r.onSnapshot(finalArgs[0]);
-  if (!target.own) return unsubscribe;
+  let unsubscribe: Unsubscribe;
+  try {
+    unsubscribe = sdkActivity.registering(activity, () => {
+      if (finalArgs.length === 3) return r.onSnapshot(finalArgs[0], finalArgs[1], finalArgs[2]);
+      if (finalArgs.length === 2) return r.onSnapshot(finalArgs[0], finalArgs[1]);
+      return r.onSnapshot(finalArgs[0]);
+    });
+  } catch (error) { activity.fail(); throw error; }
+  if (!target.own) return () => { activity.close(); unsubscribe(); };
   let stopped = false;
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
+    activity.close();
     unsubscribe();
   };
   const abort = (): void => {
     if (stopped) return;
+    activity.fail();
     stop();
     snapshotErrorHandler(finalArgs)?.(
       new FirebaseError('aborted', 'The operation was aborted.'),
@@ -174,6 +183,7 @@ function tagSandboxSnapshotArgs(
   arg4: ((error: unknown) => void) | undefined,
   target: Target,
   source: object,
+  activity: SdkActivityHandle,
 ): unknown[] {
   // Detect whether arg2 is the SnapshotListenOptions form. FS-B14 — an
   // observer is any object carrying at least one of `next` / `error` /
@@ -188,22 +198,22 @@ function tagSandboxSnapshotArgs(
     // (options, next | observer, error?)
     const next = arg3;
     if (typeof next === 'function') {
-      return [arg2, wrapNext(next as (snap: unknown) => void, target, source), wrapError(arg4 ?? defaultSnapshotErrorHandler)];
+      return [arg2, wrapNext(next as (snap: unknown) => void, target, source, activity), wrapError(arg4 ?? defaultSnapshotErrorHandler, activity)];
     }
     if (next && typeof next === 'object') {
-      return [arg2, wrapObserver(next as SnapshotObserver<unknown>, target, source)];
+      return [arg2, wrapObserver(next as SnapshotObserver<unknown>, target, source, activity)];
     }
     return [arg2];
   }
   // (next | observer, error?)
   if (typeof arg2 === 'function') {
     return [
-      wrapNext(arg2 as (snap: unknown) => void, target, source),
-      wrapError((arg3 as ((error: unknown) => void) | undefined) ?? defaultSnapshotErrorHandler),
+      wrapNext(arg2 as (snap: unknown) => void, target, source, activity),
+      wrapError((arg3 as ((error: unknown) => void) | undefined) ?? defaultSnapshotErrorHandler, activity),
     ];
   }
   if (arg2 && typeof arg2 === 'object') {
-    return [wrapObserver(arg2 as SnapshotObserver<unknown>, target, source)];
+    return [wrapObserver(arg2 as SnapshotObserver<unknown>, target, source, activity)];
   }
   return [arg2];
 }
@@ -279,9 +289,12 @@ function wrapNext(
   next: (snap: unknown) => void,
   target: Target,
   source: object,
+  activity: SdkActivityHandle,
 ): (snap: unknown) => void {
   return (snap) => {
-    next(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source));
+    const value = finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source);
+    activity.delivered(value);
+    next(value);
     clientStateFor(target).notifySnapshotDelivered();
   };
 }
@@ -290,20 +303,23 @@ function wrapObserver(
   obs: SnapshotObserver<unknown>,
   target: Target,
   source: object,
+  activity: SdkActivityHandle,
 ): SnapshotObserver<unknown> {
   return {
     ...obs,
     next: obs.next
       ? (snap) => {
-          obs.next!(finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source));
+          const value = finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source);
+          activity.delivered(value);
+          obs.next!(value);
           clientStateFor(target).notifySnapshotDelivered();
         }
       : undefined,
     // Surface an unobserved listener error instead of swallowing it.
-    error: wrapError(obs.error ?? defaultSnapshotErrorHandler),
+    error: wrapError(obs.error ?? defaultSnapshotErrorHandler, activity),
   };
 }
 
-function wrapError(callback: (error: unknown) => void): (error: unknown) => void {
-  return error => callback(toFirestoreFirebaseError(error));
+function wrapError(callback: (error: unknown) => void, activity: SdkActivityHandle): (error: unknown) => void {
+  return error => { activity.fail(); callback(toFirestoreFirebaseError(error)); };
 }

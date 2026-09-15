@@ -33,7 +33,11 @@ export interface ChangedNodeSource {
   stop(): void;
 }
 
+let commitSerial = 0;
+
 export interface FlowModeOptions {
+  /** Observed association, excluding paint replays and treatment changes. */
+  onObserved?: (paint: FlowPaint, commitId: number) => void;
   onTreatmentPaint?: (paint: FlowPaint) => void;
   document: Document;
   /** The overlay's container. Flow draws into the layer Overview owns. */
@@ -80,6 +84,7 @@ export interface RecentDelivery {
 }
 
 export interface FlowMode {
+  highlight(paint: FlowPaint): void;
   /** Take every box away without stopping the mode. */
   clear(): void;
   /** Take one listener's boxes away, for a listener switched off. */
@@ -97,7 +102,7 @@ function isChipOwned(node: unknown, container: HTMLElement): boolean {
   const owner = (element.nodeType === 1 ? element : element.parentNode) as Element | null;
   if (owner === null) return false;
   try {
-    return owner.closest('[data-pyric-runtime-chip-host], pyric-runtime-chip') !== null;
+    return owner.closest('[data-pyric-runtime-chip-host], pyric-runtime-chip, [data-pyric-listener-overlay]') !== null;
   } catch {
     return false;
   }
@@ -176,10 +181,10 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
    * the id the panel's toggles and the mode's clears use; a page-side delivery
    * names the listener by the client's own subscription id.
    */
+  let currentCommit = 0;
   const paintFlow = (listenerId: string, nodes: Iterable<unknown> | null): void => {
     const outline = options.outlineFor(listenerId);
     if (outline === null) return;
-    if (!options.isVisible(outline.listenerId)) return;
     const region = readRegion(outline);
     const ownerName = outline.labelIsOwner ? outline.label : null;
     // A replay has no changed nodes to read, so it draws the region alone.
@@ -189,11 +194,14 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
     if (subtree === null || subtree.components.length === 0) return;
     const paint: FlowPaint = {
       listenerId: outline.listenerId,
+      colorKey: outline.activity?.sourceId,
       label: outline.label,
       target: outline.isQuery ? `${outline.target} (query)` : outline.target,
       deliveryCount: outline.deliveryCount,
       subtree,
     };
+    if (nodes !== null) options.onObserved?.(paint, currentCommit);
+    if (!options.isVisible(outline.listenerId)) return;
     painter.paint(paint);
     options.onTreatmentPaint?.(paint);
     options.onPaint?.(outline.listenerId);
@@ -230,6 +238,7 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
     correlation.delivered(listenerId);
   });
   const stopCommits = options.commits.subscribe(() => {
+    currentCommit = ++commitSerial;
     correlation.changed(changes.drain());
     correlation.committed();
   });
@@ -237,6 +246,7 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
   replay();
 
   return {
+    highlight(paint) { painter.paint(paint); options.onTreatmentPaint?.(paint); },
     clear() {
       painter.clear();
     },

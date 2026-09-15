@@ -1,3 +1,4 @@
+import { setAiEvidence } from 'pyric/ai/internal';
 /**
  * Worker-client transport core — the shared singleton machinery every API
  * family (firestore, auth, rtdb, storage) rides on: port wiring, RPC
@@ -54,6 +55,7 @@ export const _snapSubs = new Map<string, {
   /** Firestore listeners abort on app deletion; RTDB/Auth stop silently. */
   service?: 'firestore';
   message?: InboundMessage;
+  close?: () => void;
 }>();
 
 /**
@@ -188,6 +190,7 @@ export function disconnectPort(port: ClientPort): void {
     if (isFirestoreSubscription) {
       subscription.error?.(new FirebaseError('aborted', 'The operation was aborted.'));
     }
+    subscription.close?.();
   }
   for (const [id, subscription] of [..._eventSubs]) {
     const isForeignSubscription = subscription.port !== port;
@@ -300,6 +303,9 @@ export function wirePort(port: ClientPort): void {
         // AI wire error envelope (pyric/ai): re-attach so the served
         // `firebase/ai` entry can mint the exact SDK AIError decoration the
         // in-process plane applies (see entries/ai.ts).
+        const aiEvidence = msg.error.aiEvidence;
+        const hasAiEvidence = aiEvidence !== undefined;
+        if (hasAiEvidence) setAiEvidence(err, aiEvidence);
         const hasAiEnvelope = msg.error.aiEnvelope !== undefined;
         if (hasAiEnvelope) {
           err.aiEnvelope = msg.error.aiEnvelope;
@@ -319,6 +325,9 @@ export function wirePort(port: ClientPort): void {
         err.code = errPayload.code;
         const hasDenialContext = errPayload.denialContext !== undefined;
         if (hasDenialContext) err.denialContext = errPayload.denialContext;
+        const aiEvidence = errPayload.aiEvidence;
+        const hasAiEvidence = aiEvidence !== undefined;
+        if (hasAiEvidence) setAiEvidence(err, aiEvidence);
         const hasAiEnvelope = errPayload.aiEnvelope !== undefined;
         if (hasAiEnvelope) err.aiEnvelope = errPayload.aiEnvelope;
         relayDenial('listener', err);

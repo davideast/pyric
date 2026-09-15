@@ -41,6 +41,7 @@ import {
 import { useWorker } from './worker-runtime.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
+import { databaseRules } from './runtime.js';
 
 const workerDatabaseByApp = new WeakMap<FirebaseApp, ReturnType<typeof pyricGetDatabase>>();
 
@@ -64,9 +65,12 @@ function wrapWorkerSnapshot(snapshot: WorkerSnapshot): ip.DataSnapshot {
   });
 }
 
-export const getDatabase = ((app?: FirebaseApp) => {
+export const getDatabase = ((app?: FirebaseApp, url?: string) => {
   const resolved = app ?? getApp();
-  if (!useWorker) return pyricGetDatabase(resolved);
+  if (!useWorker) {
+    databaseRules.register(url ?? resolved.options.databaseURL);
+    return pyricGetDatabase(resolved, url);
+  }
   const existing = workerDatabaseByApp.get(resolved);
   if (existing) return existing;
   const client = workerClientForApp(resolved);

@@ -16,7 +16,27 @@
  */
 import { parseToAST, type FirestoreRules } from 'pyric/rules/internal';
 
+import type { TestResult } from 'pyric/rules/internal';
+import { captureRulesEvidence, captureQueryEvidence } from './rules-evidence.js';
+import type { RulesEvidence } from '../../sandbox/types/rules-evidence.js';
+
+// Diagnostic identity only; rules evaluation also works outside secure contexts.
+function rulesVersion(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `rules-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export class RulesState {
+  private version = rulesVersion();
+
+  captureEvidence(result: TestResult, scope: RulesEvidence['scope'] = 'request'): RulesEvidence {
+    return captureRulesEvidence(result, this.version, scope);
+  }
+
+  captureQueryEvidence(proof: import('../../sandbox/types/query-proof.js').QueryProofDiagnostic, residual?: RulesEvidence): RulesEvidence {
+    return captureQueryEvidence(proof, this.version, residual);
+  }
+
   private currentSource: string;
 
   /**
@@ -42,6 +62,7 @@ export class RulesState {
    * cached AST warm.
    */
   set(source: string): void {
+    if (this.currentSource !== source) this.version = rulesVersion();
     this.currentSource = source;
   }
 

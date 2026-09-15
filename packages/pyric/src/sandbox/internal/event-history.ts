@@ -1,3 +1,4 @@
+import { RulesEvidenceRetention } from './rules-evidence-retention.js';
 import type { SandboxEvent, SandboxObservationGapEvent } from '../types/events.js';
 
 export interface EventHistoryLimits {
@@ -20,6 +21,7 @@ function encodedBytes(value: unknown): number {
 export class EventHistory {
   private entries: Array<{ event: SandboxEvent; bytes: number }> = [];
   private bytes = 0;
+  private readonly rulesEvidence = new RulesEvidenceRetention<{ event: SandboxEvent; bytes: number }>();
   private gap: SandboxObservationGapEvent | undefined;
 
   constructor(private readonly limits?: EventHistoryLimits) {}
@@ -37,14 +39,19 @@ export class EventHistory {
     if (mustOmit) {
       this.omit(event);
     } else {
-      this.entries.push({ event, bytes });
+      const entry = { event, bytes };
+      this.entries.push(entry);
       this.bytes += bytes;
+      const expired = this.rulesEvidence.record(entry);
+      const hasExpiredEvidence = expired !== undefined;
+      if (hasExpiredEvidence) this.expireRulesEvidence(expired);
     }
     let exceedsLimits = this.exceedsLimits();
     while (exceedsLimits) {
       const oldest = this.entries.shift();
       const isEmpty = oldest === undefined;
       if (isEmpty) break;
+      this.rulesEvidence.forget(oldest);
       this.bytes -= oldest.bytes;
       this.omit(oldest.event);
       exceedsLimits = this.exceedsLimits();
@@ -60,8 +67,21 @@ export class EventHistory {
 
   clear(): void {
     this.entries = [];
+    this.rulesEvidence.clear();
     this.bytes = 0;
     this.gap = undefined;
+  }
+
+  private expireRulesEvidence(entry: { event: SandboxEvent; bytes: number }): void {
+    const event = entry.event;
+    const isOtherEvent = event.kind !== 'request';
+    if (isOtherEvent) return;
+    const { rulesEvidence, ...metadata } = event;
+    entry.event = { ...metadata, rulesEvidenceExpired: true };
+    const isBounded = this.limits !== undefined;
+    const bytes = isBounded ? encodedBytes(entry.event) + 1 : 0;
+    this.bytes += bytes - entry.bytes;
+    entry.bytes = bytes;
   }
 
   private exceedsLimits(): boolean {

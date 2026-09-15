@@ -207,7 +207,7 @@ export class AtomicWritePipeline {
       const debugMessages = renderLegacyDebugMessages(evaluated);
       const isUnsupported = evaluated.state === 'UNSUPPORTED';
       if (isUnsupported) {
-        this.runtime.emitRequest(this.request(
+        const unsupportedRequest = this.request(
           prepared,
           input,
           prior,
@@ -215,7 +215,9 @@ export class AtomicWritePipeline {
           evalMs,
           'unsupported',
           debugMessages,
-        ));
+        );
+        unsupportedRequest.rulesEvidence = this.runtime.captureEvidence(evaluated);
+        this.runtime.emitRequest(unsupportedRequest);
         throw new SimulatorUnsupportedError(
           unsupportedMessage(input.ruleMethod, input.path, debugMessages),
           input.ruleMethod,
@@ -244,6 +246,7 @@ export class AtomicWritePipeline {
           debugMessages,
         ),
       };
+      outcome.request.rulesEvidence = this.runtime.captureEvidence(evaluated);
       const isDenied = !isAllowed;
       if (isDenied) {
         const evalRule = projectEvaluatedRule(evaluated);

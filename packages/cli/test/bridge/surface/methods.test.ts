@@ -87,6 +87,7 @@ describe('the loaded record set', () => {
     const destructive = METHODS.filter((method) => method.effect === 'destructive');
     expect(destructive.map((method) => method.key).sort()).toEqual([
       'firestore.writeIndexes',
+      'sandbox.deleteCapture',
       'sandbox.deleteCheckpoint',
       'sandbox.promote',
       'sandbox.reset',

@@ -1,3 +1,4 @@
+import { sdkActivity, firestoreReadUsage } from 'pyric/sandbox/internal';
 /**
  * SharedWorker host — Firestore + RTDB value-subscription registry.
  *
@@ -142,6 +143,10 @@ function restartSubscription(ctx: HostCtx, port: PortLike, subId: string, msg: D
 }
 
 export function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void {
+  sdkActivity.silence(() => handleSubImpl(ctx, port, msg));
+}
+
+function handleSubImpl(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void {
   const portSubs = ensurePortSubs(ctx, port);
 
   const alreadyRegistered = portSubs.has(msg.subId);
@@ -174,6 +179,10 @@ export function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage
 }
 
 export function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): void {
+  sdkActivity.silence(() => handleRtdbSubImpl(ctx, port, msg));
+}
+
+function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): void {
   const portSubs = ensurePortSubs(ctx, port);
   const alreadyRegistered = portSubs.has(msg.subId);
   if (alreadyRegistered) return;
@@ -213,6 +222,7 @@ function registerListener(
   msg: FirestoreSubMessage,
   target: DocumentReference | CollectionReference | Query,
 ): () => void {
+  let initial = true;
   return onSnapshot(
     target as DocumentReference | Query,
     // The page derived the owners where its stack and its DOM are. Handing
@@ -220,6 +230,8 @@ function registerListener(
     // out of this worker's own bundle.
     { ...(msg.owners ? { owners: msg.owners } : {}) },
     (snap) => {
+      const usage = firestoreReadUsage(snap, true, initial);
+      initial = false;
       // Detect doc vs query snapshot by shape.
       const snapAny = snap as {
         id?: string;
@@ -239,13 +251,13 @@ function registerListener(
         const docs = snapAny.docs.map((d) =>
           serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
         );
-        post(port, { t: 'snap', subId: msg.subId, value: { docs } });
+        post(port, { t: 'snap', subId: msg.subId, value: { docs, usage } });
       } else if (snapAny.id !== undefined) {
         // Doc snapshot
         post(port, {
           t: 'snap',
           subId: msg.subId,
-          value: serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0]),
+          value: { ...serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0]), usage },
         });
       }
     },

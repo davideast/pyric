@@ -344,6 +344,30 @@ describe('applyServeInit — seed applies only into an empty home (guardrail)', 
     expect((res.value as { exists: boolean }).exists).toBe(false); // fixture never applied
   });
 
+  it('adds missing state-fixture identities without replacing restored accounts', async () => {
+    const ctx = await makeCtx();
+    await handleMessage(ctx, fakePort(), { t: 'op', id: 'pre', method: 'setDoc', path: 'todos/existing', data: { title: 'lived' } });
+    authOps.seedUsers(ensureAuth(ctx), [{ uid: 'existing', email: 'existing@example.com', password: 'original', displayName: 'Kept' }]);
+    const payload = { ...basePayload, seedState: { version: 1, firestore: {} }, authUsers: [
+      { uid: 'existing', email: 'existing@example.com', password: 'replacement', displayName: 'Wrong' },
+      { uid: 'conflict', email: 'EXISTING@example.com', password: 'replacement' },
+      { uid: 'alice', email: 'alice@example.com', password: 'fixture-password' },
+    ] };
+    expect(applyServeInit(ctx, payload, { fetch: recordingFetch() }).seededUsers).toBe(1);
+    expect(authOps.exportUsers(ensureAuth(ctx)).find(u => u.uid === 'existing')?.displayName).toBe('Kept');
+    expect(authOps.exportUsers(ensureAuth(ctx)).map(u => u.uid)).toContain('alice');
+    expect(applyServeInit(ctx, payload, { fetch: recordingFetch() }).seededUsers).toBe(0);
+    const port = fakePort();
+    await handleMessage(ctx, port, {
+      t: 'op', id: 'fixture-signin', method: 'auth.signInEmail', email: 'alice@example.com', password: 'fixture-password',
+    });
+    const signedIn = getRes(port, 'fixture-signin') as ResMessage & { ok: true };
+    expect((signedIn.value as { user: { uid: string } }).user.uid).toBe('alice');
+    await handleMessage(ctx, port, { t: 'op', id: 'kept-doc', method: 'getDoc', path: 'todos/existing' });
+    const kept = getRes(port, 'kept-doc') as ResMessage & { ok: true };
+    expect((kept.value as { exists: boolean }).exists).toBe(true);
+  });
+
   it('skips seeding authUsers when the sandbox already has a document', async () => {
     const ctx = await makeCtx();
     await handleMessage(ctx, fakePort(), { t: 'op', id: 'pre', method: 'setDoc', path: 'todos/existing', data: { title: 'lived' } });

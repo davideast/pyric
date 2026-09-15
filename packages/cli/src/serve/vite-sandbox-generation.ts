@@ -187,7 +187,7 @@ export async function createViteSandboxGeneration(
       const hasNoSiteUi = !siteUiDir;
       if (hasNoSiteUi) {
         server.config.logger.warn(
-          '[pyric] ui: built Astro site not found; /__pyric/ui/ will 404 ' +
+          '[pyric] ui: built Astro site not found; /__pyric/ui/ will return 503 ' +
             '(run the full build, or reinstall @pyric/cli).',
         );
       }

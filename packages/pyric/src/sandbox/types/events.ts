@@ -1,3 +1,4 @@
+export type { RulesEvidence } from './rules-evidence.js';
 import type { QueryProofDiagnostic } from './query-proof.js';
 import type { ServiceMutationEvent } from './service-mutation-event.js';
 /**
@@ -122,6 +123,8 @@ export interface SnapshotErrorEvent {
  * @see traffic-monitor-decision.md for the field-by-field rationale.
  */
 export interface RequestEvent {
+  rulesEvidence?: import('./rules-evidence.js').RulesEvidence;
+  rulesEvidenceExpired?: boolean;
   /** Primary static-proof explanation; evaluatedRule is secondary when present. */
   queryProof?: QueryProofDiagnostic;
   /** Discriminator. */

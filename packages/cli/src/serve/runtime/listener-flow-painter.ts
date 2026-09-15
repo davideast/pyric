@@ -37,6 +37,8 @@ import { tryAnchorOverlay } from './overlay-anchor.js';
 /** One delivery, ready to draw. */
 export interface FlowPaint {
   readonly listenerId: string;
+  readonly colorKey?: string;
+  readonly pinned?: boolean;
   /** The owner label the Listeners panel uses. */
   readonly label: string;
   /** The target the way the application wrote it. */
@@ -231,7 +233,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
   return {
     paint(paint) {
       if (paint.subtree.components.length === 0) return;
-      const hue = String(listenerHueIndex(paint.listenerId));
+      const hue = String(listenerHueIndex(paint.colorKey ?? paint.listenerId));
       const existing = groups.get(paint.listenerId);
       const group: Group = existing ?? { marks: new Map<Element, Mark>(), latestPaintId: 0 };
       if (existing === undefined) groups.set(paint.listenerId, group);
@@ -247,6 +249,18 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
         // marked; everything else says what it is.
         const label = index === 0 ? flowBadgeText(paint) : component.name;
         const measured = needsMeasuredBadge(element);
+
+        // An element has one visible mark. Transfer its resources as well as
+        // its attributes: an older activity must not fade or unanchor it later.
+        const previousId = element.getAttribute('data-pyric-flow-listener');
+        if (previousId !== null && previousId !== paint.listenerId) {
+          const previousGroup = groups.get(previousId);
+          const previousMark = previousGroup?.marks.get(component.element);
+          if (previousGroup && previousMark) {
+            removeMark(previousGroup, previousId, previousMark);
+            if (previousGroup.marks.size === 0) groups.delete(previousId);
+          }
+        }
 
         let mark = group.marks.get(component.element);
         if (mark === undefined) {
@@ -295,7 +309,7 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
         }
 
         mark.paintId = paintId;
-        mark.cancel = schedule(() => {
+        mark.cancel = paint.pinned ? () => {} : schedule(() => {
           fadeEnded(paint.listenerId, component.element, paintId);
         }, fadeMs);
         painted.push(mark);
@@ -307,11 +321,12 @@ export function createFlowPainter(options: FlowPainterOptions): FlowPainter {
       const view = documentLike.defaultView;
       const fade = (): void => {
         for (const mark of painted) {
-          if (mark.paintId !== paintId) continue;
+          if (mark.paintId !== paintId || group.marks.get(mark.element) !== mark) continue;
           (mark.element as HTMLElement).setAttribute('data-pyric-flow-fading', '');
           mark.badge?.setAttribute('data-pyric-flow-fading', '');
         }
       };
+      if (paint.pinned) return;
       if (view?.requestAnimationFrame) view.requestAnimationFrame(fade);
       else schedule(fade, 0);
     },

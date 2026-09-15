@@ -41,6 +41,9 @@ import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
 export { sandbox } from './app-backend.js';
 import { sandbox } from './app-backend.js';
+import { createDatabaseRulesDeployment } from './database-rules.js';
+
+export const databaseRules = createDatabaseRulesDeployment(sandbox);
 
 /**
  * The DEFAULT-ON worker path (Phase 3c): when SharedWorker is available the
@@ -166,15 +169,14 @@ if (!useWorker) try {
     diagnostics.rulesDeployed = true;
     diagnostics.rulesHash = payload.rulesHash;
   }
-  const db = getDatabase(sandbox);
   if (payload.databaseRules) {
-    rtdbSandbox.setRules(db, payload.databaseRules);
+    databaseRules.deploy(payload.databaseRules);
     diagnostics.databaseRulesDeployed = true;
     diagnostics.databaseRulesHash = payload.databaseRulesHash ?? null;
   } else if (payload.permissive) {
-    rtdbSandbox.setDefaultPolicy(db, 'allow');
+    databaseRules.deploy(null, 'allow');
   } else {
-    rtdbSandbox.setDefaultPolicy(db, 'deny');
+    databaseRules.deploy(null);
   }
   // Open the ONE per-sandbox storage service eagerly: the FIRST open wins the
   // rules AND the project-scoped IDB name (`pyric-storage:<projectKey>`,
@@ -609,7 +611,7 @@ if (!useWorker && typeof EventSource !== 'undefined') {
         rules: { rules: Record<string, unknown> };
         rulesHash: string;
       };
-      rtdbSandbox.setRules(getDatabase(sandbox), rules);
+      databaseRules.deploy(rules);
       diagnostics.databaseRulesDeployed = true;
       diagnostics.databaseRulesHash = rulesHash ?? null;
       console.info(`[pyric sandbox] database.rules.json hot-reloaded (hash ${rulesHash})`);
