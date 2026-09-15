@@ -1,5 +1,5 @@
 import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
-import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, WORKER_PORT_CAPABILITY, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
+import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
@@ -296,6 +296,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
       clearTimeout(attachDeadline);
+      const hasExpiredSession = hasEverAttached && event.code === WORKER_SESSION_EXPIRED_CLOSE_CODE;
+      if (hasExpiredSession) resumeToken = undefined;
       const canResume = hasEverAttached && event.code !== 1008;
       if (canResume) {
         interruptConnection(connection);

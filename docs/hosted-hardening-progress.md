@@ -6,9 +6,8 @@ Use the already approved S1–S6 seams, vertical TDD, and applicable universal g
 Do not modify the manual demo project. Commit and push each verified slice.
 
 Current section: [Section 2 — recovery and identity](hosted-section-two-progress.md),
-started 2026-09-15 after Section 1's completed automated checkpoint. Its first
-tenant/token propagation slice is verified; the remaining Section 2 assertions
-are tracked there. The queue and investigation entries below retain their
+started 2026-09-15 after Section 1's completed automated checkpoint. Its identity and delayed-recovery acceptance checks are complete;
+the manual checkpoint and evidence are recorded there. The queue and investigation entries below retain their
 historical detail.
 
 ## Ordered queue
@@ -22,8 +21,8 @@ historical detail.
 7. Persistence-failure recovery — verified locally. Failed writes report uncertainty; mutations remain refused even after permissions are repaired. Restart restores durable documents/Storage bytes, the original app does not replay its uncertain increment, and new writes succeed.
 8. Malformed requests — in progress. Invalid outer JSON/envelope kinds, worker envelopes and malformed browser/legacy relay correlation IDs reject before dispatch. Malformed remote identity-lens containers, modes, impersonation fields and request/session IDs refuse before lens mutation or buffered writes. Legacy operation/subscription envelope shapes also refuse; unsupported handshake versions cannot admit consumers or replace the SharedWorker peer, and buffered frames cannot operate after server refusal. Browser and public remote consumers reject incompatible host acknowledgment versions before readiness or queued writes. Hosted browser acknowledgments require a string capability list containing worker-port, rejecting malformed lists before queued SDK writes. Incompatible peer acknowledgments disconnect the bridge while local SharedWorker SDK access remains usable. Healthy apps remain usable and recoverable protocol errors permit reconnect. Mounted serve/Vite and standalone bridge input enforce the 12 MiB encoded-message limit, including fragments, while mounted runtimes preserve supported 8 MiB Storage transfers. Peer handshakes also validate identity, tools and capabilities before registration. Standalone outer JSON/envelopes now refuse before buffered work, using the same parser as the mounted handler. Firestore write preparation, transaction read-set canonicalization and filter/cursor operand decoding enforce 64 encoded containers before recursive decoding, with public SDK boundary, atomicity, retry, count and listener checks in hosted and default SharedWorker. Other known-frame/reply fields, detailed targets/service arguments, outbound size limits and depth limits on other decode paths remain open.
 9. Lifecycle cleanup — pending. Repeated startup failures, interrupted initialization, reconnect, deletion and shutdown release resources and ownership.
-10. Sleep/resume with delayed disconnect notification — pending. An expired host session recovers even when the browser observes the interruption late; invalid grants remain refused and uncertain writes never replay.
-11. Identity and tenant isolation across clients — pending. Switching or signing out in one app cannot change another app's identity, tenant, claims or Rules access, including after recovery.
+10. Sleep/resume with delayed disconnect notification — verified in Section 2. An expired host session recovers even when the browser observes the interruption late; invalid grants remain refused and uncertain writes never replay.
+11. Identity and tenant isolation across clients — verified in Section 2. Switching or signing out in one app cannot change another app's identity, tenant, claims or Rules access, including after recovery.
 12. RTDB disconnect behavior — pending. Connectivity signals and registered disconnect operations follow the declared session-lifetime contract across transient loss, expiry and explicit app deletion.
 13. Concurrent transactions and atomic writes — pending. Two clients contend through normal SDK calls without lost updates; rejected batches remain atomic and ambiguous acknowledgments do not trigger transport replay.
 14. Packed installation and runtime selection — pending. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.

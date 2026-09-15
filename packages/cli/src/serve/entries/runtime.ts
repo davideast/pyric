@@ -22,7 +22,7 @@ import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
-import { getAuth, onAuthStateChanged, signOut, sandbox as authOps, type SeedUser } from 'pyric/auth';
+import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
   callTool as workerCallTool,
   relayWorkerOp,
@@ -548,7 +548,7 @@ if (bridgeUrlFromPayload) {
 //
 //   Channel 2 — Auth state (`pyric:serve:auth-sync`):
 //     Auth lives outside the Firestore environment so `enableTabSync` can't
-//     carry it. `wireAuthTabSync` bridges sign-in/sign-out/user-DB changes
+//     carry it. `wireAuthTabSync` shares account changes while retaining per-tab sessions
 //     over its own BroadcastChannel using a full-state protocol (see
 //     `tab-sync-wiring.ts` for the detailed protocol + echo-guard rationale).
 //
@@ -558,7 +558,8 @@ if (bridgeUrlFromPayload) {
 // cross-tab Firestore + auth are automatic — the in-page sandbox these channels
 // would sync isn't the data backend here. Kept ONLY for the in-page fallback
 // (the tier the plan designates for browsers without SharedWorker).
-if (!useWorker && typeof BroadcastChannel !== 'undefined') {
+const enablesFallbackTabSync = !useWorker && typeof BroadcastChannel !== 'undefined';
+if (enablesFallbackTabSync) {
   // 1. Firestore cross-tab — library primitive does the heavy lifting.
   sandbox.enableTabSync({
     channel: new BroadcastChannel('pyric:serve:tabsync'),
@@ -571,12 +572,7 @@ if (!useWorker && typeof BroadcastChannel !== 'undefined') {
   void import('./tab-sync-wiring.js').then(({ wireAuthTabSync }) => {
     wireAuthTabSync(
       getAuth(sandbox),
-      // Cast: authOps's generics are narrowed to `Auth` which is exactly what
-      // wireAuthTabSync expects; `as` here avoids a deep generic unification
-      // that TypeScript can't resolve across module boundaries.
-      authOps as import('./tab-sync-wiring.js').AuthOps,
-      onAuthStateChanged,
-      signOut,
+      authOps,
     );
   });
 }

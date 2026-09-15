@@ -13,11 +13,13 @@
  * bridge Vite plugin doesn't drag its consumers with it.
  */
 import { randomUUID } from 'node:crypto';
+import { FirebaseError } from 'pyric/app';
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { createBridge, type Bridge } from './bridge.js';
 import {
   PEER_REPLACED_CLOSE_CODE,
+  WORKER_SESSION_EXPIRED_CLOSE_CODE,
   PEER_REPLACED_CLOSE_REASON,
   type BridgeMessage,
   type RemoteSetLensAckFrame,
@@ -82,9 +84,11 @@ export function attachPeer(
       );
       try {
         consumer.handleMessage(msg); // acks with attach-ack
-      } catch {
+      } catch (error) {
         consumer.dispose();
-        ws.close(1008, 'Hosted session admission failed.');
+        const isExpiredSession = error instanceof FirebaseError && error.code === 'session-expired';
+        const closeCode = isExpiredSession ? WORKER_SESSION_EXPIRED_CLOSE_CODE : 1008;
+        ws.close(closeCode, 'Hosted session admission failed.');
       }
       return;
     }

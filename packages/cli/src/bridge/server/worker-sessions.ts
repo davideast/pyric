@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { FirebaseError } from 'pyric/app';
 import { WORKER_SESSION_RETENTION_MS } from '../protocol.js';
 
@@ -26,6 +26,22 @@ export function createWorkerSessions(callbacks: {
   close(clientSessionId: string): void;
 }) {
   const sessions = new Map<string, WorkerSession>();
+  // Recognize this host's released grants without retaining expired sessions.
+  const grantKey = randomBytes(32);
+  function signGrant(nonce: string): Buffer {
+    return createHmac('sha256', grantKey).update(nonce).digest();
+  }
+  function issuedGrant(token: string): boolean {
+    const [nonce, signature, extra] = token.split('.');
+    const hasGrantShape = typeof nonce === 'string' && nonce.length === 36
+      && typeof signature === 'string' && signature.length === 64 && extra === undefined;
+    const isMalformed = !hasGrantShape;
+    if (isMalformed) return false;
+    const supplied = Buffer.from(signature, 'hex');
+    const expected = signGrant(nonce);
+    const hasDigestLength = supplied.length === expected.length;
+    return hasDigestLength && timingSafeEqual(supplied, expected);
+  }
   let closed = false;
 
   function release(session: WorkerSession): void {
@@ -40,10 +56,14 @@ export function createWorkerSessions(callbacks: {
       let session: WorkerSession;
       const isNewSession = resumeToken === undefined;
       if (isNewSession) {
-        session = { clientSessionId: randomUUID(), token: randomUUID(), generation: 0, state: 'attached' };
+        const nonce = randomUUID();
+        const token = `${nonce}.${signGrant(nonce).toString('hex')}`;
+        session = { clientSessionId: randomUUID(), token, generation: 0, state: 'attached' };
         sessions.set(session.token, session);
       } else {
         const existing = sessions.get(resumeToken);
+        const isReleasedGrant = existing === undefined && issuedGrant(resumeToken);
+        if (isReleasedGrant) throw new FirebaseError('session-expired', 'The hosted session has expired; request fresh admission.');
         const cannotResume = existing === undefined || existing.state === 'retired';
         if (cannotResume) throw new FirebaseError('unauthenticated', 'The hosted session cannot be resumed.');
         session = existing;

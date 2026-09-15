@@ -178,6 +178,8 @@ export const WORKER_PORT_CAPABILITY = 'worker-port';
 
 /** After this interruption window a client must request a fresh logical session. */
 export const WORKER_SESSION_RETENTION_MS = 60_000;
+/** A recognized released grant requires fresh admission and Auth restoration. */
+export const WORKER_SESSION_EXPIRED_CLOSE_CODE = 4004;
 
 export interface WorkerMessageFrame {
   type: 'worker-message';

@@ -164,7 +164,7 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     await request({ t: 'op', id: nextId(), method: 'auth.setTenantId', tenantId: auth.tenantId });
     const user = auth.currentUser;
     const isSignedIn = user !== null;
-    if (isSignedIn) await restorePortSession(auth, user.uid, request);
+    if (isSignedIn) await restorePortSession(auth, user.uid, request, user.tenantId);
   };
 
   // Internal authState subscription keeps `auth.currentUser` live.
@@ -253,10 +253,11 @@ export async function restorePortSession(
   auth: ClientAuth,
   uid: string,
   request: (message: OpMessage) => Promise<unknown> = message => rpc(auth.port, message),
+  tenantId: string | null = auth.tenantId,
 ): Promise<ClientUser | null> {
   const raw = (await request({
     t: 'op', id: nextId(), method: 'auth.restorePortSession', uid,
-    tenantId: auth.tenantId,
+    tenantId,
   })) as SerializedUser | null;
   const user = toClientUser(auth.port, raw);
   auth.currentUser = user;
