@@ -216,7 +216,8 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.signInAnonymously': {
       try {
         const existing = portSession(ctx, port);
-        if (existing && existing.user.isAnonymous) {
+        const hasAnonymousSession = existing !== null && existing.user.isAnonymous;
+        if (hasAnonymousSession) {
           ok(port, msg.id, credReply(existing, null, false));
           break;
         }
@@ -249,7 +250,9 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           session = null;
         }
         setPortSession(ctx, port, session);
-        ok(port, msg.id, session ? serializeUser(session.user) : null);
+        const restoredSession = session;
+        const hasSession = restoredSession !== null;
+        ok(port, msg.id, hasSession ? serializeUser(restoredSession.user) : null);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -259,7 +262,8 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const session = requirePortSession(portSession(ctx, port), 'getIdToken');
         const user = session.user;
         const token = await user.getIdToken(msg.forceRefresh);
-        if (msg.forceRefresh) {
+        const refreshesClaims = msg.forceRefresh === true;
+        if (refreshesClaims) {
           const result = await user.getIdTokenResult(false);
           refreshPortAuthorization(ctx, port, session, result.claims);
         }
@@ -273,7 +277,8 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const session = requirePortSession(portSession(ctx, port), 'getIdTokenResult');
         const user = session.user;
         const r = await user.getIdTokenResult(msg.forceRefresh);
-        if (msg.forceRefresh) refreshPortAuthorization(ctx, port, session, r.claims);
+        const refreshesClaims = msg.forceRefresh === true;
+        if (refreshesClaims) refreshPortAuthorization(ctx, port, session, r.claims);
         ok(port, msg.id, {
           token: r.token,
           claims: r.claims,
@@ -302,19 +307,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.setTenantId': {
       try {
         portTenantsFor(ctx).set(port, msg.tenantId);
-        const session = portSession(ctx, port);
-        if (session) {
-          session.state.tenant = msg.tenantId ?? undefined;
-          (session.user as { tenantId?: string | null }).tenantId = msg.tenantId ?? null;
-          ctx.sessionDbs?.clear();
-          ctx.sessionRtdbs?.clear();
-          ctx.sessionStorages?.clear();
-          ctx.resubscribePortSubs?.(port);
-          const serialized = serializeUser(session.user);
-          for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
-            if (target === 'idToken') post(port, { t: 'snap', subId, value: serialized });
-          }
-        }
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -323,14 +315,16 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.updateProfile': {
       try {
         const session = portSession(ctx, port);
-        if (!session) throw makeNoUserError('updateProfile');
+        const hasNoSession = session === null;
+        if (hasNoSession) throw makeNoUserError('updateProfile');
         const profile = { displayName: msg.displayName, photoURL: msg.photoURL };
         authSandboxOps.updateProfile(auth, session.user.uid, profile);
         applyProfileToUser(session.user, profile);
         await bestEffortFlush(ctx);
         const serialized = serializeUser(session.user);
         for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
-          if (target === 'idToken') {
+          const isTokenSubscription = target === 'idToken';
+          if (isTokenSubscription) {
             post(port, { t: 'snap', subId, value: serialized });
           }
         }
@@ -388,13 +382,15 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.updateCurrentUser': {
       try {
-        if (msg.uid === null) {
+        const uid = msg.uid;
+        const signsOut = uid === null;
+        if (signsOut) {
           setPortSession(ctx, port, null);
           ok(port, msg.id, null);
         } else {
           const freshSession = authSandboxOps.mintSession(auth, {
             kind: 'uid',
-            uid: msg.uid,
+            uid,
             tenantId: msg.tenantId ?? portTenant(ctx, port) ?? null,
           });
           setPortSession(ctx, port, freshSession);
@@ -406,11 +402,13 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.signInWithCredential': {
       try {
-        const rawMsg = msg as unknown as Record<string, unknown>;
-        const cred = (msg.credential ?? (typeof rawMsg.providerId === 'string' ? rawMsg : undefined)) as
+        const rawMsg: Record<string, unknown> = msg;
+        const hasProvider = typeof rawMsg.providerId === 'string';
+        const cred = (msg.credential ?? (hasProvider ? rawMsg : undefined)) as
           | OAuthCredentialPayload
           | undefined;
-        if (!cred || !cred.providerId) {
+        const hasNoCredential = cred === undefined || !cred.providerId;
+        if (hasNoCredential) {
           throw new Error('auth.signInWithCredential requires credential payload or providerId');
         }
         const { uid, isNewUser } = resolveOAuthCredentialUser(auth, cred);

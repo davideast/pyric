@@ -5,6 +5,12 @@ This bounded milestone leaves the broader hosted/live-mode goal incomplete.
 Use the already approved S1–S6 seams, vertical TDD, and applicable universal gates.
 Do not modify the manual demo project. Commit and push each verified slice.
 
+Current section: [Section 2 — recovery and identity](hosted-section-two-progress.md),
+started 2026-09-15 after Section 1's completed automated checkpoint. Its first
+tenant/token propagation slice is verified; the remaining Section 2 assertions
+are tracked there. The queue and investigation entries below retain their
+historical detail.
+
 ## Ordered queue
 
 1. Anonymous UID uniqueness — verified locally. Deletion/restart cannot transfer UID-owned data to a new identity; retained accounts preserve their UID, claims, creation time and last-login time.

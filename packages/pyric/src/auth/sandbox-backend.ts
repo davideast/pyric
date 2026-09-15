@@ -50,7 +50,7 @@ import {
 } from './sandbox/project-store.js';
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
 
-import type { AuthState, Sandbox } from 'pyric/sandbox';
+import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -166,12 +166,12 @@ export class SandboxBackend {
    *  (direct sandbox writes, `reset()`, another handle). */
   private applyingTransition = false;
 
-  /** Per-uid current ID token + result. Refreshed on each
+  /** Per-uid and signed-in tenant current ID token + result. Refreshed on each
    *  `getIdToken(forceRefresh=true)` and on each new sign-in
    *  transition (so a sign-out / sign-in round-trip mints a fresh
    *  token, matching prod's "new session = new token" semantics).
    *  Subsequent `getIdToken(false)` reads return the cached value. */
-  private readonly tokenCache = new Map<string, { token: string; result: IdTokenResult }>();
+  private readonly tokenCache = new Map<string, Map<string | null, { token: string; result: IdTokenResult }>>();
 
   /** Monotonic counter used to disambiguate freshly-minted tokens
    *  for the same uid + claims map. Without this, two refreshes that
@@ -1353,7 +1353,8 @@ export class SandboxBackend {
   }
 
   setCurrentUser(user: User | null, signInProvider?: string | null): void {
-    if (user === null) {
+    const signsOut = user === null;
+    if (signsOut) {
       // Sign-out. Drop the cached token so a later re-sign-in for the
       // same uid mints a fresh one ("new session = new token"). Fire
       // listeners only if we were actually signed in (signing out an
@@ -1366,7 +1367,8 @@ export class SandboxBackend {
       } finally {
         this.applyingTransition = false;
       }
-      if (previousUser) {
+      const hadUser = previousUser !== null;
+      if (hadUser) {
         this.tokenCache.delete(previousUser.uid);
         this.notifyAuthListeners();
         this.notifySessionChanged();
@@ -1381,9 +1383,10 @@ export class SandboxBackend {
       return;
     }
 
+    const isSignIn = signInProvider !== undefined;
     // Record this session's provider BEFORE any token mint below so
     // the freshly-minted token carries the right sign_in_provider.
-    if (signInProvider !== undefined) {
+    if (isSignIn) {
       this.signInProviderByUid.set(user.uid, signInProvider);
     }
 
@@ -1395,7 +1398,8 @@ export class SandboxBackend {
 
     // A `signInProvider` argument marks an actual sign-in (the test
     // driver omits it) — bump the record's lastLoginAt.
-    if (signInProvider !== undefined && stored) {
+    const recordsSignIn = isSignIn && stored !== undefined;
+    if (recordsSignIn) {
       stored.lastLoginAt = this.now().toISOString();
       this.notifyUsersChanged();
     }
@@ -1407,13 +1411,14 @@ export class SandboxBackend {
     // is unchanged (AUTH-B8: a same-uid re-sign-in still rotates the
     // token, which `onIdTokenChanged` then observes). Matches prod's
     // "new session = new token".
-    this.tokenCache.set(user.uid, this.mintToken(user.uid, claims));
+    this.mintToken(user.uid, claims, user.tenantId ?? null);
 
     // Push to the sandbox under the guard so the synchronous subscriber
     // doesn't notify — we drive the fan-out below with the correct
     // id-token / auth-state split.
     const signedInState: NonNullable<AuthState> = { uid: user.uid, token: claims };
-    if (typeof user.tenantId === 'string') signedInState.tenant = user.tenantId;
+    const hasTenant = typeof user.tenantId === 'string';
+    if (hasTenant) signedInState.tenant = user.tenantId;
     const nextState: AuthState = signedInState;
     this.applyingTransition = true;
     try {
@@ -1432,7 +1437,7 @@ export class SandboxBackend {
     // the test driver (`sandbox.setUser`) omits it and is not a sign-in
     // worth surfacing on the activity stream. The acting identity IS the
     // user that just signed in.
-    if (signInProvider !== undefined) {
+    if (isSignIn) {
       this.emitAuthEvent('sign_in', {
         path: user.uid,
         auth: nextState,
@@ -1935,17 +1940,19 @@ export class SandboxBackend {
     this.signInProviderByUid.set(user.uid, signInProvider);
     const stored = this.usersByUid.get(user.uid);
     const claims = stored?.customClaims ?? {};
-    if (stored) {
+    const hasStoredUser = stored !== undefined;
+    if (hasStoredUser) {
       stored.lastLoginAt = this.now().toISOString();
       this.notifyUsersChanged();
     }
-    this.tokenCache.set(user.uid, this.mintToken(user.uid, claims));
     // The tenant rides on the session, not on the shared record: ports are
     // independent sessions over one user pool, so two ports can hold the same
     // identity under different tenants and neither may overwrite the other.
     (user as Mutable<User>).tenantId = tenantId;
+    this.mintToken(user.uid, claims, tenantId);
     const state: NonNullable<AuthState> = { uid: user.uid, token: claims };
-    if (tenantId !== null) state.tenant = tenantId;
+    const hasTenant = tenantId !== null;
+    if (hasTenant) state.tenant = tenantId;
     this.emitAuthEvent('sign_in', {
       path: user.uid,
       auth: state,
@@ -1994,12 +2001,12 @@ export class SandboxBackend {
   private mintToken(
     uid: string,
     claims: Record<string, unknown>,
+    tenantId: string | null,
   ): { token: string; result: IdTokenResult } {
     const issuedAt = this.now();
     // 100 years out — sandbox tokens never expire.
     const expires = new Date(issuedAt.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
     const serial = this.nextTokenSerial++;
-    const token = sandboxTokenFor(uid, claims, serial);
     // The provider of the current sign-in session for this uid —
     // recorded by setCurrentUser at sign-in time. Null for identities
     // driven via the test driver (no prod analog for that path).
@@ -2018,15 +2025,23 @@ export class SandboxBackend {
       // `firebase.sign_in_provider`.
       firebase: { sign_in_provider: signInProvider },
     };
+    const identity = normalizeAuthState({ uid, tenant: tenantId ?? undefined, token: fullClaims });
+    const tokenClaims = identity?.token ?? fullClaims;
+    const sessionClaims = { ...claims, firebase: tokenClaims.firebase };
+    const token = sandboxTokenFor(uid, sessionClaims, serial);
     const result: IdTokenResult = {
       token,
-      claims: fullClaims,
+      claims: tokenClaims,
       expirationTime: expires.toISOString(),
       issuedAtTime: issuedAt.toISOString(),
       authTime: issuedAt.toISOString(),
       signInProvider,
     };
-    return { token, result };
+    const entry = { token, result };
+    const tokens = this.tokenCache.get(uid) ?? new Map<string | null, typeof entry>();
+    tokens.set(tenantId, entry);
+    this.tokenCache.set(uid, tokens);
+    return entry;
   }
 
   /**
@@ -2045,8 +2060,9 @@ export class SandboxBackend {
     uid: string,
     claims: Record<string, unknown>,
     forceRefresh: boolean,
+    tenantId: string | null = null,
   ): string {
-    return this.getIdTokenResultFor(uid, claims, forceRefresh).token;
+    return this.getIdTokenResultFor(uid, claims, forceRefresh, tenantId).token;
   }
 
   /** {@link getIdTokenFor} variant returning the full IdTokenResult.
@@ -2055,12 +2071,12 @@ export class SandboxBackend {
     uid: string,
     claims: Record<string, unknown>,
     forceRefresh: boolean,
+    tenantId: string | null = null,
   ): IdTokenResult {
     if (forceRefresh) {
-      const fresh = this.mintToken(uid, claims);
-      this.tokenCache.set(uid, fresh);
+      const fresh = this.mintToken(uid, claims, tenantId);
       const current = this.session.currentUser;
-      const refreshesCurrentUser = current !== null && current.uid === uid;
+      const refreshesCurrentUser = current !== null && current.uid === uid && (current.tenant ?? null) === tenantId;
       if (refreshesCurrentUser) {
         // Rules follow refreshed claims without turning a token refresh into a sign-in.
         this.applyingTransition = true;
@@ -2073,11 +2089,10 @@ export class SandboxBackend {
       this.fanOut('id-token');
       return fresh.result;
     }
-    const cached = this.tokenCache.get(uid);
+    const cached = this.tokenCache.get(uid)?.get(tenantId);
     const hasCachedToken = cached !== undefined;
     if (hasCachedToken) return cached.result;
-    const fresh = this.mintToken(uid, claims);
-    this.tokenCache.set(uid, fresh);
+    const fresh = this.mintToken(uid, claims, tenantId);
     return fresh.result;
   }
 
@@ -2124,7 +2139,8 @@ export class SandboxBackend {
     // `unlink` of the last provider produces. Falling back on `[]` would
     // resurrect the very provider the user just removed.
     const linked: ProviderUserInfo[] = args.providers ?? [{ providerId: 'password' }];
-    const providerData: UserInfo[] = args.isAnonymous
+    const isAnonymous = args.isAnonymous === true;
+    const providerData: UserInfo[] = isAnonymous
       ? []
       : linked.map((p) => ({
         uid: args.uid,
@@ -2152,9 +2168,9 @@ export class SandboxBackend {
       // Falls back to the closed-over claims for users not in the DB
       // (anonymous / popup), matching how they were minted.
       getIdToken: async (forceRefresh?: boolean) =>
-        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true),
+        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId),
       getIdTokenResult: async (forceRefresh?: boolean) =>
-        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true),
+        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId),
     };
     // Stamp the backend-dispatch hook non-enumerably so the top-level
     // `updateProfile(user, …)` free function can update THIS user (and the
