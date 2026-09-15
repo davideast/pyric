@@ -36,7 +36,7 @@ Each completed one-second bucket must be strictly above the limit for the config
 
 The chip turns amber when an alert needs review. A failed request still takes priority. Open the chip to reach Traffic's Rates view and select an alert to inspect its recorded chart interval. Amber bands mark periods that exceeded the configured duration and limit.
 
-Returning below the limit marks the alert **Recovered** without discarding it. Opening the alert acknowledges it and clears its contribution to the chip's warning. Continued activity in the same episode does not create duplicate alerts; a later episode can warn again.
+Recorded alerts retain the **Exceeded** badge after activity returns below the limit. Opening the alert acknowledges it and clears its contribution to the chip's warning. Continued activity in the same episode does not create duplicate alerts; a later episode can warn again.
 
 The page retains up to 32 alerts in memory, each with up to 60 seconds of chart evidence. For an episode longer than a minute, the chart shows the latest retained minute while the alert keeps the episode's duration and peak. Reloading clears alerts. Changing a threshold applies to subsequent activity and ends existing episodes; it does not retroactively classify old activity.
 
