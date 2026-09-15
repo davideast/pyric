@@ -28,6 +28,21 @@ for arg in "$@"; do
   esac
 done
 
+# A packages-only build does not replace the static site. Keep its embedded
+# copy outside cli/dist during cleanup, and restore it even if compilation fails.
+if ! $BUILD_SITE && [ -d packages/cli/dist/serve/site-ui ]; then
+  STUDIO_BUILD_CACHE="$(mktemp -d)"
+  mv packages/cli/dist/serve/site-ui "$STUDIO_BUILD_CACHE/site-ui"
+  restore_studio_build() {
+    local build_status=$?
+    mkdir -p packages/cli/dist/serve
+    mv "$STUDIO_BUILD_CACHE/site-ui" packages/cli/dist/serve/site-ui
+    rmdir "$STUDIO_BUILD_CACHE"
+    return "$build_status"
+  }
+  trap restore_studio_build EXIT
+fi
+
 # ── Helpers ─────────────────────────────────────────────────────────────
 
 build_pkg() {
@@ -57,6 +72,9 @@ emit_stubs() {
 # ── Phase 0: Clean all dist/ directories ───────────────────────────────
 echo "━━━ Phase 0: Clean ━━━"
 for dir in packages/*/; do
+  if ! $BUILD_SITE && [ "$dir" = "packages/site-docs/" ]; then
+    continue
+  fi
   if [ -d "${dir}dist" ]; then
     echo "  Cleaning ${dir}dist/"
     rm -rf "${dir}dist"
@@ -102,7 +120,7 @@ if $BUILD_SITE; then
   mkdir -p packages/cli/dist/serve/site-ui
   cp -R packages/site-docs/dist/. packages/cli/dist/serve/site-ui/
 else
-  echo "▸ Skipped for packages-only build"
+  echo "▸ Skipped Studio rebuild; run the full build to create or refresh its assets"
 fi
 
 echo ""
