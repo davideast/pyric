@@ -577,6 +577,11 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       return true;
     }
     if (siteTree?.(req, res, url)) return true;
+    if (opts.studio && !siteTree && (url.pathname === '/__pyric/ui' || url.pathname.startsWith('/__pyric/ui/'))) {
+      res.writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Studio is unavailable</title></head><body><main><h1>Studio is unavailable</h1><p>The Studio assets are missing from this Pyric installation.</p><p>In a source checkout, run the full build with <code>bash scripts/build.sh</code>. Otherwise, reinstall <code>@pyric/cli</code>. Restart the development server afterward.</p><a href="/">Return to app</a></main></body></html>');
+      return true;
+    }
     return false; // unknown /__pyric/* → caller 404s
   };
 }
