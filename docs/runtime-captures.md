@@ -39,11 +39,3 @@ Captures are limited to 32 MB. Project storage accepts validated bundles under g
 Ask: “Inspect the latest saved Firestore capture. Explain which limit was exceeded, the peak rate, time above the limit, and which recorded operations contributed. Distinguish the selected interval from time above the limit, and state what the capture cannot establish about billing or replay.”
 
 The agent can use `listCaptures` to select the newest entry for that service, then `openCapture` with its id. Newly saved captures include the same measurement definitions as the chip's **How measurements work** disclosure. The full-state attachment is optional; the incident and measurement evidence can be inspected without restoring it.
-
-To verify the handoff against the demo:
-
-1. Run `bun examples/runtime-flow-lab/verify-capture-handoff.ts`. It triggers and saves one incident per service, then closes the browser pages.
-2. Stop and restart `bun examples/runtime-flow-lab/serve.ts`.
-3. Run `bun examples/runtime-flow-lab/verify-capture-handoff.ts --inspect`.
-
-The inspection uses fresh MCP sessions for both tool transports. It verifies that saved contents match the browser's capture, checks the threshold evidence and measurement limitations, and confirms that inspection leaves sandbox state unchanged. The temporary test manifest and evidence report are written under the operating system's temporary directory.
