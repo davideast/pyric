@@ -31,3 +31,54 @@ test('worker reads measure decoded bytes once and retain failed call activity', 
     expect(service.usageBuckets!.reduce((sum, bucket) => sum + (bucket.downloadedBytes ?? 0), 0)).toBe(3);
   } finally { monitor.dispose(); }
 });
+
+test('worker upload callbacks open render windows while transfer accounting stays once per task', async () => {
+  const { sdkActivity } = await import('pyric/sandbox/internal');
+  const { uploadBytesResumable } = await import('../../../src/serve/worker/client/resumable.js');
+  let requests = 0;
+  const port: ClientPort = {
+    onmessage: null, start() {}, close() {},
+    postMessage(message) {
+      if (message.t !== 'op') return;
+      requests++;
+      expect(message.method).toBe('storage.putBytes');
+      queueMicrotask(() => port.onmessage?.(new MessageEvent('message', { data: {
+        t: 'res', id: message.id, ok: true,
+        value: { bucket: 'default', fullPath: 'photo', name: 'photo', size: 3, generation: '1', metageneration: '1', timeCreated: '', updated: '' },
+      } })));
+    },
+  };
+  wirePort(port);
+  const reference = ref(getStorage({ __kind: 'client-db', port }), 'photo');
+  const upload = observeStorageOperation('uploadBytesResumable', uploadBytesResumable);
+  const monitor = createSdkRateMonitor();
+  const phases: string[] = [];
+  const stop = sdkActivity.subscribe(event => { if (event.record.service === 'storage') phases.push(event.phase); });
+  try {
+    const task = upload(reference, new Uint8Array([1, 2, 3]));
+    const beforeCallbacks: string[] = [];
+    const off = task.on('state_changed', () => beforeCallbacks.push(phases.at(-1)!));
+    task.pause(); task.resume();
+    const completionSignals: string[] = [];
+    const completed = () => { completionSignals.push(phases.at(-1)!); phases.length = 0; };
+    let results = 0;
+    const stopResults = sdkActivity.subscribe(event => { if (event.record.method === 'uploadBytesResumable' && event.phase === 'delivery') results++; });
+    task.on('state_changed', { complete: completed });
+    task.on('state_changed', { complete: completed });
+    await task;
+    expect(completionSignals).toEqual(['progress', 'progress']);
+    expect(phases).toContain('progress');
+    phases.length = 0;
+    task.on('state_changed', { next: completed, complete: completed });
+    expect(completionSignals).toEqual(['progress', 'progress', 'progress', 'progress']);
+    stopResults();
+    off();
+    expect(beforeCallbacks.length).toBeGreaterThan(1);
+    expect(beforeCallbacks.every(phase => phase === 'progress')).toBe(true);
+    expect(results).toBe(1);
+    expect(requests).toBe(1);
+    const service = monitor.snapshot().services.find(service => service.service === 'storage')!;
+    expect(service.methods.find(method => method.method === 'uploadBytesResumable')!.buckets.reduce((sum, bucket) => sum + bucket.calls, 0)).toBe(1);
+    expect(service.usageBuckets!.reduce((sum, bucket) => sum + (bucket.uploadedBytes ?? 0), 0)).toBe(3);
+  } finally { stop(); monitor.dispose(); }
+});

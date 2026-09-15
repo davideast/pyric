@@ -41,3 +41,9 @@ Ask: “Inspect the latest saved Firestore capture. Explain which limit was exce
 The agent can use `listCaptures` to select the newest entry for that service, then `openCapture` with its id. Newly saved captures include the same measurement definitions as the chip's **How measurements work** disclosure. The full-state attachment is optional; the incident and measurement evidence can be inspected without restoring it.
 
 Storage captures use the same controls and sandbox methods. Their one-second points include reads, writes, deletes, and completed uploaded/downloaded bytes. Byte totals cover successful SDK transfers; they exclude external fetches of download URLs, partial transfers, retries, and protocol overhead. They are local observations, not billing totals.
+
+## Storage results can be followed into React
+
+In **Data**, enable a source’s highlight (or **Show all**) and select **Flow**. Storage results and upload progress can be associated with subsequent React commits. A highlight means a render was observed after the result or callback, not that Pyric proved a data dependency. Flow requires the React commit hook to be installed before the renderer loads.
+
+The chat demo’s **Attachments** section uploads a 16 KiB image and downloads it into a React preview. Its upload progress and preview provide visible Flow targets. Upload progress is synthetic sandbox progress; it is recorded separately from completed results and never adds operations or transferred bytes to Rates. Writes, deletes, and metadata operations also appear in Data with their Storage action names.

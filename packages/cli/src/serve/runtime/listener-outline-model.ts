@@ -97,7 +97,7 @@ export function activityOutlines(
       listenerId: record.id, clientListenerId: record.transportId,
       label: outlineLabel(owners, record.method), labelIsOwner: labelIsOwner(owners),
       target: record.target, isQuery: record.isQuery, service: record.service,
-      deliveryCount: record.deliveryCount, lastDeliveryAt: record.lastDeliveryAt,
+      deliveryCount: record.deliveryCount, lastDeliveryAt: record.lastProgressAt === undefined ? record.lastDeliveryAt : Math.max(record.lastDeliveryAt ?? 0, record.lastProgressAt),
       selectors: outlineSelectors(owners), incident: backend?.incident ?? null,
       activity: record, observedRender: observed.has(record.id),
     };

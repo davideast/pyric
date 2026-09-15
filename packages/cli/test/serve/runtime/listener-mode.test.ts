@@ -598,3 +598,20 @@ it('preserves interleaved commit sources and rejects removed history regions', (
   expect(page.activity.records()).toHaveLength(2);
   page.mode.dispose(); page.activity.dispose();
 });
+
+it('correlates Storage progress and results with renders without counting progress as reads', () => {
+  const page = harness();
+  page.mode.setMode('flow'); page.mode.setEnabled(true);
+  const upload = page.activity.begin({ app: {}, method: 'uploadBytesResumable', kind: 'operation', source: { service: 'storage', target: 'bucket/photo', key: 'photo' } });
+  upload.progress();
+  page.flowDelivery(upload.id, [page.rowEl]);
+  const progress = page.mode.history!.snapshot().entries.find(entry => entry.phase === 'progress')!;
+  expect(page.mode.history!.association(progress.sequence)?.phase).toBe('render');
+  expect(page.mode.history!.counts()).toMatchObject({ calls: 1, deliveries: 0, commits: 1 });
+  upload.delivered(undefined, {}); upload.complete({ uploadedBytes: 1024 });
+  page.flowDelivery(upload.id, [page.rowEl]);
+  expect(page.mode.history!.counts()).toMatchObject({ calls: 1, deliveries: 1, commits: 2 });
+  expect(page.mode.outlines().find(outline => outline.listenerId === upload.id)?.observedRender).toBe(true);
+  expect(page.mode.inspectHistory?.(page.mode.history!.association(progress.sequence)!.sequence)).toBe(true);
+  page.mode.dispose(); page.activity.dispose();
+});

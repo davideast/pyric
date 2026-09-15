@@ -102,3 +102,19 @@ it('keeps subscription display numbers stable across eviction and clearing', () 
   expect(numbers().get(b.id)).toBe(2);
   journal.dispose(); history.dispose();
 });
+
+it('retains progress render evidence separately from the completed upload result', () => {
+  const journal = createSdkActivityJournal();
+  const history = createActivityHistory();
+  journal.subscribe(history.record);
+  const task = journal.begin({ app: {}, method: 'uploadBytesResumable', kind: 'operation', source: { service: 'storage', target: 'bucket/file', key: 'file' } });
+  task.progress();
+  history.rendered(journal.records()[0], 1);
+  expect(presentActivityOccurrence(activityOccurrences(history.snapshot().entries)[0])).toEqual({ label: 'Upload progress', outcome: 'Rendered' });
+  task.delivered(undefined, {}); task.complete();
+  const occurrence = activityOccurrences(history.snapshot().entries)[0];
+  expect(occurrence.event.phase).toBe('delivery');
+  expect(occurrence.render).toBe('not-observed');
+  expect(history.counts()).toMatchObject({ calls: 1, deliveries: 1, commits: 1 });
+  journal.dispose();
+});

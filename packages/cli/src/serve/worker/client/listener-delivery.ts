@@ -16,7 +16,7 @@ const listeners = new Set<ListenerDeliveryListener>();
 export function onListenerDelivery(listener: ListenerDeliveryListener): () => void {
   listeners.add(listener);
   const stopActivity = sdkActivity.subscribe(event => {
-    if (event.phase === 'delivery') listener(event.record.transportId ?? event.record.id);
+    if (event.phase === 'delivery' || event.phase === 'progress') listener(event.record.transportId ?? event.record.id);
   });
   return () => {
     stopActivity();

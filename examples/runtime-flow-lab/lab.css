@@ -555,3 +555,7 @@ select {
   .data-picker { grid-template-columns:minmax(0,1fr) auto; }
   .data-picker label { grid-column:1 / -1; }
 }
+
+.attachment-card { display: grid; gap: 12px; }
+.attachment-card img, .attachment-card progress { max-width: 100%; }
+.attachment-card img { height: auto; }

@@ -28,6 +28,7 @@ export interface SdkActivityRecord {
   readonly endedAt?: number;
   readonly deliveryCount: number;
   readonly lastDeliveryAt?: number;
+  readonly lastProgressAt?: number;
   readonly owners: readonly ListenerOwner[];
   /** Optional bridge identity. It is not the logical activity id. */
   readonly transportId?: string;
@@ -37,6 +38,8 @@ export interface SdkActivityHandle {
   readonly id: string;
   /** Call immediately before handing a successful result to application code. */
   delivered(snapshot?: unknown, usage?: UsageEvidence): void;
+  /** A task callback render signal, never a result or rate observation. */
+  progress(): void;
   complete(usage?: UsageEvidence): void;
   fail(): void;
   close(): void;
@@ -44,7 +47,7 @@ export interface SdkActivityHandle {
 }
 
 export interface SdkActivityEvent {
-  readonly phase: 'start' | 'delivery' | 'end' | 'remove' | 'transport';
+  readonly phase: 'start' | 'delivery' | 'end' | 'remove' | 'transport' | 'progress';
   readonly record: SdkActivityRecord;
   readonly usage?: UsageEvidence;
 }
@@ -122,6 +125,7 @@ export function createSdkActivityJournal(options: {
     notify('remove', record);
   }
 
+  const retainedAt = (record: SdkActivityRecord) => Math.max(record.endedAt ?? 0, record.lastProgressAt ?? 0);
   function prune(): void {
     if (pruning) return;
     pruning = true;
@@ -129,17 +133,17 @@ export function createSdkActivityJournal(options: {
       clearTimeout(timer);
       timer = undefined;
       const ended = [...records.values()].filter(record => record.endedAt !== undefined)
-        .sort((a, b) => a.endedAt! - b.endedAt!);
+        .sort((a, b) => retainedAt(a) - retainedAt(b));
       const expiredBefore = now() - retentionMs;
       while (ended.length && (
-        ended[0].endedAt! <= expiredBefore
-        || (ended.length > maxCompleted && ended[0].endedAt! <= now() - correlationWindowMs)
+        retainedAt(ended[0]) <= expiredBefore
+        || (ended.length > maxCompleted && retainedAt(ended[0]) <= now() - correlationWindowMs)
       )) {
         remove(ended.shift()!);
       }
       if (ended.length && !disposed) {
         const delay = ended.length > maxCompleted ? correlationWindowMs : retentionMs;
-        timer = setTimeout(prune, Math.max(1, ended[0].endedAt! + delay - now()));
+        timer = setTimeout(prune, Math.max(1, retainedAt(ended[0]) + delay - now()));
         // Retention must not keep a Node process alive.
         if (typeof timer === 'object' && 'unref' in timer) timer.unref();
       }
@@ -169,7 +173,7 @@ export function createSdkActivityJournal(options: {
       transportId?: string;
     }): SdkActivityHandle {
       if (disposed || silenced) return {
-        id: '', delivered() {}, complete() {}, fail() {}, close() {}, transport() {},
+        id: '', delivered() {}, progress() {}, complete() {}, fail() {}, close() {}, transport() {},
       };
       let app = apps.get(input.app);
       if (!app) {
@@ -206,7 +210,7 @@ export function createSdkActivityJournal(options: {
       }
       function update(phase: SdkActivityEvent['phase'], patch: Partial<SdkActivityRecord>, usage?: UsageEvidence): void {
         const current = records.get(id);
-        if (!current || current.endedAt !== undefined) return;
+        if (!current || (current.endedAt !== undefined && !(phase === 'progress' && current.status === 'completed'))) return;
         const next = Object.freeze({ ...current, ...patch });
         records.set(id, next);
         notify(phase, next, usage);
@@ -228,6 +232,7 @@ export function createSdkActivityJournal(options: {
           } catch { usage = { unmeasured: 1 }; }
           update('delivery', { deliveryCount: current.deliveryCount + 1, lastDeliveryAt: now() }, usage);
         },
+        progress() { update('progress', { lastProgressAt: now() }); prune(); },
         complete(usage) { end('completed', usage ?? (record.service === 'firestore' ? firestoreWriteUsage(record.method) : undefined)); },
         fail() { end('failed'); },
         close() { end('closed'); },

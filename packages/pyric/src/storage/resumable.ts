@@ -1,3 +1,4 @@
+import { storageTaskProgress, storageTaskResult } from '../sandbox/internal/storage-activity.js';
 /**
  * Resumable upload operations: `uploadBytesResumable` and related task observers.
  *
@@ -85,6 +86,7 @@ class UploadTaskImpl implements UploadTask {
   private _reject!: (error: Error | StorageError) => void;
   private _observers: TaskObserver[] = [];
   private _didIntermediateProgress = false;
+  private _committing = false;
   private _error: Error | StorageError | undefined;
   private readonly _ref: StorageReference;
   private readonly _blob: Blob;
@@ -267,7 +269,8 @@ class UploadTaskImpl implements UploadTask {
       if (hasNextCb) {
         const fn = nextCb as (snapshot: UploadTaskSnapshot) => unknown;
         try {
-          fn(this._snapshot);
+          storageTaskProgress(this);
+            fn(this._snapshot);
         } catch {
           // Observational
         }
@@ -279,6 +282,7 @@ class UploadTaskImpl implements UploadTask {
         if (hasNextCb) {
           const fn = nextCb as (snapshot: UploadTaskSnapshot) => unknown;
           try {
+            storageTaskProgress(this);
             fn(this._snapshot);
           } catch {
             // Observational
@@ -291,7 +295,8 @@ class UploadTaskImpl implements UploadTask {
           if (hasNextCb) {
             const fn = nextCb as (snapshot: UploadTaskSnapshot) => unknown;
             try {
-              fn(this._snapshot);
+              storageTaskProgress(this);
+            fn(this._snapshot);
             } catch {
               // Observational
             }
@@ -300,7 +305,8 @@ class UploadTaskImpl implements UploadTask {
           if (hasCompleteCb) {
             const fn = compCb as () => unknown;
             try {
-              fn();
+              storageTaskResult(this);
+            fn();
             } catch {
               // Observational
             }
@@ -376,6 +382,7 @@ class UploadTaskImpl implements UploadTask {
         if (hasNext) {
           const fn = obs.next as (snapshot: UploadTaskSnapshot) => unknown;
           try {
+            storageTaskProgress(this);
             fn(this._snapshot);
           } catch {
             // Ignore observer exceptions
@@ -410,6 +417,7 @@ class UploadTaskImpl implements UploadTask {
         if (hasComplete) {
           const fn = obs.complete as () => unknown;
           try {
+            storageTaskResult(this);
             fn();
           } catch {
             // Ignore observer exceptions
@@ -445,11 +453,13 @@ class UploadTaskImpl implements UploadTask {
   }
 
   private async _commitUpload(): Promise<void> {
+    if (this._committing) return;
     const isNotRunning = this._snapshot.state !== 'running';
     if (isNotRunning) {
       return;
     }
 
+    this._committing = true;
     try {
       const result = await uploadBytes(this._ref, this._blob, this._metadata, this._provenance);
       const isStillRunning = this._snapshot.state === 'running';
@@ -480,6 +490,9 @@ class UploadTaskImpl implements UploadTask {
         this._notifyObservers('error');
         this._reject(this._error);
       }
+    } finally {
+      this._committing = false;
+      if (this._snapshot.state === 'running') queueMicrotask(() => this._runStep());
     }
   }
 }

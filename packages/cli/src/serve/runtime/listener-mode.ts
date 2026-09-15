@@ -53,10 +53,10 @@ import {
 
 export type { ListenerPaintMode } from './listener-paint-mode.js';
 
-/** Data shows returned data and listener evidence; write acknowledgments live in Traffic. */
+/** Data shows returned data and listener evidence, including Storage task results. */
 function isDataActivity(record: SdkActivityRecord): boolean {
   const method = sdkMethodCoverage(observationService(record.service)).find(entry => entry.method === record.method);
-  return method?.category !== 'write';
+  return record.service === 'storage' || method?.category !== 'write';
 }
 
 export interface ListenerModeOptions {

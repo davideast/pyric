@@ -51,3 +51,53 @@ test('canceled uploads and denied operations have calls but no completed transfe
     expect(service.usageBuckets!.reduce((sum, b) => sum + (b.uploadedBytes ?? 0), 0)).toBe(0);
   } finally { monitor.dispose(); sandbox.dispose(); }
 });
+
+test('Storage progress is observed before callbacks without counting extra calls, results, or bytes', async () => {
+  const { sdkActivity } = await import('../../src/sandbox/internal/sdk-activity.js');
+  const sandbox = initializeSandbox();
+  const handle = storage.getStorageSandbox(sandbox, { dbName: `flow-${crypto.randomUUID()}`, rules: `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /{path=**} { allow read, write: if true; } } }` });
+  const monitor = createSdkRateMonitor();
+  const phases: string[] = [];
+  const stop = sdkActivity.subscribe(event => { if (event.record.service === 'storage') phases.push(event.phase); });
+  try {
+    const task = storage.uploadBytesResumable(storage.ref(handle, 'flow.bin'), new Uint8Array(1024));
+    let callbacks = 0;
+    const unsubscribe = task.on('state_changed', () => {
+      callbacks++;
+      expect(phases.at(-1)).toBe('progress');
+    });
+    task.pause();
+    task.resume();
+    await task;
+    unsubscribe();
+    expect(callbacks).toBeGreaterThan(1);
+    expect(phases.filter(phase => phase === 'delivery')).toHaveLength(1);
+    const service = monitor.snapshot().services.find(service => service.service === 'storage')!;
+    const upload = service.methods.find(method => method.method === 'uploadBytesResumable')!;
+    expect(upload.buckets.reduce((sum, bucket) => sum + bucket.calls, 0)).toBe(1);
+    expect(service.usageBuckets!.reduce((sum, bucket) => sum + (bucket.uploadedBytes ?? 0), 0)).toBe(1024);
+  } finally { stop(); monitor.dispose(); }
+});
+
+test('each completion observer and late successful observer has a render signal without duplicate results', async () => {
+  const { sdkActivity } = await import('../../src/sandbox/internal/sdk-activity.js');
+  const sandbox = initializeSandbox();
+  const handle = storage.getStorageSandbox(sandbox, { dbName: `late-${crypto.randomUUID()}`, rules: `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /{path=**} { allow read, write: if true; } } }` });
+  const signals: string[] = [];
+  let results = 0;
+  const stop = sdkActivity.subscribe(event => { if (event.record.service === 'storage') { signals.push(event.phase); if (event.phase === 'delivery') results++; } });
+  try {
+    const task = storage.uploadBytesResumable(storage.ref(handle, 'late'), new Uint8Array(3));
+    const callbackSignals: string[] = [];
+    const completion = () => { callbackSignals.push(signals.at(-1)!); signals.length = 0; };
+    task.on('state_changed', { complete: completion });
+    task.on('state_changed', { complete: completion });
+    await task;
+    expect(callbackSignals).toEqual(['progress', 'progress']);
+    expect(signals).toContain('progress'); // window for the awaited result
+    signals.length = 0;
+    task.on('state_changed', { next: completion, complete: completion });
+    expect(callbackSignals).toEqual(['progress', 'progress', 'progress', 'progress']);
+    expect(results).toBe(1);
+  } finally { stop(); }
+});

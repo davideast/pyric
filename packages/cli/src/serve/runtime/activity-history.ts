@@ -1,6 +1,6 @@
 import type { SdkActivityEvent, SdkActivityRecord } from 'pyric/sandbox/internal';
 
-export type ActivityHistoryPhase = 'start' | 'delivery' | 'end' | 'render';
+export type ActivityHistoryPhase = 'start' | 'delivery' | 'progress' | 'end' | 'render';
 export interface ActivityHistoryEntry {
   readonly sequence: number;
   readonly at: number;
@@ -47,7 +47,7 @@ export interface ActivityHistory {
   dispose(): void;
 }
 type AppendInput = { readonly record: SdkActivityRecord } & (
-  | { readonly phase: 'start' | 'delivery' | 'end' }
+  | { readonly phase: 'start' | 'delivery' | 'progress' | 'end' }
   | { readonly phase: 'render'; readonly commitId: number; readonly deliverySequences: readonly number[] }
 );
 
@@ -119,6 +119,7 @@ export function createActivityHistory(options: ActivityHistoryOptions = {}): Act
       switch (phase) {
         case 'start':
         case 'delivery':
+        case 'progress':
         case 'end':
           append({ record, phase });
           return;
@@ -135,7 +136,7 @@ export function createActivityHistory(options: ActivityHistoryOptions = {}): Act
       const cutoff = now() - windowMs;
       const deliveries = entries
         .filter(entry => entry.activityId === record.id
-          && entry.phase === 'delivery'
+          && (entry.phase === 'delivery' || entry.phase === 'progress')
           && entry.at > cutoff
           && !associated.has(entry.sequence))
         .map(entry => entry.sequence);
@@ -145,7 +146,7 @@ export function createActivityHistory(options: ActivityHistoryOptions = {}): Act
       const selected = entries.find(entry => entry.sequence === sequence);
       if (!selected) return undefined;
       if (selected.phase === 'render') return selected;
-      if (selected.phase === 'delivery') return entries.find(entry => entry.deliverySequences?.includes(sequence));
+      if (selected.phase === 'delivery' || selected.phase === 'progress') return entries.find(entry => entry.deliverySequences?.includes(sequence));
       // Start/outcome entries describe the invocation as a whole.
       return entries.find(entry => entry.activityId === selected.activityId && entry.phase === 'render');
     },

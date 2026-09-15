@@ -26,7 +26,7 @@ function summarize(entries: readonly ActivityHistoryEntry[]): Invocation[] {
       invocations.set(entry.activityId, invocation);
     }
     if (entry.sequence > invocation.latest.sequence) invocation.latest = entry;
-    if (entry.phase === 'delivery') invocation.deliveries.push(entry);
+    if (entry.phase === 'delivery' || entry.phase === 'progress') invocation.deliveries.push(entry);
     for (const sequence of entry.deliverySequences ?? []) invocation.renderedSequences.add(sequence);
   }
   return [...invocations.values()];
@@ -39,7 +39,7 @@ function evidence(event: ActivityHistoryEntry, invocation: Invocation): Occurren
   return {
     event,
     lifecycle: invocation.latest.status,
-    render: event.phase === 'delivery' ? 'not-observed' : 'unavailable',
+    render: event.phase === 'delivery' || event.phase === 'progress' ? 'not-observed' : 'unavailable',
   };
 }
 
@@ -47,7 +47,7 @@ function operation(invocation: Invocation): ActivityOccurrence {
   // Sequence, rather than caller array order, determines the first result.
   let firstDelivery: ActivityHistoryEntry | undefined;
   for (const entry of invocation.deliveries) {
-    if (!firstDelivery || entry.sequence < firstDelivery.sequence) firstDelivery = entry;
+    if (!firstDelivery || (firstDelivery.phase === 'progress' && entry.phase === 'delivery') || (entry.phase === firstDelivery.phase && entry.sequence < firstDelivery.sequence)) firstDelivery = entry;
   }
   return { ...evidence(firstDelivery ?? invocation.latest, invocation), kind: 'operation', registration: null };
 }
