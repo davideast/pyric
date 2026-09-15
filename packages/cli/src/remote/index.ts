@@ -50,6 +50,8 @@ import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { createOperationBudget } from '../bridge/operation-budget.js';
 import { cliVersion } from '../pkg-version.js';
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
+import { hasValidAttachFields } from '../bridge/attach-validation.js';
+import { hasValidReplyOutcome, snapshotError } from '../serve/worker/outbound-validation.js';
 import { discoverServe } from '../serve/discovery.js';
 
 /** Sits just above the bridge's own 30s `callTimeoutMs` so a legitimately
@@ -240,7 +242,9 @@ export interface RemoteSandboxCore {
   /** Resolves on `attach-ack`; rejects when no browser tab is connected. */
   ready: Promise<void>;
   channel: RemoteSandboxChannel;
-  /** Fail everything in flight (transport closed). Idempotent. */
+  /** Report a transport failure to pending calls and active listeners. */
+  fail(reason: string): void;
+  /** Close explicitly; reject pending calls and quietly detach listeners. Idempotent. */
   dispose(reason?: string): void;
 }
 
@@ -418,6 +422,11 @@ export function createRemoteSandboxCore(
         clearTimeout(call.timer);
         pending.delete(msg.id);
         updateLoopHold();
+        const hasInvalidOutcome = !hasValidReplyOutcome(msg);
+        if (hasInvalidOutcome) {
+          call.reject(remoteError('unavailable', 'The sandbox sent a malformed operation reply. The operation may have completed; check state before retrying.'));
+          return;
+        }
         const succeeded = msg.ok;
         if (succeeded) {
           call.resolve(msg.value);
@@ -444,8 +453,8 @@ export function createRemoteSandboxCore(
         const sub = subs.get(msg.subId);
         const isUnsubscribed = sub === undefined;
         if (isUnsubscribed) return;
-        const value = (msg.value ?? {}) as Record<string, unknown>;
-        const hasListenerError = Boolean(value.__error);
+        const payload = snapshotError(msg);
+        const hasListenerError = payload !== undefined;
         if (hasListenerError) {
           // A listener error is TERMINAL (Firestore's onSnapshot contract:
           // after onError, no further snapshots and the listener is dead).
@@ -463,7 +472,6 @@ export function createRemoteSandboxCore(
               send({ type: 'worker-unsub', subId: msg.subId });
             } catch {}
           }
-          const payload = value.__error as { code: string; message: string; denialContext?: unknown; envelope?: unknown };
           const err = remoteError(payload.code, payload.message, payload.denialContext, payload.envelope);
           const onError = sub.onError;
           const hasErrorHandler = onError !== undefined;
@@ -502,8 +510,19 @@ export function createRemoteSandboxCore(
     readyReject(err); // no-op if already settled
   }
 
+  /** Transport failure ends active listeners; explicit client close remains silent. */
+  function fail(reason: string): void {
+    const listeners = [...subs.values()];
+    dispose(reason);
+    const error = remoteError('unavailable', reason);
+    for (const listener of listeners) {
+      try { listener.onError?.(error); } catch { /* One callback cannot retain other listeners. */ }
+    }
+  }
+
   return {
     handleMessage,
+    fail,
     start: () => send({ type: 'attach', protocol: 1 }),
     ready,
     channel: { op, subscribe },
@@ -865,21 +884,41 @@ export async function connectRemoteSandbox(
     try {
       parsed = JSON.parse(raw.toString());
     } catch {
+      core.fail('The remote sandbox sent invalid JSON. Requests already sent may have completed; check state before retrying.');
+      ws.close();
       return;
     }
     const msg = parsed;
     const isUnrecognizedFrame = !isBridgeMessage(msg);
-    if (isUnrecognizedFrame) return;
+    if (isUnrecognizedFrame) {
+      core.fail('The remote sandbox sent an unrecognized reply envelope. Requests already sent may have completed; check state before retrying.');
+      ws.close();
+      return;
+    }
+    const hasInvalidResponseId = msg.type === 'worker-res' && typeof msg.id !== 'string';
+    const hasInvalidSubscriptionId = msg.type === 'worker-snap' && typeof msg.subId !== 'string';
+    const hasInvalidCorrelation = hasInvalidResponseId || hasInvalidSubscriptionId;
+    if (hasInvalidCorrelation) {
+      core.fail('The remote sandbox sent an invalid reply correlation. Requests already sent may have completed; check state before retrying.');
+      ws.close();
+      return;
+    }
     const isUnsupportedProtocol = msg.type === 'attach-ack' && msg.protocol !== 1;
     if (isUnsupportedProtocol) {
-      core.dispose('The remote sandbox uses an unsupported bridge protocol. Expected version 1.');
+      core.fail('The remote sandbox uses an unsupported bridge protocol. Expected version 1.');
+      ws.close();
+      return;
+    }
+    const hasMalformedAttachment = msg.type === 'attach-ack' && !hasValidAttachFields(msg);
+    if (hasMalformedAttachment) {
+      core.fail('The remote sandbox sent a malformed attachment acknowledgment.');
       ws.close();
       return;
     }
     core.handleMessage(msg);
   });
-  ws.on('close', () => core.dispose('remote sandbox connection closed (serve stopped or connection lost)'));
-  ws.on('error', (err) => core.dispose(`remote sandbox connection failed: ${err.message}`));
+  ws.on('close', () => core.fail('remote sandbox connection closed (serve stopped or connection lost)'));
+  ws.on('error', (err) => core.fail(`remote sandbox connection failed: ${err.message}`));
 
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(

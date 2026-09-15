@@ -59,6 +59,7 @@ import {
 } from './host.js';
 import { buildWorkerCtx, type EventSourceLike } from './serve-init.js';
 import type { InboundMessage } from './protocol.js';
+import { refuseInvalidInboundMessage } from './inbound-validation.js';
 import {
   SERVICE_WORKER_CHANNEL,
   type ServiceWorkerChannelMessage,
@@ -160,6 +161,8 @@ workerScope.onconnect = (e: MessageEvent) => {
   });
   port.onmessage = (ev: MessageEvent<InboundMessage>) => {
     const message = ev.data;
+    const isRefused = refuseInvalidInboundMessage(port, message);
+    if (isRefused) return;
     const readsEpoch = message.t === 'op' && message.method === 'getRuntimeEpoch';
     if (readsEpoch) {
       port.postMessage({

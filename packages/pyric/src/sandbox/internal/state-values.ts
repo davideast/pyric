@@ -1,4 +1,4 @@
-import { encodeDocValue, rehydrateEncodedDocValue, requireDocumentData,
+import { assertEncodedDocValueDepth, encodeDocValue, rehydrateEncodedDocValue, requireDocumentData,
   type DocValueEncoding } from '../../firestore/internal/value-codec.js';
 
 /** Preserve SDK values and escape ordinary marker-shaped maps before JSON removes their identity. */
@@ -12,6 +12,9 @@ export function decodeStateDocument(
   encoding: DocValueEncoding | undefined,
 ): Record<string, unknown> {
   const isLegacyState = encoding === undefined;
-  if (isLegacyState) return structuredClone(document);
+  if (isLegacyState) {
+    assertEncodedDocValueDepth(document);
+    return structuredClone(document);
+  }
   return requireDocumentData(rehydrateEncodedDocValue(document, encoding));
 }

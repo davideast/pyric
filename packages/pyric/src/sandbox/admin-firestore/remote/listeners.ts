@@ -83,48 +83,66 @@ export function registerRemoteListener(
   // same way the local listener path does.
   let prevDocs: Array<{ path: string; data: DocumentData }> | undefined;
 
+  function reportError(error: unknown): void {
+    const translated = toRemoteSandboxError(error);
+    const hasErrorCallback = onError !== undefined;
+    if (hasErrorCallback) onError(translated);
+    else console.error('pyric remote Firestore: uncaught onSnapshot error:', translated);
+  }
+
   let detach: () => void;
   try {
     detach = arm.sandbox.channel.subscribe(
       { target, actAs: arm.lens },
       (value) => {
-        if (!onNext) return;
-        const snap = value as Partial<WireDocSnap> & Partial<WireQuerySnap>;
-        if (Array.isArray(snap.docs)) {
-          // Query fire. `buildQuerySnapshot` translates the internal-form
-          // data to compat shapes itself, so decode WITHOUT translation.
-          const docList = snap.docs.map((row) => ({
-            path: row.path ?? row.id,
-            data: row.data ? decodeInternal(row.data) : {},
-          }));
-          const queryPath = target.__ref === 'query'
-            ? (target.source.__ref === 'group' ? target.source.collectionId : target.source.path)
-            : target.__ref === 'group'
-              ? target.collectionId
-              : target.path;
-          const querySnap = buildQuerySnapshot(
-            { path: queryPath },
-            docList,
-            { excludesMetadataChanges },
-            prevDocs,
-          );
-          prevDocs = docList;
-          onNext(querySnap);
-        } else if (typeof snap.id === 'string') {
-          // Doc fire.
-          const path = snap.path ?? snap.id;
-          const data = snap.exists && snap.data ? decodeInternal(snap.data) : null;
-          onNext(buildDocumentSnapshot(path, data));
+        const hasNoCallback = onNext === undefined;
+        if (hasNoCallback) return;
+        let decoded: unknown;
+        try {
+          const snap = value as Partial<WireDocSnap> & Partial<WireQuerySnap>;
+          const documents = snap.docs;
+          const isQuery = Array.isArray(documents);
+          if (isQuery) {
+            const docList = documents.map((row) => {
+              const data = row.data;
+              const hasData = data !== undefined;
+              return { path: row.path ?? row.id, data: hasData ? decodeInternal(data) : {} };
+            });
+            decoded = buildQuerySnapshot(
+              { path: listenerTargetPath(target) }, docList, { excludesMetadataChanges }, prevDocs,
+            );
+            prevDocs = docList;
+          } else {
+            const id = snap.id;
+            const isDocument = typeof id === 'string';
+            if (isDocument) {
+              const path = snap.path ?? id;
+              const serialized = snap.data;
+              const hasData = snap.exists === true && serialized !== undefined;
+              const data = hasData ? decodeInternal(serialized) : null;
+              decoded = buildDocumentSnapshot(path, data);
+            }
+          }
+        } catch (error) {
+          detach();
+          reportError(error);
+          return;
         }
+        const hasSnapshot = decoded !== undefined;
+        if (hasSnapshot) onNext(decoded);
       },
-      (err) => {
-        const translated = toRemoteSandboxError(err);
-        if (onError) onError(translated);
-        else console.error('pyric remote Firestore: uncaught onSnapshot error:', translated);
-      },
+      reportError,
     );
   } catch (e) {
     throw toRemoteSandboxError(e);
   }
   return detach;
+}
+
+function listenerTargetPath(target: WireTarget): string {
+  switch (target.__ref) {
+    case 'query': return listenerTargetPath(target.source);
+    case 'group': return target.collectionId;
+    default: return target.path;
+  }
 }

@@ -23,6 +23,7 @@ import { Bytes } from '../bytes.js';
 import { GeoPoint } from '../geo-point.js';
 import { VectorValue } from '../vector-value.js';
 import { FirebaseError } from '../../sandbox/internal/firebase-error.js';
+import { assertEncodedDocValueDepth } from './value-depth.js';
 // Sideways leaf import into the firestore surface (same character as the
 // wrapper imports above): the activity value registry is a zero-dependency
 // leaf owned by `firestore/sandbox/`, consumed here only to stamp trusted
@@ -134,12 +135,14 @@ export function rehydrateDocValue(value: unknown): unknown {
 
 /** Decode explicitly declared wire values; absent declarations retain the legacy marker contract. */
 export function rehydrateEncodedDocValue(value: unknown, encoding: DocValueEncoding | undefined): unknown {
+  assertEncodedDocValueDepth(value);
   const allowsEscapedMaps = resolveMapEncoding(encoding);
   return rehydrateValue(value, true, rulesValues, allowsEscapedMaps);
 }
 
 /** Decode values for an SDK owner while retaining the unary persistence decoder. */
 export function decodeDocValue(value: unknown, references: ReferenceDecoder, encoding?: DocValueEncoding): unknown {
+  assertEncodedDocValueDepth(value);
   const allowsEscapedMaps = resolveMapEncoding(encoding);
   return rehydrateValue(value, true, {
     bytes: (value) => Bytes.fromUint8Array(value),

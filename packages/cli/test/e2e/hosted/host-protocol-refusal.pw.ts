@@ -7,7 +7,15 @@ const invalidProtocols = [999, 0, null, undefined, '1', false, [], {}];
 
 const invalidCapabilities: unknown[] = [42, null, undefined, false, 'worker-port', {}, [], ['other'], ['worker-port', 42], ['worker-port', null], ['worker-port', {}]];
 
+const invalidFields = [{ peerConnected: 'yes' }, { bridgeVersion: 7 }, { clientSessionId: 7 },
+  { resumeToken: 7 }, { hostInstanceId: {} }];
+
 const invalidAcknowledgments = [
+  ...invalidFields.map(fields => ({
+    name: `fields ${JSON.stringify(fields)}`,
+    fields,
+    error: 'unavailable: The hosted sandbox sent a malformed attachment acknowledgment.',
+  })),
   ...invalidProtocols.map(protocol => ({
     name: `protocol ${JSON.stringify(protocol)}`,
     fields: { protocol },

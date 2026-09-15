@@ -51,17 +51,38 @@ test('deleting an app during hosted attach cancels unsent work and closes its so
   });
   const context = await browser.newContext();
   try {
+    await context.addInitScript(() => {
+      const NativeWebSocket = WebSocket;
+      let holdsNextSocket = false;
+      window.addEventListener('hold-app-attach', () => { holdsNextSocket = true; });
+      window.WebSocket = class extends NativeWebSocket {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          super(url, protocols);
+          const holdsAttach = holdsNextSocket;
+          holdsNextSocket = false;
+          const skipsHold = !holdsAttach;
+          if (skipsHold) return;
+          window.addEventListener('release-app-attach', event => {
+            const hasMessage = event instanceof CustomEvent && typeof event.detail === 'string';
+            if (hasMessage) this.dispatchEvent(new MessageEvent('message', { data: event.detail }));
+            document.documentElement.dataset.appAttach = 'released';
+          }, { once: true });
+        }
+      };
+    });
     let delayAppAttach = false;
-    const controlAttached = Promise.withResolvers<void>();
-    const appAttachHeld = Promise.withResolvers<void>();
-    const appSocketClosed = Promise.withResolvers<void>();
+    let appConnections = 0;
+    let controlAttached = false;
+    let heldAcknowledgment: string | undefined;
+    let appSocketClosed = false;
     await context.routeWebSocket('**/*', (route) => {
       const server = route.connectToServer();
       const isDelayedAppConnection = delayAppAttach;
       if (isDelayedAppConnection) {
+        appConnections += 1;
         route.onClose(() => {
           server.close();
-          appSocketClosed.resolve();
+          appSocketClosed = true;
         });
       }
       server.onMessage((data) => {
@@ -71,10 +92,10 @@ test('deleting an app during hosted attach cancels unsent work and closes its so
           const isAttach = frame.type === 'attach-ack';
           if (isAttach) {
             if (isDelayedAppConnection) {
-              appAttachHeld.resolve();
+              heldAcknowledgment = data.toString();
               return;
             }
-            controlAttached.resolve();
+            controlAttached = true;
           }
         }
         route.send(data);
@@ -86,10 +107,13 @@ test('deleting an app during hosted attach cancels unsent work and closes its so
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto(serve.info.url);
-    await controlAttached.promise;
+    await expect.poll(() => controlAttached, { timeout: 5_000, message: 'Control connection must attach before creating the app.' }).toBe(true);
     delayAppAttach = true;
+    await page.evaluate(() => window.dispatchEvent(new Event('hold-app-attach')));
     await page.getByRole('button', { name: 'Open app', exact: true }).click();
-    await appAttachHeld.promise;
+    await expect.poll(() => ({ held: heldAcknowledgment !== undefined, appConnections, errors }), {
+      timeout: 5_000, message: 'The new app must receive an attach acknowledgment to hold.',
+    }).toEqual({ held: true, appConnections: 1, errors: [] });
     await expect(page.locator('#operation')).toHaveText('Pending');
 
     await page.getByRole('button', { name: 'Delete app', exact: true }).click();
@@ -97,7 +121,12 @@ test('deleting an app during hosted attach cancels unsent work and closes its so
     await expect(page.locator('#deletion')).toHaveText('Deleted');
     await expect(page.locator('#operation')).toHaveText('app/app-deleted');
     await expect(page.locator('#apps')).toHaveText('0');
-    await appSocketClosed.promise;
+    await expect.poll(() => appSocketClosed, { timeout: 5_000, message: 'Deleted app socket must close.' }).toBe(true);
+    await page.evaluate(message => window.dispatchEvent(new CustomEvent('release-app-attach', { detail: message })), heldAcknowledgment);
+    await page.clock.runFor(10_000);
+    await expect(page.locator('html')).toHaveAttribute('data-app-attach', 'released');
+    expect(appConnections).toBe(1);
+    await expect(page.locator('#apps')).toHaveText('0');
     delayAppAttach = false;
     await page.getByRole('button', { name: 'Reopen app', exact: true }).click();
     await expect(page.locator('#replacement')).toHaveText('Missing');

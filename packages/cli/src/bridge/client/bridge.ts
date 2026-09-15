@@ -47,6 +47,11 @@ import {
 } from '../protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from './dispatch.js';
 import { bridgeHealthUrls, resolveBridgeUrl } from './bridge-url.js';
+import { requestEnvelopeError } from '../server/request-envelope.js';
+
+const peerCommands = new Set<BridgeMessage['type']>([
+  'hello-ack', 'tool-call', 'worker-op', 'worker-sub', 'worker-unsub', 'worker-client-disconnect', 'ping',
+]);
 
 const utf8 = new TextEncoder();
 
@@ -284,11 +289,23 @@ export function connectBridge(
       try {
         value = JSON.parse(isText ? data : '');
       } catch {
+        socket.close(4002, 'Invalid bridge message JSON.');
         return;
       }
       const parsed = value;
       const isUnrecognizedMessage = !isBridgeMessage(parsed);
-      if (isUnrecognizedMessage) return;
+      if (isUnrecognizedMessage) {
+        socket.close(4002, 'Unrecognized bridge message envelope.');
+        return;
+      }
+      const ignoresDirection = !peerCommands.has(parsed.type);
+      if (ignoresDirection) return;
+      const envelopeError = requestEnvelopeError(parsed);
+      const isMalformedCommand = envelopeError !== undefined;
+      if (isMalformedCommand) {
+        socket.close(4002, envelopeError);
+        return;
+      }
 
       const acknowledgesPeer = parsed.type === 'hello-ack';
       if (acknowledgesPeer) {

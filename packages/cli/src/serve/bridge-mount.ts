@@ -104,6 +104,7 @@ export interface BridgeHostAttachment {
 
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   let hostedRuntime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
+  let hostedStartup: Promise<void> | undefined;
   let disconnectHosted: (() => void) | undefined;
   const project = opts.project ?? 'sandbox';
   const disablesAuditLog = Boolean(opts.disableAuditLog);
@@ -238,16 +239,26 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
 
   const mount: BridgeMount = {
     async startHostedSandbox(payload, baseUrl) {
-      const alreadyStarted = hostedRuntime !== undefined;
+      if (closed) throw new Error('pyric bridge: cannot start a closed mount');
+      const alreadyStarted = hostedRuntime !== undefined || hostedStartup !== undefined;
       if (alreadyStarted) throw new Error('The Node sandbox is already running.');
-      const { createHostedRuntime } = await import('./hosted/runtime.js');
-      hostedRuntime = await createHostedRuntime(payload, baseUrl, (message) => bridge.handleSandboxMessage(message), opts.projectKey ?? process.cwd());
-      disconnectHosted = bridge.registerSandboxPeer(
-        hostedRuntime.receive,
-        [...hostedRuntime.toolNames],
-        hostedRuntime.instanceId,
-        [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY],
-      );
+      const starting = (async () => {
+        const { createHostedRuntime } = await import('./hosted/runtime.js');
+        hostedRuntime = await createHostedRuntime(payload, baseUrl, (message) => bridge.handleSandboxMessage(message), opts.projectKey ?? process.cwd());
+        if (closed) return;
+        disconnectHosted = bridge.registerSandboxPeer(
+          hostedRuntime.receive,
+          [...hostedRuntime.toolNames],
+          hostedRuntime.instanceId,
+          [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY],
+        );
+      })();
+      hostedStartup = starting;
+      try {
+        await starting;
+      } finally {
+        hostedStartup = undefined;
+      }
     },
     project,
     instanceId: bridge.instanceId,
@@ -557,6 +568,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       closePromise = (async () => {
         closed = true;
         await Promise.all([...attachments].map((attachment) => attachment.close()));
+        // Startup reports its own failure; shutdown still owns any runtime it creates.
+        await hostedStartup?.catch(() => {});
         bridge.workerSessions.close();
         disconnectHosted?.();
         await hostedRuntime?.close();

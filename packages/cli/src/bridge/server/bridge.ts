@@ -30,6 +30,8 @@ import {
   WORKER_PORT_CAPABILITY,
 } from '../protocol.js';
 import { createOperationBudget } from '../operation-budget.js';
+import { hasValidToolReply } from './reply-envelope.js';
+import { hasValidReplyOutcome, snapshotError } from '../../serve/worker/outbound-validation.js';
 import { createConsumerRegistry, type ConsumerRegistry } from './consumer-registry.js';
 import { createWorkerSessions } from './worker-sessions.js';
 import { createCallerIdentity, type CallerIdentityStore } from '../../auth/identity.js';
@@ -542,17 +544,25 @@ export function createBridge(opts: BridgeOptions): Bridge {
         peer?.send({ type: 'worker-sub', subId, clientSessionId, sub });
       } catch {}
     }
-    return () => {
-      const entry = workerSubs.get(subId);
-      const wasUnsubscribed = !workerSubs.delete(subId);
-      if (wasUnsubscribed) return;
-      const canRelayRemoval = peerHasRelay();
-      if (canRelayRemoval) {
-        try {
-          peer?.send({ type: 'worker-unsub', subId, clientSessionId: entry?.clientSessionId });
-        } catch {}
-      }
-    };
+    return () => unsubscribeWorker(subId);
+  }
+
+  function unsubscribeWorker(subId: string): void {
+    const entry = workerSubs.get(subId);
+    const wasUnsubscribed = !workerSubs.delete(subId);
+    if (wasUnsubscribed) return;
+    const canRelayRemoval = peerHasRelay();
+    if (canRelayRemoval) {
+      try {
+        peer?.send({ type: 'worker-unsub', subId, clientSessionId: entry?.clientSessionId });
+      } catch {}
+    }
+  }
+
+  function failWorkerSubscription(subId: string, error: { code: string; message: string }): void {
+    const entry = workerSubs.get(subId);
+    unsubscribeWorker(subId);
+    try { entry?.onSnap({ __error: error }); } catch {}
   }
 
   function detachConsumer(clientSessionId: string): void {
@@ -591,20 +601,37 @@ export function createBridge(opts: BridgeOptions): Bridge {
     // peer's state (subscriptions make stale delivery likely on tab
     // refresh: the old tab's worker port keeps firing until its WS dies).
     const stale = msgGeneration !== undefined && msgGeneration !== generation;
+    if (stale) return;
+    const isOperationReply = msg.type === 'tool-result' || msg.type === 'worker-res';
+    const hasInvalidReplyId = isOperationReply && typeof msg.id !== 'string';
+    if (hasInvalidReplyId) {
+      failAllPending('The sandbox sent a reply without a valid request ID.');
+      return;
+    }
+    const hasInvalidSubscriptionId = msg.type === 'worker-snap' && typeof msg.subId !== 'string';
+    if (hasInvalidSubscriptionId) {
+      for (const subId of workerSubs.keys()) {
+        failWorkerSubscription(subId, { code: 'unavailable', message: 'The sandbox sent a snapshot without a valid subscription ID.' });
+      }
+      return;
+    }
     switch (msg.type) {
       case 'worker-message-result': {
-        if (stale) return;
         consumers.get(msg.clientSessionId)?.send(msg);
         return;
       }
       case 'worker-res': {
-        if (stale) return;
         const res = msg;
         const op = workerPending.get(res.id);
         const isUnknownOperation = op === undefined;
         if (isUnknownOperation) return;
         clearTimeout(op.timer);
         workerPending.delete(res.id);
+        const isMalformedReply = !hasValidReplyOutcome(res);
+        if (isMalformedReply) {
+          op.reject(workerOpError('unavailable', 'The sandbox sent a malformed operation reply.'));
+          return;
+        }
         const succeeded = res.ok;
         if (succeeded) {
           op.resolve(res.value);
@@ -621,11 +648,16 @@ export function createBridge(opts: BridgeOptions): Bridge {
         return;
       }
       case 'worker-snap': {
-        if (stale) return;
         const snap = msg;
         const entry = workerSubs.get(snap.subId);
         const isUnknownSubscription = entry === undefined;
         if (isUnknownSubscription) return;
+        const error = snapshotError(snap);
+        const isTerminalReply = error !== undefined;
+        if (isTerminalReply) {
+          failWorkerSubscription(snap.subId, error);
+          return;
+        }
         const json = JSON.stringify(snap.value);
         const duplicate = entry.awaitingReissueSnap === true && json === entry.lastDeliveredJson;
         entry.awaitingReissueSnap = false;
@@ -647,6 +679,11 @@ export function createBridge(opts: BridgeOptions): Bridge {
         if (isUnknownCall) return;
         clearTimeout(call.timer);
         pending.delete(response.id);
+        const isMalformedReply = !hasValidToolReply(response);
+        if (isMalformedReply) {
+          call.resolve({ ok: false, summary: 'The sandbox sent a malformed tool reply.' });
+          return;
+        }
         const succeeded = response.ok;
         if (succeeded) {
           const result = response.result;

@@ -69,6 +69,11 @@ function isStringList(value: unknown): boolean {
 
 /** Validate request envelopes before dispatch; service handlers own argument semantics. */
 export function requestEnvelopeError(frame: BridgeMessage): string | undefined {
+  const hasSessionField = 'clientSessionId' in frame;
+  if (hasSessionField) {
+    const invalidSession = frame.clientSessionId !== undefined && typeof frame.clientSessionId !== 'string';
+    if (invalidSession) return 'Invalid bridge client session ID.';
+  }
   switch (frame.type) {
     case 'hello': {
       const hasMalformedTools = !isStringList(frame.tools);
@@ -76,6 +81,34 @@ export function requestEnvelopeError(frame: BridgeMessage): string | undefined {
       const hasValidCapabilities = frame.capabilities === undefined || isStringList(frame.capabilities);
       const isMalformedHandshake = hasMalformedTools || hasMalformedIdentity || !hasValidCapabilities;
       if (isMalformedHandshake) return 'Invalid sandbox peer handshake.';
+      return;
+    }
+    case 'hello-ack': {
+      const hasInvalidVersion = typeof frame.bridgeVersion !== 'string';
+      if (hasInvalidVersion) return 'Invalid sandbox peer acknowledgement.';
+      return;
+    }
+    case 'tool-call': {
+      const hasId = typeof frame.id === 'string';
+      const hasName = typeof frame.name === 'string';
+      const hasArguments = isProtocolRecord(frame.args);
+      const hasCaller = frame.callerId === undefined || typeof frame.callerId === 'string';
+      const hasLens = frame.actAs === undefined || isIdentityLens(frame.actAs);
+      const invalidCall = !hasId || !hasName || !hasArguments || !hasCaller || !hasLens;
+      if (invalidCall) return 'Invalid sandbox tool call envelope.';
+      return;
+    }
+    case 'worker-client-disconnect':
+    case 'worker-client-interrupted': {
+      const hasSession = typeof frame.clientSessionId === 'string';
+      const invalidSession = !hasSession;
+      if (invalidSession) return 'Invalid bridge client session ID.';
+      return;
+    }
+    case 'ping':
+    case 'pong': {
+      const invalidId = typeof frame.id !== 'string';
+      if (invalidId) return 'Invalid bridge heartbeat ID.';
       return;
     }
     case 'remote-set-lens': {

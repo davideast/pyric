@@ -19,6 +19,7 @@ import { FirebaseError } from 'pyric/app';
 import { receiveClockState } from './clock.js';
 import type { ClientPort } from './handles.js';
 import { createOperationBudget } from '../../../bridge/operation-budget.js';
+import { hasValidOutboundEnvelope, hasValidReplyOutcome, snapshotError } from '../outbound-validation.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
 
@@ -63,6 +64,7 @@ export const _snapSubs = new Map<string, {
 export const _eventSubs = new Map<string, {
   port: ClientPort;
   next: (events: readonly SandboxEvent[]) => void;
+  error?: (error: Error & { code: string }) => void;
 }>();
 const disconnectedPorts = new WeakSet<ClientPort>();
 const runtimeReloadListeners = new Set<(message: RuntimeReloadMessage) => void>();
@@ -107,10 +109,11 @@ export function openEventSubscription(
   subId: string,
   next: (events: readonly SandboxEvent[]) => void,
   message: InboundMessage,
+  error?: (error: Error & { code: string }) => void,
 ): boolean {
   const isDeleted = disconnectedPorts.has(port);
-  if (isDeleted) return false;
-  _eventSubs.set(subId, { port, next });
+  if (isDeleted) { error?.(appDeletedError()); return false; }
+  _eventSubs.set(subId, { port, next, error });
   port.postMessage(message);
   return true;
 }
@@ -190,6 +193,7 @@ export function disconnectPort(port: ClientPort): void {
     const isForeignSubscription = subscription.port !== port;
     if (isForeignSubscription) continue;
     _eventSubs.delete(id);
+    subscription.error?.(appDeletedError());
   }
   port.onmessage = null;
 }
@@ -242,30 +246,35 @@ function relayDenial(
   }
 }
 
-function hasValidReplyOutcome(reply: { ok?: unknown; error?: unknown }): boolean {
-  const isSuccess = reply.ok === true;
-  if (isSuccess) return true;
-  const error = reply.error;
-  const isErrorRecord = error !== null && typeof error === 'object';
-  const hasCode = isErrorRecord && 'code' in error && typeof error.code === 'string';
-  const hasMessage = isErrorRecord && 'message' in error && typeof error.message === 'string';
-  const isFailure = reply.ok === false && hasCode && hasMessage;
-  return isFailure;
-}
-
 /** Wire up the port's onmessage handler (idempotent per-port). */
 export function wirePort(port: ClientPort): void {
   port.onmessage = (ev: MessageEvent<OutboundMessage>) => {
     const msg = ev.data;
+    const hasInvalidEnvelope = !hasValidOutboundEnvelope(msg);
+    if (hasInvalidEnvelope) {
+      const error = new FirebaseError('unavailable',
+        'The sandbox sent a malformed reply envelope. The operation may have completed; check state before retrying.');
+      rejectPendingRequests(port, error);
+      for (const [id, subscription] of _snapSubs) {
+        const ownsSubscription = subscription.port === port;
+        if (ownsSubscription) { closeSubscription(port, id); subscription.error?.(error); }
+      }
+      for (const [id, subscription] of _eventSubs) {
+        const ownsSubscription = subscription.port === port;
+        if (ownsSubscription) { closeSubscription(port, id); subscription.error?.(error); }
+      }
+      return;
+    }
     const isResponse = msg.t === 'res';
     const isSnapshot = msg.t === 'snap';
     const isEventBatch = msg.t === 'event';
     const isRuntimeReload = msg.t === 'runtime-reload';
     const isClock = msg.t === 'clock';
     if (isResponse) {
-      const pending = takePendingRequest(msg.id);
-      const isUnknownRequest = pending === undefined;
-      if (isUnknownRequest) return;
+      const pending = _pending.get(msg.id);
+      const isForeignRequest = pending === undefined || pending.port !== port;
+      if (isForeignRequest) return;
+      takePendingRequest(msg.id);
       const hasInvalidOutcome = !hasValidReplyOutcome(msg);
       if (hasInvalidOutcome) {
         pending.reject(new FirebaseError('unavailable', 'The sandbox sent a malformed operation reply. The operation may have completed; check state before retrying.'));
@@ -300,14 +309,12 @@ export function wirePort(port: ClientPort): void {
       }
     } else if (isSnapshot) {
       const sub = _snapSubs.get(msg.subId);
-      const isUnknownSubscription = sub === undefined;
-      if (isUnknownSubscription) return;
-      // Auth snaps carry `SerializedUser | null` — a null value is a valid
-      // "signed out" payload, not an error, so guard the __error sniff.
-      const value = (msg.value ?? {}) as Record<string, unknown>;
-      const hasError = Boolean(value.__error);
+      const isForeignSubscription = sub === undefined || sub.port !== port;
+      if (isForeignSubscription) return;
+      const errPayload = snapshotError(msg);
+      const hasError = errPayload !== undefined;
       if (hasError) {
-        const errPayload = value.__error as { code: string; message: string; denialContext?: unknown; aiEnvelope?: unknown };
+        closeSubscription(port, msg.subId);
         const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown; aiEnvelope?: unknown };
         err.code = errPayload.code;
         const hasDenialContext = errPayload.denialContext !== undefined;
@@ -329,8 +336,8 @@ export function wirePort(port: ClientPort): void {
       // Event-stream batch (Pyric Studio keystone). Plain JSON SandboxEvents —
       // no rehydration. Deliver the whole batch to the registered subscriber.
       const subscription = _eventSubs.get(msg.subId);
-      const hasSubscription = subscription !== undefined;
-      if (hasSubscription) subscription.next(msg.events);
+      const ownsSubscription = subscription !== undefined && subscription.port === port;
+      if (ownsSubscription) subscription.next(msg.events);
     } else if (isRuntimeReload) {
       for (const listener of runtimeReloadListeners) listener(msg);
     } else if (isClock) {

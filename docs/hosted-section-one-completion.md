@@ -1,9 +1,16 @@
 # Section 1 completion map
 
+**Completed 2026-09-15:** all fixed implementation and automated assertions are
+accounted for in the [results](hosted-section-one-results.md). The next checkpoint
+is [manual QA](hosted-section-one-manual-qa.md). Section 2 has not begun.
+
+The planning inventory below is retained for traceability.
+
 Planning baseline: `4249b996`, 2026-09-14. This map makes the existing
 [Section 1 requirements](hosted-hardening-progress.md#section-1-acceptance-request-bounds-and-lifecycle-cleanup)
 actionable; it does not replace the support contract or declare new passing evidence.
-No implementation or runtime checks were performed for this reconciliation.
+The original planning reconciliation performed no runtime checks; the linked
+completion record contains the final executable evidence.
 
 ## How to freeze the work
 
@@ -53,7 +60,7 @@ client, SharedWorker physical/virtual ports, Service Worker relay realms, and
 public remote client. Compare runtime-specific owners; do not create an arbitrary
 Cartesian product of every CLI entry point, service and transport.
 
-**Next executable slice:** L03 and L12 for the Node hosted shutdown chain, followed
+**Original first executable slice (now complete):** L03 and L12 for the Node hosted shutdown chain, followed
 by the missing L01/L02 startup paths. Hold real accepted work, begin shutdown,
 observe whether closure waits, release the work, and reopen the same disposable
 project. Existing ownership and retained-work fixtures supply the starting point.

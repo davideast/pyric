@@ -333,6 +333,7 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
   let disconnect: (() => void) | null = null;
   let helloed = false;
   let sandboxId: string | null = null;
+  let peerGeneration = 0;
 
   ws.on('message', (raw) => {
     const isClosingConnection = ws.readyState !== ws.OPEN;
@@ -375,6 +376,7 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
         msg.tools,
         msg.sandboxId,
       );
+      peerGeneration = bridge.peerGeneration();
       sendBridgeMessage(ws, {
         type: 'hello-ack',
         protocol: 1,
@@ -385,7 +387,13 @@ function attachPeer(bridge: Bridge, ws: WebSocket, logger: BridgeLogger): void {
 
     const isUnregistered = !helloed;
     if (isUnregistered) return; // ignore messages before hello
-    bridge.handleSandboxMessage(msg);
+    const envelopeError = requestEnvelopeError(msg);
+    const hasEnvelopeError = envelopeError !== undefined;
+    if (hasEnvelopeError) {
+      ws.close(1002, envelopeError);
+      return;
+    }
+    bridge.handleSandboxMessage(msg, peerGeneration);
   });
 
   ws.on('close', () => {

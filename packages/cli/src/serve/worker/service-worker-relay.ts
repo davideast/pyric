@@ -6,6 +6,7 @@ import {
   type PortLike,
 } from './host.js';
 import type { ServiceWorkerChannelMessage } from './service-worker-channel.js';
+import { refuseInvalidInboundMessage } from './inbound-validation.js';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
 
 type HostEnvelope = Extract<ServiceWorkerChannelMessage, { direction: 'host' }>;
@@ -75,6 +76,8 @@ export function createServiceWorkerRelay(options: {
       const isStaleSession = state === undefined || state.sessionId !== envelope.sessionId;
       if (isStaleSession) return;
       const message = envelope.message;
+      const isRefusedMessage = refuseInvalidInboundMessage(state.port, message);
+      if (isRefusedMessage) return;
       let releaseOperation: (() => void) | undefined;
       const isOperation = message.t === 'op' || message.t === 'tool';
       if (isOperation) {

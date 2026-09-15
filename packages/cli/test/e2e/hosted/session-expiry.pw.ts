@@ -1,5 +1,7 @@
 import { connectRemoteSandbox } from '@pyric/cli/remote';
+import { realpathSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
+import { z } from 'zod';
 import { isBridgeMessage } from '../../../src/bridge/protocol.js';
 import { startSoakServe } from '../soak/harness.js';
 
@@ -77,16 +79,34 @@ test('an existing app obtains fresh admission after the hosted session retention
     await page.goto(fixture.info.url);
     await expect(page.locator('#document')).toHaveText('Before expiry');
     const uid = await page.locator('#uid').innerText();
+    const healthResponse = await fetch(`${fixture.info.url}/__pyric/health`);
+    const health = z.object({ instanceId: z.string() }).parse(await healthResponse.json());
+    async function listeners(): Promise<unknown> {
+      const response = await fetch(`${fixture.info.url}/__pyric/hosted/method`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instanceId: health.instanceId, projectDir: realpathSync(fixture.dir), key: 'sandbox.listeners',
+          args: { service: 'firestore', target: `profiles/${uid}` },
+        }),
+      });
+      expect(response.ok).toBe(true);
+      return response.json();
+    }
+    await expect.poll(listeners).toMatchObject({ ok: true, data: { totals: { firestore: 1 } } });
     const cut = cutConnection;
     const hasNoListener = cut === undefined;
     if (hasNoListener) throw new Error('The app never subscribed');
     await cut();
+    // Interrupted sessions retain listener intent until the host retires the grant.
+    await expect.poll(listeners).toMatchObject({ ok: true, data: { totals: { firestore: 1 } } });
     const control = await connectRemoteSandbox({ url: fixture.info.url });
     try {
       await control.channel.op({ method: 'setDoc', path: `profiles/${uid}`,
         data: { message: 'After expiry' }, actAs: { mode: 'admin' } });
       // Exercise the published 60-second retention policy with the real host clock.
       await new Promise(resolve => setTimeout(resolve, 62_000));
+      await expect.poll(listeners).toMatchObject({ ok: true, data: { listeners: [], totals: { firestore: 0 } } });
       const hasNoGrant = originalGrant === undefined;
       if (hasNoGrant) throw new Error('Expected the original admitted session grant');
       const expired = new WebSocket(`${fixture.info.url.replace('http:', 'ws:')}/__pyric/sandbox`);

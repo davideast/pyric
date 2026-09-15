@@ -110,7 +110,13 @@ export async function createHostedRuntime(
     },
     { preconnect: fetch.preconnect },
   );
-  const initialized = applyServeInit(ctx, payload, { fetch: hostedFetch });
+  let initialized: ReturnType<typeof applyServeInit>;
+  try {
+    initialized = applyServeInit(ctx, payload, { fetch: hostedFetch });
+  } catch (error) {
+    sandbox.dispose();
+    throw error;
+  }
   const storage = getAdminStorageSandbox(sandbox);
   try {
     await persistence.restoreStorage(storage);
@@ -125,6 +131,7 @@ export async function createHostedRuntime(
   const methodWork = new Map<object, OperationQueue>();
   const toolWork = new Map<string, OperationQueue>();
   let closed = false;
+  let closePromise: Promise<void> | undefined;
 
   async function handleToolCall(message: ToolCallRequest): Promise<void> {
     try {
@@ -365,17 +372,22 @@ export async function createHostedRuntime(
           return;
       }
     },
-    async close(): Promise<void> {
-      if (closed) return;
+    close(): Promise<void> {
+      const closing = closePromise;
+      const isClosing = closing !== undefined;
+      if (isClosing) return closing;
       closed = true;
-      initialized.dispose();
-      try {
-        const pendingCalls = [...methodWork.values(), ...toolWork.values()].map(queue => queue.pending);
-        const portClosures = [...ports.keys()].map(closePort);
-        await Promise.all([...pendingCalls, ...portClosures, ...closingPorts]);
-      } finally {
-        sandbox.dispose();
-      }
+      closePromise = (async () => {
+        initialized.dispose();
+        try {
+          const pendingCalls = [...methodWork.values(), ...toolWork.values()].map(queue => queue.pending);
+          const portClosures = [...ports.keys()].map(closePort);
+          await Promise.all([...pendingCalls, ...portClosures, ...closingPorts]);
+        } finally {
+          sandbox.dispose();
+        }
+      })();
+      return closePromise;
     },
   };
 }

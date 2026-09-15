@@ -16,6 +16,7 @@
  */
 
 import type { InboundMessage, OpMessage, ToolMessage } from '../protocol.js';
+import { refuseInvalidInboundMessage } from '../inbound-validation.js';
 import {
   isAuthSub,
   isEventSub,
@@ -169,6 +170,8 @@ export async function handleMessage(
   port: PortLike,
   msg: InboundMessage,
 ): Promise<void> {
+  const isRefused = refuseInvalidInboundMessage(port, msg);
+  if (isRefused) return;
   const clientSessionId = msg.clientSessionId;
   const isRemoteClient = clientSessionId !== undefined && clientSessionId !== '';
   const isDisconnect = msg.t === 'disconnect';

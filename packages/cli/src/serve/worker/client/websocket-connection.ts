@@ -1,3 +1,4 @@
+import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
 import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, WORKER_PORT_CAPABILITY, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
@@ -234,7 +235,10 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
       }
       const message = parsed;
       const isUnrecognizedFrame = !isBridgeMessage(message);
-      if (isUnrecognizedFrame) return;
+      if (isUnrecognizedFrame) {
+        failConnection('The hosted sandbox sent an invalid message. Requests already sent may have completed; check state before retrying.');
+        return;
+      }
       lastReceivedAt = performance.now();
       switch (message.type) {
         case 'attach-ack': {
@@ -255,6 +259,11 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
           const isDifferentProject = message.projectKey !== target.projectKey;
           if (isDifferentProject) {
             failConnection('The selected hosted sandbox belongs to a different project.');
+            return;
+          }
+          const hasMalformedAttachment = !hasValidAttachFields(message);
+          if (hasMalformedAttachment) {
+            failConnection('The hosted sandbox sent a malformed attachment acknowledgment.');
             return;
           }
           const isResume = hasEverAttached;

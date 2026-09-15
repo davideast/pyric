@@ -103,9 +103,25 @@ for (const outcome of ['success', 'failure', 'timeout', 'close']) {
               for (const release of held.splice(0)) release();
               continue;
             }
-            for (const release of held.splice(0)) release();
+            const firstRelease = held.shift();
+            const hasNoRelease = firstRelease === undefined;
+            if (hasNoRelease) throw new Error('Expected an accepted remote request.');
+            firstRelease();
             const expected = failsReply ? 'permission-denied' : 'completed';
-            expect(await Promise.all(accepted)).toEqual(Array(3).fill(expected));
+            await expect(accepted[0]).resolves.toBe(expected);
+            const replacement = remote.channel.op(upload(`${round}/held-replacement`, 8 * 1024 * 1024))
+              .catch((error: unknown) => {
+                const hasCode = error instanceof Error && 'code' in error;
+                if (hasCode) return error.code;
+                return String(error);
+              });
+            accepted.push(replacement);
+            await expect.poll(() => held.length).toBe(3);
+            await expect(remote.channel.op(upload('excess', 8192))).rejects.toMatchObject({ code: 'resource-exhausted' });
+            expect(refusedFrames).toBe(0);
+            await expect(healthy.channel.op({ method: 'getDoc', path: 'during-partial-refill' })).resolves.toBe('completed');
+            for (const release of held.splice(0)) release();
+            expect(await Promise.all(accepted)).toEqual(Array(4).fill(expected));
           }
         } finally {
           healthy.close();
