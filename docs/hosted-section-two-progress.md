@@ -145,5 +145,10 @@ Section 2 closes hardening items 10–11. The next checkpoint is the
 [manual verification procedure](hosted-section-two-manual-qa.md), followed by
 Section 3's RTDB disconnect semantics and concurrent data operations. SharedWorker
 remains the default, hosted remains opt-in, and in-page fallback remains supported.
-The manual demo was untouched. This closes the section's automated work; it does
-not claim a manual QA pass, mixed-version compatibility or release acceptance.
+The original manual demo was untouched. On 2026-09-15, the runnable manual
+checkpoint also passed: hosted identity, claims, Rules, restart and listener
+checks in Chrome and the Codex in-app browser; SharedWorker and in-page isolation
+in paired in-app tabs; and the documented real-expiry fault-injection command.
+The procedure records the commands, visible expectations and results. This does
+not claim physical laptop sleep, independent browser-engine coverage,
+mixed-version compatibility or release acceptance. Section 3 is next.
