@@ -4,11 +4,11 @@ Open the runtime chip, select **Traffic → Rates → AI Logic**. The same timel
 
 ## What the measurements mean
 
-Requests include `generateContent`, `generateContentStream`, and `countTokens`, including their chat entry points and failed attempts. A streaming generation is one request. Consuming its chunks creates Flow render signals without adding requests or token usage. Duration measures client elapsed time through completion, and first-chunk time measures the first received envelope—not necessarily the first text token.
+Started counts requests when they begin; Completed counts successful responses when they finish. Failures count failed outcomes, and In progress shows requests currently awaiting an outcome. Requests include `generateContent`, `generateContentStream`, and `countTokens`, including their chat entry points and failed attempts. A streaming generation is one request. Consuming its chunks creates Flow render signals without adding requests or token usage. Duration measures client elapsed time through completion, and first-chunk time measures the first received envelope—not necessarily the first text token.
 
 Generation token totals use final response usage. Backend-reported input and output tokens are separate from locally estimated or scripted totals. Unknown usage is counted explicitly. `countTokens` reports its count in request details but never adds those tokens to generation usage. These measurements cover this page, not a project’s bill. Scripted fixtures invoke no real model.
 
-Aggregate counters are independent of the request-detail list. Details retain up to 100 completed or failed requests; the timeline retains up to 30 minutes. Pausing freezes its browsable range while recording continues. Captures retain the selected measurements and the request identity available at capture time.
+Aggregate counters are independent of the request-detail list. Details retain up to 100 requests, including pending requests; the timeline retains up to 30 minutes. Pausing freezes its browsable range while recording continues. Automatic idle selection includes the associated request duration. A manually selected completion-only period can contain tokens and a completion without a start. Captures retain the selected measurements and the request identity available at capture time.
 
 ## Identify aliases and local models
 
@@ -64,7 +64,7 @@ These defaults are per-page investigation thresholds, not provider quotas. At a 
 bun examples/runtime-flow-lab/serve.ts
 ```
 
-The **AI Logic** section provides Generate, Stream, Fail request, and Rate warning controls. Scripted mode works offline. Select **Local OpenAI-compatible** and enter an installed model name to use the development server’s proxy. Its upstream defaults to `http://localhost:11434/v1`; override it with `FLOW_LAB_AI_UPSTREAM` when starting the example. The failure and burst scenarios require Scripted mode.
+The **AI Logic** section provides Generate, Stream, Fail request, and Rate warning controls. Scripted mode works offline. Select **Local OpenAI-compatible** to discover the configured server’s available models, then choose one from **Local model**. **Refresh models** picks up newly installed models. Discovery and generation use the development server, including when the page is opened over Tailscale. Its upstream defaults to `http://localhost:11434/v1`; override it with `FLOW_LAB_AI_UPSTREAM` when starting the example. The failure and burst scenarios require Scripted mode.
 
 In **Data**, select **Flow** to see React renders observed after responses or consumed chunks. This is timing correlation, not proof of a data dependency.
 

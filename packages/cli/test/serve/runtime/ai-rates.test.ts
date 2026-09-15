@@ -76,3 +76,61 @@ test('AI captures save to the project and reopen with model identity', async () 
     expect(readRateCapture(await store.read(saved.id)).frame.service.aiRequests![0]!.detail.routedModel).toBe('qwen');
   } finally { monitor.dispose(); journal.dispose(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test('long AI requests retain their lifecycle across progress eviction, Traffic and automatic rate selection', async () => {
+  const { createActivityHistory } = await import('../../../src/serve/runtime/activity-history.js');
+  const { aiTrafficRequest } = await import('../../../src/serve/runtime/chip-traffic.js');
+  let now = 1000;
+  const journal = createSdkActivityJournal({ now: () => now, monotonicNow: () => now });
+  const monitor = createSdkRateMonitor(journal, { monotonicNow: () => now });
+  const data = createActivityHistory({ now: () => now });
+  const unsubscribe = journal.subscribe(event => data.record(event));
+  const activity = journal.begin({ app: {}, method: 'generateContentStream', kind: 'operation', source: { service: 'ai', target: 'alias', key: 'alias' } });
+  activity.ai({ requestedModel: 'alias', routedModel: 'ornith:9b', engine: 'openai', usageSource: 'backend' });
+  let service = monitor.snapshot().services.find(service => service.service === 'ai')!;
+  expect(service.aiInProgress).toBe(1);
+  expect(aiTrafficRequest(service.aiRequests![0]!).aiRequest?.status).toBe('pending');
+  for (let i = 0; i < 120; i++) { now += 125; activity.progress(); }
+  activity.delivered(undefined, { aiCompleted: 1, aiInputTokens: 79, aiOutputTokens: 77 });
+  activity.complete();
+  now += 3000;
+  const history = createRateHistory('ai'); history.open(monitor.snapshot());
+  const frame = history.view(monitor.snapshot())!;
+  expect(frame.totals.requests).toBe(1);
+  expect(frame.totals.completed).toBe(1);
+  expect(frame.totals.inputTokens).toBe(79);
+  expect(data.counts({ scope: { kind: 'retained' } }).calls).toBe(1);
+  service = monitor.snapshot().services.find(service => service.service === 'ai')!;
+  expect(service.aiInProgress).toBe(0);
+  expect(service.aiRequests).toHaveLength(1);
+  expect(aiTrafficRequest(service.aiRequests![0]!).path).toBe('alias');
+  expect(aiRequestDetails(service, value => value, frame)).toContain('ornith:9b');
+  history.inspect(monitor.snapshot(), 16, 16);
+  const completion = history.view(monitor.snapshot())!;
+  expect(completion.totals.requests).toBe(0);
+  expect(completion.totals.completed).toBe(1);
+  expect(aiRequestDetails(service, value => value, completion)).toContain('ornith:9b');
+  const saved = readRateCapture(JSON.stringify(buildRateCapture(frame, {}, [], null)));
+  expect(saved.frame.service.aiRequests![0]!.startedSecond).toBe(1);
+  expect(saved.frame.totals.completed).toBe(1);
+  data.clear(); expect(data.counts({ scope: { kind: 'retained' } }).calls).toBe(0);
+  unsubscribe(); data.dispose(); monitor.dispose(); journal.dispose();
+});
+
+test('automatic AI selection spans a request longer than the live minute', () => {
+  let now = 1000;
+  const journal = createSdkActivityJournal({ now: () => now, monotonicNow: () => now });
+  const monitor = createSdkRateMonitor(journal, { monotonicNow: () => now });
+  const history = createRateHistory('ai');
+  const request = journal.begin({ app: {}, method: 'generateContent', kind: 'operation', source: { service: 'ai', target: 'alias', key: 'alias' } });
+  request.ai({ requestedModel: 'alias', routedModel: 'local', engine: 'openai', usageSource: 'backend' });
+  for (let i = 1; i <= 90; i++) { now = i * 1000; history.record(monitor.snapshot()); }
+  request.delivered(undefined, { aiCompleted: 1, aiInputTokens: 10 }); request.complete();
+  now += 3000;
+  history.open(monitor.snapshot());
+  const frame = history.view(monitor.snapshot())!;
+  expect(frame.from).toBe(1);
+  expect(frame.totals.requests).toBe(1);
+  expect(frame.totals.completed).toBe(1);
+  monitor.dispose(); journal.dispose();
+});

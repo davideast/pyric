@@ -4,6 +4,7 @@ export interface UsageEvidence {
   readonly aiOutputTokens?: number;
   readonly aiEstimatedTokens?: number;
   readonly aiUnknownUsage?: number;
+  readonly aiCompleted?: number;
   readonly aiFailures?: number;
 
   readonly uploadedBytes?: number;

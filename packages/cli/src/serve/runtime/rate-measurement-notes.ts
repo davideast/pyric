@@ -42,7 +42,7 @@ const storage: readonly MeasurementNote[] = [
 
 export function measurementNotes(service: string): readonly MeasurementNote[] {
   if (service === 'ai') return [
-    { label: 'Requests', text: 'Generation, streaming generation and countTokens calls, including failures. A stream counts once; chunks are render signals.' },
+    { label: 'Requests', text: 'Started counts generation, streaming generation and countTokens calls when they begin. Completed counts successful responses when they finish; failures are separate. In progress is the current number awaiting an outcome. A stream counts once; chunks are render signals.' },
     { label: 'Tokens', text: 'Backend input and output tokens use final backend-reported usage. Estimated and scripted tokens are separate. Unknown usage is counted explicitly; countTokens estimates are not generation usage.' },
     { label: 'Timing', text: 'Duration measures the client request through response completion. First chunk measures receipt of the first streamed envelope, which may contain no text.' },
     { label: 'Identity', text: 'Requested aliases, configured routing and backend-reported models are distinct. Scripted model versions are not evidence of a real model. A proxy endpoint does not establish whether its upstream is local.' },

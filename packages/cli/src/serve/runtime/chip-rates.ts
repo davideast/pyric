@@ -12,6 +12,9 @@ export interface RateView {
 type Escape = (value: string) => string;
 
 export const RATE_STYLES = HISTORY_STYLES + `
+  .ai-model-pair { display:grid; grid-template-columns:auto minmax(0,1fr); gap:4px 12px; font-size:12px; }
+  .ai-model-pair > :nth-child(odd) { color:var(--pyric-muted); font-weight:400; }
+  .ai-model-pair > :nth-child(even) { overflow-wrap:anywhere; }
   [data-ai-request] > summary,[data-ai-request] > .usage-notes-body { padding-inline:var(--record-inset); }
   [data-ai-request] > summary > :first-child { min-width:0; overflow-wrap:anywhere; }
   .ai-request-meta { display:inline-flex; align-items:center; gap:var(--space-3); flex-shrink:0; }
@@ -174,7 +177,7 @@ function recordedFrame(snapshot: SdkRateSnapshot, service: SdkServiceRate): Hist
 function activitySummary(snapshot: SdkRateSnapshot, service: SdkServiceRate): string {
   const frame = recordedFrame(snapshot, service);
   if (!frame) return 'No activity recorded';
-  if (service.service === 'ai') return `${rateNumber(frame.totals.requests ?? 0)} requests / ${rateNumber(frame.totals.failures ?? 0)} failures in ${frame.duration}s`;
+  if (service.service === 'ai') return `${rateNumber(frame.totals.requests ?? 0)} started / ${rateNumber(frame.totals.completed ?? 0)} completed in ${frame.duration}s; ${rateNumber(service.aiInProgress ?? 0)} in progress now`;
   return `${rateNumber(frame.totals.reads)} ${service.service === 'firestore' ? 'document reads' : 'reads'} / ${rateNumber(frame.totals.writes)} writes${service.service === 'rtdb' ? ` / ${rateNumber(frame.totals.deliveries)} deliveries` : service.service === 'storage' ? ` / ${rateNumber(frame.totals.deletes)} deletes` : ''} in ${frame.duration}s`;
 }
 function serviceList(snapshot: SdkRateSnapshot, label: (service: string) => string, escape: Escape, incidents: ReadonlyMap<string, number>): string {

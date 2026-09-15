@@ -561,5 +561,6 @@ select {
 .attachment-card img { height: auto; }
 
 .ai-options label { display:grid; gap:8px; flex:1 1 200px; min-width:0; font-size:13px; color:var(--lab-muted); }
-.ai-options input { box-sizing:border-box; width:100%; min-width:0; height:38px; font:inherit; color:var(--lab-text); background:#191e26; border:1px solid #414b5b; border-radius:7px; padding-inline:10px; }
-.ai-options input:focus-visible { outline:2px solid #bdcbff; outline-offset:4px; }
+
+.ai-options { align-items:flex-end; }
+.ai-options select { width:100%; min-width:0; height:36px; line-height:36px; appearance:auto; }

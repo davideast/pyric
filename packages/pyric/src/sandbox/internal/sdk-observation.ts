@@ -26,7 +26,7 @@ export interface SdkObservation {
   readonly kind: SdkActivityRecord['kind'];
   readonly status: SdkActivityRecord['status'];
   /** `remove` releases retained state. It is never a call or delivery. */
-  readonly phase: Exclude<SdkActivityEvent['phase'], 'transport' | 'progress'>;
+  readonly phase: Exclude<SdkActivityEvent['phase'], 'progress'>;
   readonly deliveryNumber: number;
   /** Wall-clock observation time for display. */
   readonly at: number;
@@ -40,7 +40,7 @@ export function sdkObservation(
   monotonicAt: number,
   sequence: number,
 ): SdkObservation | undefined {
-  if (event.phase === 'transport' || event.phase === 'progress') return undefined;
+  if (event.phase === 'progress' || (event.phase === 'transport' && !event.record.ai)) return undefined;
   const { record, phase } = event;
   return Object.freeze({
     ...(event.usage ? { usage: Object.freeze({ ...event.usage }) } : {}),

@@ -115,10 +115,47 @@ async function main() {
   const updateAi = (text: string) => flushSync(() => aiState.set(text));
   function AiReply() { const text = use(aiState.subscribe, aiState.get); return h('section', { className: 'attachment-card', 'data-component': 'AiReply' }, h('p', { id: 'ai-status', role: 'status' }, text)); }
   flushSync(() => createRoot(document.querySelector('#ai-preview')!).render(h(AiReply)));
+  const aiBackend = document.querySelector<HTMLSelectElement>('#ai-backend')!;
+  const aiModel = document.querySelector<HTMLSelectElement>('#ai-model')!;
+  const modelRefresh = document.querySelector<HTMLButtonElement>('#ai-model-refresh')!;
+  const modelStatus = document.querySelector<HTMLElement>('#ai-model-status')!;
+  async function loadAiModels() {
+    const previous = aiModel.value;
+    aiModel.disabled = true;
+    modelRefresh.disabled = true;
+    modelStatus.hidden = false;
+    modelStatus.textContent = 'Looking up available models…';
+    aiModel.replaceChildren(new Option('Loading models…', ''));
+    try {
+      const init = await (await fetch('/__pyric/init.json')).json();
+      const response = await fetch('/__demo/ai-models', { headers: { 'x-pyric-session-token': init.sessionToken } });
+      const result = await response.json() as { models?: string[]; error?: string };
+      if (!response.ok || !Array.isArray(result.models)) throw new Error(result.error ?? 'Model discovery failed. Try refreshing.');
+      aiModel.replaceChildren(...result.models.map(name => new Option(name, name)));
+      if (result.models.includes(previous)) aiModel.value = previous;
+      if (!result.models.length) aiModel.add(new Option('No installed models', ''));
+      modelStatus.textContent = result.models.length ? `${result.models.length} models available from the configured server.` : 'No models found. Install a model in Ollama, then refresh.';
+    } catch (error) {
+      aiModel.replaceChildren(new Option('Models unavailable', ''));
+      modelStatus.textContent = error instanceof Error ? error.message : 'Model discovery failed. Try refreshing.';
+    } finally {
+      aiModel.disabled = aiBackend.value !== 'local' || !aiModel.value;
+      modelRefresh.disabled = aiBackend.value !== 'local';
+      modelStatus.hidden = aiBackend.value !== 'local';
+    }
+  }
+  aiBackend.onchange = () => {
+    aiModel.disabled = aiBackend.value !== 'local' || !aiModel.value;
+    modelRefresh.disabled = aiBackend.value !== 'local';
+    modelStatus.hidden = aiBackend.value !== 'local';
+    if (aiBackend.value === 'local') void loadAiModels();
+  };
+  modelRefresh.onclick = () => { void loadAiModels(); };
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-ai-action]')) button.onclick = async () => {
     button.disabled = true;
     const local = (document.querySelector('#ai-backend') as HTMLSelectElement).value === 'local';
-    const upstream = (document.querySelector('#ai-model') as HTMLInputElement).value.trim() || 'qwen3:8b';
+    const upstream = aiModel.value;
+    if (local && (aiModel.disabled || !upstream)) { updateAi('Select an available local model before generating.'); button.disabled = false; return; }
     const action = button.dataset.aiAction;
     // Each scenario gets its own broker so first-call-wins configuration stays explicit.
     const aiSandbox = initializeSandbox();

@@ -33,7 +33,7 @@ export function beginAiActivity(target: AITarget, model: string, method: string)
         ...(detail.usageSource === 'estimated' || detail.usageSource === 'scripted' ? { aiEstimatedTokens: detail.totalTokens } : {}),
         aiUnknownUsage: detail.inputTokens === undefined || detail.outputTokens === undefined || detail.usageSource === 'unknown' ? 1 : 0,
       };
-      activity.delivered(undefined, usage);
+      activity.delivered(undefined, { ...usage, aiCompleted: 1 });
       activity.complete();
     },
     fail(error?: unknown) {

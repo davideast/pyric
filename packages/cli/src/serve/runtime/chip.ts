@@ -1,3 +1,4 @@
+import { aiModelHtml } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
 import type { CaptureEntry } from '../rate-capture-store.js';
 import { buildRateCapture, readRateCapture, readSessionFixture } from './rate-capture.js';
@@ -8,7 +9,7 @@ import { isThresholdService } from './rate-threshold-config.js';
 import { createRateHistory, bindHistory } from './rate-history.js';
 import { serviceLabel, sourceLabel } from './service-presentation.js';
 import { RATE_STYLES, rateView, refreshRateView } from './chip-rates.js';
-import { sdkRates } from 'pyric/sandbox/internal';
+import { sdkRates, sdkActivity } from 'pyric/sandbox/internal';
 import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
 import { INDEX_STYLES, indexDetailsHtml, indexActionHtml } from './chip-indexes.js';
 import { createIndexInspector, createIndexConfigClient, type IndexConfigClient } from './index-config-client.js';
@@ -54,6 +55,7 @@ import {
 } from './chip-tab.js';
 import {
   createTrafficFeed,
+  aiTrafficRequest,
   isPermissionDeniedCode,
   orderChipRequests,
   RECENT_FAILURE_MS,
@@ -744,6 +746,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let trafficSource: { service: string; target: string } | null = null;
   const trafficRows = (): ChipRequest[] => {
     const byId = new Map<string, ChipRequest>();
+    for (const request of rates.snapshot().services.find(service => service.service === 'ai')?.aiRequests ?? []) byId.set(request.id, aiTrafficRequest(request));
     for (const request of trafficFeed?.requests() ?? []) byId.set(request.id, request);
     for (const error of snapshot.errors) {
       if (byId.has(error.id)) continue;
@@ -995,13 +998,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const groups = sourceGroups();
     const selected = groups.find(group => group.id === selectedSourceId());
     const rows = groups.map(group => {
+      const modelActivity = group.members.find(member => member.activity?.ai)?.activity;
+      const modelIdentity = modelActivity?.ai;
       const counts = group.members.some(member => !member.activity) ? undefined : listenerMode?.history?.counts({ sourceId: group.id, scope: { kind: 'retained' } });
       const stopped = group.members.some(member => member.activity?.kind === 'subscription') && group.members.every(member => member.activity && (member.activity.kind !== 'subscription' || member.activity.status === 'closed'));
       const calls = counts?.calls ?? group.members.length;
       const deliveries = counts?.deliveries ?? group.members.reduce((sum, member) => sum + member.deliveryCount, 0);
       const indexMissing = missingIndex(queryForSource(group.id));
       return '<div class="source-row">' + buttonRowHtml({
-        c1: dataPathHtml(group.target),
+        c1: modelIdentity ? aiModelHtml(modelIdentity, escapeAttribute, modelActivity?.method) : dataPathHtml(group.target),
         s2: indexMissing ? '<span class="index-status">Index missing from config</span>' : '',
         s1: `${sourceLabel(group.service, group.target, group.members.some(member => member.isQuery))}${stopped ? ' — Stopped' : ''}${group.members.some(member => member.incident) ? ' — Duplicate subscriptions' : ''}`,
         slot: `<span class="listener-fact"><span>${counts?.partial ? '≥ ' : ''}${pluralize(calls, 'call')}</span><span>${counts?.partial ? '≥ ' : ''}${pluralize(deliveries, 'delivery', 'deliveries')}</span></span>`,
@@ -1024,7 +1029,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
     let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : '', toggle);
     if (selected) {
-      body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(selected.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
+      body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(selected.service)}</span>${iconHtml('chevron')}<span class="breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${selected.service === 'ai' ? 'Model requests' : escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
     }
     if (selected) body += `<div class="history-context">${indexBlock(queryForSource(selected.id), selected.id, selected.id)}</div>`;
     if (selected) {
@@ -1077,11 +1082,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       return { body: breadcrumb + `<input type="file" data-capture-file accept="application/json,.json" hidden><p class="threshold-error" data-capture-error role="alert" ${captureError ? '' : 'hidden'}>${escapeAttribute(captureError)}</p>` + body, bar: trafficToolbar() };
     }
     if (selectedRequest) {
-      const request = selectedRequest;
+      const request = trafficRows().find(row => row.id === selectedRequest!.id) ?? selectedRequest;
       const method = request.method ?? 'Request';
       const target = request.path ?? request.label ?? 'Request';
       const service = serviceLabel(request.service);
-      const outcome = { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
+      const outcome = request.aiRequest?.status === 'pending' ? 'In progress' : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
       const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
       let identityFact = '';
       if (request.identity) identityFact = fact('Identity', request.identity, 's2');
@@ -1095,7 +1100,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
       return {
         body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
-          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
+          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${request.aiRequest ? fact('Requested', target, 'c2') + fact('Routed to', request.aiRequest.detail.routedModel ?? (request.aiRequest.detail.engine === 'scripted' ? 'Scripted — no model invoked' : 'Unknown'), 'c2') + fact('Reported by backend', request.aiRequest.detail.reportedModel ?? 'Not reported', 'c2') : fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
         bar: barHtml([indexActionHtml(request.indexQuery, request.id, indexInspector, escapeAttribute)]),
       };
     }
@@ -1107,10 +1112,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
       return buttonRowHtml({
         c1: escapeAttribute(call),
-        c2: named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
+        c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined) : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
-        slot: trafficBadgeHtml(request.verdict, indexMissing),
+        slot: request.aiRequest ? `<span class="listener-fact">${request.aiRequest.status === 'pending' ? 'In progress' : request.aiRequest.status === 'failed' ? 'Failed' : 'Completed'}</span>` : trafficBadgeHtml(request.verdict, indexMissing),
         className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' ? '' : ' problem'}`,
         title: [call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
@@ -1119,7 +1124,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
     const bar = trafficToolbar();
-    return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
+    return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
   };
 
   const sandboxViewHtml = (): ChipView => {
@@ -1718,6 +1723,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
   documentLike.addEventListener('astro:after-swap', reattachAfterAstroSwap);
   const unsubscribe = options.runtime.subscribe(render);
+  const aiTrafficSignatures = new Map<string, string>();
+  const unsubscribeAi = sdkActivity.subscribe(event => {
+    if (event.record.service !== 'ai' || (event.phase !== 'end' && event.phase !== 'transport')) return;
+    const ai = event.record.ai;
+    const signature = JSON.stringify([event.record.status, ai?.requestedModel, ai?.routedModel, ai?.reportedModel]);
+    if (aiTrafficSignatures.get(event.record.id) === signature) return;
+    aiTrafficSignatures.set(event.record.id, signature);
+    if (aiTrafficSignatures.size > 100) aiTrafficSignatures.delete(aiTrafficSignatures.keys().next().value!);
+    if (open && tab === 'traffic' && trafficDisplay === 'requests') render();
+  });
 
   const unsubLens = subscribeLensFn(() => {
     render();
@@ -1764,6 +1779,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       documentLike.removeEventListener('pointerup', finishPointer);
       documentLike.removeEventListener('pointercancel', finishPointer);
       unsubscribe();
+      unsubscribeAi();
       unsubLens();
       unsubAuth();
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);
