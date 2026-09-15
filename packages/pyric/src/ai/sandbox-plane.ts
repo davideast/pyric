@@ -1,3 +1,4 @@
+import { beginAiActivity } from './activity.js';
 /**
  * The sandbox model plane for `pyric/ai` — everything between the public
  * `GenerativeModel`/`ChatSession` classes and the {@link AiBroker}:
@@ -110,15 +111,18 @@ export async function planeGenerateContent(
   request: Record<string, unknown>,
   singleRequestOptions?: SingleRequestOptions,
 ): Promise<GenerateContentResult> {
-  target.assertAlive?.();
-  checkSignal(singleRequestOptions);
+  const activity = beginAiActivity(target, modelResource, 'generateContent');
   try {
+    target.assertAlive?.();
+    checkSignal(singleRequestOptions);
     validateModel(modelResource);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
     const response = await (target.kind === 'transport' ? target.transport : target.broker)
       .generateContent(normalized, modelResource);
+    activity.finish(response);
     return { response: createEnhancedContentResponse(response) };
   } catch (err) {
+    activity.fail(err);
     throw toAIError(err, modelResource, 'generateContent');
   }
 }
@@ -129,10 +133,11 @@ export async function planeGenerateContentStream(
   request: Record<string, unknown>,
   singleRequestOptions?: SingleRequestOptions,
 ): Promise<GenerateContentStreamResult> {
-  target.assertAlive?.();
-  checkSignal(singleRequestOptions);
+  const activity = beginAiActivity(target, modelResource, 'generateContentStream');
   let inner: AsyncIterable<WireResponse>;
   try {
+    target.assertAlive?.();
+    checkSignal(singleRequestOptions);
     validateModel(modelResource);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
     // Broker validation runs eagerly here — a bad request throws before
@@ -140,6 +145,7 @@ export async function planeGenerateContentStream(
     inner = (target.kind === 'transport' ? target.transport : target.broker)
       .streamGenerateContent(normalized, modelResource);
   } catch (err) {
+    activity.fail(err);
     throw toAIError(err, modelResource, 'streamGenerateContent');
   }
 
@@ -157,10 +163,12 @@ export async function planeGenerateContentStream(
   const pumped = (async () => {
     try {
       for await (const chunk of inner) {
+        activity.chunk(chunk);
         buffered.push(chunk);
         wake();
       }
     } catch (err) {
+      activity.fail(err);
       failure = toAIError(err, modelResource, 'streamGenerateContent');
       wake();
       throw failure;
@@ -168,7 +176,9 @@ export async function planeGenerateContentStream(
       done = true;
       wake();
     }
-    return aggregateResponses(buffered);
+    const aggregate = aggregateResponses(buffered);
+    activity.finish(buffered.at(-1) ?? {}, aggregate);
+    return aggregate;
   })();
 
   const response: Promise<EnhancedResponse> = pumped.then((aggregate) =>
@@ -184,6 +194,7 @@ export async function planeGenerateContentStream(
     for (;;) {
       if (next < buffered.length) {
         // Chunks are broker-owned fresh objects; enhance in place.
+        activity.progress();
         yield createEnhancedContentResponse(structuredClone(buffered[next++]!));
         continue;
       }
@@ -204,16 +215,20 @@ export async function planeCountTokens(
   request: Record<string, unknown>,
   singleRequestOptions?: SingleRequestOptions,
 ): Promise<CountTokensResponse> {
-  target.assertAlive?.();
-  checkSignal(singleRequestOptions);
+  const activity = beginAiActivity(target, modelResource, 'countTokens');
   try {
+    target.assertAlive?.();
+    checkSignal(singleRequestOptions);
     validateModel(modelResource);
     const dispatch = target.kind === 'transport' ? target.transport : target.broker;
     const normalized = normalizeRequest(request) as unknown as Parameters<
       typeof dispatch.countTokens
     >[0];
-    return await dispatch.countTokens(normalized, modelResource);
+    const result = await dispatch.countTokens(normalized, modelResource);
+    activity.finish(result);
+    return result;
   } catch (err) {
+    activity.fail(err);
     throw toAIError(err, modelResource, 'countTokens');
   }
 }

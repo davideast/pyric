@@ -1,3 +1,4 @@
+import { packAiEvidence, setAiEvidence, type AiEvidence } from 'pyric/ai/internal';
 /**
  * SharedWorker host — AI op + stream-subscription handlers (pyric/ai).
  *
@@ -109,15 +110,17 @@ export function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiB
 /** Handle the unary AI ops. Requests/replies are plain Gemini-wire JSON. */
 export async function handleAiOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   const aiMsg = msg as AiOpMessage;
+  let identity: AiEvidence | undefined;
   try {
     const broker = ensureAiBroker(ctx, aiMsg.engine);
+    identity = broker.observationIdentity?.(aiMsg.model);
     switch (aiMsg.method) {
       case 'ai.generateContent': {
-        ok(port, aiMsg.id, await broker.generateContent(aiMsg.request, aiMsg.model));
+        ok(port, aiMsg.id, packAiEvidence(await broker.generateContent(aiMsg.request, aiMsg.model)));
         break;
       }
       case 'ai.countTokens': {
-        ok(port, aiMsg.id, await broker.countTokens(aiMsg.request, aiMsg.model));
+        ok(port, aiMsg.id, packAiEvidence(await broker.countTokens(aiMsg.request, aiMsg.model)));
         break;
       }
       default: {
@@ -127,6 +130,7 @@ export async function handleAiOp(ctx: HostCtx, port: PortLike, msg: OpMessage): 
   } catch (e) {
     // AiBrokerError envelopes ride the SerializedError whole (aiEnvelope) —
     // serializeError detects them structurally.
+    if (identity && e && typeof e === 'object') setAiEvidence(e, identity);
     fail(port, aiMsg.id, e);
   }
 }
@@ -157,17 +161,20 @@ export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessag
   portSubs.set(msg.subId, cancel);
 
   void (async () => {
+    let identity: AiEvidence | undefined;
     try {
       const broker = ensureAiBroker(ctx, msg.engine);
+      identity = broker.observationIdentity?.(msg.model);
       for await (const chunk of broker.streamGenerateContent(msg.request, msg.model)) {
         if (cancelled) return;
-        post(port, { t: 'snap', subId: msg.subId, value: { chunk } });
+        post(port, { t: 'snap', subId: msg.subId, value: { chunk: packAiEvidence(chunk) } });
       }
       if (!cancelled) {
         post(port, { t: 'snap', subId: msg.subId, value: { done: true } });
       }
     } catch (e) {
       if (!cancelled) {
+        if (identity && e && typeof e === 'object') setAiEvidence(e, identity);
         post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
       }
     } finally {

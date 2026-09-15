@@ -2,10 +2,10 @@ import { createRateHistoryArchive } from './rate-history-archive.js';
 import type { RateIncident } from './rate-threshold-monitor.js';
 import type { SdkMethodRate, SdkRateSnapshot, SdkServiceRate } from 'pyric/sandbox/internal';
 
-type Counts = { reads: number; writes: number; deliveries: number; deletes: number; uploadedBytes?: number; downloadedBytes?: number };
+type Counts = { reads: number; writes: number; deliveries: number; deletes: number; uploadedBytes?: number; downloadedBytes?: number; completed?: number; requests?: number; failures?: number; inputTokens?: number; outputTokens?: number; estimatedTokens?: number; unknownUsage?: number };
 const keys = ['reads', 'writes', 'deliveries', 'deletes'] as const;
-const visibleKeys = (service: string) => service !== 'rtdb' ? ['reads', 'writes', 'deletes'] as const : ['reads', 'writes', 'deliveries'] as const;
-const labels = { reads: 'Reads', writes: 'Writes', deliveries: 'Deliveries', deletes: 'Deletes' };
+const visibleKeys = (service: string) => service === 'ai' ? ['requests', 'completed', 'failures'] as const : service !== 'rtdb' ? ['reads', 'writes', 'deletes'] as const : ['reads', 'writes', 'deliveries'] as const;
+const labels = { uploadedBytes: 'Uploaded bytes', downloadedBytes: 'Downloaded bytes', requests: 'Started', completed: 'Completed', failures: 'Failures', inputTokens: 'Backend input tokens', outputTokens: 'Backend output tokens', estimatedTokens: 'Estimated / scripted tokens', unknownUsage: 'Unknown usage', reads: 'Reads', writes: 'Writes', deliveries: 'Deliveries', deletes: 'Deletes' };
 export interface HistoryFrame {
   readonly service: SdkServiceRate;
   readonly points: readonly (Counts & { second: number })[];
@@ -27,6 +27,10 @@ function pointsFor(methods: readonly SdkMethodRate[], from: number, to: number, 
   return Array.from({ length: Math.max(1, to - from + 1) }, (_, index) => {
     const second = from + index;
     const counts = { second, reads: 0, writes: 0, deliveries: 0, deletes: 0 };
+    if (service.service === 'ai') {
+      const bucket = usage.get(second);
+      return { ...counts, completed: bucket?.aiCompleted ?? 0, requests: indexedMethods.reduce((sum, method) => sum + (method.buckets.get(second)?.calls ?? 0), 0), failures: bucket?.aiFailures ?? 0, inputTokens: bucket?.aiInputTokens ?? 0, outputTokens: bucket?.aiOutputTokens ?? 0, estimatedTokens: bucket?.aiEstimatedTokens ?? 0, unknownUsage: bucket?.aiUnknownUsage ?? 0 };
+    }
     if (service.service === 'firestore') {
       const bucket = usage.get(second);
       return { ...counts, reads: bucket?.documentReads ?? 0, writes: bucket?.documentWrites ?? 0, deletes: bucket?.documentDeletes ?? 0 };
@@ -42,7 +46,7 @@ function pointsFor(methods: readonly SdkMethodRate[], from: number, to: number, 
     return service.service === 'storage' ? { ...counts, uploadedBytes: usage.get(second)?.uploadedBytes ?? 0, downloadedBytes: usage.get(second)?.downloadedBytes ?? 0 } : counts;
   });
 }
-function active(point: Counts) { return keys.some(key => point[key] > 0) || (point.uploadedBytes ?? 0) > 0 || (point.downloadedBytes ?? 0) > 0; }
+function active(point: Counts) { return (point.completed ?? 0) > 0 || (point.failures ?? 0) > 0 || (point.unknownUsage ?? 0) > 0 || (point.requests ?? 0) > 0 || (point.inputTokens ?? 0) > 0 || (point.outputTokens ?? 0) > 0 || (point.estimatedTokens ?? 0) > 0 || keys.some(key => point[key] > 0) || (point.uploadedBytes ?? 0) > 0 || (point.downloadedBytes ?? 0) > 0; }
 
 /** Selection owns an immutable capture, so live events cannot move its evidence. */
 export function createRateHistory(serviceName = 'rtdb') {
@@ -76,6 +80,10 @@ export function createRateHistory(serviceName = 'rtdb') {
     const totals: Counts = { reads: 0, writes: 0, deliveries: 0, deletes: 0 };
     const peaks: Counts = { reads: 0, writes: 0, deliveries: 0, deletes: 0 };
     for (const point of selected) for (const key of keys) { totals[key] += point[key]; peaks[key] = Math.max(peaks[key], point[key]); }
+    if (service.service === 'ai') for (const key of ['requests', 'completed', 'failures', 'inputTokens', 'outputTokens', 'estimatedTokens', 'unknownUsage'] as const) {
+      totals[key] = selected.reduce((sum, point) => sum + (point[key] ?? 0), 0);
+      peaks[key] = Math.max(0, ...selected.map(point => point[key] ?? 0));
+    }
     if (service.service === 'storage') for (const key of ['uploadedBytes', 'downloadedBytes'] as const) {
       totals[key] = selected.reduce((sum, point) => sum + (point[key] ?? 0), 0);
       peaks[key] = Math.max(0, ...selected.map(point => point[key] ?? 0));
@@ -103,6 +111,19 @@ export function createRateHistory(serviceName = 'rtdb') {
       if (last) {
         let first = last.second;
         for (let i = used.length - 2; i >= 0 && first - used[i]!.second <= 2; i--) first = used[i]!.second;
+        if (serviceName === 'ai') {
+          // AI calls may be separated by thought/model latency; keep the whole displayed window.
+          first = points[0]?.second ?? first;
+          for (const request of source?.aiRequests ?? []) {
+            if (request.second >= first && (request.startedSecond ?? request.second) <= last.second) first = Math.min(first, request.startedSecond ?? request.second);
+          }
+          first = Math.max(navigation().bounds.from, first);
+          if (first < (points[0]?.second ?? first)) {
+            captured = navigation().source;
+            windowSeconds = Math.min(1800, last.second - first + 1);
+            viewport = [first, last.second];
+          }
+        }
         interval = [first, last.second];
       }
     }
@@ -176,17 +197,18 @@ export function createRateHistory(serviceName = 'rtdb') {
 const number = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 const time = (frame: HistoryFrame, second: number) => new Date(frame.clockOffset + second * 1000).toLocaleTimeString([], { hour12: false });
 function graphic(frame: HistoryFrame) {
-  const maximum = Math.max(1, ...frame.points.flatMap(point => visibleKeys(frame.service.service).map(key => point[key])));
+  const maximum = Math.max(1, ...frame.points.flatMap(point => visibleKeys(frame.service.service).map(key => (point[key] ?? 0))));
   const width = 600, height = 90, step = width / frame.points.length;
   const left = (frame.from - frame.points[0]!.second) * step;
   const first = frame.points[0]!.second;
   const last = frame.points.at(-1)!.second;
   const warnings = (frame.warnings ?? []).filter(warning => warning.to >= first && warning.from <= last).map(warning => `<rect class="history-warning" x="${(Math.max(first, warning.from) - first) * step}" y="0" width="${(Math.min(last, warning.to) - Math.max(first, warning.from) + 1) * step}" height="90"/>`).join('');
-  const paths = visibleKeys(frame.service.service).map(key => `<polyline class="history-${key}${incidentKey(frame) === key ? ' history-trigger' : ''}" points="${frame.points.map((point, index) => `${index * step + step / 2},${height - point[key] / maximum * (height - 6)}`).join(' ')}"/>`).join('');
+  const paths = visibleKeys(frame.service.service).map(key => `<polyline class="history-${key === 'requests' ? 'reads' : key === 'failures' ? 'writes' : key}${incidentKey(frame) === key ? ' history-trigger' : ''}" points="${frame.points.map((point, index) => `${index * step + step / 2},${height - (point[key] ?? 0) / maximum * (height - 6)}`).join(' ')}"/>`).join('');
   return `<svg viewBox="0 0 600 96" preserveAspectRatio="none" aria-hidden="true">${warnings}<rect class="history-selection" x="${left}" y="0" width="${frame.duration * step}" height="90"/>${paths}</svg><span class="history-scale">${maximum}/s</span>`;
 }
-function incidentKey(frame: HistoryFrame): typeof keys[number] | undefined {
+function incidentKey(frame: HistoryFrame): keyof Counts | undefined {
   const operation = frame.incident?.operation;
+  if (operation === 'requests' || operation === 'inputTokens' || operation === 'outputTokens') return operation;
   if (operation === 'documentReads') return 'reads';
   if (operation === 'documentWrites') return 'writes';
   if (operation === 'documentDeletes') return 'deletes';
@@ -197,7 +219,7 @@ function incidentContext(frame: HistoryFrame): string {
   const key = incidentKey(frame);
   if (!incident || !key) return '';
   const fact = (label: string, value: string) => `<dt>${label}</dt><dd>${value}</dd>`;
-  return `<div class="rows history-incident"><strong>${incident.label} exceeded your limit</strong><p>${labels[key]} stayed above your ${number(incident.limit)}/s limit for at least ${incident.sustainedSeconds} seconds.</p><dl>${fact('Recorded volume', `${number(frame.totals[key])} ${incident.label.toLowerCase()} in ${frame.duration} seconds`)}${fact('Limit', `${number(incident.limit)}/s`)}${fact('Peak', `${number(incident.peak)}/s (${number(incident.peak / incident.limit)}× limit)`)}${fact('Time above limit', `${incident.aboveSeconds} seconds`)}${fact('Elapsed time', `${incident.to - incident.from + 1} seconds`)}</dl></div>`;
+  return `<div class="rows history-incident"><strong>${incident.label} exceeded your limit</strong><p>${labels[key]} stayed above your ${number(incident.limit)}/s limit for at least ${incident.sustainedSeconds} seconds.</p><dl>${fact('Recorded volume', `${number(frame.totals[key] ?? 0)} ${incident.label.toLowerCase()} in ${frame.duration} seconds`)}${fact('Limit', `${number(incident.limit)}/s`)}${fact('Peak', `${number(incident.peak)}/s (${number(incident.peak / incident.limit)}× limit)`)}${fact('Time above limit', `${incident.aboveSeconds} seconds`)}${fact('Elapsed time', `${incident.to - incident.from + 1} seconds`)}</dl></div>`;
 }
 function bytes(value: number): string {
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
@@ -207,7 +229,7 @@ function bytes(value: number): string {
 }
 function summary(frame: HistoryFrame) {
   return `<div class="history-summary-heading"><div><strong>${frame.paused ? 'Selected period' : 'Live period'}</strong><div class="history-period-time"><span>${time(frame, frame.from)} to ${time(frame, frame.to + 1)}</span><span class="history-duration">${frame.duration}s</span></div></div></div>`
-    + `<table class="rate-table" aria-label="Operations in selected period"><thead><tr><th>Operation</th><th>Total</th><th>Avg/s</th><th>Peak/s</th></tr></thead><tbody>${visibleKeys(frame.service.service).map(key => `<tr${incidentKey(frame) === key ? ' class="history-trigger-row"' : ''}><th>${labels[key]}</th><td class="mono" data-history-total="${key}">${number(frame.totals[key])}</td><td class="mono">${number(frame.totals[key] / frame.duration)}</td><td class="mono">${number(frame.peaks[key])}</td></tr>`).join('')}${frame.service.service === 'storage' ? (['uploadedBytes', 'downloadedBytes'] as const).map(key => `<tr><th>${key === 'uploadedBytes' ? 'Uploaded bytes' : 'Downloaded bytes'}</th><td class="mono">${bytes(frame.totals[key] ?? 0)}</td><td class="mono">${bytes((frame.totals[key] ?? 0) / frame.duration)}</td><td class="mono">${bytes(frame.peaks[key] ?? 0)}</td></tr>`).join('') : ''}</tbody></table>`;
+    + `<table class="rate-table" aria-label="Operations in selected period"><thead><tr><th>Operation</th><th>Total</th><th>Avg/s</th><th>Peak/s</th></tr></thead><tbody>${(frame.service.service === 'ai' ? ['requests', 'completed', 'failures', 'inputTokens', 'outputTokens', 'estimatedTokens', 'unknownUsage'] as const : visibleKeys(frame.service.service)).map(key => `<tr${incidentKey(frame) === key ? ' class="history-trigger-row"' : ''}><th>${labels[key]}</th><td class="mono" data-history-total="${key}">${number(frame.totals[key] ?? 0)}</td><td class="mono">${number((frame.totals[key] ?? 0) / frame.duration)}</td><td class="mono">${number(frame.peaks[key] ?? 0)}</td></tr>`).join('')}${frame.service.service === 'storage' ? (['uploadedBytes', 'downloadedBytes'] as const).map(key => `<tr><th>${key === 'uploadedBytes' ? 'Uploaded bytes' : 'Downloaded bytes'}</th><td class="mono">${bytes(frame.totals[key] ?? 0)}</td><td class="mono">${bytes((frame.totals[key] ?? 0) / frame.duration)}</td><td class="mono">${bytes(frame.peaks[key] ?? 0)}</td></tr>`).join('') : ''}</tbody></table>`;
 }
 function timelineHtml(frame: HistoryFrame): string {
   if (frame.imported) return '<p class="history-help">Saved capture. Live returns to this page.</p>';
@@ -215,7 +237,7 @@ function timelineHtml(frame: HistoryFrame): string {
   return `<div class="history-timeline"><div class="history-zoom"><strong title="Up to 30 minutes retained on this page">Timeline</strong><span data-timeline-window>${bounds.window}s view</span><button type="button" class="btn" data-history-zoom="2" aria-label="Zoom out"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8h10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button><button type="button" class="btn" data-history-zoom="0.5" aria-label="Zoom in"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3 8h10M8 3v10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></button></div><input type="range" data-history-scrubber aria-label="Timeline position" min="${bounds.from}" max="${Math.max(bounds.from, bounds.to - bounds.window + 1)}" value="${frame.points[0]!.second}" step="1"><div class="history-axis" data-timeline-bounds><span>${time(frame, bounds.from)}</span><span>${time(frame, bounds.to + 1)}</span></div></div>`;
 }
 export function historyHtml(frame: HistoryFrame): string {
-  return `<section class="rate-history"><div data-incident-context>${incidentContext(frame)}</div><div class="history-period"><strong>${frame.service.service === 'firestore' ? 'Document estimates per second' : 'Operations per second'}</strong><span>1-second buckets</span></div><div class="history-legend" data-incident-operation="${incidentKey(frame) ?? ''}"><span class="history-reads">Reads</span><span class="history-writes">Writes</span><span class="history-deliveries">${frame.service.service !== 'rtdb' ? 'Deletes' : 'Deliveries'}</span></div><div class="history-chart" data-history-chart tabindex="${frame.imported ? -1 : 0}" aria-disabled="${frame.imported === true}" role="slider" aria-label="Activity period" aria-valuemin="${frame.points[0]!.second}" aria-valuemax="${frame.points.at(-1)!.second}" aria-valuenow="${frame.to}" aria-valuetext="${time(frame, frame.from)} to ${time(frame, frame.to + 1)}" aria-describedby="history-help">${graphic(frame)}</div><div class="history-axis" data-history-axis><span>${time(frame, frame.points[0]!.second)}</span><span>${time(frame, frame.points.at(-1)!.second + 1)}</span></div>${timelineHtml(frame)}<p class="sr-only" id="history-help">Drag or use arrow keys to select. Shift extends the period.</p><div class="rows" data-history-summary>${summary(frame)}</div></section>`;
+  return `<section class="rate-history"><div data-incident-context>${incidentContext(frame)}</div><div class="history-period"><strong>${frame.service.service === 'firestore' ? 'Document estimates per second' : frame.service.service === 'ai' ? 'Requests per second' : 'Operations per second'}</strong><span>1-second buckets</span></div><div class="history-legend" data-incident-operation="${incidentKey(frame) ?? ''}"><span class="history-reads">${frame.service.service === 'ai' ? 'Requests' : 'Reads'}</span><span class="history-writes">${frame.service.service === 'ai' ? 'Failures' : 'Writes'}</span>${frame.service.service === 'ai' ? '' : `<span class="history-deliveries">${frame.service.service !== 'rtdb' ? 'Deletes' : 'Deliveries'}</span>`}</div><div class="history-chart" data-history-chart tabindex="${frame.imported ? -1 : 0}" aria-disabled="${frame.imported === true}" role="slider" aria-label="Activity period" aria-valuemin="${frame.points[0]!.second}" aria-valuemax="${frame.points.at(-1)!.second}" aria-valuenow="${frame.to}" aria-valuetext="${time(frame, frame.from)} to ${time(frame, frame.to + 1)}" aria-describedby="history-help">${graphic(frame)}</div><div class="history-axis" data-history-axis><span>${time(frame, frame.points[0]!.second)}</span><span>${time(frame, frame.points.at(-1)!.second + 1)}</span></div>${timelineHtml(frame)}<p class="sr-only" id="history-help">Drag or use arrow keys to select. Shift extends the period.</p><div class="rows" data-history-summary>${summary(frame)}</div></section>`;
 }
 export function refreshHistory(root: ParentNode, frame: HistoryFrame) {
   const chart = root.querySelector<HTMLElement>('[data-history-chart]');

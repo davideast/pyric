@@ -1,3 +1,5 @@
+import { getGenerativeModel } from 'pyric/ai';
+import { createConfiguredSandboxAI } from 'pyric/ai/internal';
 import { createWarningScenarios, warningBurstPlan } from './warning-scenarios.ts';
 import type { AuthUserRecord } from "pyric/auth";
 import type { AuthLens, SandboxEvent } from "pyric/sandbox";
@@ -89,6 +91,8 @@ let selectedSource = "messages";
 let selectedTreatment: TreatmentId = "outline";
 
 async function main() {
+  // Every service, broker event, and capture belongs to this page session.
+  const sandbox = initializeSandbox();
   installChipFonts(document);
   const commits = installReactCommitSource(window);
   // The renderer must load AFTER the commit hook, including its first import.
@@ -110,6 +114,90 @@ async function main() {
       state.preview ? h('img', { src: state.preview, width: 360, height: 96, alt: 'Downloaded Storage attachment' }) : null);
   }
   flushSync(() => createRoot(document.querySelector('#storage-preview')!).render(h(AttachmentCard)));
+  const aiState = store('Choose a scripted response or an installed local model.');
+  const updateAi = (text: string) => flushSync(() => aiState.set(text));
+  function AiReply() { const text = use(aiState.subscribe, aiState.get); return h('section', { className: 'attachment-card', 'data-component': 'AiReply' }, h('p', { id: 'ai-status', role: 'status' }, text)); }
+  flushSync(() => createRoot(document.querySelector('#ai-preview')!).render(h(AiReply)));
+  const aiBackend = document.querySelector<HTMLSelectElement>('#ai-backend')!;
+  const aiModel = document.querySelector<HTMLSelectElement>('#ai-model')!;
+  const modelRefresh = document.querySelector<HTMLButtonElement>('#ai-model-refresh')!;
+  const modelStatus = document.querySelector<HTMLElement>('#ai-model-status')!;
+  const aiConfiguration = store(readAiConfiguration());
+  function readAiConfiguration() {
+    return {
+      backend: aiBackend.value === 'local' ? 'OpenAI-compatible' : 'Scripted',
+      requestedModel: 'gemini-2.5-flash',
+      route: aiBackend.value === 'local' ? aiModel.value || 'Select a model' : 'No model invoked',
+    };
+  }
+  const syncAiConfiguration = () => aiConfiguration.set(readAiConfiguration());
+  aiModel.onchange = syncAiConfiguration;
+  async function loadAiModels() {
+    const previous = aiModel.value;
+    aiModel.disabled = true;
+    modelRefresh.disabled = true;
+    modelStatus.hidden = false;
+    modelStatus.textContent = 'Looking up available models…';
+    aiModel.replaceChildren(new Option('Loading models…', ''));
+    syncAiConfiguration();
+    try {
+      const init = await (await fetch('/__pyric/init.json')).json();
+      const response = await fetch('/__demo/ai-models', { headers: { 'x-pyric-session-token': init.sessionToken } });
+      const result = await response.json() as { models?: string[]; error?: string };
+      if (!response.ok || !Array.isArray(result.models)) throw new Error(result.error ?? 'Model discovery failed. Try refreshing.');
+      aiModel.replaceChildren(...result.models.map(name => new Option(name, name)));
+      if (result.models.includes(previous)) aiModel.value = previous;
+      if (!result.models.length) aiModel.add(new Option('No installed models', ''));
+      modelStatus.textContent = result.models.length ? `${result.models.length} models available from the configured server.` : 'No models found. Install a model in Ollama, then refresh.';
+    } catch (error) {
+      aiModel.replaceChildren(new Option('Models unavailable', ''));
+      modelStatus.textContent = error instanceof Error ? error.message : 'Model discovery failed. Try refreshing.';
+    } finally {
+      aiModel.disabled = aiBackend.value !== 'local' || !aiModel.value;
+      modelRefresh.disabled = aiBackend.value !== 'local';
+      modelStatus.hidden = aiBackend.value !== 'local';
+      syncAiConfiguration();
+    }
+  }
+  aiBackend.onchange = () => {
+    aiModel.disabled = aiBackend.value !== 'local' || !aiModel.value;
+    modelRefresh.disabled = aiBackend.value !== 'local';
+    modelStatus.hidden = aiBackend.value !== 'local';
+    syncAiConfiguration();
+    if (aiBackend.value === 'local') void loadAiModels();
+  };
+  modelRefresh.onclick = () => { void loadAiModels(); };
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-ai-action]')) button.onclick = async () => {
+    button.disabled = true;
+    const local = (document.querySelector('#ai-backend') as HTMLSelectElement).value === 'local';
+    const upstream = aiModel.value;
+    if (local && (aiModel.disabled || !upstream)) { updateAi('Select an available local model before generating.'); button.disabled = false; return; }
+    const action = button.dataset.aiAction;
+    // Bind this action to its selected route; later selections cannot reroute it.
+    const engine = local ? { kind: 'openai' as const, baseUrl: location.origin + '/__pyric/ai-proxy', modelMap: { 'gemini-2.5-flash': upstream } }
+      : { kind: 'scripted' as const, script: [{ respond: action === 'fail' ? { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Demo rate limit' } } : { chunks: ['This ', 'is a ', 'scripted ', 'AI response.'] } }] };
+    const model = getGenerativeModel(createConfiguredSandboxAI(sandbox, { engine }), { model: 'gemini-2.5-flash' });
+    try {
+      if (action === 'burst' && local) { updateAi('Rate warning uses scripted responses so the demo does not burst against your model. Select Scripted first.'); return; }
+      if (action === 'burst') {
+        for (let index = 0; index < 40; index++) {
+          const result = await model.generateContent('Summarize the design discussion.');
+          updateAi(`Scripted burst ${index + 1}/40: ${result.response.text()}`);
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+      } else if (action === 'stream') {
+        const result = await model.generateContentStream('Summarize the design discussion in a short paragraph.');
+        let text = '';
+        for await (const chunk of result.stream) { text += chunk.text(); updateAi(text); await new Promise(resolve => setTimeout(resolve, 120)); }
+        await result.response;
+      } else {
+        if (action === 'fail' && local) { updateAi('Failure scenario uses Scripted. Select Scripted first.'); return; }
+        const result = await model.generateContent('Summarize the design discussion in one sentence.');
+        updateAi(result.response.text());
+      }
+    } catch (error) { updateAi(error instanceof Error ? error.message : String(error)); }
+    finally { button.disabled = false; }
+  };
   function Photo({ uid }: { uid: string }) {
     return h("img", {
       className: "photo",
@@ -315,7 +403,6 @@ async function main() {
   }));
   let current: RuntimeIdentity | null = users[0] ?? null;
   let authChanged = (_user: RuntimeIdentity | null) => {};
-  const sandbox = initializeSandbox();
   sandbox.currentUser = current ? { uid: current.uid } : null;
   setRules(sandbox, `rules_version = '2'; service cloud.firestore {
     match /databases/{database}/documents {
@@ -378,7 +465,9 @@ async function main() {
     studioUrl: "/__pyric/ui/studio",
     worker: { url: "/worker.js", name: "flow-lab", servedEpoch: "preview" },
   });
+  runtime.setWorker({ mode: "in-page" });
   const chip = mountPyricRuntimeChip({
+    aiConfiguration: { getSnapshot: aiConfiguration.get, subscribe: aiConfiguration.subscribe },
     runtime,
     initiallyOpen: innerWidth >= 1250,
     identity: {
@@ -457,7 +546,7 @@ async function main() {
     ];
   }
   startCommon();
-  window.addEventListener('pagehide', () => { chat.stop(); for (const stop of subscriptions) stop(); }, { once: true });
+  window.addEventListener('pagehide', () => { chat.stop(); for (const stop of subscriptions) stop(); chip.dispose(); sandbox.dispose(); }, { once: true });
 
   const examples = [
     "The unread badge should move with this message.",

@@ -1,3 +1,4 @@
+import type { AiRequestObservation } from 'pyric/sandbox/internal';
 /**
  * The chip's Traffic view: what the page just asked the sandbox for, and what
  * Security Rules said about it.
@@ -19,6 +20,7 @@ import { captureIndexQuery, captureDatabaseIndexQuery, type ServiceIndexQuery } 
 
 /** One line of the Traffic view. */
 export interface ChipRequest {
+  aiRequest?: AiRequestObservation;
   /** The sandbox event's own id, which is also Studio's filter for the row. */
   id: string;
   /** Wall-clock at the request, ms since epoch. */
@@ -206,4 +208,8 @@ export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
       tail = [];
     },
   };
+}
+
+export function aiTrafficRequest(request: AiRequestObservation): ChipRequest {
+  return { id: request.id, at: request.startedAt ?? request.at, service: "ai", method: request.method, path: request.detail.requestedModel, verdict: request.status === "failed" ? "error" : "ok", identity: null, aiRequest: request };
 }

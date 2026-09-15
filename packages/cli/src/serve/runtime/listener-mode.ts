@@ -1,3 +1,4 @@
+import { aiModelLabel } from './ai-model-label.js';
 import { activityDisplayTarget, createActivityHistory, type ActivityHistory } from './activity-history.js';
 import type { FlowPaint } from './listener-flow-painter.js';
 import { createTreatmentController } from './flow-treatments/controller.js';
@@ -237,7 +238,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   };
 
   const displayOutline = (outline: ListenerOutline): ListenerOutline => outline.activity
-    ? { ...outline, deliveryCount: history.counts({ sourceId: outline.activity.sourceId, scope: { kind: 'retained' } }).deliveries }
+    ? { ...outline, target: outline.activity.ai ? aiModelLabel(outline.activity.ai, outline.activity.method) : outline.target, deliveryCount: history.counts({ sourceId: outline.activity.sourceId, scope: { kind: 'retained' } }).deliveries }
     : outline;
   const paint = (): void => {
     if (overlay === null) return;

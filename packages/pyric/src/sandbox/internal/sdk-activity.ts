@@ -1,3 +1,4 @@
+import type { AiEvidence } from './ai-evidence.js';
 import { firestoreReadUsage, databaseReadUsage, firestoreWriteUsage, type UsageEvidence } from './usage-evidence.js';
 import type { ListenerOwner } from '../types/events.js';
 import type { ServiceIndexQuery } from '../../rules/indexes/service-query.js';
@@ -5,7 +6,7 @@ import { sdkObservation, type SdkObservation } from './sdk-observation.js';
 
 /** Page-side SDK evidence. Transport messages are deliberately not deliveries. */
 export interface SdkActivitySource {
-  readonly service: 'firestore' | 'database' | 'storage';
+  readonly service: 'firestore' | 'database' | 'storage' | 'ai';
   readonly target: string;
   /** Canonical adapter descriptor, used only for identity, never exposed in records. */
   readonly key: string;
@@ -14,6 +15,8 @@ export interface SdkActivitySource {
 }
 
 export interface SdkActivityRecord {
+  readonly response?: Readonly<{ text: string; truncated: boolean }>;
+  readonly ai?: Readonly<AiEvidence>;
   readonly id: string;
   readonly appId: string;
   readonly sourceId: string;
@@ -41,7 +44,9 @@ export interface SdkActivityHandle {
   /** A task callback render signal, never a result or rate observation. */
   progress(): void;
   complete(usage?: UsageEvidence): void;
-  fail(): void;
+  fail(usage?: UsageEvidence): void;
+  ai(detail: AiEvidence): void;
+  response(value: unknown): void;
   close(): void;
   transport(id: string): void;
 }
@@ -173,7 +178,7 @@ export function createSdkActivityJournal(options: {
       transportId?: string;
     }): SdkActivityHandle {
       if (disposed || silenced) return {
-        id: '', delivered() {}, progress() {}, complete() {}, fail() {}, close() {}, transport() {},
+        id: '', delivered() {}, progress() {}, complete() {}, fail() {}, close() {}, transport() {}, ai() {}, response() {},
       };
       let app = apps.get(input.app);
       if (!app) {
@@ -234,7 +239,14 @@ export function createSdkActivityJournal(options: {
         },
         progress() { update('progress', { lastProgressAt: now() }); prune(); },
         complete(usage) { end('completed', usage ?? (record.service === 'firestore' ? firestoreWriteUsage(record.method) : undefined)); },
-        fail() { end('failed'); },
+        fail(usage) { end('failed', usage); },
+        response(value) {
+          try {
+            const text = JSON.stringify(value, null, 2);
+            if (text !== undefined) update('transport', { response: Object.freeze({ text: text.slice(0, 65536), truncated: text.length > 65536 }) });
+          } catch { /* Diagnostics must never break the SDK response. */ }
+        },
+        ai(detail) { update('transport', { ai: Object.freeze({ ...detail }) }); },
         close() { end('closed'); },
         transport(transportId) { update('transport', { transportId }); },
       };

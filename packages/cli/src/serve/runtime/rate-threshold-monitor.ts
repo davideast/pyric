@@ -21,6 +21,8 @@ export interface RateIncident {
 const RECOVERY_SECONDS = 5;
 interface Streak { from: number; peak: number; quietSeconds: number; incident?: RateIncident }
 function count(service: SdkServiceRate, key: ThresholdOperation, second: number): number {
+  if (key === 'requests') return service.methods.reduce((sum, method) => sum + (method.buckets.find(bucket => bucket.second === second)?.calls ?? 0), 0);
+  if (key === 'inputTokens' || key === 'outputTokens') return service.usageBuckets?.find(bucket => bucket.second === second)?.[key === 'inputTokens' ? 'aiInputTokens' : 'aiOutputTokens'] ?? 0;
   if (key === 'documentReads' || key === 'documentWrites' || key === 'documentDeletes') {
     return service.usageBuckets?.find(bucket => bucket.second === second)?.[key] ?? 0;
   }

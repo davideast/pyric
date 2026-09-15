@@ -99,17 +99,33 @@ await writeFile(join(configDir, 'firestore.indexes.json'), JSON.stringify({ inde
 const token = randomBytes(24).toString('base64url');
 // Exact proxy hostnames (for example, a Tailscale Serve HTTPS endpoint).
 const allowedHosts = (process.env.FLOW_LAB_ALLOWED_HOSTS ?? '').split(',').map(host => host.trim()).filter(Boolean);
-const namespace = createPyricNamespace({ sdkDir: outputDir, sessionToken: token, indexes: createIndexConfigStore(configDir), thresholds: createThresholdConfigStore(configDir), rateCaptures: createRateCaptureStore(here),
+const aiUpstream = process.env.FLOW_LAB_AI_UPSTREAM ?? 'http://localhost:11434/v1';
+const namespace = createPyricNamespace({ aiProxyUpstream: aiUpstream, sdkDir: outputDir, sessionToken: token, indexes: createIndexConfigStore(configDir), thresholds: createThresholdConfigStore(configDir), rateCaptures: createRateCaptureStore(here),
   allowedHosts,
   initPayload: () => ({ rules: null, rulesHash: null, storageRules: null, storageRulesHash: null, bridgeUrl: null, seed: null }) });
 const port = Number(process.env.FLOW_LAB_PORT ?? 5197);
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+  if (url.pathname === '/__demo/ai-models') {
+    if (req.method !== 'GET' || req.headers['x-pyric-session-token'] !== token) { res.writeHead(403); res.end(); return; }
+    try {
+      const upstream = await fetch(aiUpstream.replace(/\/$/, '') + '/models', { signal: AbortSignal.timeout(5000) });
+      if (!upstream.ok) throw new Error('Model discovery failed');
+      const payload = await upstream.json() as { data?: { id?: unknown }[] };
+      const models = [...new Set((Array.isArray(payload.data) ? payload.data : []).flatMap(model => typeof model?.id === 'string' ? [model.id] : []))].sort();
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ models }));
+    } catch {
+      res.writeHead(502, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Cannot reach the model server. Check that Ollama is running, then refresh.' }));
+    }
+    return;
+  }
   if (url.pathname === '/__demo/reset-index') {
     if (req.method !== 'POST' || req.headers['x-pyric-session-token'] !== token) { res.writeHead(403); res.end(); return; }
     await resetIndex(); res.writeHead(204); res.end(); return;
   }
-  if (url.pathname === '/__pyric/rate-captures' || url.pathname === '/__pyric/thresholds' || url.pathname === '/__pyric/indexes' || url.pathname === '/__pyric/init.json') { await namespace(req, res, url); return; }
+  if (url.pathname.startsWith('/__pyric/ai-proxy') || url.pathname === '/__pyric/rate-captures' || url.pathname === '/__pyric/thresholds' || url.pathname === '/__pyric/indexes' || url.pathname === '/__pyric/init.json') { await namespace(req, res, url); return; }
   if (await flowHost.handle(req, res, url)) return;
   if (url.pathname.startsWith("/__pyric/assets/")) {
     await handleAvatar(resolver, req, res, url);

@@ -10,6 +10,7 @@ export function observationService(service: EventService | 'database'): EventSer
 
 /** Public SDK evidence only. No results, credentials, query values or DOM owners. */
 export interface SdkObservation {
+  readonly ai?: SdkActivityRecord['ai'];
   /** Numeric usage evidence; never the result payload. */
   readonly usage?: UsageEvidence;
   /** Journal-local delivery order, used to reject replay without retaining IDs. */
@@ -25,7 +26,7 @@ export interface SdkObservation {
   readonly kind: SdkActivityRecord['kind'];
   readonly status: SdkActivityRecord['status'];
   /** `remove` releases retained state. It is never a call or delivery. */
-  readonly phase: Exclude<SdkActivityEvent['phase'], 'transport' | 'progress'>;
+  readonly phase: Exclude<SdkActivityEvent['phase'], 'progress'>;
   readonly deliveryNumber: number;
   /** Wall-clock observation time for display. */
   readonly at: number;
@@ -39,10 +40,11 @@ export function sdkObservation(
   monotonicAt: number,
   sequence: number,
 ): SdkObservation | undefined {
-  if (event.phase === 'transport' || event.phase === 'progress') return undefined;
+  if (event.phase === 'progress' || (event.phase === 'transport' && !event.record.ai)) return undefined;
   const { record, phase } = event;
   return Object.freeze({
     ...(event.usage ? { usage: Object.freeze({ ...event.usage }) } : {}),
+    ...(record.ai ? { ai: record.ai } : {}),
     sequence,
     id: `${record.id}/${phase}/${record.deliveryCount}`,
     activityId: record.id,

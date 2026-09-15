@@ -391,3 +391,19 @@ describe('ai events', () => {
     expect(aiEvents.length).toBeGreaterThan(0);
   });
 });
+
+describe('AI observation identity on worker errors', () => {
+  it('carries the actual host routing on unary and pre-first-chunk failures', async () => {
+    const { AiBroker } = await import('../../../../pyric/src/ai/broker/broker.js');
+    const ctx = makeCtx();
+    // Real broker, injected network failure; host config is authoritative.
+    ctx.aiBroker = new AiBroker({ engine: { kind: 'openai', baseUrl: 'http://localhost:11434/v1', model: 'qwen3:8b', fetch: async () => { throw new Error('offline'); } } }) as unknown as HostCtx['aiBroker'];
+    const port = fakePort();
+    const response = await sendOp(ctx, port, { t: 'op', id: 'identity-fail', method: 'ai.generateContent', model: MODEL, request: genRequest('test') });
+    expect(response.ok).toBe(false);
+    if (!response.ok) expect(response.error.aiEvidence).toMatchObject({ requestedModel: MODEL, routedModel: 'qwen3:8b', engine: 'openai', endpoint: 'http://localhost:11434' });
+    await handleMessage(ctx, port, { t: 'sub', subId: 'identity-stream', target: { service: 'ai', op: 'streamGenerateContent' }, model: MODEL, request: genRequest('test') });
+    await waitFor(() => port.snaps.length > 0);
+    expect(port.snaps[0]!.value).toMatchObject({ __error: { aiEvidence: { routedModel: 'qwen3:8b', engine: 'openai' } } });
+  });
+});

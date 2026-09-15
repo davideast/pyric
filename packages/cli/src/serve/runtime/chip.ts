@@ -1,3 +1,4 @@
+import { aiModelHtml } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
 import type { CaptureEntry } from '../rate-capture-store.js';
 import { buildRateCapture, readRateCapture, readSessionFixture } from './rate-capture.js';
@@ -8,7 +9,7 @@ import { isThresholdService } from './rate-threshold-config.js';
 import { createRateHistory, bindHistory } from './rate-history.js';
 import { serviceLabel, sourceLabel } from './service-presentation.js';
 import { RATE_STYLES, rateView, refreshRateView } from './chip-rates.js';
-import { sdkRates } from 'pyric/sandbox/internal';
+import { sdkRates, sdkActivity } from 'pyric/sandbox/internal';
 import { RULE_EVIDENCE_STYLES } from './chip-rules-evidence-styles.js';
 import { INDEX_STYLES, indexDetailsHtml, indexActionHtml } from './chip-indexes.js';
 import { createIndexInspector, createIndexConfigClient, type IndexConfigClient } from './index-config-client.js';
@@ -54,6 +55,7 @@ import {
 } from './chip-tab.js';
 import {
   createTrafficFeed,
+  aiTrafficRequest,
   isPermissionDeniedCode,
   orderChipRequests,
   RECENT_FAILURE_MS,
@@ -73,6 +75,11 @@ import {
 } from '../worker/client/core.js';
 
 export interface PyricRuntimeChipOptions {
+  /** Host configuration for future AI actions; request evidence remains in Traffic. */
+  aiConfiguration?: {
+    getSnapshot(): { backend: string; requestedModel: string; route: string };
+    subscribe(listener: () => void): () => void;
+  };
   rates?: Pick<typeof sdkRates, 'snapshot'>;
   indexConfig?: IndexConfigClient | null;
   thresholdConfig?: ThresholdConfigClient | null;
@@ -120,23 +127,10 @@ interface AiEngineDisplay {
 
 function aiEngineState(): AiEngineDisplay {
   const engine = (globalThis as { __PYRIC_AI_ENGINE__?: { kind?: string; model?: string } }).__PYRIC_AI_ENGINE__;
-  if (engine?.kind === 'gemini') {
-    return {
-      primary: 'gemini (production)',
-      detail: 'gemini-3.5-flash-lite → gemini-flash-lite-latest',
-    };
-  }
-  if (engine?.kind === 'openai') {
-    const modelLabel = engine.model ? ` (${engine.model})` : '';
-    return {
-      primary: `openai (proxy${modelLabel})`,
-      detail: null,
-    };
-  }
-  return {
-    primary: 'sandbox (scripted)',
-    detail: null,
-  };
+  if (engine?.kind === 'gemini') return { primary: 'Gemini', detail: 'Configured provider' };
+  if (engine?.kind === 'openai') return { primary: 'OpenAI-compatible', detail: engine.model ? `Configured model: ${engine.model}` : 'Configured provider' };
+  if (engine?.kind === 'scripted') return { primary: 'Scripted', detail: 'No model invoked' };
+  return { primary: 'Not reported', detail: 'AI configuration is unavailable' };
 }
 
 const styles = `
@@ -237,6 +231,9 @@ const styles = `
   .s1.split > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .right { display: flex; gap: var(--space-1); flex: none; max-width: 56px; }
   .provider-disclosure { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; gap: var(--space-3); }
+  .request-response { position:relative; background:var(--pyric-content); border:1px solid var(--pyric-border-soft); border-radius:8px; overflow:hidden; }
+  .request-response-body { margin:0; max-height:320px; overflow:auto; white-space:pre; overflow-wrap:normal; line-height:1.5; padding:var(--space-3); padding-right:52px; }
+  .request-response-copy { position:absolute; top:8px; right:8px; }
   .provider-details { grid-column: 2; min-width: 0; }
   .provider-body { display: grid; grid-template-rows: 0 auto; row-gap: var(--space-2); }
   .provider-details > summary { grid-column: 2; display: flex; align-items: center; gap: var(--space-1); font-size: 11px; color: var(--pyric-accent); cursor: pointer; min-height: 24px; list-style: none; }
@@ -692,7 +689,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let trafficDisplay: 'requests' | 'rates' = 'requests';
   let selectedRateService: string | null = null;
   let rateSection: 'chart' | 'incidents' | 'measurements' | 'captures' | 'capture-rename' | 'capture-delete' = 'chart';
-  const serviceHistories = { firestore: createRateHistory('firestore'), rtdb: createRateHistory('rtdb'), storage: createRateHistory('storage') };
+  const serviceHistories = { ai: createRateHistory('ai'), firestore: createRateHistory('firestore'), rtdb: createRateHistory('rtdb'), storage: createRateHistory('storage') };
   const currentRateHistory = () => serviceHistories[isThresholdService(selectedRateService) ? selectedRateService : 'rtdb'];
   const rates = options.rates ?? sdkRates;
   let captureError = '';
@@ -744,6 +741,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let trafficSource: { service: string; target: string } | null = null;
   const trafficRows = (): ChipRequest[] => {
     const byId = new Map<string, ChipRequest>();
+    for (const request of rates.snapshot().services.find(service => service.service === 'ai')?.aiRequests ?? []) byId.set(request.id, aiTrafficRequest(request));
     for (const request of trafficFeed?.requests() ?? []) byId.set(request.id, request);
     for (const error of snapshot.errors) {
       if (byId.has(error.id)) continue;
@@ -995,13 +993,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const groups = sourceGroups();
     const selected = groups.find(group => group.id === selectedSourceId());
     const rows = groups.map(group => {
+      const modelActivity = group.members.find(member => member.activity?.ai)?.activity;
+      const modelIdentity = modelActivity?.ai;
       const counts = group.members.some(member => !member.activity) ? undefined : listenerMode?.history?.counts({ sourceId: group.id, scope: { kind: 'retained' } });
       const stopped = group.members.some(member => member.activity?.kind === 'subscription') && group.members.every(member => member.activity && (member.activity.kind !== 'subscription' || member.activity.status === 'closed'));
       const calls = counts?.calls ?? group.members.length;
       const deliveries = counts?.deliveries ?? group.members.reduce((sum, member) => sum + member.deliveryCount, 0);
       const indexMissing = missingIndex(queryForSource(group.id));
       return '<div class="source-row">' + buttonRowHtml({
-        c1: dataPathHtml(group.target),
+        c1: modelIdentity ? aiModelHtml(modelIdentity, escapeAttribute, modelActivity?.method) : dataPathHtml(group.target),
         s2: indexMissing ? '<span class="index-status">Index missing from config</span>' : '',
         s1: `${sourceLabel(group.service, group.target, group.members.some(member => member.isQuery))}${stopped ? ' — Stopped' : ''}${group.members.some(member => member.incident) ? ' — Duplicate subscriptions' : ''}`,
         slot: `<span class="listener-fact"><span>${counts?.partial ? '≥ ' : ''}${pluralize(calls, 'call')}</span><span>${counts?.partial ? '≥ ' : ''}${pluralize(deliveries, 'delivery', 'deliveries')}</span></span>`,
@@ -1024,7 +1024,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
     let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : '', toggle);
     if (selected) {
-      body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(selected.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
+      body = `<div class="history-context"><div class="source-navigation"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-sources-back>Data</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(selected.service)}</span>${iconHtml('chevron')}<span class="breadcrumb-target" aria-current="page" title="${escapeAttribute(selected.target)}">${selected.service === 'ai' ? 'Model requests' : escapeAttribute(selected.target)}</span></nav><a href="#pyric-traffic" class="nav-link" data-source-traffic aria-label="View traffic" title="View matching traffic">Traffic${iconHtml('chevron')}</a></div></div>` + historyHtml();
     }
     if (selected) body += `<div class="history-context">${indexBlock(queryForSource(selected.id), selected.id, selected.id)}</div>`;
     if (selected) {
@@ -1065,7 +1065,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       }
       const alerts = thresholdMonitor.incidents().filter(incident => !selectedRateService || incident.service === selectedRateService);
       const alertHtml = alerts.length ? sectionHtml('Recorded incidents', `<div class="rows">${alerts.map(incident => `<button type="button" class="rate-alert" data-rate-incident="${escapeAttribute(incident.id)}"><span>${escapeAttribute(incident.label)}<small>${escapeAttribute(serviceLabel(incident.service))} · ${new Date(incident.at).toLocaleTimeString()}</small><small>Peak ${incident.peak}/s · limit ${incident.limit}/s</small><small>${incident.aboveSeconds}s above limit / ${incident.to - incident.from + 1}s elapsed</small></span><span class="rate-alert-status">${iconHtml('warning')}<span>Exceeded</span></span></button>`).join('')}</div>`) : '';
-      const incidentCounts = new Map(['firestore', 'rtdb', 'storage'].map(service => [service, thresholdMonitor.incidents().filter(incident => incident.service === service).length]));
+      const incidentCounts = new Map(['firestore', 'rtdb', 'storage', 'ai'].map(service => [service, thresholdMonitor.incidents().filter(incident => incident.service === service).length]));
       const frame = isThresholdService(selectedRateService) ? currentRateHistory().view(rates.snapshot()) : undefined;
       const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart');
       if (!selectedRateService) return { body: sectionHtml(measured.title, measured.body), bar: trafficToolbar() };
@@ -1077,11 +1077,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       return { body: breadcrumb + `<input type="file" data-capture-file accept="application/json,.json" hidden><p class="threshold-error" data-capture-error role="alert" ${captureError ? '' : 'hidden'}>${escapeAttribute(captureError)}</p>` + body, bar: trafficToolbar() };
     }
     if (selectedRequest) {
-      const request = selectedRequest;
+      const request = trafficRows().find(row => row.id === selectedRequest!.id) ?? selectedRequest;
       const method = request.method ?? 'Request';
       const target = request.path ?? request.label ?? 'Request';
       const service = serviceLabel(request.service);
-      const outcome = { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
+      const outcome = request.aiRequest?.status === 'pending' ? 'In progress' : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
       const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
       let identityFact = '';
       if (request.identity) identityFact = fact('Identity', request.identity, 's2');
@@ -1091,11 +1091,18 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         reasonFact = fact('Reason', rulesSummary(request), '');
         evidenceDetails = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
       }
+      if (request.aiRequest) {
+        const response = request.aiRequest.response;
+        const content = response
+          ? `<div class="request-response"><pre class="request-response-body mono" tabindex="0" aria-label="Returned response">${escapeAttribute(response.text)}</pre><button class="btn icon-button request-response-copy" type="button" data-copy-response aria-label="Copy response" title="Copy response"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button></div>${response.truncated ? '<p class="rules-privacy">Preview limited to the first 65,536 characters.</p>' : ''}`
+          : `<p class="rules-privacy">${request.aiRequest.status === 'pending' ? 'Waiting for the completed response.' : request.aiRequest.status === 'failed' ? 'No successful response was returned.' : 'Response content was not recorded for this request.'}</p>`;
+        evidenceDetails += `<details class="rules-disclosure" data-request-response="${escapeAttribute(request.id)}"><summary><span>Response</span><span class="rules-chevron">${iconHtml('chevron')}</span></summary><div class="rules-detail-body">${content}</div></details>`;
+      }
       evidenceDetails += indexBlock(request.indexQuery, request.id);
       const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
       return {
         body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
-          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
+          + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${request.aiRequest ? fact('Requested', target, 'c2') + fact('Routed to', request.aiRequest.detail.routedModel ?? (request.aiRequest.detail.engine === 'scripted' ? 'Scripted — no model invoked' : 'Unknown'), 'c2') + fact('Reported by backend', request.aiRequest.detail.reportedModel ?? 'Not reported', 'c2') : fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
         bar: barHtml([indexActionHtml(request.indexQuery, request.id, indexInspector, escapeAttribute)]),
       };
     }
@@ -1107,10 +1114,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const what = named ? request.path ?? '' : request.label ?? request.service ?? request.method ?? '';
       return buttonRowHtml({
         c1: escapeAttribute(call),
-        c2: named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
+        c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined) : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
-        slot: trafficBadgeHtml(request.verdict, indexMissing),
+        slot: request.aiRequest ? `<span class="listener-fact">${request.aiRequest.status === 'pending' ? 'In progress' : request.aiRequest.status === 'failed' ? 'Failed' : 'Completed'}</span>` : trafficBadgeHtml(request.verdict, indexMissing),
         className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' ? '' : ' problem'}`,
         title: [call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
@@ -1119,14 +1126,21 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
     const bar = trafficToolbar();
-    return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
+    return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
   };
 
   const sandboxViewHtml = (): ChipView => {
     const aiState = aiEngineState();
+    const configuration = options.aiConfiguration?.getSnapshot();
     const rows = [
-      rowHtml({ c1: 'Model', s1: aiState.detail ? escapeAttribute(aiState.detail) : aiState.primary === 'sandbox (scripted)' ? 'Scripted responses for local development' : 'Responses use the configured provider', slot: escapeAttribute(aiState.primary.replace(/^sandbox \((.*)\)$/, '$1')), attributes: 'data-ai-row', title: aiState.detail ?? aiState.primary }),
-      rowHtml({ c1: 'Worker', s1: snapshot.updateAvailable ? 'A newer version is available' : snapshot.runningEpoch ? 'Current sandbox version' : 'Waiting for the sandbox to connect', slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch }),
+      ...(configuration ? [
+        rowHtml({ c1: 'AI backend', s1: 'Configuration for new actions', slot: escapeAttribute(configuration.backend), attributes: 'data-ai-row' }),
+        rowHtml({ c1: 'Requested', slot: escapeAttribute(configuration.requestedModel), attributes: 'data-ai-requested-row' }),
+        rowHtml({ c1: 'Configured route', slot: escapeAttribute(configuration.route), attributes: 'data-ai-route-row' }),
+      ] : [rowHtml({ c1: 'Model', s1: escapeAttribute(aiState.detail ?? ''), slot: escapeAttribute(aiState.primary), attributes: 'data-ai-row' })]),
+      snapshot.mode === 'in-page'
+        ? rowHtml({ c1: 'Runtime', s1: 'Services run in this page', slot: 'In-page', attributes: 'data-runtime-row' })
+        : rowHtml({ c1: 'Worker', s1: snapshot.updateAvailable ? 'A newer version is available' : snapshot.runningEpoch ? 'Current sandbox version' : 'Waiting for the sandbox to connect', slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch }),
     ];
     const theme = rowHtml({ c1: 'Theme', s1: 'Colors and outlines for listeners', slot: buttonHtml(`data-open-overlay-theme${options.listeners ? '' : ' disabled'}`, 'Edit', options.listeners ? "Edit the overlay's custom properties" : 'Listener overlays are unavailable on this page'), attributes: 'data-theme-row' });
     return {
@@ -1165,6 +1179,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const openRateNotes = root.querySelector<HTMLDetailsElement>('[data-rate-notes][open]')?.dataset.rateNotes;
     const focusedRateNotes = root.activeElement?.closest('[data-rate-notes]')?.getAttribute('data-rate-notes');
     const openIndexJson = root.querySelector<HTMLDetailsElement>('[data-index-json][open]')?.dataset.indexJson;
+    const responseDetails = root.querySelector<HTMLDetailsElement>('[data-request-response]');
+    const responseOpen = responseDetails?.open ? responseDetails.dataset.requestResponse : undefined;
+    const responseScroll = responseDetails?.querySelector('pre')?.scrollTop ?? 0;
+    const responseFocus = responseDetails?.contains(root.activeElement) ? root.activeElement?.tagName : undefined;
     const openRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details][open]')?.dataset.ruleDetails;
     const previousRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
     const previousExpressions = [...(previousRuleDetails?.querySelectorAll<HTMLElement>('.rule-expression') ?? [])];
@@ -1216,6 +1234,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       'data-threshold-cancel',
       'data-rate-incident',
       'data-copy-traffic',
+      'data-copy-response',
       'data-open-overlay-theme',
       'data-update-worker',
       'data-dismiss-chip',
@@ -1286,6 +1305,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     const indexJson = root.querySelector<HTMLDetailsElement>('[data-index-json]');
     if (indexJson) indexJson.open = indexJson.dataset.indexJson === openIndexJson;
+    const nextResponse = root.querySelector<HTMLDetailsElement>('[data-request-response]');
+    if (nextResponse && nextResponse.dataset.requestResponse === responseDetails?.dataset.requestResponse) {
+      nextResponse.open = nextResponse.dataset.requestResponse === responseOpen;
+      const pre = nextResponse.querySelector('pre');
+      if (pre) pre.scrollTop = responseScroll;
+      if (responseFocus) nextResponse.querySelector<HTMLElement>(responseFocus === 'PRE' ? 'pre' : 'summary')?.focus({ preventScroll: true });
+    }
     const ruleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
     if (ruleDetails) {
       ruleDetails.open = ruleDetails.dataset.ruleDetails === openRuleDetails;
@@ -1673,6 +1699,21 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       trafficFilter = trafficFilter === 'denied' ? 'all' : 'denied';
       render();
     });
+    root.querySelector('[data-copy-response]')?.addEventListener('click', async (event) => {
+      if (!clipboard) return;
+      const button = event.currentTarget as HTMLButtonElement;
+      const text = root.querySelector('[data-request-response] pre')?.textContent;
+      if (text === undefined || text === null) return;
+      try {
+        await clipboard.writeText(text);
+        button.innerHTML = iconHtml('check');
+        button.title = 'Copied';
+        button.setAttribute('aria-label', 'Response copied');
+      } catch {
+        button.title = 'Copy failed';
+        button.setAttribute('aria-label', 'Copy response failed; try again');
+      }
+    });
     root.querySelector('[data-copy-traffic]')?.addEventListener('click', (event) => {
       if (!clipboard) return;
       const button = event.currentTarget as HTMLButtonElement;
@@ -1718,6 +1759,17 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   };
   documentLike.addEventListener('astro:after-swap', reattachAfterAstroSwap);
   const unsubscribe = options.runtime.subscribe(render);
+  const unsubscribeAiConfiguration = options.aiConfiguration?.subscribe(() => { if (open && tab === 'sandbox') render(); });
+  const aiTrafficSignatures = new Map<string, string>();
+  const unsubscribeAi = sdkActivity.subscribe(event => {
+    if (event.record.service !== 'ai' || (event.phase !== 'end' && event.phase !== 'transport')) return;
+    const ai = event.record.ai;
+    const signature = JSON.stringify([event.record.status, ai?.requestedModel, ai?.routedModel, ai?.reportedModel]);
+    if (aiTrafficSignatures.get(event.record.id) === signature) return;
+    aiTrafficSignatures.set(event.record.id, signature);
+    if (aiTrafficSignatures.size > 100) aiTrafficSignatures.delete(aiTrafficSignatures.keys().next().value!);
+    if (open && tab === 'traffic' && trafficDisplay === 'requests') render();
+  });
 
   const unsubLens = subscribeLensFn(() => {
     render();
@@ -1741,7 +1793,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     for (const history of Object.values(serviceHistories)) history.record(retainedSnapshot);
     if (thresholdSettings.ready()) {
       thresholdMonitor.sample(rates.snapshot(), thresholdSettings.config());
-      for (const service of ['firestore', 'rtdb', 'storage'] as const) serviceHistories[service].markWarnings(thresholdMonitor.incidents().filter(incident => incident.service === service).flatMap(incident => incident.aboveRanges));
+      for (const service of ['firestore', 'rtdb', 'storage', 'ai'] as const) serviceHistories[service].markWarnings(thresholdMonitor.incidents().filter(incident => incident.service === service).flatMap(incident => incident.aboveRanges));
       const nextSignature = JSON.stringify(thresholdMonitor.incidents().map(incident => [incident.id, incident.recovered, incident.reviewed]));
       if (thresholdSignature !== nextSignature) { thresholdSignature = nextSignature; render(); }
     }
@@ -1764,6 +1816,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       documentLike.removeEventListener('pointerup', finishPointer);
       documentLike.removeEventListener('pointercancel', finishPointer);
       unsubscribe();
+      unsubscribeAi();
+      unsubscribeAiConfiguration?.();
       unsubLens();
       unsubAuth();
       documentLike.removeEventListener('astro:after-swap', reattachAfterAstroSwap);

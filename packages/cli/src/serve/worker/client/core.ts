@@ -1,3 +1,4 @@
+import { setAiEvidence, type AiEvidence } from 'pyric/ai/internal';
 /**
  * Worker-client transport core — the shared singleton machinery every API
  * family (firestore, auth, rtdb, storage) rides on: port wiring, RPC
@@ -219,6 +220,7 @@ export function wirePort(port: ClientPort): void {
         // AI wire error envelope (pyric/ai): re-attach so the served
         // `firebase/ai` entry can mint the exact SDK AIError decoration the
         // in-process plane applies (see entries/ai.ts).
+        if (msg.error.aiEvidence) setAiEvidence(err, msg.error.aiEvidence);
         if (msg.error.aiEnvelope !== undefined) {
           err.aiEnvelope = msg.error.aiEnvelope;
         }
@@ -232,10 +234,11 @@ export function wirePort(port: ClientPort): void {
       // "signed out" payload, not an error, so guard the __error sniff.
       const value = (msg.value ?? {}) as Record<string, unknown>;
       if (value.__error) {
-        const errPayload = value.__error as { code: string; message: string; denialContext?: unknown; aiEnvelope?: unknown };
+        const errPayload = value.__error as { aiEvidence?: Partial<AiEvidence>; code: string; message: string; denialContext?: unknown; aiEnvelope?: unknown };
         const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown; aiEnvelope?: unknown };
         err.code = errPayload.code;
         if (errPayload.denialContext !== undefined) err.denialContext = errPayload.denialContext;
+        if (errPayload.aiEvidence) setAiEvidence(err, errPayload.aiEvidence);
         if (errPayload.aiEnvelope !== undefined) err.aiEnvelope = errPayload.aiEnvelope;
         relayDenial('listener', err);
         // Surface an unobserved listener error instead of swallowing it — the

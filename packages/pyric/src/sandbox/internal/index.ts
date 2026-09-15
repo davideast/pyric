@@ -25,7 +25,7 @@ export {
 export { observationService, type SdkObservation } from './sdk-observation.js';
 export { runSdkWrite } from './sdk-write-activity.js';
 export { createSdkRates, createSdkRateMonitor, sdkRates } from './sdk-rates.js';
-export type { SdkRateSnapshot, SdkServiceRate, SdkMethodRate, SdkRateBucket } from './sdk-rates.js';
+export type { AiRequestObservation, SdkRateSnapshot, SdkServiceRate, SdkMethodRate, SdkRateBucket } from './sdk-rates.js';
 export { sdkMethodCoverage } from './sdk-coverage.js';
 export type { SdkMethodCoverage, SdkMethodCategory } from './sdk-coverage.js';
 export {
