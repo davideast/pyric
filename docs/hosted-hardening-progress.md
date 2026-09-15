@@ -5,12 +5,13 @@ This bounded milestone leaves the broader hosted/live-mode goal incomplete.
 Use the already approved S1–S6 seams, vertical TDD, and applicable universal gates.
 Do not modify the manual demo project. Commit and push each verified slice.
 
-Latest completed section: [Section 5 — slow consumers and Rules hot reload](hosted-section-five-progress.md),
-completed locally 2026-09-15. Twelve focused browser scenarios, 140 regressions,
-11 installed-package checks, builds/types/form and five browser budgets pass.
-The manual checkpoint is runnable; existing demos and Tailscale remain intact.
-Section 6 (items 18–19) is next. Earlier entries retain their historical detail;
-each section's progress records current bounded evidence.
+Latest completed section: [Section 6 — compatibility and fault diagnostics](hosted-section-six-progress.md),
+verified 2026-09-15. Actual candidate/published consumers, hosted Studio parity,
+fault recovery and redaction pass their bounded checks. Fourteen installed-package
+cases and the runnable manual checkpoint preserve SharedWorker and in-page paths.
+Existing demos and Tailscale remain intact. Final combined verification/handoff
+is next; broader release gates remain open. Older entries below retain their
+historical scope; each section's progress records its current evidence.
 
 ## Ordered queue
 
@@ -31,8 +32,8 @@ each section's progress records current bounded evidence.
 15. Origin and project admission isolation — verified in Section 4 under the existing hostname allowlist and host-bound resume policy. Foreign discovery, misdirected SDK bridge and foreign session resume refuse; changed-host recovery intentionally obtains a fresh session. Intended clients still connect. See Section 4 for the policy boundaries.
 16. Slow-client isolation and bounded event delivery — verified in Section 5 for the declared workload. A stalled socket closes at the shared 24 MiB output bound while another app continues SDK writes. Served observation history has count/byte limits and explicit gaps; incomplete capture/replay is refused. Broader gate 6B remains open.
 17. Rules hot reload with active apps — verified in Section 5. Actual Firestore/RTDB file edits update hosted, SharedWorker and in-page enforcement and listeners; invalid edits report failure and retain last-good file Rules, with repair and explicit listener reattachment verified. Storage file edits still require restart.
-18. Client/host version compatibility — pending. Actual packed consumers within the declared compatibility range work against the candidate host; unsupported combinations refuse clearly before mutation and never silently select another runtime.
-19. Fault diagnostics and redaction — pending. Existing CLI, runtime and Studio diagnostics distinguish connection, restoration and persistence failures while excluding credentials and private document contents from default support output.
+18. Client/host version compatibility — verified in Section 6. Actual packed consumers within the declared compatibility range work against the candidate host; unsupported combinations refuse clearly before mutation and never silently select another runtime.
+19. Fault diagnostics and redaction — verified in Section 6. Existing CLI, runtime and Studio diagnostics distinguish connection, restoration and persistence failures while excluding credentials and private document contents from default support output.
 20. Combined verification and morning handoff — verified locally for the completed milestone slices. See `docs/hosted-hardening-handoff.md`: 216 affected browser scenarios, 1,138 regressions, strict types, 123-file code form, scoped import review, matching browser budgets and four rebuilt copied-standalone checks. Remote backup is complete following direct user authorization; item 8 is partial and 9–19 remain open.
 
 ### Added follow-on gates

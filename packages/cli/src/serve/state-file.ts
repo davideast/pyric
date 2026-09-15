@@ -37,6 +37,11 @@ const stateFileSchema = z.object({
   })).optional(),
 }).passthrough();
 
+function diagnosticVersion(value: unknown): string {
+  const isVersionNumber = typeof value === 'number' && Number.isSafeInteger(value);
+  return isVersionNumber ? String(value) : '(invalid)';
+}
+
 /** Validate both promoted seed fixtures and restored files before using their records. */
 export function parseStateFile(value: unknown, source: string): PyricStateFile {
   const isObject = value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -48,7 +53,7 @@ export function parseStateFile(value: unknown, source: string): PyricStateFile {
   const isUnsupportedVersion = version !== STATE_FILE_VERSION;
   if (isUnsupportedVersion) {
     throw new StateFileError(
-      `state file at ${source} has version ${String(version)}; this @pyric/cli expects ` +
+      `state file at ${source} has version ${diagnosticVersion(version)}; this @pyric/cli expects ` +
       `${STATE_FILE_VERSION}. Delete it (or promote it with a matching @pyric/cli) to continue.`,
     );
   }
@@ -56,8 +61,7 @@ export function parseStateFile(value: unknown, source: string): PyricStateFile {
   const result = stateFileSchema.safeParse(value);
   const isInvalidState = !result.success;
   if (isInvalidState) {
-    const details = result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
-    throw new StateFileError(`state file at ${source} is invalid (${details}).`);
+    throw new StateFileError(`state file at ${source} has invalid Auth or Storage records. Inspect or repair the file before restarting; no records were imported.`);
   }
 
   const file = result.data;
@@ -67,7 +71,7 @@ export function parseStateFile(value: unknown, source: string): PyricStateFile {
   const isUnsupportedController = innerVersion !== undefined && innerVersion !== EXPECTED_CONTROLLER_BLOB_VERSION;
   if (isUnsupportedController) {
     throw new StateFileError(
-      `state file at ${source} holds a firestore blob of version ${String(innerVersion)}; this ` +
+      `state file at ${source} holds a firestore blob of version ${diagnosticVersion(innerVersion)}; this ` +
       `pyric expects ${EXPECTED_CONTROLLER_BLOB_VERSION} (pyric was likely upgraded). ` +
       'Delete the state file or re-promote it with a matching pyric to continue.',
     );

@@ -464,7 +464,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const existingHost = documentLike.querySelector<HTMLElement>(
     '[data-pyric-runtime-chip-host], pyric-runtime-chip',
   );
-  if (existingHost) {
+  const hasExistingHost = existingHost !== null;
+  if (hasExistingHost) {
     existingHost.remove();
   }
 
@@ -477,10 +478,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   host.setAttribute('data-pyric-runtime-chip-host', '');
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>${styles}</style><div class="announcer" role="status" aria-live="polite" aria-atomic="true"></div><div data-view></div>`;
-  const view = root.querySelector<HTMLElement>('[data-view]')!;
-  const announcer = root.querySelector<HTMLElement>('.announcer')!;
+  const view = root.querySelector<HTMLElement>('[data-view]');
+  const announcer = root.querySelector<HTMLElement>('.announcer');
+  const isMissingView = view === null || announcer === null;
+  if (isMissingView) throw new Error('Pyric chip markup is incomplete.');
   const clipboard = options.clipboard ?? documentLike.defaultView?.navigator.clipboard;
-  const studioUrl = 'studioUrl' in options
+  const hasStudioOverride = 'studioUrl' in options;
+  const studioUrl = hasStudioOverride
     ? options.studioUrl
     : options.runtime.getSnapshot().manifest.studioUrl;
   let snapshot = options.runtime.getSnapshot();
@@ -582,9 +586,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   /** `false` until the first render. The fold's history batch arrives while this
    * function is still running, before there is a view for it to rebuild. */
   let mounted = false;
-  const trafficFeed: TrafficFeed | null = options.sandboxEvents
+  const sandboxEvents = options.sandboxEvents;
+  const observesSandboxEvents = sandboxEvents !== undefined && sandboxEvents !== null;
+  const trafficFeed: TrafficFeed | null = observesSandboxEvents
     ? createTrafficFeed({
-      subscribeEvents: options.sandboxEvents,
+      subscribeEvents: sandboxEvents,
       onChange: () => {
         if (mounted) render();
       },
@@ -827,11 +833,29 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
 
   const sandboxViewHtml = (): ChipView => {
     const aiState = aiEngineState();
+    const isHosted = snapshot.mode === 'hosted';
+    const hostedLabels = { connecting: 'Connecting', restoring: 'Restoring app session', attached: 'Connected', interrupted: 'Reconnecting', closed: 'Connection closed — reload after repairing the host' };
+    const hostedLabel = hostedLabels[snapshot.hostedConnection ?? 'connecting'];
+    const configuredAiDetail = aiState.detail;
+    const hasAiDetail = typeof configuredAiDetail === 'string' && configuredAiDetail.length > 0;
+    const isScripted = aiState.primary === 'sandbox (scripted)';
+    let aiDetail = 'Responses use the configured provider';
+    if (isScripted) aiDetail = 'Scripted responses for local development';
+    if (hasAiDetail) aiDetail = escapeAttribute(configuredAiDetail);
+    const hasRunningEpoch = snapshot.runningEpoch !== null;
+    const hasUpdate = snapshot.updateAvailable;
+    let workerDetail = 'Waiting for the sandbox to connect';
+    if (hasRunningEpoch) workerDetail = 'Current sandbox version';
+    if (hasUpdate) workerDetail = 'A newer version is available';
+    let workerRow = rowHtml({ c1: 'Worker', s1: workerDetail, slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch });
+    if (isHosted) workerRow = rowHtml({ c1: 'Hosted', slot: escapeAttribute(hostedLabel), attributes: 'data-worker-row' });
     const rows = [
-      rowHtml({ c1: 'Model', s1: aiState.detail ? escapeAttribute(aiState.detail) : aiState.primary === 'sandbox (scripted)' ? 'Scripted responses for local development' : 'Responses use the configured provider', slot: escapeAttribute(aiState.primary.replace(/^sandbox \((.*)\)$/, '$1')), attributes: 'data-ai-row', title: aiState.detail ?? aiState.primary }),
-      rowHtml({ c1: 'Worker', s1: snapshot.updateAvailable ? 'A newer version is available' : snapshot.runningEpoch ? 'Current sandbox version' : 'Waiting for the sandbox to connect', slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch }),
+      rowHtml({ c1: 'Model', s1: aiDetail, slot: escapeAttribute(aiState.primary.replace(/^sandbox \((.*)\)$/, '$1')), attributes: 'data-ai-row', title: aiState.detail ?? aiState.primary }),
+      workerRow,
     ];
-    const theme = rowHtml({ c1: 'Theme', s1: 'Colors and outlines for listeners', slot: buttonHtml(`data-open-overlay-theme${options.listeners ? '' : ' disabled'}`, 'Edit', options.listeners ? "Edit the overlay's custom properties" : 'Listener overlays are unavailable on this page'), attributes: 'data-theme-row' });
+    const supportsListeners = options.listeners !== undefined;
+    const listenerHint = supportsListeners ? "Edit the overlay's custom properties" : 'Listener overlays are unavailable on this page';
+    const theme = rowHtml({ c1: 'Theme', s1: 'Colors and outlines for listeners', slot: buttonHtml(`data-open-overlay-theme${supportsListeners ? '' : ' disabled'}`, 'Edit', listenerHint), attributes: 'data-theme-row' });
     return {
       body: `${introHtml('Your local sandbox', 'The configuration behind this page.')}${sectionHtml('Runtime', `<div class="rows">${rows.join('')}</div>`)}${sectionHtml('Page overlays', `<div class="rows">${theme}</div>`)}`,
       bar: barHtml([buttonHtml('data-dismiss-chip', 'Hide', 'Hide pyric on this page')], 'Hide until reload'),

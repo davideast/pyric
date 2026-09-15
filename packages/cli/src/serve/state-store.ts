@@ -67,16 +67,10 @@ export function createStateStore(projectDir: string): StateStore {
     let parsed: unknown;
     try {
       parsed = JSON.parse(readFileSync(path, 'utf8'));
-    } catch (e) {
-      const isError = e instanceof Error;
-      let message: string;
-      if (isError) {
-        message = e.message;
-      } else {
-        message = String(e);
-      }
+    } catch {
+      // JSON parser messages can quote private state; retain location and recovery guidance only.
       throw new StateFileError(
-        `state file at ${path} is not valid JSON (${message}). ` +
+        `state file at ${path} is not valid JSON. ` +
           'Inspect or delete it to continue — pyric will not overwrite it silently.',
       );
     }

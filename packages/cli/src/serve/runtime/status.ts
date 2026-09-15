@@ -1,3 +1,4 @@
+import type { HostedConnectionState } from '../worker/client/websocket-connection.js';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { PyricRuntimeManifest } from './manifest.js';
 import { readPyricRuntimeManifest } from './manifest.js';
@@ -25,12 +26,14 @@ export interface PyricRuntimeSnapshot {
   updateAvailable: boolean;
   updatingWorker: boolean;
   errors: readonly PyricRuntimeError[];
+  hostedConnection?: HostedConnectionState;
 }
 
 export interface PyricRuntimeStatus {
   getSnapshot(): PyricRuntimeSnapshot;
   subscribe(listener: (snapshot: PyricRuntimeSnapshot) => void): () => void;
   setWorker(input: { mode: Exclude<PyricRuntimeMode, 'starting'>; runningEpoch?: string | null }): void;
+  setHostedConnection(state: HostedConnectionState): void;
   setWorkerUpdater(update: (() => Promise<void>) | null): void;
   updateWorker(): Promise<void>;
   reportError(error: unknown, source: PyricRuntimeErrorSource): void;
@@ -271,6 +274,9 @@ export function createPyricRuntimeStatus(
         ),
         updatingWorker: false,
       });
+    },
+    setHostedConnection(hostedConnection) {
+      publish({ ...snapshot, hostedConnection });
     },
     setWorkerUpdater(update) {
       workerUpdater = update;

@@ -248,3 +248,23 @@ test('required build runs the code-form command and propagates its failure', () 
     files: [{ path: 'source.ts', issues: [{ rule: 'named-condition', line: 1, column: 5 }] }],
   });
 });
+
+test('code-form command accepts only the exact documented legacy SDK cast and reports the exception', () => {
+  const repo = repository();
+  const cast = 'value as unknown as ForeignHandle';
+  repo.write('adapter.ts', `type ForeignHandle = { opaque: true }; export function adapter(value: string) { return ${cast}; }`);
+  repo.git('add', 'adapter.ts');
+  repo.git('commit', '--quiet', '-m', 'Existing SDK adapter');
+  repo.write('scripts/code-form-exceptions.json', JSON.stringify([{
+    path: 'adapter.ts', rule: 'double-assertion', target: 'ForeignHandle',
+    sourceDigest: createHash('sha256').update(cast).digest('hex'), reason: 'Verified foreign SDK boundary.',
+  }]));
+  repo.write('adapter.ts', `type ForeignHandle = { opaque: true }; export function adapter(value: string) { const label = value; return ${cast}; }`);
+  const accepted = repo.run('HEAD');
+  expect(accepted.status).toBe(0);
+  expect(accepted.stdout).toContain('Verified foreign SDK boundary.');
+  repo.write('adapter.ts', `type ForeignHandle = { opaque: true }; export function adapter(value: string) { const extra = ${cast}; return ${cast}; }`);
+  expect(repo.run('HEAD').status).toBe(1);
+  repo.write('adapter.ts', `type ForeignHandle = { opaque: true }; export function adapter(value: string) { return value as unknown as number; }`);
+  expect(repo.run('HEAD').status).toBe(1);
+});

@@ -250,3 +250,6 @@ export type {
   SerializedIdTokenResult,
   ResolvedIdentity,
 } from './protocol.js';
+
+export { getHostedFirestore } from './client/websocket-connection.js';
+export { readHostedTarget } from '../runtime/hosted-target.js';

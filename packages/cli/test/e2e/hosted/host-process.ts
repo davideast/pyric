@@ -9,10 +9,11 @@ export function startHost(
   port = 0,
   command: readonly [string, ...string[]] = [process.execPath, CLI_PATH],
   flags: readonly string[] = ['--hosted'],
+  subcommand: 'sandbox' | 'dev' = 'sandbox',
 ) {
   const [executable, ...prefix] = command;
   const child = spawn(executable, [
-    ...prefix, 'sandbox', ...flags, '--bridge', '--no-open', '--port', String(port),
+    ...prefix, subcommand, ...flags, '--bridge', '--no-open', '--port', String(port),
     '--json', '--no-cache', '--no-capture',
   ], { cwd: projectDir, env: { ...process.env, CI: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
   const startup = Promise.withResolvers<Startup>();

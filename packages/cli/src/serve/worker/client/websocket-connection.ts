@@ -11,11 +11,13 @@ const HEARTBEAT_INTERVAL_MS = 15_000;
 const LIVENESS_TIMEOUT_MS = 45_000;
 const utf8 = new TextEncoder();
 
+export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed';
+
 /** Own one app's physical connections while retaining its logical SDK port. */
-export function getHostedFirestore(target: { url: string; projectKey: string }): ClientDb {
+export function getHostedFirestore(target: { url: string; projectKey: string; onConnection?: (state: HostedConnectionState) => void; onError?: (error: FirebaseError) => void }): ClientDb {
   const queued: InboundMessage[] = [];
   const connectionListeners = new Set<(connected: boolean) => void>();
-  let state: 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed' = 'connecting';
+  let state: HostedConnectionState = 'connecting';
   let socket: WebSocket | undefined;
   let resumeToken: string | undefined;
   let hostInstanceId: string | undefined;
@@ -95,6 +97,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
   };
 
   function notifyConnectionChange(): void {
+    target.onConnection?.(state);
     const connected = state === 'attached';
     for (const listener of [...connectionListeners]) listener(connected);
   }
@@ -118,7 +121,9 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     const isClosed = state === 'closed';
     if (isClosed) return;
     port.close();
-    rejectPendingRequests(port, new FirebaseError('unavailable', message));
+    const error = new FirebaseError('unavailable', message);
+    target.onError?.(error);
+    rejectPendingRequests(port, error);
   }
 
   function isCurrent(connection: WebSocket): boolean {
@@ -171,6 +176,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     };
     if (needsSessionRestore) {
       state = 'restoring';
+      target.onConnection?.(state);
       const configuration = appConfig;
       const hasConfiguration = configuration !== undefined;
       if (hasConfiguration) postMessage(configuration);
@@ -200,6 +206,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
     const isClosed = state === 'closed';
     if (isClosed) return;
     state = 'connecting';
+    const connectionState = hasEverAttached ? 'interrupted' : 'connecting';
+    target.onConnection?.(connectionState);
     const retentionExpired = interruptedAt !== undefined && performance.now() - interruptedAt >= WORKER_SESSION_RETENTION_MS;
     if (retentionExpired) resumeToken = undefined;
     const requestsFreshSession = resumeToken === undefined;
@@ -253,7 +261,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
           const supportsWorkerPorts = hasNamedCapabilities && capabilities.includes(WORKER_PORT_CAPABILITY);
           const isIncompatibleHost = !supportsWorkerPorts;
           if (isIncompatibleHost) {
-            failConnection('The selected host does not support browser worker ports.');
+            failConnection('The selected host does not support browser worker ports. Upgrade @pyric/cli, restart with --hosted, and reload this page.');
             return;
           }
           const isDifferentProject = message.projectKey !== target.projectKey;
@@ -287,9 +295,16 @@ export function getHostedFirestore(target: { url: string; projectKey: string }):
           });
           return;
         }
-        case 'worker-message-result':
-          deliver(message.message);
+        case 'worker-message-result': {
+          const response = message.message;
+          const hasError = response.t === 'res' && !response.ok;
+          if (hasError) {
+            const isPersistenceFailure = response.error.code === 'committed-but-not-durable' || response.error.code === 'persistence-unhealthy';
+            if (isPersistenceFailure) target.onError?.(new FirebaseError(response.error.code, response.error.message));
+          }
+          deliver(response);
           return;
+        }
       }
     });
     connection.addEventListener('close', (event) => {

@@ -1,3 +1,5 @@
+import { connectHostedStudio } from './hosted-runtime.js';
+import { readHostedTarget } from '@pyric/cli/serve/worker';
 /**
  * Studio live data plane: the bridge to the LIVE SharedWorker backend
  * (Wave 2.5a). This is the connective tissue that lets the Studio Vite app reach
@@ -341,15 +343,22 @@ export function workerEventFeed(db: ClientDb): LiveEventFeed {
 export function connectWorkerLive(
   workerUrl: string = DEFAULT_WORKER_URL,
 ): WorkerLivePlane | null {
-  if (typeof SharedWorker === 'undefined') return null;
+  const hostedTarget = readHostedTarget();
+  const isHosted = hostedTarget !== null;
+  const hasNoTransport = !isHosted && typeof SharedWorker === 'undefined';
+  if (hasNoTransport) return null;
   // Studio declares itself the issuer of every op THIS bundle's worker
   // client constructs (data viewers, typeahead index, seed actions) so the
   // traffic stream can attribute — and filter — Studio-driven ops. The
   // served app runs its own bundle instance and stays untagged; bridge
   // relays forward verbatim (see @pyric/cli serve/worker client).
   setOpIssuer('studio');
+  const hosted = isHosted ? connectHostedStudio(hostedTarget) : null;
   let db: ClientDb;
-  try {
+  const hasHostedConnection = hosted !== null;
+  if (hasHostedConnection) {
+    db = hosted.db;
+  } else try {
     const worker = studioWorkerConnection({ workerUrl });
     db = workerGetFirestore(worker.url, worker.name);
   } catch {
@@ -359,14 +368,16 @@ export function connectWorkerLive(
   }
   let epochStorage: EpochStorage | undefined;
   try {
-    epochStorage = typeof localStorage === 'undefined' ? undefined : localStorage;
+    const hasStorage = typeof localStorage !== 'undefined';
+    epochStorage = hasStorage ? localStorage : undefined;
   } catch {
     epochStorage = undefined;
   }
-  const runtime = createStudioWorkerRuntime({
+  const hasDocument = typeof document !== 'undefined';
+  const runtime = hosted?.runtime ?? createStudioWorkerRuntime({
     db,
     servedEpoch: readPyricRuntimeManifest(
-      typeof document === 'undefined' ? undefined : document,
+      hasDocument ? document : undefined,
     ).worker.servedEpoch,
     storage: epochStorage,
   });

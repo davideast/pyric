@@ -457,7 +457,7 @@ export function createPyricNamespace(opts: NamespaceOptions) {
   const siteUiDir = opts.siteUiDir;
   const hasSiteTree = siteUiDir !== undefined && siteUiDir.length > 0;
   const siteTree = hasSiteTree
-    ? createSiteTreeHandler(siteUiDir, opts.workerVersion)
+    ? createSiteTreeHandler(siteUiDir, opts.workerVersion, hostedStudioProject(opts))
     : null;
   const denialThrottle = createDenialThrottle();
   // Issued once per server boot. The outer static/Vite host guard protects
@@ -580,4 +580,15 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     if (servedSiteFile) return true;
     return false; // unknown /__pyric/* → caller 404s
   };
+}
+
+function hostedStudioProject(options: NamespaceOptions): string | undefined {
+  const payload = options.initPayload();
+  const isHosted = payload.hosted === true;
+  const isBrowserHosted = !isHosted;
+  if (isBrowserHosted) return undefined;
+  const projectKey = payload.projectKey;
+  const missingIdentity = typeof projectKey !== 'string' || projectKey.length === 0;
+  if (missingIdentity) throw new Error('Hosted Studio requires a project identity.');
+  return projectKey;
 }

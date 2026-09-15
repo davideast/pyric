@@ -1,0 +1,37 @@
+[
+  {
+    "path": "packages/studio/src/clients/worker-live.ts",
+    "rule": "double-assertion",
+    "target": "FirestoreApi",
+    "sourceDigest": "128bab316695db70d1951698f649ab324c75f029c2dcb4f104e2a9ebdf0d7269",
+    "reason": "Existing Studio adapter joins worker handles to the in-process UI interface. Retained byte-for-byte; covered by worker-live.test.ts and section-six-studio.pw.ts."
+  },
+  {
+    "path": "packages/studio/src/clients/worker-live.ts",
+    "rule": "double-assertion",
+    "target": "Auth",
+    "sourceDigest": "365c92baeb8dda53734c6dd7d5f53c907a64ed5e56e9bbe97f31f057a1bf22cf",
+    "reason": "Existing Studio adapter joins worker handles to the in-process UI interface. Retained byte-for-byte; covered by worker-live.test.ts and section-six-studio.pw.ts."
+  },
+  {
+    "path": "packages/studio/src/clients/worker-live.ts",
+    "rule": "double-assertion",
+    "target": "AuthApi",
+    "sourceDigest": "927ca7198c581433991394841c84351913b62f15be54b52bc4217c359d758dfc",
+    "reason": "Existing Studio adapter joins worker handles to the in-process UI interface. Retained byte-for-byte; covered by worker-live.test.ts and section-six-studio.pw.ts."
+  },
+  {
+    "path": "packages/studio/src/clients/worker-live.ts",
+    "rule": "double-assertion",
+    "target": "FirebaseStorage",
+    "sourceDigest": "ac4ae9b1b36713a62f5965d9980f41f4ba4e33ff924e709520ced4ad353cedd8",
+    "reason": "Existing Studio adapter joins worker handles to the in-process UI interface. Retained byte-for-byte; covered by worker-live.test.ts and section-six-studio.pw.ts."
+  },
+  {
+    "path": "packages/studio/src/clients/worker-live.ts",
+    "rule": "double-assertion",
+    "target": "StorageApi",
+    "sourceDigest": "ce26020684ee99326c8dfc67d459b327ccd176990e8ecbe100ac4c2bea0a5898",
+    "reason": "Existing Studio adapter joins worker handles to the in-process UI interface. Retained byte-for-byte; covered by worker-live.test.ts and section-six-studio.pw.ts."
+  }
+]

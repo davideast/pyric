@@ -173,3 +173,44 @@ test('code-form gate distinguishes template contents from suppression comments',
   const source = 'const first = `${value}`;\nconst text = `// @ts-ignore\\n${value}`;';
   expect(checkCodeForm(source, 'input.ts')).toEqual([]);
 });
+
+test('code-form scope checks changed factory logic without pulling unchanged nested callbacks into scope', () => {
+  const before = `export function factory() {
+    const legacy = () => { if (old > 0) run(); };
+    const changed = () => { if (old > 0) run(); };
+    return { legacy, changed };
+  }`;
+  const after = before.replace('const changed = () => { if (old > 0)', 'const changed = () => { if (old > 1)');
+  const result = checkChangedCodeForm({ before, after, fileName: 'input.ts' });
+  expect(result.issues.map(issue => issue.rule)).toEqual(['named-condition']);
+  expect(result.excluded.some(range => range.reason === 'unchanged-nested-function')).toBe(true);
+});
+
+test('factory exclusions cannot hide changed guards, new duplicate callbacks or suppressions', () => {
+  const before = 'function factory() { const callback = () => { if (old > 0) run(); }; return callback; }';
+  const after = before.replace('return callback;', 'const added = () => { if (old > 0) run(); }; if (ready > 0) run(); return callback;');
+  expect(checkChangedCodeForm({ before, after, fileName: 'input.ts' }).issues.map(issue => issue.rule))
+    .toEqual(['named-condition', 'named-condition']);
+  const suppressed = before.replace('const callback', '\n// @ts-ignore\nconst callback').replace('return callback;', 'return [callback];');
+  expect(checkChangedCodeForm({ before, after: suppressed, fileName: 'input.ts' }).issues.map(issue => issue.rule))
+    .toEqual(['suppression']);
+});
+
+
+test('factory scope does not borrow legacy callbacks from another factory', () => {
+  const before = 'function original() { const callback = () => { if (old > 0) run(); }; }';
+  const after = before.replace('original', 'different');
+  expect(checkChangedCodeForm({ before, after, fileName: 'input.ts' }).issues.map(issue => issue.rule))
+    .toEqual(['named-condition']);
+});
+
+test('changing a factory signature or class header rechecks its nested callbacks', () => {
+  const factory = 'function factory(old: number) { const callback = () => { if (old > 0) run(); }; }';
+  const factoryChanged = factory.replace('old: number', 'old: string');
+  expect(checkChangedCodeForm({ before: factory, after: factoryChanged, fileName: 'input.ts' }).issues.map(issue => issue.rule))
+    .toEqual(['named-condition']);
+  const originalClass = 'class Host { method() { const callback = () => { if (old > 0) run(); }; } }';
+  const classChanged = originalClass.replace('class Host', 'class Host extends Base');
+  expect(checkChangedCodeForm({ before: originalClass, after: classChanged, fileName: 'input.ts' }).issues.map(issue => issue.rule))
+    .toEqual(['named-condition']);
+});

@@ -24,7 +24,7 @@ const invalidAcknowledgments = [
   ...invalidCapabilities.map(capabilities => ({
     name: `capabilities ${JSON.stringify(capabilities)}`,
     fields: { capabilities },
-    error: 'unavailable: The selected host does not support browser worker ports.',
+    error: 'unavailable: The selected host does not support browser worker ports. Upgrade @pyric/cli, restart with --hosted, and reload this page.',
   })),
 ];
 

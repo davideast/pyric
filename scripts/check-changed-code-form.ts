@@ -1,3 +1,4 @@
+import { applyCodeFormExceptions } from './code-form-exceptions.js';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -39,11 +40,16 @@ const files = paths.map((path) => {
     before = git(['show', `${baseRevision}:${path}`]);
     baseDigest = sha256(before);
   }
+  const checked = checkChangedCodeForm({ before, after, fileName: path, program });
+  const reviewed = applyCodeFormExceptions(path, before, after, checked.issues);
+  const hasPermitted = reviewed.permitted.length > 0;
   return {
     path,
     sourceDigest: sha256(after),
     baseDigest,
-    ...checkChangedCodeForm({ before, after, fileName: path, program }),
+    ...checked,
+    issues: reviewed.issues,
+    permitted: hasPermitted ? reviewed.permitted : undefined,
   };
 });
 

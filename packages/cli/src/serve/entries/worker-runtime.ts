@@ -65,7 +65,11 @@ export const WORKER_NAME = workerNameForEpoch(
 export const workerDb: ClientDb | null = createControlClient();
 
 function createControlClient(): ClientDb | null {
-  if (useHosted) return getHostedFirestore(hostedTarget());
+  if (useHosted) return getHostedFirestore({
+    ...hostedTarget(),
+    onConnection: state => runtimeStatus.setHostedConnection(state),
+    onError: error => runtimeStatus.reportError(error, 'worker'),
+  });
   const usesSharedWorker = workerRequested && hasSharedWorker;
   if (usesSharedWorker) {
     return connectRuntimeWorker(
@@ -81,7 +85,10 @@ function createControlClient(): ClientDb | null {
 export const useWorker = useHosted || (workerRequested && (!hasSharedWorker || workerDb !== null));
 
 export function openWorkerDb(appName: string): ClientDb {
-  if (useHosted) return getHostedFirestore(hostedTarget());
+  if (useHosted) return getHostedFirestore({
+    ...hostedTarget(),
+    onError: error => runtimeStatus.reportError(error, 'worker'),
+  });
   if (hasSharedWorker) return getFirestore(WORKER_URL, WORKER_NAME);
   const usesServiceWorker = isServiceWorkerRealm();
   if (usesServiceWorker) return getServiceWorkerFirestore(appName);

@@ -200,13 +200,15 @@ describe('Studio Firestore data lens', () => {
   it('pins admin before the first data-view subscription is registered', () => {
     const sw = controllableSharedWorker();
     restore = sw.restore;
-    const plane = connectWorkerLive('worker://test')!;
+    const plane = connectWorkerLive('worker://test');
+    const hasNoPlane = plane === null;
+    if (hasNoPlane) throw new Error('Expected the live Studio plane');
     const users = plane.firestoreApi.collection(
       plane.db as never,
       'users',
     );
 
-    const unsubscribe = plane.firestoreApi.onSnapshot(users, () => {});
+    const unsubscribe = plane.firestoreApi.onSnapshot(plane.firestoreApi.query(users), () => {});
     const subscription = sw.port.sent.find(
       (message): message is { t: 'sub'; target: object; actAs?: { mode: string } } =>
         (message as { t?: string }).t === 'sub' &&

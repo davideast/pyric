@@ -1,3 +1,4 @@
+import { stampHostedTarget } from './runtime/hosted-target.js';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
@@ -89,7 +90,7 @@ function withWorkerVersion(html: string, workerVersion: string | undefined): str
 }
 
 /** Serve the one Astro tree with SPA fallback limited to generated Studio entries. */
-export function createSiteTreeHandler(root: string, workerVersion?: string) {
+export function createSiteTreeHandler(root: string, workerVersion?: string, hostedProjectKey?: string) {
   const studioRoutes = studioRoutesFromSite(root);
 
   return (
@@ -103,34 +104,41 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
     // Connect preserves that target in `originalUrl` after stripping a mount
     // prefix from `url`.
     const rawPathname = rawRequestPathname(req, url);
-    if (!isSiteTreePath(rawPathname)) {
+    const isOutsideSite = !isSiteTreePath(rawPathname);
+    if (isOutsideSite) {
       return false;
     }
     const rawSearch = rawRequestSearch(req, url);
-    if (rawPathname === SITE_TREE_MOUNT_PATH) {
+    const isMountRoot = rawPathname === SITE_TREE_MOUNT_PATH;
+    if (isMountRoot) {
       res.writeHead(301, { location: `${SITE_TREE_DESCENDANT_PREFIX}${rawSearch}` }).end();
       return true;
     }
 
     let relativePath = rawPathname.slice(SITE_TREE_MOUNT_PATH.length);
 
-    if (relativePath === '') {
+    const hasNoRelativePath = relativePath === '';
+    if (hasNoRelativePath) {
       relativePath = '/';
     }
 
     const decodedRel = decodeStaticPathname(relativePath);
-    if (decodedRel === null || decodedRel.includes('\\')) {
+    const invalidPath = decodedRel === null || decodedRel.includes('\\');
+    if (invalidPath) {
       res.writeHead(404).end('not found');
       return true;
     }
     const decodedSegments = decodedRel.split('/').filter(Boolean);
-    if (decodedSegments.some((segment) => segment === '.' || segment === '..')) {
+    const containsTraversal = decodedSegments.some((segment) => segment === '.' || segment === '..');
+    if (containsTraversal) {
       res.writeHead(404).end('not found');
       return true;
     }
-    if (!relativePath.endsWith('/') && !extname(relativePath)) {
+    const mayBeDirectory = !relativePath.endsWith('/') && extname(relativePath) === '';
+    if (mayBeDirectory) {
       const dir = resolveStaticPath(root, relativePath);
-      if (dir && existsSync(dir) && statSync(dir).isDirectory()) {
+      const isDirectory = dir !== null && existsSync(dir) && statSync(dir).isDirectory();
+      if (isDirectory) {
         res.writeHead(301, { location: `${rawPathname}/${rawSearch}` }).end();
         return true;
       }
@@ -145,21 +153,26 @@ export function createSiteTreeHandler(root: string, workerVersion?: string) {
     const hasDottedStateSegment = decodedSegments
       .slice(1)
       .some((segment) => segment.includes('.'));
-    if (!file && studioRequest && (allowsDottedState || !hasDottedStateSegment)) {
-      const entry = first === undefined ? '/index.html' : `/${first}/index.html`;
+    const allowsSpaFallback = !file && studioRequest && (allowsDottedState || !hasDottedStateSegment);
+    if (allowsSpaFallback) {
+      const isSiteRoot = first === undefined;
+      const entry = isSiteRoot ? '/index.html' : `/${first}/index.html`;
       file = resolveStaticFile(root, entry);
     }
-    if (!file) {
+    const resolvedFile = file;
+    const isMissingFile = resolvedFile === null;
+    if (isMissingFile) {
       res.writeHead(404).end('not found');
       return true;
     }
 
-    const contentType = contentTypeFor(file);
+    const contentType = contentTypeFor(resolvedFile);
     res.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
-    if (studioRequest && contentType.includes('text/html')) {
-      res.end(withWorkerVersion(readFileSync(file, 'utf8'), workerVersion));
+    const isStudioHtml = studioRequest && contentType.includes('text/html');
+    if (isStudioHtml) {
+      res.end(stampHostedTarget(withWorkerVersion(readFileSync(resolvedFile, 'utf8'), workerVersion), hostedProjectKey));
     } else {
-      pipeFileToResponse(file, res);
+      pipeFileToResponse(resolvedFile, res);
     }
     return true;
   };

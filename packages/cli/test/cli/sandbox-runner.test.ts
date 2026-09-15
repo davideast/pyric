@@ -242,7 +242,9 @@ describe('formatStartupEnvExport', () => {
       beaconToken: 'launch-secret',
     });
     expect(output).toContain('export PYRIC_SANDBOX="remote:http://localhost:3473"');
-    expect(output).toContain('export PYRIC_BEACON_TOKEN="launch-secret"');
+    expect(output).not.toContain('launch-secret');
+    expect(output).not.toContain('PYRIC_BEACON_TOKEN');
+    expect(output).toContain('Automatic interception confirmation requires launching the command through pyric.');
     expect(output).toContain(
       'export NODE_OPTIONS="--import file:///usr/local/pyric/dist/register/index.js"',
     );

@@ -9,7 +9,7 @@ export interface CodeFormIssue {
 export interface CodeFormExclusion {
   startLine: number;
   endLine: number;
-  reason: 'unchanged-top-level-statement' | 'unchanged-class-member';
+  reason: 'unchanged-top-level-statement' | 'unchanged-class-member' | 'unchanged-nested-function';
 }
 
 /** Check changed declarations and class members in full, exposing every legacy exclusion. */
@@ -53,6 +53,19 @@ export function checkChangedCodeForm(input: { before?: string; after: string; fi
       }
     }
   }
+  // Factories often own callbacks with independent behavior. Retain exact,
+  // named callback bodies as explicit exclusions, like unchanged class methods.
+  const previousFunctions = nestedFunctions(before).map(node => functionIdentity(node, before));
+  for (const node of nestedFunctions(after)) {
+    const previousIndex = previousFunctions.indexOf(functionIdentity(node, after));
+    const isUnchanged = previousIndex !== -1;
+    const isAlreadyExcluded = unchanged.some(range => node.getStart(after) >= range.start && node.getEnd() <= range.end);
+    if (isUnchanged) {
+      previousFunctions.splice(previousIndex, 1);
+      if (isAlreadyExcluded) continue;
+      unchanged.push({ start: node.getStart(after), end: node.getEnd(), reason: 'unchanged-nested-function' });
+    }
+  }
   const scopedIssues = issues.filter((issue) => {
     const isSyntaxError = issue.rule === 'syntax';
     if (isSyntaxError) return true;
@@ -66,6 +79,42 @@ export function checkChangedCodeForm(input: { before?: string; after: string; fi
     reason: range.reason,
   }));
   return { issues: scopedIssues, excluded };
+}
+
+function nestedFunctions(source: ts.SourceFile): ts.Node[] {
+  const functions: ts.Node[] = [];
+  function visit(node: ts.Node, insideFunction: boolean): void {
+    const isFunction = ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)
+      || ts.isArrowFunction(node) || ts.isMethodDeclaration(node)
+      || ts.isGetAccessorDeclaration(node) || ts.isSetAccessorDeclaration(node);
+    const isNestedFunction = insideFunction && isFunction;
+    if (isNestedFunction) functions.push(node);
+    const entersFunction = insideFunction || isFunction;
+    ts.forEachChild(node, child => visit(child, entersFunction));
+  }
+  visit(source, false);
+  return functions;
+}
+
+function functionIdentity(node: ts.Node, source: ts.SourceFile): string {
+  const owners: string[] = [];
+  let owner = node.parent;
+  let hasOwner = owner !== undefined;
+  while (hasOwner) {
+    const current = owner;
+    const isNamedOwner = ts.isVariableDeclaration(current) || ts.isPropertyAssignment(current)
+      || ts.isFunctionDeclaration(current) || ts.isClassDeclaration(current) || ts.isMethodDeclaration(current);
+    if (isNamedOwner) owners.push(current.name?.getText(source) ?? '(anonymous)');
+    const hasFunctionBody = ts.isFunctionDeclaration(current) || ts.isFunctionExpression(current)
+      || ts.isArrowFunction(current) || ts.isMethodDeclaration(current)
+      || ts.isGetAccessorDeclaration(current) || ts.isSetAccessorDeclaration(current);
+    if (hasFunctionBody) owners.push(source.text.slice(current.getStart(source), current.body?.getStart(source) ?? current.getEnd()));
+    const isClass = ts.isClassDeclaration(current);
+    if (isClass) owners.push(classHeader(current, source));
+    owner = current.parent;
+    hasOwner = owner !== undefined;
+  }
+  return `${owners.join('/')}:${node.getText(source)}`;
 }
 
 function classHeader(declaration: ts.ClassDeclaration, source: ts.SourceFile): string {
