@@ -124,6 +124,21 @@
         </div>
         <div id="storage-preview"></div>
       </section>
+      <section class="delivery-controls" aria-label="AI Logic scenarios">
+        <div class="delivery-heading"><h2>AI Logic</h2></div>
+        <div class="delivery-buttons ai-options">
+          <label>Backend <select id="ai-backend"><option value="scripted">Scripted</option><option value="local">Local OpenAI-compatible</option></select></label>
+          <label>Local model <input id="ai-model" value="qwen3:8b" aria-label="Local model"></label>
+        </div>
+        <p class="delivery-status">Requests use gemini-2.5-flash. Local mode maps that alias to the model above through the development server’s AI proxy. Scripted mode invokes no model.</p>
+        <div class="delivery-buttons">
+          <button class="lab-button" data-ai-action="generate">Generate</button>
+          <button class="lab-button" data-ai-action="stream">Stream</button>
+          <button class="lab-button" data-ai-action="fail">Fail request</button>
+          <button class="lab-button" data-ai-action="burst">Rate warning</button>
+        </div>
+        <div id="ai-preview"></div>
+      </section>
       <div id="demo-app"></div>
       <div class="lab-legend">
         <span><i></i>Fresh update</span

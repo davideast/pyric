@@ -6,12 +6,14 @@ import { readThresholdConfig, type ThresholdConfig } from './rate-threshold-conf
 
 const number = z.number().finite();
 const count = number.nonnegative();
-const counts = z.object({ uploadedBytes: count.optional(), downloadedBytes: count.optional(), reads: count, writes: count, deletes: count, deliveries: count });
+const counts = z.object({ requests: count.optional(), failures: count.optional(), inputTokens: count.optional(), outputTokens: count.optional(), estimatedTokens: count.optional(), unknownUsage: count.optional(), uploadedBytes: count.optional(), downloadedBytes: count.optional(), reads: count, writes: count, deletes: count, deliveries: count });
 const bucket = z.object({ second: number.int(), calls: count, deliveries: count });
 const method = z.object({ method: z.string().max(200), category: z.enum(['read', 'write', 'listener']), observed: z.boolean(), activeListeners: count, callsPerSecond: count, deliveriesPerSecond: count, buckets: z.array(bucket).max(1800) });
-const service = z.object({ service: z.enum(['firestore', 'rtdb', 'storage']), coverage: z.enum(['partial', 'unsupported']), observed: z.boolean(), untrackedMethods: z.array(z.string().max(200)).max(100), methods: z.array(method).max(100) });
+const aiDetail = z.object({ requestedModel: z.string().max(1000), routedModel: z.string().max(1000).optional(), reportedModel: z.string().max(1000).optional(), engine: z.enum(['scripted','openai','gemini','custom','unknown']), endpoint: z.string().max(1000).optional(), mappingReason: z.string().max(1000).optional(), usageSource: z.enum(['backend','estimated','scripted','unknown']), inputTokens: count.optional(), outputTokens: count.optional(), totalTokens: count.optional(), durationMs: count.optional(), firstChunkMs: count.optional() });
+const aiRequest = z.object({ id: z.string().max(200), at: number, second: number.int(), method: z.string().max(200), status: z.string().max(30), detail: aiDetail });
+const service = z.object({ aiRequests: z.array(aiRequest).max(100).optional(), service: z.enum(['firestore', 'rtdb', 'storage', 'ai']), coverage: z.enum(['partial', 'unsupported']), observed: z.boolean(), untrackedMethods: z.array(z.string().max(200)).max(100), methods: z.array(method).max(100) });
 const frameSchema = z.object({ service, points: z.array(counts.extend({ second: number.int() })).min(1).max(1800), from: number.int(), to: number.int(), duration: count.positive(), clockOffset: number, totals: counts, peaks: counts });
-const incidentSchema = z.object({ id: z.string().max(200), service: z.enum(['firestore', 'rtdb', 'storage']), operation: z.enum(['documentReads', 'documentWrites', 'documentDeletes', 'reads', 'writes', 'deliveries', 'deletes']), limit: count.positive(), sustainedSeconds: count.positive(), from: number.int(), to: number.int(), peak: count, aboveSeconds: count, aboveRanges: z.array(z.object({ from: number.int(), to: number.int() })).max(1800), recovered: z.boolean(), reviewed: z.boolean(), at: number });
+const incidentSchema = z.object({ id: z.string().max(200), service: z.enum(['firestore', 'rtdb', 'storage', 'ai']), operation: z.enum(['documentReads', 'documentWrites', 'documentDeletes', 'reads', 'writes', 'deliveries', 'deletes', 'requests', 'inputTokens', 'outputTokens']), limit: count.positive(), sustainedSeconds: count.positive(), from: number.int(), to: number.int(), peak: count, aboveSeconds: count, aboveRanges: z.array(z.object({ from: number.int(), to: number.int() })).max(1800), recovered: z.boolean(), reviewed: z.boolean(), at: number });
 const schema = z.object({ schema: z.literal('pyric.rate-capture.v1'), createdAt: z.string(), frame: frameSchema.extend({ incident: incidentSchema.optional(), warnings: z.array(z.object({ from: number.int(), to: number.int() })).max(1800).optional() }), thresholds: z.unknown() });
 
 /** Validate imported measurements before they reach HTML or chart arithmetic. */
@@ -30,7 +32,11 @@ export function readRateCapture(text: string): { frame: HistoryFrame; thresholds
     frame.totals[key] = selected.reduce((sum, point) => sum + (point[key] ?? 0), 0);
     frame.peaks[key] = Math.max(0, ...selected.map(point => point[key] ?? 0));
   }
-  const labels = { documentReads: 'Document reads', documentWrites: 'Document writes', documentDeletes: 'Document deletes', reads: 'Reads', writes: 'Writes', deliveries: 'Deliveries', deletes: 'Deletes' };
+  if (frame.service.service === 'ai') for (const key of ['requests', 'failures', 'inputTokens', 'outputTokens', 'estimatedTokens', 'unknownUsage'] as const) {
+    frame.totals[key] = selected.reduce((sum, point) => sum + (point[key] ?? 0), 0);
+    frame.peaks[key] = Math.max(0, ...selected.map(point => point[key] ?? 0));
+  }
+  const labels = { requests: 'Requests', inputTokens: 'Backend input tokens', outputTokens: 'Backend output tokens', documentReads: 'Document reads', documentWrites: 'Document writes', documentDeletes: 'Document deletes', reads: 'Reads', writes: 'Writes', deliveries: 'Deliveries', deletes: 'Deletes' };
   const incident = frame.incident ? { ...frame.incident, label: labels[frame.incident.operation], evidence: { monotonicAt: frame.to * 1000, windowSeconds: 5, services: [frame.service] } } : undefined;
   return { frame: { ...frame, incident, paused: true }, thresholds: readThresholdConfig(result.data.thresholds) };
 }

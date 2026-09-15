@@ -1,3 +1,4 @@
+import { getAiEvidence, type AiEvidence } from 'pyric/ai/internal';
 /**
  * SharedWorker protocol — message types + wire serialization.
  *
@@ -444,6 +445,7 @@ export type OutboundMessage = (
 // ─── Error serialization ──────────────────────────────────────────────────
 
 export interface SerializedError {
+  aiEvidence?: Partial<AiEvidence>;
   code: string;
   message: string;
   denialContext?: DenialContext;
@@ -452,6 +454,11 @@ export interface SerializedError {
 }
 
 export function serializeError(err: unknown): SerializedError {
+  const base = serializeErrorValue(err);
+  const evidence = err && typeof err === 'object' ? getAiEvidence(err) : undefined;
+  return evidence ? { ...base, aiEvidence: evidence } : base;
+}
+function serializeErrorValue(err: unknown): SerializedError {
   if (err !== null && typeof err === 'object') {
     const envelope = (err as { envelope?: AiErrorEnvelopeWire }).envelope;
     if (

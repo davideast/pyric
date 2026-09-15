@@ -692,7 +692,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let trafficDisplay: 'requests' | 'rates' = 'requests';
   let selectedRateService: string | null = null;
   let rateSection: 'chart' | 'incidents' | 'measurements' | 'captures' | 'capture-rename' | 'capture-delete' = 'chart';
-  const serviceHistories = { firestore: createRateHistory('firestore'), rtdb: createRateHistory('rtdb'), storage: createRateHistory('storage') };
+  const serviceHistories = { ai: createRateHistory('ai'), firestore: createRateHistory('firestore'), rtdb: createRateHistory('rtdb'), storage: createRateHistory('storage') };
   const currentRateHistory = () => serviceHistories[isThresholdService(selectedRateService) ? selectedRateService : 'rtdb'];
   const rates = options.rates ?? sdkRates;
   let captureError = '';
@@ -1065,7 +1065,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       }
       const alerts = thresholdMonitor.incidents().filter(incident => !selectedRateService || incident.service === selectedRateService);
       const alertHtml = alerts.length ? sectionHtml('Recorded incidents', `<div class="rows">${alerts.map(incident => `<button type="button" class="rate-alert" data-rate-incident="${escapeAttribute(incident.id)}"><span>${escapeAttribute(incident.label)}<small>${escapeAttribute(serviceLabel(incident.service))} · ${new Date(incident.at).toLocaleTimeString()}</small><small>Peak ${incident.peak}/s · limit ${incident.limit}/s</small><small>${incident.aboveSeconds}s above limit / ${incident.to - incident.from + 1}s elapsed</small></span><span class="rate-alert-status">${iconHtml('warning')}<span>Exceeded</span></span></button>`).join('')}</div>`) : '';
-      const incidentCounts = new Map(['firestore', 'rtdb', 'storage'].map(service => [service, thresholdMonitor.incidents().filter(incident => incident.service === service).length]));
+      const incidentCounts = new Map(['firestore', 'rtdb', 'storage', 'ai'].map(service => [service, thresholdMonitor.incidents().filter(incident => incident.service === service).length]));
       const frame = isThresholdService(selectedRateService) ? currentRateHistory().view(rates.snapshot()) : undefined;
       const measured = rateView(rates.snapshot(), selectedRateService, serviceLabel, escapeAttribute, frame, iconHtml('chevron'), incidentCounts, rateSection === 'measurements' ? 'measurements' : 'chart');
       if (!selectedRateService) return { body: sectionHtml(measured.title, measured.body), bar: trafficToolbar() };
@@ -1741,7 +1741,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     for (const history of Object.values(serviceHistories)) history.record(retainedSnapshot);
     if (thresholdSettings.ready()) {
       thresholdMonitor.sample(rates.snapshot(), thresholdSettings.config());
-      for (const service of ['firestore', 'rtdb', 'storage'] as const) serviceHistories[service].markWarnings(thresholdMonitor.incidents().filter(incident => incident.service === service).flatMap(incident => incident.aboveRanges));
+      for (const service of ['firestore', 'rtdb', 'storage', 'ai'] as const) serviceHistories[service].markWarnings(thresholdMonitor.incidents().filter(incident => incident.service === service).flatMap(incident => incident.aboveRanges));
       const nextSignature = JSON.stringify(thresholdMonitor.incidents().map(incident => [incident.id, incident.recovered, incident.reviewed]));
       if (thresholdSignature !== nextSignature) { thresholdSignature = nextSignature; render(); }
     }

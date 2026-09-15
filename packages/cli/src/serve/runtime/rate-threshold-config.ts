@@ -1,7 +1,8 @@
 /** Per-page investigation limits. These are not service quotas or billing limits. */
-export const THRESHOLD_SERVICES = ['firestore', 'rtdb', 'storage'] as const;
+export const THRESHOLD_SERVICES = ['firestore', 'rtdb', 'storage', 'ai'] as const;
 export type ThresholdService = typeof THRESHOLD_SERVICES[number];
 export const THRESHOLD_OPERATIONS = {
+  ai: [{ key: 'requests', label: 'Requests', default: 2 }, { key: 'inputTokens', label: 'Backend input tokens', default: 2000 }, { key: 'outputTokens', label: 'Backend output tokens', default: 500 }],
   firestore: [
     { key: 'documentReads', label: 'Document reads', default: 20 },
     { key: 'documentWrites', label: 'Document writes', default: 5 },
@@ -20,13 +21,14 @@ export const THRESHOLD_OPERATIONS = {
 } as const;
 export type ThresholdOperation = typeof THRESHOLD_OPERATIONS[ThresholdService][number]['key'];
 export interface ThresholdConfig {
+  ai?: Partial<Record<'requests' | 'inputTokens' | 'outputTokens', number | null>>;
   sustainedSeconds?: number;
   firestore?: Partial<Record<'documentReads' | 'documentWrites' | 'documentDeletes', number | null>>;
   storage?: Partial<Record<'reads' | 'writes' | 'deletes', number | null>>;
   rtdb?: Partial<Record<'reads' | 'writes' | 'deliveries', number | null>>;
 }
 export function isThresholdService(value: string | null): value is ThresholdService {
-  return value === 'firestore' || value === 'rtdb' || value === 'storage';
+  return value === 'ai' || value === 'firestore' || value === 'rtdb' || value === 'storage';
 }
 export function thresholdLimit(config: ThresholdConfig, service: ThresholdService, key: ThresholdOperation): number | null {
   const values: Partial<Record<ThresholdOperation, number | null>> = config[service] ?? {};

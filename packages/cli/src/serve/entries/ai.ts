@@ -26,7 +26,7 @@
  * Browser-bundled by `../bundler.ts`; never imported by node-side.
  */
 import * as ipAi from 'pyric/ai';
-import { aiErrorFromEnvelope } from 'pyric/ai/internal';
+import { aiErrorFromEnvelope, unpackAiEvidence, getAiEvidence, setAiEvidence } from 'pyric/ai/internal';
 import { getAI as pyricGetAI } from 'pyric/ai';
 import { createTransportAI } from 'pyric/ai/internal';
 import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
@@ -186,7 +186,7 @@ function withProxyDefault(options?: ipAi.AIOptions): ipAi.AIOptions | undefined 
 function aiErrorFromWire(err: unknown, modelResource: string, op: string): unknown {
   const envelope = (err as { aiEnvelope?: Parameters<typeof aiErrorFromEnvelope>[0] } | null)
     ?.aiEnvelope;
-  return envelope ? aiErrorFromEnvelope(envelope, modelResource, op) : err;
+  return envelope ? setAiEvidence(aiErrorFromEnvelope(envelope, modelResource, op), err && typeof err === 'object' ? getAiEvidence(err) ?? {} : {}) : err;
 }
 
 // ── The port-forwarding AnswerEngine (worker path) ─────────────────────────
@@ -200,7 +200,7 @@ function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEng
   const engine = {
     async generateContent(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>> {
       try {
-        return await aiGenerateContent(db, params(model, req));
+        return unpackAiEvidence(await aiGenerateContent(db, params(model, req)));
       } catch (err) {
         throw aiErrorFromWire(err, model, 'generateContent');
       }
@@ -209,7 +209,7 @@ function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEng
       const inner = aiStreamGenerateContent(db, params(model, req));
       return (async function* mapped(): AsyncGenerator<Record<string, unknown>> {
         try {
-          for await (const chunk of inner) yield chunk;
+          for await (const chunk of inner) yield unpackAiEvidence(chunk);
         } catch (err) {
           throw aiErrorFromWire(err, model, 'streamGenerateContent');
         }
@@ -217,7 +217,7 @@ function portEngine(db: ReturnType<typeof workerClientForApp>, engineWire: AiEng
     },
     async countTokens(req: Record<string, unknown>, model: string): Promise<Record<string, unknown>> {
       try {
-        return await aiCountTokens(db, params(model, req));
+        return unpackAiEvidence(await aiCountTokens(db, params(model, req)));
       } catch (err) {
         throw aiErrorFromWire(err, model, 'countTokens');
       }

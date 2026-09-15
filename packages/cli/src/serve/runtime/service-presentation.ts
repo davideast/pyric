@@ -6,6 +6,7 @@ const SERVICE_LABELS: Record<string, string> = {
   rtdb: 'Realtime Database',
   storage: 'Storage',
   auth: 'Authentication',
+  ai: 'AI Logic',
 };
 
 export function serviceLabel(service: string | null): string {
@@ -14,6 +15,7 @@ export function serviceLabel(service: string | null): string {
 }
 
 export function sourceLabel(service: string, path: string, query: boolean): string {
+  if (service === 'ai') return 'AI request model';
   if (service === 'rtdb' || service === 'database') return 'Realtime Database node';
   if (service === 'firestore') {
     const isCollection = query || path.split('/').filter(Boolean).length % 2 === 1;

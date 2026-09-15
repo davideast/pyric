@@ -99,7 +99,7 @@ await writeFile(join(configDir, 'firestore.indexes.json'), JSON.stringify({ inde
 const token = randomBytes(24).toString('base64url');
 // Exact proxy hostnames (for example, a Tailscale Serve HTTPS endpoint).
 const allowedHosts = (process.env.FLOW_LAB_ALLOWED_HOSTS ?? '').split(',').map(host => host.trim()).filter(Boolean);
-const namespace = createPyricNamespace({ sdkDir: outputDir, sessionToken: token, indexes: createIndexConfigStore(configDir), thresholds: createThresholdConfigStore(configDir), rateCaptures: createRateCaptureStore(here),
+const namespace = createPyricNamespace({ aiProxyUpstream: process.env.FLOW_LAB_AI_UPSTREAM ?? 'http://localhost:11434/v1', sdkDir: outputDir, sessionToken: token, indexes: createIndexConfigStore(configDir), thresholds: createThresholdConfigStore(configDir), rateCaptures: createRateCaptureStore(here),
   allowedHosts,
   initPayload: () => ({ rules: null, rulesHash: null, storageRules: null, storageRulesHash: null, bridgeUrl: null, seed: null }) });
 const port = Number(process.env.FLOW_LAB_PORT ?? 5197);
@@ -109,7 +109,7 @@ const server = createServer(async (req, res) => {
     if (req.method !== 'POST' || req.headers['x-pyric-session-token'] !== token) { res.writeHead(403); res.end(); return; }
     await resetIndex(); res.writeHead(204); res.end(); return;
   }
-  if (url.pathname === '/__pyric/rate-captures' || url.pathname === '/__pyric/thresholds' || url.pathname === '/__pyric/indexes' || url.pathname === '/__pyric/init.json') { await namespace(req, res, url); return; }
+  if (url.pathname.startsWith('/__pyric/ai-proxy') || url.pathname === '/__pyric/rate-captures' || url.pathname === '/__pyric/thresholds' || url.pathname === '/__pyric/indexes' || url.pathname === '/__pyric/init.json') { await namespace(req, res, url); return; }
   if (await flowHost.handle(req, res, url)) return;
   if (url.pathname.startsWith("/__pyric/assets/")) {
     await handleAvatar(resolver, req, res, url);

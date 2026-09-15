@@ -10,8 +10,14 @@ function ringSlot(second: number): number {
   return ((second % RETAINED_SECONDS) + RETAINED_SECONDS) % RETAINED_SECONDS;
 }
 interface Bucket { second: number; calls: number; deliveries: number }
-interface UsageBucket { second: number; documentReads: number; documentWrites: number; documentDeletes: number; payloadBytes: number; uploadedBytes: number; downloadedBytes: number; unmeasured: number }
+interface UsageBucket { aiInputTokens: number; aiOutputTokens: number; aiEstimatedTokens: number; aiUnknownUsage: number; aiFailures: number;  second: number; documentReads: number; documentWrites: number; documentDeletes: number; payloadBytes: number; uploadedBytes: number; downloadedBytes: number; unmeasured: number }
 export interface ServiceUsageRate {
+  readonly aiInputTokens?: number;
+  readonly aiOutputTokens?: number;
+  readonly aiEstimatedTokens?: number;
+  readonly aiUnknownUsage?: number;
+  readonly aiFailures?: number;
+
   readonly uploadedBytes?: number;
   readonly downloadedBytes?: number;
   readonly documentReads: number;
@@ -20,9 +26,9 @@ export interface ServiceUsageRate {
   readonly payloadBytes: number;
   readonly unmeasured: number;
 }
-const usageKeys = ['documentReads', 'documentWrites', 'documentDeletes', 'payloadBytes', 'uploadedBytes', 'downloadedBytes', 'unmeasured'] as const;
+const usageKeys = ['aiInputTokens', 'aiOutputTokens', 'aiEstimatedTokens', 'aiUnknownUsage', 'aiFailures', 'documentReads', 'documentWrites', 'documentDeletes', 'payloadBytes', 'uploadedBytes', 'downloadedBytes', 'unmeasured'] as const;
 function emptyUsage(second: number): UsageBucket {
-  return { second, documentReads: 0, documentWrites: 0, documentDeletes: 0, payloadBytes: 0, uploadedBytes: 0, downloadedBytes: 0, unmeasured: 0 };
+  return { second, aiInputTokens: 0, aiOutputTokens: 0, aiEstimatedTokens: 0, aiUnknownUsage: 0, aiFailures: 0, documentReads: 0, documentWrites: 0, documentDeletes: 0, payloadBytes: 0, uploadedBytes: 0, downloadedBytes: 0, unmeasured: 0 };
 }
 interface Series {
   service: EventService;
@@ -46,7 +52,9 @@ export interface SdkMethodRate {
   readonly observed: boolean;
   readonly buckets: readonly SdkRateBucket[];
 }
+export interface AiRequestObservation { readonly id: string; readonly at: number; readonly second: number; readonly method: string; readonly status: string; readonly detail: NonNullable<SdkActivityRecord['ai']> }
 export interface SdkServiceRate {
+  readonly aiRequests?: readonly AiRequestObservation[];
   readonly service: EventService;
   readonly usage?: ServiceUsageRate;
   readonly lastActivityAt?: number;
@@ -87,8 +95,9 @@ export function createSdkRates(options: { monotonicNow?: () => number; activeLis
       if (value !== undefined && Number.isFinite(value) && value >= 0) ring[slot]![key] += value;
     }
   }
+  const aiRequests: AiRequestObservation[] = [];
   let sequence = 0;
-  for (const service of ['firestore', 'rtdb', 'storage'] as const) {
+  for (const service of ['firestore', 'rtdb', 'storage', 'ai'] as const) {
     for (const entry of sdkMethodCoverage(service)) {
       series.set(`${service}/${entry.method}`, {
         service, ...entry, observed: false, activeListeners: 0,
@@ -115,6 +124,10 @@ export function createSdkRates(options: { monotonicNow?: () => number; activeLis
     if (event.usage) {
       recordUsage(event.service, Math.floor(event.monotonicAt / 1000), event.usage);
       lastActivity.set(event.service, { second: Math.floor(event.monotonicAt / 1000), at: event.at });
+    }
+    if (event.phase === 'end' && event.ai) {
+      aiRequests.push(Object.freeze({ id: event.activityId, at: event.at, second: Math.floor(event.monotonicAt / 1000), method: event.method, status: event.status, detail: event.ai }));
+      if (aiRequests.length > 100) aiRequests.shift();
     }
     if (event.phase === 'end' || event.phase === 'remove') {
       const listener = active.get(event.activityId);
@@ -148,7 +161,7 @@ export function createSdkRates(options: { monotonicNow?: () => number; activeLis
   function snapshot(): SdkRateSnapshot {
     const monotonicAt = now();
     const second = Math.floor(monotonicAt / 1000);
-    const services = (['firestore', 'rtdb', 'storage'] as const).map(service => {
+    const services = (['firestore', 'rtdb', 'storage', 'ai'] as const).map(service => {
       const methods = [...series.values()].filter(row => row.service === service).map(row => {
         const buckets = Array.from({ length: RETAINED_SECONDS }, (_, index) => {
           const stamp = second - RETAINED_SECONDS + 1 + index;
@@ -186,10 +199,10 @@ export function createSdkRates(options: { monotonicNow?: () => number; activeLis
           for (const key of usageKeys) totals[key] += bucket[key];
         }
       }
-      const measurement = Object.freeze({ documentReads: totals.documentReads / WINDOW_SECONDS,
+      const measurement = Object.freeze({ ...(service === 'ai' ? { aiInputTokens: totals.aiInputTokens / WINDOW_SECONDS, aiOutputTokens: totals.aiOutputTokens / WINDOW_SECONDS, aiEstimatedTokens: totals.aiEstimatedTokens / WINDOW_SECONDS, aiUnknownUsage: totals.aiUnknownUsage / WINDOW_SECONDS, aiFailures: totals.aiFailures / WINDOW_SECONDS } : {}), documentReads: totals.documentReads / WINDOW_SECONDS,
         documentWrites: totals.documentWrites / WINDOW_SECONDS, documentDeletes: totals.documentDeletes / WINDOW_SECONDS,
         payloadBytes: totals.payloadBytes / WINDOW_SECONDS, uploadedBytes: totals.uploadedBytes / WINDOW_SECONDS, downloadedBytes: totals.downloadedBytes / WINDOW_SECONDS, unmeasured: totals.unmeasured });
-      return Object.freeze({ service, usage: measurement, usageBuckets: usageWindow(second),
+      return Object.freeze({ service, ...(service === 'ai' ? { aiRequests: Object.freeze([...aiRequests]) } : {}), usage: measurement, usageBuckets: usageWindow(second),
         ...(last ? { lastActivityAt: last.at } : {}),
         history: Object.freeze({ endSecond: historyEnd, startedSecond, methods: Object.freeze(historyMethods), usageBuckets: usageWindow(historyEnd) }), coverage: methods.length ? 'partial' as const : 'unsupported' as const,
         untrackedMethods: sdkUntrackedMethods(service),

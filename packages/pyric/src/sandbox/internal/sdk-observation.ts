@@ -10,6 +10,7 @@ export function observationService(service: EventService | 'database'): EventSer
 
 /** Public SDK evidence only. No results, credentials, query values or DOM owners. */
 export interface SdkObservation {
+  readonly ai?: SdkActivityRecord['ai'];
   /** Numeric usage evidence; never the result payload. */
   readonly usage?: UsageEvidence;
   /** Journal-local delivery order, used to reject replay without retaining IDs. */
@@ -43,6 +44,7 @@ export function sdkObservation(
   const { record, phase } = event;
   return Object.freeze({
     ...(event.usage ? { usage: Object.freeze({ ...event.usage }) } : {}),
+    ...(record.ai ? { ai: record.ai } : {}),
     sequence,
     id: `${record.id}/${phase}/${record.deliveryCount}`,
     activityId: record.id,

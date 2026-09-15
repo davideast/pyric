@@ -1,3 +1,4 @@
+import { getAI, getGenerativeModel } from 'pyric/ai';
 import { createWarningScenarios, warningBurstPlan } from './warning-scenarios.ts';
 import type { AuthUserRecord } from "pyric/auth";
 import type { AuthLens, SandboxEvent } from "pyric/sandbox";
@@ -110,6 +111,41 @@ async function main() {
       state.preview ? h('img', { src: state.preview, width: 360, height: 96, alt: 'Downloaded Storage attachment' }) : null);
   }
   flushSync(() => createRoot(document.querySelector('#storage-preview')!).render(h(AttachmentCard)));
+  const aiState = store('Choose a scripted response or an installed local model.');
+  const updateAi = (text: string) => flushSync(() => aiState.set(text));
+  function AiReply() { const text = use(aiState.subscribe, aiState.get); return h('section', { className: 'attachment-card', 'data-component': 'AiReply' }, h('p', { id: 'ai-status', role: 'status' }, text)); }
+  flushSync(() => createRoot(document.querySelector('#ai-preview')!).render(h(AiReply)));
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-ai-action]')) button.onclick = async () => {
+    button.disabled = true;
+    const local = (document.querySelector('#ai-backend') as HTMLSelectElement).value === 'local';
+    const upstream = (document.querySelector('#ai-model') as HTMLInputElement).value.trim() || 'qwen3:8b';
+    const action = button.dataset.aiAction;
+    // Each scenario gets its own broker so first-call-wins configuration stays explicit.
+    const aiSandbox = initializeSandbox();
+    const engine = local ? { kind: 'openai' as const, baseUrl: location.origin + '/__pyric/ai-proxy', modelMap: { 'gemini-2.5-flash': upstream } }
+      : { kind: 'scripted' as const, script: [{ respond: action === 'fail' ? { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Demo rate limit' } } : { chunks: ['This ', 'is a ', 'scripted ', 'AI response.'] } }] };
+    const model = getGenerativeModel(getAI(aiSandbox, { engine }), { model: 'gemini-2.5-flash' });
+    try {
+      if (action === 'burst' && local) { updateAi('Rate warning uses scripted responses so the demo does not burst against your model. Select Scripted first.'); return; }
+      if (action === 'burst') {
+        for (let index = 0; index < 40; index++) {
+          const result = await model.generateContent('Summarize the design discussion.');
+          updateAi(`Scripted burst ${index + 1}/40: ${result.response.text()}`);
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+      } else if (action === 'stream') {
+        const result = await model.generateContentStream('Summarize the design discussion in a short paragraph.');
+        let text = '';
+        for await (const chunk of result.stream) { text += chunk.text(); updateAi(text); await new Promise(resolve => setTimeout(resolve, 120)); }
+        await result.response;
+      } else {
+        if (action === 'fail' && local) { updateAi('Failure scenario uses Scripted. Select Scripted first.'); return; }
+        const result = await model.generateContent('Summarize the design discussion in one sentence.');
+        updateAi(result.response.text());
+      }
+    } catch (error) { updateAi(error instanceof Error ? error.message : String(error)); }
+    finally { button.disabled = false; aiSandbox.dispose(); }
+  };
   function Photo({ uid }: { uid: string }) {
     return h("img", {
       className: "photo",

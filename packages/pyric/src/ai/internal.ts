@@ -60,3 +60,5 @@ export function createTransportAI(
   handles.set(key, handle);
   return handle;
 }
+
+export { packAiEvidence, unpackAiEvidence, getAiEvidence, setAiEvidence, type AiEvidence } from '../sandbox/internal/ai-evidence.js';

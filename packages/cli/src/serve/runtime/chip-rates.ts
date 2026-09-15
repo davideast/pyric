@@ -1,3 +1,4 @@
+import { aiRequestDetails } from './ai-request-details.js';
 import { measurementNotes } from './rate-measurement-notes.js';
 import { createRateHistory, historyHtml, refreshHistory, HISTORY_STYLES, type HistoryFrame } from './rate-history.js';
 import type { SdkMethodRate, SdkRateSnapshot, SdkServiceRate } from 'pyric/sandbox/internal';
@@ -11,6 +12,10 @@ export interface RateView {
 type Escape = (value: string) => string;
 
 export const RATE_STYLES = HISTORY_STYLES + `
+  [data-ai-request] > summary,[data-ai-request] > .usage-notes-body { padding-inline:var(--record-inset); }
+  [data-ai-request] > summary > :first-child { min-width:0; overflow-wrap:anywhere; }
+  .ai-request-meta { display:inline-flex; align-items:center; gap:var(--space-3); flex-shrink:0; }
+  [data-ai-requests] dd { overflow-wrap:anywhere; min-width:0; }
   .rate-table { display:grid; width:100%; border-collapse:collapse; font-size:12px; }
   .rate-table colgroup { display:none; }
   .rate-table thead,.rate-table tbody { display:contents; }
@@ -169,6 +174,7 @@ function recordedFrame(snapshot: SdkRateSnapshot, service: SdkServiceRate): Hist
 function activitySummary(snapshot: SdkRateSnapshot, service: SdkServiceRate): string {
   const frame = recordedFrame(snapshot, service);
   if (!frame) return 'No activity recorded';
+  if (service.service === 'ai') return `${rateNumber(frame.totals.requests ?? 0)} requests / ${rateNumber(frame.totals.failures ?? 0)} failures in ${frame.duration}s`;
   return `${rateNumber(frame.totals.reads)} ${service.service === 'firestore' ? 'document reads' : 'reads'} / ${rateNumber(frame.totals.writes)} writes${service.service === 'rtdb' ? ` / ${rateNumber(frame.totals.deliveries)} deliveries` : service.service === 'storage' ? ` / ${rateNumber(frame.totals.deletes)} deletes` : ''} in ${frame.duration}s`;
 }
 function serviceList(snapshot: SdkRateSnapshot, label: (service: string) => string, escape: Escape, incidents: ReadonlyMap<string, number>): string {
@@ -196,15 +202,16 @@ export function rateView(
   if (!service || service.coverage === 'unsupported') {
     return { title: 'Services', detail: '', body: serviceList(snapshot, serviceLabel, escape, incidents) };
   }
-  if (history && display === 'chart') return { title: '', detail: '', body: `<div class="rate-scope" data-rate-detail="${escape(service.service)}">${historyHtml(history)}</div>` };
+  if (history && display === 'chart') return { title: '', detail: '', body: `<div class="rate-scope" data-rate-detail="${escape(service.service)}">${historyHtml(history)}${service.service === 'ai' ? aiRequestDetails(history.service, escape, history, chevron) : ''}</div>` };
   const listeners = service.methods.reduce((total, method) => total + method.activeListeners, 0);
   const untracked = service.untrackedMethods.map(method => `<tr data-rate-method="${escape(method)}"><th scope="row"><code class="mono">${escape(method)}</code></th><td colspan="3" class="rate-unavailable">Not measured</td></tr>`).join('');
   return {
     title: serviceLabel(service.service), detail,
     body: `<div class="rate-scope" data-rate-detail="${escape(service.service)}">`
       + (history ? '' : serviceRow(service, service.service === 'rtdb' ? 'Operations & data' : 'Usage estimate', escape, false))
-      + `<dl class="rate-metadata"><dt>Scope</dt><dd>This page</dd>${service.service === 'storage' ? '' : `<dt>Listeners now</dt><dd data-rate-listeners>${listeners}</dd>`}</dl>`
+      + `<dl class="rate-metadata"><dt>Scope</dt><dd>This page</dd>${service.service === 'storage' || service.service === 'ai' ? '' : `<dt>Listeners now</dt><dd data-rate-listeners>${listeners}</dd>`}</dl>`
       + `<h3 class="usage-sdk-heading">SDK activity${history ? ' · selected period' : ''}</h3><div class="rows"><table class="rate-table" aria-label="SDK activity by method"><colgroup><col class="rate-name"><col><col><col></colgroup><thead><tr><th scope="col">Method</th>${history ? '<th scope="col">Calls</th><th scope="col">Results</th><th scope="col">Avg/s</th>' : '<th scope="col" title="Includes denied attempts">Calls/s</th><th scope="col" title="Read results and listener callbacks">Results/s</th><th scope="col">Listening</th>'}</tr></thead><tbody>${(history ? history.service.methods : service.methods).map(method => methodRow(method, escape, history?.duration)).join('')}${untracked}</tbody></table></div>`
+      + (service.service === 'ai' ? aiRequestDetails(history?.service ?? service, escape, history, chevron) : '')
       + `<details class="rules-disclosure usage-notes" data-rate-notes="${escape(service.service)}"><summary><span>How measurements work</span><span class="rules-chevron">${chevron}</span></summary><div class="usage-notes-body">${coverage(service.service)}</div></details></div>`,
   };
 }
@@ -250,6 +257,20 @@ export function refreshRateView(root: ParentNode, snapshot: SdkRateSnapshot, his
   const detail = root.querySelector<HTMLElement>('[data-rate-detail]');
   const service = history ? history.service : snapshot.services.find(entry => entry.service === detail?.dataset.rateDetail);
   if (!detail || !service) return;
+  const aiDetails = detail.querySelector<HTMLElement>('[data-ai-requests]');
+  if (aiDetails) {
+    const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
+    const html = aiRequestDetails(service, escape, history, aiDetails.querySelector('.rules-chevron')?.innerHTML ?? '');
+    if (aiDetails.dataset.content !== html) {
+      const open = new Set([...aiDetails.querySelectorAll('details[open]')].map(node => node.getAttribute('data-ai-request')));
+      const outerOpen = (aiDetails as HTMLDetailsElement).open;
+      const container = aiDetails.ownerDocument.createElement('div'); container.innerHTML = html;
+      const next = container.firstElementChild as HTMLDetailsElement;
+      next.open = outerOpen; next.dataset.content = html;
+      next.querySelectorAll('details').forEach((node, index) => { node.open = open.has(node.getAttribute('data-ai-request')); });
+      aiDetails.replaceWith(next);
+    }
+  }
   replaceNumber(detail, '[data-rate-listeners]', (snapshot.services.find(entry => entry.service === service.service)?.methods ?? []).reduce((total, method) => total + method.activeListeners, 0));
   for (const row of detail.querySelectorAll<HTMLElement>('[data-rate-method]')) {
     const method = service.methods.find(entry => entry.method === row.dataset.rateMethod);
