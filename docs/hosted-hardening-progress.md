@@ -5,10 +5,12 @@ This bounded milestone leaves the broader hosted/live-mode goal incomplete.
 Use the already approved S1–S6 seams, vertical TDD, and applicable universal gates.
 Do not modify the manual demo project. Commit and push each verified slice.
 
-Current section: [Section 3 — disconnect behavior and concurrent writes](hosted-section-three-progress.md),
-completed 2026-09-15 after Section 2's automated and manual checkpoints. Section 3
-closes items 12–13 with 49 distinct browser scenarios, 37 regressions and a runnable
-manual checkpoint. Earlier queue and investigation entries retain historical detail.
+Current section: [Section 4 — installed packages and admission isolation](hosted-section-four-progress.md).
+Its automated requirements passed on 2026-09-15: 10 actual packed-consumer browser
+scenarios on minimum Node and 19 admission/session regressions. The installed
+in-app browser checkpoint loaded on 48769; interactive clicks remain pending
+because the Mac is locked. Section 3 remains complete. Earlier queue entries retain
+historical detail; see each section's progress for current bounded evidence.
 
 ## Ordered queue
 
@@ -25,8 +27,8 @@ manual checkpoint. Earlier queue and investigation entries retain historical det
 11. Identity and tenant isolation across clients — verified in Section 2. Switching or signing out in one app cannot change another app's identity, tenant, claims or Rules access, including after recovery.
 12. RTDB disconnect behavior — verified in Section 3. Connectivity signals and registered disconnect operations follow the declared session-lifetime contract across transient loss, expiry and explicit app deletion.
 13. Concurrent transactions and atomic writes — verified in Section 3. Two clients contend through normal SDK calls without lost updates; rejected batches remain atomic and ambiguous acknowledgments do not trigger transport replay.
-14. Packed installation and runtime selection — pending. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.
-15. Origin and project admission isolation — pending. An unrelated browser origin or another project's discovery/session credentials cannot attach to, inspect or mutate this host; intended clients still connect.
+14. Packed installation and runtime selection — automated requirements verified in Section 4; interactive checkpoint pending. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.
+15. Origin and project admission isolation — automated requirements verified in Section 4 under the existing hostname allowlist and host-bound resume policy. Foreign discovery, misdirected SDK bridge and foreign session resume refuse; changed-host recovery intentionally obtains a fresh session. Intended clients still connect. See Section 4 for the policy boundaries.
 16. Slow-client isolation and bounded event delivery — pending. A stalled Studio/event consumer cannot exhaust retained queues or starve another app's SDK operations; overflow and lost history remain explicit.
 17. Rules hot reload with active apps — pending. Valid Rules changes update enforcement and active listeners according to the existing service contract; invalid edits report their failure without falsely claiming successful enforcement.
 18. Client/host version compatibility — pending. Actual packed consumers within the declared compatibility range work against the candidate host; unsupported combinations refuse clearly before mutation and never silently select another runtime.
