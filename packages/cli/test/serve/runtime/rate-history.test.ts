@@ -125,7 +125,41 @@ for (const service of ['firestore', 'rtdb']) {
     const expired = { ...late, monotonicAt: 2000_000 };
     state.record(expired);
     state.pan(expired, 0);
+    expect(state.view(expired)!.points[0]!.second).toBe(0);
+    expect(state.view(expired)!.totals.writes).toBe(6);
+    state.live();
+    state.pan(expired, 0);
     expect(state.view(expired)!.points[0]!.second).toBe(201);
     expect(state.view(expired)!.totals.writes).toBe(0);
   });
 }
+
+test('paused navigation stays fixed while live history grows and resumes with the new bounds', () => {
+  const state = createRateHistory();
+  state.view(snapshot(100));
+  state.zoom(snapshot(100), 0.25);
+  state.pan(snapshot(100), 40);
+  const paused = state.view(snapshot(100))!;
+  const document = new JSDOM(historyHtml(paused)).window.document;
+  const slider = document.querySelector<HTMLInputElement>('[data-history-scrubber]')!;
+  const position = () => [slider.min, slider.max, slider.value];
+  const before = position();
+  refreshHistory(document, state.view(snapshot(140))!);
+  expect(position()).toEqual(before);
+  expect(state.view(snapshot(140))!.timeline).toEqual(paused.timeline);
+  // Even a retention-window rollover must not move paused navigation.
+  state.view(snapshot(2000));
+  state.pan(snapshot(2000), 40);
+  expect(state.view(snapshot(2000))!.from).toBe(40);
+  state.zoom(snapshot(2000), 2);
+  expect(state.view(snapshot(2000))!.timeline?.to).toBe(100);
+  state.live();
+  expect(state.view(snapshot(2000))!.timeline?.to).toBe(2000);
+});
+
+
+test('pause freezes bounds immediately, before another render occurs', () => {
+  const state = createRateHistory();
+  state.pause(snapshot(100));
+  expect(state.view(snapshot(140))!.timeline?.to).toBe(100);
+});

@@ -51,6 +51,11 @@ export function createRateHistory(serviceName = 'rtdb') {
   let viewport: [number, number] | undefined;
   let imported: HistoryFrame | undefined;
   let captured: SdkServiceRate | undefined;
+  // Pin the browsable archive as well as the selected window until live resumes.
+  let pausedNavigation: { bounds: ReturnType<typeof archive.bounds>; source: SdkServiceRate | undefined } | undefined;
+  function navigation() {
+    return pausedNavigation ??= { bounds: { ...archive.bounds() }, source: archive.source() };
+  }
   let interval: [number, number] | undefined;
   let incident: RateIncident | undefined;
   let forceLive = false;
@@ -80,10 +85,13 @@ export function createRateHistory(serviceName = 'rtdb') {
       return { ...method, callsPerSecond: buckets.reduce((sum, bucket) => sum + bucket.calls, 0) / duration,
         deliveriesPerSecond: buckets.reduce((sum, bucket) => sum + bucket.deliveries, 0) / duration };
     });
-    const clockOffset = archive.bounds().clockOffset ?? Date.now() - snapshot.monotonicAt;
-    return { service: { ...service, methods: projected }, points, from, to, paused: !!captured, totals, peaks, duration, clockOffset, warnings, incident, timeline: { ...archive.bounds(), window: windowSeconds } };
+    const clockOffset = (captured ? navigation().bounds : archive.bounds()).clockOffset ?? Date.now() - snapshot.monotonicAt;
+    return { service: { ...service, methods: projected }, points, from, to, paused: !!captured, totals, peaks, duration, clockOffset, warnings, incident, timeline: { ...(captured ? navigation().bounds : archive.bounds()), window: windowSeconds } };
   }
   function pause(snapshot: SdkRateSnapshot, latest = false) {
+    archive.record(snapshot);
+    pausedNavigation = undefined;
+    navigation();
     viewport = undefined;
     const source = snapshot.services.find(service => service.service === serviceName);
     captured = latest || !source ? source : { ...source, history: { endSecond: Math.floor(snapshot.monotonicAt / 1000), startedSecond: source.history?.startedSecond ?? 0, methods: source.methods, usageBuckets: source.usageBuckets } };
@@ -102,9 +110,10 @@ export function createRateHistory(serviceName = 'rtdb') {
   function pan(snapshot: SdkRateSnapshot, start: number) {
     if (imported) return;
     archive.record(snapshot);
-    const bounds = archive.bounds();
+    const frozen = navigation();
+    const bounds = frozen.bounds;
     const from = Math.max(bounds.from, Math.min(start, Math.max(bounds.from, bounds.to - windowSeconds + 1)));
-    captured = archive.source();
+    captured = frozen.source;
     viewport = [from, Math.min(bounds.to, from + windowSeconds - 1)];
     interval = [...viewport]; incident = undefined; manual = true;
   }
@@ -123,6 +132,9 @@ export function createRateHistory(serviceName = 'rtdb') {
     },
     markWarnings(next: readonly { from: number; to: number }[]) { warnings = next; },
     inspect(snapshot: SdkRateSnapshot, from: number, to: number, selectedIncident?: RateIncident) {
+      if (snapshot.monotonicAt / 1000 >= archive.bounds().to) archive.record(snapshot);
+      pausedNavigation = undefined;
+      navigation();
       viewport = undefined;
       incident = selectedIncident ? structuredClone(selectedIncident) : undefined;
       captured = snapshot.services.find(service => service.service === serviceName);
@@ -132,6 +144,7 @@ export function createRateHistory(serviceName = 'rtdb') {
     },
     open(snapshot: SdkRateSnapshot) {
       if (forceLive || manual) return;
+      pausedNavigation = undefined;
       viewport = undefined; captured = undefined; interval = undefined;
       const service = snapshot.services.find(service => service.service === serviceName);
       const history = service?.history;
@@ -140,7 +153,7 @@ export function createRateHistory(serviceName = 'rtdb') {
     },
     pause: (snapshot: SdkRateSnapshot) => { if (imported) return; incident = undefined; manual = true; pause(snapshot); },
     live() {
-      imported = undefined;
+      imported = undefined; pausedNavigation = undefined;
       incident = undefined; viewport = undefined; captured = undefined; interval = undefined; forceLive = true;
     },
     select(snapshot: SdkRateSnapshot, start: number, end: number) {
