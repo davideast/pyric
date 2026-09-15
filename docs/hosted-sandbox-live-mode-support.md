@@ -178,6 +178,7 @@ browser network buffer through that API.
 | Hosted init and attach | 5 seconds per stage | Reject startup and close its resources; no fallback store. |
 | Inbound or outbound encoded frame | 12 MiB | Refuse before dispatch/send; isolate the offending request or connection. |
 | Encoded document nesting | 64 containers | Refuse before recursive decoding or execution. |
+| Firestore wire query nesting | 64 layers | Count query-source wrappers and `and`/`or` wrappers together along each tree path; collection/document leaves and ordinary constraints add no layer. Refuse malformed structure or excess nesting with `invalid-argument` before SDK construction, operand decoding or listener registration. |
 | Mounted MCP sessions / retained Node MCP execution owners | 64 per layer | Refuse new session/owner allocation at capacity; unfinished host work retains its owner after session closure until it drains. |
 | Direct-command active/retained connection owners | 64 | Refuse new execution owners at capacity. Closing an HTTP connection does not release unfinished work's owner; last-call settlement returns capacity. This is separate from the MCP allowance. |
 | Pending operations per client | 256 | Reject new work with resource exhaustion before accepting it. |

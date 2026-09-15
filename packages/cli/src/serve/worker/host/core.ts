@@ -57,6 +57,7 @@ import type {
 import { serializeDocData } from '../protocol.js';
 import { type HostCtx, type PortLike } from '../host-context.js';
 import { portSession } from '../host-auth.js';
+import { assertQueryStructure } from './query-structure.js';
 
 // ─── Descriptor → live ref resolution ───────────────────────────────────
 
@@ -71,6 +72,14 @@ import { portSession } from '../host-auth.js';
  * respect to sandbox internals and makes retries trivially correct.
  */
 export function resolveTarget(
+  db: Firestore,
+  target: TargetDescriptor,
+): DocumentReference | CollectionReference | Query {
+  assertQueryStructure(target);
+  return constructTarget(db, target);
+}
+
+function constructTarget(
   db: Firestore,
   target: TargetDescriptor,
 ): DocumentReference | CollectionReference | Query {
@@ -90,7 +99,7 @@ export function resolveTarget(
   if (hasUnsupportedTarget) {
     throw new FirebaseError('invalid-argument', 'Unsupported Firestore target descriptor.');
   }
-  const source = resolveTarget(db, target.source);
+  const source = constructTarget(db, target.source);
   const constraints = target.constraints.map((constraint) => resolveConstraint(constraint, db));
   return pyricQuery(source, ...constraints);
 }
