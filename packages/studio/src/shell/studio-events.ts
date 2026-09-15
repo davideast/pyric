@@ -16,7 +16,7 @@ import type {
   SandboxListenerEvent,
   SandboxOperationEvent,
 } from 'pyric/sandbox';
-import { isOperationEvent, toOperationRecord } from 'pyric/sandbox';
+import { activeListeners, isOperationEvent, toOperationRecord } from 'pyric/sandbox';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
 import { foldSessionEventLog } from '../events/fold.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
@@ -60,8 +60,20 @@ export const STUDIO_EVENT_CAP = 500;
 
 /** Newest-retained cap. Returns the SAME reference when under the cap, so
  *  memo consumers don't churn on every render. */
-function capNewest(events: readonly SandboxEvent[]): readonly SandboxEvent[] {
-  return events.length > STUDIO_EVENT_CAP ? events.slice(-STUDIO_EVENT_CAP) : events;
+type EventRetention = 'recent' | 'active-listeners';
+
+function capNewest(events: readonly SandboxEvent[], retention: EventRetention): readonly SandboxEvent[] {
+  if (events.length <= STUDIO_EVENT_CAP) return events;
+  const recent = events.slice(-STUDIO_EVENT_CAP);
+  if (retention === 'recent') return recent;
+  // A live registration is state, not disposable traffic history. Keep its
+  // original attach until a detach/error closes it; deliveries remain capped.
+  const active = new Set(activeListeners(events).map(listener => listener.id));
+  const registrations = events.slice(0, -STUDIO_EVENT_CAP).filter(event =>
+    (event.kind === 'listener_attach' || (event.kind === 'listener' && event.phase === 'attach')) &&
+    active.has(event.listenerId),
+  );
+  return [...registrations, ...recent];
 }
 
 /**
@@ -75,7 +87,7 @@ function capNewest(events: readonly SandboxEvent[]): readonly SandboxEvent[] {
  * `history()` reads empty at subscribe time: hence we seed from `history()` AND
  * accumulate via `subscribe`, which folds each event exactly once.
  */
-export function useStudioEvents(): readonly SandboxEvent[] {
+export function useStudioEvents(retention: EventRetention = 'recent'): readonly SandboxEvent[] {
   const seed = useDevSeed();
   const env = useEnvironment();
   const liveFeed = env.status === 'ready' ? env.env.live?.feed : undefined;
@@ -91,18 +103,18 @@ export function useStudioEvents(): readonly SandboxEvent[] {
     // Live appends fold through the session rule: a reset boundary drops the
     // wiped session's events (see `events/fold.ts`) so Traffic/Session read
     // (near-)empty after Settings then Reset, which is issue #359's extension.
-    setLiveEvents(capNewest(liveFeed.history()));
+    setLiveEvents(capNewest(liveFeed.history(), retention));
     const unsub = liveFeed.subscribe((event) =>
-      setLiveEvents((prev) => capNewest(foldSessionEventLog(prev, event))),
+      setLiveEvents((prev) => capNewest(foldSessionEventLog(prev, event), retention)),
     );
     return unsub;
-  }, [seedReady, liveFeed]);
+  }, [seedReady, liveFeed, retention]);
 
   // The dev-seed path reads the sandbox's own reactive array, capped at the
   // read (same reference under the cap, so no memo churn).
   const cappedSeedEvents = useMemo(
-    () => (seedReady ? capNewest(seed.events) : []),
-    [seedReady, seed],
+    () => (seedReady ? capNewest(seed.events, retention) : []),
+    [seedReady, seed, retention],
   );
   return seedReady ? cappedSeedEvents : liveEvents;
 }
