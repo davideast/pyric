@@ -31,4 +31,4 @@ export {
 export { arrayBufferToBase64, base64ToBytes } from './base64.js';
 export type { StorageRulesResolution } from './rules-resolution.js';
 
-export { observeStorageOperation } from '../sandbox/internal/storage-activity.js';
+export { observeStorageOperation, storageTaskProgress, storageTaskResult } from '../sandbox/internal/storage-activity.js';

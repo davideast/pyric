@@ -100,6 +100,16 @@ async function main() {
   const { flushSync } = domModule.default ?? domModule;
   const h = React.createElement;
   const use = React.useSyncExternalStore;
+  const attachmentState = store<{ message: string; progress: number | null; preview: string | null }>({ message: 'Upload an attachment, then download it to preview.', progress: null, preview: null });
+  const updateAttachment = (patch: Partial<ReturnType<typeof attachmentState.get>>) => flushSync(() => attachmentState.set({ ...attachmentState.get(), ...patch }));
+  function AttachmentCard() {
+    const state = use(attachmentState.subscribe, attachmentState.get);
+    return h('section', { className: 'attachment-card', 'data-component': 'AttachmentCard', 'aria-label': 'Attachment' },
+      h('p', { role: 'status', id: 'storage-status' }, state.message),
+      state.progress !== null ? h('progress', { value: state.progress, max: 100, 'aria-label': 'Upload progress' }) : null,
+      state.preview ? h('img', { src: state.preview, width: 360, height: 96, alt: 'Downloaded Storage attachment' }) : null);
+  }
+  flushSync(() => createRoot(document.querySelector('#storage-preview')!).render(h(AttachmentCard)));
   function Photo({ uid }: { uid: string }) {
     return h("img", {
       className: "photo",
@@ -315,31 +325,39 @@ async function main() {
   }`);
   const attachments = storage.getStorageSandbox(sandbox, { dbName: 'flow-lab-attachments', rules: `rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /attachments/{file} { allow read, write: if true; } } }` });
   const attachment = storage.ref(attachments, 'attachments/design.bin');
-  const payload = new Uint8Array(16 * 1024);
+  const payload = new Uint8Array(16 * 1024).fill(32);
+  payload.set(new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96"><rect width="360" height="96" rx="8" fill="#263651"/><text x="20" y="55" fill="#c8d4f4" font-family="sans-serif" font-size="20">Design attachment</text></svg>'));
+  const metadata = { contentType: 'image/svg+xml' };
   for (const button of document.querySelectorAll<HTMLButtonElement>('[data-storage]')) {
     button.onclick = async () => {
-      const status = document.querySelector('#storage-status')!;
       button.disabled = true;
       try {
         const action = button.dataset.storage;
         if (action === 'download') {
           const bytes = await storage.getBytes(attachment);
-          status.textContent = `Downloaded ${bytes.byteLength / 1024} KiB.`;
+          const previous = attachmentState.get().preview;
+          updateAttachment({ message: `Downloaded ${bytes.byteLength / 1024} KiB.`, preview: URL.createObjectURL(new Blob([bytes], { type: 'image/svg+xml' })) });
+          if (previous) URL.revokeObjectURL(previous);
         } else if (action === 'delete') {
-          await storage.deleteObject(attachment); status.textContent = 'Attachment deleted.';
+          await storage.deleteObject(attachment);
+          const previous = attachmentState.get().preview;
+          updateAttachment({ message: 'Attachment deleted.', preview: null, progress: null });
+          if (previous) URL.revokeObjectURL(previous);
         } else if (action === 'denied') {
           await storage.uploadBytes(storage.ref(attachments, 'private/denied.bin'), payload);
         } else if (action === 'burst') {
           for (let i = 0; i < 80; i++) {
-            await storage.uploadBytes(attachment, payload);
-            status.textContent = `Storage burst: ${i + 1} of 80 uploads.`;
+            await storage.uploadBytes(attachment, payload, metadata);
+            updateAttachment({ message: `Storage burst: ${i + 1} of 80 uploads.` });
             await new Promise(resolve => setTimeout(resolve, 100));
           }
         } else {
-          await storage.uploadBytesResumable(attachment, payload);
-          status.textContent = 'Uploaded 16 KiB. Open Traffic → Rates → Storage to inspect.';
+          const task = storage.uploadBytesResumable(attachment, payload, metadata);
+          const unsubscribe = task.on('state_changed', snapshot => updateAttachment({ message: `Uploading ${snapshot.bytesTransferred} of ${snapshot.totalBytes} bytes.`, progress: Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100) }));
+          try { await task; } finally { unsubscribe(); }
+          updateAttachment({ message: 'Uploaded 16 KiB. Download to preview.', progress: 100 });
         }
-      } catch (error) { status.textContent = error instanceof Error ? error.message : String(error); }
+      } catch (error) { updateAttachment({ message: error instanceof Error ? error.message : String(error), progress: null }); }
       finally { button.disabled = false; }
     };
   }

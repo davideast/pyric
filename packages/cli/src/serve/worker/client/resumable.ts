@@ -1,3 +1,4 @@
+import { storageTaskProgress, storageTaskResult } from 'pyric/storage/internal';
 /**
  * Worker-mode resumable upload operations: `uploadBytesResumable` and observer tasks.
  *
@@ -74,6 +75,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   private _reject!: (error: Error) => void;
   private _observers: ClientTaskObserver[] = [];
   private _didIntermediateProgress = false;
+  private _committing = false;
   private _error: Error | undefined;
   private readonly _ref: ClientStorageReference;
   private readonly _data: Blob | Uint8Array | ArrayBuffer;
@@ -280,7 +282,8 @@ class ClientUploadTaskImpl implements ClientUploadTask {
       if (hasNextCb) {
         const fn = nextCb as (snapshot: ClientUploadTaskSnapshot) => unknown;
         try {
-          fn(this._snapshot);
+          storageTaskProgress(this);
+            fn(this._snapshot);
         } catch {
           // Observational
         }
@@ -292,6 +295,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         if (hasNextCb) {
           const fn = nextCb as (snapshot: ClientUploadTaskSnapshot) => unknown;
           try {
+            storageTaskProgress(this);
             fn(this._snapshot);
           } catch {
             // Observational
@@ -304,7 +308,8 @@ class ClientUploadTaskImpl implements ClientUploadTask {
           if (hasNextCb) {
             const fn = nextCb as (snapshot: ClientUploadTaskSnapshot) => unknown;
             try {
-              fn(this._snapshot);
+              storageTaskProgress(this);
+            fn(this._snapshot);
             } catch {
               // Observational
             }
@@ -313,7 +318,8 @@ class ClientUploadTaskImpl implements ClientUploadTask {
           if (hasCompleteCb) {
             const fn = compCb as () => unknown;
             try {
-              fn();
+              storageTaskResult(this);
+            fn();
             } catch {
               // Observational
             }
@@ -389,6 +395,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         if (hasNext) {
           const fn = obs.next as (snapshot: ClientUploadTaskSnapshot) => unknown;
           try {
+            storageTaskProgress(this);
             fn(this._snapshot);
           } catch {
             // Ignore observer exceptions
@@ -423,6 +430,7 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         if (hasComplete) {
           const fn = obs.complete as () => unknown;
           try {
+            storageTaskResult(this);
             fn();
           } catch {
             // Ignore observer exceptions
@@ -458,11 +466,13 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   }
 
   private async _commitUpload(): Promise<void> {
+    if (this._committing) return;
     const isNotRunning = this._snapshot.state !== 'running';
     if (isNotRunning) {
       return;
     }
 
+    this._committing = true;
     try {
       const result = await uploadBytes(this._ref, this._data, this._metadata);
       const isStillRunning = this._snapshot.state === 'running';
@@ -493,6 +503,9 @@ class ClientUploadTaskImpl implements ClientUploadTask {
         this._notifyObservers('error');
         this._reject(this._error);
       }
+    } finally {
+      this._committing = false;
+      if (this._snapshot.state === 'running') queueMicrotask(() => this._runStep());
     }
   }
 }

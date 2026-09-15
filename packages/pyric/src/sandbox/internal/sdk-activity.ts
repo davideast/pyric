@@ -28,6 +28,7 @@ export interface SdkActivityRecord {
   readonly endedAt?: number;
   readonly deliveryCount: number;
   readonly lastDeliveryAt?: number;
+  readonly lastProgressAt?: number;
   readonly owners: readonly ListenerOwner[];
   /** Optional bridge identity. It is not the logical activity id. */
   readonly transportId?: string;
@@ -37,6 +38,8 @@ export interface SdkActivityHandle {
   readonly id: string;
   /** Call immediately before handing a successful result to application code. */
   delivered(snapshot?: unknown, usage?: UsageEvidence): void;
+  /** A progress callback, never a result or rate observation. */
+  progress(): void;
   complete(usage?: UsageEvidence): void;
   fail(): void;
   close(): void;
@@ -44,7 +47,7 @@ export interface SdkActivityHandle {
 }
 
 export interface SdkActivityEvent {
-  readonly phase: 'start' | 'delivery' | 'end' | 'remove' | 'transport';
+  readonly phase: 'start' | 'delivery' | 'end' | 'remove' | 'transport' | 'progress';
   readonly record: SdkActivityRecord;
   readonly usage?: UsageEvidence;
 }
@@ -169,7 +172,7 @@ export function createSdkActivityJournal(options: {
       transportId?: string;
     }): SdkActivityHandle {
       if (disposed || silenced) return {
-        id: '', delivered() {}, complete() {}, fail() {}, close() {}, transport() {},
+        id: '', delivered() {}, progress() {}, complete() {}, fail() {}, close() {}, transport() {},
       };
       let app = apps.get(input.app);
       if (!app) {
@@ -228,6 +231,7 @@ export function createSdkActivityJournal(options: {
           } catch { usage = { unmeasured: 1 }; }
           update('delivery', { deliveryCount: current.deliveryCount + 1, lastDeliveryAt: now() }, usage);
         },
+        progress() { update('progress', { lastProgressAt: now() }); },
         complete(usage) { end('completed', usage ?? (record.service === 'firestore' ? firestoreWriteUsage(record.method) : undefined)); },
         fail() { end('failed'); },
         close() { end('closed'); },
