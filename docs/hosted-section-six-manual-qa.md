@@ -143,3 +143,33 @@ Automated minimum-Node checks additionally exercised malformed-file restoration,
 unwritable-state refusal and repair, Studio's committed Storage upload, and
 SharedWorker-absent Studio. Those fault injections are automated evidence, not
 claimed manual file-upload or phone verification.
+
+## Repeated full checkpoint — 2026-09-15, commit `93a45e6d`
+
+Reused the retained installed candidate and created a fresh `checkpoint-rerun`
+project on port 48771. This run used the in-app browser for every interactive
+step, including the Storage file chooser. No rebuild or package publication.
+
+| Check | Observed result |
+| --- | --- |
+| Live shared data | Two distinct button writes appeared in the already-open Studio document without reload. |
+| Disconnect | The app disabled writes and showed Reconnecting; its chip showed Hosted Reconnecting. Studio removed connected badges and reported the lost connection. |
+| Restart | Both pages recovered without reload; another write reached Studio. |
+| First persistence failure | `committed-but-not-durable`; the in-memory document and listener changed. |
+| Subsequent write | `persistence-unhealthy`; the document and listener count remained unchanged. Both errors appeared in Traffic. |
+| Studio upload | Selecting the disposable marker file through Upload files produced the expected persistence-unhealthy error. Neither private marker appeared in its diagnostic. |
+| Permission repair and restart | The last durable document returned, replacing the unpersisted value. Studio's current error cleared and a new app write succeeded. Historical Traffic and upload errors remained. |
+| Corrupt JSON | Startup exited with code 2, named the invalid state file, omitted both markers, and preserved the corrupt bytes. Restoring the backup recovered the open app. |
+| Startup snippet | External-command settings were present; the beacon token was absent. |
+
+The two repeatable commands also passed on Node 22.18.0: **3 compatibility cases
+in 6.4 seconds**, and **8 fault/Studio cases in 29.1 seconds**. The latter includes
+SharedWorker-absent Studio and a Storage upload that commits before persistence
+fails; those two cases remain automated evidence. Logs are retained locally in
+`ignored/section6/manual-rerun-packed.log` and
+`ignored/section6/manual-rerun-faults.log`.
+
+All expected checks passed. Temporary tabs 21–22 were closed, port 48771 was
+stopped, and disposable state permissions and contents were restored. Existing
+demo tabs, servers, and Tailscale routes were left untouched. No phone check was
+performed in this run.
