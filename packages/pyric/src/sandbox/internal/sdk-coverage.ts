@@ -1,3 +1,4 @@
+import { storageActivityCoverage } from '../../storage/activity-coverage.js';
 import type { EventService } from '../types/operation.js';
 import { firestoreActivityCoverage } from '../../firestore/activity-coverage.js';
 import { databaseActivityCoverage } from '../../database/activity-coverage.js';
@@ -9,7 +10,7 @@ export interface SdkMethodCoverage {
 }
 // Statically aggregate only service-owned data, never import service executors.
 // This keeps the foundation usable before SDK construction and prevents cycles.
-const services = [firestoreActivityCoverage, databaseActivityCoverage];
+const services = [firestoreActivityCoverage, databaseActivityCoverage, storageActivityCoverage];
 const methods = new Map<EventService, readonly SdkMethodCoverage[]>();
 const untracked = new Map<EventService, readonly string[]>();
 for (const service of services) {

@@ -73,7 +73,7 @@ export interface ListenerOutline {
   /** Collection path for a query, document or node path otherwise. */
   readonly target: string;
   readonly isQuery: boolean;
-  readonly service: 'firestore' | 'database';
+  readonly service: 'firestore' | 'database' | 'storage';
   readonly deliveryCount: number;
   /** When this listener last handed the application a snapshot, when it has. */
   readonly lastDeliveryAt?: number;

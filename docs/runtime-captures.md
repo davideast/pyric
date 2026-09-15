@@ -39,3 +39,5 @@ Captures are limited to 32 MB. Project storage accepts validated bundles under g
 Ask: “Inspect the latest saved Firestore capture. Explain which limit was exceeded, the peak rate, time above the limit, and which recorded operations contributed. Distinguish the selected interval from time above the limit, and state what the capture cannot establish about billing or replay.”
 
 The agent can use `listCaptures` to select the newest entry for that service, then `openCapture` with its id. Newly saved captures include the same measurement definitions as the chip's **How measurements work** disclosure. The full-state attachment is optional; the incident and measurement evidence can be inspected without restoring it.
+
+Storage captures use the same controls and sandbox methods. Their one-second points include reads, writes, deletes, and completed uploaded/downloaded bytes. Byte totals cover successful SDK transfers; they exclude external fetches of download URLs, partial transfers, retries, and protocol overhead. They are local observations, not billing totals.

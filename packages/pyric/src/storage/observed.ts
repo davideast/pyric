@@ -1,0 +1,16 @@
+import { observeStorageOperation } from '../sandbox/internal/storage-activity.js';
+import { uploadBytes as rawuploadBytes, uploadString as rawuploadString } from './upload.js';
+export const uploadBytes: typeof rawuploadBytes = observeStorageOperation('uploadBytes', rawuploadBytes);
+export const uploadString: typeof rawuploadString = observeStorageOperation('uploadString', rawuploadString);
+import { uploadBytesResumable as rawuploadBytesResumable } from './resumable.js';
+export const uploadBytesResumable: typeof rawuploadBytesResumable = observeStorageOperation('uploadBytesResumable', rawuploadBytesResumable);
+import { getBytes as rawgetBytes, getBlob as rawgetBlob, getDownloadURL as rawgetDownloadURL, deleteObject as rawdeleteObject } from './download.js';
+export const getBytes: typeof rawgetBytes = observeStorageOperation('getBytes', rawgetBytes);
+export const getBlob: typeof rawgetBlob = observeStorageOperation('getBlob', rawgetBlob);
+export const getDownloadURL: typeof rawgetDownloadURL = observeStorageOperation('getDownloadURL', rawgetDownloadURL);
+export const deleteObject: typeof rawdeleteObject = observeStorageOperation('deleteObject', rawdeleteObject);
+import { getMetadata as rawgetMetadata, updateMetadata as rawupdateMetadata } from './metadata.js';
+export const getMetadata: typeof rawgetMetadata = observeStorageOperation('getMetadata', rawgetMetadata);
+export const updateMetadata: typeof rawupdateMetadata = observeStorageOperation('updateMetadata', rawupdateMetadata);
+import { listAll as rawlistAll } from './list.js';
+export const listAll: typeof rawlistAll = observeStorageOperation('listAll', rawlistAll);

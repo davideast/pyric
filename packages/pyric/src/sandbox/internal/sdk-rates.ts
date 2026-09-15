@@ -10,17 +10,19 @@ function ringSlot(second: number): number {
   return ((second % RETAINED_SECONDS) + RETAINED_SECONDS) % RETAINED_SECONDS;
 }
 interface Bucket { second: number; calls: number; deliveries: number }
-interface UsageBucket { second: number; documentReads: number; documentWrites: number; documentDeletes: number; payloadBytes: number; unmeasured: number }
+interface UsageBucket { second: number; documentReads: number; documentWrites: number; documentDeletes: number; payloadBytes: number; uploadedBytes: number; downloadedBytes: number; unmeasured: number }
 export interface ServiceUsageRate {
+  readonly uploadedBytes?: number;
+  readonly downloadedBytes?: number;
   readonly documentReads: number;
   readonly documentWrites: number;
   readonly documentDeletes: number;
   readonly payloadBytes: number;
   readonly unmeasured: number;
 }
-const usageKeys = ['documentReads', 'documentWrites', 'documentDeletes', 'payloadBytes', 'unmeasured'] as const;
+const usageKeys = ['documentReads', 'documentWrites', 'documentDeletes', 'payloadBytes', 'uploadedBytes', 'downloadedBytes', 'unmeasured'] as const;
 function emptyUsage(second: number): UsageBucket {
-  return { second, documentReads: 0, documentWrites: 0, documentDeletes: 0, payloadBytes: 0, unmeasured: 0 };
+  return { second, documentReads: 0, documentWrites: 0, documentDeletes: 0, payloadBytes: 0, uploadedBytes: 0, downloadedBytes: 0, unmeasured: 0 };
 }
 interface Series {
   service: EventService;
@@ -186,7 +188,7 @@ export function createSdkRates(options: { monotonicNow?: () => number; activeLis
       }
       const measurement = Object.freeze({ documentReads: totals.documentReads / WINDOW_SECONDS,
         documentWrites: totals.documentWrites / WINDOW_SECONDS, documentDeletes: totals.documentDeletes / WINDOW_SECONDS,
-        payloadBytes: totals.payloadBytes / WINDOW_SECONDS, unmeasured: totals.unmeasured });
+        payloadBytes: totals.payloadBytes / WINDOW_SECONDS, uploadedBytes: totals.uploadedBytes / WINDOW_SECONDS, downloadedBytes: totals.downloadedBytes / WINDOW_SECONDS, unmeasured: totals.unmeasured });
       return Object.freeze({ service, usage: measurement, usageBuckets: usageWindow(second),
         ...(last ? { lastActivityAt: last.at } : {}),
         history: Object.freeze({ endSecond: historyEnd, startedSecond, methods: Object.freeze(historyMethods), usageBuckets: usageWindow(historyEnd) }), coverage: methods.length ? 'partial' as const : 'unsupported' as const,
