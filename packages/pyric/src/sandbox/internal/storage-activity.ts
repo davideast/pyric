@@ -5,7 +5,12 @@ interface StorageSource { readonly storage?: object; readonly port?: object; rea
 const tasks = new WeakMap<object, SdkActivityHandle>();
 /** Called immediately before a real application observer; no payload is retained. */
 export function storageTaskProgress(task: object): void { tasks.get(task)?.progress(); }
-export function storageTaskResult(task: object): void { tasks.get(task)?.delivered(undefined, {}); }
+export function storageTaskResult(task: object): void {
+  const activity = tasks.get(task);
+  activity?.delivered(undefined, {});
+  // Each callback gets its own render window, but the result is counted once.
+  activity?.progress();
+}
 /** Preserve promises and UploadTask handles; observe completion without wrapping them. */
 export function observeStorageOperation<S extends StorageSource, A extends unknown[], R extends PromiseLike<unknown>>(
   method: string, operation: (ref: S, ...args: A) => R,
@@ -20,8 +25,8 @@ export function observeStorageOperation<S extends StorageSource, A extends unkno
         const usage: UsageEvidence = storageUsage(method, value);
         // Results open a render window; byte usage is recorded once at its original boundary.
         activity.delivered(undefined, method.startsWith('get') || method === 'listAll' ? usage : {});
+        if (method === 'uploadBytesResumable') activity.progress();
         activity.complete(method.startsWith('get') || method === 'listAll' ? undefined : usage);
-        tasks.delete(result);
       }, () => { activity.fail(); tasks.delete(result); });
       return result;
     } catch (error) { activity.fail(); throw error; }
