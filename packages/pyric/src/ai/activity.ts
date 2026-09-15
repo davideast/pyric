@@ -22,10 +22,11 @@ export function beginAiActivity(target: AITarget, model: string, method: string)
       detail = { ...detail, firstChunkMs: detail.firstChunkMs ?? performance.now() - start };
     },
     progress: () => activity.progress(),
-    finish(value: object) {
+    finish(value: object, response: object = value) {
       if (ended) return;
       ended = true;
       observe(value);
+      activity.response(response);
       detail = { ...detail, durationMs: performance.now() - start };
       activity.ai(detail);
       const usage: UsageEvidence = method === 'countTokens' ? {} : {

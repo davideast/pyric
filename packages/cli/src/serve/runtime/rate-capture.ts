@@ -42,12 +42,13 @@ export function readRateCapture(text: string): { frame: HistoryFrame; thresholds
 }
 
 export function buildRateCapture(frame: HistoryFrame, thresholds: ThresholdConfig, events: readonly SandboxEvent[], sessionFixture: unknown = null, attachmentError: string | null = null) {
+  const capturedFrame: HistoryFrame = { ...structuredClone(frame), service: { ...structuredClone(frame.service), aiRequests: frame.service.aiRequests?.map(({ response, ...request }) => structuredClone(request)) } };
   const start = frame.clockOffset + frame.from * 1000;
   const end = frame.clockOffset + (frame.to + 1) * 1000;
   return {
     schema: 'pyric.rate-capture.v1', createdAt: new Date().toISOString(),
     measurement: { scope: 'This page', bucketSeconds: 1, average: 'Selected totals divided by all selected seconds, including idle seconds.', notes: structuredClone(measurementNotes(frame.service.service)) },
-    frame: structuredClone(frame), thresholds: structuredClone(thresholds),
+    frame: capturedFrame, thresholds: structuredClone(thresholds),
     thresholdsScope: 'Settings at export time. Selected incident details retain the limit and duration that triggered it.',
     operations: events.filter(event => event.at >= start && event.at < end && event.service === frame.service.service),
     sessionFixtureUnavailableReason: attachmentError ?? (sessionFixture === null ? 'No session fixture is available from this host.' : null),

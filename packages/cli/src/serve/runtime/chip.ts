@@ -239,6 +239,7 @@ const styles = `
   .s1.split > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .right { display: flex; gap: var(--space-1); flex: none; max-width: 56px; }
   .provider-disclosure { display: grid; grid-template-columns: 0 minmax(0, 1fr) 0; gap: var(--space-3); }
+  .request-response-body { margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--pyric-font-mono); font-size: 12px; line-height: 1.5; padding: var(--space-3); background: var(--pyric-content); border: 1px solid var(--pyric-border-soft); border-radius: 8px; }
   .provider-details { grid-column: 2; min-width: 0; }
   .provider-body { display: grid; grid-template-rows: 0 auto; row-gap: var(--space-2); }
   .provider-details > summary { grid-column: 2; display: flex; align-items: center; gap: var(--space-1); font-size: 11px; color: var(--pyric-accent); cursor: pointer; min-height: 24px; list-style: none; }
@@ -1096,6 +1097,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         reasonFact = fact('Reason', rulesSummary(request), '');
         evidenceDetails = rulesEvidenceHtml(request, escapeAttribute, iconHtml('chevron'));
       }
+      if (request.aiRequest) {
+        const response = request.aiRequest.response;
+        const content = response
+          ? `<pre class="request-response-body" tabindex="0" aria-label="Returned response">${escapeAttribute(response.text)}</pre>${response.truncated ? '<p class="rules-privacy">Preview limited to the first 65,536 characters.</p>' : ''}`
+          : `<p class="rules-privacy">${request.aiRequest.status === 'pending' ? 'Waiting for the completed response.' : request.aiRequest.status === 'failed' ? 'No successful response was returned.' : 'Response content was not recorded for this request.'}</p>`;
+        evidenceDetails += `<details class="rules-disclosure" data-request-response="${escapeAttribute(request.id)}"><summary><span>Response</span><span class="rules-chevron">${iconHtml('chevron')}</span></summary><div class="rules-detail-body">${content}</div></details>`;
+      }
       evidenceDetails += indexBlock(request.indexQuery, request.id);
       const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy request" title="Copy request"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
       return {
@@ -1170,6 +1178,10 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const openRateNotes = root.querySelector<HTMLDetailsElement>('[data-rate-notes][open]')?.dataset.rateNotes;
     const focusedRateNotes = root.activeElement?.closest('[data-rate-notes]')?.getAttribute('data-rate-notes');
     const openIndexJson = root.querySelector<HTMLDetailsElement>('[data-index-json][open]')?.dataset.indexJson;
+    const responseDetails = root.querySelector<HTMLDetailsElement>('[data-request-response]');
+    const responseOpen = responseDetails?.open ? responseDetails.dataset.requestResponse : undefined;
+    const responseScroll = responseDetails?.querySelector('pre')?.scrollTop ?? 0;
+    const responseFocus = responseDetails?.contains(root.activeElement) ? root.activeElement?.tagName : undefined;
     const openRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details][open]')?.dataset.ruleDetails;
     const previousRuleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
     const previousExpressions = [...(previousRuleDetails?.querySelectorAll<HTMLElement>('.rule-expression') ?? [])];
@@ -1291,6 +1303,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     const indexJson = root.querySelector<HTMLDetailsElement>('[data-index-json]');
     if (indexJson) indexJson.open = indexJson.dataset.indexJson === openIndexJson;
+    const nextResponse = root.querySelector<HTMLDetailsElement>('[data-request-response]');
+    if (nextResponse && nextResponse.dataset.requestResponse === responseDetails?.dataset.requestResponse) {
+      nextResponse.open = nextResponse.dataset.requestResponse === responseOpen;
+      const pre = nextResponse.querySelector('pre');
+      if (pre) pre.scrollTop = responseScroll;
+      if (responseFocus) nextResponse.querySelector<HTMLElement>(responseFocus === 'PRE' ? 'pre' : 'summary')?.focus({ preventScroll: true });
+    }
     const ruleDetails = root.querySelector<HTMLDetailsElement>('[data-rule-details]');
     if (ruleDetails) {
       ruleDetails.open = ruleDetails.dataset.ruleDetails === openRuleDetails;

@@ -25,6 +25,7 @@ test('alias identity and backend tokens survive a call without changing the Fire
     expect(Object.keys(result.response)).not.toContain('__pyricAi');
     map['gemini-2.5-flash'] = 'changed';
     const stats = monitor.snapshot().services.find(s => s.service === 'ai')!;
+    expect(stats.aiRequests!.at(-1)!.response?.text).toContain('Hello');
     expect(stats.aiRequests!.at(-1)!.detail).toMatchObject({ requestedModel: 'models/gemini-2.5-flash', routedModel: 'qwen3:8b', reportedModel: 'qwen3:8b-backend', engine: 'openai', endpoint: 'http://localhost:11434', usageSource: 'backend', inputTokens: 20, outputTokens: 5 });
     expect(stats.usage!.aiInputTokens).toBe(4);
     expect(stats.usage!.aiEstimatedTokens).toBe(0);
@@ -68,6 +69,8 @@ test('worker metadata survives serialization; streaming counts once and only fin
     for await (const chunk of result.stream) { chunks++; expect(phases.at(-1)).toBe('progress'); expect(Object.keys(chunk)).not.toContain('__pyricAi'); }
     await result.response;
     expect(chunks).toBeGreaterThan(1);
+    const preview = JSON.parse(monitor.snapshot().services.find(s => s.service === 'ai')!.aiRequests!.at(-1)!.response!.text);
+    expect(preview.candidates[0].content.parts.map((part: { text?: string }) => part.text ?? '').join('')).toBe('Hi there');
     const stats = monitor.snapshot().services.find(s => s.service === 'ai')!;
     expect(stats.methods.find(m => m.method === 'generateContentStream')!.buckets.reduce((sum,b) => sum + b.calls,0)).toBe(1);
     expect(phases.filter(p => p === 'delivery')).toHaveLength(1);

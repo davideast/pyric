@@ -8,7 +8,7 @@ Started counts requests when they begin; Completed counts successful responses w
 
 Generation token totals use final response usage. Backend-reported input and output tokens are separate from locally estimated or scripted totals. Unknown usage is counted explicitly. `countTokens` reports its count in request details but never adds those tokens to generation usage. These measurements cover this page, not a project’s bill. Scripted fixtures invoke no real model.
 
-Aggregate counters are independent of the request-detail list. Details retain up to 100 requests, including pending requests; the timeline retains up to 30 minutes. Pausing freezes its browsable range while recording continues. Automatic idle selection includes the associated request duration. A manually selected completion-only period can contain tokens and a completion without a start. Captures retain the selected measurements and the request identity available at capture time.
+Aggregate counters are independent of the request-detail list. Details retain up to 100 requests, including pending requests; the timeline retains up to 30 minutes. Pausing freezes its browsable range while recording continues. The default AI period includes the whole displayed recorded window, including scripted calls and idle gaps, and expands for an associated long request. A manually selected completion-only period can contain tokens and a completion without a start. Captures retain the selected measurements and the request identity available at capture time.
 
 ## Identify aliases and local models
 
@@ -68,6 +68,6 @@ The **AI Logic** section provides Generate, Stream, Fail request, and Rate warni
 
 In **Data**, select **Flow** to see React renders observed after responses or consumed chunks. This is timing correlation, not proof of a data dependency.
 
-No CLI commands or MCP tools are added. Existing capture save/list/open tools accept AI Logic captures, and the runtime threshold configuration gains the `ai` section. Internal worker messages carry diagnostic identity separately from the Firebase response and error surfaces. Prompts, generated text, credentials, and request payloads are not retained by these counters or request details.
+No CLI commands or MCP tools are added. Existing capture save/list/open tools accept AI Logic captures, and the runtime threshold configuration gains the `ai` section. Internal worker messages carry diagnostic identity separately from the Firebase response and error surfaces. Traffic’s collapsed Response section retains a local JSON preview of the completed response, limited to 65,536 characters per request. Previews are bounded to the retained request list and excluded from rate captures. Counters and observation events do not include response content; prompts and request payloads are not recorded by this preview.
 
 `countTokens` on the OpenAI-compatible engine runs a local estimate. Its details name the configured route for context but explicitly say no model was invoked.

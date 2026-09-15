@@ -53,7 +53,7 @@ export interface SdkMethodRate {
   readonly observed: boolean;
   readonly buckets: readonly SdkRateBucket[];
 }
-export interface AiRequestObservation { readonly id: string; readonly startedAt?: number; readonly startedSecond?: number; readonly at: number; readonly second: number; readonly method: string; readonly status: string; readonly detail: NonNullable<SdkActivityRecord['ai']> }
+export interface AiRequestObservation { readonly response?: SdkActivityRecord['response']; readonly id: string; readonly startedAt?: number; readonly startedSecond?: number; readonly at: number; readonly second: number; readonly method: string; readonly status: string; readonly detail: NonNullable<SdkActivityRecord['ai']> }
 export interface SdkServiceRate {
   readonly aiInProgress?: number;
   readonly aiRequests?: readonly AiRequestObservation[];
@@ -119,7 +119,7 @@ export function createSdkRates(options: { monotonicNow?: () => number; activeLis
       row.observed = true;
     }
   }
-  function record(event: SdkObservation): void {
+  function record(event: SdkObservation, response?: SdkActivityRecord['response']): void {
     if (event.sequence <= sequence) return;
     sequence = event.sequence;
     const row = series.get(`${event.service}/${event.method}`);
@@ -134,7 +134,7 @@ export function createSdkRates(options: { monotonicNow?: () => number; activeLis
       const previous = aiRequests[index];
       const request = Object.freeze({ id: event.activityId, startedAt: previous?.startedAt ?? aiActive.get(event.activityId)?.at ?? event.at,
         startedSecond: previous?.startedSecond ?? aiActive.get(event.activityId)?.second ?? Math.floor(event.monotonicAt / 1000),
-        at: event.at, second: Math.floor(event.monotonicAt / 1000), method: event.method, status: event.status, detail: event.ai });
+        at: event.at, second: Math.floor(event.monotonicAt / 1000), method: event.method, status: event.status, response, detail: event.ai });
       if (index < 0) aiRequests.push(request); else aiRequests[index] = request;
       if (aiRequests.length > 100) aiRequests.shift();
     }
@@ -230,7 +230,7 @@ export function createSdkRateMonitor(
   options: { monotonicNow?: () => number } = {},
 ) {
   const rates = createSdkRates({ ...options, activeListeners: journal.records() });
-  const dispose = journal.observe(rates.record);
+  const dispose = journal.observe(event => rates.record(event, event.ai ? journal.records().find(record => record.id === event.activityId)?.response : undefined));
   return Object.freeze({ snapshot: rates.snapshot, dispose });
 }
 

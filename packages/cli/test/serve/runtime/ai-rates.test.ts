@@ -134,3 +134,28 @@ test('automatic AI selection spans a request longer than the live minute', () =>
   expect(frame.totals.completed).toBe(1);
   monitor.dispose(); journal.dispose();
 });
+
+test('default AI period includes spaced scripted and backend calls, while captures omit response previews', () => {
+  let now = 1000;
+  const journal = createSdkActivityJournal({ now: () => now, monotonicNow: () => now });
+  const monitor = createSdkRateMonitor(journal, { monotonicNow: () => now });
+  for (const engine of ['scripted', 'openai'] as const) {
+    const request = journal.begin({ app: {}, method: 'generateContent', kind: 'operation', source: { service: 'ai', target: 'alias', key: 'alias' } });
+    request.ai({ requestedModel: 'alias', engine, usageSource: engine === 'scripted' ? 'scripted' : 'backend' });
+    request.response({ text: 'Retained response content' });
+    request.delivered(undefined, { aiCompleted: 1, ...(engine === 'scripted' ? { aiEstimatedTokens: 10 } : { aiInputTokens: 10, aiOutputTokens: 5 }) });
+    request.complete(); now += 18000;
+  }
+  const history = createRateHistory('ai'); history.open(monitor.snapshot());
+  const frame = history.view(monitor.snapshot())!;
+  expect(frame.totals.requests).toBe(2);
+  expect(frame.totals.completed).toBe(2);
+  expect(frame.totals.estimatedTokens).toBe(10);
+  expect(frame.totals.inputTokens).toBe(10);
+  expect(frame.service.aiRequests).toHaveLength(2);
+  expect(frame.service.aiRequests![0]!.response?.text).toContain('Retained response content');
+  const capture = JSON.stringify(buildRateCapture(frame, {}, [], null));
+  expect(capture).not.toContain('Retained response content');
+  expect(frame.service.aiRequests![0]!.response?.text).toContain('Retained response content');
+  monitor.dispose(); journal.dispose();
+});

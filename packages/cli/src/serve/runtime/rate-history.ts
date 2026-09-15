@@ -112,6 +112,8 @@ export function createRateHistory(serviceName = 'rtdb') {
         let first = last.second;
         for (let i = used.length - 2; i >= 0 && first - used[i]!.second <= 2; i--) first = used[i]!.second;
         if (serviceName === 'ai') {
+          // AI calls may be separated by thought/model latency; keep the whole displayed window.
+          first = points[0]?.second ?? first;
           for (const request of source?.aiRequests ?? []) {
             if (request.second >= first && (request.startedSecond ?? request.second) <= last.second) first = Math.min(first, request.startedSecond ?? request.second);
           }

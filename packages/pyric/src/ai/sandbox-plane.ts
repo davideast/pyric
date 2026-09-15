@@ -176,8 +176,9 @@ export async function planeGenerateContentStream(
       done = true;
       wake();
     }
-    activity.finish(buffered.at(-1) ?? {});
-    return aggregateResponses(buffered);
+    const aggregate = aggregateResponses(buffered);
+    activity.finish(buffered.at(-1) ?? {}, aggregate);
+    return aggregate;
   })();
 
   const response: Promise<EnhancedResponse> = pumped.then((aggregate) =>
