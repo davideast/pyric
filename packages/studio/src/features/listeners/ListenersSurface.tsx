@@ -28,7 +28,7 @@ export interface ListenersSurfaceProps {
 }
 
 export function ListenersSurface({ window, hideStudio, deepLink }: ListenersSurfaceProps) {
-  const events = useStudioEvents();
+  const events = useStudioEvents('active-listeners');
   // The link lives in the URL, so back/forward and a chip click that lands on
   // an already-open Studio both move the selection (N4: the URL is the store).
   // The subscribed snapshot is the location string, not the parsed link:
