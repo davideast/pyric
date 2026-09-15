@@ -43,7 +43,7 @@ export default {
   sdkOrigin: 'pyric',
   effect: 'read',
   signature: `listeners(service?: ${SERVICES.join('|')}, target?)`,
-  description: 'List every attached listener, with delivery and suppression counts.',
+  description: 'List listeners with delivery and suppression counts.',
   args: z.object({
     service: z.enum(SERVICES).optional().describe('Narrow to one service.'),
     target: z.string().optional().describe('Keep only listeners whose target starts with this.'),

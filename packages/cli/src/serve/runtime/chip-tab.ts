@@ -49,6 +49,7 @@ export interface ChipTabSignals {
   updatePending: boolean;
   /** An executed query is missing an index in local configuration. */
   missingIndex?: boolean;
+  rateThreshold?: boolean;
 }
 
 /** `true` when this string names a view. */
@@ -69,7 +70,7 @@ export function openingChipTab(
 ): ChipTab {
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
-  if (signals.missingIndex) return 'traffic';
+  if (signals.missingIndex || signals.rateThreshold) return 'traffic';
   if (signals.updatePending) return 'identity';
   return remembered ?? DEFAULT_CHIP_TAB;
 }
@@ -78,7 +79,7 @@ export function openingChipTab(
 export function problemTab(signals: ChipTabSignals): ChipTab | null {
   if (signals.failedRecently) return 'traffic';
   if (signals.duplicateListener) return 'listeners';
-  if (signals.missingIndex) return 'traffic';
+  if (signals.missingIndex || signals.rateThreshold) return 'traffic';
   if (signals.updatePending) return 'identity';
   return null;
 }

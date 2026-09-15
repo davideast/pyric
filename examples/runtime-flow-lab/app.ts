@@ -1,3 +1,4 @@
+import { createWarningScenarios, warningBurstPlan } from './warning-scenarios.ts';
 import type { AuthUserRecord } from "pyric/auth";
 import type { AuthLens, SandboxEvent } from "pyric/sandbox";
 import type { RuntimeIdentity } from "../../packages/cli/src/serve/runtime/identity.ts";
@@ -9,7 +10,7 @@ import {
   createListenerMode,
   type ListenerMode,
 } from "../../packages/cli/src/serve/runtime/listener-mode.ts";
-import { initializeSandbox } from "pyric/sandbox";
+import { captureFullState, initializeSandbox } from "pyric/sandbox";
 import { setRules } from "pyric/sandbox/firestore";
 import { createChatData, type ChatService, type ListenOptions } from "./chat-data.ts";
 import * as database from "pyric/database";
@@ -304,8 +305,10 @@ async function main() {
   let current: RuntimeIdentity | null = users[0] ?? null;
   let authChanged = (_user: RuntimeIdentity | null) => {};
   const sandbox = initializeSandbox();
+  sandbox.currentUser = current ? { uid: current.uid } : null;
   setRules(sandbox, `rules_version = '2'; service cloud.firestore {
     match /databases/{database}/documents {
+      match /scenario-denials/{id} { allow read: if true; allow write: if request.resource.data.budget >= 0; }
       match /conversations/design/{document=**} { allow read, write: if true; }
     }
   }`);
@@ -316,7 +319,7 @@ async function main() {
   } });
   database.sandbox.setData(rtdb, { presence: { online: true }, typing: { design: false } });
   const chat = createChatData(sandbox, service, messageStore.get());
-  if (service === 'rtdb') await chat.rules();
+  await chat.rules();
   const subscribeEvents = (listener: (events: readonly SandboxEvent[]) => void) => {
     listener(sandbox.history());
     return sandbox.onEvent(event => listener([event]));
@@ -338,10 +341,12 @@ async function main() {
       },
       switchUser: (uid) => {
         current = users.find((user) => user.uid === uid) ?? null;
+        sandbox.currentUser = current ? { uid: current.uid } : null;
         authChanged(current);
       },
       signOut: () => {
         current = null;
+        sandbox.currentUser = null;
         authChanged(null);
       },
     },
@@ -350,6 +355,7 @@ async function main() {
       lens = next;
     },
     subscribeLens: () => () => {},
+    captureSession: async () => ({ format: 'pyric.full-state', state: await captureFullState(sandbox), events: sandbox.history() }),
     sandboxEvents: subscribeEvents,
     listeners: (onChange) =>
       (mode = createListenerMode({
@@ -451,25 +457,51 @@ async function main() {
     button.onclick = () => { void deliver(button.dataset.deliver!).catch(reportError); };
   }
   let bursting = false;
-  document.querySelector<HTMLButtonElement>("#burst")!.onclick = async () => {
+  async function runBurst(rateTest = false) {
     if (bursting) return;
     bursting = true;
-    const button = document.querySelector<HTMLButtonElement>("#burst")!;
-    document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(".data-controls button, .data-controls select, .delivery-buttons button").forEach(control => { control.disabled = true; });
+    document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(".data-controls button, .data-controls select, .delivery-buttons button, .scenario-buttons button").forEach(control => { control.disabled = true; });
     try {
       await refreshData();
-      for (const id of ['messages', 'presence', 'typing', 'messages', 'receipts']) {
+      const plan = rateTest ? await warningBurstPlan(service) : null;
+      const updates = plan ? Array.from({ length: plan.count }, () => 'messages') : ['messages', 'presence', 'typing', 'messages', 'receipts'];
+      for (const id of updates) {
         await deliver(id);
-        await new Promise(resolve => setTimeout(resolve, 650));
+        await new Promise(resolve => setTimeout(resolve, plan?.delay ?? 650));
       }
     } catch (error) {
       reportError(error);
     } finally {
-      document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(".data-controls button, .data-controls select, .delivery-buttons button").forEach(control => { control.disabled = false; });
+      document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(".data-controls button, .data-controls select, .delivery-buttons button, .scenario-buttons button").forEach(control => { control.disabled = false; });
       syncDataControls();
       bursting = false;
     }
-  };
+  }
+  document.querySelector<HTMLButtonElement>("#burst")!.onclick = () => { void runBurst(); };
+  document.querySelector<HTMLButtonElement>("#rate-burst")!.onclick = () => { void runBurst(true); };
+  const scenarios = createWarningScenarios(sandbox);
+  const scenarioStatus = document.querySelector<HTMLElement>('#scenario-status')!;
+  for (const button of document.querySelectorAll<HTMLButtonElement>('[data-scenario]')) {
+    button.onclick = async () => {
+      const name = button.dataset.scenario;
+      button.disabled = true;
+      try {
+        if (name === 'firestore-index') {
+          await scenarios.firestoreIndex();
+          scenarioStatus.textContent = 'Firestore index missing. Open the query in Traffic to add it.';
+        } else {
+          const action = name === 'firestore-denial' ? scenarios.firestoreDenial : name === 'rtdb-denial' ? scenarios.rtdbDenial : scenarios.rtdbIndex;
+          await action();
+          scenarioStatus.textContent = 'The request succeeded unexpectedly.';
+        }
+      } catch (error) {
+        const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+        if (name === 'rtdb-index' && error instanceof Error && error.message.includes('.indexOn')) scenarioStatus.textContent = 'RTDB .indexOn missing. Open the query in Traffic to add it.';
+        else if (code === 'permission-denied' || code === 'PERMISSION_DENIED') scenarioStatus.textContent = `${name === 'firestore-denial' ? 'Firestore' : 'RTDB'} write denied. The budget must be zero or greater.`;
+        else scenarioStatus.textContent = error instanceof Error ? error.message : 'Unable to run this scenario.';
+      } finally { button.disabled = false; }
+    };
+  }
   const backend = document.querySelector<HTMLSelectElement>('#chat-service')!;
   backend.value = service;
   backend.onchange = () => { const url = new URL(location.href); url.searchParams.set('service', backend.value); location.href = url.href; };

@@ -153,6 +153,7 @@ const PRECONDITIONS: Record<string, (call: Call) => Promise<Teardown>> = {
   'auth.getUser': createTheExampleUser,
   'auth.getUserByEmail': createTheExampleAddress,
   'sandbox.diff': forkTheExampleBranch,
+  'sandbox.openCapture': async call => { await must(call, 'sandbox.saveCapture', exampleOf('sandbox.saveCapture')); return NOTHING_TO_UNDO; },
   'assurance.inspect': runTheExampleCampaign,
 };
 

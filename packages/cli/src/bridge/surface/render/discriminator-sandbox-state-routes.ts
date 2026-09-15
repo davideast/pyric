@@ -11,6 +11,11 @@ import type { Args, DiscriminatorRoute } from './discriminator-route-shapes.js';
 import { assign, on, parseJsonObject, text } from './discriminator-route-shapes.js';
 
 export const SANDBOX_STATE_ROUTES: DiscriminatorRoute[] = [
+  { tool: 'control_sandbox_environment', action: 'rename_capture', selects: on('action', 'rename_capture'), operation: 'rename_rate_capture', translate: args => ({ id: args.captureId, name: args.captureName }) },
+  { tool: 'control_sandbox_environment', action: 'delete_capture', selects: on('action', 'delete_capture'), operation: 'delete_rate_capture', translate: args => ({ id: args.captureId, confirm: args.confirm }) },
+  { tool: 'control_sandbox_environment', action: 'save_capture', selects: on('action', 'save_capture'), operation: 'save_rate_capture', translate: args => ({ capture: args.capture }) },
+  { tool: 'control_sandbox_environment', action: 'list_captures', selects: on('action', 'list_captures'), operation: 'list_rate_captures', translate: () => ({}) },
+  { tool: 'control_sandbox_environment', action: 'open_capture', selects: on('action', 'open_capture'), operation: 'open_rate_capture', translate: args => args.captureId === undefined ? {} : ({ id: args.captureId }) },
   {
     tool: 'control_sandbox_environment',
     action: 'reset_all',

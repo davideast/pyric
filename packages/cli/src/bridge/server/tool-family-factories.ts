@@ -1,3 +1,4 @@
+import { createCaptureTools } from './capture-tools.js';
 /**
  * Node-side factory for each tool family. This is the only bridge module
  * that imports `pyric/rules/internal/node` or the conformance tools; the
@@ -29,6 +30,7 @@ import type { ForwardedFamilyKey, InProcessFamilyKey } from '../tool-families.js
  * each family degrades on its own.
  */
 export interface InProcessToolContext {
+  projectDir?: string;
   scope?: unknown;
   consumers?: SessionRegistry;
   callerIdentity?: CallerIdentityStore;
@@ -59,4 +61,5 @@ export const IN_PROCESS_HANDLER_FACTORIES = {
   'auth-identity': (context) =>
     createAuthIdentityTools({ sessions: context?.consumers, caller: context?.callerIdentity }),
   conformance: () => createConformanceTools(),
+  captures: context => createCaptureTools(context?.projectDir),
 } satisfies Record<InProcessFamilyKey, (context?: InProcessToolContext) => ToolHandler[]>;

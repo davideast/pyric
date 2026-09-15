@@ -1,3 +1,5 @@
+import { createRateCaptureStore } from '../../packages/cli/src/serve/rate-capture-store.ts';
+import { createThresholdConfigStore } from '../../packages/cli/src/serve/threshold-config-store.ts';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { createIndexConfigStore } from '../../packages/cli/src/serve/index-config-store.ts';
@@ -87,13 +89,15 @@ const resolver = createAssetResolver({
 const configDir = await mkdtemp(join(tmpdir(), 'pyric-chat-config-'));
 const rules = { rules: {
   conversations: { design: { '.read': true, '.write': true, messages: { '.indexOn': ['id'] } } },
+  scenarioDenials: { '$id': { '.read': true, '.write': true, '.validate': "newData.child('budget').isNumber() && newData.child('budget').val() >= 0" } },
   presence: { '.read': true, '.write': true }, typing: { '.read': true, '.write': true },
 } };
 const resetIndex = () => writeFile(join(configDir, 'database.rules.json'), JSON.stringify(rules, null, 2));
-await writeFile(join(configDir, 'firebase.json'), JSON.stringify({ database: { rules: 'database.rules.json' } }));
+await writeFile(join(configDir, 'firebase.json'), JSON.stringify({ database: { rules: 'database.rules.json' }, firestore: { indexes: 'firestore.indexes.json' } }));
 await resetIndex();
+await writeFile(join(configDir, 'firestore.indexes.json'), JSON.stringify({ indexes: [], fieldOverrides: [] }));
 const token = randomBytes(24).toString('base64url');
-const namespace = createPyricNamespace({ sdkDir: outputDir, sessionToken: token, indexes: createIndexConfigStore(configDir),
+const namespace = createPyricNamespace({ sdkDir: outputDir, sessionToken: token, indexes: createIndexConfigStore(configDir), thresholds: createThresholdConfigStore(configDir), rateCaptures: createRateCaptureStore(here),
   initPayload: () => ({ rules: null, rulesHash: null, storageRules: null, storageRulesHash: null, bridgeUrl: null, seed: null }) });
 const port = Number(process.env.FLOW_LAB_PORT ?? 5197);
 const server = createServer(async (req, res) => {
@@ -102,7 +106,7 @@ const server = createServer(async (req, res) => {
     if (req.method !== 'POST' || req.headers['x-pyric-session-token'] !== token) { res.writeHead(403); res.end(); return; }
     await resetIndex(); res.writeHead(204); res.end(); return;
   }
-  if (url.pathname === '/__pyric/indexes' || url.pathname === '/__pyric/init.json') { await namespace(req, res, url); return; }
+  if (url.pathname === '/__pyric/rate-captures' || url.pathname === '/__pyric/thresholds' || url.pathname === '/__pyric/indexes' || url.pathname === '/__pyric/init.json') { await namespace(req, res, url); return; }
   if (await flowHost.handle(req, res, url)) return;
   if (url.pathname.startsWith("/__pyric/assets/")) {
     await handleAvatar(resolver, req, res, url);

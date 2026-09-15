@@ -1,3 +1,5 @@
+import { handleRateCaptures } from './rate-capture-route.js';
+import { handleThresholdConfig } from './threshold-config-route.js';
 /**
  * The `/__pyric/` reserved namespace — pyric's analog of firebase serve's
  * `/__/firebase/` namespace:
@@ -94,7 +96,9 @@ export function createEventHub(): ServeEventHub {
 }
 
 export interface NamespaceOptions {
+  rateCaptures?: import('./rate-capture-store.js').RateCaptureStore;
   indexes?: import('./index-config-store.js').IndexConfigStore;
+  thresholds?: import('./threshold-config-store.js').ThresholdConfigStore;
   /** The bundle output dir (`BundleResult.outDir`). */
   sdkDir: string;
   /** Producer for `/__pyric/init.json` — a function so hot-reload serves
@@ -459,6 +463,14 @@ export function createPyricNamespace(opts: NamespaceOptions) {
   // init.json before this capability is disclosed to the served runtime.
   const activityToken = opts.activity ? randomBytes(24).toString('base64url') : undefined;
   return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
+    if (opts.thresholds && url.pathname === '/__pyric/thresholds') {
+      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) return true;
+      if (!isAllowedSessionToken(req, url, sessionToken)) {
+        res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }));
+        return true;
+      }
+      return handleThresholdConfig(opts.thresholds, req, res);
+    }
     if (opts.indexes && url.pathname === '/__pyric/indexes') {
       if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) return true;
       if (!isAllowedSessionToken(req, url, sessionToken)) {
@@ -486,6 +498,13 @@ export function createPyricNamespace(opts: NamespaceOptions) {
         return true;
       }
       return handleState(opts.state!, stateWriterLock, req, res, url).then(() => true);
+    }
+    if (opts.rateCaptures && url.pathname === '/__pyric/rate-captures') {
+      if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) return true;
+      if (!isAllowedSessionToken(req, url, sessionToken)) {
+        res.writeHead(401).end('Unauthorized'); return true;
+      }
+      return handleRateCaptures(opts.rateCaptures, req, res, url);
     }
     if (opts.capture && url.pathname === '/__pyric/capture') {
       if (!guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
@@ -524,6 +543,8 @@ export function createPyricNamespace(opts: NamespaceOptions) {
         JSON.stringify({
           ...opts.initPayload(),
           sessionToken,
+          thresholds: Boolean(opts.thresholds),
+          rateCaptures: Boolean(opts.rateCaptures),
           ...(activityToken ? { activityToken } : {}),
         }),
       );

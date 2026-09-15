@@ -1,3 +1,5 @@
+import { createRateCaptureStore } from './rate-capture-store.js';
+import { createThresholdConfigStore } from './threshold-config-store.js';
 import { createFlowTreatmentHost } from './flow-treatment-host.js';
 import { createIndexConfigStore } from './index-config-store.js';
 import type { FlowConfig } from './flow-config.js';
@@ -277,6 +279,8 @@ export async function createSandboxSession(
 
   const namespace = createPyricNamespace({
     indexes: createIndexConfigStore(options.projectDir),
+    thresholds: createThresholdConfigStore(options.projectDir),
+    rateCaptures: createRateCaptureStore(options.projectDir),
     sdkDir: options.sdk.dir,
     initPayload: payload,
     events,

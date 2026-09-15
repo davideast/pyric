@@ -18,20 +18,15 @@ const snapshot: SdkRateSnapshot = {
   ],
 };
 
-test('service summaries use service-specific usage units and expose billing gaps', () => {
-  const view = rateView(snapshot, null, label, escape);
+test('service list separates activity navigation from incident navigation without duplicate tables', () => {
+  const view = rateView(snapshot, null, label, escape, undefined, '', new Map([['rtdb', 2]]));
   const document = new JSDOM(view.body).window.document;
-  expect(view.detail).toBe('5-second average');
-  expect(view.title).toBe('Usage estimates');
-  expect(document.querySelector('[data-usage="payloadBytes"]')?.textContent).toBe('2 KiB/s');
-  expect(document.body.textContent).toContain('Billed downloadsNot measured');
-  expect(document.querySelector('[data-usage=reads]')?.textContent).toBe('2');
-  expect(document.querySelector('[data-usage=writes]')?.textContent).toBe('3');
-  expect(document.querySelector('[data-usage=deliveries]')?.textContent).toBe('4');
-  const storage = document.querySelector('[data-rate-service="storage"]');
-  expect(storage?.textContent).toContain('Not measured');
-  expect(storage?.querySelector('button')).toBeNull();
-  expect(storage?.querySelector('[data-rate-reads]')).toBeNull();
+  expect(view.title).toBe('Services');
+  expect(document.querySelector('[data-inspect-rates="rtdb"]')?.getAttribute('aria-label')).toBe('Realtime Database');
+  expect(document.querySelector('[data-rate-incidents="rtdb"]')?.textContent).toBe('2 incidents');
+  expect(document.querySelector('table')).toBeNull();
+  expect(document.querySelector('[data-usage]')).toBeNull();
+  expect(document.body.textContent).toContain('storageNot measured');
 });
 
 test('method detail shows listener gauges and coverage without implying write data results', () => {
@@ -52,7 +47,7 @@ test('labels are escaped before rendering and stale selection returns to the ser
   const view = rateView(snapshot, 'unknown', () => '<img src=x onerror="alert(1)">', escape);
   const document = new JSDOM(view.body).window.document;
   expect(document.querySelector('img')).toBeNull();
-  expect(document.querySelector('[data-service-rates]')).not.toBeNull();
+  expect(document.querySelector('.rate-service-list')).not.toBeNull();
   expect(rateView(snapshot, 'storage', label, escape).body).not.toContain('data-rate-listeners');
 });
 
@@ -78,6 +73,6 @@ test('idle refresh updates numbers without replacing a focused method or its scr
 
 test('missing usage evidence is not replaced with SDK counts', () => {
   const unknown = { ...snapshot, services: snapshot.services.map(service => ({ ...service, usage: undefined })) };
-  const document = new JSDOM(rateView(unknown, null, label, escape).body).window.document;
+  const document = new JSDOM(rateView(unknown, 'rtdb', label, escape).body).window.document;
   expect(document.querySelector('[data-usage="payloadBytes"]')?.textContent).toBe('Not measured');
 });
