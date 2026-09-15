@@ -245,24 +245,23 @@ struct ConformanceCoreTests {
     }
 
     @Test func `firestore-swift#33: DocumentReference.addSnapshotListener(includeMetadataChanges:listener:) - Listens to document snapshot updates including metadata-only transitions.`() async throws {
-        let harness = try await ConformanceMockHarness.create()
+        let harness = try await ConformanceMockHarness.create(sendDelayNanoseconds: 50_000_000)
         let registration = harness.firestore.document("users/alice").addSnapshotListener(includeMetadataChanges: true) { _, _ in }
-        try await Task.sleep(nanoseconds: 20_000_000)
-        let lastMsg = harness.lastSentMessage()
-        #expect(lastMsg?["type"]?.stringValue == "worker-sub")
-        #expect(lastMsg?["sub"]?["includeMetadataChanges"]?.boolValue == true)
+        let lastMsg = try await harness.waitForSentMessage(type: "worker-sub")
+        #expect(lastMsg["type"]?.stringValue == "worker-sub")
+        #expect(lastMsg["sub"]?["includeMetadataChanges"]?.boolValue == true)
         registration.remove()
     }
 
     @Test func `firestore-swift#34: DocumentReference.addSnapshotListener(options:listener:) - Listens to document updates configured with SnapshotListenOptions.`() async throws {
-        let harness = try await ConformanceMockHarness.create()
+        let harness = try await ConformanceMockHarness.create(sendDelayNanoseconds: 50_000_000)
         var options = SnapshotListenOptions()
         options.includeMetadataChanges = true
         let registration = harness.firestore.document("users/alice").addSnapshotListener(options: options) { _, _ in }
-        try await Task.sleep(nanoseconds: 20_000_000)
-        let lastMsg = harness.lastSentMessage()
-        #expect(lastMsg?["type"]?.stringValue == "worker-sub")
+        let lastMsg = try await harness.waitForSentMessage(type: "worker-sub")
+        #expect(lastMsg["type"]?.stringValue == "worker-sub")
         registration.remove()
+        #expect(lastMsg["sub"]?["includeMetadataChanges"]?.boolValue == true)
     }
 
     // ══════════════════════════════════════════════════════════════════════════
