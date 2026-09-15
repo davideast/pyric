@@ -3,6 +3,7 @@ import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, WORKER_PORT_CAPABILITY, WORKER
 import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
+import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
 import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreFirestoreSubscriptions, wirePort } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
 
@@ -297,7 +298,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
         }
         case 'worker-message-result': {
           const response = message.message;
-          const hasError = response.t === 'res' && !response.ok;
+          const isResponse = hasValidOutboundEnvelope(response) && response.t === 'res';
+          const hasError = isResponse && hasValidReplyOutcome(response) && response.ok === false;
           if (hasError) {
             const isPersistenceFailure = response.error.code === 'committed-but-not-durable' || response.error.code === 'persistence-unhealthy';
             if (isPersistenceFailure) target.onError?.(new FirebaseError(response.error.code, response.error.message));

@@ -6,21 +6,20 @@ Scope: Complete the user-approved hosted sandbox and live-mode contract in the s
 
 Execution: sequential vertical TDD slices. S1–S6 and their documented scope were explicitly approved in the active goal. SharedWorker remains the default; production writes and publishing are excluded. No agents have been dispatched.
 
-Pending seam clarification: permission was requested to extend S3 from CLI commands to the exported BridgeMount lifecycle API, using the real host and its existing public readiness diagnostic. No reply has arrived and no test at that additional interface has been written. The existing S1–S6 approval remains in force for independent work.
+Historical seam note: the earlier BridgeMount clarification predates the completed Section 1 lifecycle work. Use `docs/hosted-section-one-results.md` and its assertion closure for current scope and evidence. This combined verification adds no implementation seam.
 
 ## Current milestone: hosted hardening for manual QA
 
-Current checkpoint (2026-09-15): Section 6 is complete for hardening items
-18–19. [Section 6 progress](docs/hosted-section-six-progress.md) records actual
-package compatibility, hosted Studio integration, current failure diagnostics
-and redaction. Forty-two focused browser cases (with eight rechecked after the
-final changes), 14 installed-package cases, 126 regressions/checker cases,
-builds/types, code form and five browser budgets pass. Five unchanged foreign-SDK
-casts are explicitly recorded under U3's existing exception rule. The
-[manual guide](docs/hosted-section-six-manual-qa.md) includes setup, failure and
-repair commands; the in-app walkthrough is recorded. Existing demos and
-Tailscale routes are untouched. Final combined verification/handoff and broader
-release acceptance, including the separate gate 6B workload, remain open.
+Current checkpoint (2026-09-15): Combined verification and handoff are complete;
+the hardening milestone is **blocked by the Section 5/item 16 RSS budget**.
+The final workload exceeded 192 MiB growth (232.2 MiB, then an isolated 207.5 MiB
+failure); a passing repeat does not waive it. The [combined report](docs/hosted-milestone-verification.md)
+records 349 accepted browser cases, one open memory case, 730 regressions,
+307-file code form, types/import/budgets and 18 final installed/standalone cases.
+The malformed-reply diagnostic regression found during the join is repaired and
+verified. The next task is to attribute and resolve this same bounded memory
+failure before the broader 6B workload. SharedWorker remains the default;
+existing demos and Tailscale remain untouched. Full release gates remain open.
 
 The active milestone is the ordered reliability queue in `docs/hosted-hardening-progress.md`, extended to twenty items at the user's request; the full hosted/live-mode goal stays incomplete. Tasks 1–5 are verified locally: unique identities, observed session-expiry recovery, bounded checkpoint fidelity/corruption refusal, restoration diagnostics and interrupted recovery. Task 6 is verified locally: reset/import retain active listeners, paused transactions retry against replacement state, and complete portable imports restore Storage data durably through the existing checkpoint and persistence foundations. The import join passes 28 affected browser cases, two minimum-Node cases, fifteen regressions, strict types and source form. The final replacement join passes 42 affected browser cases, ten minimum-Node cases, twenty regressions, strict types, eight-file source form and browser boundaries. A runtime-selection audit withdrew old in-page checkpoint parity claims: the selector actually ran SharedWorker. Corrected fixtures assert runtime mode; in-page worker controls are explicitly unavailable. Genuine in-page MCP/SDK tests exposed and now verify a shared Auth token-to-Rules claim propagation fix. Its tenant-token namespace omission remains open for item 11. Earlier slice evidence is recorded below and in the progress document; later tasks and final combined/package verification remain open.
 

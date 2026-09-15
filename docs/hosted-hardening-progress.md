@@ -5,13 +5,13 @@ This bounded milestone leaves the broader hosted/live-mode goal incomplete.
 Use the already approved S1–S6 seams, vertical TDD, and applicable universal gates.
 Do not modify the manual demo project. Commit and push each verified slice.
 
-Latest completed section: [Section 6 — compatibility and fault diagnostics](hosted-section-six-progress.md),
-verified 2026-09-15. Actual candidate/published consumers, hosted Studio parity,
-fault recovery and redaction pass their bounded checks. Fourteen installed-package
-cases and the runnable manual checkpoint preserve SharedWorker and in-page paths.
-Existing demos and Tailscale remain intact. Final combined verification/handoff
-is next; broader release gates remain open. Older entries below retain their
-historical scope; each section's progress records its current evidence.
+Latest checkpoint: [Combined verification and handoff](hosted-milestone-verification.md),
+2026-09-15. Section 6's diagnostic-ordering regression was repaired during the join.
+The final candidate has **one open hardening gate: Section 5/item 16 host RSS
+growth exceeds the declared 192 MiB budget intermittently**. Verification and
+handoff are complete, but the milestone is not fully accepted. Existing demos,
+SharedWorker default and Tailscale remain intact. Older entries below retain
+their historical scope; the combined report is authoritative for current status.
 
 ## Ordered queue
 
@@ -22,19 +22,19 @@ historical scope; each section's progress records its current evidence.
 5. Interrupted recovery — verified locally. A second interruption restores the original identity and one listener; delayed old-socket events cannot overwrite or disconnect the recovered app, and deletion during Auth restoration cancels recovery.
 6. Reset/import with active apps — verified locally. Hosted and default SharedWorker listeners follow replacement without reviving unsubscribed listeners; paused transactions retry against replacement state. Complete portable imports restore Storage bytes/metadata and await durable persistence, including an older asynchronous save and hard restart.
 7. Persistence-failure recovery — verified locally. Failed writes report uncertainty; mutations remain refused even after permissions are repaired. Restart restores durable documents/Storage bytes, the original app does not replay its uncertain increment, and new writes succeed.
-8. Malformed requests — in progress. Invalid outer JSON/envelope kinds, worker envelopes and malformed browser/legacy relay correlation IDs reject before dispatch. Malformed remote identity-lens containers, modes, impersonation fields and request/session IDs refuse before lens mutation or buffered writes. Legacy operation/subscription envelope shapes also refuse; unsupported handshake versions cannot admit consumers or replace the SharedWorker peer, and buffered frames cannot operate after server refusal. Browser and public remote consumers reject incompatible host acknowledgment versions before readiness or queued writes. Hosted browser acknowledgments require a string capability list containing worker-port, rejecting malformed lists before queued SDK writes. Incompatible peer acknowledgments disconnect the bridge while local SharedWorker SDK access remains usable. Healthy apps remain usable and recoverable protocol errors permit reconnect. Mounted serve/Vite and standalone bridge input enforce the 12 MiB encoded-message limit, including fragments, while mounted runtimes preserve supported 8 MiB Storage transfers. Peer handshakes also validate identity, tools and capabilities before registration. Standalone outer JSON/envelopes now refuse before buffered work, using the same parser as the mounted handler. Firestore write preparation, transaction read-set canonicalization and filter/cursor operand decoding enforce 64 encoded containers before recursive decoding, with public SDK boundary, atomicity, retry, count and listener checks in hosted and default SharedWorker. Other known-frame/reply fields, detailed targets/service arguments, outbound size limits and depth limits on other decode paths remain open.
-9. Lifecycle cleanup — pending. Repeated startup failures, interrupted initialization, reconnect, deletion and shutdown release resources and ownership.
+8. Malformed requests — verified in Section 1 against the finite receiver/method/subscription inventory, encoded depth and frame/operation bounds. See `docs/hosted-section-one-results.md` for P01–P08 and exact supported/ignored routes; this is not a blanket claim about every SDK semantic.
+9. Lifecycle cleanup — verified in Section 1 for L01–L12: startup failure/interruption, initialization deadlines, reconnect, deletion and shutdown release the declared resources and ownership. Accepted work follows its finish-or-cancel contract.
 10. Sleep/resume with delayed disconnect notification — verified in Section 2. An expired host session recovers even when the browser observes the interruption late; invalid grants remain refused and uncertain writes never replay.
 11. Identity and tenant isolation across clients — verified in Section 2. Switching or signing out in one app cannot change another app's identity, tenant, claims or Rules access, including after recovery.
 12. RTDB disconnect behavior — verified in Section 3. Connectivity signals and registered disconnect operations follow the declared session-lifetime contract across transient loss, expiry and explicit app deletion.
 13. Concurrent transactions and atomic writes — verified in Section 3. Two clients contend through normal SDK calls without lost updates; rejected batches remain atomic and ambiguous acknowledgments do not trigger transport replay.
 14. Packed installation and runtime selection — verified in Section 4, including the final browser-driven checkpoint. An isolated consumer uses the built package through served imports and Vite cold/warm startup, reload and HMR; default SharedWorker, explicit hosted and in-page select their intended implementation.
 15. Origin and project admission isolation — verified in Section 4 under the existing hostname allowlist and host-bound resume policy. Foreign discovery, misdirected SDK bridge and foreign session resume refuse; changed-host recovery intentionally obtains a fresh session. Intended clients still connect. See Section 4 for the policy boundaries.
-16. Slow-client isolation and bounded event delivery — verified in Section 5 for the declared workload. A stalled socket closes at the shared 24 MiB output bound while another app continues SDK writes. Served observation history has count/byte limits and explicit gaps; incomplete capture/replay is refused. Broader gate 6B remains open.
+16. Slow-client isolation and bounded event delivery — reopened by final combined verification. Socket output refusal, history gaps and latency pass, but host RSS growth exceeded the 192 MiB budget at 232.2 MiB and 207.5 MiB; isolated repeats are inconsistent. Resolve this exact workload before broader 6B.
 17. Rules hot reload with active apps — verified in Section 5. Actual Firestore/RTDB file edits update hosted, SharedWorker and in-page enforcement and listeners; invalid edits report failure and retain last-good file Rules, with repair and explicit listener reattachment verified. Storage file edits still require restart.
 18. Client/host version compatibility — verified in Section 6. Actual packed consumers within the declared compatibility range work against the candidate host; unsupported combinations refuse clearly before mutation and never silently select another runtime.
 19. Fault diagnostics and redaction — verified in Section 6. Existing CLI, runtime and Studio diagnostics distinguish connection, restoration and persistence failures while excluding credentials and private document contents from default support output.
-20. Combined verification and morning handoff — verified locally for the completed milestone slices. See `docs/hosted-hardening-handoff.md`: 216 affected browser scenarios, 1,138 regressions, strict types, 123-file code form, scoped import review, matching browser budgets and four rebuilt copied-standalone checks. Remote backup is complete following direct user authorization; item 8 is partial and 9–19 remain open.
+20. Combined verification and handoff — completed with one explicit open memory gate. See `docs/hosted-milestone-verification.md` for the repaired diagnostic regression, final evidence and next bounded task. The old `hosted-hardening-handoff.md` is historical.
 
 ### Added follow-on gates
 

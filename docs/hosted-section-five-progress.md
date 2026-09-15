@@ -1,5 +1,11 @@
 # Section 5: slow consumers and Rules hot reload
 
+**Current status (combined verification, 2026-09-15): S1 is reopened for its RSS
+budget.** Final growth reached 232.2 MiB against 192 MiB; two isolated repeats
+produced one pass and one 207.5 MiB failure. Socket refusal and latency passed.
+See [the combined report](hosted-milestone-verification.md) for exact evidence and
+the next bounded investigation. Earlier passing measurements below are historical.
+
 Started at `57bd8c99` on 2026-09-15. Scope is hardening items 16–17 through
 approved S1 SDK, S2 bridge and S3 CLI lifecycle boundaries. Preserve hosted opt-in,
 default SharedWorker and genuine in-page support; leave existing manual demos and
@@ -7,11 +13,11 @@ Tailscale routes running. Use the TDD skill for demonstrated defects.
 
 | Gate | Acceptance | State |
 | --- | --- | --- |
-| S1 | A paused event reader reaches an explicit output bound, without starving a healthy SDK client. | Verified: both fill/drain cycles close only the stalled reader with 1013; healthy writes and the declared RSS/latency budgets pass. |
+| S1 | A paused event reader reaches an explicit output bound, without starving a healthy SDK client. | Open: final RSS growth exceeds 192 MiB intermittently. Output cutoff and latency still pass; see the combined report. |
 | S2 | Observation history has count/byte bounds and reports eviction honestly; later live delivery and disconnect cleanup work. | Verified: count and byte workloads reach independent bounds; gaps, subsequent live delivery, capture refusal and unsubscribe cleanup pass. |
 | R1 | Real valid Rules file edits change enforcement while two apps remain active; intended listener behavior is verified. | Verified: Firestore and RTDB edits change reads, writes and active listeners in all three runtimes. |
 | R2 | Invalid file edits report failure, preserve the declared service policy, and recover after repair. | Verified: invalid edits report rejection and retain last-good file Rules; repair and explicit listener reattachment pass. |
-| J | Applicable runtime parity, targeted regressions, types, code form, builds, manual procedure and pushed evidence. | Verified: targeted browser/regression checks, installed consumer, strict types, source form, five browser budgets and runnable manual steps; branch backup is recorded by the published commit. |
+| J | Applicable runtime parity, targeted regressions, types, code form, builds, manual procedure and pushed evidence. | Verification completed; full section acceptance waits on S1 memory. Current results and the handoff are in the combined report. |
 
 ## Workload and budgets declared before implementation
 

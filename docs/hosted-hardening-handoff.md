@@ -1,5 +1,7 @@
 # Hosted hardening QA handoff
 
+> Historical checkpoint. Superseded by [combined milestone verification](hosted-milestone-verification.md). Its pending-item list describes the earlier candidate, not current phase status.
+
 Status: milestone verification and remote backup complete. This is the bounded hardening milestone, not completion of hosted sandbox or live mode.
 
 The starting remote checkpoint was `6b0728b830faa788b53ea97fc764f5c3397fe14d` on `origin/hosted-live-mode`. The verified implementation candidate is `136da70991cbdca838adbe6ccaeb121089d10f82`, with 42 verified commits before the handoff commit `3f3a4ed6`. All 43 commits were pushed to `origin/hosted-live-mode` after direct user authorization. Combined runtime verification ran against `b306dd3b`; the subsequent review refactor preserves all existing emitted JavaScript byte for byte. No PR or release has been created. The manual demo and its data were left untouched.
