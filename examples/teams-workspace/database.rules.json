@@ -1,0 +1,27 @@
+{
+  "rules": {
+    "presence": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "typing": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "receipts": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "scenarios": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "scenarioDenials": {
+      "$id": {
+        ".read": true,
+        ".write": "auth != null",
+        ".validate": "newData.child('budget').isNumber() && newData.child('budget').val() >= 0"
+      }
+    }
+  }
+}

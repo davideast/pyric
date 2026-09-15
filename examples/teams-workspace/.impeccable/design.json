@@ -1,0 +1,349 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-15T14:54:35.095691+00:00",
+  "title": "Design System: Teams workspace",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "displayName": "Primary",
+        "role": "primary",
+        "tonalRamp": [
+          "oklch(15.00% 0.19140 259.35)",
+          "oklch(26.43% 0.19140 259.35)",
+          "oklch(37.86% 0.19140 259.35)",
+          "oklch(49.29% 0.19140 259.35)",
+          "oklch(60.71% 0.19140 259.35)",
+          "oklch(72.14% 0.19140 259.35)",
+          "oklch(83.57% 0.19140 259.35)",
+          "oklch(95.00% 0.19140 259.35)"
+        ]
+      },
+      "primary-hover": {
+        "displayName": "Primary hover",
+        "role": "primary",
+        "tonalRamp": [
+          "oklch(15.00% 0.16645 259.25)",
+          "oklch(26.43% 0.16645 259.25)",
+          "oklch(37.86% 0.16645 259.25)",
+          "oklch(49.29% 0.16645 259.25)",
+          "oklch(60.71% 0.16645 259.25)",
+          "oklch(72.14% 0.16645 259.25)",
+          "oklch(83.57% 0.16645 259.25)",
+          "oklch(95.00% 0.16645 259.25)"
+        ]
+      },
+      "focus": {
+        "displayName": "Focus",
+        "role": "state",
+        "tonalRamp": [
+          "oklch(15.00% 0.10855 260.54)",
+          "oklch(26.43% 0.10855 260.54)",
+          "oklch(37.86% 0.10855 260.54)",
+          "oklch(49.29% 0.10855 260.54)",
+          "oklch(60.71% 0.10855 260.54)",
+          "oklch(72.14% 0.10855 260.54)",
+          "oklch(83.57% 0.10855 260.54)",
+          "oklch(95.00% 0.10855 260.54)"
+        ]
+      },
+      "canvas": {
+        "displayName": "Canvas",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.00657 214.47)",
+          "oklch(26.43% 0.00657 214.47)",
+          "oklch(37.86% 0.00657 214.47)",
+          "oklch(49.29% 0.00657 214.47)",
+          "oklch(60.71% 0.00657 214.47)",
+          "oklch(72.14% 0.00657 214.47)",
+          "oklch(83.57% 0.00657 214.47)",
+          "oklch(95.00% 0.00657 214.47)"
+        ]
+      },
+      "conversation": {
+        "displayName": "Conversation",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.00607 214.40)",
+          "oklch(26.43% 0.00607 214.40)",
+          "oklch(37.86% 0.00607 214.40)",
+          "oklch(49.29% 0.00607 214.40)",
+          "oklch(60.71% 0.00607 214.40)",
+          "oklch(72.14% 0.00607 214.40)",
+          "oklch(83.57% 0.00607 214.40)",
+          "oklch(95.00% 0.00607 214.40)"
+        ]
+      },
+      "context": {
+        "displayName": "Context",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.00748 211.06)",
+          "oklch(26.43% 0.00748 211.06)",
+          "oklch(37.86% 0.00748 211.06)",
+          "oklch(49.29% 0.00748 211.06)",
+          "oklch(60.71% 0.00748 211.06)",
+          "oklch(72.14% 0.00748 211.06)",
+          "oklch(83.57% 0.00748 211.06)",
+          "oklch(95.00% 0.00748 211.06)"
+        ]
+      },
+      "composer": {
+        "displayName": "Composer",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.00614 214.40)",
+          "oklch(26.43% 0.00614 214.40)",
+          "oklch(37.86% 0.00614 214.40)",
+          "oklch(49.29% 0.00614 214.40)",
+          "oklch(60.71% 0.00614 214.40)",
+          "oklch(72.14% 0.00614 214.40)",
+          "oklch(83.57% 0.00614 214.40)",
+          "oklch(95.00% 0.00614 214.40)"
+        ]
+      },
+      "selected-nav": {
+        "displayName": "Selected nav",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.00896 219.74)",
+          "oklch(26.43% 0.00896 219.74)",
+          "oklch(37.86% 0.00896 219.74)",
+          "oklch(49.29% 0.00896 219.74)",
+          "oklch(60.71% 0.00896 219.74)",
+          "oklch(72.14% 0.00896 219.74)",
+          "oklch(83.57% 0.00896 219.74)",
+          "oklch(95.00% 0.00896 219.74)"
+        ]
+      },
+      "secondary": {
+        "displayName": "Secondary",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.01277 229.27)",
+          "oklch(26.43% 0.01277 229.27)",
+          "oklch(37.86% 0.01277 229.27)",
+          "oklch(49.29% 0.01277 229.27)",
+          "oklch(60.71% 0.01277 229.27)",
+          "oklch(72.14% 0.01277 229.27)",
+          "oklch(83.57% 0.01277 229.27)",
+          "oklch(95.00% 0.01277 229.27)"
+        ]
+      },
+      "line": {
+        "displayName": "Line",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.00577 214.37)",
+          "oklch(26.43% 0.00577 214.37)",
+          "oklch(37.86% 0.00577 214.37)",
+          "oklch(49.29% 0.00577 214.37)",
+          "oklch(60.71% 0.00577 214.37)",
+          "oklch(72.14% 0.00577 214.37)",
+          "oklch(83.57% 0.00577 214.37)",
+          "oklch(95.00% 0.00577 214.37)"
+        ]
+      },
+      "text": {
+        "displayName": "Text",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.00172 247.84)",
+          "oklch(26.43% 0.00172 247.84)",
+          "oklch(37.86% 0.00172 247.84)",
+          "oklch(49.29% 0.00172 247.84)",
+          "oklch(60.71% 0.00172 247.84)",
+          "oklch(72.14% 0.00172 247.84)",
+          "oklch(83.57% 0.00172 247.84)",
+          "oklch(95.00% 0.00172 247.84)"
+        ]
+      },
+      "message-text": {
+        "displayName": "Message text",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.00611 223.46)",
+          "oklch(26.43% 0.00611 223.46)",
+          "oklch(37.86% 0.00611 223.46)",
+          "oklch(49.29% 0.00611 223.46)",
+          "oklch(60.71% 0.00611 223.46)",
+          "oklch(72.14% 0.00611 223.46)",
+          "oklch(83.57% 0.00611 223.46)",
+          "oklch(95.00% 0.00611 223.46)"
+        ]
+      },
+      "muted": {
+        "displayName": "Muted",
+        "role": "neutral",
+        "tonalRamp": [
+          "oklch(15.00% 0.00894 236.61)",
+          "oklch(26.43% 0.00894 236.61)",
+          "oklch(37.86% 0.00894 236.61)",
+          "oklch(49.29% 0.00894 236.61)",
+          "oklch(60.71% 0.00894 236.61)",
+          "oklch(72.14% 0.00894 236.61)",
+          "oklch(83.57% 0.00894 236.61)",
+          "oklch(95.00% 0.00894 236.61)"
+        ]
+      },
+      "online": {
+        "displayName": "Online",
+        "role": "state",
+        "tonalRamp": [
+          "oklch(15.00% 0.08389 161.57)",
+          "oklch(26.43% 0.08389 161.57)",
+          "oklch(37.86% 0.08389 161.57)",
+          "oklch(49.29% 0.08389 161.57)",
+          "oklch(60.71% 0.08389 161.57)",
+          "oklch(72.14% 0.08389 161.57)",
+          "oklch(83.57% 0.08389 161.57)",
+          "oklch(95.00% 0.08389 161.57)"
+        ]
+      },
+      "away": {
+        "displayName": "Away",
+        "role": "state",
+        "tonalRamp": [
+          "oklch(15.00% 0.09747 76.25)",
+          "oklch(26.43% 0.09747 76.25)",
+          "oklch(37.86% 0.09747 76.25)",
+          "oklch(49.29% 0.09747 76.25)",
+          "oklch(60.71% 0.09747 76.25)",
+          "oklch(72.14% 0.09747 76.25)",
+          "oklch(83.57% 0.09747 76.25)",
+          "oklch(95.00% 0.09747 76.25)"
+        ]
+      },
+      "error": {
+        "displayName": "Error",
+        "role": "state",
+        "tonalRamp": [
+          "oklch(15.00% 0.06981 26.38)",
+          "oklch(26.43% 0.06981 26.38)",
+          "oklch(37.86% 0.06981 26.38)",
+          "oklch(49.29% 0.06981 26.38)",
+          "oklch(60.71% 0.06981 26.38)",
+          "oklch(72.14% 0.06981 26.38)",
+          "oklch(83.57% 0.06981 26.38)",
+          "oklch(95.00% 0.06981 26.38)"
+        ]
+      }
+    },
+    "shadows": [
+      {
+        "name": "search",
+        "value": "0 18px 60px #0008",
+        "purpose": "Separate search from the workspace."
+      },
+      {
+        "name": "context-overlay",
+        "value": "-12px 0 50px #0005",
+        "purpose": "Separate the opened contextual panel."
+      },
+      {
+        "name": "navigation-overlay",
+        "value": "14px 0 60px #0009",
+        "purpose": "Separate mobile navigation."
+      }
+    ],
+    "motion": [
+      {
+        "name": "search-reveal",
+        "value": "reveal 0.15s ease-out",
+        "purpose": "Translate search from 7px to 0; only with no reduced-motion preference."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "wide",
+        "value": "1500px"
+      },
+      {
+        "name": "context-overlay",
+        "value": "1100px"
+      },
+      {
+        "name": "phone",
+        "value": "680px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Send button",
+      "kind": "button",
+      "description": "Extracted from the implemented workspace styles.",
+      "html": "<button class=\"ds-send\" aria-label=\"Send message\">\u2191</button>",
+      "css": ".ds-send{background:var(--blue,#3984fa);color:#f0f1f2;width:30px;height:30px;border:0;border-radius:6px;cursor:pointer}.ds-send:hover{background:#5798ff}.ds-send:disabled{opacity:.45}button:focus-visible,input:focus-visible{outline:2px solid #91baff;outline-offset:3px}",
+      "refersTo": "button-primary"
+    },
+    {
+      "name": "Secondary button",
+      "kind": "button",
+      "description": "Extracted from the implemented workspace styles.",
+      "html": "<button class=\"ds-secondary\">Reset scenario</button>",
+      "css": ".ds-secondary{background:#353d41;color:#f0f1f2;border:0;border-radius:6px;padding:9px;font:12px \"Pyric Geist\",Inter,sans-serif;cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid #91baff;outline-offset:3px}",
+      "refersTo": "button-secondary"
+    },
+    {
+      "name": "Selected navigation",
+      "kind": "nav",
+      "description": "Extracted from the implemented workspace styles.",
+      "html": "<button class=\"ds-nav\">Channels</button>",
+      "css": ".ds-nav{background:#303638;color:#f6f7f8;border:0;border-radius:7px;padding:11px 12px;width:200px;text-align:left;font:13px \"Pyric Geist\",Inter,sans-serif;cursor:pointer}.ds-nav:hover{background:#242a2c}button:focus-visible,input:focus-visible{outline:2px solid #91baff;outline-offset:3px}",
+      "refersTo": "navigation-selected"
+    },
+    {
+      "name": "Search field",
+      "kind": "input",
+      "description": "Extracted from the implemented workspace styles.",
+      "html": "<input class=\"ds-search\" aria-label=\"Search messages\" placeholder=\"Search messages\u2026\">",
+      "css": ".ds-search{background:#171d20;border:1px solid #333d43;border-radius:12px;color:white;padding:15px 18px;font:14px \"Pyric Geist\",Inter,sans-serif}button:focus-visible,input:focus-visible{outline:2px solid #91baff;outline-offset:3px}"
+    },
+    {
+      "name": "Reaction",
+      "kind": "chip",
+      "description": "Extracted from the implemented workspace styles.",
+      "html": "<button class=\"ds-reaction\" aria-pressed=\"true\">\u2661 2</button>",
+      "css": ".ds-reaction{background:#2d3949;color:#a8c8f7;border:0;padding:4px 7px;border-radius:5px;font:10px \"Pyric Geist\",Inter,sans-serif;cursor:pointer}.ds-reaction:hover{background:#3a4144}button:focus-visible,input:focus-visible{outline:2px solid #91baff;outline-offset:3px}"
+    },
+    {
+      "name": "Attachment",
+      "kind": "card",
+      "description": "Extracted from the implemented workspace styles.",
+      "html": "<div class=\"ds-attachment\">Project brief.pdf<small>Shared file</small></div>",
+      "css": ".ds-attachment{background:#232728;color:#f0f1f2;border:1px solid #3d474c;border-radius:7px;padding:13px;font:12px \"Pyric Geist\",Inter,sans-serif}.ds-attachment small{display:block;color:var(--muted,#a4aaae);font-size:10px;margin-top:5px}button:focus-visible,input:focus-visible{outline:2px solid #91baff;outline-offset:3px}"
+    }
+  ],
+  "narrative": {
+    "overview": "Visual authority remains the user-supplied Brainwave AI UI Kit frames: 196:6482, 295:51668, 422:176199, 422:176189, 299:54916, 422:188334, 422:188342, 422:188341, and 200:9026. This is an operate-mode adaptation of those frames into human team collaboration. The values below record the implemented example in `workspace.css` and `workspace.tsx`; they are not claims of exact Figma token extraction.\n\nThe established character is compact, charcoal, and restrained. Near-black navigation supports a lighter conversation surface and a contextual rail. Portraits, small line icons, and quiet metadata give activity a human scale. Product assumptions remain recorded in `PRODUCT.md`; the first surface's composition is recorded in `SURFACE.md`.",
+    "keyCharacteristics": [
+      "Tonal charcoal surfaces with subtle separators.",
+      "Small, readable collaboration content and compact controls.",
+      "Blue reserved for primary action and selected feedback.",
+      "Context revealed explicitly as space becomes scarce."
+    ],
+    "rules": [
+      {
+        "name": "The Quiet Accent Rule",
+        "body": "Keep broad surfaces neutral and place color on actionable controls, identity markers, and meaningful state.",
+        "section": "colors"
+      },
+      {
+        "name": "The Explicit Context Rule",
+        "body": "Open navigation and context on demand at small widths; do not compress three desktop columns into a phone viewport.",
+        "section": "layout"
+      }
+    ],
+    "dos": [
+      "Do preserve the Brainwave reference authority when extending this example.",
+      "Do reuse tonal layers, compact typography, and visible keyboard focus.",
+      "Do keep attachment artwork visually distinct from the application shell."
+    ],
+    "donts": [
+      "Don't introduce landing-page hero composition or dashboard KPI cards into this workspace.",
+      "Don't squeeze desktop navigation and context into a three-column phone layout.",
+      "Don't promote provisional product assumptions into confirmed requirements."
+    ]
+  }
+}
