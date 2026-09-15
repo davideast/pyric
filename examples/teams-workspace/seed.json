@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "firestore": {
+    "version": 1,
+    "savedAt": 1789488000000,
+    "firestore": {
+      "workspaces/orbit/channels/design/messages/seed-0": {
+        "author": "alice",
+        "text": "Morning team! The fall launch direction is ready for review. Let\u2019s bring the last pieces together.",
+        "created": 1789488000000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/design/messages/seed-1": {
+        "author": "marcus",
+        "text": "The prototype is updated. Navigation and shared files are ready for a closer look.",
+        "created": 1789488180000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/design/messages/seed-2": {
+        "author": "david",
+        "text": "Here\u2019s the direction I\u2019m exploring. A warm welcome, a clear place for every conversation, and a little less noise.",
+        "created": 1789488360000,
+        "parent": "",
+        "reactions": 3
+      },
+      "workspaces/orbit/channels/design/messages/seed-3": {
+        "author": "alice",
+        "text": "The blue is working beautifully. Could we try the same treatment on the shared files view?",
+        "created": 1789488540000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/design/messages/seed-4": {
+        "author": "marcus",
+        "text": "On it. I\u2019ll have an update ready for our afternoon review.",
+        "created": 1789488720000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/general/messages/seed-0": {
+        "author": "alice",
+        "text": "Morning team! The fall launch direction is ready for review. Let\u2019s bring the last pieces together.",
+        "created": 1789488000000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/general/messages/seed-1": {
+        "author": "marcus",
+        "text": "The prototype is updated. Navigation and shared files are ready for a closer look.",
+        "created": 1789488180000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/general/messages/seed-2": {
+        "author": "david",
+        "text": "Here\u2019s the direction I\u2019m exploring. A warm welcome, a clear place for every conversation, and a little less noise.",
+        "created": 1789488360000,
+        "parent": "",
+        "reactions": 3
+      },
+      "workspaces/orbit/channels/general/messages/seed-3": {
+        "author": "alice",
+        "text": "The blue is working beautifully. Could we try the same treatment on the shared files view?",
+        "created": 1789488540000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/general/messages/seed-4": {
+        "author": "marcus",
+        "text": "On it. I\u2019ll have an update ready for our afternoon review.",
+        "created": 1789488720000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/launch/messages/seed-0": {
+        "author": "alice",
+        "text": "Morning team! The fall launch direction is ready for review. Let\u2019s bring the last pieces together.",
+        "created": 1789488000000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/launch/messages/seed-1": {
+        "author": "marcus",
+        "text": "The prototype is updated. Navigation and shared files are ready for a closer look.",
+        "created": 1789488180000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/launch/messages/seed-2": {
+        "author": "david",
+        "text": "Here\u2019s the direction I\u2019m exploring. A warm welcome, a clear place for every conversation, and a little less noise.",
+        "created": 1789488360000,
+        "parent": "",
+        "reactions": 3
+      },
+      "workspaces/orbit/channels/launch/messages/seed-3": {
+        "author": "alice",
+        "text": "The blue is working beautifully. Could we try the same treatment on the shared files view?",
+        "created": 1789488540000,
+        "parent": "",
+        "reactions": 0
+      },
+      "workspaces/orbit/channels/launch/messages/seed-4": {
+        "author": "marcus",
+        "text": "On it. I\u2019ll have an update ready for our afternoon review.",
+        "created": 1789488720000,
+        "parent": "",
+        "reactions": 0
+      }
+    }
+  },
+  "auth": {
+    "users": [
+      {
+        "uid": "david",
+        "displayName": "David East",
+        "email": "david@orbit.example",
+        "password": "orbit-demo",
+        "photoUrl": "https://i.pravatar.cc/80?img=12"
+      },
+      {
+        "uid": "alice",
+        "displayName": "Alice Chen",
+        "email": "alice@orbit.example",
+        "password": "orbit-demo",
+        "photoUrl": "https://i.pravatar.cc/80?img=47"
+      },
+      {
+        "uid": "marcus",
+        "displayName": "Marcus Williams",
+        "email": "marcus@orbit.example",
+        "password": "orbit-demo",
+        "photoUrl": "https://i.pravatar.cc/80?img=13"
+      },
+      {
+        "uid": "avery",
+        "displayName": "Avery Jordan",
+        "email": "avery@orbit.example",
+        "password": "orbit-demo",
+        "photoUrl": "https://i.pravatar.cc/80?img=49"
+      }
+    ]
+  }
+}

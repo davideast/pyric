@@ -8,7 +8,8 @@
     "examples/nextjs-sandbox-app",
     "packages/create-pyric/templates/chat",
     "packages/create-pyric/templates/chat/functions",
-    "examples/inpage-todo-app"
+    "examples/inpage-todo-app",
+    "examples/teams-workspace"
   ],
   "overrides": {
     "firebase": "$firebase"
