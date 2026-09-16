@@ -45,3 +45,52 @@ test('expired evidence releases its accounted bytes in browser and Node runtimes
     if (buffer !== undefined) Object.defineProperty(globalThis, 'Buffer', buffer);
   }
 });
+
+test('active requests survive eviction, settle once, and ignore replayed starts', () => {
+  const history = new EventHistory({ maxEvents: 2, maxBytes: 100_000 });
+  const pending = { kind: 'operation', id: 'start', at: Date.now(), service: 'ai', method: 'generateContent',
+    path: 'synthetic', auth: null, origin: 'user', result: 'not-applicable',
+    observation: { id: 'request', startedAt: Date.now(), status: 'pending' } } as const;
+  history.append(pending);
+  for (let index = 0; index < 5; index++) history.append(request(index));
+  expect(history.snapshot().some(event => event.id === 'start')).toBe(true);
+  const completed = { ...pending, id: 'end', observation: { ...pending.observation, status: 'completed' as const } };
+  history.append(completed);
+  history.append(pending);
+  history.append(completed);
+  const ai = history.snapshot().filter(event => event.kind === 'operation');
+  expect(ai).toEqual([completed]);
+});
+
+test('expiry is visible and active listener registrations remain available', () => {
+  const history = new EventHistory({ maxEvents: 2, maxBytes: 100_000, maxAgeMs: 1000 });
+  const attach = { kind: 'listener_attach', id: 'attach', at: 0, listenerId: 'listener',
+    target: { kind: 'doc', path: 'notes/a' }, auth: null } as const;
+  history.append(attach);
+  history.append(request(1));
+  const events = history.snapshot();
+  expect(events[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 2 });
+  expect(events).toContainEqual(attach);
+  history.append({ ...attach, kind: 'listener_detach', id: 'detach', at: Date.now() });
+  expect(history.snapshot()).not.toContainEqual(attach);
+});
+
+test('retention uses observation time when the sandbox clock is in the past', () => {
+  const history = new EventHistory({ maxEvents: 10, maxBytes: 100_000, maxAgeMs: 1000 });
+  const event = { ...request(1), observedAt: Date.now() };
+  history.append(event);
+  expect(history.snapshot()).toEqual([event]);
+});
+
+test('the unified stream stamps wall-clock observation time without changing simulated event time', async () => {
+  const { initializeSandbox } = await import('../../src/sandbox/index.js');
+  const { emitSandboxEvent, getClock } = await import('../../src/sandbox/internal/index.js');
+  const sandbox = initializeSandbox();
+  getClock(sandbox).set(0);
+  const before = Date.now();
+  emitSandboxEvent(sandbox, request(0));
+  const event = sandbox.history().find(event => event.id === '0');
+  expect(event?.at).toBe(0);
+  expect(event?.observedAt).toBeGreaterThanOrEqual(before);
+  expect(event?.observedAt).toBeLessThanOrEqual(Date.now());
+});

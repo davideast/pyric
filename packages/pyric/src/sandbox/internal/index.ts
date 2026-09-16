@@ -151,3 +151,9 @@ export { assertCompleteHistory } from './history-integrity.js';
 export { EventHistory } from './event-history.js';
 export { firestoreReadUsage } from './usage-evidence.js';
 export type { UsageEvidence } from './usage-evidence.js';
+
+export { OBSERVATION_HISTORY_LIMITS } from './observation-history.js';
+export { observationPayload, observationText } from './observation-payload.js';
+
+export { aiCompletionUsage } from './usage-evidence.js';
+export { requestStatusLabel } from '../types/request-observation.js';

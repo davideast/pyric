@@ -288,6 +288,7 @@ export class SandboxImpl implements LocalSandbox {
    * the raw fan-out + history append it wraps.
    */
   private dispatch(event: SandboxEvent): void {
+    event = { ...event, observedAt: Date.now() };
     // Append to history unconditionally — consumers that call
     // sandbox.history() expect every event the sandbox saw, regardless
     // of whether onEvent subscribers were attached at emit time.
@@ -367,7 +368,15 @@ export class SandboxImpl implements LocalSandbox {
     const isEmpty = events.length === 0;
     if (hasHistory) return 0;
     if (isEmpty) return 0;
-    for (const event of events) this.eventHistory.append(event);
+    for (const event of events) {
+      const unfinished = event.kind === 'operation' && event.observation?.status === 'pending';
+      if (unfinished) {
+        const observation: NonNullable<SandboxOperationEvent['observation']> = {
+          ...event.observation!, status: 'interrupted', error: { code: 'host-restarted' },
+        };
+        this.eventHistory.append({ ...event, observation });
+      } else this.eventHistory.append(event);
+    }
     return events.length;
   }
 

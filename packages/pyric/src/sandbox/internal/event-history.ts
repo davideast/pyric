@@ -4,6 +4,7 @@ import type { SandboxEvent, SandboxObservationGapEvent } from '../types/events.j
 export interface EventHistoryLimits {
   maxEvents: number;
   maxBytes: number;
+  maxAgeMs?: number;
 }
 
 const utf8 = new TextEncoder();
@@ -21,23 +22,45 @@ function encodedBytes(value: unknown): number {
 export class EventHistory {
   private entries: Array<{ event: SandboxEvent; bytes: number }> = [];
   private bytes = 0;
+  private readonly activeRequests = new Map<string, SandboxEvent>();
+  private readonly completedRequests = new Set<string>();
+  private readonly activeListeners = new Map<string, SandboxEvent>();
+  private readonly retainedIds = new Set<string>();
   private readonly rulesEvidence = new RulesEvidenceRetention<{ event: SandboxEvent; bytes: number }>();
+  private sourceGapCount = 0;
   private gap: SandboxObservationGapEvent | undefined;
 
   constructor(private readonly limits?: EventHistoryLimits) {}
 
   get length(): number {
-    const hasGap = this.gap !== undefined;
-    return this.entries.length + (hasGap ? 1 : 0);
+    return this.snapshot().length;
   }
 
   append(event: SandboxEvent): void {
+    const observation = event.kind === 'operation' ? event.observation : undefined;
+    if (observation?.status === 'pending') {
+      if (this.completedRequests.has(observation.id)) return;
+      this.activeRequests.set(observation.id, event);
+      return;
+    }
+    if (observation) {
+      this.activeRequests.delete(observation.id);
+      this.completedRequests.add(observation.id);
+    }
+    this.trackListener(event);
+    if (this.retainedIds.has(event.id)) return;
+    this.retainedIds.add(event.id);
     const isBounded = this.limits !== undefined;
     const isPriorEviction = isBounded && event.kind === 'observation_gap' && event.reason === 'history-limit';
     const bytes = isBounded ? encodedBytes(event) + 1 : 0;
     const mustOmit = isPriorEviction || !Number.isFinite(bytes);
     if (mustOmit) {
-      this.omit(event);
+      this.forgetId(event);
+      if (isPriorEviction) {
+        const omittedCount = Math.max(0, event.omittedCount - this.sourceGapCount);
+        this.sourceGapCount = Math.max(this.sourceGapCount, event.omittedCount);
+        if (omittedCount) this.omit({ ...event, omittedCount });
+      } else this.omit(event);
     } else {
       const entry = { event, bytes };
       this.entries.push(entry);
@@ -46,11 +69,13 @@ export class EventHistory {
       const hasExpiredEvidence = expired !== undefined;
       if (hasExpiredEvidence) this.expireRulesEvidence(expired);
     }
+    this.pruneExpired();
     let exceedsLimits = this.exceedsLimits();
     while (exceedsLimits) {
       const oldest = this.entries.shift();
       const isEmpty = oldest === undefined;
       if (isEmpty) break;
+      this.forgetId(oldest.event);
       this.rulesEvidence.forget(oldest);
       this.bytes -= oldest.bytes;
       this.omit(oldest.event);
@@ -59,7 +84,9 @@ export class EventHistory {
   }
 
   snapshot(): SandboxEvent[] {
-    const events = this.entries.map(entry => entry.event);
+    this.pruneExpired();
+    const events = [...this.entries.map(entry => entry.event), ...this.activeRequests.values(),
+      ...[...this.activeListeners.values()].filter(event => !this.retainedIds.has(event.id))];
     const gap = this.gap;
     const hasGap = gap !== undefined;
     return hasGap ? [{ ...gap }, ...events] : events;
@@ -67,9 +94,46 @@ export class EventHistory {
 
   clear(): void {
     this.entries = [];
+    this.activeRequests.clear();
+    this.activeListeners.clear();
+    this.completedRequests.clear();
+    this.retainedIds.clear();
     this.rulesEvidence.clear();
     this.bytes = 0;
     this.gap = undefined;
+    this.sourceGapCount = 0;
+  }
+
+  private forgetId(event: SandboxEvent): void {
+    this.retainedIds.delete(event.id);
+    const observation = event.kind === 'operation' ? event.observation : undefined;
+    if (observation) this.completedRequests.delete(observation.id);
+  }
+
+  private trackListener(event: SandboxEvent): void {
+    if (!('listenerId' in event)) return;
+    const attaches = event.kind === 'listener_attach' || (event.kind === 'listener' && event.phase === 'attach');
+    const closes = event.kind === 'listener_detach' || event.kind === 'listener_errored'
+      || (event.kind === 'listener' && (event.phase === 'detach' || event.phase === 'errored'));
+    if (attaches) this.activeListeners.set(event.listenerId, event);
+    if (closes) this.activeListeners.delete(event.listenerId);
+  }
+
+  private pruneExpired(): void {
+    const maxAge = this.limits?.maxAgeMs;
+    if (maxAge === undefined) return;
+    const cutoff = Date.now() - maxAge;
+    const oldestIsExpired = () => {
+      const event = this.entries[0]?.event;
+      return event !== undefined && (event.observedAt ?? event.at) < cutoff;
+    };
+    while (oldestIsExpired()) {
+      const oldest = this.entries.shift()!;
+      this.forgetId(oldest.event);
+      this.rulesEvidence.forget(oldest);
+      this.bytes -= oldest.bytes;
+      this.omit(oldest.event);
+    }
   }
 
   private expireRulesEvidence(entry: { event: SandboxEvent; bytes: number }): void {

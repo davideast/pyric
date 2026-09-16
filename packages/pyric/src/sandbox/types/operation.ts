@@ -61,6 +61,8 @@ export interface ActivityEventProvenance {
 /** Compatibility provenance carried by sandbox events while producers and
  * consumers migrate to the canonical `operationContext`. */
 export interface EventProvenance {
+  /** Wall-clock observation time, independent of the simulated service clock. */
+  observedAt?: number;
   service?: EventService;
   actor?: EventActor;
   authLens?: AuthLens;

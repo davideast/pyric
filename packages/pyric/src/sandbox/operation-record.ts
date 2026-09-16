@@ -1,3 +1,4 @@
+import { observationPayload } from './internal/observation-payload.js';
 /**
  * Canonical operation records.
  *
@@ -22,6 +23,7 @@ import type {
 } from './types/events.js';
 
 export interface OperationRecord {
+  readonly observation?: import('./types/request-observation.js').RequestObservation;
   readonly id: string;
   readonly at: number;
   readonly eventKind: 'request' | 'operation' | 'listener';
@@ -214,9 +216,31 @@ function immutableValue(value: unknown): unknown {
   return value;
 }
 
+/** Auth changes have no rules seam; normalize their recorded outcome alongside data operations. */
+export function trafficOperationEvent(event: SandboxEvent): OperationEvent | null {
+  if (isOperationEvent(event)) return event;
+  const isAuthChange = event.kind === 'service_mutation' && event.service === 'auth';
+  if (!isAuthChange) return null;
+  const safe = (value: unknown): unknown => {
+    const preview = observationPayload(value);
+    if (!preview || preview.truncated) return undefined;
+    return JSON.parse(preview.text);
+  };
+  return {
+    kind: 'operation', id: event.id, at: event.at, service: 'auth', method: event.op,
+    path: event.path, auth: event.auth, origin: 'user', result: 'not-applicable',
+    rulesDisposition: { kind: 'not-evaluated', reason: 'not-a-rules-operation' },
+    operationContext: operationContextFor(event),
+    detail: { transition: event.op, evidence: safe(event.detail) },
+    resourceBefore: event.before === undefined ? undefined : { data: safe(event.before), exists: true },
+    resourceAfter: event.after === undefined ? undefined : { data: safe(event.after), exists: true },
+  };
+}
+
 /** Project either traffic event family into the canonical record. */
-export function toOperationRecord(event: SandboxEvent): OperationRecord | null {
-  if (!isOperationEvent(event)) return null;
+export function toOperationRecord(input: SandboxEvent): OperationRecord | null {
+  const event = trafficOperationEvent(input);
+  if (!event) return null;
   let methodVal = 'listen';
   let pathVal: string | undefined = undefined;
   if (event.kind === 'request' || event.kind === 'operation') {
@@ -239,8 +263,9 @@ export function toOperationRecord(event: SandboxEvent): OperationRecord | null {
     queryProof = immutableValue(event.queryProof) as RequestEvent['queryProof'];
   }
   return Object.freeze({
-    id: event.id,
-    at: event.at,
+    id: event.kind === 'operation' ? event.observation?.id ?? event.id : event.id,
+    at: event.kind === 'operation' ? event.observation?.startedAt ?? event.at : event.at,
+    ...(event.kind === 'operation' && event.observation ? { observation: event.observation } : {}),
     eventKind: event.kind,
     service: serviceVal,
     method: methodVal,

@@ -450,6 +450,7 @@ export interface SessionBoundaryEvent {
  * their state is a Firestore document.
  */
 export interface SandboxOperationEvent {
+  observation?: import('./request-observation.js').RequestObservation;
   kind: 'operation';
   id: string;
   at: number;

@@ -79,6 +79,7 @@ export {
   rulesDispositionFor,
   toListenerRecord,
   toOperationRecord,
+  trafficOperationEvent,
 } from './operation-record.js';
 export type { ListenerPhase, OperationRecord } from './operation-record.js';
 
