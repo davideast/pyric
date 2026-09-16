@@ -1,31 +1,6 @@
-/**
- * Traffic surface (S-TRAFFIC): `mocks/c-traffic.html` as a live surface.
- *
- * Parts, all `@pyric/ui/traffic` plus the verdict slice (specs/traffic.md MVP):
- *   1. `TrafficTimeline`, the volume-over-time histogram (the time axis that
- *      makes traffic feel like traffic). Denies stack dark at the base of each
- *      bar; a live edge marks "now".
- *   2. A compact filter row (verdict), single row per the spec's filter
- *      contract.
- *   3. The request stream (grouped via `useTrafficGroups`), each row carrying a
- *      VERDICT pill — allow | deny | bypassed | blank for
- *      non-rule ops — derived from fields the events already carry
- *      (`verdict.ts`). Clicking a RULES-EVALUATED row (allow or deny —
- *      `opensRulesInspector`) EXPANDS IN PLACE (disclosure, no modal) into the
- *      RULES INSPECTOR detail (features/rules-debug): the deciding rule per
- *      service, request.auth, the data the rule saw, and the capability-gated
- *      re-runs. Bypassed and blank-verdict rows (no rules decision to
- *      inspect) navigate to the record the op touched (`subjectTarget` → the
- *      route codec) instead.
- *
- * The inspected op lives in the URL (`?inspect=<id>`, the key `shell/path.ts`
- * documents and the command palette targets), so an inspection view is
- * linkable and back/forward work. Esc (or the close control, or re-clicking
- * the row) returns to the log. A deep-linked id that isn't in the current
- * buffer renders a calm "not in this session's traffic" state.
- *
- * Data is the request/operation slice of the unified event stream (the
- * dev-seed drives real allow/deny ops; `dev --ui` streams live).
+/** Cross-service requests, timeline, metrics and listeners share one retained event feed.
+ * Every request opens a URL-addressable inspector; rules are optional evidence.
+ * Grouping, origin filtering and timeline selection remain properties of the list.
  */
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
@@ -37,13 +12,11 @@ import {
   defaultFormatTime,
   type TimeWindow,
 } from '@pyric/ui/traffic';
-import { useStudioTraffic, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
-import { currentPath, pushPath, subscribeToLocation } from '../../shell/router.js';
+import { useStudioTrafficHistory, STUDIO_EVENT_CAP } from '../../shell/studio-events.js';
+import { currentPath, pushPath, replacePath, subscribeToLocation } from '../../shell/router.js';
 import {
   filterByVerdict,
   filterStudioTraffic,
-  opensRulesInspector,
-  subjectTarget,
   verdictFor,
   verdictLabel,
   VERDICT_FILTERS,
@@ -51,7 +24,7 @@ import {
   type VerdictFilter,
 } from './verdict.js';
 import { queryWithInspect, selectedInspectId, toggleInspect } from './inspect-selection.js';
-import { TrafficRulesInspector } from './TrafficRulesInspector.js';
+import { TrafficRequestInspector, executionOutcome } from './TrafficRequestInspector.js';
 import { BillableMetricsView, RulesMetricsView } from './TrafficMetricsViews.js';
 import {
   ListenerPageSurface,
@@ -178,8 +151,18 @@ function useInspectParam(): string | null {
  *  place) — which is exactly where list virtualization gets expensive. */
 const PAGE_SIZE = 100;
 
+function useRequestFilter(key: string): readonly [string, (value: string) => void] {
+  const value = useSyncExternalStore(subscribeToLocation, () => currentPath().query[key] ?? '', () => '');
+  const change = (next: string) => {
+    const query = queryWithInspect(currentPath().query, null);
+    if (next) query[key] = next; else delete query[key];
+    replacePath({ tab: 'traffic', query });
+  };
+  return [value, change];
+}
+
 export function TrafficSurface() {
-  const allEvents = useStudioTraffic();
+  const { requests: allEvents, omittedCount } = useStudioTrafficHistory();
   const [tab, setTab] = useTrafficTab();
   const drilledListener = useDrilledListener();
   const [hideStudio, toggleHideStudio] = useHideStudio();
@@ -195,6 +178,9 @@ export function TrafficSurface() {
   const [timeFocus, setTimeFocus] = useState<TimeWindow | null>(null);
   const expandedId = useInspectParam();
   const [visibleRows, setVisibleRows] = useState(PAGE_SIZE);
+  const [serviceFilter, setServiceFilter] = useRequestFilter('service');
+  const [search, setSearch] = useRequestFilter('q');
+  const [outcomeFilter, setOutcomeFilter] = useRequestFilter('outcome');
 
   // Selecting/closing an inspection NAVIGATES (pushPath) so the view is
   // linkable and back/forward step through inspections; other query keys
@@ -241,8 +227,13 @@ export function TrafficSurface() {
   // Newest-first stream; verdict filter first, then grouping (the volume
   // reducer: storms → one row).
   const ordered = useMemo(
-    () => filterByVerdict(tableEvents, verdictFilter).sort((a, b) => b.at - a.at),
-    [tableEvents, verdictFilter],
+    () => filterByVerdict(tableEvents, verdictFilter).filter(event => {
+      const serviceMatches = !serviceFilter || (event.service ?? 'firestore') === serviceFilter;
+      const searchMatches = `${event.method} ${event.path}`.toLowerCase().includes(search.toLowerCase());
+      const outcomeMatches = !outcomeFilter || executionOutcome(event) === outcomeFilter;
+      return serviceMatches && searchMatches && outcomeMatches;
+    }).sort((a, b) => b.at - a.at),
+    [tableEvents, verdictFilter, serviceFilter, search, outcomeFilter],
   );
   const { items } = useTrafficGroups({ events: ordered });
   const visibleItems = items.slice(0, visibleRows);
@@ -251,21 +242,19 @@ export function TrafficSurface() {
 
   const denied = events.filter((e) => e.result === 'deny').length;
 
-  const verdictBadge = (event: StudioTrafficEvent) => <VerdictCell event={event} />;
-
-  // The row's navigation semantic: a RULES-EVALUATED row (allow or deny)
-  // expands in place into the rules inspector — the rules decision IS
-  // Traffic's detail; its subject link would hide the why. Admin-bypass and
-  // blank-verdict rows have no rules decision to inspect, so they keep the
-  // C3 drill-in to the record the op touched.
-  const onRowSelect = (e: StudioTrafficEvent) => {
-    if (opensRulesInspector(e)) {
-      openInspect(e.id);
-      return;
-    }
-    const target = subjectTarget(e);
-    if (target) pushPath(target);
+  const requestTarget = (event: StudioTrafficEvent) => {
+    const ai = event.observation?.ai;
+    if (!ai) return event.path || '/';
+    return <span className="traffic__model-route">
+      <span><span className="traffic__model-label">Requested</span><span>{ai.requestedModel}</span></span>
+      <span><span className="traffic__model-label">Routed</span><span>{ai.routedModel ?? 'Not recorded'}</span></span>
+    </span>;
   };
+
+  const verdictBadge = (event: StudioTrafficEvent) => <span className="traffic__outcome"><span>{executionOutcome(event)}</span><span>{event.durationMs === undefined ? 'Duration not recorded' : `${Math.round(event.durationMs)} ms`}</span><VerdictCell event={event} /></span>;
+
+  // Every request opens the same linkable inspector. Rules are optional evidence.
+  const onRowSelect = (event: StudioTrafficEvent) => openInspect(event.id);
 
   // A deep-linked / filtered-out op has no visible row to expand under:
   // detect it so the inspector can render standalone above the log (this also
@@ -328,6 +317,7 @@ export function TrafficSurface() {
                 <span className="traffic__tl-count">
                   {events.length} requests
                   {atCap ? ` (showing latest ${STUDIO_EVENT_CAP})` : ''}
+                  {omittedCount > 0 ? ` · Older history discarded (${omittedCount} events)` : ''}
                 </span>
                 {denied > 0 ? (
                   <button
@@ -382,7 +372,14 @@ export function TrafficSurface() {
             </section>
           ) : null}
 
-          <div className="traffic__filters" role="group" aria-label="Traffic filters">
+          <div className="traffic__filters traffic__filters--requests" role="group" aria-label="Traffic filters">
+            <label className="traffic__filter-field">Service <select className="traffic__filter-select" aria-label="Traffic service" value={serviceFilter} onChange={event => setServiceFilter(event.target.value)}>
+              {['', 'ai', 'firestore', 'rtdb', 'storage', 'auth'].map(service => <option key={service} value={service}>{service || 'All services'}</option>)}
+            </select></label>
+            <label className="traffic__filter-field">Outcome <select className="traffic__filter-select" aria-label="Traffic outcome" value={outcomeFilter} onChange={event => setOutcomeFilter(event.target.value)}>
+              {['', 'In progress', 'Completed', 'Succeeded', 'Failed', 'Cancelled', 'Interrupted', 'Denied', 'Unsupported', 'Rules evaluated'].map(outcome => <option key={outcome} value={outcome}>{outcome || 'All outcomes'}</option>)}
+            </select></label>
+            <input className="traffic__filter-input" aria-label="Search traffic" placeholder="Operation or target" value={search} onChange={event => setSearch(event.target.value)} />
             <span className="traffic__filters-label" aria-hidden="true">
               verdict
             </span>
@@ -392,7 +389,7 @@ export function TrafficSurface() {
                 type="button"
                 className="traffic__filter"
                 aria-pressed={verdictFilter === f}
-                onClick={() => setVerdictFilter(f)}
+                onClick={() => { closeInspect(); setVerdictFilter(f); }}
               >
                 {verdictLabel(f)}
               </button>
@@ -403,9 +400,9 @@ export function TrafficSurface() {
               pagination fold, folded into a group, or absent from the buffer):
               the inspector renders standalone above the log. */}
           {expandedId && !expandedRowVisible ? (
-            <TrafficRulesInspector
+            <TrafficRequestInspector
               key={expandedId}
-              eventId={expandedId}
+              event={allEvents.find(event => event.id === expandedId)}
               onClose={closeInspect}
             />
           ) : null}
@@ -439,18 +436,11 @@ export function TrafficSurface() {
                         // disclosure renders only on top-level entries — the
                         // library owns member markup). Others navigate to
                         // their subject.
-                        onSelect={(e) => {
-                          const ev = e as StudioTrafficEvent;
-                          if (opensRulesInspector(ev)) {
-                            openInspect(ev.id);
-                            return;
-                          }
-                          const target = subjectTarget(ev);
-                          if (target) pushPath(target);
-                        }}
+                        onSelect={(event) => openInspect(event.id)}
                         renderClassification={(event) =>
                           verdictBadge(event as StudioTrafficEvent)
                         }
+                        renderTarget={event => requestTarget(event as StudioTrafficEvent)}
                         formatTime={defaultFormatTime}
                       />
                     </li>
@@ -468,13 +458,13 @@ export function TrafficSurface() {
                         renderClassification={(event) =>
                           verdictBadge(event as StudioTrafficEvent)
                         }
+                        renderTarget={event => requestTarget(event as StudioTrafficEvent)}
                         formatTime={defaultFormatTime}
                       />
-                      {item.event.id === expandedId &&
-                      opensRulesInspector(item.event as StudioTrafficEvent) ? (
-                        <TrafficRulesInspector
+                      {item.event.id === expandedId ? (
+                        <TrafficRequestInspector
                           key={expandedId}
-                          eventId={expandedId}
+                          event={allEvents.find(event => event.id === expandedId)}
                           onClose={closeInspect}
                         />
                       ) : null}

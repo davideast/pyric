@@ -22,6 +22,8 @@ import type { CommandTarget } from '../home/command.js';
  * Studio source is stamped mechanically at the issuing call site, never
  * inferred from the operation shape. */
 export type StudioTrafficEvent = TrafficEvent & {
+  observation?: import('pyric/sandbox').SandboxOperationEvent['observation'];
+  detail?: Record<string, unknown>;
   queryProof?: RequestEvent['queryProof'];
   operationContext: OperationContext;
   rulesDisposition: RulesDisposition;

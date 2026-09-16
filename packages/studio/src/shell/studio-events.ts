@@ -1,3 +1,4 @@
+import { EventHistory, OBSERVATION_HISTORY_LIMITS } from 'pyric/sandbox/internal';
 /**
  * The Studio event stream, and everything derived from it.
  *
@@ -16,9 +17,8 @@ import type {
   SandboxListenerEvent,
   SandboxOperationEvent,
 } from 'pyric/sandbox';
-import { activeListeners, isOperationEvent, toOperationRecord } from 'pyric/sandbox';
+import { trafficOperationEvent, toOperationRecord } from 'pyric/sandbox';
 import type { StudioTrafficEvent } from '../features/traffic/verdict.js';
-import { foldSessionEventLog } from '../events/fold.js';
 import { useDevSeed } from '../dev/DevSeedProvider.js';
 import { useEnvironment } from './environment.js';
 import {
@@ -56,24 +56,16 @@ export function useStudioEventFeed(): EventFeed {
  * session must not grow render/memory cost without bound. Newest-retained;
  * `TrafficSurface` surfaces an explicit "showing latest N" line when hit.
  */
-export const STUDIO_EVENT_CAP = 500;
+export const STUDIO_EVENT_CAP = OBSERVATION_HISTORY_LIMITS.maxEvents;
 
 /** Newest-retained cap. Returns the SAME reference when under the cap, so
  *  memo consumers don't churn on every render. */
 type EventRetention = 'recent' | 'active-listeners';
 
-function capNewest(events: readonly SandboxEvent[], retention: EventRetention): readonly SandboxEvent[] {
-  if (events.length <= STUDIO_EVENT_CAP) return events;
-  const recent = events.slice(-STUDIO_EVENT_CAP);
-  if (retention === 'recent') return recent;
-  // A live registration is state, not disposable traffic history. Keep its
-  // original attach until a detach/error closes it; deliveries remain capped.
-  const active = new Set(activeListeners(events).map(listener => listener.id));
-  const registrations = events.slice(0, -STUDIO_EVENT_CAP).filter(event =>
-    (event.kind === 'listener_attach' || (event.kind === 'listener' && event.phase === 'attach')) &&
-    active.has(event.listenerId),
-  );
-  return [...registrations, ...recent];
+function capNewest(events: readonly SandboxEvent[], _retention: EventRetention): readonly SandboxEvent[] {
+  const history = new EventHistory(OBSERVATION_HISTORY_LIMITS);
+  for (const event of events) history.append(event);
+  return history.snapshot();
 }
 
 /**
@@ -103,10 +95,15 @@ export function useStudioEvents(retention: EventRetention = 'recent'): readonly 
     // Live appends fold through the session rule: a reset boundary drops the
     // wiped session's events (see `events/fold.ts`) so Traffic/Session read
     // (near-)empty after Settings then Reset, which is issue #359's extension.
-    setLiveEvents(capNewest(liveFeed.history(), retention));
-    const unsub = liveFeed.subscribe((event) =>
-      setLiveEvents((prev) => capNewest(foldSessionEventLog(prev, event), retention)),
-    );
+    const history = new EventHistory(OBSERVATION_HISTORY_LIMITS);
+    for (const event of liveFeed.history()) history.append(event);
+    setLiveEvents(history.snapshot());
+    const unsub = liveFeed.subscribe(event => {
+      const reset = event.kind === 'session_boundary' && event.phase === 'reset';
+      if (reset) history.clear();
+      history.append(event);
+      setLiveEvents(history.snapshot());
+    });
     return unsub;
   }, [seedReady, liveFeed, retention]);
 
@@ -119,13 +116,6 @@ export function useStudioEvents(retention: EventRetention = 'recent'): readonly 
   return seedReady ? cappedSeedEvents : liveEvents;
 }
 
-function isTrafficEvent(
-  e: SandboxEvent,
-): e is (RequestEvent | SandboxOperationEvent | SandboxListenerEvent) & EventProvenance {
-  const isValidOperation = isOperationEvent(e);
-  return isValidOperation;
-}
-
 function isPermissionDeniedErrorCode(code: unknown): boolean {
   if (typeof code !== 'string') return false;
   const normalized = code.toLowerCase();
@@ -136,7 +126,7 @@ function isPermissionDeniedErrorCode(code: unknown): boolean {
   );
 }
 
-function toTrafficEvent(
+export function toTrafficEvent(
   e: (RequestEvent | SandboxOperationEvent | SandboxListenerEvent) & EventProvenance,
 ): StudioTrafficEvent {
   const record = toOperationRecord(e);
@@ -203,8 +193,10 @@ function toTrafficEvent(
   return {
     kind: 'operation',
     service: e.service,
-    id: e.id,
-    at: e.at,
+    id: record.id,
+    at: record.at,
+    observation: record.observation,
+    detail: e.detail,
     durationMs: e.durationMs,
     method: e.method,
     path: pathVal,
@@ -229,12 +221,25 @@ function toTrafficEvent(
  * other services can emit canonical `operation` events. Adapt both into the
  * headless `@pyric/ui/traffic` shape.
  */
-export function useStudioTraffic(): StudioTrafficEvent[] {
+export function useStudioTrafficHistory() {
   const events = useStudioEvents();
-  return useMemo<StudioTrafficEvent[]>(
-    () => events.filter(isTrafficEvent).map(toTrafficEvent),
-    [events],
-  );
+  return useMemo(() => {
+    const requests = new Map<string, StudioTrafficEvent>();
+    let omittedCount = 0;
+    for (const event of events) {
+      const operation = trafficOperationEvent(event);
+      if (operation) {
+        const request = toTrafficEvent(operation);
+        requests.set(request.id, request);
+      }
+      if (event.kind === 'observation_gap') omittedCount += event.omittedCount;
+    }
+    return { requests: [...requests.values()], omittedCount };
+  }, [events]);
+}
+
+export function useStudioTraffic(): StudioTrafficEvent[] {
+  return useStudioTrafficHistory().requests;
 }
 
 /** The denied ops (rules-failure debugging), derived from the live stream. */

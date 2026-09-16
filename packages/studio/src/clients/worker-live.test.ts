@@ -179,7 +179,7 @@ function fakeWrite(id: string): SandboxEvent {
   return {
     kind: 'write',
     id,
-    at: 0,
+    at: Date.now(),
     method: 'create',
     path: `users/${id}`,
     auth: null,
@@ -320,7 +320,7 @@ describe('workerEventFeed (F1 live-feed adapter)', () => {
     const boundary = {
       kind: 'session_boundary',
       id: 'b1',
-      at: 1,
+      at: Date.now(),
       phase: 'reset',
       priorOpCount: 3,
     } as unknown as SandboxEvent;

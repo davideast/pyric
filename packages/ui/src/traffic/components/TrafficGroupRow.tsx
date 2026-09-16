@@ -22,6 +22,8 @@ export interface TrafficGroupRowProps {
   /** Passed through to each member `<TrafficRow>`. */
   renderClassification?: (event: TrafficEvent) => ReactNode;
   /** Passed through to each member `<TrafficRow>`. */
+  renderTarget?: (event: TrafficEvent) => ReactNode;
+  /** Passed through to each member `<TrafficRow>`. */
   formatTime?: (at: number) => string;
   className?: string;
 }
@@ -42,6 +44,7 @@ export function TrafficGroupRow({
   onSelect,
   selectedId,
   renderClassification,
+  renderTarget,
   formatTime,
   className,
 }: TrafficGroupRowProps) {
@@ -80,6 +83,7 @@ export function TrafficGroupRow({
                 selected={event.id === selectedId}
                 onSelect={onSelect}
                 renderClassification={renderClassification}
+                renderTarget={renderTarget}
                 formatTime={formatTime}
               />
             </li>

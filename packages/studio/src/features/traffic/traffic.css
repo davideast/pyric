@@ -767,8 +767,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 18px;
+  min-width: 52px;
+  min-height: 18px;
+  padding: 2px 6px;
+  white-space: normal;
+  text-align: center;
   border-radius: 5px;
   align-self: center; /* the row baselines text; the pill centers itself */
   flex-shrink: 0;
@@ -849,13 +852,14 @@
 .traffic__log [data-pyric-traffic-row] {
   appearance: none;
   width: 100%;
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: 64px 74px minmax(100px, 200px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
   background: none;
   border: none;
   border-bottom: 1px solid var(--line);
-  padding: 8px 14px;
+  padding: 12px 14px;
   font: inherit;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -863,6 +867,7 @@
   text-align: left;
   cursor: pointer;
 }
+.traffic__log [data-pyric-traffic-row][data-pyric-selected],
 .traffic__log [data-pyric-traffic-row]:hover {
   background: var(--panel);
 }
@@ -915,20 +920,21 @@
   background: none;
 }
 
-/* The method badge — FIXED width (fits "LISTEN") for the same alignment
-   reason: a variable-width chip shifted every path after it. */
+/* The operation track wraps long SDK method names within the badge. */
 .traffic__log [data-pyric-badge-kind] {
-  font-family: var(--font-ui);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  width: 58px;
-  padding: 1px 0;
-  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  line-height: 1.5;
+  min-width: 0;
+  max-width: 100%;
+  width: fit-content;
+  padding: 3px 7px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
   border-radius: 4px;
   border: 1px solid var(--line-2);
   color: var(--muted);
-  flex-shrink: 0;
 }
 
 /* Group rows (collapsed listener storms). */
@@ -1460,4 +1466,53 @@
   .traffic__filter-input {
     width: 140px;
   }
+}
+
+.traffic__filters--requests { flex-wrap: wrap; gap: var(--space-3); overflow: visible; }
+.traffic__filters--requests .traffic__filter-field { color: var(--muted); font-size: var(--fs-caption); }
+.traffic__filters--requests .traffic__filter-select,
+.traffic__filters--requests .traffic__filter-input { min-height: 32px; }
+.traffic__filters--requests .traffic__filter-select { appearance: auto; }
+.traffic__filters--requests .traffic__filter-input { flex: 1 1 180px; max-width: 280px; min-width: 0; }
+.traffic__model-route { display: grid; gap: var(--space-1); }
+.traffic__model-route > span { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: var(--space-2); }
+.traffic__model-route > span > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.traffic__model-label { color: var(--muted); font-family: var(--font-ui); font-size: var(--fs-caption); }
+.traffic__outcome { display: grid; justify-items: end; gap: var(--space-1); max-width: 180px; font-size: var(--fs-caption); }
+.traffic__outcome > span:first-child { color: var(--ink); font-family: var(--font-ui); }
+.traffic__outcome > span:nth-child(2) { color: var(--muted); }
+.traffic__request-detail { min-width: 0; padding: var(--space-4); gap: var(--space-5); background: var(--panel); }
+.traffic__request-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.traffic__request-header h3 { margin: 0; color: var(--ink); font-size: var(--fs-label); font-weight: 600; }
+.traffic__request-header .traffic__inspector-close { font-family: var(--font-ui); min-height: 28px; }
+.traffic__fact-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5) var(--space-6); }
+.traffic__fact-group { min-width: 0; }
+.traffic__fact-group h4 { margin: 0 0 var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--line); color: var(--ink); font-size: var(--fs-caption); font-weight: 600; }
+.traffic__fact-group dl { display: grid; gap: var(--space-2); margin: 0; }
+.traffic__fact-group dl > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: var(--space-3); align-items: baseline; }
+.traffic__fact-group dt { color: var(--muted); font-size: var(--fs-caption); }
+.traffic__fact-group dd { margin: 0; color: var(--ink); font-family: var(--font-mono); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.traffic__request-evidence { display: grid; gap: var(--space-3); border-top: 1px solid var(--line); padding-top: var(--space-4); }
+.traffic__evidence-note { margin: 0; color: var(--muted); font-size: var(--fs-caption); }
+.traffic__payload { min-width: 0; }
+.traffic__payload > summary { width: fit-content; padding-block: var(--space-2); color: var(--ink); font-size: var(--fs-label); font-weight: 500; cursor: pointer; }
+.traffic__payload > pre { margin: var(--space-2) 0 0; padding: var(--space-3); border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-family: var(--font-mono); font-size: 12px; line-height: 1.6; max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.traffic__resource-link { justify-self: start; color: var(--accent); font-size: var(--fs-caption); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 1000px) {
+  .traffic__log [data-pyric-traffic-row] { grid-template-columns: 64px 74px minmax(0, 1fr) auto; }
+  .traffic__log [data-pyric-traffic-path] { grid-column: 1 / -1; grid-row: 2; }
+  .traffic__outcome { grid-column: 4; grid-row: 1; max-width: 140px; }
+}
+@media (max-width: 760px) {
+  .traffic__fact-groups { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .traffic__log [data-pyric-traffic-row] { grid-template-columns: 64px minmax(0, 1fr) auto; gap: var(--space-2); }
+  .traffic__log [data-pyric-badge-kind] { grid-column: 1 / -1; grid-row: 2; }
+  .traffic__log [data-pyric-traffic-path] { grid-row: 3; white-space: normal; overflow-wrap: anywhere; }
+  .traffic__outcome { grid-column: 3; }
+  .traffic__model-route > span > span:last-child { overflow: visible; }
+  .traffic__fact-group dl > div { grid-template-columns: 96px minmax(0, 1fr); gap: var(--space-2); }
+  .traffic__filters { flex-wrap: wrap; }
+  .traffic__filters input { min-width: 0; max-width: 100%; }
 }

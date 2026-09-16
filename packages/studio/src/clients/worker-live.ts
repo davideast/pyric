@@ -1,3 +1,4 @@
+import { EventHistory, OBSERVATION_HISTORY_LIMITS } from 'pyric/sandbox/internal';
 import { connectHostedStudio } from './hosted-runtime.js';
 import { readHostedTarget } from '@pyric/cli/serve/worker';
 /**
@@ -277,7 +278,7 @@ export const DEFAULT_WORKER_URL = '/__pyric/sdk/worker.js';
 export function workerEventFeed(db: ClientDb): LiveEventFeed {
   // The running snapshot of events seen so far (history + live), kept so a late
   // `feed.history()` call returns the backlog.
-  let historySnapshot: readonly SandboxEvent[] = [];
+  const history = new EventHistory(OBSERVATION_HISTORY_LIMITS);
   let sawHistory = false;
   const subscribers = new Set<(event: SandboxEvent) => void>();
   let workerUnsub: (() => void) | null = null;
@@ -293,12 +294,11 @@ export function workerEventFeed(db: ClientDb): LiveEventFeed {
       // drops everything before it (see `events/fold.ts`) so the running
       // snapshot mirrors the worker's now-cleared `history()` — pre-fix it
       // kept the wiped session's traffic forever (issue #359 extension).
-      const next: SandboxEvent[] = isHistoryBatch ? [] : [...historySnapshot];
+      if (isHistoryBatch) history.clear();
       for (const event of events) {
-        if (isSessionResetBoundary(event)) next.length = 0;
-        next.push(event);
+        if (isSessionResetBoundary(event)) history.clear();
+        history.append(event);
       }
-      historySnapshot = next;
       // Fan EVERY event (history backlog included) out to subscribers, so an
       // early subscriber that read an empty `history()` still gets the backlog.
       for (const event of events) {
@@ -308,7 +308,7 @@ export function workerEventFeed(db: ClientDb): LiveEventFeed {
   }
 
   return {
-    history: () => historySnapshot,
+    history: () => history.snapshot(),
     subscribe: (cb) => {
       // CONSUMER CONTRACT (matches `useActionDigest`): read `history()` THEN
       // `subscribe()`. The FIRST subscriber sees an empty `history()` (the
@@ -324,7 +324,7 @@ export function workerEventFeed(db: ClientDb): LiveEventFeed {
           workerUnsub = null;
           // Reset so a later re-subscribe re-seeds history from the worker.
           sawHistory = false;
-          historySnapshot = [];
+          history.clear();
         }
       };
     },

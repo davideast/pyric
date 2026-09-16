@@ -15,6 +15,8 @@ export interface TrafficRowProps {
    * Returns `null` to render nothing.
    */
   renderClassification?: (event: TrafficEvent) => ReactNode;
+  /** Render service-specific target evidence, such as requested and routed models. */
+  renderTarget?: (event: TrafficEvent) => ReactNode;
   /** Override the timestamp rendering. Default is `HH:MM:SS`. */
   formatTime?: (at: number) => string;
   className?: string;
@@ -45,6 +47,7 @@ export function TrafficRow({
   selected,
   onSelect,
   renderClassification,
+  renderTarget,
   formatTime = defaultFormatTime,
   className,
 }: TrafficRowProps) {
@@ -62,7 +65,7 @@ export function TrafficRow({
       <span data-pyric-traffic-time="">{formatTime(event.at)}</span>
       <span data-pyric-traffic-service={event.service ?? ''}>{event.service ?? ''}</span>
       <Badge kind={event.method}>{event.method}</Badge>
-      <span data-pyric-traffic-path="">{event.path || '/'}</span>
+      <span data-pyric-traffic-path="">{renderTarget ? renderTarget(event) : event.path || '/'}</span>
       {renderClassification ? renderClassification(event) : null}
     </button>
   );
