@@ -344,11 +344,14 @@ describe('applyServeInit — seed applies only into an empty home (guardrail)', 
     expect((res.value as { exists: boolean }).exists).toBe(false); // fixture never applied
   });
 
-  it('adds missing state-fixture identities without replacing restored accounts', async () => {
+  it.each([
+    { source: 'state fixture', restoration: { seedState: { version: 1, firestore: {} } } },
+    { source: 'persisted state', restoration: { persist: true } },
+  ])('adds missing $source identities without replacing restored accounts', async ({ restoration }) => {
     const ctx = await makeCtx();
     await handleMessage(ctx, fakePort(), { t: 'op', id: 'pre', method: 'setDoc', path: 'todos/existing', data: { title: 'lived' } });
     authOps.seedUsers(ensureAuth(ctx), [{ uid: 'existing', email: 'existing@example.com', password: 'original', displayName: 'Kept' }]);
-    const payload = { ...basePayload, seedState: { version: 1, firestore: {} }, authUsers: [
+    const payload = { ...basePayload, ...restoration, authUsers: [
       { uid: 'existing', email: 'existing@example.com', password: 'replacement', displayName: 'Wrong' },
       { uid: 'conflict', email: 'EXISTING@example.com', password: 'replacement' },
       { uid: 'alice', email: 'alice@example.com', password: 'fixture-password' },

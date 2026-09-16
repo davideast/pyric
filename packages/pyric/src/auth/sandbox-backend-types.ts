@@ -21,23 +21,23 @@ import type { AuthObserver, User } from './types.js';
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /** Seed record for `sandbox.seedUsers`. */
-/** Stand-in password for exported provider-flow identities that never had
- *  one — keeps `exportUsers` → `seedUsers` round-trips lossless without
- *  widening the `SeedUser` shape. Not a secret: sandbox-only. */
+/** Legacy passwordless-account marker, accepted on import only.
+ * New exports omit the password instead. Kept for older fixture readers. */
 export const NO_PASSWORD_SENTINEL = '__pyric_no_password__';
 
 export type { SeedUser } from './seed-user.js';
 
 /**
  * Request for {@link SandboxBackend.mintDetachedSession} — one variant
- * per client sign-in shape, plus `uid` for existing identities
- * (session restore, provider-bridge accept).
+ * per client sign-in shape, plus `uid` for session restoration and
+ * `provider` for a provider sign-in to an existing linked identity.
  */
 export type MintSessionRequest = TenantScope & (
   | { kind: 'anonymous' }
   | { kind: 'password'; email: string; password: string }
   | { kind: 'createPassword'; email: string; password: string }
   | { kind: 'uid'; uid: string }
+  | { kind: 'provider'; uid: string; providerId: string }
 );
 
 /** The tenant a minted session authenticates under. Carried on every

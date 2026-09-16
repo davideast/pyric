@@ -275,11 +275,13 @@ export function applyServeInit(
   // A seed fixture applies only into an empty home — checked ONCE, before
   // either seed step, so step 2's own writes can't make step 3's check look
   // non-empty (see sandboxHasExistingData).
-  const hasExistingData =
-    ((payload.seed && Object.keys(payload.seed).length > 0) ||
-      (payload.authUsers && payload.authUsers.length > 0)) &&
-    sandboxHasExistingData(ctx);
-  if (hasExistingData && (!payload.seedState || (payload.seed && Object.keys(payload.seed).length > 0))) {
+  const hasSeedDocuments = payload.seed !== null && Object.keys(payload.seed).length > 0;
+  const hasAuthUsers = Boolean(payload.authUsers?.length);
+  const hasFixtureData = hasSeedDocuments || hasAuthUsers;
+  const hasExistingData = hasFixtureData && sandboxHasExistingData(ctx);
+  const restoresAuthUsers = payload.persist || Boolean(payload.seedState);
+  const skipsFixture = hasExistingData && (hasSeedDocuments || !restoresAuthUsers);
+  if (skipsFixture) {
     result.seedSkipped = 'existing-data';
     console.info(
       '[pyric worker] --seed skipped: the sandbox already has restored data (persisted state or ' +
@@ -290,7 +292,9 @@ export function applyServeInit(
 
   // 2. Auth users — before map-form docs and session restore. State-file
   //    documents may already have been restored by the persistence backend.
-  if (payload.authUsers?.length && (!hasExistingData || payload.seedState)) {
+  const mayRestoreUsers = !hasExistingData || restoresAuthUsers;
+  const appliesAuthUsers = hasAuthUsers && mayRestoreUsers;
+  if (appliesAuthUsers) {
     const auth = ensureAuth(ctx);
     const existing = authOps.exportUsers(auth);
     // State fixtures restore their documents before this step. Add only

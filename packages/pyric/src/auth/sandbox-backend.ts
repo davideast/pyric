@@ -801,11 +801,16 @@ export class SandboxBackend {
         this.usersByEmail.delete(priorEmail.toLowerCase());
       }
       const isAnonymousSeed = u.providerId === 'anonymous';
-      const providerUserInfo = isAnonymousSeed ? [] : [{ providerId: u.providerId ?? 'password' }];
+      const linkedProviders = u.providerUserInfo ?? [{ providerId: u.providerId ?? 'password' }];
+      const providerUserInfo = isAnonymousSeed ? [] : linkedProviders.map(provider => ({ ...provider }));
+      const hasPasswordProvider = providerUserInfo.some(provider => provider.providerId === 'password');
+      const hasLegacyPlaceholder = u.password === NO_PASSWORD_SENTINEL || u.password === '__pyric_popup_no_password__';
+      const isLegacyPasswordlessAccount = hasLegacyPlaceholder && !hasPasswordProvider;
+      const hasNoPassword = isAnonymousSeed || isLegacyPasswordlessAccount;
       const record = this.makeStored({
         uid: u.uid,
         email: isAnonymousSeed ? null : (u.email ?? null),
-        password: isAnonymousSeed ? null : (u.password ?? null),
+        password: hasNoPassword ? null : (u.password ?? null),
         displayName: u.displayName ?? null,
         phoneNumber: u.phoneNumber ?? null,
         photoUrl: u.photoUrl ?? null,
@@ -831,12 +836,9 @@ export class SandboxBackend {
 
   /**
    * Export the user DB as `SeedUser`s — the exact shape `seedUsers`
-   * accepts, so export → seed round-trips (the persistence substrate,
-   * the design rationale section 3c). Identities with an email but no
-   * password (provider-flow users created via `createSignInCredential`)
-   * export with {@link NO_PASSWORD_SENTINEL} so they survive the
-   * round-trip (same trick hosts already use when seeding popup
-   * identities). Anonymous users (no email) export with
+   * accepts, including every linked provider. Passwordless accounts omit
+   * the password; legacy placeholder values are decoded only on import.
+   * Anonymous users (no email) export with
    * `providerId: 'anonymous'` and no email or password, so a checkpoint,
    * a branch, and a restart keep them, matching real Firebase, which
    * keeps anonymous accounts in its user pool rather than discarding them.
@@ -866,9 +868,12 @@ export class SandboxBackend {
         createdAt: u.createdAt,
         lastLoginAt: u.lastLoginAt,
         email,
-        password: u.password ?? NO_PASSWORD_SENTINEL,
         providerId: u.providerUserInfo[0]?.providerId ?? 'password',
+        providerUserInfo: u.providerUserInfo.map(provider => ({ ...provider })),
       };
+      const { password } = u;
+      const hasPassword = password !== null;
+      if (hasPassword) seed.password = password;
       if (hasDisplayName) seed.displayName = displayName;
       if (hasPhotoUrl) seed.photoUrl = photoUrl;
       const hasPhoneNumber = phoneNumber !== null;
@@ -1555,12 +1560,14 @@ export class SandboxBackend {
           `createSignInCredential: no identity with uid ${req.uid}. Use the {spec} shape to create one.`,
         );
       }
+      this.assertUserEnabled(found);
       stored = found;
     } else {
       const { spec } = req;
       const specPhotoUrl = spec.photoUrl ?? null;
       const byEmail = this.usersByEmail.get(spec.email.toLowerCase());
       if (byEmail) {
+        this.assertUserEnabled(byEmail);
         stored = byEmail;
         if (refreshStoredPhoto(stored, specPhotoUrl)) this.notifyUsersChanged();
       } else {
@@ -1672,11 +1679,20 @@ export class SandboxBackend {
     return next;
   }
 
+  /** Restored or explicitly seeded users may already occupy generated IDs. */
+  private nextAvailableAdminUid(): string {
+    for (;;) {
+      const uid = `user-${this.sharedCounters.nextAdminUserId++}`;
+      const isAvailable = !this.usersByUid.has(uid);
+      if (isAvailable) return uid;
+    }
+  }
+
   /** Admin user creation. Does NOT sign the user in (unlike
    *  `createUserWithEmailAndPassword`) — matches the emulator's
    *  add-user flow / admin SDK semantics. */
   createUser(req: CreateUserRequest): AuthUserRecord {
-    const uid = req.uid ?? `user-${this.sharedCounters.nextAdminUserId++}`;
+    const uid = req.uid ?? this.nextAvailableAdminUid();
     if (this.usersByUid.has(uid)) {
       throw makeAuthError(
         'auth/uid-already-exists',
@@ -1911,19 +1927,19 @@ export class SandboxBackend {
           'password',
           tenantId,
         );
+      case 'provider':
       case 'uid': {
+        const isProviderSignIn = request.kind === 'provider';
+        if (isProviderSignIn) this.assertProviderEnabled(request.providerId);
         // restoreSession semantics minus the global set: an EXISTING
         // identity (per-tab session restore / provider-bridge accept).
         const stored = this.usersByUid.get(request.uid);
         if (!stored) {
           throw makeAuthError('auth/user-not-found', `mintSession: no identity with uid ${request.uid}.`);
         }
-        if (stored.disabled) {
-          throw makeAuthError('auth/user-disabled', `mintSession: user ${request.uid} is disabled.`);
-        }
-        const providerId = stored.isAnonymous
-          ? 'anonymous'
-          : (stored.providerUserInfo[0]?.providerId ?? 'password');
+        this.assertUserEnabled(stored);
+        const restoredProvider = stored.isAnonymous ? 'anonymous' : (stored.providerUserInfo[0]?.providerId ?? 'password');
+        const providerId = isProviderSignIn ? request.providerId : restoredProvider;
         return this.establishDetachedSession(this.buildUserFromStored(stored), providerId, tenantId);
       }
     }
@@ -2414,6 +2430,12 @@ export class SandboxBackend {
     return this.usersByUid.get(uid)?.customClaims ?? fallback;
   }
 
+  private assertUserEnabled(user: StoredUser): void {
+    if (user.disabled) {
+      throw makeAuthError('auth/user-disabled', 'The user account has been disabled by an administrator.');
+    }
+  }
+
   /** Internal validator for email/password — checks the password
    *  matches the stored record. Throws `auth/invalid-email` on a
    *  malformed email, `auth/wrong-password` on mismatch,
@@ -2452,12 +2474,7 @@ export class SandboxBackend {
     // exact prod ordering (disabled-vs-wrong-password) is flagged for
     // an oracle capture; the code (`auth/user-disabled`) and message
     // match prod's documented shape.
-    if (stored.disabled) {
-      throw makeAuthError(
-        'auth/user-disabled',
-        'The user account has been disabled by an administrator.',
-      );
-    }
+    this.assertUserEnabled(stored);
     if (stored.password !== password) {
       throw makeAuthError(
         'auth/wrong-password',

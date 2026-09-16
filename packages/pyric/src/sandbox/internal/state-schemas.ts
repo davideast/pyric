@@ -18,6 +18,7 @@ const userFields = {
   disabled: z.boolean().optional(),
   tenantId: z.string().optional(),
   providerId: z.string().optional(),
+  providerUserInfo: z.array(z.object({ providerId: z.string() })).optional(),
 } satisfies Record<keyof SeedUser, z.ZodType<unknown>>;
 
 const storageMetadataFields = {

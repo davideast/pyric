@@ -31,8 +31,6 @@ import {
   type AuthSubMessage,
 } from './protocol.js';
 import {
-  PROVIDER_SYNTHETIC_PASSWORD,
-  seedPhotoUrl,
   credReply,
   makeNoUserError,
   requirePortSession,
@@ -413,8 +411,9 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         }
         const { uid, isNewUser } = resolveOAuthCredentialUser(auth, cred);
         const session = authSandboxOps.mintSession(auth, {
-          kind: 'uid',
+          kind: 'provider',
           uid,
+          providerId: cred.providerId,
           tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
@@ -426,20 +425,12 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.acceptIdentity': {
       try {
-        const { uid, email, displayName, photoURL, customClaims, providerId } = msg.identity;
-        authSandboxOps.assertAuthProviderEnabled(auth, providerId);
-        const isNewUser = !authSandboxOps.listUsers(auth).some((u) => u.uid === uid);
-        authSandboxOps.seedUsers(auth, [{
-          uid,
-          email: email ?? '',
-          password: PROVIDER_SYNTHETIC_PASSWORD,
-          displayName: displayName ?? undefined,
-          photoUrl: seedPhotoUrl(auth, uid, photoURL),
-          customClaims: customClaims ?? {},
-          providerId,
-        }]);
+        const { providerId, photoURL, ...identity } = msg.identity;
+        const { uid, isNewUser } = resolveOAuthCredentialUser(auth, {
+          ...identity, providerId, photoURL: photoURL ?? undefined,
+        });
         const session = authSandboxOps.mintSession(auth, {
-          kind: 'uid', uid, tenantId: msg.tenantId ?? null,
+          kind: 'provider', uid, providerId, tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx);

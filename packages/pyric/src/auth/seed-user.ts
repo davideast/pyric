@@ -1,3 +1,5 @@
+import type { ProviderUserInfo } from './sandbox-backend-types.js';
+
 /** Seed record shared by account import and persistence validation. */
 export interface SeedUser {
   uid: string;
@@ -7,9 +9,7 @@ export interface SeedUser {
   /** Absent for an anonymous account (`providerId: 'anonymous'`), which has
    *  no address to sign in with. Required for every other provider. */
   email?: string;
-  /** Absent for an anonymous account. Required for every other provider;
-   *  a provider-flow identity with no password uses
-   *  {@link NO_PASSWORD_SENTINEL} instead of omitting it. */
+  /** Absent when the account has no password (anonymous or provider-only). */
   password?: string;
   displayName?: string;
   customClaims?: Record<string, unknown>;
@@ -33,4 +33,6 @@ export interface SeedUser {
    *  identities passes the real provider so `listIdentities` /
    *  `IdTokenResult.signInProvider` label them correctly. */
   providerId?: string;
+  /** Complete linked-provider list. Older seeds use providerId alone. */
+  providerUserInfo?: ProviderUserInfo[];
 }
