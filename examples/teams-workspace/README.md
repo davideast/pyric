@@ -18,7 +18,28 @@ The first visit starts signed out. Create an account or use Google sign-in. Fire
 
 `seed.json` contains development messages and matching Auth identities for David, Alice, Marcus and Avery. Their UIDs match message authors; their profile photos match the team roster. Use the chip to switch between them, or sign in with `<name>@orbit.example` and the local demo password `orbit-demo`. Seeding does not sign anyone in. Security rules live in normal Firebase rules files. Firestore handles messages, threads and reactions; RTDB handles typing, presence and receipts; Storage handles attachments. The app never seeds or changes sandbox rules itself.
 
+## Share the Node host across browsers
+
+After the install and build above, run Orbit through its normal Vite dev script:
+
+```sh
+TEAMS_HOSTED=1 bun run --cwd examples/teams-workspace dev
+```
+
+The Vite executable must use Node 22.15 or later on your `PATH`. Open
+http://localhost:5217 in two browsers, sign in with different seeded users, and
+send messages or upload an attachment. Both browsers share the Node sandbox;
+Studio at http://localhost:5217/__pyric/ui/studio sees the same data. State
+survives server restarts in this example's `.pyric/state/` directory.
+
+Omit `TEAMS_HOSTED` to retain the default SharedWorker mode. Stop the existing
+server before switching modes. No Firebase application code changes are needed.
+
 ## AI assistant
+
+With `TEAMS_HOSTED=1`, the Node engine calls the configured AI upstream directly.
+SharedWorker mode uses `/__pyric/ai-proxy` to reach the same upstream. Both modes
+honor the Vite plugin's `ai.model` and `ai.proxyUpstream` settings.
 
 Choose **AI assistant** in the app navigation to summarize the selected channel, find explicit next steps, draft a reply, or ask your own question. Answers stream into the conversation. Ask follow-up questions, copy an answer, regenerate the latest answer, or start a new chat. Replies remain private to this browser visit; they are not posted to a channel or stored in Firebase. Reloading or changing the signed-in identity clears chat history.
 

@@ -36,6 +36,33 @@ npm run dev
 
 Vite serves the application and Pyric Studio simultaneously on the exact same local origin. Access Studio at `/__pyric/ui/studio` or by clicking the floating runtime chip in the bottom-right corner of the browser.
 
+## Share a Node-hosted sandbox across browsers
+
+The default `pyric()` runs the sandbox in a SharedWorker. To share one sandbox
+across different browsers, devices, Studio and agent clients, opt into the Node
+host in your Vite configuration:
+
+```ts
+export default defineConfig({
+  plugins: [pyric({ hosted: true })],
+});
+```
+
+Run the same `npm run dev` command using Node 22.15 or later. The sandbox runs
+inside the Vite server process; no second server is needed. The bridge mounts
+automatically, and Studio uses the same backend at `/__pyric/ui/studio`.
+
+Hosted state is durable in `.pyric/state/`, including when `persist` is omitted
+or false. Use `fresh: true` to discard that state and reapply the seed on each
+server start; remove it after the reset. Only one server can own a project's
+persisted state at a time. Stop it before starting another host for that project.
+
+Saving Firestore or Realtime Database rules updates the running host. Normal
+Vite HMR remains available. Hosted mode requires Vite's own HTTP server and
+rejects `server.middlewareMode`; `vite preview` does not start a Node sandbox.
+A production `vite build` continues to use Firebase. To return to the default
+SharedWorker sandbox, remove `hosted` or set it to `false`.
+
 ## Specify custom Security Rules
 
 Pass explicit rules paths to the plugin options when your rules files live outside standard discovery paths:
