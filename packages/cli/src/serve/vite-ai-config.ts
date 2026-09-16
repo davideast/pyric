@@ -15,7 +15,7 @@ export interface PyricAiOptions {
   model?: string;
   /** Advanced declarative engine configuration. */
   engine?: PyricAiEngineConfig;
-  /** OpenAI-compatible upstream used by the same-origin proxy. */
+  /** OpenAI-compatible upstream: reached directly by Node, or through the browser proxy. */
   proxyUpstream?: string;
 }
 

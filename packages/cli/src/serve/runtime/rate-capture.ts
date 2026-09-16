@@ -42,7 +42,7 @@ export function readRateCapture(text: string): { frame: HistoryFrame; thresholds
 }
 
 export function buildRateCapture(frame: HistoryFrame, thresholds: ThresholdConfig, events: readonly SandboxEvent[], sessionFixture: unknown = null, attachmentError: string | null = null) {
-  const capturedFrame: HistoryFrame = { ...structuredClone(frame), service: { ...structuredClone(frame.service), aiRequests: frame.service.aiRequests?.map(({ response, ...request }) => structuredClone(request)) } };
+  const capturedFrame: HistoryFrame = { ...structuredClone(frame), service: { ...structuredClone(frame.service), aiRequests: frame.service.aiRequests?.slice(-100).map(({ response, ...request }) => structuredClone(request)) } };
   const start = frame.clockOffset + frame.from * 1000;
   const end = frame.clockOffset + (frame.to + 1) * 1000;
   return {

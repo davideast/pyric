@@ -213,6 +213,8 @@ export interface HostCtx {
    * honored; both absent ⇒ the zero-config scripted default.
    */
   aiEngine?: AiEngineConfigWire;
+  /** Server-only OpenAI transport. Browser workers retain the same-origin proxy. */
+  aiUpstream?: { baseUrl: string; fetch: typeof fetch };
   /**
    * Lazily-built agent tool dispatcher (the canonical sandbox tool set) bound to
    * THIS worker's sandbox. The bridge peer forwards `tool` messages here so the

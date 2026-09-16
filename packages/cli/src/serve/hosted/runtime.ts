@@ -1,3 +1,6 @@
+import { createDenialThrottle } from '../namespace.js';
+import type { ServeLogger } from '../server.js';
+import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
 import { handleRulesOp } from '../worker/host/rules.js';
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
@@ -36,12 +39,19 @@ interface HostedPort extends OperationQueue {
   port: PortLike;
 }
 
+/** Server-only AI settings; never included in browser initialization payloads. */
+export interface HostedAiOptions {
+  proxyUpstream?: string;
+  logger?: ServeLogger;
+}
+
 /** One Node-owned sandbox; each admitted consumer owns its ordered work. */
 export async function createHostedRuntime(
   payload: InitPayload,
-  baseUrl: string,
+  baseUrl: string | (() => string),
   send: (message: BridgeMessage) => void,
   projectDir: string,
+  ai: HostedAiOptions = {},
 ) {
   const ownedProjectDir = realpathSync(projectDir);
   const persistence = createHostedPersistence(ownedProjectDir);
@@ -95,6 +105,12 @@ export async function createHostedRuntime(
     }
     return result;
   }
+  const aiThrottle = createDenialThrottle();
+  const aiFetch: typeof fetch = Object.assign(
+    (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+      fetchAiUpstream(input, init, aiThrottle, ai.logger, 'ai-upstream'),
+    { preconnect: fetch.preconnect },
+  );
   const ctx: HostCtx = {
     sandbox,
     flushPersistence,
@@ -103,11 +119,15 @@ export async function createHostedRuntime(
     subs: new Map(),
     checkpointBackend: directoryCheckpointBackend(ownedProjectDir),
     sessionMode: 'NONE',
+    aiEngine: payload.ai?.engine,
+    aiUpstream: { baseUrl: resolveAiProxyUpstream(ai.proxyUpstream).target, fetch: aiFetch },
   };
   const hostedFetch: typeof fetch = Object.assign(
     (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const isRelativeUrl = typeof input === 'string';
-      const request = isRelativeUrl ? new URL(input, baseUrl) : input;
+      // Vite assigns its listening origin after the sandbox is initialised.
+      const origin = typeof baseUrl === 'function' ? baseUrl() : baseUrl;
+      const request = isRelativeUrl ? new URL(input, origin) : input;
       return fetch(request, init);
     },
     { preconnect: fetch.preconnect },

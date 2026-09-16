@@ -1,3 +1,4 @@
+import { REACT_BOOTSTRAP } from './react-bootstrap.js';
 import type { ConfigEnv, UserConfig } from 'vite';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
 import {
@@ -14,6 +15,7 @@ import {
 } from './runtime/chip-config.js';
 
 export interface VitePageRuntimeOptions {
+  hosted?: boolean;
   runtimeChip?: PyricRuntimeChipOption;
   swapInBuild?: boolean;
   ai?: PyricAiOptions;
@@ -35,11 +37,10 @@ function swapsInBuild(env: ConfigEnv, override: boolean | undefined): boolean {
 /**
  * Put pyric's tags ahead of the page's own scripts.
  *
- * The sandbox init script has to run before the application's module script.
- * It configures listener attribution and installs the React commit hook the
- * chip's Flow painting reads, and React reads that hook global once, while its
- * own module first evaluates. A build puts the application's script in the
- * head, so appending at the end of the head would be too late.
+ * The synchronous React hook bootstrap must precede application modules.
+ * The remaining sandbox init can wait for its asynchronous dependencies without
+ * missing React's renderer registration. Builds can put app scripts in the
+ * head, so appending the bootstrap at the end of the head would be too late.
  */
 function injectIntoHead(html: string, tags: string): string {
   const headEnd = html.indexOf('</head>');
@@ -96,16 +97,16 @@ export function createVitePageRuntime(input: {
         if (initChunkFile) {
           initTag = `<script type="module" crossorigin src="/${initChunkFile}" data-pyric-sandbox-init></script>`;
         }
-        const tags = SANDBOX_BUILD_META + runtimeChipTag + initTag;
+        const tags = REACT_BOOTSTRAP + SANDBOX_BUILD_META + runtimeChipTag + initTag;
         return injectIntoHead(html, tags);
       }
       if (html.includes(marker)) return html;
-      const head = workerRuntime.headTag(marker);
+      const head = options.hosted ? '' : workerRuntime.headTag(marker);
       let aiEngineTag = '';
       if (resolvedAi.engineWire) {
         aiEngineTag = `<script ${marker}>globalThis.__PYRIC_AI_ENGINE__=${JSON.stringify(resolvedAi.engineWire).replace(/</g, '\\u003c')};</script>`;
       }
-      const tag = head + aiEngineTag + runtimeChipTag +
+      const tag = REACT_BOOTSTRAP + head + aiEngineTag + runtimeChipTag +
         `<script type="module" src="/@fs/${initEntry}" ${marker}></script>`;
       return injectIntoHead(html, tag);
     },

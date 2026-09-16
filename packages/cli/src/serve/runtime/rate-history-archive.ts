@@ -15,7 +15,8 @@ export function createRateHistoryArchive(serviceName: string, retentionSeconds =
       source = next;
       end = Math.floor(snapshot.monotonicAt / 1000);
       clockOffset ??= Date.now() - snapshot.monotonicAt;
-      first ??= Math.max(0, next.history?.startedSecond ?? end);
+      // Replayed host requests can predate this page's monotonic clock origin.
+      first ??= next.history?.startedSecond ?? end;
       first = Math.max(first, end - retentionSeconds + 1);
       for (const method of [...(next.history?.methods ?? []), ...next.methods]) {
         const entry = methods.get(method.method) ?? { source: method, buckets: new Map() };

@@ -6,6 +6,7 @@ const remoteHost = process.env.TEAMS_REMOTE_HOST;
 export default defineConfig({
   plugins: [
     pyric({
+      hosted: process.env.TEAMS_HOSTED === "1",
       seed: "seed.json",
       bridge: true,
       runtimeChip: true,

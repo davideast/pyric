@@ -39,7 +39,10 @@ describe('HTML sandbox injection', () => {
     expect(out).not.toContain('/__pyric/sdk/init.js');
     expect(out).toContain('<meta name="pyric-worker-v" content="abc123"');
     expect(injectServeTags(out, { workerVersion: 'abc123' })).toBe(out);
-    expect(injectServeTags(marked)).toBe(marked);
+    const bootstrapped = injectServeTags(marked);
+    expect(bootstrapped).toContain('data-pyric-react-hook');
+    expect(bootstrapped).not.toContain('/__pyric/sdk/init.js');
+    expect(injectServeTags(bootstrapped)).toBe(bootstrapped);
   });
 
   it('maps every served Firebase module', () => {

@@ -121,6 +121,8 @@ export interface ListenerMode {
   flowAvailable(): boolean;
   /** Why Flow is unavailable, or `null` when it is available. */
   flowUnavailableReason(): string | null;
+  /** Why an enabled Overview has no regions to draw, or null. */
+  overviewUnavailableReason(): string | null;
   /**
    * `true` while Flow is on and nothing has been painted since the switch, so
    * the panel can say what it is waiting for.
@@ -467,6 +469,15 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       stopFlow();
       paint();
       startFlow();
+    },
+    overviewUnavailableReason() {
+      const activeOverlay = overlay;
+      const isOverviewEnabled = activeOverlay !== null && paintMode === 'overview';
+      if (!isOverviewEnabled) return null;
+      const hasVisibleSources = visibleOutlines().length > 0;
+      if (!hasVisibleSources) return null;
+      if (activeOverlay.hasRegions()) return null;
+      return 'Overview has no identified page regions to highlight.';
     },
     flowAvailable,
     flowUnavailableReason() {

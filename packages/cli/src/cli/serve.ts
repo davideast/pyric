@@ -474,7 +474,7 @@ async function startServeRuntime(opts: {
   // sandbox session is released.
   let bridgeAttachment;
   try {
-    if (usesHostedSandbox) await mount?.startHostedSandbox(session.payload(), handle.url);
+    if (usesHostedSandbox) await mount?.startHostedSandbox(session.payload(), handle.url, { logger });
     bridgeAttachment = mount?.attachHost({
       servers: handle.servers,
       lifecycleServer: handle.server,
@@ -655,7 +655,7 @@ async function startServeRuntime(opts: {
   // choice (resolved lazily in the browser, since nothing here instantiates a
   // broker to find out); what this server does decide is where the proxy
   // forwards, and that is what the line reports.
-  logger.info(formatAiStatusLine({}));
+  logger.info(formatAiStatusLine({ hosted: usesHostedSandbox }));
   let persistSummary: ServeRuntime['persist'] = null;
   const persistence = session.summary.persistence;
   const hasPersistence = persistence !== null;

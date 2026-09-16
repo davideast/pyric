@@ -54,8 +54,14 @@ import {
 } from './vite-sandbox-generation.js';
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
+import { stampHostedTarget } from './runtime/hosted-target.js';
 
 export interface PyricOptions {
+  /** Run the dev sandbox in the Vite server process, shared across browsers and
+   *  Studio, with durable project state. Automatically mounts the bridge.
+   *  Default: false (SharedWorker). Requires Vite's own HTTP server;
+   *  middleware mode is unsupported. Does not affect production builds. */
+  hosted?: boolean;
   /** Execute supported Firestore operations through the application's real SDK. */
   live?: boolean;
   /** Firestore rules path (relative to `root`). Default discovery prefers an
@@ -65,9 +71,10 @@ export interface PyricOptions {
   /** Project dir for `firebase.json` / rules discovery. Default: Vite's `root`. */
   root?: string;
   /** Persist sandbox state to `.pyric/state/state.json` so data + test users
-   *  survive reloads/restarts. Off by default (ephemeral). */
+   *  survive reloads/restarts. Off by default for SharedWorker; hosted mode
+   *  always persists state. */
   persist?: boolean;
-  /** With `persist`: discard any existing state file and re-seed from scratch. */
+  /** With `persist` or `hosted`: discard existing state and re-seed on startup. */
   fresh?: boolean;
   /** Write the live session fixture to `.pyric/last-session.json` (for
    *  `pyric verify`). Default `true`; pass `false` to suppress. */
@@ -140,14 +147,14 @@ export interface PyricOptions {
    *     },
    *   })
    *
-   * - `model` is the simple OpenAI-compatible path. It uses the same-origin
-   *   proxy and becomes the catch-all upstream model. `PYRIC_AI_MODEL` selects
+   * - `model` is the simple OpenAI-compatible path. It becomes the catch-all
+   *   upstream model. `PYRIC_AI_MODEL` selects
    *   the same path when neither `model` nor `engine` is explicit.
    * - `engine` is `pyric/ai`'s `EngineConfig` (scripted | openai), applied on
-   *   both the SharedWorker and in-page paths. An openai `baseUrl` of
-   *   `/__pyric/ai-proxy` (or omitted) routes through the same-origin proxy so a
-   *   localhost upstream needs zero CORS setup.
-   * - `proxyUpstream` sets what `/__pyric/ai-proxy` forwards to (beats the
+   *   Node, SharedWorker, and in-page paths. An openai `baseUrl` of
+   *   `/__pyric/ai-proxy` (or omitted) uses the configured upstream directly
+   *   in Node; browser runtimes use the same-origin proxy to avoid CORS setup.
+   * - `proxyUpstream` sets the upstream for Node and the browser proxy (beats the
    *   `PYRIC_AI_PROXY_UPSTREAM` env var; default `http://localhost:11434/v1`).
    *
    * Precedence: explicit `engine` or `model`, then `PYRIC_AI_MODEL`, then an
@@ -223,6 +230,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
   const usesDefaultBridgeOptions = bridgeSetting === true;
   const bridgeOpts = usesDefaultBridgeOptions ? {} : bridgeSetting || null;
   let activeGeneration: ViteSandboxGeneration | null = null;
+  let hostedProjectKey: string | undefined;
 
   return {
     name: 'pyric:sandbox',
@@ -281,6 +289,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       const functionsOptions = resolveFunctionsOptions(options.functions);
       const ai = pageRuntime.ai();
       const generationOptions: ViteSandboxGenerationOptions = {
+        hosted: options.hosted,
         rules: options.rules,
         seed: options.seed,
         persist: options.persist,
@@ -302,6 +311,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
       };
       const generation = await createViteSandboxGeneration(generationInput);
       activeGeneration = generation;
+      hostedProjectKey = options.hosted ? projectDir : undefined;
       // Vite creates a replacement before closing the old server. Cleanup
       // belongs to this server, even when another generation is now active.
       const closeServer = server.close.bind(server);
@@ -329,7 +339,7 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     transformIndexHtml(html) {
-      return pageRuntime.transformIndexHtml(html);
+      return stampHostedTarget(pageRuntime.transformIndexHtml(html), hostedProjectKey);
     },
   };
 }

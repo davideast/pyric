@@ -181,7 +181,7 @@ describe('the bounded tail the view reads', () => {
   it('folds the page stream, reports each change, and keeps only the last rows', () => {
     let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
     let changes = 0;
-    const feed = createTrafficFeed({
+    const feed = createTrafficFeed({ retentionMs: Infinity,
       subscribeEvents: (callback) => {
         deliver = callback;
         return () => {
@@ -198,18 +198,19 @@ describe('the bounded tail the view reads', () => {
     expect(feed.requests().map((entry) => entry.id)).toEqual(['r1', 'r2']);
     expect(changes).toBe(1);
 
-    // A batch with nothing Traffic can draw is not a change.
+    // Reset clears the old session, including retained requests.
     deliver!([{ kind: 'session_boundary', id: 's1', at: 1, phase: 'reset', priorOpCount: 0 } as unknown as SandboxEvent]);
-    expect(changes).toBe(1);
+    expect(changes).toBe(2);
+    expect(feed.requests()).toEqual([]);
 
     deliver!([request('r3', 3000, 'allow'), request('r4', 4000, 'allow')]);
-    expect(feed.requests().map((entry) => entry.id)).toEqual(['r2', 'r3', 'r4']);
+    expect(feed.requests().map((entry) => entry.id)).toEqual(['r3', 'r4']);
   });
 
   it('says whether anything failed inside the window, and stops after disposal', () => {
     let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
     let unsubscribed = false;
-    const feed = createTrafficFeed({
+    const feed = createTrafficFeed({ retentionMs: Infinity,
       subscribeEvents: (callback) => {
         deliver = callback;
         return () => {

@@ -1,3 +1,4 @@
+import { REACT_BOOTSTRAP } from './react-bootstrap.js';
 import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
 
 /** The import-map targets. Spec → served URL. */
@@ -69,7 +70,8 @@ export function injectServeTags(
   const hasWorkerVersion = Boolean(workerVersion);
   if (isSandboxBuild) {
     const needsVersionStamp = hasWorkerVersion && !html.includes('pyric-worker-v');
-    let meta = hostMeta;
+    const hasReactBootstrap = html.includes('data-pyric-react-hook');
+    let meta = (hasReactBootstrap ? '' : REACT_BOOTSTRAP) + hostMeta;
     if (needsVersionStamp) meta += `<meta name="pyric-worker-v" content="${workerVersion}" ${marker}>`;
     const hasNoRuntimeStamp = meta.length === 0;
     if (hasNoRuntimeStamp) return html;
@@ -93,6 +95,7 @@ export function injectServeTags(
     ? `<script ${marker}>globalThis.__PYRIC_FORCE_INPAGE__=true;</script>`
     : '';
   const tags =
+    REACT_BOOTSTRAP +
     hostMeta +
     versionMeta +
     forceTag +

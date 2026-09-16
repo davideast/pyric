@@ -45,6 +45,7 @@ import { watchViteGenerationRules } from './vite-generation-rules-watch.js';
 import { claimProjectState } from './hosted/project-ownership.js';
 
 export interface ViteSandboxGenerationOptions {
+  hosted?: boolean;
   flow?: FlowConfig;
   rules: string | undefined;
   seed: string | undefined;
@@ -137,7 +138,12 @@ export async function createViteSandboxGeneration(
   };
 
   try {
-    const persistsState = options.persist === true;
+    const usesHostedSandbox = options.hosted === true;
+    const lacksHttpServer = usesHostedSandbox && !server.httpServer;
+    if (lacksHttpServer) {
+      throw new Error('@pyric/cli/vite: hosted requires Vite’s HTTP server; middleware mode is unsupported.');
+    }
+    const persistsState = options.persist === true || usesHostedSandbox;
     if (persistsState) stateOwner = await claimProjectState(cwd);
     let firebaseConfig: FirebaseJson | null = null;
     try {
@@ -151,15 +157,17 @@ export async function createViteSandboxGeneration(
     // avatars-config.ts.
     const avatarsConfig = dependencies.resolveAvatarsConfig(options.avatars, process.env, cwd);
 
-    try {
-      const epochSalt = viteWorkerEpochSalt(cwd, ai.engineWire, ai.mode);
-      await dependencies.prepareWorker(workerRuntime, epochSalt);
-    } catch (error) {
-      const isError = error instanceof Error;
-      const message = isError ? error.message : String(error);
-      server.config.logger.warn(
-        `  ⚠ [pyric] SharedWorker bundle failed — using the in-page sandbox (single-tab, ephemeral): ${message}`,
-      );
+    if (!usesHostedSandbox) {
+      try {
+        const epochSalt = viteWorkerEpochSalt(cwd, ai.engineWire, ai.mode);
+        await dependencies.prepareWorker(workerRuntime, epochSalt);
+      } catch (error) {
+        const isError = error instanceof Error;
+        const message = isError ? error.message : String(error);
+        server.config.logger.warn(
+          `  ⚠ [pyric] SharedWorker bundle failed — using the in-page sandbox (single-tab, ephemeral): ${message}`,
+        );
+      }
     }
 
     const functionsInput = {
@@ -172,6 +180,7 @@ export async function createViteSandboxGeneration(
     const bridgeInput = {
       server,
       projectDir: cwd,
+      hosted: usesHostedSandbox,
       options: options.bridge,
       functionsProject: functions.project,
       functionsProjectId: functions.projectId,
@@ -215,6 +224,8 @@ export async function createViteSandboxGeneration(
     };
     const sessionOptions: SandboxSessionOptions = {
       projectDir: cwd,
+      hosted: usesHostedSandbox,
+      deployHostedRules: usesHostedSandbox ? bridge?.deployHostedRules : undefined,
       flow: options.flow,
       firebaseConfig: rulesConfig,
       sdk,
@@ -260,11 +271,26 @@ export async function createViteSandboxGeneration(
     // through the same formatter instead of swapping engines in silence.
     server.config.logger.info(
       formatAiStatusNote({
+        hosted: usesHostedSandbox,
         engine: ai.engineWire,
         mode: ai.mode,
         proxyUpstream: ai.proxyUpstream,
       }),
     );
+
+    if (usesHostedSandbox) {
+      const baseUrl = (): string => {
+        const urls = server.resolvedUrls;
+        const url = urls?.local[0] ?? urls?.network[0];
+        const isNotListening = url === undefined;
+        if (isNotListening) throw new Error('The Vite sandbox server is not listening.');
+        return url;
+      };
+      await bridge?.startHostedSandbox(session.payload(), baseUrl, {
+        proxyUpstream: ai.proxyUpstream, logger: sessionOptions.logger,
+      });
+      server.config.logger.info('  ⓘ [pyric] sandbox runs in this server process (hosted)');
+    }
 
     const middlewareInput = { server, bridge, session };
     const disposeMiddleware = attachViteGenerationMiddleware(middlewareInput);

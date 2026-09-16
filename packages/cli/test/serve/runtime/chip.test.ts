@@ -237,12 +237,19 @@ describe('the panel shell', () => {
     expect(root.querySelectorAll('.tab.problem, .tab.pending').length).toBe(1);
   });
 
-  it('builds every row of every view from the same cells and keeps controls out of rows', () => {
+  it('uses shared row cells or configuration facts and keeps controls in action slots', () => {
     const { root, showTab, runtime } = setup({ initiallyOpen: true, initialUser: { uid: 'u1', email: 'a@example.com' } });
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'aaaaaaaaaaaaaaaa' });
     for (const tab of ['identity', 'listeners', 'traffic', 'sandbox'] as const) {
       showTab(tab);
       for (const row of root.querySelectorAll('.row')) {
+        const isConfigurationRecord = row.hasAttribute('data-ai-row');
+        if (isConfigurationRecord) {
+          expect(row.querySelectorAll('dt').length).toBeGreaterThan(0);
+          expect(row.querySelectorAll('dd').length).toBe(row.querySelectorAll('dt').length);
+          expect(row.querySelectorAll('button, a, input').length).toBe(0);
+          continue;
+        }
         expect(row.querySelector('.c1')).not.toBeNull();
         expect(row.querySelector('.slot')).not.toBeNull();
         // The slot may hold the row's one button; nothing else in the row may.
@@ -420,7 +427,8 @@ describe('the Sandbox view', () => {
     const { root, showTab, runtime } = setup({ initiallyOpen: true });
     runtime.setWorker({ mode: 'shared-worker', runningEpoch: 'bbbbbbbbbbbbbbbb' });
     showTab('sandbox');
-    expect(texts(root, '.row .c1')).toEqual(['Model', 'Worker', 'Theme']);
+    expect(texts(root, '[data-ai-row] dt')).toEqual(['Model', 'Routed model']);
+    expect(texts(root, '.row .c1')).toEqual(['Worker', 'Theme']);
     expect(root.querySelector('[data-running-epoch]')!.textContent).toBe('bbbbbbbb');
     expect(root.querySelector('[data-theme-row] [data-open-overlay-theme]')).not.toBeNull();
     expect(texts(root, '[data-action-bar] .btn')).toEqual(['Hide']);
@@ -435,10 +443,11 @@ describe('the Sandbox view', () => {
     } });
     runtime.setWorker({ mode: 'in-page' });
     showTab('sandbox');
-    expect(root.querySelector('[data-ai-row]')!.textContent).toContain('Scripted');
+    expect(root.querySelector('[data-ai-requested-row]')!.textContent).toContain('gemini-2.5-flash');
+    expect(root.querySelector('[data-ai-route-row]')!.textContent).toContain('No model invoked');
     configuration = { ...configuration, backend: 'OpenAI-compatible', route: 'ornith:9b' };
     for (const listener of listeners) listener();
-    expect(root.querySelector('[data-ai-row]')!.textContent).toContain('OpenAI-compatible');
+    expect(root.querySelector('[data-ai-row]')!.textContent).not.toContain('OpenAI-compatible');
     expect(root.querySelector('[data-ai-route-row]')!.textContent).toContain('ornith:9b');
     expect(root.querySelector('[data-runtime-row]')!.textContent).toContain('In-page');
     expect(root.querySelector('[data-worker-row]')).toBeNull();

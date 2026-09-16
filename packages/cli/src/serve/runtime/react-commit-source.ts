@@ -1,3 +1,5 @@
+import { ensureReactHook, type DevToolsHook, type HookWindow } from './react-hook.js';
+
 /**
  * When React finished rendering, and whether there is a React on the page at
  * all.
@@ -5,8 +7,8 @@
  * React calls `onCommitFiberRoot` on `window.__REACT_DEVTOOLS_GLOBAL_HOOK__`
  * after every commit, and reads that global once, while its own module is
  * first evaluated. So the hook has to be installed before the application's
- * script runs: the served page puts pyric's init tag ahead of the
- * application's module script for exactly this.
+ * script runs: a synchronous bootstrap registers the hook before
+ * any application modules or asynchronous sandbox setup.
  *
  * The React DevTools extension installs the same global. When it got there
  * first this module wraps the hook's `onCommitFiberRoot` rather than replacing
@@ -16,22 +18,6 @@
  * from the one this module knows leaves the commit source unavailable with a
  * reason to show, and nothing throws.
  */
-
-/** The hook fields this module reads and writes. */
-interface DevToolsHook {
-  renderers?: Map<unknown, unknown>;
-  supportsFiber?: boolean;
-  inject?: (renderer: unknown) => number;
-  onCommitFiberRoot?: (...args: unknown[]) => void;
-  onPostCommitFiberRoot?: (...args: unknown[]) => void;
-  onCommitFiberUnmount?: (...args: unknown[]) => void;
-  checkDCE?: (fn: unknown) => void;
-}
-
-interface HookWindow {
-  __REACT_DEVTOOLS_GLOBAL_HOOK__?: DevToolsHook;
-  document?: { querySelector?: unknown };
-}
 
 /** The commit source the flow mode reads. */
 export interface ReactCommitSource {
@@ -44,9 +30,6 @@ export interface ReactCommitSource {
   /** Give the hook back the handler it had, and drop every subscriber. */
   dispose(): void;
 }
-
-/** The global name React reads to find the hook. */
-const HOOK_KEY = '__REACT_DEVTOOLS_GLOBAL_HOOK__';
 
 const NO_REACT = 'No React renderer on this page, so there is nothing to follow a delivery into.';
 const NOT_INSTALLED = 'The commit hook could not be installed on this page.';
@@ -74,26 +57,6 @@ export function reactRendered(documentLike: Document | null | undefined): boolea
   return false;
 }
 
-/** A hook object with the members React checks for before it injects. */
-function freshHook(): DevToolsHook {
-  let nextId = 1;
-  const renderers = new Map<unknown, unknown>();
-  return {
-    renderers,
-    supportsFiber: true,
-    inject(renderer: unknown) {
-      const id = nextId;
-      nextId += 1;
-      renderers.set(id, renderer);
-      return id;
-    },
-    onCommitFiberRoot() {},
-    onPostCommitFiberRoot() {},
-    onCommitFiberUnmount() {},
-    checkDCE() {},
-  };
-}
-
 /**
  * Install or wrap the commit hook on this window.
  *
@@ -116,9 +79,7 @@ export function installReactCommitSource(target: unknown): ReactCommitSource {
   let hook: DevToolsHook;
   let installed = false;
   try {
-    const existing = view[HOOK_KEY];
-    hook = existing !== null && typeof existing === 'object' ? existing : freshHook();
-    if (view[HOOK_KEY] !== hook) view[HOOK_KEY] = hook;
+    hook = ensureReactHook(view);
     installed = true;
   } catch {
     return {

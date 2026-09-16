@@ -32,7 +32,7 @@ import { pyricVersion } from './standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from './server.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
 import type { InitPayload } from './init-payload.js';
-import type { createHostedRuntime } from './hosted/runtime.js';
+import type { createHostedRuntime, HostedAiOptions } from './hosted/runtime.js';
 import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, hostedMethodRequest } from './hosted/method-protocol.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-project.js';
 
@@ -56,7 +56,7 @@ export interface BridgeMountOptions {
 
 export interface BridgeMount {
   deployHostedRules(service: 'firestore' | 'database', source: string): void;
-  startHostedSandbox(payload: InitPayload, baseUrl: string): Promise<void>;
+  startHostedSandbox(payload: InitPayload, baseUrl: string | (() => string), ai?: HostedAiOptions): Promise<void>;
   /** Stable per-process identity (mirrors `/__pyric/health`'s instanceId).
    *  The pointer writer records this so the proxy can verify it reached this
    *  exact server across a cross-family port collision. */
@@ -247,13 +247,13 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       if (isMissing) throw new Error('The hosted sandbox is not running.');
       runtime.deployRules(service, source);
     },
-    async startHostedSandbox(payload, baseUrl) {
+    async startHostedSandbox(payload, baseUrl, ai) {
       if (closed) throw new Error('pyric bridge: cannot start a closed mount');
       const alreadyStarted = hostedRuntime !== undefined || hostedStartup !== undefined;
       if (alreadyStarted) throw new Error('The Node sandbox is already running.');
       const starting = (async () => {
         const { createHostedRuntime } = await import('./hosted/runtime.js');
-        hostedRuntime = await createHostedRuntime(payload, baseUrl, (message) => bridge.handleSandboxMessage(message), opts.projectKey ?? process.cwd());
+        hostedRuntime = await createHostedRuntime(payload, baseUrl, (message) => bridge.handleSandboxMessage(message), opts.projectKey ?? process.cwd(), ai);
         if (closed) return;
         disconnectHosted = bridge.registerSandboxPeer(
           hostedRuntime.receive,

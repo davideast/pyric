@@ -41,6 +41,8 @@ export interface ListenerOverlayOptions {
 }
 
 export interface ListenerOverlay {
+  /** Whether any identified application region is currently drawable. */
+  hasRegions(): boolean;
   /** Replace every box with the ones these outlines describe. */
   update(outlines: readonly ListenerOutline[]): void;
   /**
@@ -209,6 +211,7 @@ export function createListenerOverlay(options: ListenerOverlayOptions): Listener
     update(outlines) {
       draw(outlines);
     },
+    hasRegions: () => drawn.some(({ element }) => element.isConnected),
     container() {
       return container;
     },

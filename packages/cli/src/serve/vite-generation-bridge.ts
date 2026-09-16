@@ -17,19 +17,23 @@ function resolveAllowedHosts(allowedHosts: true | string[] | undefined): true | 
 export function createViteGenerationBridge(input: {
   server: ViteDevServer;
   projectDir: string;
+  hosted?: boolean;
   options: Omit<BridgeMountOptions, 'upgradeGuard'> | null;
   functionsProject: FunctionsRtdbProject | null;
   functionsProjectId: string | null;
   createBridge(options: BridgeMountOptions): BridgeMount;
 }): BridgeMount | null {
   const { server, options, functionsProject, functionsProjectId, createBridge } = input;
-  if (!options && !functionsProject) return null;
+  const needsBridge = Boolean(input.hosted || options || functionsProject);
+  if (!needsBridge) return null;
   const serverOptions = server.config.server;
   const project = options?.project ?? functionsProjectId ?? undefined;
   const disableAuditLog = options?.disableAuditLog;
   const boundHost = typeof serverOptions.host === 'string' ? serverOptions.host : 'localhost';
   const allowedHosts = resolveAllowedHosts(serverOptions.allowedHosts);
   const bridgeOptions: BridgeMountOptions = {
+    hosted: input.hosted,
+    projectKey: input.hosted ? input.projectDir : undefined,
     project,
     disableAuditLog,
     upgradeGuard: {
