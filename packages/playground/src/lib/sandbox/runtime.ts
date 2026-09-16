@@ -44,7 +44,10 @@ export function isSharedSandboxMode(): boolean {
 
 export function getWorkerDb(): WorkerRuntime.ClientDb {
   if (!workerDb) {
-    workerDb = WorkerRuntime.getFirestore(WORKER_URL);
+    const hostedTarget = WorkerRuntime.readHostedTarget();
+    workerDb = hostedTarget
+      ? WorkerRuntime.getHostedFirestore(hostedTarget)
+      : WorkerRuntime.getFirestore(WORKER_URL);
     WorkerRuntime.ownClientUntilPagehide(workerDb);
   }
   return workerDb;
@@ -200,7 +203,7 @@ class InProcessPlaygroundRuntime implements PlaygroundRuntime {
   }
 }
 
-class SharedWorkerPlaygroundRuntime implements PlaygroundRuntime {
+class SharedPlaygroundRuntime implements PlaygroundRuntime {
   readonly mode = 'shared' as const;
 
   async deployFirestoreRules(source: string): Promise<DeployResult> {
@@ -304,7 +307,7 @@ class SharedWorkerPlaygroundRuntime implements PlaygroundRuntime {
 }
 
 const inProcessRuntime = new InProcessPlaygroundRuntime();
-const workerRuntime = new SharedWorkerPlaygroundRuntime();
+const workerRuntime = new SharedPlaygroundRuntime();
 
 export function getPlaygroundRuntime(): PlaygroundRuntime {
   return isSharedSandboxMode() ? workerRuntime : inProcessRuntime;
