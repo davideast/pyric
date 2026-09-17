@@ -8,6 +8,7 @@
  * geometry, and reads the activity monitor's incidents for the badge mark. The
  * overlay that paints these records owns no derivation of its own.
  */
+import { createActiveListenerState } from 'pyric/sandbox/internal';
 import { activeListeners, type ActiveListener, type ActiveListenerTarget } from 'pyric/sandbox';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
@@ -236,4 +237,29 @@ export function listenerOutlines(
 ): readonly ListenerOutline[] {
   const attachEventIds = latestAttachEventIds(events);
   return activeListeners(events).map((listener) => outlineFor(listener, attachEventIds, incidents));
+}
+
+/** Current listener state, independent of how much history the page has seen. */
+export function createListenerOutlineState() {
+  const listeners = createActiveListenerState();
+  const attachEventIds = new Map<string, string>();
+  return {
+    append(events: readonly SandboxEvent[]) {
+      for (const event of events) listeners.append(event);
+      for (const [id, eventId] of latestAttachEventIds(events)) attachEventIds.set(id, eventId);
+    },
+    read(incidents: readonly ActivityIncident[]): readonly ListenerOutline[] {
+      const active = listeners.snapshot();
+      const activeIds = new Set(active.map(listener => listener.id));
+      for (const id of attachEventIds.keys()) {
+        const detached = !activeIds.has(id);
+        if (detached) attachEventIds.delete(id);
+      }
+      return active.map(listener => outlineFor(listener, attachEventIds, incidents));
+    },
+    clear() {
+      listeners.clear();
+      attachEventIds.clear();
+    },
+  };
 }

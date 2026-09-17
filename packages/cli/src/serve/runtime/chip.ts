@@ -767,8 +767,11 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       },
       onChange: () => {
         ratesDirty = true;
+        const isHydrating = !mounted;
+        if (isHydrating) return;
         const showsRequestEvidence = tab === 'sandbox' || (tab === 'traffic' && trafficDisplay === 'requests');
-        if (mounted && (!open || showsRequestEvidence)) render();
+        const needsRender = !open || showsRequestEvidence;
+        if (needsRender) render();
       },
     })
     : null;

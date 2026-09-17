@@ -3,8 +3,9 @@
 The default browser workload overloads primarily in the runtime chip's event
 processing, not SQLite. Do the browser history fix first. Separately, Firestore
 undo retains every completed write and needs an explicit retention contract.
-This investigation does not close either acceptance gap or change production
-behavior.
+The original investigation below changed no production behavior. The subsequent
+incremental-processing implementation and verification are recorded in
+[the implementation checkpoint](hosted-chip-incremental-verification.md).
 
 ## Reproduction and comparison
 

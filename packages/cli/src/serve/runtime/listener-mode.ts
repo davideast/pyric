@@ -25,10 +25,10 @@ import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatment
  */
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { activityOutlines, listenerOutlines, type ListenerOutline } from './listener-outline-model.js';
+import { activityOutlines, createListenerOutlineState, type ListenerOutline } from './listener-outline-model.js';
 import { sdkActivity, sdkMethodCoverage, observationService, type SdkActivityRecord } from 'pyric/sandbox/internal';
 import { createListenerOverlay, type ListenerOverlay } from './listener-overlay.js';
-import { incidentsFromEvents } from './listener-incidents.js';
+import { createListenerIncidents } from './listener-incidents.js';
 import { studioSectionUrl } from './studio-links.js';
 import { startFlowMode, type FlowMode } from './listener-flow-mode.js';
 
@@ -176,11 +176,14 @@ export function studioListenerUrl(studioUrl: string, outline: ListenerOutline): 
 export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   const documentLike = options.document;
   const readAttribution = options.attributionEnabled ?? (() => true);
-  const readIncidents = options.incidents ?? incidentsFromEvents;
-  const paintStorage = options.paintStorage === undefined
+  const incidents = createListenerIncidents();
+  const listeners = createListenerOutlineState();
+  const usesPagePaintStorage = options.paintStorage === undefined;
+  const paintStorage = usesPagePaintStorage
     ? pagePaintModeStorage(documentLike)
     : options.paintStorage;
-  const themeStorage = options.themeStorage === undefined
+  const usesPageThemeStorage = options.themeStorage === undefined;
+  const themeStorage = usesPageThemeStorage
     ? pageOverlayThemeStorage(documentLike)
     : options.themeStorage;
   // The served page's option is the floor, the page's own overrides the
@@ -191,7 +194,8 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     ...(storedTheme ?? {}),
   });
 
-  const events: SandboxEvent[] = [];
+  // Only an explicitly supplied historical reader needs the raw event sequence.
+  const customIncidentEvents: SandboxEvent[] = [];
   const activity = options.activity ?? sdkActivity;
   let current: readonly ListenerOutline[] = [];
   let overlay: ListenerOverlay | null = null;
@@ -252,17 +256,21 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
 
   const recompute = (): void => {
     const previous = current;
-    current = activityOutlines(listenerOutlines(events, readIncidents(events)), activity.records().filter(isDataActivity), observed);
+    const marks = options.incidents?.(customIncidentEvents) ?? incidents.read();
+    current = activityOutlines(listeners.read(marks), activity.records().filter(isDataActivity), observed);
     // A detached listener keeps no paint. Flow holds its last subtree until
     // the next delivery, and for a listener that is gone there will not be
     // one.
     for (const outline of previous) {
       const next = current.find((next) => next.listenerId === outline.listenerId);
-      if (next) {
-        if (canPaintLive(outline) && !canPaintLive(next)) flow?.clearListener(outline.listenerId);
+      const remainsVisible = next !== undefined;
+      if (remainsVisible) {
+        const stoppedPainting = canPaintLive(outline) && !canPaintLive(next);
+        if (stoppedPainting) flow?.clearListener(outline.listenerId);
         continue;
       }
-      if (highlightedHistory?.listenerId !== outline.listenerId) flow?.clearListener(outline.listenerId);
+      const clearsHistoryHighlight = highlightedHistory?.listenerId !== outline.listenerId;
+      if (clearsHistoryHighlight) flow?.clearListener(outline.listenerId);
       observed.delete(outline.listenerId);
       hidden.delete(outline.listenerId);
     }
@@ -338,7 +346,10 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   // read the fold whether or not anything is painted. Enabling the mode only
   // adds the overlay on top of a fold that is already current.
   unsubscribe = options.subscribeEvents((batch) => {
-    events.push(...batch);
+    const usesCustomIncidents = options.incidents !== undefined;
+    if (usesCustomIncidents) customIncidentEvents.push(...batch);
+    incidents.append(batch);
+    listeners.append(batch);
     recompute();
   });
   const stopActivity = activity.subscribe(event => {
@@ -349,7 +360,8 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   });
   // Refresh the explicitly named rolling window even on idle pages.
   const historyClock = setInterval(() => options.onChange?.(current), 1000);
-  if (typeof historyClock === 'object' && 'unref' in historyClock) historyClock.unref();
+  const isNodeTimer = typeof historyClock === 'object' && 'unref' in historyClock;
+  if (isNodeTimer) historyClock.unref();
   recompute();
 
   const hidePainting = (): void => {
@@ -525,7 +537,9 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       unsubscribe?.();
       stopActivity();
       unsubscribe = null;
-      events.length = 0;
+      incidents.dispose();
+      listeners.clear();
+      customIncidentEvents.length = 0;
       current = [];
       hidden.clear();
       observed.clear();

@@ -481,6 +481,25 @@ describe('the Traffic view', () => {
     auth,
   } as unknown as SandboxEvent);
 
+  it('hydrates synchronous history before rendering the initial Traffic view', () => {
+    const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
+    const runtime = createPyricRuntimeStatus(manifest);
+    const initialEvents = [request('hydrated', Date.now(), 'conversations/c1', 'deny')];
+    const chip = mountPyricRuntimeChip({
+      document: dom.window.document,
+      runtime,
+      initiallyOpen: true,
+      sandboxEvents(callback) {
+        callback(initialEvents);
+        return () => {};
+      },
+    });
+    cleanups.push(() => { chip.dispose(); dom.window.close(); });
+    const root = chip.element.shadowRoot;
+    expect(root?.querySelector('[data-chip-tab="traffic"]')?.getAttribute('aria-selected')).toBe('true');
+    expect(root?.querySelector('[data-request-row="hydrated"]')?.textContent).toContain('Denied');
+  });
+
   it('gives every request the same cells: call and time in column one, path and reason in column two, verdict in the slot', () => {
     const { root, showTab, push } = setup({ initiallyOpen: true, withSandboxEvents: true });
     const now = Date.now();

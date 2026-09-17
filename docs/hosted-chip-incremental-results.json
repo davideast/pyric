@@ -1,0 +1,590 @@
+{
+  "baseCommit": "b5fb30008c421dad617f06fb370c961af03d804c",
+  "workingTreeChangesIncluded": true,
+  "sourceSha256": {
+    "packages/cli/src/serve/runtime/chip-traffic.ts": "b0fb5fbacef41c0362f14dd3434051748160fed997e632e2605afded1dbd351f",
+    "packages/cli/src/serve/runtime/chip.ts": "6c306558148e915c198f79dd940f0fca6db1c467f3a922ae9eee6e111897b11c",
+    "packages/cli/src/serve/runtime/listener-incidents.ts": "cd68ce543aa8035e12edf93f4880d142f2bcae9b1c9d1b430a3d6a7cb4733862",
+    "packages/cli/src/serve/runtime/listener-mode.ts": "b81f8c6d6e9d4eb52c8aa36e683b865ae51c8a34262b12a1ba4c59bfbbdc118b",
+    "packages/cli/src/serve/runtime/listener-outline-model.ts": "1ecc49952e8cc104a52698caa91c164613fbf6bc0813f69625e125620edce8c7",
+    "packages/pyric/src/sandbox/active-listeners.ts": "da910df631c3cf5c23f020f92ac74c8261665b09cb3aa58ab3efebdbcbfceb30",
+    "packages/pyric/src/sandbox/internal/index.ts": "83dc59620858643c99d82e16f20bb61656f69a588a16f49228c25f0a67288d5d"
+  },
+  "chip": "enabled, default collapsed state",
+  "workloads": [
+    {
+      "environment": {
+        "node": "v22.15.0",
+        "cpu": "Apple M3 Pro",
+        "memoryBytes": 19327352832,
+        "commit": "b5fb30008c421dad617f06fb370c961af03d804c"
+      },
+      "durationMs": 60000,
+      "results": [
+        {
+          "run": 1,
+          "offered": 12000,
+          "completed": 12000,
+          "errors": 0,
+          "rejectedByHarness": 0,
+          "peakPending": 3,
+          "elapsedMs": 60004,
+          "ackP95Ms": 3,
+          "ackMaxMs": 10.5,
+          "hostSamples": [
+            {
+              "at": 1789647126363,
+              "eventLoopP95Ms": 2.648063,
+              "eventLoopMaxMs": 8.986623,
+              "rss": 400375808,
+              "usage": {
+                "userCPUTime": 8583505,
+                "systemCPUTime": 1397232,
+                "maxRSS": 390992,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 34752,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 33989,
+                "ipcReceived": 3886,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 6012,
+                "involuntaryContextSwitches": 45211
+              }
+            },
+            {
+              "at": 1789647136364,
+              "eventLoopP95Ms": 2.531327,
+              "eventLoopMaxMs": 8.675327,
+              "rss": 423854080,
+              "usage": {
+                "userCPUTime": 12147731,
+                "systemCPUTime": 1932841,
+                "maxRSS": 414304,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 36238,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 52000,
+                "ipcReceived": 5862,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 8023,
+                "involuntaryContextSwitches": 62575
+              }
+            },
+            {
+              "at": 1789647146365,
+              "eventLoopP95Ms": 2.506751,
+              "eventLoopMaxMs": 4.976639,
+              "rss": 427147264,
+              "usage": {
+                "userCPUTime": 15646035,
+                "systemCPUTime": 2436925,
+                "maxRSS": 417328,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 36480,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 70014,
+                "ipcReceived": 7843,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 10030,
+                "involuntaryContextSwitches": 79013
+              }
+            },
+            {
+              "at": 1789647156365,
+              "eventLoopP95Ms": 2.490367,
+              "eventLoopMaxMs": 6.520831,
+              "rss": 432406528,
+              "usage": {
+                "userCPUTime": 19106942,
+                "systemCPUTime": 2937623,
+                "maxRSS": 422272,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 36876,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 88028,
+                "ipcReceived": 9819,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 12040,
+                "involuntaryContextSwitches": 95236
+              }
+            },
+            {
+              "at": 1789647166368,
+              "eventLoopP95Ms": 2.514943,
+              "eventLoopMaxMs": 8.372223,
+              "rss": 428802048,
+              "usage": {
+                "userCPUTime": 22622985,
+                "systemCPUTime": 3451075,
+                "maxRSS": 426160,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 37524,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 106048,
+                "ipcReceived": 11796,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 14050,
+                "involuntaryContextSwitches": 111721
+              }
+            }
+          ]
+        }
+      ],
+      "writesPerSecond": 200,
+      "documents": 100,
+      "paddingBytes": 256,
+      "maximumPending": 64
+    },
+    {
+      "environment": {
+        "node": "v22.15.0",
+        "cpu": "Apple M3 Pro",
+        "memoryBytes": 19327352832,
+        "commit": "b5fb30008c421dad617f06fb370c961af03d804c"
+      },
+      "durationMs": 60000,
+      "results": [
+        {
+          "run": 1,
+          "offered": 3000,
+          "completed": 3000,
+          "errors": 0,
+          "rejectedByHarness": 0,
+          "peakPending": 1,
+          "elapsedMs": 60004.59999990463,
+          "ackP95Ms": 5.599999904632568,
+          "ackMaxMs": 19.299999952316284,
+          "hostSamples": [
+            {
+              "at": 1789647216736,
+              "eventLoopP95Ms": 3.446783,
+              "eventLoopMaxMs": 6.709247,
+              "rss": 178569216,
+              "usage": {
+                "userCPUTime": 4275162,
+                "systemCPUTime": 1022472,
+                "maxRSS": 224768,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 26996,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 8654,
+                "ipcReceived": 1199,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 4453,
+                "involuntaryContextSwitches": 40301
+              }
+            },
+            {
+              "at": 1789647226736,
+              "eventLoopP95Ms": 3.444735,
+              "eventLoopMaxMs": 6.922239,
+              "rss": 179847168,
+              "usage": {
+                "userCPUTime": 6167997,
+                "systemCPUTime": 1437924,
+                "maxRSS": 224768,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 27265,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 13165,
+                "ipcReceived": 1709,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 5195,
+                "involuntaryContextSwitches": 59119
+              }
+            },
+            {
+              "at": 1789647236736,
+              "eventLoopP95Ms": 3.655679,
+              "eventLoopMaxMs": 6.414335,
+              "rss": 181764096,
+              "usage": {
+                "userCPUTime": 8120902,
+                "systemCPUTime": 1891141,
+                "maxRSS": 224768,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 27405,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 17679,
+                "ipcReceived": 2222,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 5922,
+                "involuntaryContextSwitches": 77077
+              }
+            },
+            {
+              "at": 1789647246736,
+              "eventLoopP95Ms": 3.325951,
+              "eventLoopMaxMs": 19.480575,
+              "rss": 167395328,
+              "usage": {
+                "userCPUTime": 9939006,
+                "systemCPUTime": 2275542,
+                "maxRSS": 224768,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 27868,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 22193,
+                "ipcReceived": 2735,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 6638,
+                "involuntaryContextSwitches": 94968
+              }
+            },
+            {
+              "at": 1789647256737,
+              "eventLoopP95Ms": 3.272703,
+              "eventLoopMaxMs": 6.881279,
+              "rss": 170672128,
+              "usage": {
+                "userCPUTime": 11764438,
+                "systemCPUTime": 2652329,
+                "maxRSS": 224768,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 28185,
+                "majorPageFault": 0,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 26704,
+                "ipcReceived": 3245,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 7348,
+                "involuntaryContextSwitches": 112615
+              }
+            }
+          ]
+        },
+        {
+          "run": 2,
+          "offered": 3000,
+          "completed": 3000,
+          "errors": 0,
+          "rejectedByHarness": 0,
+          "peakPending": 1,
+          "elapsedMs": 60003.700000047684,
+          "ackP95Ms": 5.400000095367432,
+          "ackMaxMs": 23.799999952316284,
+          "hostSamples": [
+            {
+              "at": 1789647278587,
+              "eventLoopP95Ms": 2.693119,
+              "eventLoopMaxMs": 7.442431,
+              "rss": 167149568,
+              "usage": {
+                "userCPUTime": 4101236,
+                "systemCPUTime": 1032118,
+                "maxRSS": 234784,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 27757,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 8646,
+                "ipcReceived": 1173,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 4481,
+                "involuntaryContextSwitches": 44145
+              }
+            },
+            {
+              "at": 1789647288587,
+              "eventLoopP95Ms": 1.798143,
+              "eventLoopMaxMs": 24.297471,
+              "rss": 147521536,
+              "usage": {
+                "userCPUTime": 5158281,
+                "systemCPUTime": 1208114,
+                "maxRSS": 234784,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 28546,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 13157,
+                "ipcReceived": 1683,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 5225,
+                "involuntaryContextSwitches": 66170
+              }
+            },
+            {
+              "at": 1789647298588,
+              "eventLoopP95Ms": 2.351103,
+              "eventLoopMaxMs": 9.306111,
+              "rss": 152584192,
+              "usage": {
+                "userCPUTime": 6771067,
+                "systemCPUTime": 1500085,
+                "maxRSS": 234784,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 29675,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 17671,
+                "ipcReceived": 2196,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 5956,
+                "involuntaryContextSwitches": 86321
+              }
+            },
+            {
+              "at": 1789647308588,
+              "eventLoopP95Ms": 2.553855,
+              "eventLoopMaxMs": 6.156287,
+              "rss": 157892608,
+              "usage": {
+                "userCPUTime": 8469153,
+                "systemCPUTime": 1791186,
+                "maxRSS": 234784,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 30414,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 22185,
+                "ipcReceived": 2709,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 6641,
+                "involuntaryContextSwitches": 105638
+              }
+            },
+            {
+              "at": 1789647318588,
+              "eventLoopP95Ms": 3.307519,
+              "eventLoopMaxMs": 6.561791,
+              "rss": 167575552,
+              "usage": {
+                "userCPUTime": 10316859,
+                "systemCPUTime": 2183090,
+                "maxRSS": 234784,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 31047,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 26696,
+                "ipcReceived": 3219,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 7143,
+                "involuntaryContextSwitches": 122889
+              }
+            }
+          ]
+        },
+        {
+          "run": 3,
+          "offered": 3000,
+          "completed": 3000,
+          "errors": 0,
+          "rejectedByHarness": 0,
+          "peakPending": 1,
+          "elapsedMs": 60003.39999985695,
+          "ackP95Ms": 5.400000095367432,
+          "ackMaxMs": 16.200000047683716,
+          "hostSamples": [
+            {
+              "at": 1789647340429,
+              "eventLoopP95Ms": 3.692543,
+              "eventLoopMaxMs": 7.647231,
+              "rss": 286425088,
+              "usage": {
+                "userCPUTime": 4510403,
+                "systemCPUTime": 1118857,
+                "maxRSS": 281648,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 24367,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 8745,
+                "ipcReceived": 1200,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 4256,
+                "involuntaryContextSwitches": 40486
+              }
+            },
+            {
+              "at": 1789647350430,
+              "eventLoopP95Ms": 2.303999,
+              "eventLoopMaxMs": 15.941631,
+              "rss": 142770176,
+              "usage": {
+                "userCPUTime": 5966598,
+                "systemCPUTime": 1465857,
+                "maxRSS": 281648,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 29720,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 13265,
+                "ipcReceived": 1711,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 4772,
+                "involuntaryContextSwitches": 73109
+              }
+            },
+            {
+              "at": 1789647360430,
+              "eventLoopP95Ms": 1.720319,
+              "eventLoopMaxMs": 7.266303,
+              "rss": 147095552,
+              "usage": {
+                "userCPUTime": 7170636,
+                "systemCPUTime": 1663294,
+                "maxRSS": 281648,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 34851,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 17770,
+                "ipcReceived": 2223,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 5286,
+                "involuntaryContextSwitches": 97515
+              }
+            },
+            {
+              "at": 1789647370431,
+              "eventLoopP95Ms": 2.115583,
+              "eventLoopMaxMs": 11.829247,
+              "rss": 148291584,
+              "usage": {
+                "userCPUTime": 8763161,
+                "systemCPUTime": 1921487,
+                "maxRSS": 281648,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 35783,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 22293,
+                "ipcReceived": 2737,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 5800,
+                "involuntaryContextSwitches": 120339
+              }
+            },
+            {
+              "at": 1789647380434,
+              "eventLoopP95Ms": 2.000895,
+              "eventLoopMaxMs": 7.831551,
+              "rss": 150421504,
+              "usage": {
+                "userCPUTime": 10319117,
+                "systemCPUTime": 2198517,
+                "maxRSS": 281648,
+                "sharedMemorySize": 0,
+                "unsharedDataSize": 0,
+                "unsharedStackSize": 0,
+                "minorPageFault": 36203,
+                "majorPageFault": 3,
+                "swappedOut": 0,
+                "fsRead": 0,
+                "fsWrite": 0,
+                "ipcSent": 26804,
+                "ipcReceived": 3247,
+                "signalsCount": 0,
+                "voluntaryContextSwitches": 6312,
+                "involuntaryContextSwitches": 140239
+              }
+            }
+          ]
+        }
+      ],
+      "writesPerSecond": 50,
+      "documents": 100,
+      "paddingBytes": 256,
+      "maximumPending": 64
+    }
+  ],
+  "frozen50PerSecondGate": {
+    "ackP95MsMaximum": 25,
+    "hostWindowEventLoopP95MsMaximum": 4.382719,
+    "allWritesComplete": true,
+    "serviceErrors": 0,
+    "harnessRefusals": 0,
+    "passed": true
+  },
+  "limitations": [
+    "Single browser, Firestore writes to 100 documents, 256-byte padding",
+    "Separate slow-reader memory gate and undo retention remain open"
+  ]
+}

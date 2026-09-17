@@ -69,10 +69,13 @@ function harness(options: {
   const doc = dom.window.document;
   // A row inside the todos region, wired the way React wires a host node it
   // rendered inline: nothing between it and the region is a component.
-  const rowEl = doc.querySelector('#row')!;
-  const regionHost = { tag: 5, type: 'div', stateNode: doc.querySelector('#todos')!, return: null, child: null };
+  const rowEl = doc.querySelector('#row');
+  const region = doc.querySelector('#todos');
+  const missingRegion = rowEl === null || region === null;
+  if (missingRegion) throw new Error('Missing listener fixture region');
+  const regionHost = { tag: 5, type: 'div', stateNode: region, return: null, child: null };
   const rowHost = { tag: 5, type: 'span', stateNode: rowEl, return: regionHost, child: null };
-  (rowEl as unknown as Record<string, unknown>)['__reactFiber$k'] = rowHost;
+  Reflect.set(rowEl, '__reactFiber$k', rowHost);
   let changedNodes: unknown[] = [];
   let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
   let subscriptions = 0;
@@ -83,7 +86,6 @@ function harness(options: {
     activity,
     document: doc,
     attributionEnabled: () => options.attributionEnabled ?? true,
-    incidents: () => [],
     commits: commits.source,
     paintStorage: options.paintStorage ?? null,
     flow: {
@@ -140,6 +142,25 @@ function badges(doc: Document): string[] {
 }
 
 describe('createListenerMode', () => {
+  it('processes later deliveries without reading previously consumed events again', () => {
+    const page = harness();
+    const target: Target = { kind: 'doc', path: 'users/u1' };
+    const initial = attach('initial', 'profile', target, [{ kind: 'tag', name: 'Profile', element: '#profile' }]);
+    let consumed = false;
+    const observed = new Proxy(initial, { get(event, property, receiver) {
+      if (consumed) throw new Error('Previously consumed event was replayed');
+      return Reflect.get(event, property, receiver);
+    } });
+    try {
+      page.push([observed]);
+      consumed = true;
+      page.push([delivery('next', 'profile', target)]);
+      expect(page.mode.outlines()).toMatchObject([{ listenerId: 'profile', deliveryCount: 1, label: 'Profile' }]);
+      page.mode.setEnabled(true);
+      expect(badges(page.doc)[0]).toContain('Profile');
+    } finally { page.mode.dispose(); }
+  });
+
   it('outlines a tagged listener and a region-owned listener with labels and counts', () => {
     const page = harness();
     page.mode.setEnabled(true);
@@ -158,6 +179,28 @@ describe('createListenerMode', () => {
     expect(drawn[1]).toContain('Profile');
     expect(drawn[1]).toContain('users/u1');
     page.mode.dispose();
+  });
+
+  it('keeps hydrated attachment evidence when live events raise an incident', () => {
+    const page = harness();
+    const target: Target = { kind: 'query', collection: 'todos' };
+    const appAttach = (id: string) => ({ ...attach(id, id, target, []), actor: { kind: 'app' as const } });
+    try {
+      page.push([appAttach('a'), appAttach('b')]);
+      expect(page.mode.outlines().every(outline => outline.incident === null)).toBe(true);
+      page.push([appAttach('c')]);
+      expect(page.mode.outlines().map(outline => outline.incident)).toEqual([
+        { pattern: 'duplicate-listener', count: 3, windowMs: 0 },
+        { pattern: 'duplicate-listener', count: 3, windowMs: 0 },
+        { pattern: 'duplicate-listener', count: 3, windowMs: 0 },
+      ]);
+      const beforeDelivery = page.mode.outlines();
+      page.push([delivery('data', 'c', target)]);
+      expect(beforeDelivery[2].deliveryCount).toBe(0);
+      expect(page.mode.outlines()[2].deliveryCount).toBe(1);
+      page.push([detach('end', 'c', target)]);
+      expect(page.mode.outlines().map(outline => outline.listenerId)).toEqual(['a', 'b']);
+    } finally { page.mode.dispose(); }
   });
 
   it('removes an outline when its listener detaches', () => {
@@ -258,8 +301,7 @@ describe('in-app inspection', () => {
     activity: createSdkActivityJournal(),
       document: doc,
       attributionEnabled: () => true,
-      incidents: () => [],
-      studioUrl: '/__pyric/ui/studio',
+        studioUrl: '/__pyric/ui/studio',
       openStudio: (url) => opened.push(url),
       subscribeEvents: (callback) => {
         deliver = callback;

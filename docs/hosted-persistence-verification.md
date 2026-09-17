@@ -48,19 +48,22 @@ was **11.2 / 9.7 / 8.9 ms**, below the absolute 25 ms budget. Worst measured
 10-second event-loop p95 was **2.260991 ms**, below 4.382719 ms. Raw evidence:
 [SQLite results](hosted-persistence-sqlite-results.json).
 
-The 200 writes/sec overload case remains **unsupported**: 11,979 offered,
-11,019 completed, 960 harness refusals, zero service errors, p95 336 ms.
-RSS reached roughly 528 MB. This is not a passing load case and does not resolve
-the separate capacity/memory issue. [Raw overload results](hosted-persistence-overload-results.json).
+The original 200 writes/sec overload case failed: 11,979 offered, 11,019
+completed, 960 harness refusals, zero service errors, p95 336 ms. RSS reached
+roughly 528 MB. [Original overload results](hosted-persistence-overload-results.json).
 
-A subsequent [capacity diagnosis](hosted-capacity-diagnosis.md) attributes this
-default browser overload primarily to repeated runtime-chip history processing.
-With the chip disabled, two diagnostic 200/sec cycles completed all 12,000 writes
-at 2.6/2.9 ms p95. The chip-enabled gate remains open; disabling diagnostics is
-not the product fix. Host undo retention is a separate measured growth owner.
+The subsequent [capacity diagnosis](hosted-capacity-diagnosis.md) attributed the
+browser overload primarily to repeated runtime-chip history processing. The
+[incremental chip implementation](hosted-chip-incremental-verification.md) now
+completes the same 60-second, 200/sec workload with the chip enabled: all 12,000
+writes, zero errors/refusals and **3.0 ms p95**. That checkpoint also records the
+new frozen-gate runs and their exact source digests. Host undo retention and the
+separate slow-reader memory acceptance test remain open; the throughput result
+does not close either.
 
-These workload measurements preceded the final Storage ordering and strict-codec
-validation fixes; their workload only mutates Firestore documents. They do not
+The original SQLite-only workload measurements preceded the final Storage
+ordering and strict-codec validation fixes. The incremental-chip measurements
+include those fixes. Both workloads mutate only Firestore documents and do not
 measure concurrent Storage traffic.
 
 At the baseline 100 documents with 256-byte padding, SQLite open plus full

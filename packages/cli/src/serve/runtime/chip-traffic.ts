@@ -198,17 +198,27 @@ export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
     maxBytes: options.maxBytes ?? OBSERVATION_HISTORY_LIMITS.maxBytes,
     maxAgeMs: options.retentionMs ?? OBSERVATION_HISTORY_LIMITS.maxAgeMs,
   });
+  // Cache only the current retained snapshot. EventHistory replaces an event
+  // when evidence expires, so its old projection leaves this cache as well.
+  let projections = new Map<SandboxEvent, ChipRequest | null>();
   let cachedRequests: ChipRequest[] = [];
   let cacheSecond = -Infinity;
   const requests = (): ChipRequest[] => {
     const second = Math.floor(Date.now() / 1000);
-    if (cacheSecond === second) return cachedRequests;
+    const isCurrentSnapshot = cacheSecond === second;
+    if (isCurrentSnapshot) return cachedRequests;
     cacheSecond = second;
     const rows = new Map<string, ChipRequest>();
+    const retainedProjections = new Map<SandboxEvent, ChipRequest | null>();
     for (const event of history.snapshot()) {
-      const request = chipRequestFromEvent(event);
-      if (request) rows.set(request.id, request);
+      const cached = projections.get(event);
+      const needsProjection = cached === undefined;
+      const request = needsProjection ? chipRequestFromEvent(event) : cached;
+      retainedProjections.set(event, request);
+      const hasRequest = request !== null;
+      if (hasRequest) rows.set(request.id, request);
     }
+    projections = retainedProjections;
     cachedRequests = [...rows.values()];
     return cachedRequests;
   };
@@ -248,6 +258,7 @@ export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
     dispose() {
       unsubscribe();
       history.clear();
+      projections.clear();
       cachedRequests = [];
       cacheSecond = -Infinity;
     },

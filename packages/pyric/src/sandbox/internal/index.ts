@@ -158,3 +158,5 @@ export { observationPayload, observationText } from './observation-payload.js';
 
 export { aiCompletionUsage } from './usage-evidence.js';
 export { requestStatusLabel } from '../types/request-observation.js';
+
+export { createActiveListenerState } from '../active-listeners.js';
