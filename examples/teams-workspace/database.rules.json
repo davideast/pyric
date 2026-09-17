@@ -22,6 +22,23 @@
         ".write": "auth != null",
         ".validate": "newData.child('budget').isNumber() && newData.child('budget').val() >= 0"
       }
+    },
+    "notificationTokens": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        "$device": {
+          ".write": "auth != null && auth.uid == $uid",
+          ".validate": "newData.isString()"
+        }
+      }
+    },
+    "mentionRequests": {
+      "$author": {
+        "$messageId": {
+          ".write": "auth != null && auth.uid == $author && !data.exists()",
+          ".validate": "newData.val() == 'design' || newData.val() == 'general' || newData.val() == 'launch'"
+        }
+      }
     }
   }
 }
