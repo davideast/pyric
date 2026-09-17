@@ -19,7 +19,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WORK="${TMPDIR:-/tmp}/pyric-packaging-test"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/pyric-packaging-test.XXXXXX")"
 NPM_CACHE="${TMPDIR:-/tmp}/npm-cache-pyric-packaging-test"
 RELEASE_CONTRACT="$ROOT/scripts/fixtures/cli-release-contract.json"
 
@@ -62,20 +62,13 @@ PYRIC_ADMIN_SUBPATHS=( $(exported_subpaths packages/pyric-admin) )
 PYRIC_CLI_SUBPATHS=( $(exported_subpaths packages/cli) )
 PYRIC_UI_SUBPATHS=( $(exported_subpaths packages/ui) )
 
-# Tracks the backgrounded `pyric sandbox` (Phase 5.5) so a failure mid-smoke
-# doesn't leave it listening; killed in the error trap and after the probe.
-SERVE_PID=""
-cleanup_on_error() {
-  [ -n "$SERVE_PID" ] && kill "$SERVE_PID" 2>/dev/null
-  echo ""
-  echo "✗ packaging gate FAILED — work dir preserved for debugging:"
-  echo "  $WORK"
-}
-trap cleanup_on_error ERR
+# EXIT covers errors, explicit exits and trapped interruptions.
+source "$ROOT/scripts/lib/packaging-processes.sh"
+
+node --test "$ROOT/scripts/packaging-processes.test.mjs"
 
 # ─── Phase 0: clean ────────────────────────────────────────────────────
 echo "━━━ Phase 0: clean ━━━"
-rm -rf "$WORK"
 mkdir -p "$WORK"
 
 # ─── Phase 1: build all packages (needed for tarball contents) ─────────
@@ -693,8 +686,7 @@ echo "  ✓ pyric init scaffolded a static app from the tarball"
 # Start serve in the background. `--json` puts the machine-readable line on
 # stdout AND suppresses the browser auto-open (no TTY/CI also suppress it);
 # `--port 0` binds an ephemeral port so the gate never collides with a real one.
-( cd "$SMOKE" && "$PYRIC_BIN" sandbox --port 0 --json ) > "$SMOKE/serve.out" 2> "$SMOKE/serve.err" &
-SERVE_PID=$!
+start_packaging_server "$SMOKE" "$PYRIC_BIN" sandbox --port 0 --json
 
 # Poll for the JSON contract line (printed once the server is listening).
 SERVE_URL=""
@@ -721,9 +713,7 @@ if ! curl -fsS "$SERVE_URL/__pyric/init.json" 2>/dev/null | jq -e 'has("rulesHas
 fi
 echo "  ✓ pyric sandbox booted ($SERVE_URL) and /__pyric/init.json resolved"
 
-kill "$SERVE_PID" 2>/dev/null
-wait "$SERVE_PID" 2>/dev/null || true
-SERVE_PID=""
+stop_packaging_server
 
 # ─── Phase 5.6: runtime smoke (RUN the installed packages, don't just import) ──
 # Phases 4/5 prove imports + the bin resolve; this RUNS the asset-dependent code
@@ -848,6 +838,5 @@ if [ -n "${PYRIC_PACKAGING_ARTIFACT_DIR:-}" ]; then
 fi
 rm -rf "$WORK"
 
-trap - ERR
 echo ""
 echo "✓ packaging gate PASS — all 5 packages pack, install, and resolve every advertised subpath."
