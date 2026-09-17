@@ -115,6 +115,7 @@ export interface NamespaceOptions {
   state?: StateStore;
   /** Hosted state can be read here; its runtime owns all writes. */
   stateOwner?: 'browser' | 'host';
+  persistenceStatus?: () => import('./hosted/persistence/commits.js').PersistenceStatus;
   /** `--capture`: mounts GET/POST /__pyric/capture. POST — the page/worker
    *  pushes its session fixture here; the handler writes it verbatim to
    *  `.pyric/last-session.json` for `pyric verify` to replay. GET — returns the
@@ -442,7 +443,7 @@ function guardLoopback(
 }
 
 export function createPyricNamespace(opts: NamespaceOptions) {
-  const diagnostics = createDiagnostics(() => opts.initPayload().hosted ? 'hosted' : 'browser');
+  const diagnostics = createDiagnostics(() => opts.initPayload().hosted ? 'hosted' : 'browser', opts.persistenceStatus);
   const stateWriterLock = createWriterLock();
   const hostOwnsState = opts.stateOwner === 'host';
   const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();

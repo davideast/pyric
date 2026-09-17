@@ -1,4 +1,5 @@
-import { chmodSync, mkdirSync } from 'node:fs';
+import { setPersistenceWritable } from './persistence-fault.js';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { startSoakServe } from '../soak/harness.js';
@@ -42,7 +43,7 @@ for (const mutation of refusedMutations) {
       await page.goto(serve.info.url);
       await expect(page.locator('#value')).toHaveText('Empty');
       mkdirSync(stateDirectory, { recursive: true });
-      chmodSync(stateDirectory, 0o500);
+      setPersistenceWritable(stateDirectory, false);
       await page.getByRole('button', { name: 'First write' }).click();
       await expect(page.locator('#first-result')).toHaveText('committed-but-not-durable');
       await expect(page.locator('#value')).toHaveText('Committed in memory');
@@ -50,7 +51,7 @@ for (const mutation of refusedMutations) {
       await expect(page.locator('#second-result')).toHaveText('persistence-unhealthy');
       await expect(page.locator('#value')).toHaveText('Committed in memory');
     } finally {
-      chmodSync(stateDirectory, 0o700);
+      setPersistenceWritable(stateDirectory, true);
       await serve.stop();
     }
   });

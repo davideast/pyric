@@ -1,4 +1,4 @@
-import { chmodSync } from 'node:fs';
+import { setPersistenceWritable } from './persistence-fault.js';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -6,7 +6,7 @@ import { CallToolRequestSchema, CancelledNotificationSchema } from '@modelcontex
 import { expect, test } from '@playwright/test';
 import { McpHttpClient } from '../soak/harness.js';
 import { mcpByteWriteArgs } from './mcp-byte-fixture.js';
-import { startHostWithPausedStorageRead, startStoragePersistenceFixture } from './storage-persistence-fixture.js';
+import { startPausedPersistenceHost } from './paused-persistence-fixture.js';
 
 const scenarios = [
   { byteBound: false, failsPersistence: false },
@@ -15,25 +15,17 @@ const scenarios = [
 ];
 
 for (const { byteBound, failsPersistence } of scenarios) {
-  test(`host admission retains canceled work (bytes: ${byteBound}, persistence failure: ${failsPersistence})`, async ({ page }) => {
+  test(`host admission retains canceled work (bytes: ${byteBound}, persistence failure: ${failsPersistence})`, async () => {
     test.setTimeout(60_000);
     const pendingCount = byteBound ? 32 : 256;
     const refusal = byteBound ? '24 MiB queued operation byte limit' : '256 pending operations';
-    const fixture = await startStoragePersistenceFixture();
+    const host = await startPausedPersistenceHost();
     const client = new Client({ name: 'host-admission', version: '1' });
     let receivedCalls = 0;
     let receivedCancellations = 0;
     try {
-      await page.goto(fixture.info.url);
-      await expect(page.locator('#ready')).toHaveText('Ready');
-      await page.getByLabel('Value', { exact: true }).fill('Existing object');
-      await page.getByRole('button', { name: 'Save', exact: true }).click();
-      await expect(page.locator('#saved')).toHaveText('Saved');
-      await page.close();
-      const host = await startHostWithPausedStorageRead(fixture);
       try {
-        expect(await host.startup, host.stderr()).toEqual({ kind: 'ready' });
-        const transport = new StreamableHTTPClientTransport(new URL(`${fixture.info.url}/__pyric/mcp`), {
+        const transport = new StreamableHTTPClientTransport(new URL(`${host.url}/__pyric/mcp`), {
           async fetch(input, init) {
             const request = new Request(input, init);
             const isPost = request.method === 'POST';
@@ -53,7 +45,7 @@ for (const { byteBound, failsPersistence } of scenarios) {
           : { path: 'held/document', data: { message: 'Held persistence' }, as: 'admin' };
         const first = client.callTool({ name: 'firestore_create_document', arguments: firstArgs },
           undefined, { signal: controllers[0].signal }).then(() => 'completed', () => 'canceled');
-        await expect.poll(host.stderr).toContain('Storage binary read paused');
+        await expect.poll(host.held).toBe(true);
         const calls = [first, ...controllers.slice(1).map((controller, index) => {
           const name = byteBound ? 'firestore_create_document' : 'firestore_get_document';
           const args = byteBound ? mcpByteWriteArgs('held/document', index + 1) : { path: 'held/document', as: 'admin' };
@@ -70,7 +62,7 @@ for (const { byteBound, failsPersistence } of scenarios) {
         const excess = client.callTool({ name: 'firestore_create_document', arguments: {
           path: 'limit/refused', data: { message: 'x'.repeat(8 * 1024) }, as: 'admin',
         } }).then(result => { excessResult = result; });
-        const healthy = new McpHttpClient(`${fixture.info.url}/__pyric/mcp`);
+        const healthy = new McpHttpClient(`${host.url}/__pyric/mcp`);
         await healthy.initialize();
         try {
           await expect.poll(() => excessResult, { timeout: 3_000 }).toMatchObject({
@@ -78,22 +70,21 @@ for (const { byteBound, failsPersistence } of scenarios) {
           });
           await expect(healthy.toolCall('firestore_get_document', { path: 'limit/refused', as: 'admin' }))
             .resolves.toMatchObject({ ok: true, data: { exists: false } });
-          if (failsPersistence) chmodSync(join(fixture.dir, '.pyric', 'state'), 0o500);
+          if (failsPersistence) setPersistenceWritable(join(host.dir, '.pyric', 'state'), false);
         } finally {
-          host.child.kill('SIGUSR2');
+          host.release();
           await excess;
         }
         await expect.poll(() => client.callTool({ name: 'firestore_get_document', arguments: {
           path: 'limit/refused', as: 'admin',
         } })).toMatchObject({ isError: false, content: [{ text: expect.stringContaining('"exists": false') }] });
       } finally {
-        chmodSync(join(fixture.dir, '.pyric', 'state'), 0o700);
-        host.child.kill('SIGUSR2');
+        setPersistenceWritable(join(host.dir, '.pyric', 'state'), true);
+        host.release();
         await client.close();
-        await host.stop();
       }
     } finally {
-      await fixture.stop();
+      await host.stop();
     }
   });
 }

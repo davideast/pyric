@@ -1,6 +1,6 @@
+import { setPersistenceWritable } from './persistence-fault.js';
 import { expect, test } from '@playwright/test';
 import { once } from 'node:events';
-import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { startHostedFixture } from './fixture.js';
 import { startHost } from './host-process.js';
@@ -38,7 +38,7 @@ test('hosted diagnostics distinguish connection loss and persistence failure, om
       await expect(page.locator('[data-worker-row]')).toContainText('Connected');
       await page.locator('#write').click();
       await expect(page.locator('#write-result')).toHaveText('Written');
-      chmodSync(stateDirectory, 0o500);
+      setPersistenceWritable(stateDirectory, false);
       await page.locator('#write').click();
       await expect(page.locator('#write-result')).toContainText('committed in memory');
       await expect.poll(() => page.evaluate(() => globalThis.__pyricRuntime?.getSnapshot().errors)).toEqual(expect.arrayContaining([
@@ -53,9 +53,9 @@ test('hosted diagnostics distinguish connection loss and persistence failure, om
       });
       expect(diagnostics).not.toContain(secret);
       expect(diagnostics).not.toContain(privateData);
-      chmodSync(stateDirectory, 0o700);
+      setPersistenceWritable(stateDirectory, true);
     } finally {
-      chmodSync(stateDirectory, 0o700);
+      setPersistenceWritable(stateDirectory, true);
       await replacement.stop();
     }
     const repaired = startHost(fixture.dir, fixture.info.port);

@@ -1,4 +1,5 @@
-import { chmodSync, mkdirSync } from 'node:fs';
+import { setPersistenceWritable } from './persistence-fault.js';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { McpHttpClient } from '../soak/harness.js';
@@ -13,7 +14,7 @@ test('an unhealthy host serves an MCP read from its in-memory state', async ({ p
     const mcp = new McpHttpClient(`${serve.info.url}/__pyric/mcp`);
     await mcp.initialize();
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Write shared document' }).click();
     await expect(page.locator('#write-result')).toContainText('committed in memory');
     await expect(mcp.toolCall('firestore_get_document', { path: 'shared/greeting', as: 'admin' }))
@@ -22,7 +23,7 @@ test('an unhealthy host serves an MCP read from its in-memory state', async ({ p
         data: { exists: true, data: { message: 'Hello from the other browser' } },
       });
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -36,7 +37,7 @@ test('an unhealthy host refuses an MCP mutation before changing the document', a
     const mcp = new McpHttpClient(`${serve.info.url}/__pyric/mcp`);
     await mcp.initialize();
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Write shared document' }).click();
     await expect(page.locator('#write-result')).toContainText('committed in memory');
     await expect(mcp.toolCall('firestore_update_document', {
@@ -47,7 +48,7 @@ test('an unhealthy host refuses an MCP mutation before changing the document', a
     });
     await expect(page.locator('#document')).toHaveText('Hello from the other browser');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -64,7 +65,7 @@ test('an MCP user-creation refusal survives a persistence failure', async ({ pag
       uid: 'existing-reader', email: 'reader@example.test',
     })).resolves.toMatchObject({ ok: true });
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await expect(mcp.toolCall('auth_create_user', {
       uid: 'existing-reader', email: 'replacement@example.test',
     })).resolves.toMatchObject({
@@ -75,7 +76,7 @@ test('an MCP user-creation refusal survives a persistence failure', async ({ pag
       ok: true, data: { user: { uid: 'existing-reader', email: 'reader@example.test' } },
     });
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -89,7 +90,7 @@ test('an MCP read identifies unhealthy in-memory state in its result', async ({ 
     const mcp = new McpHttpClient(`${serve.info.url}/__pyric/mcp`);
     await mcp.initialize();
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Write shared document' }).click();
     await expect(page.locator('#write-result')).toContainText('committed in memory');
     await expect(mcp.toolCall('firestore_get_document', { path: 'shared/greeting', as: 'admin' }))
@@ -99,7 +100,7 @@ test('an MCP read identifies unhealthy in-memory state in its result', async ({ 
         data: { exists: true, data: { message: 'Hello from the other browser' } },
       });
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -113,7 +114,7 @@ test('an MCP partial import keeps its receipt and warns about failed persistence
     const mcp = new McpHttpClient(`${serve.info.url}/__pyric/mcp`);
     await mcp.initialize();
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await expect(mcp.toolCall('auth_import_users', {
       users: [
         { uid: 'partial-reader', email: 'reader@example.test' },
@@ -131,7 +132,7 @@ test('an MCP partial import keeps its receipt and warns about failed persistence
       ok: true, data: { user: { uid: 'partial-reader', email: 'reader@example.test' } },
     });
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });

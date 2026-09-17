@@ -1,13 +1,11 @@
 import { once } from 'node:events';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { startHostedFixture } from './fixture.js';
 import { startHost } from './host-process.js';
 
-interface SavedBuckets {
-  firestore: { records: Record<string, { docs?: Record<string, unknown>; encoding?: string }> };
-}
+interface SavedBucket { docs?: Record<string, unknown>; encoding?: string }
 
 test('host startup reads legacy and declared-encoding buckets together', async ({ page }) => {
   const fixture = await startHostedFixture();
@@ -25,18 +23,21 @@ test('host startup reads legacy and declared-encoding buckets together', async (
     const exited = once(fixture.child, 'exit');
     fixture.child.kill('SIGKILL');
     await exited;
-    const path = join(fixture.dir, '.pyric', 'state', 'state.json');
-    const saved: SavedBuckets = JSON.parse(readFileSync(path, 'utf8'));
-    const buckets = Object.values(saved.firestore.records);
-    const legacy = buckets.find(bucket => bucket.docs?.['shared/legacy'] !== undefined);
-    const current = buckets.find(bucket => bucket.docs?.['shared/current'] !== undefined);
-    expect(legacy).toBeDefined();
-    expect(current).toBeDefined();
-    expect(legacy).not.toBe(current);
-    const isMissingLegacyBucket = legacy === undefined;
-    if (isMissingLegacyBucket) throw new Error('Expected the persisted legacy document');
-    delete legacy.encoding;
-    writeFileSync(path, JSON.stringify(saved));
+    const database = new DatabaseSync(join(fixture.dir, '.pyric/state/hosted/state.sqlite'));
+    try {
+      const buckets = database.prepare("SELECT id, payload FROM records WHERE namespace='hosted'").all().map(row => ({
+        id: row.id, value: JSON.parse(String(row.payload)) as SavedBucket,
+      }));
+      const legacy = buckets.find(bucket => bucket.value.docs?.['shared/legacy'] !== undefined);
+      const current = buckets.find(bucket => bucket.value.docs?.['shared/current'] !== undefined);
+      expect(legacy).toBeDefined();
+      expect(current).toBeDefined();
+      expect(legacy).not.toBe(current);
+      const missingLegacy = legacy === undefined;
+      if (missingLegacy) throw new Error('Expected the persisted legacy document');
+      delete legacy.value.encoding;
+      database.prepare("UPDATE records SET payload=? WHERE namespace='hosted' AND id=?").run(JSON.stringify(legacy.value), legacy.id);
+    } finally { database.close(); }
     const replacement = startHost(fixture.dir, fixture.info.port);
     try {
       expect(await replacement.startup, replacement.stderr()).toEqual({ kind: 'ready' });

@@ -22,10 +22,7 @@ test('overlapping Storage saves cannot restore an older value after both uploads
       await expect.poll(host.stderr).toContain('Storage binary read paused');
       await second.getByLabel('Value', { exact: true }).fill('Newer value');
       await second.getByRole('button', { name: 'Save', exact: true }).click();
-      await expect.poll(async () => {
-        await observer.getByRole('button', { name: 'Read', exact: true }).click();
-        return observer.locator('#value-read').innerText();
-      }).toBe('Newer value');
+      await expect(second.locator('#saved')).toHaveText('');
 
       host.child.kill('SIGUSR2');
       await expect(first.locator('#saved')).toHaveText('Saved');
@@ -55,7 +52,6 @@ test('overlapping Storage saves cannot restore an older value after both uploads
       await host.stop();
     }
   } finally {
-    await context.close();
-    await fixture.stop();
+    await context.close().finally(() => fixture.stop());
   }
 });

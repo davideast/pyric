@@ -1,5 +1,6 @@
+import { setPersistenceWritable } from './persistence-fault.js';
 import { once } from 'node:events';
-import { chmodSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { connectRemoteSandbox } from '@pyric/cli/remote';
 import { expect, test } from '@playwright/test';
@@ -124,7 +125,7 @@ test('checkpoint restore reports failed durability and refuses another restore w
         await setDoc(doc(getFirestore(), 'shared/greeting'), { message: 'After checkpoint' });
       });
       await expect(page.locator('#document')).toHaveText('After checkpoint');
-      chmodSync(stateDirectory, 0o500);
+      setPersistenceWritable(stateDirectory, false);
 
       await expect(control.channel.op({ method: 'restore', name: 'saved' })).rejects.toMatchObject({ code: 'committed-but-not-durable' });
       await expect(page.locator('#document')).toHaveText('Hello from the other browser');
@@ -134,7 +135,7 @@ test('checkpoint restore reports failed durability and refuses another restore w
       control.close();
     }
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await fixture.stop();
   }
 });

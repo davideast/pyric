@@ -52,10 +52,16 @@ Run the same `npm run dev` command using Node 22.15 or later. The sandbox runs
 inside the Vite server process; no second server is needed. The bridge mounts
 automatically, and Studio uses the same backend at `/__pyric/ui/studio`.
 
-Hosted state is durable in `.pyric/state/`, including when `persist` is omitted
-or false. Use `fresh: true` to discard that state and reapply the seed on each
-server start; remove it after the reset. Only one server can own a project's
+Hosted state is durable in `.pyric/state/hosted/state.sqlite`, including when
+`persist` is omitted or false. Use `fresh: true` to archive that hosted directory
+and reapply the seed on each server start; remove it after the reset. Only one server can own a project's
 persisted state at a time. Stop it before starting another host for that project.
+
+Hosted persistence currently requires the Node runtime. The Bun standalone CLI
+and running Vite under Bun do not support hosted mode yet. SharedWorker mode
+keeps its existing browser storage; switching modes does not transfer data.
+See [hosted persistence and recovery](../build/hosted-persistence.md) for limits,
+snapshots and recovery commands.
 
 Saving Firestore or Realtime Database rules updates the running host. Normal
 Vite HMR remains available. Hosted mode requires Vite's own HTTP server and

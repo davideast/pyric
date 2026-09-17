@@ -1,6 +1,8 @@
+import { DatabaseSync } from 'node:sqlite';
+import { setPersistenceWritable } from './persistence-fault.js';
 import { once } from 'node:events';
 import { execFile } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -95,15 +97,15 @@ test('an acknowledged hosted service CLI write survives immediate process termin
 
 test('a host refuses corrupt state before advertising readiness and preserves the file', async () => {
   const project = mkdtempSync(join(tmpdir(), 'pyric-corrupt-host-state-'));
-  const stateDir = join(project, '.pyric/state');
+  const stateDir = join(project, '.pyric/state/hosted');
   mkdirSync(stateDir, { recursive: true });
-  const statePath = join(stateDir, 'state.json');
+  const statePath = join(stateDir, 'state.sqlite');
   const damagedState = '{broken JSON';
   writeFileSync(statePath, damagedState);
   const host = startHost(project);
   try {
     expect(await host.startup, host.stderr()).toEqual({ kind: 'exit', code: 2 });
-    expect(host.stderr()).toContain('not valid JSON');
+    expect(host.stderr()).toContain('Hosted state could not be restored');
     expect(readFileSync(statePath, 'utf8')).toBe(damagedState);
   } finally {
     await host.stop();
@@ -113,41 +115,39 @@ test('a host refuses corrupt state before advertising readiness and preserves th
 
 test('a host refuses unsupported persisted record versions before readiness', async () => {
   const project = mkdtempSync(join(tmpdir(), 'pyric-versioned-host-state-'));
-  const stateDir = join(project, '.pyric/state');
+  const stateDir = join(project, '.pyric/state/hosted');
   mkdirSync(stateDir, { recursive: true });
-  const statePath = join(stateDir, 'state.json');
-  const unsupportedState = JSON.stringify({
-    version: 1,
-    firestore: { format: 'pyric-v3-records', records: { meta: { version: 999, savedAt: 0, services: {} } } },
-    auth: null,
-  });
-  writeFileSync(statePath, unsupportedState);
+  const statePath = join(stateDir, 'state.sqlite');
+  const database = new DatabaseSync(statePath);
+  database.exec('PRAGMA user_version=999');
+  database.close();
+  const unsupportedState = readFileSync(statePath);
   const host = startHost(project);
   try {
     expect(await host.startup, host.stderr()).toEqual({ kind: 'exit', code: 2 });
-    expect(host.stderr()).toContain('metadata version 3');
-    expect(readFileSync(statePath, 'utf8')).toBe(unsupportedState);
+    expect(host.stderr()).toContain('Hosted state could not be restored');
+    expect(readFileSync(statePath)).toEqual(unsupportedState);
   } finally {
     await host.stop();
     rmSync(project, { recursive: true, force: true });
   }
 });
 
-test('a hosted SDK write reports committed but not durable when the state directory is unwritable', async ({ page }) => {
+test('a hosted SDK write reports committed but not durable when the SQLite commit fails', async ({ page }) => {
   const serve = await startHostedFixture();
   const stateDirectory = join(serve.dir, '.pyric', 'state');
   try {
     await page.goto(serve.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Write shared document' }).click();
     await expect(page.locator('#write-result')).toHaveText(
       'Write failed: The mutation committed in memory but could not be persisted. Do not repeat it; restore persistence before further mutations.',
     );
     await expect(page.locator('#document')).toHaveText('Hello from the other browser');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -159,7 +159,7 @@ test('an unhealthy host refuses further SDK mutations while allowing reads', asy
     await page.goto(serve.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Write shared document' }).click();
     await expect(page.locator('#write-result')).toContainText('committed in memory');
     const result = await page.evaluate(async () => {
@@ -177,7 +177,7 @@ test('an unhealthy host refuses further SDK mutations while allowing reads', asy
     });
     expect(result).toEqual({ outcome: 'persistence-unhealthy', exists: false });
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -191,7 +191,7 @@ test('a hosted MCP write identifies its committed state when persistence fails',
     const mcp = new McpHttpClient(`${serve.info.url}/__pyric/mcp`);
     await mcp.initialize();
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await expect(mcp.toolCall('firestore_create_document', {
       path: 'shared/greeting', data: { message: 'MCP committed in memory' }, as: 'admin',
     })).resolves.toMatchObject({
@@ -200,7 +200,7 @@ test('a hosted MCP write identifies its committed state when persistence fails',
     });
     await expect(page.locator('#document')).toHaveText('MCP committed in memory');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });

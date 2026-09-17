@@ -1,5 +1,6 @@
+import { setPersistenceWritable } from './persistence-fault.js';
 import { once } from 'node:events';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { startSoakServe } from '../soak/harness.js';
@@ -61,20 +62,20 @@ function startStorageFixture(flags = ['--hosted', '--no-capture']) {
   });
 }
 
-test('a hosted Storage SDK upload reports its committed state when persistence fails', async ({ page }) => {
+test('a hosted Storage SDK upload rolls back when persistence fails', async ({ page }) => {
   const serve = await startStorageFixture();
   const stateDirectory = join(serve.dir, '.pyric', 'state');
   try {
     await page.goto(serve.info.url);
     await expect(page.locator('#ready')).toHaveText('Ready');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Upload', exact: true }).click();
-    await expect(page.locator('#upload-result')).toHaveText('committed-but-not-durable');
-    await page.getByRole('button', { name: 'Read bytes', exact: true }).click();
-    await expect(page.locator('#bytes')).toHaveText('Stored in memory');
+    await expect(page.locator('#upload-result')).toHaveText('persistence-unhealthy');
+    await page.getByRole('button', { name: 'List files', exact: true }).click();
+    await expect(page.locator('#files')).toHaveText('[]');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -86,20 +87,20 @@ test('an unhealthy host refuses a Storage SDK overwrite before changing its byte
     await page.goto(serve.info.url);
     await expect(page.locator('#ready')).toHaveText('Ready');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Upload', exact: true }).click();
-    await expect(page.locator('#upload-result')).toHaveText('committed-but-not-durable');
+    await expect(page.locator('#upload-result')).toHaveText('persistence-unhealthy');
     await page.getByRole('button', { name: 'Overwrite', exact: true }).click();
     await expect(page.locator('#overwrite-result')).toHaveText('persistence-unhealthy');
-    await page.getByRole('button', { name: 'Read bytes', exact: true }).click();
-    await expect(page.locator('#bytes')).toHaveText('Stored in memory');
+    await page.getByRole('button', { name: 'List files', exact: true }).click();
+    await expect(page.locator('#files')).toHaveText('[]');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
 
-test('a hosted Storage SDK deletion reports its committed state when persistence fails', async ({ page }) => {
+test('a hosted Storage SDK deletion rolls back when persistence fails', async ({ page }) => {
   const serve = await startStorageFixture();
   const stateDirectory = join(serve.dir, '.pyric', 'state');
   try {
@@ -107,13 +108,13 @@ test('a hosted Storage SDK deletion reports its committed state when persistence
     await expect(page.locator('#ready')).toHaveText('Ready');
     await page.getByRole('button', { name: 'Upload', exact: true }).click();
     await expect(page.locator('#upload-result')).toHaveText('Uploaded');
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
-    await expect(page.locator('#delete-result')).toHaveText('committed-but-not-durable');
+    await expect(page.locator('#delete-result')).toHaveText('persistence-unhealthy');
     await page.getByRole('button', { name: 'List files', exact: true }).click();
-    await expect(page.locator('#files')).toHaveText('[]');
+    await expect(page.locator('#files')).toHaveText('["files/greeting.txt"]');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -125,15 +126,15 @@ test('an unhealthy host refuses a Storage SDK deletion before removing its bytes
     await page.goto(serve.info.url);
     await expect(page.locator('#ready')).toHaveText('Ready');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Upload', exact: true }).click();
-    await expect(page.locator('#upload-result')).toHaveText('committed-but-not-durable');
+    await expect(page.locator('#upload-result')).toHaveText('persistence-unhealthy');
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(page.locator('#delete-result')).toHaveText('persistence-unhealthy');
-    await page.getByRole('button', { name: 'Read bytes', exact: true }).click();
-    await expect(page.locator('#bytes')).toHaveText('Stored in memory');
+    await page.getByRole('button', { name: 'List files', exact: true }).click();
+    await expect(page.locator('#files')).toHaveText('[]');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });

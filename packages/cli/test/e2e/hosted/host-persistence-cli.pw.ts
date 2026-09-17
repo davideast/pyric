@@ -1,6 +1,7 @@
+import { setPersistenceWritable } from './persistence-fault.js';
 import { execFile } from 'node:child_process';
 import { once } from 'node:events';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { expect, test } from '@playwright/test';
@@ -15,7 +16,7 @@ test('a hosted service CLI write identifies its committed state when persistence
     await page.goto(serve.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await expect(promisify(execFile)(process.execPath, [
       CLI_PATH, 'firestore', 'setDoc', '--path', 'shared/greeting',
       '--data', '{"message":"CLI committed in memory"}', '--json',
@@ -25,7 +26,7 @@ test('a hosted service CLI write identifies its committed state when persistence
     });
     await expect(page.locator('#document')).toHaveText('CLI committed in memory');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -37,7 +38,7 @@ test('an unhealthy host refuses a service CLI mutation before changing the docum
     await page.goto(serve.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Write shared document' }).click();
     await expect(page.locator('#write-result')).toContainText('committed in memory');
     await expect(promisify(execFile)(process.execPath, [
@@ -49,7 +50,7 @@ test('an unhealthy host refuses a service CLI mutation before changing the docum
     });
     await expect(page.locator('#document')).toHaveText('Hello from the other browser');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -61,7 +62,7 @@ test('an unhealthy host serves a service CLI read from its in-memory state', asy
     await page.goto(serve.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Write shared document' }).click();
     await expect(page.locator('#write-result')).toContainText('committed in memory');
     await expect(promisify(execFile)(process.execPath, [
@@ -70,7 +71,7 @@ test('an unhealthy host serves a service CLI read from its in-memory state', asy
       stdout: expect.stringContaining('Hello from the other browser'),
     });
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -82,7 +83,7 @@ test('a service CLI read identifies unhealthy in-memory state in its result', as
     await page.goto(serve.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Write shared document' }).click();
     await expect(page.locator('#write-result')).toContainText('committed in memory');
     await expect(promisify(execFile)(process.execPath, [
@@ -91,7 +92,7 @@ test('a service CLI read identifies unhealthy in-memory state in its result', as
       stdout: expect.stringContaining('Hosted persistence is unhealthy; this read reflects in-memory state.'),
     });
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -106,7 +107,7 @@ test('a refused CLI write retains its rules error when the state directory is un
       CLI_PATH, 'auth', 'actAsAnonymous', '--json',
     ], { cwd: serve.dir, timeout: 10_000 });
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await expect(promisify(execFile)(process.execPath, [
       CLI_PATH, 'firestore', 'setDoc', '--path', 'shared/greeting',
       '--data', '{"message":"Must not execute"}', '--json',
@@ -116,7 +117,7 @@ test('a refused CLI write retains its rules error when the state directory is un
     });
     await expect(page.locator('#document')).toHaveText('Empty');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -128,7 +129,7 @@ test('service CLI identity switches still govern reads during a persistence fail
     await page.goto(serve.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Write shared document' }).click();
     await expect(page.locator('#write-result')).toContainText('committed in memory');
     await expect(promisify(execFile)(process.execPath, [
@@ -143,7 +144,7 @@ test('service CLI identity switches still govern reads during a persistence fail
       stdout: expect.stringContaining('denied_by_rules'),
     });
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -155,7 +156,7 @@ test('a partially applied CLI batch reports failed persistence without losing it
     await page.goto(serve.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     const batch = promisify(execFile)(process.execPath, [
       CLI_PATH, 'firestore', 'writeBatch', '--writes', JSON.stringify([
         { type: 'set', path: 'shared/greeting', data: { message: 'Partial CLI batch' } },
@@ -172,7 +173,7 @@ test('a partially applied CLI batch reports failed persistence without losing it
     });
     await expect(page.locator('#document')).toHaveText('Partial CLI batch');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });
@@ -215,7 +216,7 @@ test('a partial CLI batch with failed persistence prevents the next mutation', a
     await page.goto(serve.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await expect(promisify(execFile)(process.execPath, [
       CLI_PATH, 'firestore', 'writeBatch', '--writes', JSON.stringify([
         { type: 'set', path: 'shared/greeting', data: { message: 'Partial CLI batch' } },
@@ -231,7 +232,7 @@ test('a partial CLI batch with failed persistence prevents the next mutation', a
     });
     await expect(page.locator('#document')).toHaveText('Partial CLI batch');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await serve.stop();
   }
 });

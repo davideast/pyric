@@ -128,6 +128,8 @@ export async function attachPersistence(
   // though they weren't in the registry when `restore()` ran.
   const restoredServices = await restore(sandbox, backend, options.key, lastHashes);
 
+  const pendingServices = new Map(Object.entries(restoredServices ?? {}));
+
   let pendingFlush: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
 
@@ -145,24 +147,28 @@ export async function attachPersistence(
     const snap = sandbox.snapshot();
     // The flush stamp is sandbox time, so a restored bundle says when the
     // sandbox saved it rather than when the host process happened to run.
-    const records = serializeToBuckets(snap.firestore, snap.services, getClock(sandbox).now());
-    // Incremental flush: write ONLY the buckets whose content changed since the
-    // last flush, and delete buckets that disappeared. Comparison is by content
-    // hash, so it is safe by construction: a changed bucket cannot hash equal to
-    // its prior content, so no write is ever skipped (no write-site dirty-set to
-    // keep in sync). Put changed buckets BEFORE deleting removed ones, and adopt
-    // the new hashes only AFTER both land, so a crash mid-flush never loses live
-    // data and the next flush simply retries against the unchanged hash state.
+    const records = serializeToBuckets(snap.firestore, { ...Object.fromEntries(pendingServices), ...snap.services }, getClock(sandbox).now());
+    // Persist changed buckets and removals atomically when the backend supports
+    // it. Adopt hashes only after success, so a failed flush remains retryable.
     const changed = new Map<string, unknown>();
     const nextHashes = new Map<string, number>();
     for (const [id, rec] of records) {
       const h = hashRecord(rec);
       nextHashes.set(id, h);
-      if (lastHashes.get(id) !== h) changed.set(id, rec);
+      const changedHash = lastHashes.get(id) !== h;
+      if (changedHash) changed.set(id, rec);
     }
     const removed = [...lastHashes.keys()].filter((id) => !records.has(id));
-    if (changed.size > 0) await backend.putRecords(options.key, changed);
-    if (removed.length > 0) await backend.deleteRecords(options.key, removed);
+    const applyChanges = backend.applyChanges;
+    const commitsAtomically = applyChanges !== undefined;
+    if (commitsAtomically) {
+      await applyChanges(options.key, changed, removed);
+    } else {
+      const hasChanges = changed.size > 0;
+      if (hasChanges) await backend.putRecords(options.key, changed);
+      const hasRemovals = removed.length > 0;
+      if (hasRemovals) await backend.deleteRecords(options.key, removed);
+    }
     lastHashes.clear();
     for (const [id, h] of nextHashes) lastHashes.set(id, h);
   };
@@ -183,11 +189,13 @@ export async function attachPersistence(
 
   const scheduleFlush = (): void => {
     if (disposed) return;
-    if (pendingFlush) return;
+    const alreadyScheduled = pendingFlush !== null;
+    if (alreadyScheduled) return;
     pendingFlush = setTimeout(() => {
       pendingFlush = null;
       void flushNow().catch((e) => {
-        if (isQuotaExceeded(e)) {
+        const quotaExceeded = isQuotaExceeded(e);
+        if (quotaExceeded) {
           // Storage is full: retrying will not help until space is freed, so
           // warn loudly instead of busy-looping. The unpersisted changes stay in
           // memory; the next successful flush (after space frees) re-detects them.
@@ -195,6 +203,11 @@ export async function attachPersistence(
             '[sandbox/persistence] storage quota exceeded; recent changes are kept ' +
               'in memory only. Free storage or reduce sandbox data to persist them.',
           );
+          return;
+        }
+        const requiresRepair = backend.retryFailedFlush === false;
+        if (requiresRepair) {
+          console.warn('[sandbox/persistence] auto-flush failed; repair and restart required.');
           return;
         }
         console.warn('[sandbox/persistence] auto-flush failed, will retry:', e);
@@ -309,8 +322,10 @@ export async function attachPersistence(
     if (stored) tryRestoreSession(name, stored, hooks);
   };
 
-  if (sandbox instanceof SandboxImpl) {
+  const ownsServiceRegistry = sandbox instanceof SandboxImpl;
+  if (ownsServiceRegistry) {
     for (const [name, hooks] of sandbox.getServiceRegistry()) {
+      pendingServices.delete(name);
       attachServiceSubscription(name, hooks);
       restoreSessionForService(name, hooks);
       // Restore before subscribing: restore(mode, uid) can emit session
@@ -319,15 +334,18 @@ export async function attachPersistence(
       attachSessionSubscription(name, hooks);
     }
     sandbox.setServiceRegistrationHook((name, hooks) => {
-      if (restoredServices !== null && name in restoredServices) {
+      const hasPendingState = pendingServices.has(name);
+      if (hasPendingState) {
         try {
-          hooks.restore(restoredServices[name]);
+          hooks.restore(pendingServices.get(name));
+          pendingServices.delete(name);
         } catch (error) {
           console.warn(`[sandbox/persistence] late-restore for service '${name}' failed:`, error);
         }
       }
       const stored = loadStoredSession(name);
-      if (stored) pendingSessions.set(name, stored);
+      const hasStoredSession = stored !== null;
+      if (hasStoredSession) pendingSessions.set(name, stored);
       restoreSessionForService(name, hooks);
       attachServiceSubscription(name, hooks);
       attachSessionSubscription(name, hooks);
@@ -362,7 +380,8 @@ export async function attachPersistence(
     });
   };
 
-  if (typeof window !== 'undefined') {
+  const inBrowser = typeof window !== 'undefined';
+  if (inBrowser) {
     window.addEventListener('beforeunload', beforeUnload);
   }
 

@@ -1,5 +1,6 @@
+import { setPersistenceWritable } from './persistence-fault.js';
 import { once } from 'node:events';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { connectRemoteSandbox } from '@pyric/cli/remote';
 import { expect, test } from '@playwright/test';
@@ -62,8 +63,7 @@ test('an acknowledged reset cannot restore objects from a save that was already 
       await host.stop();
     }
   } finally {
-    await context.close();
-    await fixture.stop();
+    await context.close().finally(() => fixture.stop());
   }
 });
 
@@ -105,10 +105,13 @@ test('an unhealthy host refuses reset before clearing Storage objects', async ({
     await page.goto(fixture.info.url);
     await expect(page.locator('#ready')).toHaveText('Ready');
     mkdirSync(stateDirectory, { recursive: true });
-    chmodSync(stateDirectory, 0o500);
-    await page.getByLabel('Value', { exact: true }).fill('Still in memory');
+    await page.getByLabel('Value', { exact: true }).fill('Still durable');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.locator('#saved')).toHaveText('committed-but-not-durable');
+    await expect(page.locator('#saved')).toHaveText('Saved');
+    setPersistenceWritable(stateDirectory, false);
+    await page.getByLabel('Value', { exact: true }).fill('Rejected bytes');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(page.locator('#saved')).toHaveText('persistence-unhealthy');
     const remote = await connectRemoteSandbox({ url: fixture.info.url });
     try {
       await expect(remote.channel.op({ method: 'resetAll' })).rejects.toMatchObject({ code: 'persistence-unhealthy' });
@@ -116,9 +119,9 @@ test('an unhealthy host refuses reset before clearing Storage objects', async ({
       remote.close();
     }
     await page.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(page.locator('#value-read')).toHaveText('Still in memory');
+    await expect(page.locator('#value-read')).toHaveText('Still durable');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await fixture.stop();
   }
 });

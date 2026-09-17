@@ -8,10 +8,10 @@ import { createOperationBudget } from '../../bridge/operation-budget.js';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
 import { directoryCheckpointBackend } from 'pyric/sandbox/checkpoints/directory';
-import { createSandboxRoot } from 'pyric/sandbox/internal';
+import { createSandboxRoot, emitSandboxEvent, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { FirebaseError } from 'pyric/app';
-import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import { installStorageBackend } from 'pyric/storage/internal';
 import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
@@ -24,7 +24,7 @@ import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
-import { createHostedPersistence } from './persistence.js';
+import { createHostedPersistence, HOSTED_NAMESPACE, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
 import { MAX_HOSTED_METHOD_OWNERS, type HostedMethodRequest } from './method-protocol.js';
 
@@ -39,8 +39,10 @@ interface HostedPort extends OperationQueue {
   port: PortLike;
 }
 
-/** Server-only AI settings; never included in browser initialization payloads. */
-export interface HostedAiOptions {
+/** Server-owned persistence and AI configuration; never sent to browsers. */
+export interface HostedRuntimeOptions {
+  /** Borrowed from the session; the session closes it after the runtime drains. */
+  persistence?: HostedPersistence;
   proxyUpstream?: string;
   logger?: ServeLogger;
 }
@@ -51,14 +53,25 @@ export async function createHostedRuntime(
   baseUrl: string | (() => string),
   send: (message: BridgeMessage) => void,
   projectDir: string,
-  ai: HostedAiOptions = {},
+  ai: HostedRuntimeOptions = {},
 ) {
   const ownedProjectDir = realpathSync(projectDir);
-  const persistence = createHostedPersistence(ownedProjectDir);
+  const ownsPersistence = ai.persistence === undefined;
+  const persistence = ai.persistence ?? await createHostedPersistence(ownedProjectDir);
+  const closeOwnedPersistence = () => {
+    if (ownsPersistence) persistence.close();
+  };
   const sandbox = createSandboxRoot(SERVE_HISTORY_LIMITS);
   const instanceId = randomUUID();
-  await sandbox.enablePersistence({ key: instanceId, injectedBackend: persistence.backend });
-  let persistenceHealthy = true;
+  try {
+    installStorageBackend(sandbox, persistence.storage);
+    await sandbox.enablePersistence({ key: HOSTED_NAMESPACE, injectedBackend: persistence.backend });
+  } catch (error) {
+    sandbox.dispose();
+    closeOwnedPersistence();
+    throw error;
+  }
+  const persistenceIsHealthy = () => persistence.status().state === 'healthy';
   let persistenceWork = Promise.resolve();
   function flushPersistence(): Promise<void> {
     // An older asynchronous snapshot must finish before the next one starts.
@@ -70,22 +83,22 @@ export async function createHostedRuntime(
   async function persistState(): Promise<void> {
     try {
       await sandbox.flush();
-      await persistence.flushStorage(storage);
     } catch (error) {
-      persistenceHealthy = false;
+      persistence.markUnhealthy();
       console.error('[pyric hosted] persistence failed:', error);
       throw new FirebaseError('committed-but-not-durable',
         'The mutation committed in memory but could not be persisted. Do not repeat it; restore persistence before further mutations.');
     }
   }
   function requireHealthyPersistence(): void {
-    if (persistenceHealthy) return;
+    const healthy = persistenceIsHealthy();
+    if (healthy) return;
     throw new FirebaseError('persistence-unhealthy',
       'The mutation was not executed because hosted persistence is unhealthy. Reads reflect in-memory state. Restore persistence and restart the host before further mutations.');
   }
 
   function describeRead(result: OperationResult): OperationResult {
-    const readsUnhealthyMemory = result.ok && !persistenceHealthy;
+    const readsUnhealthyMemory = result.ok && !persistenceIsHealthy();
     if (readsUnhealthyMemory) {
       const summary = `${result.summary} Hosted persistence is unhealthy; this read reflects in-memory state.`;
       return { ...result, summary };
@@ -126,7 +139,10 @@ export async function createHostedRuntime(
     (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const isRelativeUrl = typeof input === 'string';
       // Vite assigns its listening origin after the sandbox is initialised.
-      const origin = typeof baseUrl === 'function' ? baseUrl() : baseUrl;
+      const dynamicOrigin = typeof baseUrl === 'function';
+      let origin: string;
+      if (dynamicOrigin) origin = baseUrl();
+      else origin = baseUrl;
       const request = isRelativeUrl ? new URL(input, origin) : input;
       return fetch(request, init);
     },
@@ -137,16 +153,15 @@ export async function createHostedRuntime(
     initialized = applyServeInit(ctx, payload, { fetch: hostedFetch });
   } catch (error) {
     sandbox.dispose();
+    closeOwnedPersistence();
     throw error;
   }
-  const storage = getAdminStorageSandbox(sandbox);
-  try {
-    await persistence.restoreStorage(storage);
-  } catch (error) {
-    initialized.dispose();
-    sandbox.dispose();
-    throw error;
-  }
+  const unsubscribeFailure = persistence.onFailure(() => {
+    emitSandboxEvent(sandbox, makeSandboxRuntimeErrorEvent({
+      at: Date.now(), service: 'runtime', method: 'persist', auth: null,
+      error: { code: 'persistence-unhealthy', message: 'Hosted persistence failed. Mutations are blocked; reads may include unsaved changes. Repair the store and restart the host.' },
+    }));
+  });
   const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir);
   const ports = new Map<string, HostedPort>();
   const closingPorts = new Set<Promise<void>>();
@@ -411,13 +426,18 @@ export async function createHostedRuntime(
       if (isClosing) return closing;
       closed = true;
       closePromise = (async () => {
-        initialized.dispose();
         try {
           const pendingCalls = [...methodWork.values(), ...toolWork.values()].map(queue => queue.pending);
           const portClosures = [...ports.keys()].map(closePort);
           await Promise.all([...pendingCalls, ...portClosures, ...closingPorts]);
+          await persistenceWork;
+          const healthy = persistenceIsHealthy();
+          if (healthy) await flushPersistence();
         } finally {
+          unsubscribeFailure();
+          initialized.dispose();
           sandbox.dispose();
+          closeOwnedPersistence();
         }
       })();
       return closePromise;

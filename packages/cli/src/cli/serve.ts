@@ -201,14 +201,10 @@ async function startServeRuntime(opts: {
   const beaconCount = (): number => beaconsSeen;
   const beaconToken = randomBytes(24).toString('base64url');
 
-  // --fresh only means anything against the state.json file `--persist`
-  // maintains — without `--persist` there is no file to discard, so
-  // `--fresh` alone was a silent no-op (nothing happened, nothing said so).
-  // Fail fast instead of pretending to reset something.
-  const freshWithoutPersistence = Boolean(opts.fresh && !opts.persist);
+  const freshWithoutPersistence = Boolean(opts.fresh && !opts.persist && !opts.hosted);
   if (freshWithoutPersistence) {
     throw new Error(
-      'pyric sandbox: --fresh requires --persist (it discards .pyric/state/state.json). ' +
+      'pyric sandbox: --fresh requires --hosted or --persist. ' +
         'Browser-stored data is cleared from Studio → Settings → Reset, or DevTools → Clear site data.',
     );
   }
@@ -380,7 +376,7 @@ async function startServeRuntime(opts: {
       );
     }
   }
-  const usesPersistence = Boolean(opts.persist);
+  const usesPersistence = Boolean(opts.persist || opts.hosted);
   const persistenceOptions = usesPersistence ? { fresh: opts.fresh } : undefined;
   const studioOptions: Parameters<typeof createSandboxSession>[0]['studio'] = mountsStudio ? { siteUiDir } : false;
   const usesHostedSandbox = opts.hosted === true;
@@ -427,7 +423,9 @@ async function startServeRuntime(opts: {
     }
     throw error;
   }
-  const resetsPersistedState = Boolean(opts.persist && opts.fresh);
+  const resetsHostedState = Boolean(opts.hosted && opts.fresh);
+  if (resetsHostedState) logger.note('  ⓘ --fresh: archived hosted state; starting a new store');
+  const resetsPersistedState = Boolean(opts.persist && opts.fresh && !opts.hosted);
   if (resetsPersistedState) {
     logger.note('  ⓘ --fresh: discarded the existing state file; re-seeding');
     logger.note(
@@ -474,7 +472,7 @@ async function startServeRuntime(opts: {
   // sandbox session is released.
   let bridgeAttachment;
   try {
-    if (usesHostedSandbox) await mount?.startHostedSandbox(session.payload(), handle.url, { logger });
+    if (usesHostedSandbox) await mount?.startHostedSandbox(session.payload(), handle.url, { logger, persistence: session.hostedPersistence });
     bridgeAttachment = mount?.attachHost({
       servers: handle.servers,
       lifecycleServer: handle.server,

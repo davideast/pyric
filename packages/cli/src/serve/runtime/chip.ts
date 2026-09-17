@@ -1205,25 +1205,29 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (hasRunningEpoch) workerDetail = 'Current sandbox version';
     if (hasUpdate) workerDetail = 'A newer version is available';
     let workerRow = rowHtml({ c1: 'Worker', s1: workerDetail, slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch });
-    if (isHosted) workerRow = rowHtml({ c1: 'Hosted', slot: escapeAttribute(hostedLabel), attributes: 'data-worker-row' });
+    const persistenceFailed = snapshot.persistenceUnhealthy === true;
+    if (isHosted) workerRow = rowHtml({ c1: 'Hosted', s1: persistenceFailed ? 'Persistence failed — mutations blocked. Repair the store and restart.' : undefined, slot: escapeAttribute(hostedLabel), attributes: 'data-worker-row' });
     const isInPage = snapshot.mode === 'in-page';
     if (isInPage) workerRow = rowHtml({ c1: 'Runtime', s1: 'Services run in this page', slot: 'In-page', attributes: 'data-runtime-row' });
     const configuration = options.aiConfiguration?.getSnapshot();
     const modelFact = (label: string, value: string, attributes = '') => `<div ${attributes}><dt>${label}</dt><dd>${escapeAttribute(value)}</dd></div>`;
     const routes = new Map<string, { requestedModel: string; route: string }>();
-    if (configuration) {
+    const hasConfiguration = configuration !== undefined;
+    if (hasConfiguration) {
       routes.set(configuration.requestedModel, configuration);
     } else {
       const hostRequests = (trafficFeed?.requests() ?? []).flatMap(request => request.aiRequest ? [request.aiRequest] : []);
       const pageRequests = localRates.snapshot().services.find(service => service.service === 'ai')?.aiRequests ?? [];
-      const requests = hostRequests.length ? hostRequests : pageRequests;
+      const hasHostRequests = hostRequests.length > 0;
+      const requests = hasHostRequests ? hostRequests : pageRequests;
       for (const request of requests) {
         const requestedModel = request.detail.requestedModel.replace(/^models\//, '');
         const route = request.detail.routedModel ?? 'Not reported';
         routes.set(`${requestedModel}:${route}`, { requestedModel, route });
       }
     }
-    if (!routes.size) routes.set('unobserved', { requestedModel: 'Not reported', route: configuredAiRoute() });
+    const hasNoRoutes = routes.size === 0;
+    if (hasNoRoutes) routes.set('unobserved', { requestedModel: 'Not reported', route: configuredAiRoute() });
     const modelRows = [...routes.values()].map(({ requestedModel, route }) => {
       const facts = modelFact('Model', requestedModel, 'data-ai-requested-row') + modelFact('Routed model', route, 'data-ai-route-row');
       return `<div class="row" data-ai-row><dl class="sandbox-ai-facts">${facts}</dl></div>`;

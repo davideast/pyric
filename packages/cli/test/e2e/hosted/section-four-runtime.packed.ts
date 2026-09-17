@@ -48,12 +48,18 @@ for (const mode of ['hosted', 'sharedworker', 'inpage'] as const) {
   });
 }
 
-for (const mode of ['sharedworker', 'inpage'] as const) {
+for (const mode of ['hosted', 'sharedworker', 'inpage'] as const) {
   test(`installed Vite ${mode} preserves identity and one listener through HMR, reload and warm startup`, async ({ page }) => {
     const project = packedProject();
     const isInpage = mode === 'inpage';
     const suffix = isInpage ? '?runtime=inpage' : '';
-    const expectedMode = isInpage ? 'in-page' : 'shared-worker';
+    const hosted = mode === 'hosted';
+    let expectedMode = isInpage ? 'in-page' : 'shared-worker';
+    if (hosted) {
+      expectedMode = 'hosted';
+      const config = join(project.dir, 'vite-server.mjs');
+      writeFileSync(config, readFileSync(config, 'utf8').replace('pyric({ capture:', 'pyric({ hosted: true, capture:'));
+    }
     let server = startPackedServer(project, 'vite');
     try {
       const url = await server.url;

@@ -32,6 +32,7 @@ import {
 } from './state-store.js';
 import { restoredStateCounts } from './state-summary.js';
 import { parseStateFile } from './state-file.js';
+import { createHostedPersistence, type HostedPersistence } from './hosted/persistence.js';
 
 export interface SandboxSessionOptions {
   boundHost?: string;
@@ -84,6 +85,7 @@ export interface SandboxSessionSummary {
 }
 
 export interface SandboxSession {
+  readonly hostedPersistence?: HostedPersistence;
   readonly summary: SandboxSessionSummary;
   payload(): InitPayload;
   handle(req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean>;
@@ -197,208 +199,227 @@ export async function createSandboxSession(
     ? createCaptureStore(options.projectDir)
     : undefined;
   const persistsSession = Boolean(options.persistence || options.hosted);
-  const state: StateStore | undefined = persistsSession
-    ? createStateStore(options.projectDir)
-    : undefined;
-  const hasStateStore = state !== undefined;
-  const resetsState = hasStateStore && !!options.persistence?.fresh;
-  if (resetsState) {
-    for (const file of [state.path, state.backupPath]) {
-      const hasFile = existsSync(file);
-      if (hasFile) rmSync(file);
+  let hostedPersistence: HostedPersistence | undefined;
+  const usesHostedPersistence = options.hosted === true;
+  if (usesHostedPersistence) hostedPersistence = await createHostedPersistence(options.projectDir, { fresh: options.persistence?.fresh });
+  try {
+    const state: StateStore | undefined = hostedPersistence?.state ?? (persistsSession ? createStateStore(options.projectDir) : undefined);
+    const hasStateStore = state !== undefined;
+    const resetsState = hasStateStore && !options.hosted && !!options.persistence?.fresh;
+    if (resetsState) {
+      for (const file of [state.path, state.backupPath]) {
+        const hasFile = existsSync(file);
+        if (hasFile) rmSync(file);
+      }
     }
-  }
-  let persisted = state?.load() ?? null;
-  let seed: Record<string, Record<string, unknown>> | null = null;
-  let seedState: unknown | null = null;
-  let seedUsers: Record<string, unknown>[] | null = null;
-  let seedLabel: string | null = null;
-  const seedFile = options.seedFile;
-  const hasSeedFile = !!seedFile;
-  if (hasSeedFile) {
-    const seedPath = resolve(options.projectDir, seedFile);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(readFileSync(seedPath, 'utf8')) as unknown;
-    } catch (error) {
-      const isError = error instanceof Error;
-      const message = isError ? error.message : String(error);
-      throw new SandboxSeedError('read', seedPath, message);
-    }
-    const isArray = Array.isArray(parsed);
-    const isNotObject = !parsed || typeof parsed !== 'object';
-    const isInvalidSeed = isNotObject || isArray;
-    if (isInvalidSeed) {
-      const kind = isArray ? 'array' : typeof parsed;
-      throw new SandboxSeedError('shape', seedPath, `got ${kind}`);
-    }
-    const record = parsed as Record<string, unknown>;
-    const hasStateVersion = 'version' in record;
-    const hasStateSections = 'firestore' in record || 'auth' in record;
-    const isStateFixture = hasStateVersion && hasStateSections;
-    if (isStateFixture) {
-      const fixture = parseStateFile(record, seedPath);
-      const { restoredDocs, restoredUsers } = restoredStateCounts(fixture);
-      seedLabel = `${restoredDocs} doc(s) + ${restoredUsers} user(s) from state fixture`;
-      const initializesStateStore = hasStateStore && !state.exists();
-      if (initializesStateStore) {
-        const hasFirestoreState = fixture.firestore != null;
-        if (hasFirestoreState) state.writeSection('firestore', fixture.firestore);
-        const hasAuthState = fixture.auth != null;
-        if (hasAuthState) state.writeSection('auth', fixture.auth);
-        persisted = state.load();
+    let persisted = state?.load() ?? null;
+    let seed: Record<string, Record<string, unknown>> | null = null;
+    let seedState: unknown | null = null;
+    let seedUsers: Record<string, unknown>[] | null = null;
+    let seedLabel: string | null = null;
+    const seedFile = options.seedFile;
+    const hasSeedFile = !!seedFile;
+    if (hasSeedFile) {
+      const seedPath = resolve(options.projectDir, seedFile);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(readFileSync(seedPath, 'utf8')) as unknown;
+      } catch (error) {
+        const isError = error instanceof Error;
+        const message = isError ? error.message : String(error);
+        throw new SandboxSeedError('read', seedPath, message);
+      }
+      const isArray = Array.isArray(parsed);
+      const isNotObject = !parsed || typeof parsed !== 'object';
+      const isInvalidSeed = isNotObject || isArray;
+      if (isInvalidSeed) {
+        const kind = isArray ? 'array' : typeof parsed;
+        throw new SandboxSeedError('shape', seedPath, `got ${kind}`);
+      }
+      const record = parsed as Record<string, unknown>;
+      const hasStateVersion = 'version' in record;
+      const hasStateSections = 'firestore' in record || 'auth' in record || 'storage' in record;
+      const isStateFixture = hasStateVersion && hasStateSections;
+      if (isStateFixture) {
+        const fixture = parseStateFile(record, seedPath);
+        const { restoredDocs, restoredUsers } = restoredStateCounts(fixture);
+        seedLabel = `${restoredDocs} doc(s) + ${restoredUsers} user(s) from state fixture`;
+        const initializesStateStore = hasStateStore && !state.exists();
+        if (initializesStateStore) {
+          const seedOwner = hostedPersistence;
+          const hasHostedPersistence = seedOwner !== undefined;
+          if (hasHostedPersistence) seedOwner.seed(fixture);
+          else {
+            const hasFirestoreState = fixture.firestore != null;
+            if (hasFirestoreState) state.writeSection('firestore', fixture.firestore);
+            const hasAuthState = fixture.auth != null;
+            if (hasAuthState) state.writeSection('auth', fixture.auth);
+            const hasStorageState = fixture.storage !== undefined;
+            if (hasStorageState) state.writeSection('storage', fixture.storage);
+          }
+          persisted = state.load();
+        } else {
+          const hasNoStateStore = !hasStateStore;
+          if (hasNoStateStore) {
+            seedState = fixture.firestore ?? null;
+            seedUsers = fixture.auth?.users.map((user) => ({ ...user })) ?? null;
+          }
+        }
       } else {
-        const hasNoStateStore = !hasStateStore;
-        if (hasNoStateStore) {
-          seedState = fixture.firestore ?? null;
-          seedUsers = fixture.auth?.users.map((user) => ({ ...user })) ?? null;
-        }
+        seed = record as Record<string, Record<string, unknown>>;
+        seedLabel = `${Object.keys(seed).length} document(s)`;
       }
-    } else {
-      seed = record as Record<string, Record<string, unknown>>;
-      seedLabel = `${Object.keys(seed).length} document(s)`;
     }
-  }
 
-  const payload = (): InitPayload => {
-    const hasPersistedState = state?.exists() === true;
-    return {
-      rules: live.rules,
-      rulesHash: live.rulesHash,
-      databaseRules: live.databaseRules,
-      databaseRulesHash: live.databaseRulesHash,
-      databaseUrl: database.databaseUrl,
-      storageRules: storage.rules,
-      storageRulesHash: storage.rulesHash,
-      projectKey: options.projectDir,
-      bridgeUrl: options.bridgeUrl?.() ?? null,
-      hosted: options.hosted,
-      seed: hasPersistedState ? null : seed,
-      seedState,
-      persist: Boolean(state),
-      capture: Boolean(capture),
-      sessionToken,
-      authUsers: hasStateStore
-        ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
-        : seedUsers,
-      messaging: true,
-      ai: options.ai ?? null,
-      avatars: Boolean(avatarsResolver),
-      avatarUpgrades,
-      permissive: Boolean(options.permissive),
+    const payload = (): InitPayload => {
+      const hasPersistedState = state?.exists() === true;
+      return {
+        rules: live.rules,
+        rulesHash: live.rulesHash,
+        databaseRules: live.databaseRules,
+        databaseRulesHash: live.databaseRulesHash,
+        databaseUrl: database.databaseUrl,
+        storageRules: storage.rules,
+        storageRulesHash: storage.rulesHash,
+        projectKey: options.projectDir,
+        bridgeUrl: options.bridgeUrl?.() ?? null,
+        hosted: options.hosted,
+        persistenceUnhealthy: hostedPersistence?.status().state === 'unhealthy',
+        seed: hasPersistedState ? null : seed,
+        seedState,
+        persist: Boolean(state),
+        capture: Boolean(capture),
+        sessionToken,
+        authUsers: hasStateStore
+          ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
+          : seedUsers,
+        messaging: true,
+        ai: options.ai ?? null,
+        avatars: Boolean(avatarsResolver),
+        avatarUpgrades,
+        permissive: Boolean(options.permissive),
+      };
     };
-  };
 
-  const restoredCounts = restoredStateCounts(persisted);
-  const summary: SandboxSessionSummary = {
-    rules: {
-      firestore: { sourcePath: firestore.sourcePath, hash: firestore.rulesHash },
-      database: { sourcePath: database.sourcePath, hash: database.rulesHash },
-      storage: { sourcePath: storage.sourcePath, hash: storage.rulesHash },
-    },
-    persistence: hasStateStore
-      ? {
-          path: state.path,
-          backupPath: state.backupPath,
-          ...restoredCounts,
-          restored: persisted !== null,
-        }
-      : null,
-    capturePath: capture?.path ?? null,
-    seedLabel,
-    seedStaged: Boolean((seed && !state?.exists()) || seedState || seedUsers),
-    studioMounted: Boolean(options.studio),
-  };
+    const restoredCounts = restoredStateCounts(persisted);
+    const summary: SandboxSessionSummary = {
+      rules: {
+        firestore: { sourcePath: firestore.sourcePath, hash: firestore.rulesHash },
+        database: { sourcePath: database.sourcePath, hash: database.rulesHash },
+        storage: { sourcePath: storage.sourcePath, hash: storage.rulesHash },
+      },
+      persistence: hasStateStore
+        ? {
+            path: state.path,
+            backupPath: state.backupPath,
+            ...restoredCounts,
+            restored: persisted !== null,
+          }
+        : null,
+      capturePath: capture?.path ?? null,
+      seedLabel,
+      seedStaged: Boolean((seed && !state?.exists()) || seedState || seedUsers),
+      studioMounted: Boolean(options.studio),
+    };
 
-  const studio = options.studio;
-  const mountsStudio = !!studio;
-  const hostOwnsState = options.hosted === true;
-  const stateOwner = hostOwnsState ? 'host' : 'browser';
-  const namespace = createPyricNamespace({
-    boundHost: options.boundHost,
-    allowedHosts: options.allowedHosts,
-    indexes: createIndexConfigStore(options.projectDir),
-    thresholds: createThresholdConfigStore(options.projectDir),
-    rateCaptures: createRateCaptureStore(options.projectDir),
-    sdkDir: options.sdk.dir,
-    initPayload: payload,
-    events,
-    state,
-    stateOwner,
-    capture,
-    sessionToken,
-    studio: mountsStudio
-      ? {
-          workspace: diskWorkspace(options.projectDir),
-          projects: diskProjectStore(join(options.projectDir, '.pyric', 'projects')),
-        }
-      : undefined,
-    siteUiDir: mountsStudio ? studio.siteUiDir : undefined,
-    workerVersion: options.sdk.workerVersion,
-    avatars: avatarsResolver,
-    aiProxyUpstream: options.aiProxyUpstream,
-    activity: options.activity,
-    beacon: options.beacon,
-    beaconToken: options.beaconToken,
-    logger: options.logger,
-  });
+    const studio = options.studio;
+    const mountsStudio = !!studio;
+    const hostOwnsState = options.hosted === true;
+    const stateOwner = hostOwnsState ? 'host' : 'browser';
+    const namespace = createPyricNamespace({
+      boundHost: options.boundHost,
+      allowedHosts: options.allowedHosts,
+      indexes: createIndexConfigStore(options.projectDir),
+      thresholds: createThresholdConfigStore(options.projectDir),
+      rateCaptures: createRateCaptureStore(options.projectDir),
+      sdkDir: options.sdk.dir,
+      initPayload: payload,
+      events,
+      state,
+      stateOwner,
+      persistenceStatus: hostedPersistence?.status,
+      capture,
+      sessionToken,
+      studio: mountsStudio
+        ? {
+            workspace: diskWorkspace(options.projectDir),
+            projects: diskProjectStore(join(options.projectDir, '.pyric', 'projects')),
+          }
+        : undefined,
+      siteUiDir: mountsStudio ? studio.siteUiDir : undefined,
+      workerVersion: options.sdk.workerVersion,
+      avatars: avatarsResolver,
+      aiProxyUpstream: options.aiProxyUpstream,
+      activity: options.activity,
+      beacon: options.beacon,
+      beaconToken: options.beaconToken,
+      logger: options.logger,
+    });
 
-  const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
-    const sourcePath = firestore.sourcePath;
-    const hasNoSource = !sourcePath;
-    if (hasNoSource) return { kind: 'not-configured' };
-    try {
-      const raw = await readFile(sourcePath, 'utf8');
-      const rules = prepareRulesSource(raw, sourcePath);
-      const rulesHash = rulesHashOf(rules);
-      options.deployHostedRules?.('firestore', rules);
-      live.rules = rules;
-      live.rulesHash = rulesHash;
-      events.broadcast('rules-changed', { rules, rulesHash });
-      return { kind: 'reloaded', rulesHash, clients: events.clientCount() };
-    } catch (error) {
-      const isError = error instanceof Error;
-      const failure = isError ? error : new Error(String(error));
-      return { kind: 'rejected', error: failure };
-    }
-  };
-  const reloadDatabaseRules = async (): Promise<RulesReloadResult> => {
-    try {
-      const updated = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig);
-      const isMissingUpdatedRules = updated.rules === null || updated.rulesHash === null;
-      if (isMissingUpdatedRules) {
-        return { kind: 'not-configured' };
+    const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
+      const sourcePath = firestore.sourcePath;
+      const hasNoSource = !sourcePath;
+      if (hasNoSource) return { kind: 'not-configured' };
+      try {
+        const raw = await readFile(sourcePath, 'utf8');
+        const rules = prepareRulesSource(raw, sourcePath);
+        const rulesHash = rulesHashOf(rules);
+        options.deployHostedRules?.('firestore', rules);
+        live.rules = rules;
+        live.rulesHash = rulesHash;
+        events.broadcast('rules-changed', { rules, rulesHash });
+        return { kind: 'reloaded', rulesHash, clients: events.clientCount() };
+      } catch (error) {
+        const isError = error instanceof Error;
+        const failure = isError ? error : new Error(String(error));
+        return { kind: 'rejected', error: failure };
       }
-      options.deployHostedRules?.('database', JSON.stringify(updated.rules));
-      database.sourcePath = updated.sourcePath;
-      live.databaseRules = updated.rules;
-      live.databaseRulesHash = updated.rulesHash;
-      events.broadcast('rtdb-rules-update', { rules: updated.rules, rulesHash: updated.rulesHash });
-      return { kind: 'reloaded', rulesHash: updated.rulesHash as string, clients: events.clientCount() };
-    } catch (error) {
-      const isErrorInstance = error instanceof Error;
-      let errorResult: Error = new Error(String(error));
-      if (isErrorInstance) {
-        errorResult = error as Error;
+    };
+    const reloadDatabaseRules = async (): Promise<RulesReloadResult> => {
+      try {
+        const updated = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig);
+        const isMissingUpdatedRules = updated.rules === null || updated.rulesHash === null;
+        if (isMissingUpdatedRules) {
+          return { kind: 'not-configured' };
+        }
+        options.deployHostedRules?.('database', JSON.stringify(updated.rules));
+        database.sourcePath = updated.sourcePath;
+        live.databaseRules = updated.rules;
+        live.databaseRulesHash = updated.rulesHash;
+        events.broadcast('rtdb-rules-update', { rules: updated.rules, rulesHash: updated.rulesHash });
+        return { kind: 'reloaded', rulesHash: updated.rulesHash as string, clients: events.clientCount() };
+      } catch (error) {
+        const isErrorInstance = error instanceof Error;
+        let errorResult: Error = new Error(String(error));
+        if (isErrorInstance) {
+          errorResult = error as Error;
+        }
+        return { kind: 'rejected', error: errorResult };
       }
-      return { kind: 'rejected', error: errorResult };
-    }
-  };
+    };
 
-  let closePromise: Promise<void> | null = null;
-  const close = (): Promise<void> => {
-    closePromise ??= Promise.resolve().then(() => events.close());
-    return closePromise;
-  };
+    let closePromise: Promise<void> | null = null;
+    const close = (): Promise<void> => {
+      closePromise ??= Promise.resolve().then(() => {
+        events.close();
+        hostedPersistence?.close();
+      });
+      return closePromise;
+    };
 
-  return {
-    summary,
-    payload,
-    async handle(req, res, url) {
-      return await flowTreatments.handle(req, res, url) || namespace(req, res, url);
-    },
-    reloadFirestoreRules,
-    reloadDatabaseRules,
-    close,
-  };
+    return {
+      hostedPersistence,
+      summary,
+      payload,
+      async handle(req, res, url) {
+        return await flowTreatments.handle(req, res, url) || namespace(req, res, url);
+      },
+      reloadFirestoreRules,
+      reloadDatabaseRules,
+      close,
+    };
+  } catch (error) {
+    hostedPersistence?.close();
+    throw error;
+  }
 }

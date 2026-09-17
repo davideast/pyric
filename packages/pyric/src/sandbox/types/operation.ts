@@ -6,7 +6,7 @@ import type { MutationEventService } from './service-event-records.js';
  * it rides its own rule-eval-shaped `request`/`write` path rather than the
  * cross-service mutation envelope; every other service reaches this union by
  * declaring an event record beside its own code. */
-export type EventService = 'firestore' | MutationEventService;
+export type EventService = 'firestore' | 'runtime' | MutationEventService;
 
 /** Who initiated the operation behind an event. Missing source is represented
  * explicitly as `unattributed`; it is never silently promoted to app traffic. */

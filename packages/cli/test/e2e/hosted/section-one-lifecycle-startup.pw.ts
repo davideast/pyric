@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -32,7 +33,7 @@ test('closing a mount during startup prevents late sandbox registration', async 
 test('failed hosted initialization leaves no delayed writer after its owner closes', async () => {
   test.setTimeout(15_000);
   const project = mkdtempSync(join(tmpdir(), 'pyric-runtime-init-failure-'));
-  const statePath = join(project, '.pyric', 'state', 'state.json');
+  const statePath = join(project, '.pyric', 'state', 'hosted', 'state.sqlite');
   const payload: InitPayload = {
     rules: null, rulesHash: null, storageRules: 'not Storage rules', storageRulesHash: null,
     bridgeUrl: null, seed: null, capture: false, hosted: true, projectKey: project,
@@ -45,7 +46,9 @@ test('failed hosted initialization leaves no delayed writer after its owner clos
     // The persistence controller normally flushes registered services after 250 ms.
     // A rejected startup must cancel that writer before reporting closed.
     await new Promise<void>(resolve => setTimeout(resolve, 500));
-    expect(existsSync(statePath)).toBe(false);
+    const preserved = new DatabaseSync(statePath, { readOnly: true });
+    try { expect(preserved.prepare('SELECT count(*) AS count FROM records').get()?.count).toBe(0); }
+    finally { preserved.close(); }
     const replies: BridgeMessage[] = [];
     replacement = await createHostedRuntime({ ...payload, storageRules: null }, 'http://127.0.0.1:1', message => replies.push(message), project);
     replacement.receive({ type: 'worker-message', clientSessionId: 'corrected', message: {

@@ -1,3 +1,4 @@
+import type { PersistenceStatus } from './hosted/persistence/commits.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { z } from 'zod';
 import { collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
@@ -41,20 +42,24 @@ function findings(report: BrowserDiagnosticReport) {
 }
 
 /** One store per server generation. No disk writes, timers, or unbounded client history. */
-export function createDiagnostics(mode: () => 'hosted' | 'browser') {
+export function createDiagnostics(mode: () => 'hosted' | 'browser', persistence?: () => PersistenceStatus) {
   const startedAt = Date.now();
   const clients = new Map<string, { report: BrowserDiagnosticReport; receivedAt: number }>();
   function expire() {
     const cutoff = Date.now() - RETENTION_MS;
-    for (const [key, entry] of clients) if (entry.receivedAt < cutoff) clients.delete(key);
+    for (const [key, entry] of clients) {
+      const expired = entry.receivedAt < cutoff;
+      if (expired) clients.delete(key);
+    }
   }
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     expire();
     res.setHeader('cache-control', 'no-store');
-    if (req.method === 'GET') {
+    const readsReport = req.method === 'GET';
+    if (readsReport) {
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
         version: 1,
-        server: { http: 'responding', mode: mode(), startedAt, uptimeMs: Date.now() - startedAt },
+        server: { http: 'responding', mode: mode(), startedAt, uptimeMs: Date.now() - startedAt, persistence: persistence?.() },
         retention: { clientLimit: CLIENT_LIMIT, eventsPerClient: DIAGNOSTIC_EVENT_LIMIT, ttlMs: RETENTION_MS },
         clients: [...clients.values()].map(({ report, receivedAt }) => ({
           ...report, receivedAt, source: 'browser-reported', findings: findings(report),
@@ -62,12 +67,14 @@ export function createDiagnostics(mode: () => 'hosted' | 'browser') {
       }));
       return;
     }
-    if (req.method !== 'POST') {
+    const unsupportedMethod = req.method !== 'POST';
+    if (unsupportedMethod) {
       res.writeHead(405, { allow: 'GET, POST' }).end();
       return;
     }
     const isJson = req.headers['content-type']?.split(';')[0]?.trim() === 'application/json';
-    if (!isJson) { res.writeHead(415).end(); return; }
+    const invalidContentType = !isJson;
+    if (invalidContentType) { res.writeHead(415).end(); return; }
     try {
       const report = sanitizeReport(await collectBody(req, 16_384));
       const previous = clients.get(report.clientId);
@@ -75,7 +82,10 @@ export function createDiagnostics(mode: () => 'hosted' | 'browser') {
       if (isNewer) {
         clients.delete(report.clientId);
         clients.set(report.clientId, { report, receivedAt: Date.now() });
-        if (clients.size > CLIENT_LIMIT) clients.delete(clients.keys().next().value!);
+        const overCapacity = clients.size > CLIENT_LIMIT;
+        const oldest = clients.keys().next().value;
+        const evictsOldest = overCapacity && oldest !== undefined;
+        if (evictsOldest) clients.delete(oldest);
       }
       res.writeHead(204).end();
     } catch (error) {

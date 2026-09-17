@@ -157,7 +157,8 @@ export async function createViteSandboxGeneration(
     // avatars-config.ts.
     const avatarsConfig = dependencies.resolveAvatarsConfig(options.avatars, process.env, cwd);
 
-    if (!usesHostedSandbox) {
+    const usesBrowserSandbox = !usesHostedSandbox;
+    if (usesBrowserSandbox) {
       try {
         const epochSalt = viteWorkerEpochSalt(cwd, ai.engineWire, ai.mode);
         await dependencies.prepareWorker(workerRuntime, epochSalt);
@@ -222,9 +223,15 @@ export async function createViteSandboxGeneration(
       if (hasNoListeningPort) return null;
       return activeBridge.wsUrl({ host, port });
     };
+    const configuredHost = server.config.server.host;
+    const hasBoundHost = typeof configuredHost === 'string';
+    const boundHost = hasBoundHost ? configuredHost : 'localhost';
+    const configuredAllowedHosts = server.config.server.allowedHosts;
+    const hasAllowedHosts = Array.isArray(configuredAllowedHosts);
+    const allowedHosts = hasAllowedHosts ? configuredAllowedHosts : [];
     const sessionOptions: SandboxSessionOptions = {
-      boundHost: typeof server.config.server.host === 'string' ? server.config.server.host : 'localhost',
-      allowedHosts: Array.isArray(server.config.server.allowedHosts) ? server.config.server.allowedHosts : [],
+      boundHost,
+      allowedHosts,
       projectDir: cwd,
       hosted: usesHostedSandbox,
       deployHostedRules: usesHostedSandbox ? bridge?.deployHostedRules : undefined,
@@ -262,7 +269,9 @@ export async function createViteSandboxGeneration(
 
     const resetsPersistedState = persistsState && options.fresh === true;
     if (resetsPersistedState) {
-      server.config.logger.info('  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
+      server.config.logger.info(usesHostedSandbox
+        ? '  ⓘ [pyric] fresh: archived hosted state; starting a new store'
+        : '  ⓘ [pyric] fresh: discarded the existing state file; re-seeding');
     }
 
     // Say what AI resolved to. This is the one front door where the engine and
@@ -290,6 +299,7 @@ export async function createViteSandboxGeneration(
       };
       await bridge?.startHostedSandbox(session.payload(), baseUrl, {
         proxyUpstream: ai.proxyUpstream, logger: sessionOptions.logger,
+        persistence: session.hostedPersistence,
       });
       server.config.logger.info('  ⓘ [pyric] sandbox runs in this server process (hosted)');
     }

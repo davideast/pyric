@@ -33,6 +33,8 @@ const hasSharedWorker = typeof SharedWorker !== 'undefined';
 const runtimeStatus = getPyricRuntimeStatus();
 const payload = await initPayload;
 export const useHosted = payload?.hosted === true;
+const persistenceUnhealthy = payload?.persistenceUnhealthy === true;
+if (persistenceUnhealthy) runtimeStatus.reportError({ code: 'persistence-unhealthy', message: 'Hosted persistence is unhealthy. Repair the store and restart the host.' }, 'runtime');
 
 function hostedTarget(): { url: string; projectKey: string } {
   const bridgeUrl = payload?.bridgeUrl;

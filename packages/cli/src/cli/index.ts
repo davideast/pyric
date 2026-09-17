@@ -58,6 +58,7 @@ USAGE
   pyric bridge [flags]
   pyric sandbox [flags] [--] [command...]
   pyric init [dir] [--template=web|node]
+  pyric sandbox salvage --source=DIR --out=NEW_DIR
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
   pyric can-i-use <feature> [--json]
@@ -172,7 +173,8 @@ CORE FLAGS (sandbox)
                      restarts. Once a state file exists it wins; --seed
                      applies only on the first (state-less) run. Ephemeral
                      is the default.
-  --fresh            Requires --persist: discard the existing state file and
+  --fresh            Hosted: archive the database directory before starting fresh.
+                     Browser mode requires --persist: discard the state file and
                      re-seed from scratch (escape hatch when you've edited
                      seed.json). Without --persist, --fresh errors because there is
                      no state file to discard. Half-reset warning: a browser
@@ -330,26 +332,35 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
  * here — the caller (the top-level `main()` below) does that.
  */
 export async function dispatch(parsed: ParsedArgs): Promise<number> {
-  if (parsed.flags.get('help') || parsed.flags.get('h')) {
+  const asksForHelp = Boolean(parsed.flags.get('help') || parsed.flags.get('h'));
+  if (asksForHelp) {
     printUsage();
     return 0;
   }
-  if (parsed.flags.get('version') || parsed.flags.get('v')) {
+  const asksForVersion = Boolean(parsed.flags.get('version') || parsed.flags.get('v'));
+  if (asksForVersion) {
     printVersion();
     return 0;
   }
 
   const serviceCommand = await dispatchServiceCommand(parsed);
-  if (serviceCommand !== null) return serviceCommand;
+  const isServiceCommand = serviceCommand !== null;
+  if (isServiceCommand) return serviceCommand;
 
   switch (parsed.subcommand) {
     case null:
     case undefined:
       printUsage();
-      return parsed.subcommand === null ? 0 : 1;
+      const missingCommand = parsed.subcommand === null;
+      return missingCommand ? 0 : 1;
     case 'bridge':
       return await runBridge(parsed);
     case 'sandbox':
+      const isSalvage = parsed.positional[0] === 'salvage';
+      if (isSalvage) {
+        const { runSalvage } = await import('./salvage.js');
+        return runSalvage(parsed);
+      }
       const { runServe } = await import('./serve.js');
       return runServe(parsed);
     case 'snapshot':

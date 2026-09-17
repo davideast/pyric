@@ -1,5 +1,5 @@
+import { setPersistenceWritable } from './persistence-fault.js';
 import { once } from 'node:events';
-import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { connectRemoteSandbox, type RemoteSandboxChannel } from '@pyric/cli/remote';
 import { expect, test } from '@playwright/test';
@@ -115,7 +115,7 @@ test('an unhealthy host refuses account creation before changing the Auth user p
   try {
     await page.goto(fixture.info.url);
     await expect(page.locator('#ready')).toHaveText('Ready');
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await page.getByRole('button', { name: 'Create account', exact: true }).click();
     await expect(page.locator('#result')).toHaveText('committed-but-not-durable');
 
@@ -130,7 +130,7 @@ test('an unhealthy host refuses account creation before changing the Auth user p
     await expect(page.locator('#result')).toHaveText('Signed in');
     await expect(page.locator('#tenant')).toHaveText('tenant-blue');
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await fixture.stop();
   }
 });
@@ -145,7 +145,7 @@ for (const operation of ['profile', 'email', 'password', 'deletion'] as const) {
       await page.getByRole('button', { name: 'Create account', exact: true }).click();
       await expect(page.locator('#result')).toHaveText('Signed in');
       const uid = await page.locator('#uid').innerText();
-      chmodSync(stateDirectory, 0o500);
+      setPersistenceWritable(stateDirectory, false);
       await page.getByRole('button', { name: 'Save profile', exact: true }).click();
       await expect(page.locator('#profile')).toHaveText('committed-but-not-durable');
 
@@ -179,7 +179,7 @@ for (const operation of ['profile', 'email', 'password', 'deletion'] as const) {
       });
       expect(identity).toEqual({ uid, tenantId: 'tenant-blue', email: 'reader@example.test', displayName: null });
     } finally {
-      chmodSync(stateDirectory, 0o700);
+      setPersistenceWritable(stateDirectory, true);
       await fixture.stop();
     }
   });
@@ -203,7 +203,7 @@ for (const operation of userPoolMutations) {
       const remote = await connectRemoteSandbox({ url: fixture.info.url });
       try {
         await remote.auth.createUser({ uid: 'existing-reader', email: 'reader@example.test', password: 'fixture-password' });
-        chmodSync(stateDirectory, 0o500);
+        setPersistenceWritable(stateDirectory, false);
         await expect(remote.auth.updateUser('existing-reader', { displayName: 'Committed in memory' }))
           .rejects.toMatchObject({ code: 'committed-but-not-durable' });
         const usersBefore = await remote.auth.listUsers();
@@ -215,7 +215,7 @@ for (const operation of userPoolMutations) {
         remote.close();
       }
     } finally {
-      chmodSync(stateDirectory, 0o700);
+      setPersistenceWritable(stateDirectory, true);
       await fixture.stop();
     }
   });

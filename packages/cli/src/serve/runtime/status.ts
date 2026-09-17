@@ -27,6 +27,7 @@ export interface PyricRuntimeSnapshot {
   updatingWorker: boolean;
   errors: readonly PyricRuntimeError[];
   hostedConnection?: HostedConnectionState;
+  persistenceUnhealthy?: boolean;
 }
 
 export interface PyricRuntimeStatus {
@@ -249,7 +250,9 @@ export function createPyricRuntimeStatus(
       const wasEvicted = !retained.has(id);
       if (wasEvicted) errorIds.delete(id);
     }
-    publish({ ...snapshot, errors });
+    const persistenceFailure = error.code === 'persistence-unhealthy' || error.code === 'committed-but-not-durable';
+    const persistenceUnhealthy = snapshot.persistenceUnhealthy || persistenceFailure;
+    publish({ ...snapshot, errors, persistenceUnhealthy });
   };
 
   return {

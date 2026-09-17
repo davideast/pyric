@@ -46,8 +46,9 @@ The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/r
 | `--no-ui` | Do not serve Studio, docs, workspace, or project routes. |
 | `--no-open` | Do not open a browser. Browser opening is also disabled for `--json`, CI, and non-interactive output. |
 | `--seed <file>` | Load a JSON document map or a Pyric state file. |
-| `--persist` | Save documents and auth users to `.pyric/state/state.json`. |
-| `--fresh` | With `--persist`, discard existing saved state before startup. |
+| `--hosted` | Run the shared sandbox in Node, with SQLite persistence in `.pyric/state/hosted/state.sqlite`. |
+| `--persist` | Save browser-mode documents and auth users to `.pyric/state/state.json`; hosted mode always persists. |
+| `--fresh` | Archive the hosted store before starting fresh. With browser `--persist`, discard its saved JSON state. |
 | `--no-watch` | Disable Firestore Rules hot reload. |
 | `--no-capture` | Do not write `.pyric/last-session.json`. |
 | `--no-cache` | Rebuild browser SDK bundles. |
@@ -157,3 +158,17 @@ Run an explicit command while keeping machine-readable output:
 ```bash
 pyric sandbox --bridge --json -- npm run dev
 ```
+
+## Recover hosted state
+
+Stop the host, then create a separate repaired copy:
+
+```sh
+pyric sandbox salvage --source .pyric/state/hosted --out .pyric/state/recovered
+```
+
+This command requires Node 22.15 or later. It preserves the source, refuses an
+existing output directory, and writes a recovery report with every excluded
+record. Review the report before replacing the active hosted directory. See
+[hosted persistence and recovery](../build/hosted-persistence.md) for activation
+steps and unsupported cases.

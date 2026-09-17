@@ -30,6 +30,7 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useStudioEvents } from './studio-events.js';
 import { useEnvironment } from './environment.js';
 import { useServeInit } from './serve-init.js';
 import { useBridgeAvailability } from './bridge-availability.js';
@@ -52,6 +53,14 @@ const getEmptyWorkerRuntime = () => EMPTY_WORKER_RUNTIME;
 export function StatusCluster() {
   const env = useEnvironment();
   const serve = useServeInit();
+  const events = useStudioEvents();
+  const [persistenceFailed, setPersistenceFailed] = useState(false);
+  const reportedPersistenceFailure = events.some(event => event.kind === 'runtime_error' && event.error.code === 'persistence-unhealthy');
+  const startedUnhealthy = serve.status === 'ready' && serve.payload.persistenceUnhealthy === true;
+  useEffect(() => {
+    const unhealthy = reportedPersistenceFailure || startedUnhealthy;
+    if (unhealthy) setPersistenceFailed(true);
+  }, [reportedPersistenceFailure, startedUnhealthy]);
   const bridgeAvailability = useBridgeAvailability();
   const presence = usePresenceView();
   const [presenceOpen, setPresenceOpen] = useState(false);
@@ -80,10 +89,11 @@ export function StatusCluster() {
   if (workerDown) degraded = 'worker unreachable';
   if (envDown) degraded = 'backend error';
   if (hasRuntimeError) degraded = runtimeFailureLabel;
-  const degradedTitle = workerRuntimeSnapshot.error
-    ?? (envDown
-      ? env.error.message
-      : 'Served, but the shared sandbox worker is not reachable; data views may be stale. Open Settings diagnostics.');
+  if (persistenceFailed) degraded = 'persistence failed — writes blocked';
+  let degradedTitle = 'Served, but the shared sandbox worker is not reachable; data views may be stale. Open Settings diagnostics.';
+  if (envDown) degradedTitle = env.error.message;
+  if (hasRuntimeError) degradedTitle = workerRuntimeSnapshot.error ?? degradedTitle;
+  if (persistenceFailed) degradedTitle = 'Reads may include unsaved changes. Repair the hosted store and restart the host.';
 
   const hasRuntimeConnection = !hasRuntimeError;
   const connected = isHostedRuntime ? hasRuntimeConnection : bridgeAvailability === 'available';

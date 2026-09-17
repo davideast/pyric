@@ -1,0 +1,145 @@
+{
+  "environment": {
+    "node": "v22.15.0",
+    "cpu": "Apple M3 Pro",
+    "memoryBytes": 19327352832,
+    "commit": "470ba3d493b5890d4bb4df24269613410a81bdb0"
+  },
+  "durationMs": 60000,
+  "writesPerSecond": 200,
+  "results": [
+    {
+      "run": 1,
+      "offered": 11979,
+      "completed": 11019,
+      "errors": 0,
+      "rejectedByHarness": 960,
+      "peakPending": 64,
+      "elapsedMs": 60152.40000009537,
+      "ackP95Ms": 336,
+      "ackMaxMs": 469.2999999523163,
+      "hostSamples": [
+        {
+          "at": 1789615534310,
+          "eventLoopP95Ms": 2.091007,
+          "eventLoopMaxMs": 145.883135,
+          "rss": 229949440,
+          "usage": {
+            "userCPUTime": 6543040,
+            "systemCPUTime": 1183335,
+            "maxRSS": 265552,
+            "sharedMemorySize": 0,
+            "unsharedDataSize": 0,
+            "unsharedStackSize": 0,
+            "minorPageFault": 49117,
+            "majorPageFault": 1,
+            "swappedOut": 0,
+            "fsRead": 0,
+            "fsWrite": 0,
+            "ipcSent": 26459,
+            "ipcReceived": 2405,
+            "signalsCount": 0,
+            "voluntaryContextSwitches": 6461,
+            "involuntaryContextSwitches": 68418
+          }
+        },
+        {
+          "at": 1789615544327,
+          "eventLoopP95Ms": 1.153023,
+          "eventLoopMaxMs": 29.573119,
+          "rss": 394969088,
+          "usage": {
+            "userCPUTime": 8779311,
+            "systemCPUTime": 1402152,
+            "maxRSS": 385712,
+            "sharedMemorySize": 0,
+            "unsharedDataSize": 0,
+            "unsharedStackSize": 0,
+            "minorPageFault": 60735,
+            "majorPageFault": 1,
+            "swappedOut": 0,
+            "fsRead": 0,
+            "fsWrite": 0,
+            "ipcSent": 28546,
+            "ipcReceived": 2572,
+            "signalsCount": 0,
+            "voluntaryContextSwitches": 8459,
+            "involuntaryContextSwitches": 88961
+          }
+        },
+        {
+          "at": 1789615554327,
+          "eventLoopP95Ms": 1.214463,
+          "eventLoopMaxMs": 136.708095,
+          "rss": 388743168,
+          "usage": {
+            "userCPUTime": 10624586,
+            "systemCPUTime": 1748771,
+            "maxRSS": 415120,
+            "sharedMemorySize": 0,
+            "unsharedDataSize": 0,
+            "unsharedStackSize": 0,
+            "minorPageFault": 88617,
+            "majorPageFault": 2,
+            "swappedOut": 0,
+            "fsRead": 0,
+            "fsWrite": 0,
+            "ipcSent": 30074,
+            "ipcReceived": 2677,
+            "signalsCount": 0,
+            "voluntaryContextSwitches": 9939,
+            "involuntaryContextSwitches": 121391
+          }
+        },
+        {
+          "at": 1789615564345,
+          "eventLoopP95Ms": 1.159167,
+          "eventLoopMaxMs": 65.470463,
+          "rss": 386547712,
+          "usage": {
+            "userCPUTime": 12366604,
+            "systemCPUTime": 1971311,
+            "maxRSS": 415120,
+            "sharedMemorySize": 0,
+            "unsharedDataSize": 0,
+            "unsharedStackSize": 0,
+            "minorPageFault": 102919,
+            "majorPageFault": 4,
+            "swappedOut": 0,
+            "fsRead": 0,
+            "fsWrite": 0,
+            "ipcSent": 32701,
+            "ipcReceived": 2868,
+            "signalsCount": 0,
+            "voluntaryContextSwitches": 11704,
+            "involuntaryContextSwitches": 141962
+          }
+        },
+        {
+          "at": 1789615574345,
+          "eventLoopP95Ms": 1.149951,
+          "eventLoopMaxMs": 34.045951,
+          "rss": 528924672,
+          "usage": {
+            "userCPUTime": 14335855,
+            "systemCPUTime": 2174786,
+            "maxRSS": 516528,
+            "sharedMemorySize": 0,
+            "unsharedDataSize": 0,
+            "unsharedStackSize": 0,
+            "minorPageFault": 118007,
+            "majorPageFault": 4,
+            "swappedOut": 0,
+            "fsRead": 0,
+            "fsWrite": 0,
+            "ipcSent": 34643,
+            "ipcReceived": 3000,
+            "signalsCount": 0,
+            "voluntaryContextSwitches": 13594,
+            "involuntaryContextSwitches": 160685
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "node": "v22.15.0",
+  "documentCount": 100,
+  "paddingBytes": 256,
+  "measurements": [
+    {
+      "run": 1,
+      "validationMs": 1.4250830000000008,
+      "runtimeReadyMs": 6.056375000000003
+    },
+    {
+      "run": 2,
+      "validationMs": 2.964624999999984,
+      "runtimeReadyMs": 4.637207999999987
+    },
+    {
+      "run": 3,
+      "validationMs": 1.5481249999999704,
+      "runtimeReadyMs": 2.8506249999999795
+    }
+  ],
+  "scope": "In-process database open/validation and hosted runtime readiness; excludes CLI module load, assets and HTTP bind."
+}

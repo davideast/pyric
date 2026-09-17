@@ -307,3 +307,24 @@ describe('registerPersistableService guards', () => {
     expect(sandbox.snapshot().services).not.toHaveProperty('removable');
   });
 });
+
+it('retains saved accounts through a restart that only uses Firestore', async () => {
+  const backend = createMemoryBackend();
+  const first = initializeSandbox();
+  await first.enablePersistence({ key: 'unused-auth', injectedBackend: backend });
+  await createUserWithEmailAndPassword(getAuth(first), 'retained@example.test', 'password123');
+  await first.flush();
+  first.dispose();
+
+  const middle = initializeSandbox();
+  await middle.enablePersistence({ key: 'unused-auth', injectedBackend: backend });
+  middle.admin.setDocument('notes/one', { value: 42 });
+  await middle.flush();
+  middle.dispose();
+
+  const last = initializeSandbox();
+  try {
+    await last.enablePersistence({ key: 'unused-auth', injectedBackend: backend });
+    expect(authSandbox.listIdentities(getAuth(last)).map(user => user.email)).toEqual(['retained@example.test']);
+  } finally { last.dispose(); }
+});

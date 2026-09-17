@@ -1,31 +1,23 @@
-import { chmodSync } from 'node:fs';
+import { setPersistenceWritable } from './persistence-fault.js';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { McpHttpClient } from '../soak/harness.js';
-import { startHostWithPausedStorageRead, startStoragePersistenceFixture } from './storage-persistence-fixture.js';
+import { startPausedPersistenceHost } from './paused-persistence-fixture.js';
 
 for (const failsPersistence of [false, true]) {
-  test(`a stalled MCP mutation isolates session execution (persistence failure: ${failsPersistence})`, async ({ page }) => {
-    const fixture = await startStoragePersistenceFixture();
+  test(`a stalled MCP mutation isolates session execution (persistence failure: ${failsPersistence})`, async () => {
+    const host = await startPausedPersistenceHost();
     const expectsMutationSuccess = !failsPersistence;
     try {
-      await page.goto(fixture.info.url);
-      await expect(page.locator('#ready')).toHaveText('Ready');
-      await page.getByLabel('Value', { exact: true }).fill('Existing object');
-      await page.getByRole('button', { name: 'Save', exact: true }).click();
-      await expect(page.locator('#saved')).toHaveText('Saved');
-      await page.close();
-      const host = await startHostWithPausedStorageRead(fixture);
       try {
-        expect(await host.startup, host.stderr()).toEqual({ kind: 'ready' });
-        const busy = new McpHttpClient(`${fixture.info.url}/__pyric/mcp`);
-        const healthy = new McpHttpClient(`${fixture.info.url}/__pyric/mcp`);
+        const busy = new McpHttpClient(`${host.url}/__pyric/mcp`);
+        const healthy = new McpHttpClient(`${host.url}/__pyric/mcp`);
         await busy.initialize();
         await healthy.initialize();
         const mutation = busy.toolCall('firestore_create_document', {
           path: 'held/document', data: { message: 'Committed in memory' }, as: 'admin',
         });
-        await expect.poll(host.stderr).toContain('Storage binary read paused');
+        await expect.poll(host.held).toBe(true);
         let queuedResult: unknown;
         const queuedRead = busy.toolCall('firestore_get_document', { path: 'held/document', as: 'admin' })
           .then(value => { queuedResult = value; });
@@ -37,9 +29,9 @@ for (const failsPersistence of [false, true]) {
             ok: true, data: { exists: true, data: { message: 'Committed in memory' } },
           });
           expect(queuedResult).toBeUndefined();
-          if (failsPersistence) chmodSync(join(fixture.dir, '.pyric', 'state'), 0o500);
+          if (failsPersistence) setPersistenceWritable(join(host.dir, '.pyric', 'state'), false);
         } finally {
-          host.child.kill('SIGUSR2');
+          host.release();
           await reading;
           await expect(mutation).resolves.toMatchObject({ ok: expectsMutationSuccess });
           await queuedRead;
@@ -48,12 +40,11 @@ for (const failsPersistence of [false, true]) {
         await expect(busy.toolCall('firestore_get_document', { path: 'held/document', as: 'admin' }))
           .resolves.toMatchObject({ ok: true, data: { exists: true } });
       } finally {
-        chmodSync(join(fixture.dir, '.pyric', 'state'), 0o700);
-        host.child.kill('SIGUSR2');
-        await host.stop();
+        setPersistenceWritable(join(host.dir, '.pyric', 'state'), true);
+        host.release();
       }
     } finally {
-      await fixture.stop();
+      await host.stop();
     }
   });
 }

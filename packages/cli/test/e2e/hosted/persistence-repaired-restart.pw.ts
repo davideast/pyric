@@ -1,5 +1,5 @@
+import { setPersistenceWritable } from './persistence-fault.js';
 import { once } from 'node:events';
-import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { startHostedFixture } from './fixture.js';
@@ -36,21 +36,21 @@ test('repairing storage and restarting recovers durable state without replaying 
       const { doc, getFirestore, setDoc } = await import('firebase/firestore');
       await setDoc(doc(getFirestore(), 'shared/greeting'), { message: 'Durable', count: 10 });
     });
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     expect(await incrementCounter(writer)).toEqual({
       outcome: 'committed-but-not-durable', data: { message: 'Durable', count: 11 },
     });
     expect(await incrementCounter(writer)).toEqual({
       outcome: 'persistence-unhealthy', data: { message: 'Durable', count: 11 },
     });
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     expect(await incrementCounter(writer)).toEqual({
       outcome: 'persistence-unhealthy', data: { message: 'Durable', count: 11 },
     });
     const exited = once(fixture.child, 'exit');
     fixture.child.kill('SIGKILL');
     await exited;
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
 
     const replacement = startHost(fixture.dir, fixture.info.port);
     try {
@@ -72,9 +72,8 @@ test('repairing storage and restarting recovers durable state without replaying 
       await replacement.stop();
     }
   } finally {
-    chmodSync(stateDirectory, 0o700);
-    await context.close();
-    await fixture.stop();
+    setPersistenceWritable(stateDirectory, true);
+    await context.close().finally(() => fixture.stop());
   }
 });
 
@@ -90,16 +89,16 @@ test('repairing storage and restarting restores durable object bytes and accepts
     await writer.getByLabel('Value', { exact: true }).fill('Durable bytes');
     await writer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(writer.locator('#saved')).toHaveText('Saved');
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await writer.getByLabel('Value', { exact: true }).fill('Uncertain bytes');
     await writer.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(writer.locator('#saved')).toHaveText('committed-but-not-durable');
+    await expect(writer.locator('#saved')).toHaveText('persistence-unhealthy');
     await writer.getByLabel('Value', { exact: true }).fill('Refused bytes');
     await writer.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(writer.locator('#saved')).toHaveText('persistence-unhealthy');
     await writer.getByRole('button', { name: 'Read', exact: true }).click();
-    await expect(writer.locator('#value-read')).toHaveText('Uncertain bytes');
-    chmodSync(stateDirectory, 0o700);
+    await expect(writer.locator('#value-read')).toHaveText('Durable bytes');
+    setPersistenceWritable(stateDirectory, true);
     const repairedAdmission = await writer.evaluate(async () => {
       const { getStorage, ref, uploadBytes } = await import('firebase/storage');
       try {
@@ -116,7 +115,7 @@ test('repairing storage and restarting restores durable object bytes and accepts
     fixture.child.kill('SIGKILL');
     await exited;
     await context.close();
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
 
     const replacement = startHost(fixture.dir, fixture.info.port);
     try {
@@ -139,8 +138,7 @@ test('repairing storage and restarting restores durable object bytes and accepts
       await replacement.stop();
     }
   } finally {
-    chmodSync(stateDirectory, 0o700);
-    await context.close();
-    await fixture.stop();
+    setPersistenceWritable(stateDirectory, true);
+    await context.close().finally(() => fixture.stop());
   }
 });

@@ -1,5 +1,5 @@
+import { setPersistenceWritable } from './persistence-fault.js';
 import { expect, test } from '@playwright/test';
-import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { startHost } from './host-process.js';
@@ -52,7 +52,7 @@ for (const sharedWorkerAvailable of [true, false]) {
   });
 }
 
-test('Studio persistence diagnostics report committed Storage bytes without disclosing their contents', async ({ browser }) => {
+test('Studio persistence diagnostics report failed Storage transactions without disclosing their contents', async ({ browser }) => {
   const fixture = await startHostedFixture({
     'storage.rules': 'rules_version = \"2\"; service firebase.storage { match /b/{bucket}/o { match /{path=**} { allow read: if request.auth != null; } } }',
   });
@@ -65,20 +65,20 @@ test('Studio persistence diagnostics report committed Storage bytes without disc
     await expect(app.locator('#document')).toHaveText('Empty');
     await studio.goto(`${fixture.info.url}/__pyric/ui/storage`);
     await expect(studio.getByRole('button', { name: 'Upload files', exact: true })).toBeVisible();
-    chmodSync(stateDirectory, 0o500);
+    setPersistenceWritable(stateDirectory, false);
     await studio.locator('input[type="file"]').setInputFiles({ name: 'phase-six.txt', mimeType: 'text/plain', buffer: Buffer.from(privateBytes) });
-    await expect(studio.locator('[aria-label="Studio status"]')).toContainText('committed in memory');
+    await expect(studio.locator('[aria-label="Studio status"]')).toContainText('persistence failed — writes blocked');
     const diagnostics = await studio.locator('[aria-label="Studio status"]').innerText();
     expect(diagnostics).not.toContain(privateBytes);
     expect(fixture.stderr()).not.toContain(privateBytes);
     const stored = await app.evaluate(async () => {
-      const { getStorage, ref, getBytes } = await import('firebase/storage');
-      return new TextDecoder().decode(await getBytes(ref(getStorage(), 'phase-six.txt')));
+      const { getStorage, ref, listAll } = await import('firebase/storage');
+      return (await listAll(ref(getStorage()))).items.map(item => item.fullPath);
     });
-    expect(stored).toBe(privateBytes);
-    chmodSync(stateDirectory, 0o700);
+    expect(stored).toEqual([]);
+    setPersistenceWritable(stateDirectory, true);
   } finally {
-    chmodSync(stateDirectory, 0o700);
+    setPersistenceWritable(stateDirectory, true);
     await app.close();
     await studio.close();
     await fixture.stop();
