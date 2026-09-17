@@ -70,13 +70,20 @@ links: 13 cases in `sdk-flow.pw.ts`. Hosted listener reconnection and SharedWork
 AI Traffic (live completion, noisy history, pause/resume, filtering and late
 Studio access) also passed: 2 cases in 7.5 seconds.
 
-The Flow suite is **not** wholly green: its in-page signed-in project-denial
-scenario still displays the earlier ownership request while expecting the role
-scenario's `editor` text. It fails at `sdk-flow.pw.ts:303`. Replacing the four
-incremental chip modules with their HEAD versions, while retaining only the
-startup guard, reproduces the same failure. Sources were restored immediately
-after this comparison. The corresponding worker scenario was not run after the
-suite's first-failure stop. This unrelated selection/fixture issue remains open.
+The initially failing signed-in project-denial scenario is now fixed in the
+test. Opening a request intentionally pins Traffic history. The old scenario
+loop returned to that pinned log and selected the first denied project again,
+so it asserted the next scenario's evidence against the previous request. A
+minimal two-scenario browser probe confirmed that the new publishing request
+was waiting behind “Resume live · 2 new” and had correct evidence after resume.
+
+The test now resumes live history through the visible control and selects the
+exact scenario path, asserting that path in the details before checking rules
+evidence. Both in-page and SharedWorker cases passed in **6.3 seconds**, including
+ownership, role, negative-budget and final allowed-write behavior. Product
+pause/inspection behavior is unchanged. These two cases were run separately
+from the 13 passing Flow cases above; the full file was not rerun as one suite.
+Changed-code-form and whitespace checks passed for this test fix.
 
 The full hosted browser suite and full monorepo suite were not run. This is
 agent-operated verification, not a manual device sign-off. Undo retention and
@@ -96,7 +103,7 @@ bun test packages/cli/test/serve/runtime/chip*.test.ts \
   packages/pyric/test/firestore/sandbox/activity-monitor.test.ts
 E2E_BASE=http://127.0.0.1:1 node node_modules/@playwright/test/cli.js test \
   sdk-flow.pw.ts --config packages/cli/test/e2e/playwright.config.ts \
-  --grep-invert 'signed-in project denials' --workers 1 --max-failures 1
+  --workers 1 --max-failures 1
 node node_modules/@playwright/test/cli.js test \
   worker-ai-traffic.pw.ts reconnect-listener.pw.ts \
   --config packages/cli/test/e2e/hosted/playwright.config.ts \
@@ -111,8 +118,8 @@ PYRIC_BASELINE_RUNS=3 PYRIC_BASELINE_RATE=50 \
 
 Use Node 22.15 or later. Each benchmark run defaults to 60 seconds. Run workloads
 sequentially without competing builds or tests. The Flow fixture owns its server;
-`E2E_BASE` disables the unrelated shared test server. The explicit exclusion is
-the known failing scenario described above, not evidence that it passes.
+`E2E_BASE` disables the unrelated shared test server. To rerun only the corrected cases, add
+`--grep 'signed-in project denials'` to the Flow command.
 
 
 All benchmark and browser-test hosts exited. Process inspection found no
