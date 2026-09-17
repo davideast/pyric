@@ -159,6 +159,7 @@ export interface Bridge {
    * this, a replaced tab's SharedWorker listeners would live until the tab
    * closed, streaming snaps the bridge drops as stale-generation forever.
    */
+  onSandboxPeerConnected(listener: () => void): () => void;
   registerSandboxPeer(
     send: SendToPeer,
     tools: string[],
@@ -317,6 +318,8 @@ export function createBridge(opts: BridgeOptions): Bridge {
     return peer !== null && peer.capabilities.has(WORKER_RELAY_CAPABILITY);
   }
 
+  const peerListeners = new Set<() => void>();
+
   function registerSandboxPeer(
     send: SendToPeer,
     tools: string[],
@@ -369,6 +372,9 @@ export function createBridge(opts: BridgeOptions): Bridge {
           });
         } catch {}
       }
+    }
+    for (const listener of peerListeners) {
+      try { listener(); } catch { /* An observer cannot prevent peer registration. */ }
     }
     return () => {
       const isCurrentPeer = peer === myPeer;
@@ -757,6 +763,10 @@ export function createBridge(opts: BridgeOptions): Bridge {
     broadcastConsumerPresence,
     recordToolEvent,
     registerSandboxPeer,
+    onSandboxPeerConnected(listener) {
+      peerListeners.add(listener);
+      return () => { peerListeners.delete(listener); };
+    },
     isSandboxConnected,
     peerGeneration,
     peerCapabilities: () => [...(peer?.capabilities ?? [])],

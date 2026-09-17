@@ -74,6 +74,7 @@ export interface BridgeMount {
    *  this instead of self-fetching `/__pyric/health`, which avoids a loopback
    *  fetch on the same event loop. Mirrors `health().sandboxConnected`. */
   sandboxConnected(): boolean;
+  onSandboxPeerConnected(listener: () => void): () => void;
   /** The browser-side WS URL for the init payload (`bridgeUrl`). */
   wsUrl(origin: { host: string; port: number }): string;
   /** The MCP endpoint for the banner. */
@@ -569,6 +570,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       return attachment;
     },
     sandboxConnected: () => bridge.health().sandboxConnected === true,
+    onSandboxPeerConnected: bridge.onSandboxPeerConnected,
     wsUrl: ({ host, port }) => `ws://${host}:${port}${WS_PATH}`,
     mcpUrl: ({ host, port }) => `http://${host}:${port}${MCP_PATH}`,
     close(): Promise<void> {
