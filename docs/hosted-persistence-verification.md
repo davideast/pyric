@@ -53,6 +53,12 @@ The 200 writes/sec overload case remains **unsupported**: 11,979 offered,
 RSS reached roughly 528 MB. This is not a passing load case and does not resolve
 the separate capacity/memory issue. [Raw overload results](hosted-persistence-overload-results.json).
 
+A subsequent [capacity diagnosis](hosted-capacity-diagnosis.md) attributes this
+default browser overload primarily to repeated runtime-chip history processing.
+With the chip disabled, two diagnostic 200/sec cycles completed all 12,000 writes
+at 2.6/2.9 ms p95. The chip-enabled gate remains open; disabling diagnostics is
+not the product fix. Host undo retention is a separate measured growth owner.
+
 These workload measurements preceded the final Storage ordering and strict-codec
 validation fixes; their workload only mutates Firestore documents. They do not
 measure concurrent Storage traffic.
@@ -62,21 +68,85 @@ validation took **1.43 / 2.96 / 1.55 ms**. Total in-process hosted-runtime readi
 took **6.06 / 4.64 / 2.85 ms**, excluding CLI module loading, asset preparation,
 and HTTP binding. [Startup measurements](hosted-persistence-startup.json).
 
+## Retention and Orbit follow-up (2026-09-17)
+
+The retention-fixture and Orbit walkthrough gaps are closed by the changes after
+`1ac597ff`. This is agent-operated browser/CLI verification, not a human or phone
+sign-off. The original Orbit server and its state were not used or reset.
+
+The retention fixture now holds the actual persistence interface, supports
+rearming and releasing a single flush, and holds unchanged flushes after the
+first mutation. Holding only changed buckets incorrectly lets repeated writes
+drain in the second round. The migrated tests preserve the original 64-session,
+256-operation and 24 MiB assertions, including ±1-byte boundaries, cancellation,
+queued rules failures, and charge reuse. Browser SDK reads still run against the
+same host while MCP work is held. The affected retention selection passed
+**12 tests in 29.7 s**, including the unchanged SharedWorker cancellation cases.
+After the Auth and CLI fixes below, the final affected browser selection passed
+**35 tests in 59.5 s**, adding Auth persistence and checkpoint coverage.
+
+Orbit's real account-creation and message/attachment UI exposed two defects:
+
+- Generated email-account UIDs included dots from the email address. Orbit used
+  those UIDs in RTDB presence/typing paths and crashed. New password and email-link
+  accounts now use opaque generated IDs, consistent with the existing anonymous
+  and provider flows. Existing and explicitly supplied UIDs remain unchanged.
+  Regression tests cover owner-scoped RTDB writes, denied access to another UID,
+  sign-out, and signing back into the same identity. Auth plus worker parity:
+  **389 passed**.
+- The CLI parsed `sandbox salvage` as a child command and never parsed its source
+  and output flags. Recovery is now recognized before child-command passthrough.
+  Tests cover spaced and equals-form flags, including paths containing spaces.
+  The sandbox runner/parser selection passed **26 tests**.
+
+The repeatable [Orbit walkthrough](../examples/teams-workspace/verify-persistence.mjs)
+ran with Node 22.15 and a disposable copy of the actual app, rules, seed, and
+Functions source. It verified:
+
+1. Create an account through the UI, send a message with an 8-byte binary file,
+   and write a separate RTDB value.
+2. Close the host and browser context, reopen, sign in with the same password,
+   and compare the UID, message, RTDB value, bytes and complete Storage metadata.
+   Also read the attachment URL rendered by Orbit and compare its bytes.
+3. Start with `fresh: true` and no seed; reject the old account's sign-in and
+   preserve exactly one archive.
+4. Run the documented salvage CLI on that archive, confirm zero exclusions and
+   unchanged source file hashes, activate the copy, and repeat the Orbit checks.
+5. Add one malformed record to the disposable database. Startup fails closed.
+   Salvage reports precisely that record, preserves every source file, recovers
+   16 documents, 2 services and 1 Storage object, and restores usable Orbit state.
+
+[Recorded results](hosted-persistence-orbit-results.json) report zero browser
+errors and removal of the disposable project. The script closes browser contexts,
+Vite and its owned Functions child. It also retains the partially created Vite
+server when the deliberate corrupt-start check rejects, so that server's bundler
+cannot leak. The final run exited with code 0; process inspection found no remaining
+walkthrough or owned bundler/Functions process. Screenshots of the created and recovered
+workspace are written to the OS temporary directory.
+
+Run it from this worktree after installing its existing dependencies:
+
+```sh
+bun x tsc -p packages/pyric/tsconfig.json
+bun x tsc -p packages/cli/tsconfig.json
+node examples/teams-workspace/verify-persistence.mjs
+```
+
+Use Node 22.15 or later. The script binds a separate local server with strict port
+selection (Vite's initial default is 5173), never reuses an existing server, and
+prints the path of its JSON evidence. A busy port causes failure rather than
+connecting to another app. It copies no `.pyric` state or `.env` files.
+
+The hosted e2e typecheck still reports the three pre-existing file-level issues
+listed below; it reports no errors in the changed retention fixtures. An additional
+surface-derivation check found an unrelated mismatch in generated MCP descriptions;
+the parser method-word invariant passed. Neither result is a full-suite pass.
+
 ## Remaining acceptance work
 
-1. Adapt the Node cases in `host-tool-sessions.pw.ts` and
-   `section-one-capacity-retention.pw.ts`. Their original fault injection holds
-   Firestore commits by blocking exports of existing Storage BLOBs. SQLite
-   intentionally performs no such exports. Two initial MCP suites were migrated
-   successfully; a trial migration of these stronger retention checks did not
-   reproduce their exact hold/release boundaries and was reverted. Preserve
-   their 64-session, 256-operation and 24 MiB assertions. Do not skip them or
-   claim a capacity pass based only on the simpler suites.
-2. Complete the Orbit restart/file walkthrough in a disposable copy. Do not
-   overwrite or reset the user's running Orbit state.
-3. Run native Windows archive/open-file checks. Injected EBUSY/EPERM retries
+1. Run native Windows archive/open-file checks. Injected EBUSY/EPERM retries
    passed on macOS; that is not a native Windows result.
-4. Finish combined acceptance and review the final candidate. The hosted e2e
+2. Finish combined acceptance and review the final candidate. The hosted e2e
    typecheck currently also reports pre-existing errors in
    `connection-diagnostics.pw.ts`, `messaging-recipients.pw.ts`, and
    `section-one-protocol-fixture.ts`; no errors were reported in this slice's new
@@ -117,5 +187,5 @@ For a human checkpoint, follow the
 [recovery commands](../packages/site-docs/src/content/build/hosted-persistence.md)
 in a disposable project. Confirm restart preserves a document, an account and
 an uploaded file's bytes; confirm `--fresh` leaves an archive; inspect salvage's
-report before activating a repaired copy. These manual observations are not
-recorded as completed here.
+report before activating a repaired copy. The agent-operated Orbit walkthrough above now exercises these steps; a separate
+human checkpoint has not been recorded.

@@ -1,0 +1,866 @@
+{
+  "scope": "Diagnostic attribution only; not acceptance or a production fix",
+  "runs": {
+    "unmodified-60s": {
+      "environment": {
+        "node": "v22.15.0",
+        "cpu": "Apple M3 Pro",
+        "memoryBytes": 19327352832,
+        "commit": "1ac597ffdf99fc5c5dfd0183162a757bf466f73f"
+      },
+      "durationMs": 60000,
+      "rate": 200,
+      "workload": {
+        "run": 1,
+        "offered": 11982,
+        "completed": 10891,
+        "errors": 0,
+        "rejectedByHarness": 1091,
+        "peakPending": 64,
+        "elapsedMs": 60244.200000047684,
+        "ackP95Ms": 358.5,
+        "ackMaxMs": 510.69999980926514,
+        "hostSamples": [
+          {
+            "at": 1789640831324,
+            "eventLoopP95Ms": 2.269183,
+            "eventLoopMaxMs": 26.050559,
+            "rss": 310345728,
+            "usage": {
+              "userCPUTime": 5839616,
+              "systemCPUTime": 1056188,
+              "maxRSS": 303072,
+              "sharedMemorySize": 0,
+              "unsharedDataSize": 0,
+              "unsharedStackSize": 0,
+              "minorPageFault": 31626,
+              "majorPageFault": 0,
+              "swappedOut": 0,
+              "fsRead": 0,
+              "fsWrite": 0,
+              "ipcSent": 33337,
+              "ipcReceived": 3072,
+              "signalsCount": 0,
+              "voluntaryContextSwitches": 6403,
+              "involuntaryContextSwitches": 56057
+            }
+          },
+          {
+            "at": 1789640841324,
+            "eventLoopP95Ms": 1.277951,
+            "eventLoopMaxMs": 42.008575,
+            "rss": 395591680,
+            "usage": {
+              "userCPUTime": 8000509,
+              "systemCPUTime": 1262269,
+              "maxRSS": 390400,
+              "sharedMemorySize": 0,
+              "unsharedDataSize": 0,
+              "unsharedStackSize": 0,
+              "minorPageFault": 39696,
+              "majorPageFault": 0,
+              "swappedOut": 0,
+              "fsRead": 0,
+              "fsWrite": 0,
+              "ipcSent": 36137,
+              "ipcReceived": 3245,
+              "signalsCount": 0,
+              "voluntaryContextSwitches": 8382,
+              "involuntaryContextSwitches": 75147
+            }
+          },
+          {
+            "at": 1789640851324,
+            "eventLoopP95Ms": 1.279999,
+            "eventLoopMaxMs": 42.696703,
+            "rss": 440614912,
+            "usage": {
+              "userCPUTime": 9671723,
+              "systemCPUTime": 1419159,
+              "maxRSS": 430368,
+              "sharedMemorySize": 0,
+              "unsharedDataSize": 0,
+              "unsharedStackSize": 0,
+              "minorPageFault": 45692,
+              "majorPageFault": 1,
+              "swappedOut": 0,
+              "fsRead": 0,
+              "fsWrite": 0,
+              "ipcSent": 37914,
+              "ipcReceived": 3360,
+              "signalsCount": 0,
+              "voluntaryContextSwitches": 10069,
+              "involuntaryContextSwitches": 93500
+            }
+          },
+          {
+            "at": 1789640861324,
+            "eventLoopP95Ms": 1.274879,
+            "eventLoopMaxMs": 28.114943,
+            "rss": 441368576,
+            "usage": {
+              "userCPUTime": 11247808,
+              "systemCPUTime": 1533105,
+              "maxRSS": 431024,
+              "sharedMemorySize": 0,
+              "unsharedDataSize": 0,
+              "unsharedStackSize": 0,
+              "minorPageFault": 45778,
+              "majorPageFault": 1,
+              "swappedOut": 0,
+              "fsRead": 0,
+              "fsWrite": 0,
+              "ipcSent": 39607,
+              "ipcReceived": 3477,
+              "signalsCount": 0,
+              "voluntaryContextSwitches": 11706,
+              "involuntaryContextSwitches": 110317
+            }
+          },
+          {
+            "at": 1789640871325,
+            "eventLoopP95Ms": 1.276927,
+            "eventLoopMaxMs": 30.916607,
+            "rss": 443138048,
+            "usage": {
+              "userCPUTime": 12925778,
+              "systemCPUTime": 1662259,
+              "maxRSS": 433552,
+              "sharedMemorySize": 0,
+              "unsharedDataSize": 0,
+              "unsharedStackSize": 0,
+              "minorPageFault": 46868,
+              "majorPageFault": 3,
+              "swappedOut": 0,
+              "fsRead": 0,
+              "fsWrite": 0,
+              "ipcSent": 42090,
+              "ipcReceived": 3650,
+              "signalsCount": 0,
+              "voluntaryContextSwitches": 13402,
+              "involuntaryContextSwitches": 127327
+            }
+          }
+        ]
+      }
+    },
+    "chip-on": {
+      "environment": {
+        "node": "v22.15.0",
+        "cpu": "Apple M3 Pro",
+        "memoryBytes": 19327352832,
+        "commit": "1ac597ffdf99fc5c5dfd0183162a757bf466f73f"
+      },
+      "durationMs": 30000,
+      "rate": 200,
+      "cycles": [
+        {
+          "offered": 5987,
+          "completed": 5974,
+          "errors": 0,
+          "rejectedByHarness": 13,
+          "peakPending": 64,
+          "elapsedMs": 30176.400000095367,
+          "drainMs": 80.80000019073486,
+          "ackP95Ms": 223.59999990463257,
+          "ackMaxMs": 266.10000014305115
+        },
+        {
+          "offered": 5997,
+          "completed": 4620,
+          "errors": 0,
+          "rejectedByHarness": 1377,
+          "peakPending": 64,
+          "elapsedMs": 30309.900000095367,
+          "drainMs": 73.90000009536743,
+          "ackP95Ms": 416.7000000476837,
+          "ackMaxMs": 523.5999999046326
+        }
+      ],
+      "boundaries": [
+        {
+          "phase": "baseline-after-gc",
+          "memory": {
+            "rss": 255983616,
+            "heapTotal": 102400000,
+            "heapUsed": 63541976,
+            "external": 7662335,
+            "arrayBuffers": 112872
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 0,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 5,
+              "encodedBytes": 3653,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "drained-1",
+          "memory": {
+            "rss": 272187392,
+            "heapTotal": 205750272,
+            "heapUsed": 150964968,
+            "external": 4140590,
+            "arrayBuffers": 36467172
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 5974,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8388163,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "idle-1",
+          "memory": {
+            "rss": 272023552,
+            "heapTotal": 206012416,
+            "heapUsed": 141759656,
+            "external": 3894871,
+            "arrayBuffers": 36221453
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 5974,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8388163,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "after-gc-1",
+          "memory": {
+            "rss": 272400384,
+            "heapTotal": 179798016,
+            "heapUsed": 107995928,
+            "external": 3894916,
+            "arrayBuffers": 36145876
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 5974,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8388163,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "drained-2",
+          "memory": {
+            "rss": 226459648,
+            "heapTotal": 162529280,
+            "heapUsed": 105394800,
+            "external": 3809346,
+            "arrayBuffers": 42373435
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 10594,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8388054,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "idle-2",
+          "memory": {
+            "rss": 227360768,
+            "heapTotal": 162529280,
+            "heapUsed": 105671632,
+            "external": 3814675,
+            "arrayBuffers": 42378764
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 10594,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8388054,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "after-gc-2",
+          "memory": {
+            "rss": 227475456,
+            "heapTotal": 130023424,
+            "heapUsed": 105181760,
+            "external": 3814720,
+            "arrayBuffers": 42373433
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 10594,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8388054,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        }
+      ],
+      "timings": {
+        "load-1": {
+          "queue": {
+            "count": 5976,
+            "meanMs": 5.081005050535483,
+            "worstIntervalP95Ms": 25.309792000000016
+          },
+          "execute": {
+            "count": 5976,
+            "meanMs": 1.0511292891566153,
+            "worstIntervalP95Ms": 6.0948749999997744
+          },
+          "snapshotSerializeHash": {
+            "count": 5974,
+            "meanMs": 0.4297663290927403,
+            "worstIntervalP95Ms": 0.7541660000024422
+          },
+          "sqliteTransaction": {
+            "count": 5974,
+            "meanMs": 0.08788077753597902,
+            "worstIntervalP95Ms": 0.24675000000024738
+          }
+        },
+        "load-2": {
+          "queue": {
+            "count": 4621,
+            "meanMs": 12.575962204068484,
+            "worstIntervalP95Ms": 108.36762499999895
+          },
+          "execute": {
+            "count": 4621,
+            "meanMs": 0.9420424297770812,
+            "worstIntervalP95Ms": 5.31408399999782
+          },
+          "snapshotSerializeHash": {
+            "count": 4620,
+            "meanMs": 0.4426033733766216,
+            "worstIntervalP95Ms": 1.7027089999901364
+          },
+          "sqliteTransaction": {
+            "count": 4620,
+            "meanMs": 0.07394222597391821,
+            "worstIntervalP95Ms": 1.9442500000004657
+          }
+        }
+      },
+      "hostCpu": {
+        "totalMs": 77842.75,
+        "topSelfTime": [
+          {
+            "function": "(idle)",
+            "file": "",
+            "line": 0,
+            "ms": 64439.593
+          },
+          {
+            "function": "(garbage collector)",
+            "file": "",
+            "line": 0,
+            "ms": 1206.665
+          },
+          {
+            "function": "(program)",
+            "file": "",
+            "line": 0,
+            "ms": 1151.542
+          },
+          {
+            "function": "encodeStateDocument",
+            "file": "state-values.js",
+            "line": 3,
+            "ms": 1044.227
+          },
+          {
+            "function": "hashRecord",
+            "file": "controller.js",
+            "line": 40,
+            "ms": 763.002
+          },
+          {
+            "function": "inTransaction",
+            "file": "sqlite.js",
+            "line": 17,
+            "ms": 740.003
+          },
+          {
+            "function": "realFlush",
+            "file": "controller.js",
+            "line": 113,
+            "ms": 688.174
+          },
+          {
+            "function": "serializeToBuckets",
+            "file": "chunk-format.js",
+            "line": 59,
+            "ms": 665.581
+          },
+          {
+            "function": "checksumDocs",
+            "file": "chunk-format.js",
+            "line": 41,
+            "ms": 599.789
+          },
+          {
+            "function": "readFileUtf8",
+            "file": "",
+            "line": 0,
+            "ms": 350.958
+          },
+          {
+            "function": "pexprs.Apply.reallyEval",
+            "file": "pexprs-eval.js",
+            "line": 253,
+            "ms": 348.414
+          },
+          {
+            "function": "encodeDocValue",
+            "file": "value-codec.js",
+            "line": 47,
+            "ms": 319.247
+          }
+        ]
+      },
+      "browserCpu": {
+        "totalMs": 73173.939,
+        "topSelfTime": [
+          {
+            "function": "pe",
+            "file": "pyric-sandbox-UGBTG76H.js",
+            "line": 3,
+            "ms": 16757.818
+          },
+          {
+            "function": "Qb",
+            "file": "pyric-sandbox-VWUH7MJB.js",
+            "line": 1244,
+            "ms": 9428.58
+          },
+          {
+            "function": "Yr",
+            "file": "pyric-sandbox-VWUH7MJB.js",
+            "line": 1243,
+            "ms": 8115.397
+          },
+          {
+            "function": "cb",
+            "file": "pyric-sandbox-VWUH7MJB.js",
+            "line": 1243,
+            "ms": 7399.878
+          },
+          {
+            "function": "S",
+            "file": "pyric-sandbox-UGBTG76H.js",
+            "line": 3,
+            "ms": 6123.025
+          },
+          {
+            "function": "(idle)",
+            "file": "",
+            "line": 0,
+            "ms": 5616.528
+          },
+          {
+            "function": "(program)",
+            "file": "",
+            "line": 0,
+            "ms": 3121.902
+          },
+          {
+            "function": "Ac",
+            "file": "pyric-sandbox-KKI2BT4Y.js",
+            "line": 414,
+            "ms": 2687.956
+          },
+          {
+            "function": "eo",
+            "file": "pyric-sandbox-UGBTG76H.js",
+            "line": 3,
+            "ms": 1810.994
+          },
+          {
+            "function": "gs",
+            "file": "pyric-sandbox-VWUH7MJB.js",
+            "line": 1243,
+            "ms": 1446.897
+          },
+          {
+            "function": "s",
+            "file": "pyric-sandbox-KKI2BT4Y.js",
+            "line": 414,
+            "ms": 1315.656
+          },
+          {
+            "function": "Bd",
+            "file": "pyric-sandbox-VWUH7MJB.js",
+            "line": 1243,
+            "ms": 1016.094
+          }
+        ]
+      }
+    },
+    "chip-off": {
+      "environment": {
+        "node": "v22.15.0",
+        "cpu": "Apple M3 Pro",
+        "memoryBytes": 19327352832,
+        "commit": "1ac597ffdf99fc5c5dfd0183162a757bf466f73f"
+      },
+      "durationMs": 30000,
+      "rate": 200,
+      "cycles": [
+        {
+          "offered": 6000,
+          "completed": 6000,
+          "errors": 0,
+          "rejectedByHarness": 0,
+          "peakPending": 5,
+          "elapsedMs": 30005,
+          "drainMs": 0.8999998569488525,
+          "ackP95Ms": 2.5999999046325684,
+          "ackMaxMs": 25
+        },
+        {
+          "offered": 6000,
+          "completed": 6000,
+          "errors": 0,
+          "rejectedByHarness": 0,
+          "peakPending": 8,
+          "elapsedMs": 30004.099999904633,
+          "drainMs": 0.8999998569488525,
+          "ackP95Ms": 2.8999998569488525,
+          "ackMaxMs": 37
+        }
+      ],
+      "boundaries": [
+        {
+          "phase": "baseline-after-gc",
+          "memory": {
+            "rss": 258015232,
+            "heapTotal": 102662144,
+            "heapUsed": 63494560,
+            "external": 7648895,
+            "arrayBuffers": 87054
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 0,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 5,
+              "encodedBytes": 3652,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "drained-1",
+          "memory": {
+            "rss": 197984256,
+            "heapTotal": 152338432,
+            "heapUsed": 108859888,
+            "external": 3748158,
+            "arrayBuffers": 118918
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 6000,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8387468,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "idle-1",
+          "memory": {
+            "rss": 192380928,
+            "heapTotal": 152338432,
+            "heapUsed": 109137136,
+            "external": 3753487,
+            "arrayBuffers": 124247
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 6000,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8387468,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "after-gc-1",
+          "memory": {
+            "rss": 193576960,
+            "heapTotal": 112492544,
+            "heapUsed": 75572088,
+            "external": 3753532,
+            "arrayBuffers": 95200
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 6000,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8387468,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "drained-2",
+          "memory": {
+            "rss": 203145216,
+            "heapTotal": 158367744,
+            "heapUsed": 100163440,
+            "external": 3821497,
+            "arrayBuffers": 192257
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 12000,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8387484,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "idle-2",
+          "memory": {
+            "rss": 201146368,
+            "heapTotal": 158367744,
+            "heapUsed": 100439392,
+            "external": 3826826,
+            "arrayBuffers": 197586
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 12000,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8387484,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "after-gc-2",
+          "memory": {
+            "rss": 202309632,
+            "heapTotal": 139231232,
+            "heapUsed": 82172168,
+            "external": 3826871,
+            "arrayBuffers": 95202
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 12000,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8387484,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "without-undo",
+          "memory": {
+            "rss": 213172224,
+            "heapTotal": 130580480,
+            "heapUsed": 70134960,
+            "external": 7171947,
+            "arrayBuffers": 388931
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 0,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 4894,
+              "encodedBytes": 8387484,
+              "activeRequests": 0,
+              "activeListeners": 1
+            }
+          ]
+        },
+        {
+          "phase": "without-observations",
+          "memory": {
+            "rss": 212811776,
+            "heapTotal": 109264896,
+            "heapUsed": 63307408,
+            "external": 3724147,
+            "arrayBuffers": 94803
+          },
+          "pending": 0,
+          "retained": [
+            {
+              "kind": "undo",
+              "entries": 0,
+              "redo": 0
+            },
+            {
+              "kind": "observations",
+              "entries": 0,
+              "encodedBytes": 0,
+              "activeRequests": 0,
+              "activeListeners": 0
+            }
+          ]
+        }
+      ],
+      "timings": {
+        "load-1": {
+          "queue": {
+            "count": 6002,
+            "meanMs": 0.019582362045990252,
+            "worstIntervalP95Ms": 0.049666000000797794
+          },
+          "execute": {
+            "count": 6002,
+            "meanMs": 1.5550293063978395,
+            "worstIntervalP95Ms": 2.951999999997497
+          },
+          "snapshotSerializeHash": {
+            "count": 6000,
+            "meanMs": 0.7813942213333253,
+            "worstIntervalP95Ms": 1.23291700000118
+          },
+          "sqliteTransaction": {
+            "count": 6000,
+            "meanMs": 0.11062398833334904,
+            "worstIntervalP95Ms": 0.36954100000002654
+          }
+        },
+        "load-2": {
+          "queue": {
+            "count": 6002,
+            "meanMs": 0.07483543752081342,
+            "worstIntervalP95Ms": 15.723291999995126
+          },
+          "execute": {
+            "count": 6002,
+            "meanMs": 1.7054248353882058,
+            "worstIntervalP95Ms": 7.514291999992565
+          },
+          "snapshotSerializeHash": {
+            "count": 6000,
+            "meanMs": 0.8835217728333506,
+            "worstIntervalP95Ms": 2.2402920000022277
+          },
+          "sqliteTransaction": {
+            "count": 6000,
+            "meanMs": 0.1145083474999689,
+            "worstIntervalP95Ms": 0.8098749999917345
+          }
+        }
+      }
+    }
+  }
+}
