@@ -1040,8 +1040,10 @@ export class SandboxBackend {
     validateEmailFormat(email);
     const key = email.toLowerCase();
     const existing = this.usersByEmail.get(key);
-    if (existing) {
-      if (!existing.providerUserInfo.some((p) => p.providerId === 'password')) {
+    const hasAccount = existing !== undefined;
+    if (hasAccount) {
+      const needsPasswordProvider = !existing.providerUserInfo.some((p) => p.providerId === 'password');
+      if (needsPasswordProvider) {
         existing.providerUserInfo.push({ providerId: 'password' });
       }
       // Redeeming a link mailed to this address proves control of it.
@@ -1049,7 +1051,8 @@ export class SandboxBackend {
       this.notifyUsersChanged();
       return { stored: existing, isNewUser: false };
     }
-    const uid = `email-${key}-${this.usersByEmail.size + 1}`;
+    // Email punctuation is invalid in common UID-keyed RTDB paths.
+    const uid = `email-${globalThis.crypto.randomUUID()}`;
     const record = this.makeStored({
       uid,
       email,
@@ -1190,13 +1193,15 @@ export class SandboxBackend {
     validateEmailFormat(email);
     validatePasswordStrength(password);
     const key = email.toLowerCase();
-    if (this.usersByEmail.has(key)) {
+    const emailInUse = this.usersByEmail.has(key);
+    if (emailInUse) {
       throw makeAuthError(
         'auth/email-already-in-use',
         `An account already exists for ${email}.`,
       );
     }
-    const uid = `email-${key}-${this.usersByEmail.size + 1}`;
+    // Email punctuation is invalid in common UID-keyed RTDB paths.
+    const uid = `email-${globalThis.crypto.randomUUID()}`;
     const record = this.makeStored({
       uid,
       email,
