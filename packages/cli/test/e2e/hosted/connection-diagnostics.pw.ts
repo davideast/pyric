@@ -1,4 +1,4 @@
-import type { BrowserDiagnosticReport } from '../../../../src/serve/runtime/diagnostics-report.js';
+import type { BrowserDiagnosticReport } from '../../../src/serve/runtime/diagnostics-report.js';
 import { expect, test } from '@playwright/test';
 import { startSoakServe } from '../soak/harness.js';
 

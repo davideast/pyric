@@ -3,7 +3,7 @@ import type { OpMessage } from '../../../src/serve/worker/protocol.js';
 
 interface OperationShape { values: Record<string, unknown>; invalid: Record<string, unknown> }
 
-// Required argument inventory, frozen to the protocol's 93 method literals.
+// Required argument inventory, frozen to the protocol's 94 method literals.
 // Empty rows have no required method payload; shared envelope checks cover them.
 export const operationShapes: Record<OpMessage['method'], OperationShape> = {
   "getDoc": { values: {"path": "protocol-invalid/document"}, invalid: {"path": 7} },
@@ -94,6 +94,7 @@ export const operationShapes: Record<OpMessage['method'], OperationShape> = {
   "messaging.subscribeToTopic": { values: {"tokens": [], "topic": "news"}, invalid: {"tokens": "bad", "topic": 7} },
   "messaging.unsubscribeFromTopic": { values: {"tokens": [], "topic": "news"}, invalid: {"tokens": "bad", "topic": 7} },
   "messaging.deliver": { values: {"spec": {"data": {"hello": "world"}}}, invalid: {"spec": []} },
+  "messaging.acknowledge": { values: {"subId": "protocol-invalid", "messageId": "protocol-invalid", "stage": "received"}, invalid: {"subId": 7, "messageId": 7, "stage": "unsupported"} },
   "messaging.setVisibility": { values: {"state": "visible"}, invalid: {"state": 7} },
   "presence.register": { values: {"clientId": "protocol-invalid", "kind": "app", "route": "/", "visibility": "visible"}, invalid: {"clientId": 7, "kind": 7, "route": 7, "visibility": 7} },
   "presence.heartbeat": { values: {"clientId": "protocol-invalid"}, invalid: {"clientId": 7} },

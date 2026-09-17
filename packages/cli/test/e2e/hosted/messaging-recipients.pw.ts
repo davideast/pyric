@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { execFile } from 'node:child_process';
+import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { startSoakServe, CLI_PATH } from '../soak/harness.js';
 
@@ -37,7 +38,6 @@ for (const mode of ['hosted', 'shared-worker'] as const) {
 }
 
 test('hosted: existing Messaging observers and tokens survive a host restart', async ({ browser }) => {
-  const { once } = await import('node:events');
   const { connectRemoteSandbox } = await import('@pyric/cli/remote');
   const { startHost } = await import('./host-process.js');
   const fixture = await startSoakServe({ flags: ['--hosted', '--no-capture'] });

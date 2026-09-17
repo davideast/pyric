@@ -220,7 +220,7 @@ for (const mode of ['hosted', 'shared-worker']) {
       await page.goto(fixture.info.url);
       await page.locator('#write').click();
       await expect(page.locator('#write-result')).toHaveText('Written');
-      expect(Object.keys(operationShapes)).toHaveLength(93);
+      expect(Object.keys(operationShapes)).toHaveLength(94);
       const result = await exerciseProtocolCases(page, mode, malformedArguments);
       for (const entry of result.replies) {
         const isRoutingHint = entry.label === 'numeric logical owner' || entry.label === 'invalid resume flag';
