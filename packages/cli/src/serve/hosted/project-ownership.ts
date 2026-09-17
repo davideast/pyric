@@ -1,3 +1,4 @@
+import { openNodeSqlite } from './persistence/sqlite.js';
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -7,8 +8,7 @@ async function openOwnershipFile(path: string) {
     const { Database } = await import('bun:sqlite');
     return new Database(path, { create: true });
   }
-  const { DatabaseSync } = await import('node:sqlite');
-  return new DatabaseSync(path);
+  return openNodeSqlite(path);
 }
 
 function isOwnershipBusy(error: unknown): boolean {

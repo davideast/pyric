@@ -152,7 +152,14 @@
   ],
   "allowedFirebaseSdkImportEdges": [
     "dist/register/app-bridge.js -> firebase/app",
-    "dist/serve/entries/app-ai-passthrough.js -> firebase/app"
+    "dist/serve/entries/app-ai-passthrough.js -> firebase/app",
+    "dist/serve/entries/live/app.js -> firebase/app",
+    "dist/serve/entries/live/app.d.ts -> firebase/app",
+    "dist/serve/entries/live/auth.js -> firebase/auth",
+    "dist/serve/entries/live/auth.d.ts -> firebase/auth",
+    "dist/serve/entries/live/firestore.js -> firebase/auth",
+    "dist/serve/entries/live/firestore.js -> firebase/firestore",
+    "dist/serve/entries/live/firestore.d.ts -> firebase/firestore"
   ],
   "removedExports": [
     "./deploy",

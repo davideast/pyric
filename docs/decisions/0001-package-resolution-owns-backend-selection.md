@@ -24,6 +24,10 @@ Package resolution is the only production-versus-sandbox seam.
 - Pyric-activated execution resolves those imports to `pyric/*` and
   `pyric-admin/*` sandbox mirrors.
 - A mirror never delegates back to its production counterpart.
+- Live observation adapters belong to the resolution layer and wrap the real
+  Firebase SDK installed by the application. Their exact emitted imports are
+  allowed by the CLI release contract; sandbox mirrors and SDK-free consumers
+  retain the dependency prohibition.
 - Production observations remain the conformance answer key, but production
   SDKs are not mirror runtime dependencies.
 - Direct Pyric imports are sandbox-only. Sandbox-specific helpers may extend

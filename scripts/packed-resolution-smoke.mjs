@@ -22,6 +22,12 @@ if (!consumerArg || !sdkFreeArg) {
 const consumer = isAbsolute(consumerArg) ? consumerArg : resolve(consumerArg);
 const sdkFreeConsumer = isAbsolute(sdkFreeArg) ? sdkFreeArg : resolve(sdkFreeArg);
 
+// The second installation must really lack Firebase, not inherit a workspace copy.
+runNode(sdkFreeConsumer, ['--input-type=module', '-e', `
+  import assert from 'node:assert/strict';
+  assert.throws(() => import.meta.resolve('firebase/app'), { code: 'ERR_MODULE_NOT_FOUND' });
+`]);
+
 const inactiveNode = join(consumer, '__packed-node-inactive.mjs');
 writeFileSync(
   inactiveNode,
@@ -74,7 +80,7 @@ writeFileSync(
   join(viteRoot, 'check.mjs'),
   `import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { createServer } from 'vite';
+import { createServer, normalizePath } from 'vite';
 import { pyric } from '@pyric/cli/vite';
 
 const root = process.cwd();
@@ -103,6 +109,23 @@ for (const resolved of [active.app, active.firestore]) {
   assert.ok(resolved?.id.includes('/node_modules/@pyric/cli/dist/serve/entries/'), resolved?.id);
 }
 
+const liveServer = await createServer({
+  root, configFile: false, logLevel: 'silent', plugins: [pyric({ live: true, ui: false })],
+  server: { middlewareMode: true },
+});
+try {
+  for (const service of ['app', 'auth', 'firestore']) {
+    const specifier = 'firebase/' + service;
+    const adapter = await liveServer.pluginContainer.resolveId(specifier, importer);
+    assert.ok(adapter?.id.includes('/node_modules/@pyric/cli/dist/serve/entries/live/'), adapter?.id);
+    const upstream = await liveServer.pluginContainer.resolveId(specifier, adapter.id);
+    const projectSdk = normalizePath(join(root, '..', 'node_modules', 'firebase')) + '/';
+    assert.ok(upstream?.id.startsWith(projectSdk), upstream?.id);
+  }
+} finally {
+  await liveServer.close();
+}
+
 const inactive = await resolveWith([]);
 for (const resolved of [inactive.app, inactive.firestore]) {
   assert.ok(
@@ -117,7 +140,7 @@ for (const resolved of [inactive.app, inactive.firestore]) {
 runNode(viteRoot, [join(viteRoot, 'check.mjs')]);
 
 process.stdout.write(
-  '  ✓ packed Node and Vite fixtures select Pyric only when sandbox activation is present\n',
+  '  ✓ packed Node/Vite sandbox works without Firebase; live adapters resolve the consumer-owned SDK\n',
 );
 
 function runNode(cwd, args, env = {}) {

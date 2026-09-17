@@ -2,8 +2,8 @@ import { FirebaseError } from 'pyric/app';
 
 const MAX_QUERY_LAYERS = 64;
 
-function invalidStructure(): never {
-  throw new FirebaseError('invalid-argument', 'Invalid Firestore query structure.');
+function invalidStructure(message = 'Invalid Firestore query structure.'): never {
+  throw new FirebaseError('invalid-argument', message);
 }
 
 function assertRecord(value: unknown): asserts value is Record<string, unknown> {
@@ -57,12 +57,12 @@ function assertConstraintStructure(constraint: unknown, depth: number, requiresF
   const isComposite = constraint.kind === 'and' || constraint.kind === 'or';
   const isFilter = isComposite || constraint.kind === 'where';
   const hasNonFilterChild = requiresFilter && !isFilter;
-  if (hasNonFilterChild) invalidStructure();
+  if (hasNonFilterChild) invalidStructure('A composite filter cannot contain a non-filter constraint.');
   if (isComposite) {
     assertNextLayer(depth);
     assertChildren(constraint.filters);
     const hasNoFilters = constraint.filters.length === 0;
-    if (hasNoFilters) invalidStructure();
+    if (hasNoFilters) invalidStructure('A composite filter requires at least one filter.');
     for (const filter of constraint.filters) assertConstraintStructure(filter, depth + 1, true);
     return;
   }

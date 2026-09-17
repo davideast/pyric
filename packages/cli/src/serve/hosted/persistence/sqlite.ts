@@ -25,10 +25,10 @@ export function requireNodePersistence(): void {
   }
 }
 
-/** Only this adapter imports Node's SQLite implementation. */
+/** Resolve Node's builtin only after admission; Bun loaders never import it. */
 export async function openNodeSqlite(path: string, readOnly = false): Promise<SqlConnection> {
   requireNodePersistence();
-  const { DatabaseSync } = await import('node:sqlite');
+  const { DatabaseSync } = process.getBuiltinModule('node:sqlite');
   return new DatabaseSync(path, { readOnly });
 }
 

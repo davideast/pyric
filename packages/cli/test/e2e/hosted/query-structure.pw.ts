@@ -45,9 +45,11 @@ for (const value of [null, 7, [], 'invalid']) {
 }
 cases.push({ label: 'constraints object', target: { __ref: 'query', source: collection, constraints: {} }, error: shapeError });
 cases.push({ label: 'missing source', target: { __ref: 'query', constraints: [] }, error: shapeError });
-for (const filters of [null, {}, [], [null], [{ kind: 'orderBy', field: 'message' }]]) {
+for (const filters of [null, {}, [null]]) {
   cases.push({ label: `malformed composite ${JSON.stringify(filters)}`, target: nestedSources(1, [{ kind: 'and', filters }]), error: shapeError });
 }
+cases.push({ label: 'empty composite', target: nestedSources(1, [{ kind: 'and', filters: [] }]), error: 'A composite filter requires at least one filter.' });
+cases.push({ label: 'non-filter composite child', target: nestedSources(1, [{ kind: 'and', filters: [{ kind: 'orderBy', field: 'message' }] }]), error: 'A composite filter cannot contain a non-filter constraint.' });
 cases.push({ label: 'null constraint', target: nestedSources(1, [null]), error: shapeError });
 cases.push({ label: 'unknown constraint', target: nestedSources(1, [{ kind: 'unknown' }]), error: 'Unsupported Firestore query constraint descriptor.' });
 cases.push({ label: 'malformed cursor values', target: nestedSources(1, [{ kind: 'startAt', values: {} }]), error: shapeError });

@@ -49,24 +49,34 @@ A regression in redo diagnostic text was corrected to retain the existing
 message. An older rules test was corrected to pass its required `null` auth
 argument. No rules evaluator behavior or conformance registry rows changed.
 
-The full CLI run took 128.84 seconds: 3,800 passed, 18 skipped, 8 failed.
+The initial full CLI run took 128.84 seconds: 3,800 passed, 18 skipped, 8 failed.
 One failure was a cwd-dependent path in the existing SQLite snapshot fixture;
 that fixture now uses the same built-artifact import mechanism as its peers and
 passes in the final focused run from the package cwd.
-The other seven failures are outside the history slice and remain visible:
+The seven remaining failures were resolved in the follow-up CLI acceptance pass:
 
-| Test | Existing mismatch |
+| Test | Resolution |
 | --- | --- |
-| Published dependency closure | Live-mode entry points import Firebase; the dependency-edge allowlist excludes them. |
-| Sandbox tool inventory | Frozen list omits the existing `messaging_deliveries` tool. |
-| Sandbox help surface | Regex rejects the existing `pyric serve diagnostics` command. |
-| `can-i-use` lazy help | Bun preload cannot resolve `node:sqlite`; reproduced with the HEAD CLI entry point before this change. |
-| Fresh guardrail wording | Expected text omits the existing `--hosted` alternative. |
-| Composite-filter error text | Expected detailed text differs from the current protocol's structural-validation error. |
-| Worker export inventory | Frozen list omits existing `getHostedFirestore` and `readHostedTarget` exports. |
+| Published dependency closure | Allow only the exact live adapter Firebase import edges; packed consumers prove application-owned SDK resolution and SDK-free sandbox operation. |
+| Sandbox tool inventory | Include the already registered `messaging_deliveries` tool. |
+| Sandbox help surface | Permit existing diagnostics and sessions subcommands while retaining the prohibition on bare `serve`. |
+| `can-i-use` lazy help | Resolve SQLite with `process.getBuiltinModule` after Node admission, avoiding Bun loader resolution of an unused static import. Node ownership reuses that adapter; Bun ownership retains its existing adapter. |
+| Fresh guardrail wording | Expect the existing `--hosted` alternative; still reject `--fresh` without either persistence option. |
+| Composite-filter error text | Report empty composites and non-filter children explicitly before query execution in both transports. |
+| Worker export inventory | Retain and document `getHostedFirestore` and `readHostedTarget`, which Studio and Playground consume. |
 
-These failures are not a green full-CLI-suite result and are not waived release
-gates. Their implementations and expectations were not changed to hide them.
+The follow-up full CLI run passed **3,808 tests, 18 skipped, zero failures** in
+127.90 seconds, including the real-Node SQLite suite. CLI typechecking passed.
+Four focused browser checks passed in 12.8 seconds: query validation and healthy
+listeners in hosted and SharedWorker modes, plus Studio's Node-hosted connection
+and restart recovery with SharedWorker available and unavailable.
+
+Two isolated npm installations passed the packed-resolution smoke: one consumer
+with Firebase and Vite, and one without Firebase. Exact import exceptions cover
+live adapters only; no Firebase runtime dependency was added. The smoke also
+verifies that live adapters resolve the consumer's SDK. Review corrected its
+expected path normalization for Windows; this run was on macOS and does not
+claim Windows execution.
 
 ## Performance and memory
 
@@ -120,6 +130,7 @@ bun x tsc -p packages/cli/tsconfig.json
 PYRIC_TEST_NODE="$(command -v node)" bun test packages/cli/test/serve/hosted-sqlite.test.ts
 node node_modules/@playwright/test/cli.js test history-orbit.pw.ts worker-ai-traffic.pw.ts reconnect-listener.pw.ts --config packages/cli/test/e2e/hosted/playwright.config.ts
 node node_modules/@playwright/test/cli.js test section-five-slow-client.pw.ts --repeat-each=2 --config packages/cli/test/e2e/hosted/playwright.config.ts
+node node_modules/@playwright/test/cli.js test query-structure.pw.ts section-six-studio.pw.ts --grep 'validates query structure|Studio observes' --config packages/cli/test/e2e/hosted/playwright.config.ts
 PYRIC_BASELINE_RATE=50 PYRIC_BASELINE_RUNS=3 node scripts/hosted-persistence-baseline.mjs
 PYRIC_BASELINE_RATE=200 PYRIC_BASELINE_RUNS=1 node scripts/hosted-persistence-baseline.mjs
 PYRIC_BASELINE_RATE=200 PYRIC_BASELINE_RUNS=1 PYRIC_BASELINE_EXPORT=1 node scripts/hosted-persistence-baseline.mjs
@@ -142,6 +153,9 @@ validation, retained engine inspection, and salvage of excluded undo records.
 Focused regression tests cover those fixes. The shared codec and schema are
 reused across disk, HTTP and archive validation; no extra export-state table or
 second copy of durable undo payloads remains.
+
+The CLI acceptance follow-up received independent specification and standards
+reviews. No unresolved findings remain after the packaging path normalization fix.
 
 Both package typechecks pass, the changed-code-form check reports zero issues,
 and `git diff --check` passes. Final process inspection found no matching owned
