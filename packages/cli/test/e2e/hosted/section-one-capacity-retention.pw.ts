@@ -1,17 +1,14 @@
-import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { createServer, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CallToolRequestSchema, CancelledNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { expect, test } from '@playwright/test';
-import { CLI_PATH, startSoakServe } from '../soak/harness.js';
-import { startHost } from './host-process.js';
-import { writeHeldStorageReadPreload } from './held-storage-read.js';
-import { startStoragePersistenceFixture } from './storage-persistence-fixture.js';
+import { startSoakServe } from '../soak/harness.js';
+import { startPausedPersistenceHost } from './paused-persistence-fixture.js';
 
 for (const { boundary, rejectsQueued } of [
   { boundary: -1, rejectsQueued: false },
@@ -21,37 +18,19 @@ for (const { boundary, rejectsQueued } of [
 ]) {
   test(`retained Node MCP work reuses exact charges (boundary: ${boundary}, rejected queued: ${rejectsQueued})`, async ({ page }) => {
     test.setTimeout(60_000);
-    const project = `node-capacity-${randomUUID()}`;
-    const auditDirectory = join(homedir(), '.pyric', 'projects', project);
-    const fixture = await startStoragePersistenceFixture(['--hosted', '--no-capture', '--project', project]);
+    const host = await startPausedPersistenceHost({ browser: true,
+      rules: "rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /held/{document} { allow read: if true; allow write: if false; } match /limit/{document} { allow read: if true; allow write: if false; } } }",
+    });
     try {
-      await page.goto(fixture.info.url);
-      await expect(page.locator('#ready')).toHaveText('Ready');
-      await page.evaluate(async () => {
-        const storage = await import('firebase/storage');
-        await storage.uploadBytes(storage.ref(storage.getStorage(), 'files/shared.txt'),
-          new TextEncoder().encode('Existing object'), { contentType: 'application/x-pyric-held' });
-      });
-      const firstExit = once(fixture.child, 'exit');
-      fixture.child.kill('SIGTERM');
-      await firstExit;
-      writeFileSync(join(fixture.dir, 'firebase.json'), '{"firestore":{"rules":"firestore.rules"},"storage":{"rules":"storage.rules"}}');
-      writeFileSync(join(fixture.dir, 'firestore.rules'),
-        "rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /held/{document} { allow read: if true; allow write: if false; } match /limit/{document} { allow read: if true; allow write: if false; } } }");
-      const preload = join(fixture.dir, 'held-mcp-capacity.mjs');
-      writeHeldStorageReadPreload(preload, false);
-      const host = startHost(fixture.dir, fixture.info.port, [process.execPath, '--import', preload, CLI_PATH]);
       const client = new Client({ name: 'retained-capacity', version: '1' });
       const healthy = new Client({ name: 'retained-control', version: '1' });
       let receivedCalls = 0;
       let receivedCancellations = 0;
-      let holding = true;
       const pending: Promise<unknown>[] = [];
       try {
-        expect(await host.startup, host.stderr()).toEqual({ kind: 'ready' });
-        await page.reload();
+        await page.goto(host.url);
         await expect(page.locator('#ready')).toHaveText('Ready');
-        const url = new URL(`${fixture.info.url}/__pyric/mcp`);
+        const url = new URL(`${host.url}/__pyric/mcp`);
         const transport = new StreamableHTTPClientTransport(url, { async fetch(input, init) {
           const request = new Request(input, init);
           const isPost = request.method === 'POST';
@@ -103,14 +82,12 @@ for (const { boundary, rejectsQueued } of [
           const failsQueued = isInitial && rejectsQueued;
           const needsRearm = !isInitial;
           if (needsRearm) {
-            host.child.kill('SIGUSR2');
-            holding = true;
-            await expect.poll(host.stderr).toContain('ARMED\n');
+            host.pause();
           }
-          const heldBefore = host.stderr().split('HELD\n').length - 1;
+          const heldBefore = host.heldCount();
           const callsBefore = receivedCalls;
           const first = call(writeArgs(`held/${round}-first`, operationBytes));
-          await expect.poll(() => host.stderr().split('HELD\n').length - 1).toBe(heldBefore + 1);
+          await expect.poll(() => host.heldCount()).toBe(heldBefore + 1);
           const controllers = Array.from({ length: 30 }, () => new AbortController());
           const retained = controllers.map((controller, index) => {
             const deniesCall = failsQueued && index === 0;
@@ -137,12 +114,12 @@ for (const { boundary, rejectsQueued } of [
           await refused();
           await expect(healthy.callTool({ name: 'firestore_get_document', arguments: { path: 'limit/refused', as: 'admin' } }))
             .resolves.toMatchObject({ isError: false, content: [{ text: expect.stringContaining('"exists": false') }] });
-          host.child.kill('SIGUSR1');
+          host.releaseNext();
           await expect(first).resolves.toMatchObject({ isError: false });
           // The denied queued call fails after the first held write settles;
           // its accepted charge must release before the next write is unblocked.
           if (failsQueued) await expect(retained[0]).resolves.toMatchObject({ isError: true });
-          await expect.poll(() => host.stderr().split('HELD\n').length - 1).toBe(heldBefore + 2);
+          await expect.poll(() => host.heldCount()).toBe(heldBefore + 2);
           const replacementCount = failsQueued ? 2 : 1;
           const replacementControllers = Array.from({ length: replacementCount }, () => new AbortController());
           const expectedCalls = receivedCalls + replacementCount;
@@ -151,8 +128,7 @@ for (const { boundary, rejectsQueued } of [
           await expect.poll(() => receivedCalls).toBe(expectedCalls);
           await cancelBatch(replacementControllers, replacements);
           await refused();
-          host.child.kill('SIGUSR2');
-          holding = false;
+          host.release();
           // A same-caller read runs after every accepted mutation in this queue.
           await expect(client.callTool({ name: 'firestore_get_document', arguments: { path: 'held/replacement', as: 'admin' } }))
             .resolves.toMatchObject({ isError: false, content: [{ text: expect.stringContaining('"exists": true') }] });
@@ -167,14 +143,11 @@ for (const { boundary, rejectsQueued } of [
         const verifiesCount = boundary === 0 && !rejectsQueued;
         if (verifiesCount) {
           for (const round of ['count-initial', 'count-full']) {
-            const heldBefore = host.stderr().split('HELD\n').length - 1;
-            const armedBefore = host.stderr().split('ARMED\n').length - 1;
-            host.child.kill('SIGUSR2');
-            holding = true;
-            await expect.poll(() => host.stderr().split('ARMED\n').length - 1).toBe(armedBefore + 1);
+            const heldBefore = host.heldCount();
+            host.pause();
             const countPath = `held/${round}`;
             const first = call({ path: countPath, data: { round }, as: 'admin' });
-            await expect.poll(() => host.stderr().split('HELD\n').length - 1).toBe(heldBefore + 1);
+            await expect.poll(() => host.heldCount()).toBe(heldBefore + 1);
             const controllers = Array.from({ length: 255 }, () => new AbortController());
             const expectedCalls = receivedCalls + controllers.length;
             const calls = controllers.map((controller, index) => {
@@ -191,8 +164,7 @@ for (const { boundary, rejectsQueued } of [
             await cancelBatch(controllers.slice(1), calls.slice(1));
             await expect(call({ path: 'limit/refused', data: { message: 'Must not execute' }, as: 'admin' }))
               .resolves.toMatchObject({ isError: true, content: [{ text: expect.stringContaining('256 pending operations') }] });
-            host.child.kill('SIGUSR2');
-            holding = false;
+            host.release();
             await expect(first).resolves.toMatchObject({ isError: false });
             const expectsFailure = round === 'count-initial';
             await expect(calls[0]).resolves.toMatchObject({ isError: expectsFailure });
@@ -203,14 +175,13 @@ for (const { boundary, rejectsQueued } of [
         await expect(healthy.callTool({ name: 'firestore_get_document', arguments: { path: 'limit/refused', as: 'admin' } }))
           .resolves.toMatchObject({ isError: false, content: [{ text: expect.stringContaining('"exists": false') }] });
       } finally {
-        if (holding) host.child.kill('SIGUSR2');
+        host.release();
         await Promise.allSettled(pending);
         await client.close();
         await healthy.close();
-        await host.stop();
       }
     } finally {
-      await page.close().finally(() => fixture.stop()).finally(() => rmSync(auditDirectory, { recursive: true, force: true }));
+      await page.close().finally(() => host.stop());
     }
   });
 }
