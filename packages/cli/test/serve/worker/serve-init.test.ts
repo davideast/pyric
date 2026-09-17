@@ -17,6 +17,9 @@ import {
 import type { InitPayload } from '../../../src/serve/namespace.js';
 import type { OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../src/serve/worker/protocol.js';
+import { SERVE_HISTORY_LIMITS } from '../../../src/serve/observation-limits.js';
+import { buildVerifyFixture } from '../../../src/verify/fixture.js';
+import { getClock } from 'pyric/sandbox/internal';
 import { sandbox as authOps } from 'pyric/auth';
 import { avatarSeed, defaultAvatarDataUri } from 'pyric/auth/internal';
 import { avatarAssetUrl } from '../../../src/serve/assets/avatar-url.js';
@@ -24,6 +27,7 @@ import {
   initializeSandbox,
   createMemoryBackend,
   serializeToBuckets,
+  type SandboxEvent,
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 
@@ -570,15 +574,20 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
 // ─── Event-history hydration: survive worker death ──────────────────────────
 
 /** A capture fixture with `n` events, optionally stamped with `capturedBy`. */
-function captureFixture(n: number, capturedBy?: string): string {
+function captureFixture(n: number, capturedBy?: string, observedAt = Date.now()): string {
   const events = Array.from({ length: n }, (_, i) => ({
     kind: 'service_mutation',
+    service: 'auth',
+    op: 'users_clear',
+    auth: null,
     id: `cap-${i}`,
     at: i,
-  }));
+    // Live emission stamps wall time independently of the simulated clock.
+    observedAt,
+  } satisfies SandboxEvent));
   return JSON.stringify({
     schema: 'pyric.verify.fixture.v1',
-    ...(capturedBy ? { capturedBy } : {}),
+    capturedBy,
     events,
     services: {},
   });
@@ -602,6 +611,40 @@ function captureFetch(captureBody: string | null): typeof fetch & { calls: strin
 }
 
 describe('hydrateEventHistory — Traffic/activity survives worker death', () => {
+  it('reports expired observations as a gap instead of resurrecting them', async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' };
+    const expiredAt = Date.now() - SERVE_HISTORY_LIMITS.maxAgeMs - 60_000;
+    await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(2, 'inst-A', expiredAt)) });
+    expect(ctx.sandbox.history()).toEqual([
+      expect.objectContaining({
+        kind: 'observation_gap', reason: 'history-limit', omittedCount: 2,
+        firstEventId: 'cap-0', lastEventId: 'cap-1',
+      }),
+    ]);
+  });
+
+  it('uses event time for a recent legacy capture without observation timestamps', async () => {
+    const ctx = await makeCtx();
+    const event = {
+      kind: 'service_mutation', service: 'auth', op: 'users_clear',
+      auth: null, id: 'legacy', at: Date.now(),
+    } satisfies SandboxEvent;
+    await hydrateEventHistory(ctx, { fetch: captureFetch(JSON.stringify({ events: [event] })) });
+    expect(ctx.sandbox.history()).toEqual([event]);
+  });
+
+  it('restores actual captured writes even when the simulated clock is at zero', async () => {
+    const source = await makeCtx();
+    getClock(source.sandbox).set(0);
+    const port = fakePort();
+    await handleMessage(source, port, { t: 'op', id: 'captured-write', method: 'setDoc', path: 'notes/captured', data: { message: 'retained' } });
+    const fixture = buildVerifyFixture({ sandbox: source.sandbox, capturedBy: 'inst-A' });
+    expect(fixture.events).toContainEqual(expect.objectContaining({ kind: 'write', at: 0 }));
+    const restored = { ...(await makeCtx()), instanceId: 'inst-A' };
+    await hydrateEventHistory(restored, { fetch: captureFetch(JSON.stringify(fixture)) });
+    expect(restored.sandbox.history()).toEqual(fixture.events);
+  });
+
   it('primes eventHistory from the served capture on a fresh worker', async () => {
     const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
     const primed = await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(3, 'inst-A')) });

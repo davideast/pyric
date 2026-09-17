@@ -41,10 +41,9 @@ checks passed in 12.4 seconds; 2 existing app/Service Worker lifecycle checks
 passed in 3.4 seconds. Pyric, Admin, and CLI TypeScript compilation passed.
 The browser fixtures stop their test servers and close their browser contexts.
 
-The expanded `serve-init.test.ts` run has six existing Traffic-history hydration
-failures. An isolated copy using the HEAD version of `serve-init.ts` reproduced
-all six (33 passing). They are not Messaging regressions; no history behavior or
-conformance registry verdicts were changed here.
+The six Traffic-history hydration failures found during this run were resolved
+in the subsequent investigation below. They came from stale fixture timestamps,
+not a Messaging regression or a production hydration defect.
 
 ## Orbit integration
 
@@ -167,3 +166,31 @@ is focused cleanup verification, not a rerun of the full packaging release gate.
 
 Actual OS notification display on the user's Android device remains unverified.
 Firebase preview deployment and real Web Push implementation remain paused.
+
+## Traffic-history initialization investigation
+
+Investigated on the source based on `d9ea705e`. The original command reproduced
+33 passes and six failures in 0.4 seconds:
+
+```sh
+bun test packages/cli/test/serve/worker/serve-init.test.ts
+```
+
+All six failures shared a synthetic capture with `at: 0, 1, 2, ...` and no
+`observedAt`. Bounded history uses wall-clock `observedAt`, falling back to `at`
+for older captures, and expires observations after 30 minutes. Those synthetic
+events therefore expired as January 1970 observations. The single returned entry
+was the correct `history-limit` gap, not a lost event or fetch failure.
+
+A one-event hydration probe reproduced the same omission. Adding missing
+service fields did not change the result; changing only the timestamp to current
+wall time preserved the event. The corrected typed fixture now includes the
+`observedAt` stamp that the real sandbox event stream supplies, while retaining
+its simulated `at` values. Existing assertions and production retention limits
+are unchanged.
+
+The file now passes all 42 tests, including three additional checks: expired
+observations remain omitted with an explicit gap; a recent legacy capture without
+`observedAt` still loads; and an actual worker write captured through
+`buildVerifyFixture` restores unchanged when the sandbox clock is zero. This
+closes the six recorded test failures. No production runtime code was changed.
