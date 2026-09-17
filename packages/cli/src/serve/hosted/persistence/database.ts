@@ -1,10 +1,13 @@
+import { encodeHistory, historyChecksum } from './history-codec.js';
+import { randomUUID } from 'node:crypto';
+import { createHostedHistory } from './history.js';
 import { createCommitController } from './commits.js';
 import { mkdirSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { inTransaction, openNodeSqlite, requireNodePersistence, sqlText } from './sqlite.js';
 import { createSqliteStorage } from './storage.js';
 
-export const HOSTED_SCHEMA_VERSION = 1;
+export const HOSTED_SCHEMA_VERSION = 2;
 
 /** One database per hosted directory; callers own its lifetime. */
 export async function openHostedDatabase(directory: string, options: { readOnly?: boolean } = {}) {
@@ -19,7 +22,7 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
   try {
     const version = connection.prepare('PRAGMA user_version').get()?.user_version;
     const emptyReadOnly = readOnly && version === 0;
-    const unknownVersion = version !== 0 && version !== HOSTED_SCHEMA_VERSION;
+    const unknownVersion = version !== 0 && version !== 1 && version !== HOSTED_SCHEMA_VERSION;
     const unsupported = emptyReadOnly || unknownVersion;
     if (unsupported) throw new Error(`Unsupported hosted database version ${String(version)}.`);
     const checks = connection.prepare('PRAGMA quick_check').all();
@@ -51,7 +54,28 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
         `);
       });
     }
+    const needsHistory = version !== HOSTED_SCHEMA_VERSION;
+    if (needsHistory) {
+      if (readOnly) throw new Error('Open this hosted database normally once to migrate history.');
+      inTransaction(connection, () => {
+        connection.exec(`
+          CREATE TABLE history_records(sequence INTEGER PRIMARY KEY AUTOINCREMENT, session TEXT NOT NULL,
+            kind TEXT NOT NULL, service TEXT NOT NULL, payload TEXT NOT NULL, checksum TEXT NOT NULL) STRICT;
+          CREATE INDEX history_service_sequence ON history_records(service, sequence);
+          CREATE INDEX history_kind_sequence ON history_records(kind, sequence);
+          CREATE TABLE history_meta(id INTEGER PRIMARY KEY CHECK(id=1), store_id TEXT NOT NULL, clean INTEGER NOT NULL) STRICT;
+          CREATE TABLE history_undo(id INTEGER PRIMARY KEY, previous INTEGER NOT NULL, redo_next INTEGER NOT NULL, record_sequence INTEGER NOT NULL) STRICT;
+          CREATE TABLE history_undo_state(id INTEGER PRIMARY KEY CHECK(id=1), next INTEGER NOT NULL, undo INTEGER NOT NULL, redo INTEGER NOT NULL, undo_count INTEGER NOT NULL, redo_count INTEGER NOT NULL) STRICT;
+          INSERT INTO history_undo_state VALUES(1,1,0,0,0,0);
+          PRAGMA user_version=2;
+        `);
+        connection.prepare('INSERT INTO history_meta VALUES (1,?,1)').run(randomUUID());
+        const payload = encodeHistory({ reason: 'history-start', priorHistoryUnavailable: true });
+        connection.prepare('INSERT INTO history_records(session,kind,service,payload,checksum) VALUES (?,?,?,?,?)').run('migration', 'boundary', 'runtime', payload, historyChecksum(payload));
+      });
+    }
     const commits = createCommitController(connection);
+    const history = createHostedHistory(connection, commits, readOnly);
     const read = connection.prepare('SELECT payload FROM records WHERE namespace=? AND id=?');
     const list = connection.prepare('SELECT id FROM records WHERE namespace=? ORDER BY id');
     const put = connection.prepare('INSERT INTO records VALUES (?, ?, ?) ON CONFLICT(namespace, id) DO UPDATE SET payload=excluded.payload');
@@ -60,14 +84,16 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
 
     function commitChanges(key: string, changed: ReadonlyMap<string, unknown>, removed: readonly string[]): void {
       const empty = changed.size === 0 && removed.length === 0;
-      if (empty) return;
+      const nothingChanged = empty && !history.engine.hasPending();
+      if (nothingChanged) { history.flush(); return; }
       const encoded = [...changed].map(([id, value]) => {
         const payload = JSON.stringify(value);
         const missing = payload === undefined;
         if (missing) throw new Error(`Record '${id}' has no JSON representation.`);
         return { id, payload };
       });
-      commits.commit(() => {
+      history.commitState(() => {
+        history.record('mutation', 'runtime', { namespace: key, changed: encoded.map(record => record.id), removed });
         for (const { id, payload } of encoded) put.run(key, id, payload);
         for (const id of removed) remove.run(key, id);
       });
@@ -75,7 +101,8 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
 
     let closed = false;
     return {
-      storage: createSqliteStorage(connection, commits.commit),
+      storage: createSqliteStorage(connection, history.commit, value => { history.record('mutation', 'storage', value); }),
+      history,
       ...commits,
       connection,
       readRecord(key: string, id: string): unknown | null {
@@ -118,13 +145,13 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
           commitChanges(key, new Map(), ids);
         },
         async clear(key: string): Promise<void> {
-          commits.commit(() => { clear.run(key); });
+          history.commitState(() => { history.boundary('clear'); clear.run(key); });
         },
       },
       close(): void {
         if (closed) return;
-        connection.close();
-        closed = true;
+        try { history.close(); }
+        finally { connection.close(); closed = true; }
       },
     };
   } catch (error) {

@@ -3,8 +3,7 @@ import { join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { serializeToBuckets } from 'pyric/sandbox';
 import { createHostedPersistence } from '../../../src/serve/hosted/persistence.js';
-import { pathToFileURL } from 'node:url';
-const { runSnapshot } = await import(pathToFileURL(join(process.cwd(), 'packages/cli/dist/cli/snapshot.js')).href);
+import { runSnapshot } from '../../../src/cli/snapshot.js';
 
 const project = process.argv[2];
 const persistence = await createHostedPersistence(project);

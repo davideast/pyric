@@ -11,7 +11,7 @@ import {
   type DocumentData,
 } from './local-state.js';
 import { OverlayBacking } from './overlay-backing.js';
-import { EventLog, type AgentEvent } from './event-log.js';
+import { EventLog, type AgentEvent, type AgentEventStore } from './event-log.js';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
 import { lintFirestoreRules, type LintResult } from 'pyric/rules/internal';
 import type { FirestoreSimError } from './errors.js';
@@ -158,6 +158,10 @@ export class LocalEnvironment {
       applyWrite: (method, path, data, merge) => this.writes.applyWrite(method, path, data, merge),
     });
     this.seedSnapshot = {};
+  }
+
+  installHistoryStore(store: AgentEventStore): void {
+    this.eventLog.installStore(store, paths => this.writes.capturePriors([...paths]));
   }
 
   /**

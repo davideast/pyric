@@ -59,6 +59,7 @@ USAGE
   pyric sandbox [flags] [--] [command...]
   pyric init [dir] [--template=web|node]
   pyric sandbox salvage --source=DIR --out=NEW_DIR
+  pyric sandbox history status|list|export|verify [--port=N] [--out=DIR] [--watch]
   pyric snapshot [--out=FILE]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
   pyric can-i-use <feature> [--json]
@@ -356,6 +357,11 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
     case 'bridge':
       return await runBridge(parsed);
     case 'sandbox':
+      const isHistory = parsed.positional[0] === 'history';
+      if (isHistory) {
+        const { runHistory } = await import('./history.js');
+        return runHistory(parsed);
+      }
       const isSalvage = parsed.positional[0] === 'salvage';
       if (isSalvage) {
         const { runSalvage } = await import('./salvage.js');

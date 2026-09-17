@@ -47,7 +47,7 @@ service cloud.firestore {
     const result = env.batch([
       { method: 'update', path: 'docs/b', data: { updated: true } },
       { method: 'create', path: 'docs/a', data: { status: 'checked' } },
-    ]);
+    ], null);
     expect(result.allowed).toBe(true);
     expect(env.getDocument('docs/b')).toEqual({ meta: { role: 'admin', team: 'eng' }, version: 1, updated: true });
   });

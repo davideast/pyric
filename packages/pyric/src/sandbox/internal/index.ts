@@ -146,7 +146,7 @@ export * from '../../firestore/sandbox/wire-encoder.js';
 // this list first. Future-us should consider replacing the stars
 // with explicit named re-exports once the admin-compat layer's
 // surface stops drifting.
-export { createSandboxRoot } from './root.js';
+export { createSandboxRoot, installHostedHistory } from './root.js';
 
 export { assertCompleteHistory } from './history-integrity.js';
 export { EventHistory } from './event-history.js';
@@ -160,3 +160,5 @@ export { aiCompletionUsage } from './usage-evidence.js';
 export { requestStatusLabel } from '../types/request-observation.js';
 
 export { createActiveListenerState } from '../active-listeners.js';
+
+export type { AgentEvent, AgentEventStore } from '../../firestore/sandbox/event-log.js';

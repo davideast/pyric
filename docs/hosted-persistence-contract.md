@@ -37,8 +37,8 @@ a transaction's previous or committed state, not partially written rows.
 
 ## Restoration and repair
 
-Normal startup validates the database and application payloads before admitting
-clients. It refuses corrupt, malformed and unsupported data rather than silently
+Normal startup validates the database, current application payloads and undo
+indexes before admitting clients. Historical payloads are validated on access. It refuses corrupt, malformed and unsupported data rather than silently
 dropping records. Full validation has a measured startup cost.
 
 `pyric sandbox salvage --source <hosted-directory> --out <new-directory>` is an
@@ -56,8 +56,9 @@ a consistent read transaction, without stopping the host.
 
 ## Limits and verification
 
-Storage operations retain the 8 MiB decoded limit. AI/Traffic history, delivery
-queues and browser identity sessions acquire no additional durability guarantee.
+Storage operations retain the 8 MiB decoded limit. Host-observed AI/Traffic and
+other service activity follow the [hosted history contract](hosted-history-contract.md).
+Delivery queues and browser identity sessions acquire no additional durability guarantee.
 WAL requires supported local storage. Known synced-directory warnings are
 heuristics, not filesystem safety certification.
 

@@ -13,6 +13,7 @@ const runs = Number(process.env.PYRIC_BASELINE_RUNS ?? 3);
 const writesPerSecond = Number(process.env.PYRIC_BASELINE_RATE ?? 200);
 const node = process.execPath;
 const results = [];
+const exportsEnabled = process.env.PYRIC_BASELINE_EXPORT === '1';
 const environment = { node: process.version, cpu: cpus()[0].model, memoryBytes: totalmem(), commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim() };
 console.log(JSON.stringify({ environment, durationMs, runs, writesPerSecond, documents: 100, paddingBytes: 256, maximumPending: 64 }));
 const browser = await chromium.launch({ headless: true });
@@ -34,6 +35,15 @@ try {
     const exited = new Promise(resolve => child.once('close', resolve));
     const deadline = setTimeout(() => child.kill('SIGKILL'), durationMs + 100_000);
     const context = await browser.newContext();
+    let exporter;
+    let exportClosed;
+    let exportErrors = '';
+    async function stopExporter() {
+      if (!exporter || !exportClosed) return;
+      if (exporter.exitCode === null && exporter.signalCode === null) exporter.kill('SIGTERM');
+      const deadline = setTimeout(() => exporter.kill('SIGKILL'), 10_000);
+      try { await exportClosed; } finally { clearTimeout(deadline); }
+    }
     try {
       const startupDeadline = Date.now() + 60_000;
       let info;
@@ -43,6 +53,12 @@ try {
         const readyLine = stdout.split('\n').find(line => line.startsWith('{'));
         if (readyLine) info = JSON.parse(readyLine);
         else await delay(100);
+      }
+      if (exportsEnabled) {
+        exporter = spawn(node, [join(root, 'packages/cli/dist/cli/index.js'), 'sandbox', 'history', 'export', '--port', new URL(info.url).port, '--out', join(project, 'history-backup'), '--watch'], { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
+        exporter.stderr.setEncoding('utf8').on('data', chunk => { exportErrors += chunk; });
+        exporter.stdout.resume();
+        exportClosed = new Promise(resolve => exporter.once('close', resolve));
       }
       const page = await context.newPage();
       await page.goto(info.url);
@@ -83,13 +99,21 @@ try {
         return { offered, completed: times.length, errors: errors.length, firstError: errors[0], rejectedByHarness, peakPending, elapsedMs: performance.now() - start, ackP95Ms: times[Math.ceil(times.length * .95) - 1], ackMaxMs: times.at(-1) };
       }, { duration: durationMs, rate: writesPerSecond });
       const samples = stdout.split('\n').filter(line => line.startsWith('PYRIC_PERSISTENCE_METRICS ')).map(line => JSON.parse(line.slice('PYRIC_PERSISTENCE_METRICS '.length))).filter(sample => sample.at >= startedAt + 10_000);
-      const result = { run, ...measurements, hostSamples: samples };
+      let archive;
+      if (exportsEnabled) {
+        await stopExporter();
+        if (exporter.exitCode !== 0) throw new Error(`History exporter failed: ${exportErrors}`);
+        const { verifyHistoryArchive } = await import('../packages/cli/dist/serve/hosted/persistence/history-export.js');
+        archive = await verifyHistoryArchive(join(project, 'history-backup'));
+      }
+      const result = { run, ...measurements, hostSamples: samples, exportsEnabled, archive };
       results.push(result);
       console.log(JSON.stringify(result));
       if (process.env.PYRIC_BASELINE_OUTPUT) writeFileSync(process.env.PYRIC_BASELINE_OUTPUT, JSON.stringify({ environment, durationMs, writesPerSecond, results }, null, 2));
       const failedWorkload = measurements.errors > 0 || measurements.rejectedByHarness > 0;
       if (failedWorkload) throw new Error('Workload failed; do not treat reduced completed work as a latency pass');
     } finally {
+      await stopExporter();
       await context.close();
       const running = child.exitCode === null && child.signalCode === null;
       if (running) child.kill('SIGTERM');
@@ -102,4 +126,4 @@ try {
   }
 } finally { await browser.close(); }
 const output = process.env.PYRIC_BASELINE_OUTPUT;
-if (output) writeFileSync(output, JSON.stringify({ environment, durationMs, results }, null, 2));
+if (output) writeFileSync(output, JSON.stringify({ environment, durationMs, writesPerSecond, exportsEnabled, results }, null, 2));

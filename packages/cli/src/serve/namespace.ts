@@ -1,3 +1,4 @@
+import { handleHistory } from './hosted/history-route.js';
 import { createDiagnostics } from './diagnostics.js';
 import { DIAGNOSTICS_PATH } from './runtime/diagnostics-report.js';
 import { handleRateCaptures } from './rate-capture-route.js';
@@ -115,6 +116,7 @@ export interface NamespaceOptions {
   state?: StateStore;
   /** Hosted state can be read here; its runtime owns all writes. */
   stateOwner?: 'browser' | 'host';
+  history?: import('./hosted/persistence/history.js').HostedHistory;
   persistenceStatus?: () => import('./hosted/persistence/commits.js').PersistenceStatus;
   /** `--capture`: mounts GET/POST /__pyric/capture. POST — the page/worker
    *  pushes its session fixture here; the handler writes it verbatim to
@@ -483,6 +485,15 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       const refused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
       if (refused) return true;
       return diagnostics(req, res).then(() => true);
+    }
+    const history = opts.history;
+    const isHistoryRequest = history !== undefined && url.pathname === '/__pyric/history';
+    if (isHistoryRequest) {
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
+      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
+      if (sessionRefused) { res.writeHead(401).end('Unauthorized'); return true; }
+      return handleHistory(history, req, res, url);
     }
     const thresholds = opts.thresholds;
     const isThresholdRequest = thresholds !== undefined && url.pathname === '/__pyric/thresholds';

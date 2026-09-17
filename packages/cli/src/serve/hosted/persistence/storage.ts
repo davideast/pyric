@@ -15,7 +15,7 @@ function metadataOf(row: SqlRow): StoredMetadata {
 }
 
 /** Bytes and metadata share a row and a transaction, including replacements. */
-export function createSqliteStorage(connection: SqlConnection, commit: Commit): ScopedStorageBackend {
+export function createSqliteStorage(connection: SqlConnection, commit: Commit, record: (value: unknown) => void): ScopedStorageBackend {
   const read = connection.prepare('SELECT bytes, mime FROM storage_objects WHERE bucket=? AND path=?');
   const metadata = connection.prepare('SELECT metadata FROM storage_objects WHERE bucket=? AND path=?');
   const put = connection.prepare('INSERT INTO storage_objects VALUES (?, ?, ?, ?, ?) ON CONFLICT(bucket, path) DO UPDATE SET metadata=excluded.metadata, mime=excluded.mime, bytes=excluded.bytes');
@@ -39,7 +39,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
     const metadata = storedMetadataSchema.parse(value);
     const mismatchedObject = metadata.fullPath !== path || metadata.size !== bytes.byteLength;
     if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
-    commit(() => { put.run(metadata.bucket, path, JSON.stringify(metadata), mime, bytes); });
+    commit(() => { put.run(metadata.bucket, path, JSON.stringify(metadata), mime, bytes); record({ operation: 'put', bucket: metadata.bucket, path, metadata }); });
   }
 
   function view(scope?: string): ScopedStorageBackend {
@@ -84,11 +84,11 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
           if (changedSinceRead) throw new FirebaseError('storage/retry-limit-exceeded', 'The object changed while updating metadata. Read its metadata and retry.');
           const mismatchedObject = parsed.bucket !== bucket || parsed.fullPath !== path || parsed.size !== current.size;
           if (mismatchedObject) throw new Error('Storage metadata cannot change object identity or size.');
-          commit(() => { update.run(JSON.stringify(parsed), bucket, path); });
+          commit(() => { update.run(JSON.stringify(parsed), bucket, path); record({ operation: 'metadata', bucket, path, metadata: parsed }); });
         });
       },
       async delete(path, bucket = defaultBucket) {
-        await enqueue(() => commit(() => { remove.run(bucket, path); }));
+        await enqueue(() => commit(() => { remove.run(bucket, path); record({ operation: 'delete', bucket, path }); }));
       },
       async listByPrefix(prefix, bucket = defaultBucket) {
         return list.all(bucket, prefix, prefix).map(metadataOf);
@@ -98,6 +98,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
           const allBuckets = bucket === undefined;
           if (allBuckets) connection.exec('DELETE FROM storage_objects');
           else clearBucket.run(bucket);
+          record({ operation: 'reset', bucket: bucket ?? null });
         }));
       },
       // The owning hosted database closes the shared connection after draining.

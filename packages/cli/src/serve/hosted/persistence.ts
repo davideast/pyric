@@ -24,6 +24,7 @@ export async function createHostedPersistence(projectDir: string, options: { fre
     const hasArchive = savedArchive !== undefined;
     if (hasArchive) state.backupPath = savedArchive;
     return {
+      history: database.history,
       backend: database.records, storage: database.storage, state, close: database.close,
       status: database.status, onFailure: database.onFailure, markUnhealthy: database.markUnhealthy,
       seed(fixture: PyricStateFile): void {

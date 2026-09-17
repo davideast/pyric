@@ -6,6 +6,7 @@ export interface SqlStatement {
   run(...values: SqlValue[]): unknown;
   get(...values: SqlValue[]): SqlRow | undefined;
   all(...values: SqlValue[]): SqlRow[];
+  iterate(...values: SqlValue[]): IterableIterator<SqlRow>;
 }
 
 export interface SqlConnection {
