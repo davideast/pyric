@@ -223,6 +223,8 @@ export async function createViteSandboxGeneration(
       return activeBridge.wsUrl({ host, port });
     };
     const sessionOptions: SandboxSessionOptions = {
+      boundHost: typeof server.config.server.host === 'string' ? server.config.server.host : 'localhost',
+      allowedHosts: Array.isArray(server.config.server.allowedHosts) ? server.config.server.allowedHosts : [],
       projectDir: cwd,
       hosted: usesHostedSandbox,
       deployHostedRules: usesHostedSandbox ? bridge?.deployHostedRules : undefined,

@@ -15,6 +15,7 @@
  *   pyric storage rules resolve <path> [--out <path>]
  *   pyric database rules validate <path>
  *   pyric database rules generate [--config <path>] [--out <path>]
+ *   pyric serve diagnostics [--url URL] [--json]
  *   pyric serve sessions [--json]
  *   pyric --help
  *   pyric --version
@@ -67,6 +68,7 @@ USAGE
   pyric storage rules resolve <path> [--out <path>]
   pyric database rules validate <path>
   pyric database rules generate [--config <path>] [--out <path>]
+  pyric serve diagnostics [--url URL] [--json]
   pyric serve sessions [--json]
   pyric <tool> <method> [--<arg> <value>...]
   pyric --help
@@ -118,6 +120,8 @@ COMMANDS
   storage rules resolve      Resolve Storage 2+modules imports to one ruleset.
   database rules validate    Validate Realtime Database rules expressions.
   database rules generate    Compile a constraints module to database.rules.json.
+  serve diagnostics          Read bounded startup and connection reports over HTTP.
+                             Use --url for a remote origin; --json prints the report.
   serve sessions             List the clients connected to the running bridge with
                              their target ids, platforms, and the identity each
                              acts as. Requires a running bridge. --json.

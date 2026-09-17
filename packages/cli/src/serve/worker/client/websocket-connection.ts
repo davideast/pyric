@@ -1,3 +1,5 @@
+import type { DiagnosticEvent } from '../../runtime/diagnostics-report.js';
+import { recordDiagnostic } from '../../runtime/diagnostics-client.js';
 import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
 import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
@@ -16,6 +18,10 @@ export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'i
 
 /** Own one app's physical connections while retaining its logical SDK port. */
 export function getHostedFirestore(target: { url: string; projectKey: string; onConnection?: (state: HostedConnectionState) => void; onError?: (error: FirebaseError) => void }): ClientDb {
+  const connectionId = `socket-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const report = (phase: DiagnosticEvent['phase'], code?: number) => {
+    recordDiagnostic({ phase, connectionId, endpoint: target.url, code });
+  };
   const queued: InboundMessage[] = [];
   const connectionListeners = new Set<(connected: boolean) => void>();
   let state: HostedConnectionState = 'connecting';
@@ -99,6 +105,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
   };
 
   function notifyConnectionChange(): void {
+    report(state);
     target.onConnection?.(state);
     const connected = state === 'attached';
     for (const listener of [...connectionListeners]) listener(connected);
@@ -178,6 +185,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
     };
     if (needsSessionRestore) {
       state = 'restoring';
+      report(state);
       target.onConnection?.(state);
       const configuration = appConfig;
       const hasConfiguration = configuration !== undefined;
@@ -209,23 +217,32 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
     const isClosed = state === 'closed';
     if (isClosed) return;
     state = 'connecting';
+    report('connecting');
     const connectionState = hasEverAttached ? 'interrupted' : 'connecting';
     target.onConnection?.(connectionState);
     const retentionExpired = interruptedAt !== undefined && performance.now() - interruptedAt >= WORKER_SESSION_RETENTION_MS;
     if (retentionExpired) resumeToken = undefined;
     const requestsFreshSession = resumeToken === undefined;
-    const connection = new WebSocket(target.url);
+    let connection: WebSocket;
+    try { connection = new WebSocket(target.url); }
+    catch (error) { report('socket-error'); throw error; }
     socket = connection;
     attachDeadline = setTimeout(() => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
+      report('timeout');
       if (hasEverAttached) connection.close();
       else failConnection('Timed out connecting to the hosted sandbox.');
     }, 5_000);
 
+    connection.addEventListener('error', () => {
+      const isActiveConnection = isCurrent(connection);
+      if (isActiveConnection) report('socket-error');
+    });
     connection.addEventListener('open', () => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
+      report('transport-open');
       send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId, clientInfo: { platform: 'browser' } });
     });
     connection.addEventListener('message', (event: MessageEvent<string>) => {
@@ -314,6 +331,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
     connection.addEventListener('close', (event) => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
+      report('socket-close', event.code);
       clearTimeout(attachDeadline);
       const hasExpiredSession = hasEverAttached && event.code === WORKER_SESSION_EXPIRED_CLOSE_CODE;
       if (hasExpiredSession) resumeToken = undefined;

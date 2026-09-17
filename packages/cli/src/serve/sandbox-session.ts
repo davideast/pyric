@@ -34,6 +34,8 @@ import { restoredStateCounts } from './state-summary.js';
 import { parseStateFile } from './state-file.js';
 
 export interface SandboxSessionOptions {
+  boundHost?: string;
+  allowedHosts?: string[];
   flow?: FlowConfig;
   projectDir: string;
   firebaseConfig: FirebaseJson | null;
@@ -313,6 +315,8 @@ export async function createSandboxSession(
   const hostOwnsState = options.hosted === true;
   const stateOwner = hostOwnsState ? 'host' : 'browser';
   const namespace = createPyricNamespace({
+    boundHost: options.boundHost,
+    allowedHosts: options.allowedHosts,
     indexes: createIndexConfigStore(options.projectDir),
     thresholds: createThresholdConfigStore(options.projectDir),
     rateCaptures: createRateCaptureStore(options.projectDir),

@@ -33,7 +33,7 @@ async function withVite(
       configFile: false,
       logLevel: 'silent',
       plugins: [pyric(options)],
-      server: { host: '127.0.0.1', port: 0 },
+      server: { host: '127.0.0.1', port: 0, allowedHosts: ['orbit.example'] },
     });
     await run(server, root);
   } finally {
@@ -185,5 +185,23 @@ test('hosted owns project state until Vite closes', async () => {
     } finally {
       await replacement.close();
     }
+  });
+});
+
+
+test('Vite forwards its explicit remote host allowlist to HTTP diagnostics', async () => {
+  await withVite({ hosted: true, capture: false, ui: false }, async server => {
+    await server.listen();
+    const endpoint = `${listeningUrl(server)}__pyric/diagnostics`;
+    const headers = { host: 'orbit.example:8457', origin: 'https://orbit.example:8457', 'content-type': 'application/json' };
+    const response = await fetch(endpoint, {
+      method: 'POST', headers,
+      body: JSON.stringify({ version: 1, clientId: 'remote-client', sequence: 1, realm: 'page', pageOrigin: headers.origin, events: [] }),
+    });
+    expect(response.status).toBe(204);
+    const report = await (await fetch(endpoint, { headers })).json();
+    expect(report.clients[0].clientId).toBe('remote-client');
+    const denied = await fetch(endpoint, { headers: { ...headers, origin: 'https://untrusted.example' } });
+    expect(denied.status).toBe(403);
   });
 });

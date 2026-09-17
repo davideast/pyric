@@ -17,7 +17,8 @@
     "database rules validate",
     "database rules generate",
     "auth reset",
-    "serve sessions"
+    "serve sessions",
+    "serve diagnostics"
   ],
   "derivedCommands": [
     "ai_logic clearScripts",

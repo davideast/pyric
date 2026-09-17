@@ -1,3 +1,5 @@
+import { createDiagnostics } from './diagnostics.js';
+import { DIAGNOSTICS_PATH } from './runtime/diagnostics-report.js';
 import { handleRateCaptures } from './rate-capture-route.js';
 import { handleThresholdConfig } from './threshold-config-route.js';
 /**
@@ -440,6 +442,7 @@ function guardLoopback(
 }
 
 export function createPyricNamespace(opts: NamespaceOptions) {
+  const diagnostics = createDiagnostics(() => opts.initPayload().hosted ? 'hosted' : 'browser');
   const stateWriterLock = createWriterLock();
   const hostOwnsState = opts.stateOwner === 'host';
   const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();
@@ -474,6 +477,12 @@ export function createPyricNamespace(opts: NamespaceOptions) {
     ? { sink: activity, token: randomBytes(24).toString('base64url') }
     : undefined;
   return (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
+    const isDiagnostics = url.pathname === DIAGNOSTICS_PATH;
+    if (isDiagnostics) {
+      const refused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (refused) return true;
+      return diagnostics(req, res).then(() => true);
+    }
     const thresholds = opts.thresholds;
     const isThresholdRequest = thresholds !== undefined && url.pathname === '/__pyric/thresholds';
     if (isThresholdRequest) {
