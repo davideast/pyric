@@ -4,6 +4,10 @@ import { isFirestoreWriteOp } from '../worker/host/firestore-writes.js';
 /** Mutations the hosted runtime must refuse while persistence is unhealthy. */
 export function requiresHealthyPersistence(message: OpMessage): boolean {
   switch (message.method) {
+    case 'messaging.getToken':
+    case 'messaging.deleteToken':
+    case 'messaging.subscribeToTopic':
+    case 'messaging.unsubscribeFromTopic':
     case 'auth.createUser':
     case 'auth.signInAnonymously':
     case 'auth.signInWithCredential':

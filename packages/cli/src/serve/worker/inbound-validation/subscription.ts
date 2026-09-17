@@ -2,7 +2,7 @@ import { assertQueryStructure } from '../host/query-structure.js';
 import { assertAiArguments } from './operation-arguments.js';
 import { assertRtdbQuery } from './rtdb-query.js';
 import { assertListenerOwners } from './listener-owners.js';
-import { requireRecord, requireShape, requireString } from './fields.js';
+import { requireRecord, requireShape, requireString, requireOptionalString } from './fields.js';
 
 /** Check target routing and adapter fields before retaining listener intent. */
 export function assertSubscription(message: Record<string, unknown>): void {
@@ -12,7 +12,10 @@ export function assertSubscription(message: Record<string, unknown>): void {
   if (isNamedTarget) {
     switch (target) {
       case 'authState': case 'idToken': case 'events':
-      case 'messaging.foreground': case 'messaging.background': case 'presence':
+      case 'presence':
+        return;
+      case 'messaging.foreground': case 'messaging.background':
+        requireOptionalString(message.recipientId, 'recipientId');
         return;
       default:
         requireShape(false, 'target');

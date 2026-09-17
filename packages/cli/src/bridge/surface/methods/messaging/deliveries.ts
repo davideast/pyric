@@ -10,7 +10,7 @@ export default {
   effect: 'read',
   signature: 'deliveries(since?)',
   description:
-    'List what was delivered, foreground or background, handled or not, optionally since a clock timestamp cursor.',
+    'List routing and browser-reported receiver/display acknowledgments by message and recipient. handled means a broker handler ran; display-accepted does not prove OS visibility. Missing receipt remains unconfirmed. Optionally filter by routing timestamp.',
   args: z.object({
     since: z
       .number()

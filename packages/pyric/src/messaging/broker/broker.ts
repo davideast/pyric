@@ -11,35 +11,19 @@
  *     the broker emits onto the sandbox's unified `onEvent` stream —
  *     tracing is a CONSUMER of the stream, never a parallel log.
  *
- * ── The worker-host seam (documented, deliberately NOT wired) ──────────────
- * This broker is the in-process degenerate case (the transport research
- * doc's "pure Node" arm). When `pyric dev`'s SharedWorker host adopts
- * messaging, each public method below becomes one `messaging.*` op in
- * `serve/worker/protocol.ts`'s `OpMessage` union, exactly like `rtdb.set` /
- * `auth.signInEmail`:
- *
- *   send(message, {validateOnly})        → { method: 'messaging.send', message, validateOnly }
- *   getTokenFor(registrationId)          → { method: 'messaging.getToken', registrationId }
- *   deleteTokenFor(registrationId)       → { method: 'messaging.deleteToken', registrationId }
- *   subscribeToTopic(tokens, topic)      → { method: 'messaging.subscribeToTopic', tokens, topic }
- *   unsubscribeFromTopic(tokens, topic)  → { method: 'messaging.unsubscribeFromTopic', tokens, topic }
- *   deliver(spec)                        → { method: 'messaging.deliver', spec }   (test/Studio driver)
- *
- * Client visibility maps onto the host's per-port sessions: each connected
- * tab is one entry in `clients` (`setClientVisibility(portId, state)` on
- * visibilitychange), so the captured routing rule — foreground iff ANY
- * visible same-origin client — falls out of the same state machine that
- * headless tests drive with a single simulated client. Rejections cross the
- * wire as the `BrokerSendError.envelope` value (plain JSON, structured-
- * clone-safe). No `serve/worker` file is touched by this slice.
+ * Hosted and SharedWorker transports use the same broker. Token ownership,
+ * window visibility, and observers are grouped by recipient (installation,
+ * Firebase app, and Service Worker scope). Headless mirrors use one default
+ * recipient; transports supply explicit recipient identities.
  */
 import type { Sandbox } from '../../sandbox/types/service.js';
 import type { AuthState } from '../../sandbox/types/auth-state.js';
-import type { ServiceMutationEvent } from '../../sandbox/types/events.js';
 import { emitSandboxEvent, makeServiceMutationEvent } from '../../sandbox/internal/sandbox-impl.js';
 import type { MessagingEventOperation } from '../events.js';
+import { deliveryHistory } from './delivery-history.js';
 import { getClock } from '../../sandbox/clock.js';
 import { BrokerSendError, unregisteredTokenEnvelope, invalidTopicNameEnvelope } from './envelopes.js';
+import { isMessagingSnapshot, type MessagingSnapshot, type TokenRecord } from './persistence.js';
 import { mintToken } from './tokens.js';
 import { validateMessage, isValidTopicName, canonicalTopicName, TOKEN_SHAPE_RE } from './validate.js';
 import type {
@@ -48,6 +32,7 @@ import type {
   ClientVisibilityState,
   DeliveredPayload,
   DeliveryLogEntry,
+  DeliveryStage,
   DeliveryResult,
   DeliveryRoute,
   MessagingBrokerConfig,
@@ -69,29 +54,10 @@ export const DEFAULT_SENDER_ID = '999999999999';
 /** The id the mirrors use for the single simulated window client. */
 export const DEFAULT_CLIENT_ID = 'window-default';
 
-interface TokenRecord {
-  registrationId: string;
-  state: 'active' | 'unregistered';
-}
+const DEFAULT_RECIPIENT = 'sandbox-default';
 
 /** Ops run on the admin/send plane or the SDK control plane — never a rules identity. */
 const ADMIN_AUTH: AuthState = null;
-
-/**
- * Rebuild one delivery entry from the event that reported the delivery. The
- * event carries everything the entry reports, so this reads fields rather than
- * recomputing any of them.
- */
-function toDeliveryLogEntry(event: ServiceMutationEvent): DeliveryLogEntry {
-  const detail = event.detail ?? {};
-  return {
-    messageId: String(detail.messageId),
-    route: detail.route as DeliveryRoute,
-    handled: detail.handled === true,
-    at: event.at,
-    payload: detail.payload as DeliveredPayload,
-  };
-}
 
 export class MessagingBroker {
   readonly projectId: string;
@@ -105,15 +71,54 @@ export class MessagingBroker {
   /** topic → subscribed tokens. */
   private readonly subscriptions = new Map<string, Set<string>>();
   /** Window clients and their visibility — THE routing input (never focus). */
-  private readonly clients = new Map<string, ClientVisibilityState>();
-  private readonly foregroundHandlers = new Set<PayloadHandler>();
-  private readonly backgroundHandlers = new Set<PayloadHandler>();
+  private readonly clients = new Map<string, { state: ClientVisibilityState; recipientId: string }>();
+  private readonly foregroundHandlers = new Map<PayloadHandler, string>();
+  private readonly backgroundHandlers = new Map<PayloadHandler, string>();
   private numericIdCounter = 0;
+  private readonly changeListeners = new Set<() => void>();
 
   constructor(options: MessagingBrokerConfig & { sandbox?: Sandbox } = {}) {
     this.projectId = options.projectId ?? DEFAULT_PROJECT_ID;
     this.senderId = options.senderId ?? DEFAULT_SENDER_ID;
     this.sandbox = options.sandbox;
+  }
+
+  /** Durable token state only; live browser connections are restored by their clients. */
+  snapshot(): MessagingSnapshot {
+    return {
+      version: 1,
+      tokens: [...this.tokenRecords].map(([token, record]) => [token, { ...record }]),
+      topics: [...this.subscriptions].map(([topic, tokens]) => [topic, [...tokens]]),
+    };
+  }
+
+  restore(data: unknown): void {
+    if (!isMessagingSnapshot(data)) throw new Error('Invalid Messaging persistence snapshot.');
+    this.registrations.clear();
+    this.tokenRecords.clear();
+    this.subscriptions.clear();
+    for (const [token, record] of data.tokens) {
+      this.tokenRecords.set(token, { ...record });
+      const isActive = record.state === 'active';
+      if (isActive) this.registrations.set(record.registrationId, token);
+    }
+    for (const [topic, tokens] of data.topics) this.subscriptions.set(topic, new Set(tokens));
+  }
+
+  reset(): void {
+    this.registrations.clear();
+    this.tokenRecords.clear();
+    this.subscriptions.clear();
+    this.changed();
+  }
+
+  onChange(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => this.changeListeners.delete(listener);
+  }
+
+  private changed(): void {
+    for (const listener of this.changeListeners) listener();
   }
 
   // ── Token lifecycle ───────────────────────────────────────────────────────
@@ -123,12 +128,13 @@ export class MessagingBroker {
    * calls for the same registration (oracle: `messaging-web-token-stability`);
    * shape class per `mintToken` (oracle: `messaging-web-token-shape`).
    */
-  getTokenFor(registrationId: string): string {
+  getTokenFor(registrationId: string, recipientId = DEFAULT_RECIPIENT): string {
     const existing = this.registrations.get(registrationId);
     if (existing !== undefined) return existing;
     const token = mintToken();
     this.registrations.set(registrationId, token);
-    this.tokenRecords.set(token, { registrationId, state: 'active' });
+    this.tokenRecords.set(token, { registrationId, recipientId, state: 'active' });
+    this.changed();
     this.emit('token_minted', { path: token, detail: { registrationId } });
     return token;
   }
@@ -150,6 +156,7 @@ export class MessagingBroker {
     this.registrations.delete(registrationId);
     const record = this.tokenRecords.get(token);
     if (record !== undefined) record.state = 'unregistered';
+    this.changed();
     this.emit('token_deleted', { path: token, detail: { registrationId } });
     return true;
   }
@@ -210,6 +217,7 @@ export class MessagingBroker {
       outcome.successCount++;
     });
 
+    this.changed();
     this.emit('subscription_changed', {
       path: name,
       detail: {
@@ -307,8 +315,9 @@ export class MessagingBroker {
       detail: { target: target.kind, name: accepted.name, messageId, validateOnly },
     });
 
-    if (!validateOnly && this.matchesAnyRecipient(target)) {
-      this.route(this.toPayload(message, messageId));
+    if (!validateOnly) {
+      const payload = this.toPayload(message, messageId);
+      for (const recipientId of this.matchingRecipients(target)) this.route(payload, recipientId);
     }
     return accepted;
   }
@@ -319,20 +328,20 @@ export class MessagingBroker {
     return `${Date.now()}${String(this.numericIdCounter).padStart(6, '0')}`;
   }
 
-  private matchesAnyRecipient(target: ResolvedTarget): boolean {
-    if (target.kind === 'token') return this.tokenState(target.token) === 'active';
-    if (target.kind === 'topic') {
-      const set = this.subscriptions.get(target.topic);
-      if (set === undefined) return false;
-      for (const token of set) if (this.tokenState(token) === 'active') return true;
-      return false;
-    }
-    // Condition: re-evaluate the parsed expression per active token's topic set.
+  private matchingRecipients(target: ResolvedTarget): Set<string> {
+    const recipients = new Set<string>();
     for (const [token, record] of this.tokenRecords) {
-      if (record.state !== 'active') continue;
-      if (evaluateCondition(target.condition, this.topicsOf(token))) return true;
+      const isActive = record.state === 'active';
+      if (!isActive) continue;
+      let matches: boolean;
+      switch (target.kind) {
+        case 'token': matches = token === target.token; break;
+        case 'topic': matches = this.subscriptions.get(target.topic)?.has(token) === true; break;
+        case 'condition': matches = evaluateCondition(target.condition, this.topicsOf(token)); break;
+      }
+      if (matches) recipients.add(record.recipientId);
     }
-    return false;
+    return recipients;
   }
 
   private toPayload(message: BrokerMessage, messageId: string): DeliveredPayload {
@@ -356,8 +365,8 @@ export class MessagingBroker {
    * one simulated client in the degenerate case) so headless tests can
    * drive both routes.
    */
-  setClientVisibility(clientId: string, state: ClientVisibilityState): void {
-    this.clients.set(clientId, state);
+  setClientVisibility(clientId: string, state: ClientVisibilityState, recipientId = DEFAULT_RECIPIENT): void {
+    this.clients.set(clientId, { state, recipientId });
   }
 
   removeClient(clientId: string): void {
@@ -365,14 +374,14 @@ export class MessagingBroker {
   }
 
   /** Foreground (`onMessage`) handler. Returns an unsubscribe function. */
-  onForegroundMessage(handler: PayloadHandler): () => void {
-    this.foregroundHandlers.add(handler);
+  onForegroundMessage(handler: PayloadHandler, recipientId = DEFAULT_RECIPIENT): () => void {
+    this.foregroundHandlers.set(handler, recipientId);
     return () => this.foregroundHandlers.delete(handler);
   }
 
   /** Background (`onBackgroundMessage`) handler. Returns an unsubscribe function. */
-  onBackgroundMessage(handler: PayloadHandler): () => void {
-    this.backgroundHandlers.add(handler);
+  onBackgroundMessage(handler: PayloadHandler, recipientId = DEFAULT_RECIPIENT): () => void {
+    this.backgroundHandlers.set(handler, recipientId);
     return () => this.backgroundHandlers.delete(handler);
   }
 
@@ -388,26 +397,27 @@ export class MessagingBroker {
     notification?: { title?: string; body?: string; image?: string };
     from?: string;
     messageId?: string;
-  }): DeliveryResult {
+  }, recipientId = DEFAULT_RECIPIENT): DeliveryResult {
     const payload: DeliveredPayload = {
       from: spec.from ?? this.senderId,
       messageId: spec.messageId ?? crypto.randomUUID(),
     };
     if (spec.data !== undefined) payload.data = { ...spec.data };
     if (spec.notification !== undefined) payload.notification = { ...spec.notification };
-    return this.route(payload);
+    return this.route(payload, recipientId);
   }
 
   /**
    * THE captured routing rule (oracle: `messaging-web-visibility-routing`):
-   * foreground handlers iff ANY window client reports `visible`; otherwise
+   * foreground handlers iff a window of THIS recipient reports `visible`; otherwise
    * background handlers. Visibility, never focus. Routing is exclusive —
    * one route per delivery.
    */
-  private route(payload: DeliveredPayload): DeliveryResult {
+  private route(payload: DeliveredPayload, recipientId: string): DeliveryResult {
     let anyVisible = false;
-    for (const state of this.clients.values()) {
-      if (state === 'visible') {
+    for (const client of this.clients.values()) {
+      const isVisibleRecipient = client.recipientId === recipientId && client.state === 'visible';
+      if (isVisibleRecipient) {
         anyVisible = true;
         break;
       }
@@ -416,11 +426,13 @@ export class MessagingBroker {
     const handlers = route === 'foreground' ? this.foregroundHandlers : this.backgroundHandlers;
 
     this.emit('delivery_routed', {
-      detail: { route, visibleClient: anyVisible, messageId: payload.messageId },
+      detail: { route, recipientId, visibleClient: anyVisible, messageId: payload.messageId },
     });
 
     let handlerCount = 0;
-    for (const handler of [...handlers]) {
+    for (const [handler, handlerRecipient] of [...handlers]) {
+      const isRecipient = handlerRecipient === recipientId;
+      if (!isRecipient) continue;
       handlerCount++;
       // Each handler gets its own copy so a mutating consumer can't corrupt
       // its siblings' view of the captured envelope. A throwing handler must
@@ -437,6 +449,7 @@ export class MessagingBroker {
     // into entries, so everything an entry reports has to ride here.
     this.emit('message_delivered', {
       detail: {
+        recipientId,
         route,
         handlerCount,
         handled: handlerCount > 0,
@@ -456,24 +469,12 @@ export class MessagingBroker {
    * recipient never calls {@link route}, so it emits nothing here. Only an
    * actual routing decision does.
    */
-  deliveries(since?: number): DeliveryLogEntry[] {
-    const entries = this.deliveredEvents().map((event) => toDeliveryLogEntry(event));
-    if (since === undefined) return entries;
-    return entries.filter((entry) => entry.at >= since);
+  acknowledge(messageId: string, recipientId: string, observerId: string, stage: DeliveryStage): void {
+    this.emit('delivery_acknowledged', { detail: { messageId, recipientId, observerId, stage } });
   }
 
-  /** The `message_delivered` events this broker's sandbox carries, in order. */
-  private deliveredEvents(): ServiceMutationEvent[] {
-    if (this.sandbox === undefined) return [];
-    const history = this.sandbox.history();
-    const delivered: ServiceMutationEvent[] = [];
-    for (const event of history) {
-      if (event.kind !== 'service_mutation') continue;
-      if (event.service !== 'messaging') continue;
-      if (event.op !== 'message_delivered') continue;
-      delivered.push(event);
-    }
-    return delivered;
+  deliveries(since?: number): DeliveryLogEntry[] {
+    return deliveryHistory(this.sandbox?.history() ?? [], since);
   }
 
   // ── Event emission (Studio stream consumer seam) ──────────────────────────

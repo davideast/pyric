@@ -1,3 +1,4 @@
+import type { DeliveryStage } from 'pyric/messaging/internal';
 import { getAiEvidence, type AiEvidence } from 'pyric/ai/internal';
 /**
  * SharedWorker protocol — message types + wire serialization.
@@ -206,13 +207,14 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'getSnapshot' }
   | { t: 'op'; id: string; method: 'resetAll' }
   // Messaging ops
-  | { t: 'op'; id: string; method: 'messaging.getToken'; registrationId?: string }
+  | { t: 'op'; id: string; method: 'messaging.getToken'; registrationId?: string; recipientId?: string }
   | { t: 'op'; id: string; method: 'messaging.deleteToken'; registrationId?: string }
   | { t: 'op'; id: string; method: 'messaging.send'; message: BrokerMessage; validateOnly?: boolean }
   | { t: 'op'; id: string; method: 'messaging.subscribeToTopic'; tokens: string[]; topic: string }
   | { t: 'op'; id: string; method: 'messaging.unsubscribeFromTopic'; tokens: string[]; topic: string }
-  | { t: 'op'; id: string; method: 'messaging.deliver'; spec: MessagingDeliverSpec }
-  | { t: 'op'; id: string; method: 'messaging.setVisibility'; state: ClientVisibilityState }
+  | { t: 'op'; id: string; method: 'messaging.deliver'; recipientId?: string; spec: MessagingDeliverSpec }
+  | { t: 'op'; id: string; method: 'messaging.acknowledge'; subId: string; messageId: string; stage: DeliveryStage }
+  | { t: 'op'; id: string; method: 'messaging.setVisibility'; recipientId?: string; state: ClientVisibilityState }
   // Connected-page presence (#227)
   | {
       t: 'op';
@@ -285,6 +287,7 @@ export interface MessagingSubMessage {
   t: 'sub';
   subId: string;
   target: 'messaging.foreground' | 'messaging.background';
+  recipientId?: string;
 }
 
 export interface PresenceSubMessage {

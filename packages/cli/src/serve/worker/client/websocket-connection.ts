@@ -4,7 +4,7 @@ import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
-import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreFirestoreSubscriptions, wirePort } from './core.js';
+import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreFirestoreSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
@@ -81,6 +81,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
       hostInstanceId = undefined;
       appConfig = undefined;
       port.restoreAuth = undefined;
+      port.messagingVisibility = undefined;
       clearTimeout(attachDeadline);
       clearTimeout(reconnectTimer);
       clearTimeout(heartbeatTimer);
@@ -199,6 +200,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
     if (isResume) {
       postMessage({ t: 'clock-subscribe' });
       restoreFirestoreSubscriptions(port, postMessage);
+      restoreMessagingSubscriptions(port, postMessage);
     }
     notifyConnectionChange();
   }

@@ -1,3 +1,4 @@
+import type { DeliveryStage } from 'pyric/messaging/internal';
 /**
  * SharedWorker host — shared foundation (context + reply helpers).
  *
@@ -236,6 +237,7 @@ export interface HostCtx {
    * stops counting as visible. Lazily populated by host-messaging.ts.
    */
   messagingClients?: Map<PortLike, string>;
+  messagingAcknowledgments?: Map<PortLike, Map<string, (messageId: string, stage: DeliveryStage) => boolean>>;
 }
 
 export interface ActiveRulesState {

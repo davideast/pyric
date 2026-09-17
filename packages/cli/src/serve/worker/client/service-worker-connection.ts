@@ -19,7 +19,9 @@ export function getServiceWorkerFirestore(appName: string): ClientDb {
   const channel = new BroadcastChannel(SERVICE_WORKER_CHANNEL);
   // Stable logical id + fresh realm id lets the host replace stale subscriptions
   // without accepting late frames from the superseded Service Worker realm.
-  const clientId = `service-worker:${encodeURIComponent(appName)}`;
+  const worker = globalThis as typeof globalThis & { registration?: { scope: string } };
+  const scope = worker.registration?.scope ?? '/';
+  const clientId = `service-worker:${encodeURIComponent(appName)}:${encodeURIComponent(scope)}`;
   const sessionId = newSessionId();
   channel.postMessage({
     direction: 'host',

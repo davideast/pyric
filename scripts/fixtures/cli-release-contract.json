@@ -343,6 +343,7 @@
     "auth_impersonate",
     "auth_reset",
     "auth_whoami",
-    "auth_sessions"
+    "auth_sessions",
+    "messaging_deliveries"
   ]
 }

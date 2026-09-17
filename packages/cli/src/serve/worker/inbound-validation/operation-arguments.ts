@@ -1,3 +1,4 @@
+import { DELIVERY_STAGES } from 'pyric/messaging/internal';
 import { requireDocumentData } from 'pyric/firestore/internal/value-codec';
 import { requireFirestorePath } from '../protocol/firestore-validation.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
@@ -122,6 +123,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       assertAiArguments(message);
       return;
     case 'messaging.deliver': {
+      requireOptionalString(message.recipientId, 'recipientId');
       const spec = message.spec;
       requireRecord(spec, 'spec');
       const visibility = spec.visibilityState;
@@ -147,6 +149,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       return;
     }
     case 'messaging.setVisibility': {
+      requireOptionalString(message.recipientId, 'recipientId');
       const hasSupportedState = message.state === 'visible' || message.state === 'hidden';
       requireShape(hasSupportedState, 'state');
       return;
@@ -229,11 +232,19 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'auth.restorePortSession':
       requireString(message.uid, 'uid');
       return;
+    case 'messaging.acknowledge': {
+      requireString(message.subId, 'subId');
+      requireString(message.messageId, 'messageId');
+      const validStage = DELIVERY_STAGES.some(stage => stage === message.stage);
+      requireShape(validStage, 'stage');
+      return;
+    }
     case 'messaging.send':
       requireOptionalBoolean(message.validateOnly, 'validateOnly');
       return;
     case 'messaging.getToken':
     case 'messaging.deleteToken':
+      requireOptionalString(message.recipientId, 'recipientId');
       requireOptionalString(message.registrationId, 'registrationId');
       return;
     case 'presence.heartbeat':

@@ -1,3 +1,4 @@
+import { getMessagingBroker } from 'pyric/messaging/internal';
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 /**
  * Worker-side serve init (Phase 3c.B) — apply `pyric dev`'s init payload
@@ -194,6 +195,7 @@ export function applyServeInit(
   // 0. Messaging host capability. Serve producers enable it as part of the
   //    canonical SDK swap; a worker without an init payload stays disabled.
   if (payload.messaging === true) {
+    getMessagingBroker(ctx.sandbox);
     ctx.messagingEnabled = true;
     result.messagingEnabled = true;
   }

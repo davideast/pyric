@@ -21,6 +21,7 @@ import {
   type ClientMessaging,
 } from '../worker/client/messaging.js';
 import { workerClientForApp } from './app-client.js';
+import { messagingRegistration } from './messaging-registration.js';
 import { useWorker } from './worker-runtime.js';
 
 export type {
@@ -59,7 +60,7 @@ export function getMessaging(app?: FirebaseApp): Messaging {
   const existing = workerMessagingByApp.get(resolved);
   if (existing) return existing;
   const handle = Object.assign(
-    messagingGetMessaging(workerClientForApp(resolved)),
+    messagingGetMessaging(workerClientForApp(resolved), messagingRegistration(resolved)),
     { app: resolved },
   ) as WorkerMessaging;
   workerMessagingByApp.set(resolved, handle);

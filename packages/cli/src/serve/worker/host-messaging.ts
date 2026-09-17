@@ -1,10 +1,11 @@
+import type { DeliveryStage, DeliveredPayload } from 'pyric/messaging/internal';
 /**
- * SharedWorker host — messaging subsystem: the broker's documented
+ * SharedWorker and Node host — messaging subsystem: the broker's documented
  * worker-host seam, wired (see `pyric/src/messaging/broker/broker.ts`
  * header — each public broker method is one `messaging.*` op here).
  *
  * ONE broker per sandbox (`getMessagingBroker`), shared by every port —
- * production's one-service-worker-per-origin model. Two seams cross the
+ * each recipient owns its registrations and observers. Two seams cross the
  * transport:
  *
  *   OPS   token lifecycle (`getToken`/`deleteToken`), the send plane
@@ -22,7 +23,7 @@
  * each port that reports `messaging.setVisibility` is ONE window client in
  * the broker (`setClientVisibility(portId, state)` on the page's
  * `visibilitychange`). A hidden tab's port marks its client not-visible;
- * routing is foreground iff ANY visible client (oracle:
+ * routing is foreground iff a visible client belongs to the recipient (oracle:
  * `messaging-web-visibility-routing` — visibility, never focus). Port close
  * removes the client so a dead tab cannot pin foreground routing.
  *
@@ -38,7 +39,7 @@
 import { getMessagingBroker, BrokerSendError } from 'pyric/messaging/internal';
 import type { MessagingBroker } from 'pyric/messaging/internal';
 
-import { type HostCtx, type PortLike, post, ok, fail } from './host-context.js';
+import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from './host-context.js';
 import type { OpMessage, MessagingSubMessage } from './protocol.js';
 
 /** Registration id used when a `messaging.getToken`/`deleteToken` op names
@@ -53,6 +54,7 @@ const MESSAGING_METHODS = new Set([
   'messaging.unsubscribeFromTopic',
   'messaging.deliver',
   'messaging.setVisibility',
+  'messaging.acknowledge',
 ]);
 
 /** Is this op method part of the messaging surface? (Routing predicate for
@@ -126,7 +128,8 @@ export async function handleMessagingOp(
     case 'messaging.getToken': {
       // Stable per registration (oracle: `messaging-web-token-stability`).
       try {
-        const token = broker(ctx).getTokenFor(msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID);
+        const token = broker(ctx).getTokenFor(msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID, msg.recipientId);
+        await bestEffortFlush(ctx);
         ok(port, msg.id, { token });
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
@@ -135,7 +138,9 @@ export async function handleMessagingOp(
     case 'messaging.deleteToken': {
       // Resolves truthy either way (oracle: `messaging-web-deletetoken-unregistered`).
       try {
-        ok(port, msg.id, broker(ctx).deleteTokenFor(msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID));
+        const deleted = broker(ctx).deleteTokenFor(msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, deleted);
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
     }
@@ -154,14 +159,18 @@ export async function handleMessagingOp(
 
     case 'messaging.subscribeToTopic': {
       try {
-        ok(port, msg.id, broker(ctx).subscribeToTopic(msg.tokens, msg.topic));
+        const outcome = broker(ctx).subscribeToTopic(msg.tokens, msg.topic);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, outcome);
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
     }
 
     case 'messaging.unsubscribeFromTopic': {
       try {
-        ok(port, msg.id, broker(ctx).unsubscribeFromTopic(msg.tokens, msg.topic));
+        const outcome = broker(ctx).unsubscribeFromTopic(msg.tokens, msg.topic);
+        await bestEffortFlush(ctx);
+        ok(port, msg.id, outcome);
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
     }
@@ -175,10 +184,18 @@ export async function handleMessagingOp(
       try {
         const { visibilityState, ...payload } = msg.spec;
         if (visibilityState !== undefined) {
-          broker(ctx).setClientVisibility(clientIdFor(ctx, port), visibilityState);
+          broker(ctx).setClientVisibility(clientIdFor(ctx, port), visibilityState, msg.recipientId);
         }
-        ok(port, msg.id, broker(ctx).deliver(payload));
+        ok(port, msg.id, broker(ctx).deliver(payload, msg.recipientId));
       } catch (e) { failMessaging(port, msg.id, e); }
+      break;
+    }
+
+    case 'messaging.acknowledge': {
+      const acknowledge = ctx.messagingAcknowledgments?.get(port)?.get(msg.subId);
+      const accepted = acknowledge?.(msg.messageId, msg.stage) === true;
+      if (accepted) ok(port, msg.id, null);
+      else fail(port, msg.id, new Error('Messaging acknowledgment has no matching delivery on this subscription.'));
       break;
     }
 
@@ -187,7 +204,7 @@ export async function handleMessagingOp(
       // window client; its visibility report updates the broker state the
       // captured rule routes on.
       try {
-        broker(ctx).setClientVisibility(clientIdFor(ctx, port), msg.state);
+        broker(ctx).setClientVisibility(clientIdFor(ctx, port), msg.state, msg.recipientId);
         ok(port, msg.id, null);
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
@@ -217,13 +234,40 @@ export function handleMessagingSub(ctx: HostCtx, port: PortLike, msg: MessagingS
   if (portSubs.has(msg.subId)) return; // idempotent
 
   const b = broker(ctx);
-  const forward = (payload: unknown): void =>
+  const reports: NonNullable<HostCtx['messagingAcknowledgments']> = ctx.messagingAcknowledgments ??= new Map();
+  const portReports = reports.get(port) ?? new Map<string, (messageId: string, stage: DeliveryStage) => boolean>();
+  reports.set(port, portReports);
+  // Bounded by the latest deliveries of this live subscription; cleared on unsubscribe.
+  const pending = new Map<string, Set<string>>();
+  const observerId = `${clientIdFor(ctx, port)}:${msg.subId}`;
+  portReports.set(msg.subId, (messageId, stage) => {
+    const stages = pending.get(messageId);
+    const unknownMessage = stages === undefined;
+    if (unknownMessage) return false;
+    const alreadyReported = stages.has(stage);
+    if (alreadyReported) return true;
+    stages.add(stage);
+    b.acknowledge(messageId, msg.recipientId ?? 'sandbox-default', observerId, stage);
+    return true;
+  });
+  const forward = (payload: DeliveredPayload): void => {
+    pending.set(payload.messageId, new Set());
+    const oldest = pending.keys().next();
+    const overCapacity = pending.size > 32 && !oldest.done;
+    if (overCapacity) pending.delete(oldest.value);
     post(port, { t: 'snap', subId: msg.subId, value: payload });
+  };
   const unsub =
     msg.target === 'messaging.foreground'
-      ? b.onForegroundMessage(forward)
-      : b.onBackgroundMessage(forward);
-  portSubs.set(msg.subId, unsub);
+      ? b.onForegroundMessage(forward, msg.recipientId)
+      : b.onBackgroundMessage(forward, msg.recipientId);
+  portSubs.set(msg.subId, () => {
+    unsub();
+    pending.clear();
+    portReports.delete(msg.subId);
+    const unusedPort = portReports.size === 0;
+    if (unusedPort) reports.delete(port);
+  });
 }
 
 /**

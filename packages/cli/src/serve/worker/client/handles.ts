@@ -21,6 +21,8 @@ export interface ClientPort {
   start(): void;
   close(): void;
   observeConnection?(listener: (connected: boolean) => void): () => void;
+  /** Last reported Messaging visibility, replayed with observers after reconnect. */
+  messagingVisibility?: Extract<OpMessage, { method: 'messaging.setVisibility' }>;
   /** Restore this app's Auth state before a replacement host receives data operations. */
   restoreAuth?(request: (message: OpMessage) => Promise<unknown>): Promise<void>;
 }

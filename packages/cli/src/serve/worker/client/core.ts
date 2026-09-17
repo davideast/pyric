@@ -120,6 +120,35 @@ export function openEventSubscription(
   return true;
 }
 
+/** Move existing observers when getToken selects a different Service Worker scope. */
+export function retargetMessagingSubscriptions(port: ClientPort, recipientId: string): void {
+  for (const [subId, subscription] of _snapSubs) {
+    const message = subscription.message;
+    const ownsSubscription = subscription.port === port && message?.t === 'sub';
+    if (!ownsSubscription) continue;
+    const isMessaging = message.target === 'messaging.foreground' || message.target === 'messaging.background';
+    if (!isMessaging) continue;
+    port.postMessage({ t: 'unsub', subId });
+    message.recipientId = recipientId;
+    port.postMessage(message);
+  }
+}
+
+/** Reattach Messaging observers without replaying sends or token mutations. */
+export function restoreMessagingSubscriptions(port: ClientPort, postMessage: ClientPort['postMessage']): void {
+  const visibility = port.messagingVisibility;
+  if (visibility) postMessage({ ...visibility, id: nextId() });
+  for (const [subId, subscription] of _snapSubs) {
+    const message = subscription.message;
+    const ownsSubscription = subscription.port === port && message?.t === 'sub';
+    if (!ownsSubscription) continue;
+    const isMessaging = message.target === 'messaging.foreground' || message.target === 'messaging.background';
+    if (!isMessaging) continue;
+    postMessage({ t: 'unsub', subId });
+    postMessage(message);
+  }
+}
+
 /** Re-establish document listener intent without repeating one-shot operations. */
 export function restoreFirestoreSubscriptions(
   port: ClientPort,

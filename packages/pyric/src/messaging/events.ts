@@ -16,6 +16,7 @@ export const MESSAGING_EVENT_RECORD = {
     'message_rejected',
     'delivery_routed',
     'message_delivered',
+    'delivery_acknowledged',
   ],
   target: {
     name: 'token',
