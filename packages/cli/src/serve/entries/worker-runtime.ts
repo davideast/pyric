@@ -41,7 +41,7 @@ function hostedTarget(): { url: string; projectKey: string } {
   const projectKey = payload?.projectKey;
   const isProjectMissing = typeof projectKey !== 'string' || projectKey.length === 0;
   if (isProjectMissing) throw new Error('The hosted sandbox has no project identity.');
-  return { url: toPageOriginWsUrl(bridgeUrl, location), projectKey };
+  return { url: toPageOriginWsUrl(bridgeUrl, location, 'page-origin'), projectKey };
 }
 
 const hasServiceWorkerRelay = isServiceWorkerRealm() && typeof BroadcastChannel !== 'undefined';
