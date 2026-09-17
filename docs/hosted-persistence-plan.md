@@ -73,6 +73,5 @@ separately. Salvage is a release gate.
 The SQLite owner, structured adapter, raw Storage backend, archive/fresh,
 snapshots, diagnostics, and explicit salvage are implemented. Focused Node,
 browser, SharedWorker, Vite and installed-package checks have passed. Step 6 is
-**still open**: preserve the stronger MCP retention tests while replacing their
-obsolete export-based fault fixture, then complete Orbit and native Windows
-checks. See [verification evidence and remaining work](hosted-persistence-verification.md).
+**still open**: the stronger MCP retention tests and disposable Orbit recovery
+walkthrough now pass. Native Windows checks and final combined acceptance remain. See [verification evidence and remaining work](hosted-persistence-verification.md).

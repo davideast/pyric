@@ -1,0 +1,95 @@
+{
+  "succeeded": true,
+  "verifiedAt": "2026-09-17T10:15:32.070Z",
+  "node": "v22.15.0",
+  "stages": [
+    {
+      "step": "Create account, send Orbit message with file, and write RTDB",
+      "detail": {
+        "uid": "email-103236f9-41b6-44da-b0f9-0e857271ba43",
+        "documentId": "96909646-a77d-4bcf-9300-f0437302ac8e"
+      }
+    },
+    {
+      "step": "Cold host restart and new browser context preserve account, data, file bytes and metadata",
+      "detail": {
+        "uid": "email-103236f9-41b6-44da-b0f9-0e857271ba43",
+        "documentId": "96909646-a77d-4bcf-9300-f0437302ac8e",
+        "bytes": 8,
+        "metadata": {
+          "fullPath": "workspace/3a7f70b4-d161-4c40-9a52-0bfd40d81334/checkpoint.bin",
+          "name": "checkpoint.bin",
+          "bucket": "pyric-default",
+          "generation": "1789640128110",
+          "metageneration": "1",
+          "timeCreated": "2026-09-17T10:15:28.110Z",
+          "updated": "2026-09-17T10:15:28.110Z",
+          "size": 8,
+          "contentType": "application/octet-stream"
+        }
+      }
+    },
+    {
+      "step": "Fresh starts empty and preserves one archive",
+      "detail": {
+        "archive": "hosted.archive-1789640129060-510c8742-1ec3-414c-b6e2-ccfddca37f09"
+      }
+    },
+    {
+      "step": "CLI salvage preserves archive bytes and restores usable Orbit state",
+      "detail": {
+        "uid": "email-103236f9-41b6-44da-b0f9-0e857271ba43",
+        "documentId": "96909646-a77d-4bcf-9300-f0437302ac8e",
+        "bytes": 8,
+        "metadata": {
+          "fullPath": "workspace/3a7f70b4-d161-4c40-9a52-0bfd40d81334/checkpoint.bin",
+          "name": "checkpoint.bin",
+          "bucket": "pyric-default",
+          "generation": "1789640128110",
+          "metageneration": "1",
+          "timeCreated": "2026-09-17T10:15:28.110Z",
+          "updated": "2026-09-17T10:15:28.110Z",
+          "size": 8,
+          "contentType": "application/octet-stream"
+        }
+      }
+    },
+    {
+      "step": "Malformed state fails closed; salvage reports the exclusion and restores Orbit",
+      "detail": {
+        "uid": "email-103236f9-41b6-44da-b0f9-0e857271ba43",
+        "documentId": "96909646-a77d-4bcf-9300-f0437302ac8e",
+        "bytes": 8,
+        "metadata": {
+          "fullPath": "workspace/3a7f70b4-d161-4c40-9a52-0bfd40d81334/checkpoint.bin",
+          "name": "checkpoint.bin",
+          "bucket": "pyric-default",
+          "generation": "1789640128110",
+          "metageneration": "1",
+          "timeCreated": "2026-09-17T10:15:28.110Z",
+          "updated": "2026-09-17T10:15:28.110Z",
+          "size": 8,
+          "contentType": "application/octet-stream"
+        }
+      }
+    },
+    {
+      "step": "Recovery report",
+      "detail": {
+        "output": "/private/var/folders/z5/kgk2ydxn2jd0gd231703zk840000gn/T/orbit-persistence-checkpoint-9ZKNzs/.pyric/state/repaired",
+        "recoveredDocuments": 16,
+        "recoveredServices": 2,
+        "recoveredObjects": 1,
+        "excluded": [
+          {
+            "namespace": "hosted",
+            "id": "checkpoint-damaged",
+            "reason": "Invalid JSON"
+          }
+        ]
+      }
+    }
+  ],
+  "browserErrors": [],
+  "disposableRootRemoved": true
+}
