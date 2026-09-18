@@ -164,6 +164,7 @@ export function migrateV2ToRecords(
  *  [recordId, record] pairs). Rehydrates wrapper types from their markers. */
 export function deserializeFromBuckets(
   records: Iterable<[string, unknown]>,
+  options: { skipInvalidDocuments?: boolean } = {},
 ): { firestore: Record<string, Record<string, unknown>>; services: Record<string, unknown> } {
   const firestore: Record<string, Record<string, unknown>> = {};
   let services: Record<string, unknown> = {};
@@ -193,7 +194,13 @@ export function deserializeFromBuckets(
       continue;
     }
     for (const [path, data] of Object.entries(documents)) {
-      firestore[path] = requireDocumentData(rehydrateEncodedDocValue(data, bucket?.encoding));
+      try {
+        firestore[path] = requireDocumentData(rehydrateEncodedDocValue(data, bucket?.encoding));
+      } catch (error) {
+        const mustReject = options.skipInvalidDocuments !== true;
+        if (mustReject) throw error;
+        console.warn(`[sandbox/persistence] skipping unreadable Firestore document '${path}' in bucket '${id}':`, error);
+      }
     }
   }
   return { firestore, services };

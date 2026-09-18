@@ -49,19 +49,19 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A2. Sandbox reset no longer clears RTDB rules
 
-- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `100031ac`.
+- Severity: should-fix. Slice: `core`. Status: closed at `abc7efbb` (branch `hosted-main-integration`). Verified 2026-09-18 by the reviewer: `verify-ledger A2` 1 pass, 0 fail; acceptance unchanged; `bun test packages/pyric/test/database` plus RTDB persistence and active-listener suites 532 pass, 0 fail beyond the still-open A6; pyric typecheck exit 0. Cross-plane residual filed as C12.
 - Location: `packages/pyric/src/database/sandbox/persistence-state.ts:193`.
-- Defect: `reset()` no longer routes through `restore(null)`, so `activeRules` and `rules.setRules(null)` are skipped. On `main` reset cleared them.
+- Defect: `reset()` no longer routes through `restore(null)`, so `activeRules` and `rules.setRules(null)` are skipped. On `main`, the backend reset path (`resetAll`) cleared them through `restore(null)`; a plain `sandbox.reset()` did not reach the RTDB backend at all. The fix restores the backend path and also clears on the session boundary, which matches Firestore, whose rules are wiped by the environment swap on every reset.
 - Failure: set RTDB rules, call `sandbox.reset()`, read active rules. They are unchanged.
 - Acceptance: unit test in `packages/pyric/test/database` asserting rules are cleared after reset and after `resetAll`. If the new behavior is intended, mark `declined`, document it on `getActiveRules`, and pin it with a test.
 
 ### A3. Persistence restore aborts on one bad document
 
-- Severity: should-fix. Slice: `core`. Status: open.
+- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `abc7efbb`.
 - Location: `packages/pyric/src/sandbox/persistence/chunk-format.ts:393`; caller `controller.ts:492` has no error handling.
 - Defect: `deserializeFromBuckets` throws on a non-object document, a document nested deeper than 64 containers, or an unknown bucket encoding. The checksum branch still warns and skips. On `main` restore rehydrated whatever was readable.
 - Failure: one malformed document in the store makes `enablePersistence` reject and no Firestore state restores.
-- Acceptance depends on the owner's ruling in `docs/hosted-persistence-plan-review.md` decision 3. Under quarantine-with-retention: a bucket with one malformed and one valid document restores the valid one, retains the malformed one in a quarantine table, and warns by namespace and id. Under fail-closed: startup refuses with a message that names the salvage command in H1, the database directory is preserved unmodified, and A3 closes only when H1 exists. In both cases the JSON path on `main` restores what it can, so the `core` fix against `main` restores that behavior regardless of the hosted ruling.
+- Acceptance: the shared restore path restores every readable document, skips and reports unreadable documents by path and bucket, and does not reject the entire restore. The owner confirmed that this core acceptance is independent of hosted fail-closed recovery; hosted validation and H1 remain separate.
 
 ### A4. Hosted history expires after 30 minutes and then replay and verify throw
 
@@ -232,6 +232,14 @@ Each is `declined` or `open` once you decide. Record the decision here.
 - `auth.setTenantId` no longer retargets a live session (`packages/cli/src/serve/worker/host-auth.ts:305`). The real SDK only affects future sign-ins, so this may be a fix, but no test pins either behavior and listeners opened under the old tenant keep the old claim.
 - The in-page tab-sync fallback no longer propagates sign-in and sign-out across tabs (`packages/cli/src/serve/entries/tab-sync-wiring.ts`). The rewritten tests pin the new behavior. This is a visible change for users of the fallback.
 - Pending observations with no terminal status are exempt from every history limit (`packages/pyric/src/sandbox/internal/event-history.ts:232`). No code under `packages/cli/src/serve` emits `interrupted` or `cancelled` for a dropped client.
+
+### C12. Served worker does not re-deploy RTDB rules after a reset
+
+- Severity: should-fix. Slice: `transport`. Status: open. Pre-existing on `main`; surfaced by the A2 verification.
+- Location: `packages/cli/src/serve/worker/host/studio.ts:52`; the RTDB rules source is retained at `ctx.activeRules.database` by `serve-init.ts:103`.
+- Defect: after `resetAll`, the worker re-deploys only the Firestore rules. Its comment assumes RTDB rules survive the reset. On `main` the backend reset already cleared them, and after A2 the session boundary clears them too, so a Studio reset in served mode leaves RTDB under the default deny policy until the rules file next changes.
+- Failure: served app with `database.rules.json` granting reads; Studio reset; every RTDB read is refused until the developer edits the rules file.
+- Acceptance: the worker re-deploys `ctx.activeRules.database` after `resetAll` the same way it re-deploys Firestore rules, and `packages/cli/test/serve/worker/reset-all-op.test.ts` gains a case mirroring its Firestore case at line 107: an RTDB read governed by active rules still succeeds after `resetAll`.
 
 ## D. Spec gaps and contract violations
 

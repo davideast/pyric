@@ -538,7 +538,7 @@ async function restore(
   // Seed the flush hash state from the effective v3 records, so the first flush
   // does not redundantly re-write the just-restored (or just-migrated) buckets.
   for (const [id, rec] of v3Records) lastHashes.set(id, hashRecord(rec));
-  const parsed = deserializeFromBuckets(v3Records);
+  const parsed = deserializeFromBuckets(v3Records, { skipInvalidDocuments: true });
 
   // 1. Restore Firestore documents first. These are the structural data
   //    that services (auth) may depend on being present.
