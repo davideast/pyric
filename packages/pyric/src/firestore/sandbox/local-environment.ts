@@ -67,6 +67,17 @@ import {
 
 export class LocalEnvironment {
   private state: DocStore;
+  private readonly stateChanges = new Set<(path: string | null) => void>();
+
+  /** Authoritative mutations; null replaces the keyspace. Independent of observation history. */
+  onStateChange(callback: (path: string | null) => void): () => void {
+    this.stateChanges.add(callback);
+    return () => { this.stateChanges.delete(callback); };
+  }
+
+  private readonly stateChanged = (path: string | null): void => {
+    for (const callback of this.stateChanges) callback(path);
+  };
   private eventLog: EventLog;
   private readonly history: HistoryControls;
   private simulator: SimulateFirestoreRulesHandler;
@@ -111,7 +122,7 @@ export class LocalEnvironment {
    * on its own did before the seam existed.
    */
   constructor(clock: SandboxClock = new SandboxClock()) {
-    this.state = new LocalState();
+    this.state = new LocalState({}, undefined, this.stateChanged);
     this.eventLog = new EventLog(clock);
     const engine = this;
     this.simulator = new SimulateFirestoreRulesHandler();
@@ -311,6 +322,7 @@ export class LocalEnvironment {
   dispose(): void {
     this.listeners.dispose();
     this.events.clear();
+    this.stateChanges.clear();
   }
 
   /** Seed the environment with rules and initial data. */
@@ -324,8 +336,9 @@ export class LocalEnvironment {
     // instead of cloning it, so the fork is O(1). Reads fall through to the base;
     // branch writes land in the overlay.
     this.state = options.baseDocuments
-      ? new LocalState({}, new OverlayBacking(options.baseDocuments))
-      : new LocalState(options.documents ?? {});
+      ? new LocalState({}, new OverlayBacking(options.baseDocuments), this.stateChanged)
+      : new LocalState(options.documents ?? {}, undefined, this.stateChanged);
+    this.stateChanged(null);
     // The reset baseline. For a branch it aliases the immutable base (no clone;
     // it is already a stable snapshot). seedSnapshot has no reader today; if a
     // future reset does state.restore(seedSnapshot), clone it first so the base's

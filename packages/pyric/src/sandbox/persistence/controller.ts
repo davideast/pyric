@@ -9,6 +9,8 @@
  * every side effect and leaves the sandbox unchanged.
  */
 
+import { ChangedBuckets } from './changed-buckets.js';
+import { CHUNK_FORMAT_VERSION, META_RECORD_ID } from './chunk-format.js';
 import type { SandboxEvent } from '../types/events.js';
 import type { PersistableService } from '../types/persistence.js';
 import type { Sandbox } from '../types/service.js';
@@ -129,6 +131,7 @@ export async function attachPersistence(
   const restoredServices = await restore(sandbox, backend, options.key, lastHashes);
 
   const pendingServices = new Map(Object.entries(restoredServices ?? {}));
+  const serviceSnapshots = new Map<string, unknown>();
 
   let pendingFlush: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
@@ -138,39 +141,55 @@ export async function attachPersistence(
   // but makes debugging easier).
   const serviceUnsubs = new Map<string, () => void>();
 
-  // The actual flush. Reads CURRENT state each time it runs.
+  const localSandbox = sandbox instanceof SandboxImpl ? sandbox : null;
+  const changedBuckets = localSandbox ? new ChangedBuckets(
+    () => localSandbox.getEnv().snapshot(),
+    path => localSandbox.getEnv().getDocument(path),
+    [...lastHashes.keys()].filter(id => id !== META_RECORD_ID),
+  ) : null;
+
+  // Prepare immutable records before awaiting the backend; later mutations stay dirty.
   const realFlush = async (): Promise<void> => {
     if (disposed) return;
-    // `sandbox.snapshot()` now includes `{ firestore, services }` — the
-    // services map is built live from the registry, so services registered
-    // after enablePersistence (late registration) are naturally included.
-    const snap = sandbox.snapshot();
-    // The flush stamp is sandbox time, so a restored bundle says when the
-    // sandbox saved it rather than when the host process happened to run.
-    const records = serializeToBuckets(snap.firestore, { ...Object.fromEntries(pendingServices), ...snap.services }, getClock(sandbox).now());
-    // Persist changed buckets and removals atomically when the backend supports
-    // it. Adopt hashes only after success, so a failed flush remains retryable.
-    const changed = new Map<string, unknown>();
-    const nextHashes = new Map<string, number>();
-    for (const [id, rec] of records) {
-      const h = hashRecord(rec);
-      nextHashes.set(id, h);
-      const changedHash = lastHashes.get(id) !== h;
-      if (changedHash) changed.set(id, rec);
-    }
-    const removed = [...lastHashes.keys()].filter((id) => !records.has(id));
-    const applyChanges = backend.applyChanges;
-    const commitsAtomically = applyChanges !== undefined;
-    if (commitsAtomically) {
-      await applyChanges(options.key, changed, removed);
-    } else {
-      const hasChanges = changed.size > 0;
-      if (hasChanges) await backend.putRecords(options.key, changed);
-      const hasRemovals = removed.length > 0;
-      if (hasRemovals) await backend.deleteRecords(options.key, removed);
-    }
-    lastHashes.clear();
-    for (const [id, h] of nextHashes) lastHashes.set(id, h);
+    const prepared = changedBuckets?.prepare();
+    try {
+      const services = { ...Object.fromEntries(pendingServices) };
+      let records: Map<string, unknown>;
+      const usesChangedBuckets = prepared !== undefined && localSandbox !== null;
+      if (usesChangedBuckets) {
+        for (const [name, service] of localSandbox.getServiceRegistry()) {
+          const needsSnapshot = !service.subscribe || !serviceSnapshots.has(name);
+          if (needsSnapshot) serviceSnapshots.set(name, structuredClone(service.snapshot()));
+          services[name] = serviceSnapshots.get(name);
+        }
+        records = new Map(prepared.records);
+        records.set(META_RECORD_ID, { version: CHUNK_FORMAT_VERSION, savedAt: getClock(sandbox).now(), services });
+      } else {
+        const snap = sandbox.snapshot();
+        records = serializeToBuckets(snap.firestore, { ...services, ...snap.services }, getClock(sandbox).now());
+      }
+      const changed = new Map<string, unknown>();
+      const nextHashes = new Map<string, number>();
+      for (const [id, record] of records) {
+        const hash = hashRecord(record);
+        nextHashes.set(id, hash);
+        const changedHash = lastHashes.get(id) !== hash;
+        if (changedHash) changed.set(id, record);
+      }
+      const removed = prepared?.removed ?? [...lastHashes.keys()].filter(id => !records.has(id));
+      const applyChanges = backend.applyChanges;
+      const commitsAtomically = applyChanges !== undefined;
+      if (commitsAtomically) {
+        await applyChanges(options.key, changed, removed);
+      } else {
+        const hasChanges = changed.size > 0;
+        if (hasChanges) await backend.putRecords(options.key, changed);
+        const hasRemovals = removed.length > 0;
+        if (hasRemovals) await backend.deleteRecords(options.key, removed);
+      }
+      for (const id of removed) lastHashes.delete(id);
+      for (const [id, hash] of nextHashes) lastHashes.set(id, hash);
+    } catch (error) { prepared?.retry(); throw error; }
   };
 
   // Serialize flushes on a single chain so two never overlap. Without this, a
@@ -227,6 +246,7 @@ export async function attachPersistence(
   const attachServiceSubscription = (name: string, hooks: PersistableService): void => {
     if (!hooks.subscribe || serviceUnsubs.has(name)) return;
     const unsub = hooks.subscribe(() => {
+      serviceSnapshots.delete(name);
       scheduleFlush();
     });
     serviceUnsubs.set(name, unsub);
@@ -334,6 +354,7 @@ export async function attachPersistence(
       attachSessionSubscription(name, hooks);
     }
     sandbox.setServiceRegistrationHook((name, hooks) => {
+      serviceSnapshots.delete(name);
       const hasPendingState = pendingServices.has(name);
       if (hasPendingState) {
         try {
@@ -352,6 +373,7 @@ export async function attachPersistence(
       scheduleFlush();
     });
     sandbox.setServiceUnregistrationHook((name) => {
+      serviceSnapshots.delete(name);
       serviceUnsubs.get(name)?.();
       serviceUnsubs.delete(name);
       sessionUnsubs.get(name)?.();
@@ -364,6 +386,12 @@ export async function attachPersistence(
     });
   }
 
+  const unsubscribeDocuments = localSandbox?.onDocumentChange(path => {
+    changedBuckets?.mark(path);
+    const replacesState = path === null;
+    if (replacesState) serviceSnapshots.clear();
+    scheduleFlush();
+  });
   const unsubscribe = sandbox.onEvent((event) => {
     if (isPersistableEvent(event)) scheduleFlush();
   });
@@ -398,6 +426,7 @@ export async function attachPersistence(
       // must treat every bucket as changed and re-persist the full in-memory
       // state (otherwise untouched buckets stay suppressed and are lost).
       lastHashes.clear();
+      changedBuckets?.mark(null);
     },
     dispose() {
       if (disposed) return;
@@ -407,6 +436,7 @@ export async function attachPersistence(
         pendingFlush = null;
       }
       unsubscribe();
+      unsubscribeDocuments?.();
       // Detach service change-notification subscriptions.
       for (const unsub of serviceUnsubs.values()) unsub();
       serviceUnsubs.clear();

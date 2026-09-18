@@ -112,6 +112,17 @@ export class SandboxImpl implements LocalSandbox {
   /** Subscribers to currentUser changes. Stable across reset() and
    *  dispose() the same way `eventSubs` is — dispose clears them. */
   private currentUserSubs = new Set<(user: AuthState) => void>();
+  private readonly documentChanges = new Set<(path: string | null) => void>();
+
+  /** Persistence tracks mutations independently of retained events and SDK transport. */
+  onDocumentChange(callback: (path: string | null) => void): () => void {
+    this.documentChanges.add(callback);
+    return () => { this.documentChanges.delete(callback); };
+  }
+
+  private readonly documentChanged = (path: string | null): void => {
+    for (const callback of this.documentChanges) callback(path);
+  };
 
   /** Persistence controller. Null until `enablePersistence` is called.
    *  Survives `reset()` so the next write re-flushes the empty state;
@@ -201,6 +212,7 @@ export class SandboxImpl implements LocalSandbox {
    * through {@link emit}. Refreshed on `reset()` after the env swap.
    */
   private attachToEnv(): void {
+    this.envUnsubs.push(this._env.onStateChange(this.documentChanged));
     this.envUnsubs.push(
       this._env.onRequest((event) => {
         // RequestEvent already carries `kind: 'request'` from buildRequestEvent.
@@ -442,6 +454,7 @@ export class SandboxImpl implements LocalSandbox {
     const hasHistoryStore = historyStore !== undefined;
     if (hasHistoryStore) { historyStore.clear(); this._env.installHistoryStore(historyStore); }
     this.attachToEnv();
+    this.documentChanged(null);
   }
 
   async resetAll(): Promise<{ errors: string[] }> {
@@ -505,6 +518,7 @@ export class SandboxImpl implements LocalSandbox {
     // subscriptions on it would leak.
     this.eventSubs.clear();
     this.currentUserSubs.clear();
+    this.documentChanges.clear();
   }
 
   snapshot(): SandboxSnapshot {

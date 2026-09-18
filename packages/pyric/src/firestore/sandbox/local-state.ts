@@ -49,7 +49,11 @@ export class LocalState implements DocStore {
   private readonly versions = new Map<string, number>();
   private nextVersion = 1;
 
-  constructor(seed: Record<string, DocumentData> = {}, backing?: DocBacking) {
+  constructor(
+    seed: Record<string, DocumentData> = {},
+    backing?: DocBacking,
+    private readonly onChange?: (path: string) => void,
+  ) {
     this.documents = backing ?? new Map();
     for (const [path, data] of Object.entries(seed)) {
       // Seed pass: no prior state, method='seed' so converters can branch.
@@ -396,6 +400,7 @@ export class LocalState implements DocStore {
 
   private bumpVersion(path: string): void {
     this.versions.set(path, this.nextVersion++);
+    this.onChange?.(path);
   }
 
 }
