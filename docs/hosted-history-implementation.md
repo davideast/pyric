@@ -98,6 +98,9 @@ errors or refusals. Acknowledgment p95 was 3.5 ms without export and 7.1 ms with
 continuous export. The latter verified 72,008 journal records in two segments.
 
 The unchanged slow-reader browser test passed twice, two cycles per test.
+**Later acceptance:** the [2026-09-17 multi-client verification](hosted-multiclient-verification.md)
+re-ran that test and measured 269.3 MiB growth against the same 192 MiB limit.
+The memory gate is open again; the passing measurements below are historical.
 Measured RSS growth was 32.1, 134.4, 58.8 and 79.2 MiB. Healthy-client p95 was
 95.2–99.1 ms; the stalled reader was disconnected at the existing backlog limit.
 Earlier failing measurements prompted removal of duplicate undo payload storage;
