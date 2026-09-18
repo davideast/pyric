@@ -51,7 +51,7 @@ import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixtur
  *  (capture POSTs through it). Injectable so tests drive it with a stub. */
 export interface ServeInitEnv {
   fetch: typeof fetch;
-  /** Capture debounce window (ms). Default 400 — matches `runtime.ts`. Tests
+  /** Capture coalescing window (ms), measured from the first pending event. Default 400. Tests
    *  pass a small value to keep the round-trip fast. */
   captureDebounceMs?: number;
 }
@@ -317,14 +317,17 @@ export function applyServeInit(
   }
 
   // 4. Capture — the write side of the `pyric verify` loop. On every sandbox
-  //    event, debounce-POST the full session fixture (rules + history + state)
+  //    event, coalesce and POST the full session fixture (rules + history + state)
   //    to `/__pyric/capture`. The server writes it verbatim to
   //    `.pyric/last-session.json`. Independent of --persist.
   if (payload.capture) {
-    const debounceMs = payload.capture ? (env.captureDebounceMs ?? 400) : 0;
+    const captureIntervalMs = env.captureDebounceMs ?? 400;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let inFlight: Promise<void> | null = null;
+    let dirty = false;
+    let disposed = false;
 
-    const flush = async (): Promise<void> => {
+    const postCapture = async (): Promise<void> => {
       const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
       const rtdbState =
         payload.databaseRules || ctx.sandbox.history().some((event) => event.service === 'rtdb')
@@ -359,27 +362,39 @@ export function applyServeInit(
         .catch(() => {});
     };
 
-    const unsub = ctx.sandbox.onEvent(() => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { void flush(); }, debounceMs);
-    });
+    const schedule = (): void => {
+      const alreadyPending = disposed || timer !== null || inFlight !== null;
+      if (alreadyPending) return;
+      timer = setTimeout(() => { timer = null; void flush().catch(() => {}); }, captureIntervalMs);
+    };
 
-    result.captureEnabled = true;
-    // Immediate-flush seam for the `resetAll` op (issue #359 extension):
-    // reset clears `sandbox.history()`, and the SERVER-persisted capture
-    // (`.pyric/last-session.json`) must follow NOW — inside the debounce
-    // window a dying worker leaves the wiped session's events on disk, and
-    // the next boot's `hydrateEventHistory` would prime them straight back
-    // into Traffic. Bypasses the debounce; cancels any pending flush (it
-    // would only re-write the same post-reset history).
-    ctx.captureFlush = async (): Promise<void> => {
+    const flush = async (): Promise<void> => {
+      // Explicit reset flushes wait for older POSTs before capturing current state.
+      while (inFlight) await inFlight;
+      if (disposed) return;
       if (timer) {
         clearTimeout(timer);
         timer = null;
       }
-      await flush();
+      dirty = false;
+      inFlight = postCapture();
+      try { await inFlight; }
+      finally {
+        inFlight = null;
+        if (dirty) schedule();
+      }
     };
+
+    const unsub = ctx.sandbox.onEvent(() => {
+      dirty = true;
+      schedule();
+    });
+
+    result.captureEnabled = true;
+    // Reset must publish its cleared history before acknowledging completion.
+    ctx.captureFlush = flush;
     result.dispose = (): void => {
+      disposed = true;
       if (timer) clearTimeout(timer);
       unsub();
       ctx.captureFlush = undefined;
@@ -426,8 +441,8 @@ export const MAX_PRIMED_EVENTS = 2000;
  *  - Skips cleanly when the endpoint 404s (capture off / nothing captured) or
  *    the fetch throws (standalone worker, no `pyric dev` behind it).
  *
- * FRESHNESS: the capture lags the last pre-death moments by up to the debounce
- * window (~400ms), so the final events before a worker death may be missing.
+ * FRESHNESS: capture coalesces events for ~400ms and waits for any older POST.
+ * Slow delivery or worker death can leave the final events absent from capture.
  * That is acceptable — the data itself is durable via IDB; this only restores
  * the activity RECORD, and near-perfect is enough for Traffic/feed continuity.
  *

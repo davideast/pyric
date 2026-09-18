@@ -82,7 +82,7 @@ async function makeCtx(): Promise<HostCtx> {
     key: `serve-init-${Math.random()}`,
     injectedBackend: createMemoryBackend(),
   });
-  return { db: getFirestore(sandbox), sandbox, subs: new Map() };
+  return { db: getFirestore(sandbox), sandbox, subs: new Map(), instanceId: 'serve-init-test' };
 }
 
 function fakePort(): PortLike & { messages: OutboundMessage[] } {
@@ -428,7 +428,7 @@ describe('applyServeInit — seed applies only into an empty home (guardrail)', 
     const idb = createMemoryBackend();
     await idb.putRecords('pyric-shared-worker', serializeToBuckets({ 'todos/carried-over': { v: 1 } }, {}, 0));
     await sandbox.enablePersistence({ key: 'pyric-shared-worker', injectedBackend: idb });
-    const ctx: HostCtx = { db: getFirestore(sandbox), sandbox, subs: new Map() };
+    const ctx: HostCtx = { db: getFirestore(sandbox), sandbox, subs: new Map(), instanceId: 'serve-init-test' };
 
     const result = applyServeInit(
       ctx,
@@ -441,6 +441,31 @@ describe('applyServeInit — seed applies only into an empty home (guardrail)', 
 });
 
 describe('applyServeInit — capture (the verify loop)', () => {
+  it('delivers captures while writes continue without a quiet period', async () => {
+    const ctx = await makeCtx();
+    const fetchSpy = recordingFetch();
+    const result = applyServeInit(ctx, { ...basePayload, capture: true }, {
+      fetch: fetchSpy, captureDebounceMs: 50,
+    });
+    try {
+      const port = fakePort();
+      for (let index = 0; index < 20; index++) {
+        await handleMessage(ctx, port, {
+          t: 'op', id: `continuous-${index}`, method: 'setDoc',
+          path: 'notes/latest', data: { index },
+        });
+        await tick(10);
+      }
+      const captures = fetchSpy.calls.filter(call => call.url === '/__pyric/capture');
+      expect(captures.length).toBeGreaterThan(0);
+      const fixture = JSON.parse(captures.at(-1)!.body);
+      expect(fixture.services.firestore.state.documents['notes/latest'].index).toBeGreaterThan(0);
+    } finally {
+      result.dispose();
+      ctx.sandbox.dispose();
+    }
+  });
+
   it('POSTs the service-shaped session fixture to /__pyric/capture, then dispose stops it', async () => {
     const ctx = await makeCtx();
     const fetchSpy = recordingFetch();
@@ -493,12 +518,44 @@ describe('applyServeInit — capture (the verify loop)', () => {
     expect(fetchSpy.calls.length).toBe(0);
   });
 
+  it('finishes an older capture before publishing the reset state', async () => {
+    const ctx = await makeCtx();
+    const release = Promise.withResolvers<Response>();
+    const bodies: string[] = [];
+    const fetchCapture = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      const firstPost = bodies.length === 1;
+      return firstPost ? release.promise : new Response(null, { status: 204 });
+    }, { preconnect() {} });
+    const result = applyServeInit(ctx, { ...basePayload, rules: PERMISSIVE_RULES, capture: true }, {
+      fetch: fetchCapture, captureDebounceMs: 10,
+    });
+    try {
+      ctx.sandbox.admin.setDocument('notes/old', { message: 'before reset' });
+      const beforeReset = ctx.captureFlush!();
+      await tick(1);
+      ctx.sandbox.reset();
+      const afterReset = ctx.captureFlush!();
+      await tick(30);
+      expect(bodies).toHaveLength(1);
+      release.resolve(new Response(null, { status: 204 }));
+      await Promise.all([beforeReset, afterReset]);
+      expect(bodies).toHaveLength(2);
+      const fixture = JSON.parse(bodies[1]!);
+      expect(fixture.services.firestore.state.documents).toEqual({});
+    } finally {
+      release.resolve(new Response(null, { status: 204 }));
+      result.dispose();
+      ctx.sandbox.dispose();
+    }
+  });
+
   it('exposes an immediate capture flush that resolves only after its POST settles', async () => {
     const ctx = await makeCtx();
     let resolvePost!: (response: Response) => void;
-    const pendingFetch = (() => new Promise<Response>((resolve) => {
+    const pendingFetch = Object.assign(() => new Promise<Response>((resolve) => {
       resolvePost = resolve;
-    })) as typeof fetch;
+    }), { preconnect() {} });
     applyServeInit(
       ctx,
       { ...basePayload, capture: true },
@@ -513,6 +570,50 @@ describe('applyServeInit — capture (the verify loop)', () => {
     resolvePost({ ok: true, status: 204 } as Response);
     await flushing;
     expect(settled).toBe(true);
+  });
+
+  it('coalesces changes during a slow POST and stops pending captures on disposal', async () => {
+    const ctx = await makeCtx();
+    const firstPost = Promise.withResolvers<Response>();
+    const secondPost = Promise.withResolvers<Response>();
+    const bodies: string[] = [];
+    const fetchCapture = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      const isFirst = bodies.length === 1;
+      return isFirst ? firstPost.promise : secondPost.promise;
+    }, { preconnect() {} });
+    const result = applyServeInit(ctx, { ...basePayload, capture: true }, {
+      fetch: fetchCapture, captureDebounceMs: 5,
+    });
+    const port = fakePort();
+    const write = (value: number) => handleMessage(ctx, port, {
+      t: 'op', id: `slow-${value}`, method: 'setDoc', path: 'notes/latest', data: { value },
+    });
+    try {
+      await write(1);
+      const flushing = ctx.captureFlush!();
+      for (let value = 2; value <= 10; value++) {
+        await write(value);
+        await tick(2);
+      }
+      expect(bodies).toHaveLength(1);
+      firstPost.resolve(new Response(null, { status: 204 }));
+      await flushing;
+      await tick(20);
+      expect(bodies).toHaveLength(2);
+      const fixture = JSON.parse(bodies[1]!);
+      expect(fixture.services.firestore.state.documents['notes/latest']).toEqual({ value: 10 });
+      await write(11);
+      result.dispose();
+      secondPost.resolve(new Response(null, { status: 204 }));
+      await tick(20);
+      expect(bodies).toHaveLength(2);
+    } finally {
+      firstPost.resolve(new Response(null, { status: 204 }));
+      secondPost.resolve(new Response(null, { status: 204 }));
+      result.dispose();
+      ctx.sandbox.dispose();
+    }
   });
 });
 

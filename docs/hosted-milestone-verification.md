@@ -1,5 +1,13 @@
 # Combined hosted hardening verification
 
+**Latest acceptance, 2026-09-17:** after incremental persistence and capture
+scheduling fixes, the [full sustained run](hosted-capture-delivery.md) completed
+90,000 writes with zero refusals, worst-window p95 276 ms and maximum capture
+delay 1,409 ms. Overall acceptance remains open for history-count coverage and
+the stalled-reader close-code check, plus the previously failing 192 MiB
+RSS-growth gate. The report below records the earlier 2026-09-15 verification;
+it is not the latest verdict.
+
 **Verification and handoff are complete. The hardening milestone remains blocked
 by one memory-budget failure.** Verification started at `1beafaba` on
 `hosted-live-mode`, 2026-09-15. This pass repaired a diagnostic-ordering regression
