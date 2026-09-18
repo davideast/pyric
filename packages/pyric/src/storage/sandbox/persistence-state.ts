@@ -35,3 +35,9 @@ export async function restoreStorageState(storage: FirebaseStorage, records: rea
     await service.backend.put(record.metadata.fullPath, blob, structuredClone(record.metadata));
   }
 }
+
+/** Clear the bucket, including writes already queued but not yet visible to listings. */
+export async function resetStorageState(storage: FirebaseStorage): Promise<void> {
+  const service = await getStorageService(storage);
+  await service.backend.reset();
+}

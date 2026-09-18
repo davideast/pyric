@@ -32,8 +32,6 @@ import type { RtdbBackend } from '../database/sandbox/backend.js';
 import type { JsonValue } from '../database/sandbox/data-tree.js';
 import { DOC_VALUE_ENCODING, type DocValueEncoding } from '../firestore/internal/value-codec.js';
 import {
-  deleteObject,
-  listAll,
   ref,
   uploadBytes,
   type FirebaseStorage,
@@ -43,6 +41,7 @@ import {
   getAdminStorageSandbox,
   getStorageRulesResolution,
   replaceStorageRules,
+  resetStorageState,
   restoreStorageState,
   snapshotStorageState,
   type StorageStateRecord,
@@ -169,20 +168,6 @@ function databaseStateWithoutRules(backend: RtdbBackend): JsonValue {
   return envelope as unknown as JsonValue;
 }
 
-/** Every object path in the bucket. `listAll` reports one level, so this descends. */
-async function storagePaths(storage: FirebaseStorage): Promise<string[]> {
-  const paths: string[] = [];
-  const pending: string[] = [''];
-  while (pending.length > 0) {
-    const prefix = pending.pop() as string;
-    const listing = await listAll(ref(storage, prefix));
-    for (const item of listing.items) paths.push(item.fullPath);
-    for (const child of listing.prefixes) pending.push(child.fullPath);
-  }
-  paths.sort();
-  return paths;
-}
-
 /** Read every Storage object out of the bucket, bytes included. */
 async function captureStorage(storage: FirebaseStorage): Promise<StorageObjectState[]> {
   const objects: StorageObjectState[] = [];
@@ -293,9 +278,7 @@ async function applyStorage(
   objects: readonly StorageObjectState[],
 ): Promise<void> {
   const storage = storageFor(sandbox);
-  for (const path of await storagePaths(storage)) {
-    await deleteObject(ref(storage, path));
-  }
+  await resetStorageState(storage);
   for (const object of objects) {
     const metadata = object.metadata;
     const hasStoredMetadata = metadata !== undefined;
