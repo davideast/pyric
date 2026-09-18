@@ -92,6 +92,7 @@ export function getOrCreateBackend(sandbox: Sandbox, databaseUrl?: string): Rtdb
       if (event.kind === 'session_boundary' && event.phase === 'reset') {
         for (const b of coordinator!.backends.values()) {
           b.invalidateConnectionQueues();
+          b.setRules(null);
         }
       }
     });

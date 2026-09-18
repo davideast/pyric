@@ -40,7 +40,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A1. Batch and transaction writes evaluate the wrong rule
 
-- Severity: blocker. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `36a04836`.
+- Severity: blocker. Slice: `core`. Status: closed at `100031ac`. Reviewer acceptance: 5 pass, 0 fail; suites and typecheck reproduced.
 - Location: `packages/pyric/src/firestore/sandbox/atomic-write-pipeline.ts:143`.
 - Defect: `evaluateAndApply` discards the operation's method and derives it from the batch projection. On `main` the method came from `operation.method`.
 - Failure: rules `allow create: if false; allow update: if true; allow delete: if true`, then `WriteBatch.update` on a missing document. The projection is `null`, the pipeline treats it as a delete, the delete rule runs and allows, and the result reports method `delete`. Conversely `create` on an existing document under `allow create: if true; allow update: if false` runs the update rule and returns `permission-denied` instead of `already-exists`. Same for `Transaction.update` and `Transaction.create`.
@@ -49,7 +49,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A2. Sandbox reset no longer clears RTDB rules
 
-- Severity: should-fix. Slice: `core`. Status: open.
+- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `100031ac`.
 - Location: `packages/pyric/src/database/sandbox/persistence-state.ts:193`.
 - Defect: `reset()` no longer routes through `restore(null)`, so `activeRules` and `rules.setRules(null)` are skipped. On `main` reset cleared them.
 - Failure: set RTDB rules, call `sandbox.reset()`, read active rules. They are unchanged.
@@ -114,6 +114,13 @@ These affect users who never enable hosted mode. Fix against `main` first.
 - Location: `packages/pyric/src/auth/sandbox-backend.ts:1375`.
 - Defect: sign-out deletes the whole per-uid token map. Another port holding the same uid under a different tenant gets a silent token rotation on its next `getIdToken(false)`.
 - Acceptance: delete only the signed-out tenant's entry; test with two ports, one uid, two tenants.
+
+### A11. Set followed by delete evaluates set under the delete rule
+
+- Severity: nit. Slice: `core`. Status: open. Non-blocking reviewer follow-up to A1.
+- Location: `packages/pyric/src/firestore/sandbox/atomic-write-pipeline.ts`.
+- Defect: a batch with set then delete on the same path classifies the set from the final projection, so the set evaluates under the delete rule.
+- Acceptance: a batch test pins the set operation's evaluated rule method independently of a later delete on the same path.
 
 ## B. Failing tests on the branch tip
 

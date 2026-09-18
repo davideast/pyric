@@ -192,12 +192,7 @@ export class PersistenceState {
 
   reset(): void {
     this.state.resetGeneration += 1;
-    const priors = this.children.snapshotParents();
-    this.state.tree.restore({});
-    this.state.priorities.restore({});
-    this.state.mutations.mark('/');
-    this.values.fanOut(['/']);
-    this.children.fanOut(priors);
+    this.restore(null);
   }
 
   subscribe(onChange: () => void): () => void {
