@@ -9,7 +9,8 @@ test('legacy replies preserve the exact UTF-8 frame boundary and refuse only the
   let attached = false;
   let reply: { frame: WorkerResFrame; bytes: number } | { closed: number } | undefined;
   let snapshotReply: { frame: WorkerSnapFrame; bytes: number } | { closed: number } | undefined;
-  socket.on('message', data => {
+  socket.on('message', (data, isBinary) => {
+    expect(isBinary).toBe(false);
     const payload = data.toString();
     const frame: unknown = JSON.parse(payload);
     const isKnownFrame = isBridgeMessage(frame);
