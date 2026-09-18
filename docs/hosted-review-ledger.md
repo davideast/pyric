@@ -40,7 +40,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A1. Batch and transaction writes evaluate the wrong rule
 
-- Severity: blocker. Slice: `core`. Status: open.
+- Severity: blocker. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `36a04836`.
 - Location: `packages/pyric/src/firestore/sandbox/atomic-write-pipeline.ts:143`.
 - Defect: `evaluateAndApply` discards the operation's method and derives it from the batch projection. On `main` the method came from `operation.method`.
 - Failure: rules `allow create: if false; allow update: if true; allow delete: if true`, then `WriteBatch.update` on a missing document. The projection is `null`, the pipeline treats it as a delete, the delete rule runs and allows, and the result reports method `delete`. Conversely `create` on an existing document under `allow create: if true; allow update: if false` runs the update rule and returns `permission-denied` instead of `already-exists`. Same for `Transaction.update` and `Transaction.create`.

@@ -144,6 +144,8 @@ export class AtomicWritePipeline {
     const { context, resolvedOps, serverTime } = prepared;
     const projection = this.runtime.buildBatchProjection(resolvedOps);
     const inputs = prepared.inputs.map((input) => {
+      const hasExplicitRuleMethod = input.method !== 'set';
+      if (hasExplicitRuleMethod) return input;
       const deletesDocument = projection.get(input.path) === null;
       let ruleMethod: AtomicRuleMethod;
       if (deletesDocument) {
