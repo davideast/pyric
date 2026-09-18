@@ -1,0 +1,43 @@
+{
+  "A1": {
+    "phase": 1,
+    "tests": ["packages/pyric/test/sandbox/firestore/ledger/a1-atomic-rule-method.test.ts"],
+    "note": "Batch and transaction writes evaluate the rule for the caller's method."
+  },
+  "A2": {
+    "phase": 1,
+    "tests": ["packages/pyric/test/database/ledger/a2-reset-clears-rules.test.ts"],
+    "note": "sandbox.reset() and resetAll clear RTDB rules."
+  },
+  "A3": {
+    "phase": 1,
+    "tests": ["packages/pyric/test/sandbox/persistence/ledger/a3-restore-quarantines-bad-record.test.ts"],
+    "note": "Shared restore keeps readable records and reports the unreadable one."
+  },
+  "A4": {
+    "phase": 1,
+    "tests": ["packages/pyric/test/sandbox/ledger/a4-age-eviction-no-replay-gap.test.ts"],
+    "note": "History older than the age window still replays."
+  },
+  "I1": {
+    "phase": 1,
+    "tests": ["packages/pyric/test/sandbox/ledger/i1-live-state-does-not-evict.test.ts"],
+    "note": "Pending observations and active listeners beyond the reserve do not evict retained events."
+  },
+  "A5": {
+    "phase": 1,
+    "tests": ["packages/cli/test/serve/entries/ledger/a5-worker-runtime-no-top-level-await.test.ts"],
+    "note": "The shared worker runtime entry has no top-level await."
+  },
+  "A6": {
+    "phase": 1,
+    "tests": ["packages/pyric/test/database/ledger/a6-info-listener-closes-activity.test.ts"],
+    "note": "A .info/connected listener releases its activity on unsubscribe."
+  },
+  "I13-omitted": {
+    "phase": 1,
+    "tests": ["packages/pyric/test/sandbox/ledger/i1-live-state-does-not-evict.test.ts"],
+    "filter": "omittedCount",
+    "note": "omittedCount counts only events missing from the snapshot."
+  }
+}
