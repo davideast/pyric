@@ -18,6 +18,7 @@ const hooks = new Map([
     ['writeFileSync(path, fixtureJson);', 'writeFileSync(path, fixtureJson); globalThis.__multiClient.captureWritten(Buffer.byteLength(fixtureJson));'],
   ]],
   ['/bridge/server/socket-message.js', [
+    ["socket.close(1013,", "globalThis.__multiClient.observerRefused(socket); socket.close(1013,"],
     ['const exceedsBacklog = socket.bufferedAmount', 'globalThis.__multiClient.socketBytes = Math.max(globalThis.__multiClient.socketBytes, socket.bufferedAmount);\n    const exceedsBacklog = socket.bufferedAmount'],
   ]],
 ]);

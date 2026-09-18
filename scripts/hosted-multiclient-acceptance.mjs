@@ -1,5 +1,6 @@
 /** Gate 6B workload. Short smoke runs are explicitly not acceptance runs. */
 import { runBrowserWorkload, summarizeBrowserWorkloads } from './diagnostics/multiclient-workload.mjs';
+import { verifyHistoryCountBoundary } from './diagnostics/multiclient-history.mjs';
 import { chromium } from '@playwright/test';
 import { createRequire } from 'node:module';
 import { spawn, execFileSync } from 'node:child_process';
@@ -67,6 +68,15 @@ function diskBytes() {
 }
 child.on('message', sample => {
   if (sample.type === 'phase-ready') { acknowledgePhase?.(sample); return; }
+  if (sample.type === 'observer-refused') {
+    const isStalledObserver = sample.remotePort === stalled?._socket?.localPort;
+    if (isStalledObserver) {
+      result.stalledRefusal = sample;
+      // The host has refused this reader. Drain its close frame before ws's handshake timeout.
+      stalled.resume();
+    }
+    return;
+  }
   if (sample.type !== 'sample') return;
   sample.diskBytes = diskBytes();
   samples.push(sample);
@@ -192,6 +202,8 @@ try {
     const sdk = await import('firebase/firestore');
     return (await sdk.getDocs(sdk.collection(sdk.getFirestore(), 'acceptance'))).size;
   });
+  await setPhase('history-count');
+  result.historyCountBoundary = await verifyHistoryCountBoundary(pages[0], WebSocket, info.url);
   await setPhase('unsubscribed');
   await delay(3000);
   for (const context of contexts) await context.close();
@@ -245,11 +257,12 @@ try {
       return hasSamples && window.p95Ms < 500 && window.p99Ms < 2000;
     }),
     captureDeadline: measuredSamples.length > 0 && measuredSamples.every(sample => sample.capture.maxDelayMs <= 2000),
-    observationRetention: histories.length > 0 && histories.every(history => history.entries <= 10000 && history.bytes <= 8 * 1024 * 1024),
-    historyCountLimitReached: histories.some(history => history.entries === 10000),
+    observationRetention: histories.length > 0 && histories.every(history => history.entries + history.liveCount <= 10000 && history.bytes <= 8 * 1024 * 1024),
+    historyCountLimitReached: result.historyCountBoundary?.passed === true,
     journalHealthy: measuredSamples.length > 0 && measuredSamples.every(sample => sample.history.healthy && sample.history.unrecorded === 0),
     operationBounds: samples.every(sample => sample.maxPendingCount <= 256 && sample.maxPendingBytes <= 24 * 1024 * 1024),
-    stalledObserverRefused: stalledClose?.code === 1013,
+    stalledObserverRefused: result.stalledRefusal !== undefined && stalledClose?.code === 1013
+      && stalledClose.reason === 'Client output backlog exceeds 24 MiB; reconnect to resume.',
     fixedDataset: result.finalDocuments === documentCount,
     listenerDelivery: result.clientsFinal?.every(client => client.deliveries > 20 && client.errors.length === 0 && client.mismatches.length === 0) ?? false,
     releasedSubscriptions: samples.at(-1)?.subscriptions === 0,

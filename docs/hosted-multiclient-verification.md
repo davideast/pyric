@@ -1,5 +1,10 @@
 # Sustained multi-client acceptance — 2026-09-17
 
+Latest result: the subsequent [acceptance boundary fixes](hosted-acceptance-boundary-fixes.md)
+close the count, stalled-reader, large-payload RSS, and Storage import gaps;
+the new full 90,000-write run passes all 14 checks. The results below remain
+the historical record of this earlier run.
+
 Follow-up: [incremental persistence and bounded capture scheduling](hosted-capture-delivery.md)
 completed all 90,000 writes with zero refusals, worst-window p95 276 ms and
 maximum capture delay 1,409 ms. Overall acceptance remains open for the

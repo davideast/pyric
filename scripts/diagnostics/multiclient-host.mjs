@@ -31,6 +31,9 @@ const probe = globalThis.__multiClient = {
     if (count === 0) activeBudgets.delete(id);
     else activeBudgets.set(id, { count, bytes });
   },
+  observerRefused(socket) {
+    process.send?.({ type: 'observer-refused', remotePort: socket._socket.remotePort, backlogBytes: socket.bufferedAmount });
+  },
   captureDirty() { capturePendingSince ??= Date.now(); },
   captureWritten(bytes) {
     if (capturePendingSince !== null) maxCaptureDelayMs = Math.max(maxCaptureDelayMs, Date.now() - capturePendingSince);
@@ -45,7 +48,7 @@ function sample() {
   const histories = probe.histories.flatMap(ref => {
     const owner = ref.deref();
     if (!owner) return [];
-    return [{ entries: owner.entries.length, bytes: owner.bytes, limits: owner.limits,
+    return [{ entries: owner.entries.length, bytes: owner.bytes + owner.liveBytes, liveCount: owner.liveCount, limits: owner.limits,
       requests: owner.activeRequests.size, listeners: owner.activeListeners.size,
       retainedIds: owner.retainedIds.size, completedRequests: owner.completedRequests.size,
       gap: owner.gap ? { omittedCount: owner.gap.omittedCount, reason: owner.gap.reason } : null }];

@@ -1,5 +1,10 @@
 # Capture delivery under continuous traffic — 2026-09-17
 
+Latest result: the subsequent [acceptance boundary fixes](hosted-acceptance-boundary-fixes.md)
+close the count, stalled-reader, large-payload RSS, and Storage import gaps;
+the new full 90,000-write run passes all 14 checks. The results below remain
+the historical record of this earlier run.
+
 Capture now schedules from the first pending event instead of waiting for a
 quiet period. Continuous writes no longer postpone capture indefinitely.
 
