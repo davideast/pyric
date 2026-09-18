@@ -94,3 +94,60 @@ test('the unified stream stamps wall-clock observation time without changing sim
   expect(event?.observedAt).toBeGreaterThanOrEqual(before);
   expect(event?.observedAt).toBeLessThanOrEqual(Date.now());
 });
+
+
+test('live listener registrations share the history count budget without disappearing', () => {
+  const history = new EventHistory({ maxEvents: 3, maxBytes: 100_000 });
+  const attach = { kind: 'listener_attach', id: 'attach', at: 0, listenerId: 'listener',
+    target: { kind: 'doc', path: 'notes/a' }, auth: null } as const;
+  history.append(attach);
+  for (let index = 1; index <= 5; index++) history.append(request(index));
+  const events = history.snapshot();
+  expect(events).toHaveLength(4);
+  expect(events[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 4 });
+  expect(events.slice(1)).toEqual([request(4), request(5), attach]);
+  history.append({ ...attach, kind: 'listener_detach', id: 'detach', at: 6 });
+  expect(history.snapshot().map(event => event.id)).toEqual(['history-gap', '4', '5', 'detach']);
+});
+
+
+test('a new pending request reserves history capacity until it settles', () => {
+  const history = new EventHistory({ maxEvents: 3, maxBytes: 100_000 });
+  for (let index = 1; index <= 3; index++) history.append(request(index));
+  const pending = { kind: 'operation', id: 'start', at: 4, service: 'ai', method: 'generateContent',
+    path: 'synthetic', auth: null, origin: 'user', result: 'not-applicable',
+    observation: { id: 'request', startedAt: 4, status: 'pending' } } as const;
+  history.append(pending);
+  history.append(pending);
+  expect(history.snapshot()).toHaveLength(4);
+  expect(history.snapshot()[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 1 });
+  expect(history.snapshot().slice(1)).toEqual([request(2), request(3), pending]);
+  const completed = { ...pending, id: 'end', observation: { ...pending.observation, status: 'completed' as const } };
+  history.append(completed);
+  expect(history.snapshot().slice(1)).toEqual([request(2), request(3), completed]);
+});
+
+
+test('live state shares the encoded byte budget in browser and Node runtimes', () => {
+  const buffer = Object.getOwnPropertyDescriptor(globalThis, 'Buffer');
+  function fill(): string {
+    const history = new EventHistory({ maxEvents: 100, maxBytes: 1_200 });
+    const attach = { kind: 'listener_attach', id: 'attach', at: 0, listenerId: 'listener',
+      target: { kind: 'doc', path: `notes/${'é'.repeat(250)}` }, auth: null } as const;
+    history.append(attach);
+    for (let index = 1; index <= 8; index++) history.append(request(index));
+    const events = history.snapshot();
+    expect(new TextEncoder().encode(JSON.stringify(events)).length).toBeLessThanOrEqual(1_200);
+    expect(events).toContainEqual(attach);
+    expect(events).toContainEqual(request(8));
+    expect(events[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 8 });
+    return JSON.stringify(events);
+  }
+  const node = fill();
+  try {
+    Reflect.deleteProperty(globalThis, 'Buffer');
+    expect(fill()).toBe(node);
+  } finally {
+    if (buffer !== undefined) Object.defineProperty(globalThis, 'Buffer', buffer);
+  }
+});
