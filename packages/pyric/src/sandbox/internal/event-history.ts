@@ -26,7 +26,7 @@ function encodedBytes(value: unknown): number {
 export class EventHistory {
   private entries: HistoryEntry[] = [];
   private bytes = 0;
-  // Live state outside retained history reserves capacity but is never evicted.
+  // Live state remains visible; its reservation may use at most half the history budget.
   private liveCount = 0;
   private liveBytes = 0;
   private readonly activeRequests = new Map<string, HistoryEntry>();
@@ -136,6 +136,7 @@ export class EventHistory {
       const isLiveOnly = !this.retainedIds.has(event.id);
       if (isLiveOnly) this.reserveLive(entry);
     } else this.activeListeners.delete(event.listenerId);
+    if (previousIsLiveOnly) this.omit(previous.event);
   }
 
   private expireRulesEvidence(entry: HistoryEntry): void {
@@ -180,13 +181,18 @@ export class EventHistory {
     if (isUnbounded) return false;
     const hasNoGap = this.gap === undefined;
     const gapBytes = hasNoGap ? 0 : encodedBytes(this.gap) + 1;
-    const eventCount = this.entries.length + this.liveCount;
+    const reservedEvents = Math.min(this.liveCount, Math.floor(limits.maxEvents / 2));
+    const reservedBytes = Math.min(this.liveBytes, Math.floor(limits.maxBytes / 2));
+    const eventCount = this.entries.length + reservedEvents;
     const exceedsCount = eventCount > limits.maxEvents;
-    const exceedsBytes = this.bytes + this.liveBytes + gapBytes + 2 > limits.maxBytes;
+    const exceedsBytes = this.bytes + reservedBytes + gapBytes + 2 > limits.maxBytes;
     return exceedsCount || exceedsBytes;
   }
 
   private omit(event: SandboxEvent): void {
+    const listener = 'listenerId' in event ? this.activeListeners.get(event.listenerId) : undefined;
+    const remainsVisible = listener?.event.id === event.id;
+    if (remainsVisible) return;
     const isGap = event.kind === 'observation_gap';
     const count = isGap ? event.omittedCount : 1;
     const first = isGap ? event.firstEventId : event.id;

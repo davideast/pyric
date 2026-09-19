@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { EventHistory } from '../../src/sandbox/internal/event-history.js';
-import type { RequestEvent } from '../../src/sandbox/types/events.js';
+import type { RequestEvent, SandboxListenerEvent } from '../../src/sandbox/types/events.js';
 
 function request(index: number): RequestEvent {
   return {
@@ -106,10 +106,11 @@ test('live listener registrations share the history count budget without disappe
   for (let index = 1; index <= 5; index++) history.append(request(index));
   const events = history.snapshot();
   expect(events).toHaveLength(4);
-  expect(events[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 4 });
+  expect(events[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 3 });
   expect(events.slice(1)).toEqual([request(4), request(5), attach]);
   history.append({ ...attach, kind: 'listener_detach', id: 'detach', at: 6 });
   expect(history.snapshot().map(event => event.id)).toEqual(['history-gap', '4', '5', 'detach']);
+  expect(history.snapshot()[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 4 });
 });
 
 
@@ -142,7 +143,7 @@ test('live state shares the encoded byte budget in browser and Node runtimes', (
     expect(new TextEncoder().encode(JSON.stringify(events)).length).toBeLessThanOrEqual(1_200);
     expect(events).toContainEqual(attach);
     expect(events).toContainEqual(request(8));
-    expect(events[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 8 });
+    expect(events[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 7 });
     return JSON.stringify(events);
   }
   const node = fill();
@@ -152,4 +153,51 @@ test('live state shares the encoded byte budget in browser and Node runtimes', (
   } finally {
     if (buffer !== undefined) Object.defineProperty(globalThis, 'Buffer', buffer);
   }
+});
+
+
+test('pending bytes reserve at most half the budget in browser and Node runtimes', () => {
+  const buffer = Object.getOwnPropertyDescriptor(globalThis, 'Buffer');
+  function fill(): string {
+    const history = new EventHistory({ maxEvents: 100, maxBytes: 2_000 });
+    history.append(request(1));
+    history.append(request(2));
+    const pending = { kind: 'operation', id: 'start', at: 3, service: 'ai', method: 'generateContent',
+      path: 'large'.repeat(1_000), auth: null, origin: 'user', result: 'not-applicable',
+      observation: { id: 'large-request', startedAt: 3, status: 'pending' } } as const;
+    history.append(pending);
+    expect(history.snapshot()).toEqual([request(1), request(2), pending]);
+    history.append(request(3));
+    expect(history.snapshot()).toContainEqual(request(3));
+    return JSON.stringify(history.snapshot());
+  }
+  const node = fill();
+  try {
+    Reflect.deleteProperty(globalThis, 'Buffer');
+    expect(fill()).toBe(node);
+  } finally {
+    if (buffer !== undefined) Object.defineProperty(globalThis, 'Buffer', buffer);
+  }
+});
+
+test('replacing and closing a live-only listener counts each missing attach once', () => {
+  const history = new EventHistory({ maxEvents: 3, maxBytes: 100_000 });
+  const attach = { kind: 'listener', phase: 'attach', service: 'database', id: 'attach', at: 0,
+    listenerId: 'listener', target: { kind: 'value', path: '/presence' }, auth: null } as const satisfies SandboxListenerEvent;
+  history.append(attach);
+  for (let index = 1; index <= 3; index++) history.append(request(index));
+  expect(history.snapshot()[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 1 });
+  history.append({ ...attach, id: 'replacement', at: 4 });
+  expect(history.snapshot().some(event => event.id === 'attach')).toBe(false);
+  expect(history.snapshot()[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 2 });
+  for (let index = 5; index <= 7; index++) history.append(request(index));
+  expect(history.snapshot()[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 5 });
+  const errored = { ...attach, phase: 'errored', id: 'errored', at: 8 } as const;
+  history.append(errored);
+  history.append(errored);
+  expect(history.snapshot().slice(1)).toEqual([request(6), request(7), errored]);
+  expect(history.snapshot()[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 6 });
+  history.clear();
+  history.append(request(9));
+  expect(history.snapshot()).toEqual([request(9)]);
 });
