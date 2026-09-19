@@ -465,7 +465,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### C13. Bridge sends a Buffer instead of a string and breaks the peer handshake
 
-- Severity: blocker for the transport slice. Slice: `transport`. Status: fixing. Owner: Codex; branch: `work/integration`. Pre-existing on `origin/hosted-live-mode`; found by the phase 1 exit gate.
+- Severity: blocker for the transport slice. Slice: `transport`. Status: verify. Owner: Codex; branch: `work/integration`. The existing peer-standby suite is mapped under C13; string sends are restored. Pre-existing on `origin/hosted-live-mode`; found by the phase 1 exit gate.
 - Location: `packages/cli/src/bridge/server/socket-message.ts:30`, commit `5e8f40a3` ("queue UTF-8 buffers for slow readers").
 - Defect: `socket.send(Buffer.from(payload), { binary: false })` replaced `socket.send(payload)`. Bisected by the reviewer on 2026-09-18: `packages/cli/test/bridge/peer-standby.test.ts` is 6 pass at the parent `6433d9bd` and 6 fail at `5e8f40a3`, including "sandbox not connected" after a peer hello. Every later tip inherits it.
 - Failure: a bridge peer connects, sends hello, and the server's reply arrives in a form the client does not accept as a bridge frame, so the sandbox is never marked connected.

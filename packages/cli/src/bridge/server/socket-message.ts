@@ -27,6 +27,5 @@ export function sendBridgeMessage(
     socket.close(1013, 'Client output backlog exceeds 24 MiB; reconnect to resume.');
     return;
   }
-  // Queue UTF-8 bytes rather than retaining large JSON strings until the socket drains.
-  socket.send(Buffer.from(payload), { binary: false });
+  socket.send(payload);
 }
