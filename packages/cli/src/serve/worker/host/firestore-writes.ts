@@ -170,17 +170,19 @@ function applyAtomicWrite(
 // ─── Op handler ────────────────────────────────────────────────────────────
 
 /** The write op methods routed to {@link handleFirestoreWriteOp}. */
-const WRITE_METHODS = new Set<string>([
+const WRITE_METHODS = [
   'setDoc',
   'updateDoc',
   'deleteDoc',
   'addDoc',
   'batchCommit',
   'txnCommit',
-]);
+] as const satisfies readonly OpMessage['method'][];
 
-export function isFirestoreWriteOp(method: OpMessage['method']): boolean {
-  return WRITE_METHODS.has(method);
+const writeMethods = new Set<string>(WRITE_METHODS);
+
+export function isFirestoreWriteOp(method: OpMessage['method']): method is typeof WRITE_METHODS[number] {
+  return writeMethods.has(method);
 }
 
 export async function handleFirestoreWriteOp(

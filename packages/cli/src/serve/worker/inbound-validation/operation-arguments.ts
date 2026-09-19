@@ -1,3 +1,5 @@
+import { FirebaseError } from 'pyric/app';
+import type { OpMessage } from '../protocol.js';
 import { DELIVERY_STAGES } from 'pyric/messaging/internal';
 import { requireDocumentData } from 'pyric/firestore/internal/value-codec';
 import { requireFirestorePath } from '../protocol/firestore-validation.js';
@@ -52,7 +54,10 @@ export function assertOperationArguments(message: Record<string, unknown>): void
   requireOptionalBoolean(message.resumeSession, 'resumeSession');
   assertRequiredPath(message);
   assertSharedAuthFields(message);
-  switch (message.method) {
+  // Only the dispatch is typed; each payload field remains untrusted.
+  // The default refuses methods outside the protocol at runtime.
+  const method = message.method as OpMessage['method'];
+  switch (method) {
     case 'addDoc':
       requireFirestorePath(message.collectionPath);
       requireDocumentData(message.data);
@@ -258,6 +263,63 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       const hasValidVisibility = visibility === undefined || visibility === 'visible' || visibility === 'hidden';
       requireShape(hasValidVisibility, 'visibility');
       return;
+    }
+    case 'getDoc':
+    case 'getDocs':
+    case 'deleteDoc':
+    case 'count':
+    case 'batchCommit':
+    case 'txnCommit':
+    case 'setRules':
+    case 'setFirestoreRules':
+    case 'setDatabaseRules':
+    case 'admin.getDocument':
+    case 'admin.listDocuments':
+    case 'admin.deleteDocument':
+    case 'rtdb.setPriority':
+    case 'rtdb.remove':
+    case 'sandbox.clock':
+    case 'rtdb.adminSnapshot':
+    case 'rtdb.onDisconnectRemove':
+    case 'rtdb.onDisconnectCancel':
+    case 'rtdb.goOffline':
+    case 'rtdb.goOnline':
+    case 'listRootCollections':
+    case 'listSubcollections':
+    case 'auth.createUser':
+    case 'auth.signInEmail':
+    case 'auth.signInAnonymously':
+    case 'auth.signOut':
+    case 'auth.getIdToken':
+    case 'auth.getIdTokenResult':
+    case 'auth.getCurrentUser':
+    case 'auth.reload':
+    case 'auth.deleteUser':
+    case 'auth.updateEmail':
+    case 'auth.updatePassword':
+    case 'auth.updateCurrentUser':
+    case 'auth.listUsers':
+    case 'auth.adminClearUsers':
+    case 'auth.getProviderConfig':
+    case 'storage.listAll':
+    case 'storage.getMetadata':
+    case 'storage.getBlob':
+    case 'storage.getBytes':
+    case 'storage.deleteObject':
+    case 'getRuntimeEpoch':
+    case 'retireRuntime':
+    case 'getVersion':
+    case 'exportState':
+    case 'importState':
+    case 'listCheckpoints':
+    case 'getSnapshot':
+    case 'resetAll':
+    case 'messaging.subscribeToTopic':
+    case 'messaging.unsubscribeFromTopic':
+      return;
+    default: {
+      const unsupportedMethod: never = method;
+      throw new FirebaseError('invalid-argument', `Unknown sandbox method: ${unsupportedMethod}.`);
     }
   }
 }

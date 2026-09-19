@@ -89,7 +89,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A7. Non-exhaustive switches fail open
 
-- Severity: should-fix. Slice: `core`. Status: fixing. Owner: Codex; branch: `hosted-main-integration`; base: `2ba2c664`. Acceptance submitted for review before implementation.
+- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; acceptance approved at `709bfc54`. Unknown methods are refused at both boundaries; extending the protocol requires explicit handling in both dispatches. Firestore write classification uses the existing method list.
 - Locations: `packages/cli/src/serve/hosted/persistence-admission.ts` (`requiresHealthyPersistence` falls to `default`), `packages/cli/src/serve/worker/inbound-validation/operation-arguments.ts` (`assertOperationArguments` has no refusing default).
 - Defect: neither switch is exhaustively typed. A newly added mutation kind bypasses the unhealthy-persistence guard and passes without argument validation.
 - Acceptance: exhaustive typing with a `never` check so a new kind fails to compile, or a refusing default with a test that an unknown kind is refused.
