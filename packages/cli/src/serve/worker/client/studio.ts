@@ -36,6 +36,7 @@ import type { ClientDb, Unsubscribe } from './handles.js';
 export function subscribeEvents(
   db: ClientDb,
   callback: (events: readonly SandboxEvent[]) => void,
+  onError?: (error: Error & { code: string }) => void,
 ): Unsubscribe {
   const subId = nextSubId();
   const port = db.port;
@@ -44,6 +45,7 @@ export function subscribeEvents(
     subId,
     callback,
     { t: 'sub', subId, target: 'events' } satisfies InboundMessage,
+    onError,
   );
   return () => {
     closeSubscription(port, subId);
@@ -57,12 +59,12 @@ export function subscribeEvents(
  * subscription. Useful for a late, snapshot-only consumer.
  */
 export function eventHistory(db: ClientDb): Promise<readonly SandboxEvent[]> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const unsub = subscribeEvents(db, (events) => {
       // The first delivery is the history snapshot; resolve + unsubscribe.
       unsub();
       resolve(events);
-    });
+    }, reject);
   });
 }
 

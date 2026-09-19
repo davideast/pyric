@@ -16,10 +16,11 @@
  * the scorer share, and it is stamped here because this is the only layer that
  * sees both the name the client sent and the operation it reached.
  */
+import { createOperationBudget } from '../operation-budget.js';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Bridge, BridgeToolEvent } from './bridge.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
-import { observeRejectedCalls, toMcpResult, type RejectedToolCall } from './mcp.js';
+import { observeRejectedCalls, toMcpResult, type RegisterMcpTool, type RejectedToolCall } from './mcp.js';
 import {
   DENIED_BY_RULES_CODE,
   LINT_FINDINGS_CODE,
@@ -142,6 +143,27 @@ function recordCall(
   bridge.recordToolEvent(event);
 }
 
+/** Tools and resource reads share one reservation until their handler settles. */
+async function executeAdmitted(
+  budget: ReturnType<typeof createOperationBudget>,
+  name: string,
+  args: Record<string, unknown>,
+  execute: () => Promise<OperationResult>,
+): Promise<OperationResult> {
+  const reservation = budget.reserve({ name, arguments: args });
+  const isRefused = !reservation.accepted;
+  if (isRefused) {
+    return { ok: false, summary: `${reservation.error.code}: ${reservation.error.message}` };
+  }
+  try {
+    return normalise(await execute());
+  } catch (err) {
+    return failure(err);
+  } finally {
+    reservation.release();
+  }
+}
+
 function registerTool(
   server: McpServer,
   bridge: Bridge,
@@ -150,13 +172,16 @@ function registerTool(
   ctx: SurfaceContext,
   options: RegisterRenderedSurfaceOptions,
   markHandlerRan: (extra: object | undefined) => void,
+  budget: ReturnType<typeof createOperationBudget>,
 ): void {
   const shape = jsonSchemaToZodShape(tool.inputSchema as never);
   // The SDK's `tool()` overloads have a generic tree deep enough to trip
   // `Type instantiation is excessively deep` on the variadic shape argument.
   // The cast collapses the inference; the runtime contract is unchanged, and
   // `buildMcpServer` registers its own tools the same way.
-  (server.tool as unknown as Function)(
+  const register = server.tool as RegisterMcpTool;
+  register.call(
+    server,
     tool.name,
     tool.description,
     shape,
@@ -164,12 +189,9 @@ function registerTool(
       markHandlerRan(extra);
       const startedAtMs = Date.now();
       const callArgs = args ?? {};
-      let result: OperationResult;
-      try {
-        result = normalise(await tool.execute(callArgs, ctx));
-      } catch (err) {
-        result = failure(err);
-      }
+      const result = await executeAdmitted(
+        budget, tool.name, callArgs, () => tool.execute(callArgs, ctx),
+      );
       const resolved = surface.resolve(tool.name, callArgs);
       recordCall(bridge, {
         tool: tool.name,
@@ -192,24 +214,22 @@ function registerResource(
   resource: RenderedResource,
   ctx: SurfaceContext,
   options: RegisterRenderedSurfaceOptions,
+  budget: ReturnType<typeof createOperationBudget>,
 ): void {
   const template = new ResourceTemplate(sdkUriTemplate(resource.uriTemplate), { list: undefined });
-  (server.resource as unknown as Function)(
+  server.resource(
     resource.name,
     template,
     { description: resource.description, mimeType: RESOURCE_MIME_TYPE },
     async (uri: URL, variables: Record<string, unknown>) => {
       const startedAtMs = Date.now();
       const requested = uri.toString();
-      let result: OperationResult;
-      try {
-        result = normalise(await resource.read(requested, ctx));
-      } catch (err) {
-        result = failure(err);
-      }
       // A resource read carries no arguments of its own: the uri and the
       // template variables the SDK parsed out of it are what the event records.
       const args: Record<string, unknown> = { uri: requested, ...variables };
+      const result = await executeAdmitted(
+        budget, resource.name, args, () => resource.read(requested, ctx),
+      );
       const resolved = surface.resolve(resource.name, args);
       recordCall(bridge, {
         tool: resource.name,
@@ -242,19 +262,24 @@ export function registerRenderedSurface(
   ctx: SurfaceContext,
   options: RegisterRenderedSurfaceOptions = {},
 ): McpServer {
+  const budget = createOperationBudget();
   let handlerRan: WeakSet<object> | null = null;
-  if (options.onCallRejected) {
-    handlerRan = observeRejectedCalls(server, options.onCallRejected);
+  const onCallRejected = options.onCallRejected;
+  const observesRejections = onCallRejected !== undefined;
+  if (observesRejections) {
+    handlerRan = observeRejectedCalls(server, onCallRejected);
   }
   const markHandlerRan = (extra: object | undefined): void => {
-    if (handlerRan && extra) handlerRan.add(extra);
+    const handlers = handlerRan;
+    const recordsInvocation = handlers !== null && extra !== undefined;
+    if (recordsInvocation) handlers.add(extra);
   };
 
   for (const tool of surface.tools) {
-    registerTool(server, bridge, surface, tool, ctx, options, markHandlerRan);
+    registerTool(server, bridge, surface, tool, ctx, options, markHandlerRan, budget);
   }
   for (const resource of surface.resources ?? []) {
-    registerResource(server, bridge, surface, resource, ctx, options);
+    registerResource(server, bridge, surface, resource, ctx, options, budget);
   }
   return server;
 }

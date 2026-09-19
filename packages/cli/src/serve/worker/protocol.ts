@@ -1,3 +1,4 @@
+import type { DeliveryStage } from 'pyric/messaging/internal';
 import { getAiEvidence, type AiEvidence } from 'pyric/ai/internal';
 /**
  * SharedWorker protocol — message types + wire serialization.
@@ -14,6 +15,7 @@ export * from './protocol/storage.js';
 
 import type {
   TargetDescriptor,
+  DocValueEncoding,
   AggregateSpecDescriptor,
   WriteDescriptor,
   TxnReadEntry,
@@ -81,10 +83,10 @@ export type OpMessage = (
       activity?: { groupKind?: 'transaction' };
     }
   | { t: 'op'; id: string; method: 'getDocs'; source: TargetDescriptor }
-  | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; options?: { merge?: boolean; mergeFields?: string[] } }
-  | { t: 'op'; id: string; method: 'updateDoc'; path: string; data: unknown }
+  | { t: 'op'; id: string; method: 'setDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] } }
+  | { t: 'op'; id: string; method: 'updateDoc'; path: string; data: unknown; valueEncoding?: DocValueEncoding }
   | { t: 'op'; id: string; method: 'deleteDoc'; path: string }
-  | { t: 'op'; id: string; method: 'addDoc'; collectionPath: string; data: unknown }
+  | { t: 'op'; id: string; method: 'addDoc'; collectionPath: string; data: unknown; valueEncoding?: DocValueEncoding }
   | { t: 'op'; id: string; method: 'count'; source: TargetDescriptor }
   | { t: 'op'; id: string; method: 'aggregate'; source: TargetDescriptor; spec: AggregateSpecDescriptor }
   | { t: 'op'; id: string; method: 'batchCommit'; writes: WriteDescriptor[] }
@@ -205,13 +207,14 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'getSnapshot' }
   | { t: 'op'; id: string; method: 'resetAll' }
   // Messaging ops
-  | { t: 'op'; id: string; method: 'messaging.getToken'; registrationId?: string }
+  | { t: 'op'; id: string; method: 'messaging.getToken'; registrationId?: string; recipientId?: string }
   | { t: 'op'; id: string; method: 'messaging.deleteToken'; registrationId?: string }
   | { t: 'op'; id: string; method: 'messaging.send'; message: BrokerMessage; validateOnly?: boolean }
   | { t: 'op'; id: string; method: 'messaging.subscribeToTopic'; tokens: string[]; topic: string }
   | { t: 'op'; id: string; method: 'messaging.unsubscribeFromTopic'; tokens: string[]; topic: string }
-  | { t: 'op'; id: string; method: 'messaging.deliver'; spec: MessagingDeliverSpec }
-  | { t: 'op'; id: string; method: 'messaging.setVisibility'; state: ClientVisibilityState }
+  | { t: 'op'; id: string; method: 'messaging.deliver'; recipientId?: string; spec: MessagingDeliverSpec }
+  | { t: 'op'; id: string; method: 'messaging.acknowledge'; subId: string; messageId: string; stage: DeliveryStage }
+  | { t: 'op'; id: string; method: 'messaging.setVisibility'; recipientId?: string; state: ClientVisibilityState }
   // Connected-page presence (#227)
   | {
       t: 'op';
@@ -284,6 +287,7 @@ export interface MessagingSubMessage {
   t: 'sub';
   subId: string;
   target: 'messaging.foreground' | 'messaging.background';
+  recipientId?: string;
 }
 
 export interface PresenceSubMessage {
@@ -401,6 +405,9 @@ export type InboundMessage = (
 ) & {
   clientSessionId?: string;
   resumeSession?: boolean;
+  /** Adapter-supplied provenance; it does not grant execution authority. */
+  issuer?: 'studio';
+  relaySource?: 'remote';
 };
 
 // ─── Worker → client messages ─────────────────────────────────────────────

@@ -3,7 +3,8 @@
  *
  * A family is authored as one record under `tool-family-records/`: its
  * transport, its position in the default `tools/list` order, and the exact
- * tool names its factory yields. `scripts/generate-tool-family-registry.ts`
+ * tool names its factory yields, plus each tool's declared effect.
+ * `scripts/generate-tool-family-registry.ts`
  * aggregates the records into `tool-families.generated.ts`. This module reads
  * only that aggregate, so the browser bundle and the MCP process share one
  * manifest without either importing the other's factories.
@@ -16,6 +17,7 @@
 import { TOOL_FAMILIES } from './tool-families.generated.js';
 
 export type ToolTransport = 'forwarded' | 'in-process';
+export type ToolEffect = 'read' | 'write';
 
 /** Authored in one record file per family. The key is the filename without `.ts`; the generator adds it. */
 export interface ToolFamilyRecord {
@@ -23,8 +25,8 @@ export interface ToolFamilyRecord {
   readonly transport: ToolTransport;
   /** Stable position in the default `tools/list` order. Unique across all records; authored with gaps of 10. */
   readonly order: number;
-  /** Exact names the family factory yields for the default surface, in factory order. */
-  readonly tools: readonly string[];
+  /** Names in factory order, with whether each tool may change its family's state. */
+  readonly tools: Readonly<Record<string, ToolEffect>>;
 }
 
 export interface ToolFamily extends ToolFamilyRecord {
@@ -46,7 +48,7 @@ function assertUnique(label: string, values: readonly (string | number)[]): void
 function validateFamilies(families: readonly RegisteredFamily[]): readonly RegisteredFamily[] {
   assertUnique('key', families.map((family) => family.key));
   assertUnique('order', families.map((family) => family.order));
-  assertUnique('tool name', families.flatMap((family) => family.tools));
+  assertUnique('tool name', families.flatMap((family) => Object.keys(family.tools)));
   return [...families].sort((a, b) => a.order - b.order);
 }
 
@@ -60,6 +62,16 @@ export function toolFamilies<T extends ToolTransport>(
     (family): family is Extract<RegisteredFamily, { transport: T }> =>
       family.transport === transport,
   );
+}
+
+/** A forwarded tool's declared effect; unknown names have no dispatch authority. */
+export function sandboxToolEffect(name: string): ToolEffect | undefined {
+  for (const family of toolFamilies('forwarded')) {
+    const effects: Readonly<Record<string, ToolEffect>> = family.tools;
+    const isDeclared = Object.hasOwn(effects, name);
+    if (isDeclared) return effects[name];
+  }
+  return undefined;
 }
 
 /**

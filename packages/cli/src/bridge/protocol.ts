@@ -47,6 +47,18 @@ export interface HealthReport {
 /** Default port the standalone bridge binds to. */
 export const DEFAULT_BRIDGE_PORT = 5174;
 
+/** Encoded bridge message limit, including its envelope and base64 payloads. */
+export const MAX_BRIDGE_FRAME_BYTES = 12 * 1024 * 1024;
+
+/** Mounted MCP sessions and Node execution owners retained until their work drains. */
+export const MAX_MOUNTED_MCP_SESSIONS = 64;
+
+/** Maximum accepted operations awaiting completion for one client. */
+export const MAX_PENDING_OPERATIONS = 256;
+
+/** Encoded UTF-8 bytes of accepted operation messages awaiting completion per client. */
+export const MAX_QUEUED_OPERATION_BYTES = 24 * 1024 * 1024;
+
 /** Default WS path the browser connects to. */
 export const DEFAULT_SANDBOX_PATH = '/sandbox';
 
@@ -107,6 +119,8 @@ export interface HelloFromBridge {
 /** Bridge → browser: please dispatch this tool call into the sandbox. */
 export interface ToolCallRequest {
   type: 'tool-call';
+  /** Server-owned MCP caller identity for execution ordering, separate from its auth lens. */
+  callerId?: string;
   /** Correlation id — browser must echo in `ToolCallResponse`. */
   id: string;
   /** Tool name (e.g. `firestore_simulator_create`). */
@@ -159,6 +173,26 @@ export interface ToolCallResponse {
 /** Peer capability flag: "I can relay worker-op / worker-sub frames". */
 export const WORKER_RELAY_CAPABILITY = 'worker-relay';
 
+/** Full port traffic, including app configuration, clock updates, and teardown. */
+export const WORKER_PORT_CAPABILITY = 'worker-port';
+
+/** After this interruption window a client must request a fresh logical session. */
+export const WORKER_SESSION_RETENTION_MS = 60_000;
+/** A recognized released grant requires fresh admission and Auth restoration. */
+export const WORKER_SESSION_EXPIRED_CLOSE_CODE = 4004;
+
+export interface WorkerMessageFrame {
+  type: 'worker-message';
+  clientSessionId?: string;
+  message: import('../serve/worker/protocol.js').InboundMessage;
+}
+
+export interface WorkerMessageResultFrame {
+  type: 'worker-message-result';
+  clientSessionId: string;
+  message: import('../serve/worker/protocol.js').OutboundMessage;
+}
+
 /** `Omit` distributed over a union (plain `Omit` collapses union members). */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
@@ -184,6 +218,11 @@ export type WorkerSubPayload = DistributiveOmit<SubMessage, 't' | 'subId'> & {
 export interface AttachFromConsumer {
   type: 'attach';
   protocol: 1;
+  transport?: 'worker-port';
+  /** Host-issued capability for resuming a worker port's original identity. */
+  resumeToken?: string;
+  /** The process that issued the resume grant; a replacement requires fresh admission. */
+  hostInstanceId?: string;
   /** Optional client-supplied session ID to resume an existing session across reconnects. */
   clientSessionId?: string;
   /** Alias for clientSessionId (backward/cross-platform compatibility). */
@@ -199,6 +238,9 @@ export interface AttachFromConsumer {
 export interface AttachAckFromBridge {
   type: 'attach-ack';
   protocol: 1;
+  capabilities?: string[];
+  /** Local project identity, distinct from the bridge's human-readable label. */
+  projectKey?: string;
   bridgeVersion: string;
   /** Whether a browser tab is currently registered as the sandbox peer. */
   peerConnected: boolean;
@@ -217,6 +259,10 @@ export interface AttachAckFromBridge {
   clientSessionId: string;
   /** Alias for clientSessionId. */
   sessionId?: string;
+  /** Private to this connection; never included in consumer presence. */
+  resumeToken?: string;
+  /** Process identity, independent of the stable project identity. */
+  hostInstanceId?: string;
 }
 
 /** Toward the worker: dispatch this one-shot op. (consumer→bridge and
@@ -283,6 +329,12 @@ export interface WorkerSnapFrame {
 /** Bridge → browser peer: notify that a remote client disconnected. */
 export interface WorkerClientDisconnectFrame {
   type: 'worker-client-disconnect';
+  clientSessionId: string;
+}
+
+/** Bridge → hosted peer: transport loss while logical identity is retained. */
+export interface WorkerClientInterruptedFrame {
+  type: 'worker-client-interrupted';
   clientSessionId: string;
 }
 
@@ -358,16 +410,20 @@ export type BridgeMessage =
   | WorkerUnsubFrame
   | WorkerSnapFrame
   | WorkerClientDisconnectFrame
+  | WorkerClientInterruptedFrame
   | ConsumerPresenceFrame
   | RemoteSetLensFrame
   | RemoteSetLensAckFrame
   | WorkerEventFrame
+  | WorkerMessageFrame
+  | WorkerMessageResultFrame
   | Ping
   | Pong;
 
 /** Type guard for runtime parsing. */
 export function isBridgeMessage(value: unknown): value is BridgeMessage {
-  if (value === null || typeof value !== 'object') return false;
+  const isNotObject = value === null || typeof value !== 'object';
+  if (isNotObject) return false;
   const t = (value as { type?: unknown }).type;
   return (
     t === 'hello' ||
@@ -382,10 +438,13 @@ export function isBridgeMessage(value: unknown): value is BridgeMessage {
     t === 'worker-unsub' ||
     t === 'worker-snap' ||
     t === 'worker-client-disconnect' ||
+    t === 'worker-client-interrupted' ||
     t === 'consumer-presence' ||
     t === 'remote-set-lens' ||
     t === 'remote-set-lens-ack' ||
     t === 'worker-event' ||
+    t === 'worker-message' ||
+    t === 'worker-message-result' ||
     t === 'ping' ||
     t === 'pong'
   );

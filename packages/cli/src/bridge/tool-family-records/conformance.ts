@@ -2,5 +2,7 @@ import type { ToolFamilyRecord } from '../tool-families.js';
 export default {
   transport: 'in-process',
   order: 60,
-  tools: ['pyric_can_i_use'],
+  tools: {
+    pyric_can_i_use: 'read',
+  },
 } as const satisfies ToolFamilyRecord;

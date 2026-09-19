@@ -669,14 +669,14 @@ describe('worker relay — peer replacement and reconnect', () => {
 // ─── attachPeer hardening ─────────────────────────────────────────────────
 
 describe('attachPeer — malformed hello', () => {
-  it('non-array tools/capabilities cannot crash the serve process', async () => {
+  it('non-array peer lists are refused before registration', () => {
     const bridge = makeRelayBridge();
     const ws = fakeWs();
     attachPeer(bridge, ws.asWebSocket());
 
     // `tools`/`capabilities` come off the wire — a non-array used to reach
     // `new Set(...)` in the bridge core and throw inside the ws message
-    // listener (uncaught → process crash). Must register cleanly instead.
+    // listener (uncaught → process crash). Refuse the malformed peer instead.
     ws.emitMessage({
       type: 'hello',
       protocol: 1,
@@ -685,14 +685,10 @@ describe('attachPeer — malformed hello', () => {
       capabilities: 42,
     });
 
-    expect(bridge.isSandboxConnected()).toBe(true);
-    expect(bridge.toolNames()).toEqual([]); // coerced to empty
-    expect((ws.sent[0] as { type: string }).type).toBe('hello-ack');
+    expect(ws.closed).toBe(true);
+    expect(bridge.isSandboxConnected()).toBe(false);
+    expect(ws.sent).toEqual([]);
 
-    // Worker ops fail legibly (no relay capability), not with a crash.
-    await expect(bridge.dispatchWorkerOp({ method: 'getVersion' })).rejects.toThrow(
-      /does not support the worker relay/,
-    );
   });
 
   it('unparseable and non-bridge messages are ignored', () => {

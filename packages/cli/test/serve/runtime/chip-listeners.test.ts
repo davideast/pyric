@@ -313,3 +313,15 @@ describe('the Listeners view', () => {
     expect(page.doc.querySelectorAll('[data-pyric-listener-box]')).toHaveLength(0);
   });
 });
+
+it('explains when Overview has sources but no page regions, and clears the message when regions appear', () => {
+  const page = setup({ react: true });
+  page.push([attach('a1', 'L1', { kind: 'query', collection: 'todos' }, [])]);
+  bar(page.root, 'overview').click();
+  expect(page.root.textContent).toContain('Overview has no identified page regions to highlight.');
+  expect(page.doc.querySelector('[data-pyric-listener-box]')).toBeNull();
+
+  page.push([attach('a2', 'L2', { kind: 'query', collection: 'todos' }, [owner])]);
+  expect(page.doc.querySelector('[data-pyric-listener-box]')).not.toBeNull();
+  expect(page.root.textContent).not.toContain('Overview has no identified page regions to highlight.');
+});

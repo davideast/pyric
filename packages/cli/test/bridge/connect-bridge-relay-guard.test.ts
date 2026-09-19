@@ -92,10 +92,20 @@ function connectWithRelay(opResult: (method: string) => unknown) {
       },
     },
   });
-  const ws = FakeWebSocket.instances[0]!;
+  const ws = FakeWebSocket.instances[0];
+  const isMissingSocket = ws === undefined;
+  if (isMissingSocket) throw new Error('Bridge did not open a socket');
   ws.open();
-  ws.emit({ type: 'hello-ack', bridgeVersion: 'test' });
-  return { ws, snap: (value: unknown) => deliverSnap!(value) };
+  ws.emit({ type: 'hello-ack', protocol: 1, bridgeVersion: 'test' });
+  return {
+    ws,
+    snap(value: unknown) {
+      const subscriber = deliverSnap;
+      const isMissingSubscriber = subscriber === null;
+      if (isMissingSubscriber) throw new Error('Bridge did not subscribe');
+      subscriber(value);
+    },
+  };
 }
 
 // ── worker-op leg ───────────────────────────────────────────────────────────

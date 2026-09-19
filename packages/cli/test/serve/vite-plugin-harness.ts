@@ -71,6 +71,7 @@ export async function bootPluginInstance(
   let handler: PyricMiddleware | undefined;
   const plugin = pyric(options);
   const stub = {
+    async close() {},
     config: {
       root,
       logger: { info() {}, warn() {} },
@@ -78,14 +79,16 @@ export async function bootPluginInstance(
     },
     middlewares: {
       use(route: string, middleware: PyricMiddleware) {
-        if (route === '/__pyric') handler = middleware;
+        const isPyricRoute = route === '/__pyric';
+        if (isPyricRoute) handler = middleware;
       },
     },
     watcher: { add() {}, on() {} },
     httpServer: { address: () => ({ port: 5173 }), on() {}, once() {} },
   };
   await (plugin.configureServer as (server: unknown) => Promise<void>)(stub);
-  if (!handler) throw new Error('plugin did not mount the /__pyric middleware');
+  const hasNoHandler = handler === undefined;
+  if (hasNoHandler) throw new Error('plugin did not mount the /__pyric middleware');
   return { handler, plugin };
 }
 
@@ -171,7 +174,6 @@ export async function callPyricStack(
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function initJson(handler: PyricMiddleware): Promise<any> {
+export async function initJson(handler: PyricMiddleware): Promise<import('../../src/serve/init-payload.js').InitPayload> {
   return JSON.parse((await callPyric(handler, { path: '/__pyric/init.json' })).body);
 }

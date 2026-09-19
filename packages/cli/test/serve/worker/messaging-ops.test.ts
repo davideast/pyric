@@ -372,3 +372,64 @@ describe('messaging.deliver and unsub', () => {
     expect(port.snaps.length).toBe(1);
   });
 });
+
+it('keeps hosted recipients separate across the token, visibility, and subscription protocol', async () => {
+  const ctx = makeCtx();
+  const alice = fakePort();
+  const david = fakePort();
+  const aliceWorker = fakePort();
+  const recipientId = 'alice-browser';
+  const token = await opOk(ctx, alice, { method: 'messaging.getToken', registrationId: 'alice-registration', recipientId }) as { token: string };
+  await handleMessage(ctx, aliceWorker, { t: 'sub', subId: 'alice-background', target: 'messaging.background', recipientId } as InboundMessage);
+  await handleMessage(ctx, david, { t: 'sub', subId: 'david-foreground', target: 'messaging.foreground', recipientId: 'david-browser' } as InboundMessage);
+  await opOk(ctx, alice, { method: 'messaging.setVisibility', state: 'hidden', recipientId });
+  await opOk(ctx, david, { method: 'messaging.setVisibility', state: 'visible', recipientId: 'david-browser' });
+  await opOk(ctx, david, { method: 'messaging.send', message: { token: token.token, data: { message: 'For Alice' } } });
+  expect(aliceWorker.snaps.map(snap => snap.subId)).toEqual(['alice-background']);
+  expect(david.snaps).toEqual([]);
+});
+
+it('reports receiver and display evidence without treating a routed send as receipt', async () => {
+  const { getMessagingBroker } = await import('pyric/messaging/internal');
+  const ctx = makeCtx();
+  const receiver = fakePort();
+  const stranger = fakePort();
+  await sub(ctx, receiver, 'background', 'messaging.background');
+  const token = await mintToken(ctx, receiver);
+  const sent = await opOk(ctx, receiver, { method: 'messaging.send', message: { token } }) as { messageId: string };
+  const broker = getMessagingBroker(ctx.sandbox);
+  expect(broker.deliveries()[0]).toMatchObject({ handled: true, receipt: 'unconfirmed', acknowledgments: [] });
+  const report = { method: 'messaging.acknowledge', subId: 'background', messageId: sent.messageId, stage: 'received' };
+  expect((await op(ctx, stranger, report)).ok).toBe(false);
+  expect((await op(ctx, receiver, { ...report, messageId: 'never-delivered' })).ok).toBe(false);
+  await opOk(ctx, receiver, report);
+  await opOk(ctx, receiver, { ...report, stage: 'display-rejected' });
+  const entry = broker.deliveries()[0];
+  expect(entry).toMatchObject({ receipt: 'received', acknowledgments: [
+    { stage: 'received' }, { stage: 'display-rejected' },
+  ] });
+  expect((await op(ctx, receiver, { ...report, stage: 'invented' })).ok).toBe(false);
+  cleanupPort(ctx, receiver);
+  expect((await op(ctx, receiver, report)).ok).toBe(false);
+});
+
+it('keeps topic recipients separate and missing receiver evidence unconfirmed', async () => {
+  const { getMessagingBroker } = await import('pyric/messaging/internal');
+  const ctx = makeCtx();
+  const alice = fakePort();
+  const bob = fakePort();
+  const tokens: string[] = [];
+  for (const [port, recipientId] of [[alice, 'alice'], [bob, 'bob']] as const) {
+    const result = await opOk(ctx, port, { method: 'messaging.getToken', registrationId: recipientId, recipientId }) as { token: string };
+    tokens.push(result.token);
+    await handleMessage(ctx, port, { t: 'sub', subId: 'updates', target: 'messaging.background', recipientId });
+  }
+  await opOk(ctx, alice, { method: 'messaging.subscribeToTopic', tokens, topic: 'updates' });
+  const sent = await opOk(ctx, alice, { method: 'messaging.send', message: { topic: 'updates' } }) as { messageId: string };
+  await opOk(ctx, alice, { method: 'messaging.acknowledge', messageId: sent.messageId, subId: 'updates', stage: 'received' });
+  const entries = getMessagingBroker(ctx.sandbox).deliveries();
+  expect(entries.find(entry => entry.recipientId === 'alice')?.receipt).toBe('received');
+  expect(entries.find(entry => entry.recipientId === 'bob')).toMatchObject({ receipt: 'unconfirmed', acknowledgments: [] });
+  cleanupPort(ctx, alice);
+  cleanupPort(ctx, bob);
+});

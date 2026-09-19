@@ -16,6 +16,7 @@
  */
 
 import type { InboundMessage, OpMessage, ToolMessage } from '../protocol.js';
+import { refuseInvalidInboundMessage } from '../inbound-validation.js';
 import {
   isAuthSub,
   isEventSub,
@@ -73,7 +74,7 @@ import {
   handlePresenceUnsub,
   cleanupPortPresence,
 } from './presence.js';
-import { handleSub, handleRtdbSub, handleUnsub, dropPortSessionSubs } from './subscriptions.js';
+import { handleSub, handleRtdbSub, handleUnsub, dropPortSubscriptionIntents } from './subscriptions.js';
 
 function configConflictError(): Error & { code: string } {
   return Object.assign(
@@ -169,37 +170,48 @@ export async function handleMessage(
   port: PortLike,
   msg: InboundMessage,
 ): Promise<void> {
-  if (msg.clientSessionId && ctx.disconnectedClientSessions?.has(msg.clientSessionId) && msg.t !== 'disconnect') {
-    if ((msg as { resumeSession?: boolean }).resumeSession) {
-      ctx.disconnectedClientSessions.delete(msg.clientSessionId);
+  const isRefused = refuseInvalidInboundMessage(port, msg);
+  if (isRefused) return;
+  const clientSessionId = msg.clientSessionId;
+  const isRemoteClient = clientSessionId !== undefined && clientSessionId !== '';
+  const isDisconnect = msg.t === 'disconnect';
+  const physicalPortIsClosed = ctx.disconnectedPorts?.has(port) === true && !isDisconnect;
+  if (physicalPortIsClosed) {
+    const replyPort = isRemoteClient ? new RemoteClientPort(port, clientSessionId) : port;
+    refuseDeletedMessage(replyPort, msg);
+    return;
+  }
+  const sessionIsClosed = isRemoteClient
+    && ctx.disconnectedClientSessions?.has(clientSessionId) === true && !isDisconnect;
+  if (sessionIsClosed) {
+    const resumesSession = msg.resumeSession === true;
+    if (resumesSession) {
+      ctx.disconnectedClientSessions?.delete(clientSessionId);
     } else {
-      if (msg.t === 'op' || msg.t === 'tool') {
-        fail(
-          new RemoteClientPort(port, msg.clientSessionId),
-          msg.id,
-          Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' }),
-        );
-      } else if (msg.t === 'sub' && msg.target !== 'events') {
-        new RemoteClientPort(port, msg.clientSessionId).postMessage({
-          t: 'snap',
-          subId: msg.subId,
-          value: { __error: { code: 'app/app-deleted', message: 'Firebase App was deleted' } },
-        });
-      }
+      refuseDeletedMessage(new RemoteClientPort(port, clientSessionId), msg);
       return;
     }
   }
 
-  const targetPort = msg.clientSessionId
-    ? getOrCreateRemoteClientPort(ctx, port, msg.clientSessionId)
-    : port;
+  let targetPort = port;
+  if (isRemoteClient) {
+    // Tools carry their identity per call and create no port-owned subscriptions.
+    // Correlate their replies without retaining a remote session after settlement.
+    const hasRemoteSession = ctx.remoteClientPorts?.has(clientSessionId) === true;
+    const needsRemoteSession = msg.t !== 'tool' || hasRemoteSession;
+    targetPort = needsRemoteSession
+      ? getOrCreateRemoteClientPort(ctx, port, clientSessionId)
+      : new RemoteClientPort(port, clientSessionId);
+  }
 
-  if (msg.t === 'disconnect' && msg.clientSessionId) {
+  const disconnectsRemoteClient = isDisconnect && isRemoteClient;
+  if (disconnectsRemoteClient) {
     try {
-      const virtualPort = ctx.remoteClientPorts?.get(msg.clientSessionId);
-      if (virtualPort) {
-        (ctx.disconnectedClientSessions ??= new Set()).add(msg.clientSessionId);
-        ctx.remoteClientPorts?.delete(msg.clientSessionId);
+      const virtualPort = ctx.remoteClientPorts?.get(clientSessionId);
+      const hasVirtualPort = virtualPort !== undefined;
+      if (hasVirtualPort) {
+        (ctx.disconnectedClientSessions ??= new Set()).add(clientSessionId);
+        ctx.remoteClientPorts?.delete(clientSessionId);
         await cleanupPortWithDisconnect(ctx, virtualPort);
       }
       ok(targetPort, msg.id, undefined);
@@ -209,20 +221,26 @@ export async function handleMessage(
     return;
   }
 
-  if (msg.t === 'appConfig') {
-    if (ctx.appOptions === undefined) {
+  const configuresApp = msg.t === 'appConfig';
+  if (configuresApp) {
+    const hasNoAppOptions = ctx.appOptions === undefined;
+    if (hasNoAppOptions) {
       ctx.appOptions = structuredClone(msg.options);
-    } else if (!firebaseOptionsEqual(ctx.appOptions, msg.options)) {
-      (ctx.rejectedConfigPorts ??= new WeakSet()).add(targetPort);
+    } else {
+      const optionsConflict = !firebaseOptionsEqual(ctx.appOptions, msg.options);
+      if (optionsConflict) (ctx.rejectedConfigPorts ??= new WeakSet()).add(targetPort);
     }
     return;
   }
   // A rejected app port still owns host-side resources until its explicit
   // disconnect handshake completes. Never swallow that teardown frame.
-  if (ctx.rejectedConfigPorts?.has(targetPort) && msg.t !== 'disconnect') {
-    if (msg.t === 'op' || msg.t === 'tool') {
+  const rejectsConfig = ctx.rejectedConfigPorts?.has(targetPort) === true && !isDisconnect;
+  if (rejectsConfig) {
+    const isOperation = msg.t === 'op' || msg.t === 'tool';
+    const isDataSubscription = msg.t === 'sub' && msg.target !== 'events';
+    if (isOperation) {
       fail(targetPort, msg.id, configConflictError());
-    } else if (msg.t === 'sub' && msg.target !== 'events') {
+    } else if (isDataSubscription) {
       const error = configConflictError();
       targetPort.postMessage({
         t: 'snap',
@@ -232,20 +250,9 @@ export async function handleMessage(
     }
     return;
   }
-  if (ctx.disconnectedPorts?.has(targetPort) && msg.t !== 'disconnect') {
-    if (msg.t === 'op' || msg.t === 'tool') {
-      fail(
-        targetPort,
-        msg.id,
-        Object.assign(new Error('Firebase App was deleted'), { code: 'app/app-deleted' }),
-      );
-    } else if (msg.t === 'sub' && msg.target !== 'events') {
-      targetPort.postMessage({
-        t: 'snap',
-        subId: msg.subId,
-        value: { __error: { code: 'app/app-deleted', message: 'Firebase App was deleted' } },
-      });
-    }
+  const targetPortIsClosed = ctx.disconnectedPorts?.has(targetPort) === true && !isDisconnect;
+  if (targetPortIsClosed) {
+    refuseDeletedMessage(targetPort, msg);
     return;
   }
   // Op provenance, bound at dispatch by `opProvenance` (see its docs). Opened
@@ -255,9 +262,10 @@ export async function handleMessage(
   // provenance EXPLICITLY instead (see `handleOp`'s storage cases). Without the
   // lens on admin ops, `verdictFor` mislabeled a rules BYPASS as ALLOW (the
   // RTDB/Firestore asymmetry the traffic-metrics work flagged).
-  const isRemoteRelay = (msg as { relaySource?: 'remote' }).relaySource === 'remote'
+  const isRemoteRelay = msg.relaySource === 'remote'
     || Boolean(msg.clientSessionId);
-  const tracksFirestoreActivity = !isRemoteRelay && (msg.t === 'op'
+  const isOperation = msg.t === 'op';
+  const tracksFirestoreActivity = !isRemoteRelay && (isOperation
     ? isFirestoreReadOp(msg.method)
     : msg.t === 'sub'
       && msg.target !== null
@@ -267,10 +275,24 @@ export async function handleMessage(
     msg,
     tracksFirestoreActivity ? activityJourneyId(ctx, targetPort) : undefined,
   );
-  if (prov && ctx.sandbox.runWithProvenance) {
-    return ctx.sandbox.runWithProvenance(prov, () => dispatchMessage(ctx, targetPort, msg));
+  const runWithProvenance = ctx.sandbox.runWithProvenance;
+  const hasProvenanceRunner = prov !== undefined && runWithProvenance !== undefined;
+  if (hasProvenanceRunner) {
+    await runWithProvenance.call(ctx.sandbox, prov, () => dispatchMessage(ctx, targetPort, msg));
+    return;
   }
   return dispatchMessage(ctx, targetPort, msg);
+}
+
+function refuseDeletedMessage(port: PortLike, msg: InboundMessage): void {
+  const isOperation = msg.t === 'op' || msg.t === 'tool';
+  const isDataSubscription = msg.t === 'sub' && msg.target !== 'events';
+  const error = { code: 'app/app-deleted', message: 'Firebase App was deleted' };
+  if (isOperation) {
+    fail(port, msg.id, Object.assign(new Error(error.message), error));
+  } else if (isDataSubscription) {
+    port.postMessage({ t: 'snap', subId: msg.subId, value: { __error: error } });
+  }
 }
 
 async function dispatchMessage(
@@ -368,11 +390,11 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
     }
   };
   // Drop the port's auth subscriptions (routing entries — no real listener
-  // to tear down), its per-port session, and its session-bound sub records
+  // to tear down), its per-port session, and its retained subscription intents
   // (#754).
   attempt(() => { authSubsFor(ctx).delete(port); });
   attempt(() => { cleanupPortSession(ctx, port); });
-  attempt(() => { dropPortSessionSubs(ctx, port); });
+  attempt(() => { dropPortSubscriptionIntents(ctx, port); });
 
   // Drop the port's event-stream subscriptions too (also routing entries off
   // the single shared `sandbox.onEvent` subscription — nothing to unsubscribe,
@@ -391,12 +413,15 @@ export function cleanupPort(ctx: HostCtx, port: PortLike): void {
   attempt(() => { unsubscribeClock(ctx, port); });
 
   const portSubs = ctx.subs.get(port);
-  if (portSubs) {
+  const hasPortSubscriptions = portSubs !== undefined;
+  if (hasPortSubscriptions) {
     for (const unsub of portSubs.values()) attempt(unsub);
     ctx.subs.delete(port);
   }
-  if (failures.length === 1) throw failures[0];
-  if (failures.length > 1) {
+  const hasOneFailure = failures.length === 1;
+  if (hasOneFailure) throw failures[0];
+  const hasMultipleFailures = failures.length > 1;
+  if (hasMultipleFailures) {
     throw new AggregateError(failures, 'Multiple SharedWorker port resources failed to tear down');
   }
 }

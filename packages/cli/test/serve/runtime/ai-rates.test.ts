@@ -159,3 +159,37 @@ test('default AI period includes spaced scripted and backend calls, while captur
   expect(frame.service.aiRequests![0]!.response?.text).toContain('Retained response content');
   monitor.dispose(); journal.dispose();
 });
+
+test('worker execution history contributes once to rates and preserves missing measurements', async () => {
+  const { workerAiRates } = await import('../../../src/serve/runtime/worker-ai-rates.js');
+  const { createSdkRates } = await import('pyric/sandbox/internal');
+  const now = Date.now();
+  const requests = [{ id: 'worker-1', startedAt: now - 100, at: now, second: 0, method: 'generateContentStream', status: 'completed',
+    detail: { requestedModel: 'synthetic', engine: 'scripted' as const, usageSource: 'unknown' as const } }];
+  const project = workerAiRates(requests);
+  const ai = project(createSdkRates().snapshot()).services.find(service => service.service === 'ai')!;
+  const calls = ai.methods.flatMap(method => method.buckets).reduce((sum, bucket) => sum + bucket.calls, 0);
+  expect(calls).toBe(1);
+  expect(ai.usageBuckets?.reduce((total, bucket) => total + (bucket.aiCompleted ?? 0), 0)).toBe(1);
+  expect(ai.usageBuckets?.reduce((total, bucket) => total + (bucket.aiUnknownUsage ?? 0), 0)).toBe(1);
+  expect(ai.aiRequests?.[0]?.detail.inputTokens).toBeUndefined();
+  expect(ai.aiRequests?.[0]?.detail.durationMs).toBeUndefined();
+  expect(project(createSdkRates().snapshot()).services.find(service => service.service === 'ai')?.usage?.aiCompleted).toBe(0.2);
+});
+
+test('late observers recover older AI rates and keep synthetic tokens separate', async () => {
+  const { workerAiRates } = await import('../../../src/serve/runtime/worker-ai-rates.js');
+  const { createSdkRates } = await import('pyric/sandbox/internal');
+  const now = Date.now();
+  const project = workerAiRates([{ id: 'old-worker', startedAt: now - 300_000, at: now - 290_000, second: 0,
+    method: 'generateContent', status: 'completed', detail: { requestedModel: 'synthetic', engine: 'scripted',
+      usageSource: 'scripted', inputTokens: 10, outputTokens: 20, totalTokens: 30 } }]);
+  const snapshot = project(createSdkRates().snapshot());
+  const ai = snapshot.services.find(service => service.service === 'ai')!;
+  expect(ai.history?.methods.flatMap(method => method.buckets).reduce((sum, bucket) => sum + bucket.calls, 0)).toBe(1);
+  expect(ai.history?.usageBuckets?.[0]).toMatchObject({ aiCompleted: 1, aiEstimatedTokens: 30 });
+  expect(ai.history?.usageBuckets?.[0]?.aiInputTokens).toBeUndefined();
+  const history = createRateHistory('ai');
+  history.open(snapshot);
+  expect(history.view(snapshot)?.totals.requests).toBe(1);
+});

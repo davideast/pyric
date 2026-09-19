@@ -1,3 +1,4 @@
+import { createMessagingInspectionTools } from '../../messaging/inspection.js';
 /**
  * Browser-side factory for each forwarded tool family, bound to one
  * sandbox. Imports only browser-safe subpaths (`pyric/rules/internal`, never
@@ -31,6 +32,7 @@ export const SANDBOX_HANDLER_FACTORIES = {
   'firestore-simulator': ({ env }) => createFirestoreSimulatorTools({ resolveSandbox: () => env }),
   'firestore-data': ({ resolveDb }) => createFirestoreDataTools({ resolveDb }),
   'firestore-inspect': ({ sandbox }) => createFirestoreInspectTools({ resolveSandbox: () => sandbox }),
+  'messaging-inspection': ({ sandbox }) => createMessagingInspectionTools(() => sandbox),
   'rtdb-inspection': ({ sandbox }) => createRtdbInspectionTools({ resolveSandbox: () => sandbox }),
   'auth-users': ({ sandbox }) => createAuthUsersTools({ resolveSandbox: () => sandbox }),
 } satisfies Record<ForwardedFamilyKey, (binding: SandboxBinding) => ToolHandler[]>;

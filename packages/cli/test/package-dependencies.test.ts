@@ -80,7 +80,7 @@ describe('@pyric/cli published dependency closure', () => {
     }
   });
 
-  it('has no emitted runtime or declaration edge to either Firebase SDK outside explicit AI shadow bridges', () => {
+  it('has no emitted runtime or declaration edge to either Firebase SDK outside explicit production adapters', () => {
     const allowedBridges = new Set(
       (cliReleaseContract().allowedFirebaseSdkImportEdges ?? []).map(
         (edge) => `packages/cli/${edge}`,

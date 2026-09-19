@@ -58,7 +58,8 @@ describe('tool family records', () => {
     const files = readdirSync(recordsDir)
       .filter((file) => file.endsWith('.ts'))
       .sort();
-    expect(TOOL_FAMILIES.map((family) => family.key)).toEqual(
+    const generatedKeys: readonly string[] = TOOL_FAMILIES.map((family) => family.key);
+    expect(generatedKeys).toEqual(
       files.map((file) => file.replace(/\.ts$/, '')),
     );
     expect(readFileSync(resolve(bridgeDir, 'tool-families.generated.ts'), 'utf8')).toStartWith(
@@ -85,7 +86,7 @@ describe('tool family records', () => {
     expect(families.length).toBe(TOOL_FAMILIES.length);
     expect(new Set(families.map((family) => family.key)).size).toBe(families.length);
     expect(new Set(families.map((family) => family.order)).size).toBe(families.length);
-    const names = families.flatMap((family) => family.tools);
+    const names = families.flatMap((family) => Object.keys(family.tools));
     expect(new Set(names).size).toBe(names.length);
     for (const transport of ['forwarded', 'in-process'] as const) {
       const orders = toolFamilies(transport).map((family) => family.order);
@@ -108,11 +109,11 @@ describe('tool family records', () => {
   it('each factory yields exactly the names its record pins, in record order', () => {
     for (const family of toolFamilies('forwarded')) {
       const names = FORWARDED_METADATA_FACTORIES[family.key](stub as never).map((h) => h.name);
-      expect(names).toEqual([...family.tools]);
+      expect(names).toEqual(Object.keys(family.tools));
     }
     for (const family of toolFamilies('in-process')) {
       const names = IN_PROCESS_HANDLER_FACTORIES[family.key](undefined).map((h) => h.name);
-      expect(names).toEqual([...family.tools]);
+      expect(names).toEqual(Object.keys(family.tools));
     }
   });
 
@@ -160,11 +161,11 @@ describe('tool family composition', () => {
     const advertised = new Map(getSandboxToolMetadata().map((tool) => [tool.name, tool]));
     for (const family of toolFamilies('forwarded')) {
       const handlers = SANDBOX_HANDLER_FACTORIES[family.key](binding);
-      expect(handlers.map((handler) => handler.name)).toEqual([...family.tools]);
+      expect(handlers.map((handler) => handler.name)).toEqual(Object.keys(family.tools));
       for (const handler of handlers) {
-        const tool = advertised.get(handler.name)!;
-        expect(tool.description).toBe(handler.description);
-        expect(tool.parameters).toEqual(handler.parameters as Record<string, unknown>);
+        const tool = advertised.get(handler.name);
+        expect(tool?.description).toBe(handler.description);
+        expect(tool?.parameters).toEqual(handler.parameters);
       }
     }
   });

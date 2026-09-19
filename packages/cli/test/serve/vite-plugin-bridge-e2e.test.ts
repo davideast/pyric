@@ -1,24 +1,7 @@
-/** Full real-process e2e for the M3 bridge fold — GATED OFF the default CI lane.
- *
- * Runs a REAL Vite dev server (listens on a port), a REAL browser-side
- * `connectBridge` sandbox peer, and a REAL MCP-over-HTTP client, then asserts a
- * tool call round-trips MCP → bridge → sandbox peer → back. This is the one path
- * the handler-based suite can't cover: the WS upgrade, the port-derived
- * `bridgeUrl`, and a live MCP round-trip through the actual plugin in one process.
- *
- * ⚠ WHY GATED + HEAVILY GUARDED: this uses the exact `listen()` + loopback
- * `fetch()` pattern that HUNG CI for 6 HOURS on M2 (bun 1.3.11 Linux — a broken
- * loopback connection blocks, and bun's per-test timeout does NOT interrupt it).
- * So it can NEVER wall-clock CI:
- *   1. The whole suite is SKIPPED unless `PYRIC_BRIDGE_E2E=1` — it never runs in CI.
- *   2. A hard process-level WATCHDOG force-exits at 90s no matter what (armed once
- *      the server phase begins; a clean run clears it in afterAll in a few seconds).
- *   3. Every await — createServer / listen / fetch / peer-connect / teardown — has
- *      its own `withTimeout`, and every fetch uses AbortController so a stuck
- *      socket is actively torn down rather than left blocking.
- *
- * Run locally (macOS):
- *   PYRIC_BRIDGE_E2E=1 bun test test/serve/vite-plugin-bridge-e2e.test.ts
+/** Real Vite/peer/MCP integration, enabled with PYRIC_BRIDGE_E2E=1.
+ * Vite runs in a Node child; Bun drives the public HTTP and WebSocket interfaces.
+ * Startup and shutdown are bounded, and teardown failure fails the suite.
+ * Build the CLI first. PYRIC_TEST_NODE optionally selects the Node executable.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import path, { join } from 'node:path';
@@ -27,7 +10,9 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { connectBridge, type ConnectedBridge } from '../../src/bridge/client/bridge.js';
 import { BRIDGE_TOOL_NAMES } from '../../src/bridge/server/mcp-contract.js';
 import { defaultSdkEntries, bundleWorker, workerSourceHash } from '../../src/serve/bundler.js';
-import { pyric } from '../../src/serve/vite-plugin.js';
+import { startViteNodeHost, type ViteNodeHost } from './vite-node-host.js';
+import { z } from 'zod';
+import { InitializeResultSchema, JSONRPCResponseSchema, ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
 const GATED = !process.env.PYRIC_BRIDGE_E2E;
 const entries = defaultSdkEntries();
@@ -53,15 +38,10 @@ async function fetchSafe(url: string, init: RequestInit = {}, ms = 8000): Promis
   }
 }
 
-interface DevServer {
-  httpServer: { address(): { port: number } | string | null } | null;
-  listen(): Promise<unknown>;
-  close(): Promise<void>;
-}
 
 describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PYRIC_BRIDGE_E2E)', () => {
   let watchdog: ReturnType<typeof setTimeout> | null = null;
-  let server: DevServer | null = null;
+  let server: ViteNodeHost | null = null;
   let peer: ConnectedBridge | null = null;
   let port = 0;
 
@@ -78,29 +58,13 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
     // below somehow fails to fire, force-exit the process at 90s. .unref() so the
     // timer never keeps the loop alive on its own (a clean run clears it in afterAll).
     watchdog = setTimeout(() => {
-      // eslint-disable-next-line no-console
       console.error('[e2e] WATCHDOG: hard bail at 90s — forcing process.exit(1)');
       process.exit(1);
     }, 90_000);
     watchdog.unref?.();
 
-    const { createServer } = await import('vite');
-    server = (await withTimeout(
-      createServer({
-        configFile: false,
-        logLevel: 'silent',
-        root: path.dirname(entries.init),
-        plugins: [pyric({ bridge: { disableAuditLog: true } })],
-        server: { port: 0, host: 'localhost' },
-        optimizeDeps: { noDiscovery: true },
-      }),
-      30_000,
-      'createServer',
-    )) as unknown as DevServer;
-    await withTimeout(server.listen(), 15_000, 'server.listen');
-    const addr = server.httpServer?.address();
-    port = addr && typeof addr === 'object' ? addr.port : 0;
-    if (!port) throw new Error('[e2e] dev server did not bind a port');
+    server = await startViteNodeHost(path.dirname(entries.init));
+    port = server.port;
 
     // A cold Vite dev server isn't ready to serve the instant listen() resolves
     // (first-request warmup) — the first MCP fetch would get an empty body and the
@@ -112,26 +76,36 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
   async function waitReady(deadlineMs = 10_000): Promise<void> {
     const start = Date.now();
     let lastErr: unknown = 'no attempt';
-    while (Date.now() - start < deadlineMs) {
+    let hasTimeRemaining = true;
+    while (hasTimeRemaining) {
       try {
         const res = await fetchSafe(base() + '/__pyric/init.json', {}, 2000);
-        if (res.status === 200) { await res.text(); return; }
+        const isReady = res.status === 200;
+        if (isReady) { await res.text(); return; }
         lastErr = `status ${res.status}`;
-      } catch (e) { lastErr = e instanceof Error ? e.message : String(e); }
+      } catch (error) {
+        const isError = error instanceof Error;
+        lastErr = isError ? error.message : String(error);
+      }
       await new Promise((r) => setTimeout(r, 200));
+      hasTimeRemaining = Date.now() - start < deadlineMs;
     }
     throw new Error(`[e2e] dev server not ready within ${deadlineMs}ms: ${lastErr}`);
   }
 
   afterAll(async () => {
-    try { peer?.disconnect(); } catch { /* best-effort */ }
-    if (server) {
-      // A hanging close must not wall-clock either — bound it, then move on.
-      try { await withTimeout(server.close(), 10_000, 'server.close'); }
-      catch (e) { console.error('[e2e]', e instanceof Error ? e.message : e); }
+    try {
+      peer?.disconnect();
+    } finally {
+      try {
+        await server?.close();
+      } finally {
+        const activeWatchdog = watchdog;
+        const hasWatchdog = activeWatchdog !== null;
+        if (hasWatchdog) clearTimeout(activeWatchdog);
+      }
     }
-    if (watchdog) clearTimeout(watchdog);
-  });
+  }, 15_000);
 
   const base = (): string => `http://localhost:${port}`;
   const createMcpSession = () => {
@@ -145,24 +119,26 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
       };
-      if (sessionId) headers['mcp-session-id'] = sessionId;
+      const activeSessionId = sessionId;
+      const hasSession = activeSessionId !== null;
+      if (hasSession) headers['mcp-session-id'] = activeSessionId;
+      const body: Record<string, unknown> = { jsonrpc: '2.0', method, params };
+      const isRequest = id !== null;
+      if (isRequest) body.id = id;
       const res = await fetchSafe(base() + '/__pyric/mcp', {
         method: 'POST',
         headers,
-        body: JSON.stringify(
-          id === null
-            ? { jsonrpc: '2.0', method, params }
-            : { jsonrpc: '2.0', id, method, params },
-        ),
+        body: JSON.stringify(body),
       });
       sessionId = res.headers.get('mcp-session-id') ?? sessionId;
       const text = await res.text();
-      if (!text) return { status: res.status, json: null as Record<string, any> | null };
+      const hasNoBody = text.length === 0;
+      if (hasNoBody) return { status: res.status, json: null };
       const line = text.split('\n').find((entry) => entry.startsWith('data:')) ?? text;
-      return {
-        status: res.status,
-        json: JSON.parse(line.replace(/^data:\s*/, '')) as Record<string, any>,
-      };
+      const json = JSONRPCResponseSchema.parse(JSON.parse(line.replace(/^data:\s*/, '')));
+      const hasError = 'error' in json;
+      if (hasError) throw new Error(json.error.message);
+      return { status: res.status, json };
     };
     const initialize = async () => {
       const response = await request(1, 'initialize', {
@@ -177,10 +153,14 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
   };
 
   it('serves health + an absolute bridgeUrl carrying the bound port', async () => {
-    const health = (await (await fetchSafe(base() + '/__pyric/health')).json()) as { mode: string; status: string };
+    const health = z.object({ mode: z.string(), status: z.string() }).parse(
+      await (await fetchSafe(base() + '/__pyric/health')).json(),
+    );
     expect(health.mode).toBe('sandbox');
     expect(health.status).toBe('ok');
-    const payload = (await (await fetchSafe(base() + '/__pyric/init.json')).json()) as { bridgeUrl: string };
+    const payload = z.object({ bridgeUrl: z.string() }).parse(
+      await (await fetchSafe(base() + '/__pyric/init.json')).json(),
+    );
     expect(payload.bridgeUrl).toBe(`ws://localhost:${port}/__pyric/sandbox`);
   }, 30_000);
 
@@ -188,11 +168,11 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
     const mcp = createMcpSession();
     const init = await mcp.initialize();
     expect(init.status).toBe(200);
-    expect(init.json?.result.serverInfo.name).toBe('pyric');
+    expect(InitializeResultSchema.parse(init.json?.result).serverInfo.name).toBe('pyric');
     const list = await mcp.request(2, 'tools/list');
     expect(list.status).toBe(200);
     expect(
-      (list.json?.result.tools as Array<{ name: string }>).map((tool) => tool.name).sort(),
+      ListToolsResultSchema.parse(list.json?.result).tools.map(tool => tool.name).sort(),
     ).toEqual([...BRIDGE_TOOL_NAMES].sort());
   }, 30_000);
 
@@ -206,7 +186,10 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
       peer = connectBridge(sandbox, {
         url: `ws://localhost:${port}/__pyric/sandbox`,
         noReconnect: true, // no infinite reconnect loop — bail-friendly
-        onStateChange: (s) => { if (s.kind === 'connected') { clearTimeout(to); resolve(); } },
+        onStateChange: (state) => {
+          const isConnected = state.kind === 'connected';
+          if (isConnected) { clearTimeout(to); resolve(); }
+        },
       });
     });
     await withTimeout(connected, 9000, 'peer connect');
@@ -215,12 +198,13 @@ describe.skipIf(GATED)('e2e — bridge through a real vite dev server (GATED: PY
     const mcp = createMcpSession();
     await mcp.initialize();
     const list = await mcp.request(10, 'tools/list');
-    const inspect = (list.json?.result.tools as Array<{ name: string }>).find((t) => t.name.includes('inspect'));
-    expect(inspect).toBeTruthy();
+    const inspect = ListToolsResultSchema.parse(list.json?.result).tools.find(tool => tool.name.includes('inspect'));
+    const hasNoInspectTool = inspect === undefined;
+    if (hasNoInspectTool) throw new Error('MCP did not advertise an inspect tool');
 
-    const call = await mcp.request(11, 'tools/call', { name: inspect!.name, arguments: {} });
+    const call = await mcp.request(11, 'tools/call', { name: inspect.name, arguments: {} });
     expect(call.status).toBe(200);
-    expect(call.json?.error).toBeUndefined(); // forwarded + executed, not "not connected"
+    // The request helper rejects JSON-RPC error responses.
     expect(call.json?.result).toBeTruthy();
   }, 30_000);
 });

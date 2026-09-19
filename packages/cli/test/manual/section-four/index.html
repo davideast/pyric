@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Installed package checkpoint</title>
+<style>body { font: 16px system-ui; margin: 32px; } button { font: inherit; padding: 8px; } pre { background: #eee; padding: 12px; }</style>
+<h1>Installed package checkpoint</h1>
+<p>Runtime: <strong id="runtime">Starting</strong></p>
+<p>Connection: <strong id="connection" role="status">Connecting</strong></p>
+<p>User: <strong id="uid"></strong></p>
+<p>Module: <strong id="version"></strong></p>
+<button id="write" disabled>Write document</button>
+<output id="result">Starting</output>
+<p>Listener updates: <strong id="updates">0</strong></p>
+<pre id="document"></pre>
+<script>
+const forcesInpage = new URL(location.href).searchParams.get('runtime') === 'inpage';
+if (forcesInpage) globalThis.__PYRIC_FORCE_INPAGE__ = true;
+</script>
+<script type="module" src="/main.js"></script>
+</html>

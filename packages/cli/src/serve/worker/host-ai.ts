@@ -1,3 +1,4 @@
+import { observeAiRequest } from './ai-observation.js';
 import { packAiEvidence, setAiEvidence, type AiEvidence } from 'pyric/ai/internal';
 /**
  * SharedWorker host — AI op + stream-subscription handlers (pyric/ai).
@@ -43,17 +44,21 @@ export function isAiOp(method: OpMessage['method']): boolean {
 type AiOpMessage = Extract<OpMessage, { method: 'ai.generateContent' | 'ai.countTokens' }>;
 
 /**
- * Wire config → the mirror's `EngineConfig`. The only transformation is the
- * browser default: an openai config with no `baseUrl` targets the serve
- * proxy path. Script entries pass through as-is (they are the broker's own
+ * Wire config → the mirror's `EngineConfig`. Browser workers use the proxy;
+ * Node resolves that same route to its server-only upstream. Explicit engine
+ * URLs keep their target. Script entries pass through as-is (they are the broker's own
  * plain authoring shapes; predicate matchers never made it across the port —
  * structured clone rejects functions loudly at send time).
  */
-function resolveEngineConfig(wire: AiEngineConfigWire): NonNullable<AIOptions['engine']> {
+function resolveEngineConfig(wire: AiEngineConfigWire, upstream: HostCtx['aiUpstream']): NonNullable<AIOptions['engine']> {
   if (wire.kind === 'openai') {
+    const configuredUrl = wire.baseUrl ?? AI_PROXY_PATH;
+    const usesProxy = configuredUrl.replace(/\/$/, '') === AI_PROXY_PATH;
+    const baseUrl = usesProxy ? (upstream?.baseUrl ?? configuredUrl) : configuredUrl;
     return {
       kind: 'openai',
-      baseUrl: wire.baseUrl ?? AI_PROXY_PATH,
+      baseUrl,
+      fetch: upstream?.fetch,
       ...(wire.model !== undefined ? { model: wire.model } : {}),
       ...(wire.modelMap !== undefined ? { modelMap: wire.modelMap } : {}),
     };
@@ -95,7 +100,7 @@ function resolveEngineConfig(wire: AiEngineConfigWire): NonNullable<AIOptions['e
 export function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiBrokerLike {
   if (ctx.aiBroker) return ctx.aiBroker;
   const wire = ctx.aiEngine ?? opEngine;
-  const ai = getAI(ctx.sandbox, wire ? { engine: resolveEngineConfig(wire) } : undefined);
+  const ai = getAI(ctx.sandbox, wire ? { engine: resolveEngineConfig(wire, ctx.aiUpstream) } : undefined);
   const target = (ai as unknown as {
     [TARGET_SYMBOL]?: { broker: AiBrokerLike };
   })[TARGET_SYMBOL];
@@ -110,17 +115,25 @@ export function ensureAiBroker(ctx: HostCtx, opEngine?: AiEngineConfigWire): AiB
 /** Handle the unary AI ops. Requests/replies are plain Gemini-wire JSON. */
 export async function handleAiOp(ctx: HostCtx, port: PortLike, msg: OpMessage): Promise<void> {
   const aiMsg = msg as AiOpMessage;
+  const observation = observeAiRequest(ctx, port, msg, aiMsg.method.slice(3), aiMsg.model);
   let identity: AiEvidence | undefined;
   try {
     const broker = ensureAiBroker(ctx, aiMsg.engine);
     identity = broker.observationIdentity?.(aiMsg.model);
+    observation.identity(identity);
     switch (aiMsg.method) {
       case 'ai.generateContent': {
-        ok(port, aiMsg.id, packAiEvidence(await broker.generateContent(aiMsg.request, aiMsg.model)));
+        const response = await broker.generateContent(aiMsg.request, aiMsg.model);
+        observation.response(response);
+        observation.finish('completed');
+        ok(port, aiMsg.id, packAiEvidence(response));
         break;
       }
       case 'ai.countTokens': {
-        ok(port, aiMsg.id, packAiEvidence(await broker.countTokens(aiMsg.request, aiMsg.model)));
+        const response = await broker.countTokens(aiMsg.request, aiMsg.model);
+        observation.response(response);
+        observation.finish('completed');
+        ok(port, aiMsg.id, packAiEvidence(response));
         break;
       }
       default: {
@@ -131,6 +144,7 @@ export async function handleAiOp(ctx: HostCtx, port: PortLike, msg: OpMessage): 
     // AiBrokerError envelopes ride the SerializedError whole (aiEnvelope) —
     // serializeError detects them structurally.
     if (identity && e && typeof e === 'object') setAiEvidence(e, identity);
+    observation.finish('failed', e);
     fail(port, aiMsg.id, e);
   }
 }
@@ -154,9 +168,11 @@ export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessag
   }
   if (portSubs.has(msg.subId)) return; // idempotent
 
+  const observation = observeAiRequest(ctx, port, msg, 'generateContentStream', msg.model);
   let cancelled = false;
   const cancel = (): void => {
     cancelled = true;
+    observation.finish('cancelled');
   };
   portSubs.set(msg.subId, cancel);
 
@@ -165,15 +181,19 @@ export function handleAiSub(ctx: HostCtx, port: PortLike, msg: AiStreamSubMessag
     try {
       const broker = ensureAiBroker(ctx, msg.engine);
       identity = broker.observationIdentity?.(msg.model);
+      observation.identity(identity);
       for await (const chunk of broker.streamGenerateContent(msg.request, msg.model)) {
         if (cancelled) return;
+        observation.response(chunk, true);
         post(port, { t: 'snap', subId: msg.subId, value: { chunk: packAiEvidence(chunk) } });
       }
       if (!cancelled) {
+        observation.finish('completed');
         post(port, { t: 'snap', subId: msg.subId, value: { done: true } });
       }
     } catch (e) {
       if (!cancelled) {
+        observation.finish('failed', e);
         if (identity && e && typeof e === 'object') setAiEvidence(e, identity);
         post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(e) } });
       }

@@ -110,10 +110,11 @@ function noteAiProxyFailure(
   failure: AiProxyFailure,
   throttle: AiDiagnosticThrottle,
   logger?: ServeLogger,
+  source = 'ai-proxy',
 ): void {
   if (logger === undefined) return;
   if (!throttle.shouldPrint(aiProxyThrottleKey(failure), Date.now())) return;
-  logger.note(formatAiProxyWarning(failure));
+  logger.note(formatAiProxyWarning(failure, source));
 }
 
 /**
@@ -129,7 +130,7 @@ function noteAiProxyFailure(
  * developer's behalf. The proxy has no retry loop (the status rides straight
  * through to the caller), so the backoff is the app's decision, not pyric's.
  */
-export function formatAiProxyWarning(failure: AiProxyFailure): string {
+export function formatAiProxyWarning(failure: AiProxyFailure, source = 'ai-proxy'): string {
   const target = safeUpstreamText(failure.target);
   let headline: string;
   if (failure.kind === 'unreachable') {
@@ -141,7 +142,7 @@ export function formatAiProxyWarning(failure: AiProxyFailure): string {
     headline = `upstream stream aborted mid-response: ${safeUpstreamText(failure.cause)}`;
   }
   const lines = [
-    `  ⚠ [pyric] ai-proxy: ${headline}`,
+    `  ⚠ [pyric] ${source}: ${headline}`,
     `      POST ${target} (${failure.latencyMs}ms)`,
   ];
   if (failure.kind === 'unreachable') {
@@ -179,6 +180,63 @@ export function resolveAiProxyUpstream(
     source = 'env';
   }
   return { target: raw.replace(/\/$/, ''), source };
+}
+
+/** Shared upstream I/O for the browser proxy and the direct Node engine.
+ * Responses remain incremental; cancellation stops reading without a warning.
+ */
+export async function fetchAiUpstream(
+  input: Parameters<typeof fetch>[0],
+  init: RequestInit | undefined,
+  throttle: AiDiagnosticThrottle,
+  logger?: ServeLogger,
+  source = 'ai-proxy',
+): Promise<Response> {
+  const isRequest = input instanceof Request;
+  const target = isRequest ? input.url : String(input);
+  const startedAt = Date.now();
+  const note = (failure: AiProxyFailure): void => noteAiProxyFailure(failure, throttle, logger, source);
+  let upstream: Response;
+  try {
+    upstream = await fetch(input, init);
+  } catch (error) {
+    note({ kind: 'unreachable', target, latencyMs: Date.now() - startedAt,
+      cause: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
+  const failed = !upstream.ok;
+  if (failed) {
+    const retryAfter = upstream.headers.get('retry-after');
+    note({ kind: 'status', target, latencyMs: Date.now() - startedAt, status: upstream.status,
+      ...(retryAfter !== null ? { retryAfter } : {}) });
+  }
+  const body = upstream.body;
+  const hasNoBody = body === null;
+  if (hasNoBody) return upstream;
+  const reader = body.getReader();
+  let cancelled = false;
+  const observedBody = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (cancelled) return;
+        if (done) controller.close();
+        else controller.enqueue(value);
+      } catch (error) {
+        if (cancelled) return;
+        note({ kind: 'stream-abort', target, latencyMs: Date.now() - startedAt,
+          cause: error instanceof Error ? error.message : String(error) });
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      cancelled = true;
+      await reader.cancel(reason);
+    },
+  }, { highWaterMark: 0 });
+  return new Response(observedBody, {
+    status: upstream.status, statusText: upstream.statusText, headers: upstream.headers,
+  });
 }
 
 /**
@@ -239,17 +297,11 @@ export async function handleAiProxy(
     headers[key] = Array.isArray(value) ? value.join(', ') : value;
   }
 
-  const startedAt = Date.now();
   let upstream: Response;
   try {
-    upstream = await fetch(target, { method: 'POST', headers, body });
+    upstream = await fetchAiUpstream(target, { method: 'POST', headers, body }, throttle, logger);
   } catch (e) {
     const cause = e instanceof Error ? e.message : String(e);
-    noteAiProxyFailure(
-      { kind: 'unreachable', target, latencyMs: Date.now() - startedAt, cause },
-      throttle,
-      logger,
-    );
     // The 502 body quotes the same two strings the terminal block does, so it
     // gets the same masking: the target carries the page's own query string,
     // and a fetch error routinely echoes the URL back.
@@ -260,24 +312,6 @@ export async function handleAiProxy(
         `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
     );
     return;
-  }
-
-  // A refusal from a reachable upstream (bad model, missing key, rate limit)
-  // is just as invisible to a headless developer as a dead socket: the
-  // status rides through to the caller untouched, and is ALSO announced here.
-  // `Retry-After` rides along when the upstream sent one (429s and 503s carry
-  // it): it is the only place the requested backoff appears, since nothing in
-  // this path retries or sleeps.
-  if (!upstream.ok) {
-    const retryAfter = upstream.headers.get('retry-after');
-    const failure: AiProxyFailure = {
-      kind: 'status',
-      target,
-      latencyMs: Date.now() - startedAt,
-      status: upstream.status,
-    };
-    if (retryAfter !== null) failure.retryAfter = retryAfter;
-    noteAiProxyFailure(failure, throttle, logger);
   }
 
   const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
@@ -293,9 +327,7 @@ export async function handleAiProxy(
   // Chunk-by-chunk passthrough. A dropped client cancels the upstream read
   // so an abandoned SSE stream doesn't keep the upstream generating.
   const reader = upstream.body.getReader();
-  let clientGone = false;
   res.on('close', () => {
-    clientGone = true;
     void reader.cancel().catch(() => {});
   });
   try {
@@ -304,24 +336,8 @@ export async function handleAiProxy(
       if (done) break;
       res.write(value);
     }
-  } catch (e) {
-    // Nothing to salvage for the caller: the response is already committed
-    // with the upstream's status, so a truncated body is all it gets. But a
-    // half-delivered completion is exactly the failure that used to vanish,
-    // so announce it, unless the CLIENT is the one who walked away (a closed
-    // tab cancelling an SSE stream is normal, not a fault worth a warning).
-    if (!clientGone) {
-      noteAiProxyFailure(
-        {
-          kind: 'stream-abort',
-          target,
-          latencyMs: Date.now() - startedAt,
-          cause: e instanceof Error ? e.message : String(e),
-        },
-        throttle,
-        logger,
-      );
-    }
+  } catch {
+    // fetchAiUpstream reports interrupted responses; the committed body is truncated.
   }
   res.end();
 }

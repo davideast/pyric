@@ -202,7 +202,7 @@ export async function dispatchSandboxTool(
  * so the bridge advertises exactly the executable set.
  */
 export const SANDBOX_TOOL_NAMES: readonly string[] = toolFamilies('forwarded').flatMap(
-  (family) => family.tools,
+  (family) => Object.keys(family.tools),
 );
 
 export class UnknownToolError extends Error {

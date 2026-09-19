@@ -1,3 +1,5 @@
+import { getMessagingBroker } from 'pyric/messaging/internal';
+import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 /**
  * Worker-side serve init (Phase 3c.B) — apply `pyric dev`'s init payload
  * INSIDE the SharedWorker.
@@ -33,7 +35,7 @@ import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import { getStorageSandbox } from 'pyric/storage';
 import type { PersistenceBackend } from 'pyric/sandbox';
-import { createSandboxRoot } from 'pyric/sandbox/internal';
+import { createSandboxRoot, EventHistory } from 'pyric/sandbox/internal';
 import {
   primeEventHistory,
 } from 'pyric/sandbox/internal';
@@ -49,7 +51,7 @@ import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixtur
  *  (capture POSTs through it). Injectable so tests drive it with a stub. */
 export interface ServeInitEnv {
   fetch: typeof fetch;
-  /** Capture debounce window (ms). Default 400 — matches `runtime.ts`. Tests
+  /** Capture coalescing window (ms), measured from the first pending event. Default 400. Tests
    *  pass a small value to keep the round-trip fast. */
   captureDebounceMs?: number;
 }
@@ -193,6 +195,7 @@ export function applyServeInit(
   // 0. Messaging host capability. Serve producers enable it as part of the
   //    canonical SDK swap; a worker without an init payload stays disabled.
   if (payload.messaging === true) {
+    getMessagingBroker(ctx.sandbox);
     ctx.messagingEnabled = true;
     result.messagingEnabled = true;
   }
@@ -274,11 +277,13 @@ export function applyServeInit(
   // A seed fixture applies only into an empty home — checked ONCE, before
   // either seed step, so step 2's own writes can't make step 3's check look
   // non-empty (see sandboxHasExistingData).
-  const hasExistingData =
-    ((payload.seed && Object.keys(payload.seed).length > 0) ||
-      (payload.authUsers && payload.authUsers.length > 0)) &&
-    sandboxHasExistingData(ctx);
-  if (hasExistingData && (!payload.seedState || (payload.seed && Object.keys(payload.seed).length > 0))) {
+  const hasSeedDocuments = payload.seed !== null && Object.keys(payload.seed).length > 0;
+  const hasAuthUsers = Boolean(payload.authUsers?.length);
+  const hasFixtureData = hasSeedDocuments || hasAuthUsers;
+  const hasExistingData = hasFixtureData && sandboxHasExistingData(ctx);
+  const restoresAuthUsers = payload.persist || Boolean(payload.seedState);
+  const skipsFixture = hasExistingData && (hasSeedDocuments || !restoresAuthUsers);
+  if (skipsFixture) {
     result.seedSkipped = 'existing-data';
     console.info(
       '[pyric worker] --seed skipped: the sandbox already has restored data (persisted state or ' +
@@ -289,7 +294,9 @@ export function applyServeInit(
 
   // 2. Auth users — before map-form docs and session restore. State-file
   //    documents may already have been restored by the persistence backend.
-  if (payload.authUsers?.length && (!hasExistingData || payload.seedState)) {
+  const mayRestoreUsers = !hasExistingData || restoresAuthUsers;
+  const appliesAuthUsers = hasAuthUsers && mayRestoreUsers;
+  if (appliesAuthUsers) {
     const auth = ensureAuth(ctx);
     const existing = authOps.exportUsers(auth);
     // State fixtures restore their documents before this step. Add only
@@ -310,14 +317,17 @@ export function applyServeInit(
   }
 
   // 4. Capture — the write side of the `pyric verify` loop. On every sandbox
-  //    event, debounce-POST the full session fixture (rules + history + state)
+  //    event, coalesce and POST the full session fixture (rules + history + state)
   //    to `/__pyric/capture`. The server writes it verbatim to
   //    `.pyric/last-session.json`. Independent of --persist.
   if (payload.capture) {
-    const debounceMs = payload.capture ? (env.captureDebounceMs ?? 400) : 0;
+    const captureIntervalMs = env.captureDebounceMs ?? 400;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let inFlight: Promise<void> | null = null;
+    let dirty = false;
+    let disposed = false;
 
-    const flush = async (): Promise<void> => {
+    const postCapture = async (): Promise<void> => {
       const rtdb = ctx.rtdb ??= getDatabase(ctx.sandbox);
       const rtdbState =
         payload.databaseRules || ctx.sandbox.history().some((event) => event.service === 'rtdb')
@@ -352,27 +362,39 @@ export function applyServeInit(
         .catch(() => {});
     };
 
-    const unsub = ctx.sandbox.onEvent(() => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { void flush(); }, debounceMs);
-    });
+    const schedule = (): void => {
+      const alreadyPending = disposed || timer !== null || inFlight !== null;
+      if (alreadyPending) return;
+      timer = setTimeout(() => { timer = null; void flush().catch(() => {}); }, captureIntervalMs);
+    };
 
-    result.captureEnabled = true;
-    // Immediate-flush seam for the `resetAll` op (issue #359 extension):
-    // reset clears `sandbox.history()`, and the SERVER-persisted capture
-    // (`.pyric/last-session.json`) must follow NOW — inside the debounce
-    // window a dying worker leaves the wiped session's events on disk, and
-    // the next boot's `hydrateEventHistory` would prime them straight back
-    // into Traffic. Bypasses the debounce; cancels any pending flush (it
-    // would only re-write the same post-reset history).
-    ctx.captureFlush = async (): Promise<void> => {
+    const flush = async (): Promise<void> => {
+      // Explicit reset flushes wait for older POSTs before capturing current state.
+      while (inFlight) await inFlight;
+      if (disposed) return;
       if (timer) {
         clearTimeout(timer);
         timer = null;
       }
-      await flush();
+      dirty = false;
+      inFlight = postCapture();
+      try { await inFlight; }
+      finally {
+        inFlight = null;
+        if (dirty) schedule();
+      }
     };
+
+    const unsub = ctx.sandbox.onEvent(() => {
+      dirty = true;
+      schedule();
+    });
+
+    result.captureEnabled = true;
+    // Reset must publish its cleared history before acknowledging completion.
+    ctx.captureFlush = flush;
     result.dispose = (): void => {
+      disposed = true;
       if (timer) clearTimeout(timer);
       unsub();
       ctx.captureFlush = undefined;
@@ -419,8 +441,8 @@ export const MAX_PRIMED_EVENTS = 2000;
  *  - Skips cleanly when the endpoint 404s (capture off / nothing captured) or
  *    the fetch throws (standalone worker, no `pyric dev` behind it).
  *
- * FRESHNESS: the capture lags the last pre-death moments by up to the debounce
- * window (~400ms), so the final events before a worker death may be missing.
+ * FRESHNESS: capture coalesces events for ~400ms and waits for any older POST.
+ * Slow delivery or worker death can leave the final events absent from capture.
  * That is acceptable — the data itself is durable via IDB; this only restores
  * the activity RECORD, and near-perfect is enough for Traffic/feed continuity.
  *
@@ -433,14 +455,16 @@ export async function hydrateEventHistory(
 ): Promise<number> {
   let res: Response;
   try {
-    const headers: Record<string, string> = sessionToken
+    const hasToken = sessionToken !== undefined;
+    const headers: Record<string, string> = hasToken
       ? { 'x-pyric-session-token': sessionToken }
       : {};
     res = await env.fetch('/__pyric/capture', { headers });
   } catch {
     return 0; // standalone / no capture endpoint.
   }
-  if (res.status !== 200) return 0; // 404 → capture off or nothing captured.
+  const isUnavailable = res.status !== 200;
+  if (isUnavailable) return 0; // 404 → capture off or nothing captured.
 
   let fixture: PyricVerifyFixture;
   try {
@@ -450,14 +474,16 @@ export async function hydrateEventHistory(
   }
 
   const events = fixture.events;
-  if (!Array.isArray(events) || events.length === 0) return 0;
+  const hasNoEvents = !Array.isArray(events) || events.length === 0;
+  if (hasNoEvents) return 0;
 
   // Identity: don't show a neighbor profile's session as ours.
-  if (fixture.capturedBy && fixture.capturedBy !== ctx.instanceId) return 0;
+  const isOtherInstance = !!fixture.capturedBy && fixture.capturedBy !== ctx.instanceId;
+  if (isOtherInstance) return 0;
 
-  const capped =
-    events.length > MAX_PRIMED_EVENTS ? events.slice(-MAX_PRIMED_EVENTS) : events;
-  return primeEventHistory(ctx.sandbox, capped);
+  const retained = new EventHistory({ ...SERVE_HISTORY_LIMITS, maxEvents: MAX_PRIMED_EVENTS });
+  for (const event of events) retained.append(event);
+  return primeEventHistory(ctx.sandbox, retained.snapshot());
 }
 
 // ─── Worker boot: build the ONE shared HostCtx ──────────────────────────────
@@ -547,7 +573,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
     // plain-call wrapper doesn't need (nothing in this module uses it).
     fetch: ((...args: Parameters<typeof fetch>) => ambientFetch(...args)) as typeof fetch,
   };
-  const sandbox = createSandboxRoot();
+  const sandbox = createSandboxRoot(SERVE_HISTORY_LIMITS);
 
   // Deploy permissive starter rules via admin-firestore.
   // Callers override at runtime via the setRules op.
@@ -570,7 +596,8 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // createWorkerDurableBackend); plain IDB otherwise. The session record stays
   // on the RAW idb (local-only — it must NEVER reach the committable server
   // file), so that is what we hand the host as `sessionBackend`.
-  const durable = payload ? createWorkerDurableBackend(env.idb, payload, env) : env.idb;
+  const hasPayload = payload !== null;
+  const durable = hasPayload ? createWorkerDurableBackend(env.idb, payload, env) : env.idb;
   await sandbox.enablePersistence({
     key: env.persistenceKey ?? workerPersistenceKey(payload?.projectKey),
     injectedBackend: durable,
@@ -614,7 +641,8 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // (seed, first ops) follow. This is what makes Traffic / activity / metrics
   // survive a worker death: the DATA came back from IDB above, this restores
   // the RECORD of it. Best-effort — a failure never blocks boot.
-  if (payload?.capture) {
+  const capturesEvents = payload?.capture === true;
+  if (capturesEvents) {
     try {
       await hydrateEventHistory(ctx, env, payload?.sessionToken);
     } catch {
@@ -626,7 +654,8 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // engine slot. It wins over any op-carried `engine` field (see ensureAiBroker
   // in host-ai.ts) and is honored on the first ai op — mirroring getAI's
   // first-call-wins idempotence. Absent under `pyric dev` (no CLI surface).
-  if (payload?.ai?.engine) ctx.aiEngine = payload.ai.engine;
+  const hasAiEngine = payload?.ai?.engine !== undefined;
+  if (hasAiEngine) ctx.aiEngine = payload?.ai?.engine;
 
   // Default-on, warning-only. Start after hydration so a restored capture can
   // populate a report without replaying an old warning into a fresh terminal.
@@ -642,7 +671,7 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // Apply rules / seed / authUsers / capture BEFORE any port op runs (so
   // seeded users exist and project rules govern the first write), then mirror
   // auth to the committable server file (`--persist` only).
-  if (payload) {
+  if (hasPayload) {
     applyServeInit(ctx, payload, env);
     setupServerAuthFlush(ctx, payload, env);
   }
@@ -650,8 +679,10 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
   // The worker owns the SINGLE hot-reload stream for the origin (tabs open
   // none) — so a rules change deploys once and multi-tab pages never exhaust
   // the per-origin connection cap.
-  if (env.makeEventSource) {
-    setupWorkerHotReload(ctx, env.makeEventSource);
+  const makeEventSource = env.makeEventSource;
+  const hasEventSource = typeof makeEventSource === 'function';
+  if (hasEventSource) {
+    setupWorkerHotReload(ctx, makeEventSource);
   }
 
   return ctx;

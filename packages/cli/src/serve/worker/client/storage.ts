@@ -149,12 +149,22 @@ export async function getMetadata(reference: ClientStorageReference): Promise<Fu
   })) as FullMetadata;
 }
 
-/** Read an object's bytes as a Blob (Pyric Studio inspector preview).
- *  MessagePort-only — a Blob cannot cross the JSON bridge relay. */
+/** Reconstruct binary data locally so reads work over MessagePort and JSON WebSocket. */
 export async function getBlob(reference: ClientStorageReference): Promise<Blob> {
-  return (await dataRpc(reference.port, {
-    t: 'op', id: nextId(), method: 'storage.getBlob', path: reference.fullPath,
-  })) as Blob;
+  const result = await readStorageBytes(reference);
+  const bytes = base64ToBytes(result.dataB64);
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return new Blob([buffer], { type: result.contentType ?? 'application/octet-stream' });
+}
+
+function readStorageBytes(reference: ClientStorageReference): Promise<{
+  dataB64: string;
+  contentType?: string;
+  size: number;
+}> {
+  return dataRpc(reference.port, {
+    t: 'op', id: nextId(), method: 'storage.getBytes', path: reference.fullPath,
+  }) as Promise<{ dataB64: string; contentType?: string; size: number }>;
 }
 
 /**
@@ -246,9 +256,7 @@ export async function getBytes(
   reference: ClientStorageReference,
   maxDownloadSizeBytes?: number,
 ): Promise<ArrayBuffer> {
-  const res = (await dataRpc(reference.port, {
-    t: 'op', id: nextId(), method: 'storage.getBytes', path: reference.fullPath,
-  })) as { dataB64: string; size: number };
+  const res = await readStorageBytes(reference);
   if (typeof maxDownloadSizeBytes === 'number' && res.size > maxDownloadSizeBytes) {
     const err = new Error(
       `storage/quota-exceeded: object at '${reference.fullPath}' is ${res.size} bytes — ` +

@@ -25,6 +25,7 @@
  */
 
 import type { LocalSandbox } from 'pyric/sandbox';
+import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../frame-output.js';
 import type {
   AuthLens,
   BridgeMessage,
@@ -32,19 +33,27 @@ import type {
   ToolCallRequest,
   ToolCallResponse,
   WorkerOpFrame,
+  WorkerResFrame,
   WorkerSubFrame,
   WorkerOpPayload,
   WorkerSubPayload,
 } from '../protocol.js';
 import {
   isBridgeMessage,
+  MAX_BRIDGE_FRAME_BYTES,
   assertJsonSafeRelayValue,
-  DEFAULT_BRIDGE_PORT,
-  DEFAULT_SANDBOX_PATH,
   PEER_REPLACED_CLOSE_CODE,
   WORKER_RELAY_CAPABILITY,
 } from '../protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from './dispatch.js';
+import { bridgeHealthUrls, resolveBridgeUrl } from './bridge-url.js';
+import { requestEnvelopeError } from '../server/request-envelope.js';
+
+const peerCommands = new Set<BridgeMessage['type']>([
+  'hello-ack', 'tool-call', 'worker-op', 'worker-sub', 'worker-unsub', 'worker-client-disconnect', 'ping',
+]);
+
+const utf8 = new TextEncoder();
 
 export interface ConnectBridgeOptions {
   /**
@@ -147,6 +156,8 @@ export interface SandboxToolDispatcher {
      * default `app-session`), and the dispatch runs as it always has.
      */
     actAs?: AuthLens,
+    /** Stable MCP execution owner, independent of impersonated identity. */
+    callerId?: string,
   ): Promise<{
     ok: boolean;
     summary: string;
@@ -222,9 +233,17 @@ export function connectBridge(
   }
 
   function send(msg: BridgeMessage) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    const socket = ws;
+    const canSend = socket !== null && socket.readyState === WebSocket.OPEN;
+    if (canSend) {
       try {
-        ws.send(JSON.stringify(msg));
+        const payload = encodeBridgeMessage(msg);
+        const exceedsFrameLimit = payload === undefined;
+        if (exceedsFrameLimit) {
+          socket.close(BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE);
+          return;
+        }
+        socket.send(payload);
       } catch {
         // socket likely closing; reconnect will pick up after close event
       }
@@ -238,7 +257,9 @@ export function connectBridge(
     try {
       socket = new WebSocket(url);
     } catch (err) {
-      scheduleReconnect(`failed to open WebSocket: ${err instanceof Error ? err.message : String(err)}`);
+      const isError = err instanceof Error;
+      const message = isError ? err.message : String(err);
+      scheduleReconnect(`failed to open WebSocket: ${message}`);
       return;
     }
     ws = socket;
@@ -250,39 +271,75 @@ export function connectBridge(
         protocol: 1,
         tools: toolNames,
         sandboxId,
-        ...(workerRelay ? { capabilities: [WORKER_RELAY_CAPABILITY] } : {}),
       };
+      const hasWorkerRelay = workerRelay !== null;
+      if (hasWorkerRelay) hello.capabilities = [WORKER_RELAY_CAPABILITY];
       send(hello);
     };
 
-    socket.onmessage = (event: MessageEvent) => {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(typeof event.data === 'string' ? event.data : '');
-      } catch {
+    socket.onmessage = (event: MessageEvent<unknown>) => {
+      const data = event.data;
+      const isText = typeof data === 'string';
+      const exceedsFrameLimit = isText && utf8.encode(data).byteLength > MAX_BRIDGE_FRAME_BYTES;
+      if (exceedsFrameLimit) {
+        socket.close(BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE);
         return;
       }
-      if (!isBridgeMessage(parsed)) return;
+      let value: unknown;
+      try {
+        value = JSON.parse(isText ? data : '');
+      } catch {
+        socket.close(4002, 'Invalid bridge message JSON.');
+        return;
+      }
+      const parsed = value;
+      const isUnrecognizedMessage = !isBridgeMessage(parsed);
+      if (isUnrecognizedMessage) {
+        socket.close(4002, 'Unrecognized bridge message envelope.');
+        return;
+      }
+      const ignoresDirection = !peerCommands.has(parsed.type);
+      if (ignoresDirection) return;
+      const envelopeError = requestEnvelopeError(parsed);
+      const isMalformedCommand = envelopeError !== undefined;
+      if (isMalformedCommand) {
+        socket.close(4002, envelopeError);
+        return;
+      }
 
-      if (parsed.type === 'hello-ack') {
+      const acknowledgesPeer = parsed.type === 'hello-ack';
+      if (acknowledgesPeer) {
+        const isUnsupportedProtocol = parsed.protocol !== 1;
+        if (isUnsupportedProtocol) {
+          const reason = 'Unsupported bridge protocol. Expected version 1.';
+          closed = true;
+          setState({ kind: 'disconnected', reason });
+          socket.close(1000, reason);
+          return;
+        }
         setState({ kind: 'connected', bridgeVersion: parsed.bridgeVersion });
         return;
       }
-      if (parsed.type === 'tool-call') {
+      const isToolCall = parsed.type === 'tool-call';
+      if (isToolCall) {
         void handleToolCall(parsed);
         return;
       }
-      if (parsed.type === 'worker-op') {
+      const isWorkerOperation = parsed.type === 'worker-op';
+      if (isWorkerOperation) {
         void handleWorkerOp(parsed);
         return;
       }
-      if (parsed.type === 'worker-sub') {
+      const isWorkerSubscription = parsed.type === 'worker-sub';
+      if (isWorkerSubscription) {
         handleWorkerSub(parsed);
         return;
       }
-      if (parsed.type === 'worker-unsub') {
+      const isWorkerUnsubscribe = parsed.type === 'worker-unsub';
+      if (isWorkerUnsubscribe) {
         const unsubscribe = relaySubs.get(parsed.subId);
-        if (unsubscribe) {
+        const hasSubscription = unsubscribe !== undefined;
+        if (hasSubscription) {
           relaySubs.delete(parsed.subId);
           try {
             unsubscribe();
@@ -290,11 +347,13 @@ export function connectBridge(
         }
         return;
       }
-      if (parsed.type === 'worker-client-disconnect') {
+      const disconnectsWorkerClient = parsed.type === 'worker-client-disconnect';
+      if (disconnectsWorkerClient) {
         workerRelay?.disconnect?.(parsed.clientSessionId);
         return;
       }
-      if (parsed.type === 'ping') {
+      const isPing = parsed.type === 'ping';
+      if (isPing) {
         send({ type: 'pong', id: parsed.id });
         return;
       }
@@ -308,7 +367,8 @@ export function connectBridge(
       // and re-issues it after the next hello, so live worker listeners from
       // THIS connection must go now (or the next connection double-delivers).
       teardownRelaySubs();
-      if (event.code === PEER_REPLACED_CLOSE_CODE) {
+      const isReplacedByPeer = event.code === PEER_REPLACED_CLOSE_CODE;
+      if (isReplacedByPeer) {
         // Another tab won the peer slot. Re-helloing now would kick it right
         // back out (last-connection-wins) and the two tabs would fight over
         // the slot forever — re-firing every relayed subscription and
@@ -329,7 +389,7 @@ export function connectBridge(
   async function handleToolCall(req: ToolCallRequest) {
     let response: ToolCallResponse;
     try {
-      const result = await dispatcher(sandbox, req.name, req.args ?? {}, req.actAs);
+      const result = await dispatcher(sandbox, req.name, req.args ?? {}, req.actAs, req.callerId);
       response = {
         type: 'tool-result',
         id: req.id,
@@ -337,13 +397,14 @@ export function connectBridge(
         result,
       };
     } catch (err) {
+      const isError = err instanceof Error;
       response = {
         type: 'tool-result',
         id: req.id,
         ok: false,
         error: {
-          code: err instanceof Error ? err.name : 'Error',
-          message: err instanceof Error ? err.message : String(err),
+          code: isError ? err.name : 'Error',
+          message: isError ? err.message : String(err),
         },
       };
     }
@@ -351,7 +412,8 @@ export function connectBridge(
   }
 
   async function handleWorkerOp(req: WorkerOpFrame) {
-    if (!workerRelay) return; // capability not advertised — drop (wire drift)
+    const hasNoWorkerRelay = workerRelay === null;
+    if (hasNoWorkerRelay) return; // capability not advertised — drop (wire drift)
     try {
       const value = await workerRelay.op(req.op, req.clientSessionId);
       // Anti-corruption guard: a Blob/ArrayBuffer/TypedArray result would be
@@ -361,25 +423,29 @@ export function connectBridge(
       send({ type: 'worker-res', id: req.id, clientSessionId: req.clientSessionId, ok: true, value });
     } catch (err) {
       const denialContext = (err as { denialContext?: unknown }).denialContext;
+      const isError = err instanceof Error;
+      const error: NonNullable<WorkerResFrame['error']> = {
+        code: (err as { code?: string }).code ?? 'unknown',
+        message: isError ? err.message : String(err),
+      };
+      // Structured denial context stays JSON-safe across the relay.
+      const hasDenialContext = denialContext !== undefined;
+      if (hasDenialContext) error.denialContext = denialContext;
       send({
         type: 'worker-res',
         id: req.id,
         clientSessionId: req.clientSessionId,
         ok: false,
-        error: {
-          code: (err as { code?: string }).code ?? 'unknown',
-          message: err instanceof Error ? err.message : String(err),
-          // Structured denial context (spike gap 6) — plain JSON, relayed
-          // verbatim so the Node side re-attaches it.
-          ...(denialContext !== undefined ? { denialContext } : {}),
-        },
+        error,
       });
     }
   }
 
   function handleWorkerSub(req: WorkerSubFrame) {
-    if (!workerRelay) return; // capability not advertised — drop (wire drift)
-    if (relaySubs.has(req.subId)) return; // idempotent
+    const hasNoWorkerRelay = workerRelay === null;
+    if (hasNoWorkerRelay) return; // capability not advertised — drop (wire drift)
+    const isAlreadySubscribed = relaySubs.has(req.subId);
+    if (isAlreadySubscribed) return;
     try {
       const unsubscribe = workerRelay.subscribe(req.sub, (value) => {
         // Same anti-corruption guard as handleWorkerOp: a binary snap value
@@ -389,6 +455,7 @@ export function connectBridge(
         try {
           assertJsonSafeRelayValue(`subscription '${req.subId}'`, value);
         } catch (err) {
+          const isError = err instanceof Error;
           send({
             type: 'worker-snap',
             subId: req.subId,
@@ -396,7 +463,7 @@ export function connectBridge(
             value: {
               __error: {
                 code: (err as { code?: string }).code ?? 'invalid-argument',
-                message: err instanceof Error ? err.message : String(err),
+                message: isError ? err.message : String(err),
               },
             },
           });
@@ -409,38 +476,25 @@ export function connectBridge(
       // Synchronous establishment failure — relay it via the worker host's
       // snap-error convention so the far side's subscribe can reject.
       const denialContext = (err as { denialContext?: unknown }).denialContext;
+      const isError = err instanceof Error;
+      const error: NonNullable<WorkerResFrame['error']> = {
+        code: (err as { code?: string }).code ?? 'unknown',
+        message: isError ? err.message : String(err),
+      };
+      const hasDenialContext = denialContext !== undefined;
+      if (hasDenialContext) error.denialContext = denialContext;
       send({
         type: 'worker-snap',
         subId: req.subId,
         clientSessionId: req.clientSessionId,
         value: {
-          __error: {
-            code: (err as { code?: string }).code ?? 'unknown',
-            message: err instanceof Error ? err.message : String(err),
-            ...(denialContext !== undefined ? { denialContext } : {}),
-          },
+          __error: error,
         },
       });
     }
   }
 
   // ── Standby: another tab holds the peer slot ─────────────────────────────
-
-  /**
-   * Health endpoints to poll while in standby, derived from the WS url —
-   * same host, http(s) for ws(s). `pyric dev` mounts `/__pyric/health`
-   * (bridge-mount.ts); the standalone bridge serves `/health` — try both.
-   */
-  function healthUrls(): string[] {
-    try {
-      const u = new URL(url);
-      u.protocol = u.protocol === 'wss:' ? 'https:' : 'http:';
-      const base = u.origin;
-      return [`${base}/__pyric/health`, `${base}/health`];
-    } catch {
-      return [];
-    }
-  }
 
   function enterStandby() {
     if (closed) return;
@@ -467,12 +521,14 @@ export function connectBridge(
     if (closed) return;
     // null = health unreadable (unreachable / non-JSON / shape drift).
     let vacant: boolean | null = null;
-    for (const target of healthUrls()) {
+    for (const target of bridgeHealthUrls(url)) {
       try {
         const res = await fetchImpl(target);
-        if (!res.ok) continue;
+        const hasFailedResponse = !res.ok;
+        if (hasFailedResponse) continue;
         const body = (await res.json()) as { sandboxConnected?: unknown };
-        if (typeof body.sandboxConnected === 'boolean') {
+        const hasPeerStatus = typeof body.sandboxConnected === 'boolean';
+        if (hasPeerStatus) {
           vacant = !body.sandboxConnected;
           break;
         }
@@ -481,14 +537,16 @@ export function connectBridge(
       }
     }
     if (closed) return;
-    if (vacant === true) {
+    const hasVacantSlot = vacant === true;
+    if (hasVacantSlot) {
       // The winning tab is gone (refresh / close) — claim the slot. The
       // bridge replays its sub registry to us on hello; its re-issue dedup
       // keeps unchanged listeners quiet.
       connect();
       return;
     }
-    if (vacant === false) {
+    const hasActivePeer = vacant === false;
+    if (hasActivePeer) {
       standbyPollFailures = 0;
       scheduleStandbyPoll();
       return;
@@ -497,7 +555,8 @@ export function connectBridge(
     // briefly serve nothing. After a few consecutive failures fall back to
     // the plain reconnect loop rather than idling in standby forever.
     standbyPollFailures += 1;
-    if (standbyPollFailures >= STANDBY_MAX_POLL_FAILURES) {
+    const hasRepeatedPollFailures = standbyPollFailures >= STANDBY_MAX_POLL_FAILURES;
+    if (hasRepeatedPollFailures) {
       scheduleReconnect('standby health poll unreachable');
       return;
     }
@@ -526,17 +585,23 @@ export function connectBridge(
     disconnect() {
       closed = true;
       teardownRelaySubs();
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
+      const pendingReconnect = reconnectTimer;
+      const hasReconnectTimer = pendingReconnect !== null;
+      if (hasReconnectTimer) {
+        clearTimeout(pendingReconnect);
         reconnectTimer = null;
       }
-      if (standbyTimer) {
-        clearTimeout(standbyTimer);
+      const pendingStandby = standbyTimer;
+      const hasStandbyTimer = pendingStandby !== null;
+      if (hasStandbyTimer) {
+        clearTimeout(pendingStandby);
         standbyTimer = null;
       }
-      if (ws) {
+      const socket = ws;
+      const hasSocket = socket !== null;
+      if (hasSocket) {
         try {
-          ws.close();
+          socket.close();
         } catch {
           // ignore
         }
@@ -551,19 +616,6 @@ export function connectBridge(
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────
-
-function resolveBridgeUrl(explicit?: string): string {
-  if (explicit) return explicit;
-  if (typeof window !== 'undefined') {
-    const injected = (window as unknown as { __PYRIC_BRIDGE_URL__?: string })
-      .__PYRIC_BRIDGE_URL__;
-    if (injected) return injected;
-    const host = window.location.hostname || 'localhost';
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${host}:${DEFAULT_BRIDGE_PORT}${DEFAULT_SANDBOX_PATH}`;
-  }
-  return `ws://localhost:${DEFAULT_BRIDGE_PORT}${DEFAULT_SANDBOX_PATH}`;
-}
 
 function randomId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {

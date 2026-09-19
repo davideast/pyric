@@ -97,7 +97,7 @@ export async function getWorkerInstanceId(db: ClientDb): Promise<string> {
 
 /**
  * Phase 2 (transfer): export the FULL sandbox state as a portable bundle string
- * (the chunk format the persist layer uses, so wrapper types round-trip). Save
+ * (the complete checkpoint format, including Storage bytes and metadata). Save
  * it to a file and {@link importWorkerState} it into another instance.
  */
 export async function exportWorkerState(db: ClientDb): Promise<string> {
@@ -153,8 +153,10 @@ export async function callTool(
   args: Record<string, unknown>,
   /** The bridge caller's identity, when it has impersonated one. Relayed verbatim. */
   actAs?: AuthLens,
+  /** Keep this MCP caller's ordering and admission separate from other callers. */
+  clientSessionId?: string,
 ): Promise<{ ok: boolean; summary: string; data?: unknown }> {
-  return (await rpc(db.port, { t: 'tool', id: nextId(), name, args, ...(actAs ? { actAs } : {}) })) as {
+  return (await rpc(db.port, { t: 'tool', id: nextId(), name, args, clientSessionId, actAs })) as {
     ok: boolean;
     summary: string;
     data?: unknown;

@@ -63,7 +63,7 @@ describe('Vite Functions development adapter', () => {
         warn: (message) => warnings.push(message),
         error: (message) => errors.push(message),
       } as unknown as ViteDevServer['config']['logger'],
-      bridge: { sandboxConnected: () => true } as unknown as BridgeMount,
+      bridge: { sandboxConnected: () => true, onSandboxPeerConnected: () => () => {} } as unknown as BridgeMount,
       baseEnv: {},
       registerUrl: 'file:///register.js',
       runtimeFactory: (options) => { runtimeOptions = options; return runtime; },
@@ -121,7 +121,7 @@ describe('Vite Functions development adapter', () => {
       httpServer: httpServer as unknown as Server,
       watcher: watcher as unknown as ViteDevServer['watcher'],
       logger: { info() {}, warn() {}, error() {} } as unknown as ViteDevServer['config']['logger'],
-      bridge: { sandboxConnected: () => false } as unknown as BridgeMount,
+      bridge: { sandboxConnected: () => false, onSandboxPeerConnected: () => () => {} } as unknown as BridgeMount,
       baseEnv: {},
       registerUrl: 'file:///register.js',
     });
@@ -130,4 +130,53 @@ describe('Vite Functions development adapter', () => {
     expect(watcher.eventNames()).toHaveLength(0);
     await attachment.close();
   });
+});
+
+it('retries after reconnect even during startup, without duplicate starts or listeners after close', async () => {
+  const httpServer = new FakeHttpServer();
+  httpServer.listening = true;
+  const watcher = new FakeWatcher();
+  const connected = new Set<() => void>();
+  let finishFirst!: (result: { kind: 'failed'; error: Error }) => void;
+  const initial = new Promise<{ kind: 'failed'; error: Error }>(resolve => { finishFirst = resolve; });
+  let starts = 0;
+  let closes = 0;
+  const attachment = attachViteFunctionsDevelopment({
+    cwd: '/project',
+    project: { sourceDir: '/project/functions', entry: '/project/functions/index.js' },
+    projectId: 'demo', host: 'localhost', baseEnv: {}, registerUrl: 'file:///register.js',
+    httpServer: httpServer as Server,
+    watcher: watcher as ViteDevServer['watcher'],
+    logger: { info() {}, warn() {}, error() {} } as ViteDevServer['config']['logger'],
+    bridge: {
+      sandboxConnected: () => true,
+      onSandboxPeerConnected(listener: () => void) {
+        connected.add(listener);
+        return () => connected.delete(listener);
+      },
+    } as BridgeMount,
+    runtimeFactory: () => ({
+      async start() {
+        starts += 1;
+        const firstAttempt = starts === 1;
+        if (firstAttempt) return initial;
+        return { kind: 'ready', ready: { triggerCount: 1, unsupportedTriggers: [] } };
+      },
+      async reload() { throw new Error('Not a source reload'); },
+      async close() { closes += 1; },
+    }),
+  });
+  try {
+    expect(starts).toBe(1);
+    for (const listener of connected) { listener(); listener(); }
+    expect(starts).toBe(1);
+    finishFirst({ kind: 'failed', error: new Error('browser disconnected') });
+    await Bun.sleep(0);
+    expect(starts).toBe(2);
+    for (const listener of connected) listener();
+    await Bun.sleep(0);
+    expect(starts).toBe(2);
+  } finally { await attachment.close(); }
+  expect(connected.size).toBe(0);
+  expect(closes).toBe(1);
 });

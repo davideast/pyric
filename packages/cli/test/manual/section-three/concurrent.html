@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Phase 3 concurrent writes</title>
+<style>body { font: 16px system-ui; margin: 32px; } button { font: inherit; margin: 4px; padding: 8px; } pre { background: #eee; padding: 12px; }</style>
+<h1>Concurrent writes</h1>
+<p>Two named apps use the same counter. Each transaction adds one.</p>
+<p>Runtime: <strong id="runtime">Starting</strong></p>
+<button id="firestore">Run Firestore contention</button>
+<button id="rtdb">Run RTDB contention</button>
+<button id="batch">Reject Firestore batch</button>
+<button id="multipath">Reject RTDB update</button>
+<button id="increment">RTDB increment</button>
+<button id="read">Read RTDB counter</button>
+<pre id="result">Starting</pre>
+<script>
+const forcesInpage = new URL(location.href).searchParams.get('runtime') === 'inpage';
+if (forcesInpage) globalThis.__PYRIC_FORCE_INPAGE__ = true;
+</script>
+<script type="module" src="/concurrent.js"></script>
+</html>

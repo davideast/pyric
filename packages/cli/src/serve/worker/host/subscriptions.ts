@@ -4,8 +4,8 @@ import { sdkActivity, firestoreReadUsage } from 'pyric/sandbox/internal';
  *
  * `onSnapshot` / RTDB `onValue` listeners registered against the op's
  * lens-resolved handle, with cross-port snapshot fan-out. Owns the
- * session-bound sub registry (#754) that re-establishes a port's lens-less
- * listeners under its NEW identity on every auth transition, mirroring prod's
+ * subscription intents that re-establish listeners after state replacement and
+ * a port's lens-less listeners on every auth transition, mirroring prod's
  * stream re-establishment (a sign-out re-evaluates live listeners so an
  * auth-gated stream loses access instead of leaking the previous user's data).
  *
@@ -37,42 +37,36 @@ import {
 import { rtdbSnapToWire, rtdbTarget } from './rtdb.js';
 
 /**
- * Session-bound sub registry (#754): the original sub message for every
- * listener a port opened WITHOUT an explicit lens, so a port session change
- * can re-establish it under the new identity (see resubscribeSessionSubs).
+ * The original data-subscription messages, including explicit lenses. State
+ * replacement re-establishes all; auth changes select only app-session ones.
  * Parallel to `ctx.subs` (which holds only the unsub fns).
  */
-type SessionBoundSubMessage = FirestoreSubMessage | RtdbValueSubMessage;
+type DataSubMessage = FirestoreSubMessage | RtdbValueSubMessage;
 
-const _sessionSubs = new WeakMap<HostCtx, Map<PortLike, Map<string, SessionBoundSubMessage>>>();
+const _subscriptionIntents = new WeakMap<HostCtx, Map<PortLike, Map<string, DataSubMessage>>>();
 
-function sessionSubsFor(ctx: HostCtx, port: PortLike): Map<string, SessionBoundSubMessage> {
-  let byPort = _sessionSubs.get(ctx);
-  if (!byPort) {
-    byPort = new Map();
-    _sessionSubs.set(ctx, byPort);
-  }
-  let bySubId = byPort.get(port);
-  if (!bySubId) {
-    bySubId = new Map();
-    byPort.set(port, bySubId);
-  }
+function subscriptionIntentsFor(ctx: HostCtx, port: PortLike): Map<string, DataSubMessage> {
+  const byPort = _subscriptionIntents.get(ctx) ?? new Map<PortLike, Map<string, DataSubMessage>>();
+  _subscriptionIntents.set(ctx, byPort);
+  const bySubId = byPort.get(port) ?? new Map<string, DataSubMessage>();
+  byPort.set(port, bySubId);
   return bySubId;
 }
 
-/** Drop a port's session-bound sub records — invoked by the dispatcher's
+/** Drop a port's subscription intents — invoked by the dispatcher's
  *  `cleanupPort` on port disconnect. */
-export function dropPortSessionSubs(ctx: HostCtx, port: PortLike): void {
-  _sessionSubs.get(ctx)?.delete(port);
+export function dropPortSubscriptionIntents(ctx: HostCtx, port: PortLike): void {
+  _subscriptionIntents.get(ctx)?.delete(port);
 }
 
 /**
  * Tear down and clear all active listeners for a port (e.g. on peer failover/replacement
- * or port disconnect), and drop its session-bound sub records.
+ * or port disconnect), and drop its subscription intents.
  */
 export function teardownPortSubscriptions(ctx: HostCtx, port: PortLike): void {
   const portSubs = ctx.subs.get(port);
-  if (portSubs) {
+  const hasPortSubscriptions = portSubs !== undefined;
+  if (hasPortSubscriptions) {
     for (const unsub of portSubs.values()) {
       try {
         unsub();
@@ -81,7 +75,7 @@ export function teardownPortSubscriptions(ctx: HostCtx, port: PortLike): void {
     portSubs.clear();
     ctx.subs.delete(port);
   }
-  dropPortSessionSubs(ctx, port);
+  dropPortSubscriptionIntents(ctx, port);
 }
 
 /**
@@ -93,37 +87,58 @@ export function teardownPortSubscriptions(ctx: HostCtx, port: PortLike): void {
  * signed-out page no longer keeps receiving auth-gated data.
  */
 function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
-  const bound = _sessionSubs.get(ctx)?.get(port);
-  if (!bound || bound.size === 0) return;
+  const intents = _subscriptionIntents.get(ctx)?.get(port);
+  const hasNoIntents = intents === undefined;
+  if (hasNoIntents) return;
+  for (const [subId, msg] of [...intents]) {
+    const followsAppSession = !msg.actAs || msg.actAs.mode === 'app-session';
+    if (followsAppSession) restartSubscription(ctx, port, subId, msg);
+  }
+}
+
+/** Bind every retained data listener to the restored sandbox environment. */
+export function restoreSubscriptions(ctx: HostCtx): void {
+  const byPort = _subscriptionIntents.get(ctx);
+  const hasNoIntents = byPort === undefined;
+  if (hasNoIntents) return;
+  for (const [port, intents] of [...byPort]) {
+    for (const [subId, msg] of [...intents]) {
+      restartSubscription(ctx, port, subId, msg);
+    }
+  }
+}
+
+function restartSubscription(ctx: HostCtx, port: PortLike, subId: string, msg: DataSubMessage): void {
   const portSubs = ctx.subs.get(port);
-  for (const [subId, msg] of [...bound]) {
-    const unsub = portSubs?.get(subId);
-    if (isRtdbSub(msg)) {
-      if (unsub) unsub();
-      portSubs?.delete(subId);
-      bound.delete(subId); // handleRtdbSub re-records it
+  const intents = _subscriptionIntents.get(ctx)?.get(port);
+  const unsub = portSubs?.get(subId);
+  const isRtdb = isRtdbSub(msg);
+  const register = (): void => {
+    unsub?.();
+    portSubs?.delete(subId);
+    intents?.delete(subId);
+    if (isRtdb) {
       handleRtdbSub(ctx, port, msg);
     } else {
-      // Auth transitions enter through host-auth rather than the dispatcher,
-      // so restore the original app/page provenance explicitly. The detach is
-      // correlated to the old accepted registration by listener id; this
-      // replacement attach must retain the same logical page attribution.
-      const provenance = {
-        ...opProvenance(msg, activityJourneyId(ctx, port)),
-        activity: { listenerId: subId, listenerLifecycle: 'reauthorize' as const },
-      };
-      const reauthorize = (): void => {
-        if (unsub) unsub();
-        portSubs?.delete(subId);
-        bound.delete(subId); // handleSub re-records it
-        handleSub(ctx, port, msg);
-      };
-      if (provenance && ctx.sandbox.runWithProvenance) {
-        ctx.sandbox.runWithProvenance(provenance, reauthorize);
-      } else {
-        reauthorize();
-      }
+      handleSub(ctx, port, msg);
     }
+  };
+  if (isRtdb) {
+    register();
+    return;
+  }
+  // Restore the original listener's page attribution, including when another
+  // consumer initiated the checkpoint restore outside that page's dispatcher.
+  const provenance = {
+    ...opProvenance(msg, activityJourneyId(ctx, port)),
+    activity: { listenerId: subId, listenerLifecycle: 'reauthorize' as const },
+  };
+  const runWithProvenance = ctx.sandbox.runWithProvenance;
+  const supportsProvenance = runWithProvenance !== undefined;
+  if (supportsProvenance) {
+    runWithProvenance.call(ctx.sandbox, provenance, register);
+  } else {
+    register();
   }
 }
 
@@ -132,10 +147,10 @@ export function handleSub(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage
 }
 
 function handleSubImpl(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): void {
-  ensurePortSubs(ctx, port);
-  const portSubs = ctx.subs.get(port)!;
+  const portSubs = ensurePortSubs(ctx, port);
 
-  if (portSubs.has(msg.subId)) return; // idempotent
+  const alreadyRegistered = portSubs.has(msg.subId);
+  if (alreadyRegistered) return;
 
   let target: DocumentReference | CollectionReference | Query;
   let unsub: () => void;
@@ -157,11 +172,8 @@ function handleSubImpl(ctx: HostCtx, port: PortLike, msg: FirestoreSubMessage): 
     return;
   }
 
-  // Session-bound listeners re-establish on this port's auth transitions.
-  if (!msg.actAs || msg.actAs.mode === 'app-session') {
-    ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
-    sessionSubsFor(ctx, port).set(msg.subId, msg);
-  }
+  ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
+  subscriptionIntentsFor(ctx, port).set(msg.subId, msg);
 
   portSubs.set(msg.subId, unsub);
 }
@@ -171,9 +183,9 @@ export function handleRtdbSub(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMes
 }
 
 function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessage): void {
-  ensurePortSubs(ctx, port);
-  const portSubs = ctx.subs.get(port)!;
-  if (portSubs.has(msg.subId)) return;
+  const portSubs = ensurePortSubs(ctx, port);
+  const alreadyRegistered = portSubs.has(msg.subId);
+  if (alreadyRegistered) return;
 
   try {
     const ref = rtdbTarget(
@@ -181,18 +193,19 @@ function handleRtdbSubImpl(ctx: HostCtx, port: PortLike, msg: RtdbValueSubMessag
       msg.target.path,
       msg.target.query,
     );
+    const options: { owners?: typeof msg.owners } = {};
+    const hasOwners = Boolean(msg.owners);
+    if (hasOwners) options.owners = msg.owners;
     const unsub = rtdbOnValue(
       ref as DatabaseReference | RtdbQuery,
       (snap) => post(port, { t: 'snap', subId: msg.subId, value: rtdbSnapToWire(snap) }),
       (err) => post(port, { t: 'snap', subId: msg.subId, value: { __error: serializeError(err) } }),
       // Same reason as the Firestore path: the owners belong to the page.
-      { ...(msg.owners ? { owners: msg.owners } : {}) },
+      options,
     );
 
-    if (!msg.actAs || msg.actAs.mode === 'app-session') {
-      ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
-      sessionSubsFor(ctx, port).set(msg.subId, msg);
-    }
+    ctx.resubscribePortSubs ??= (p) => resubscribeSessionSubs(ctx, p);
+    subscriptionIntentsFor(ctx, port).set(msg.subId, msg);
 
     portSubs.set(msg.subId, unsub);
   } catch (e) {
@@ -258,22 +271,24 @@ function registerListener(
 }
 
 export function handleUnsub(ctx: HostCtx, port: PortLike, msg: UnsubMessage): void {
-  // Drop the session-bound record first — even when the live listener never
+  // Drop the retained intent first — even when the live listener never
   // registered (it errored at sub time), the record must not resurrect the
   // sub on a later session change.
-  _sessionSubs.get(ctx)?.get(port)?.delete(msg.subId);
+  _subscriptionIntents.get(ctx)?.get(port)?.delete(msg.subId);
   const portSubs = ctx.subs.get(port);
-  if (!portSubs) return;
+  const hasNoPortSubscriptions = portSubs === undefined;
+  if (hasNoPortSubscriptions) return;
   const unsub = portSubs.get(msg.subId);
-  if (!unsub) return;
+  const hasNoSubscription = unsub === undefined;
+  if (hasNoSubscription) return;
   unsub();
   portSubs.delete(msg.subId);
 }
 
 // ─── Internal helpers ─────────────────────────────────────────────────────
 
-function ensurePortSubs(ctx: HostCtx, port: PortLike): void {
-  if (!ctx.subs.has(port)) {
-    ctx.subs.set(port, new Map());
-  }
+function ensurePortSubs(ctx: HostCtx, port: PortLike): Map<string, () => void> {
+  const portSubs = ctx.subs.get(port) ?? new Map<string, () => void>();
+  ctx.subs.set(port, portSubs);
+  return portSubs;
 }

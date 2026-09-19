@@ -1,8 +1,9 @@
+import type { HostedConnectionState } from '../worker/client/websocket-connection.js';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { PyricRuntimeManifest } from './manifest.js';
 import { readPyricRuntimeManifest } from './manifest.js';
 
-export type PyricRuntimeMode = 'starting' | 'shared-worker' | 'in-page';
+export type PyricRuntimeMode = 'starting' | 'shared-worker' | 'in-page' | 'hosted';
 export type PyricRuntimeErrorSource = 'sandbox' | 'worker' | 'runtime';
 
 export interface PyricRuntimeError {
@@ -25,12 +26,15 @@ export interface PyricRuntimeSnapshot {
   updateAvailable: boolean;
   updatingWorker: boolean;
   errors: readonly PyricRuntimeError[];
+  hostedConnection?: HostedConnectionState;
+  persistenceUnhealthy?: boolean;
 }
 
 export interface PyricRuntimeStatus {
   getSnapshot(): PyricRuntimeSnapshot;
   subscribe(listener: (snapshot: PyricRuntimeSnapshot) => void): () => void;
   setWorker(input: { mode: Exclude<PyricRuntimeMode, 'starting'>; runningEpoch?: string | null }): void;
+  setHostedConnection(state: HostedConnectionState): void;
   setWorkerUpdater(update: (() => Promise<void>) | null): void;
   updateWorker(): Promise<void>;
   reportError(error: unknown, source: PyricRuntimeErrorSource): void;
@@ -113,6 +117,23 @@ function isAiRejectedEvent(event: SandboxEvent): boolean {
   const isAiService = event.service === 'ai';
   const isRejectedOp = 'op' in event && event.op === 'request_rejected';
   return isServiceMutationKind && isAiService && isRejectedOp;
+}
+
+/** Observation delivery failures do not change the reported outcome of the operation. */
+function observationGapError(event: SandboxEvent): PyricRuntimeError | null {
+  const isObservationGap = event.kind === 'observation_gap';
+  if (isObservationGap) {
+    const historyWasEvicted = event.reason === 'history-limit';
+    const message = historyWasEvicted
+      ? 'Older sandbox activity was evicted from the bounded observation history.'
+      : 'Sandbox activity is incomplete because an observation batch exceeded the 12 MiB size limit.';
+    return {
+      id: event.id, source: 'worker', at: event.at,
+      code: 'resource-exhausted', method: 'observation-delivery',
+      message,
+    };
+  }
+  return null;
 }
 
 function sandboxError(event: SandboxEvent): PyricRuntimeError | null {
@@ -220,12 +241,18 @@ export function createPyricRuntimeStatus(
     for (const listener of listeners) listener(snapshot);
   };
   const appendError = (error: PyricRuntimeError): void => {
-    if (errorIds.has(error.id)) return;
+    const isDuplicate = errorIds.has(error.id);
+    if (isDuplicate) return;
     errorIds.add(error.id);
     const errors = [...snapshot.errors, error].slice(-maxErrors);
     const retained = new Set(errors.map((item) => item.id));
-    for (const id of errorIds) if (!retained.has(id)) errorIds.delete(id);
-    publish({ ...snapshot, errors });
+    for (const id of errorIds) {
+      const wasEvicted = !retained.has(id);
+      if (wasEvicted) errorIds.delete(id);
+    }
+    const persistenceFailure = error.code === 'persistence-unhealthy' || error.code === 'committed-but-not-durable';
+    const persistenceUnhealthy = snapshot.persistenceUnhealthy || persistenceFailure;
+    publish({ ...snapshot, errors, persistenceUnhealthy });
   };
 
   return {
@@ -251,16 +278,21 @@ export function createPyricRuntimeStatus(
         updatingWorker: false,
       });
     },
+    setHostedConnection(hostedConnection) {
+      publish({ ...snapshot, hostedConnection });
+    },
     setWorkerUpdater(update) {
       workerUpdater = update;
     },
     async updateWorker() {
-      if (!snapshot.updateAvailable || snapshot.updatingWorker || !workerUpdater) {
+      const update = workerUpdater;
+      const cannotUpdate = !snapshot.updateAvailable || snapshot.updatingWorker || update === null;
+      if (cannotUpdate) {
         throw new Error('No Pyric worker update is available.');
       }
       publish({ ...snapshot, updatingWorker: true });
       try {
-        await workerUpdater();
+        await update();
       } catch (error) {
         publish({ ...snapshot, updatingWorker: false });
         appendError(normalizePyricRuntimeError(error, 'worker'));
@@ -272,8 +304,9 @@ export function createPyricRuntimeStatus(
     },
     recordSandboxEvents(events) {
       for (const event of events) {
-        const normalized = sandboxError(event);
-        if (normalized) appendError(normalized);
+        const normalized = observationGapError(event) ?? sandboxError(event);
+        const hasError = normalized !== null;
+        if (hasError) appendError(normalized);
       }
     },
     clearErrors() {
@@ -281,7 +314,8 @@ export function createPyricRuntimeStatus(
       publish({ ...snapshot, errors: [] });
     },
     dismissError(id) {
-      if (!errorIds.has(id)) return;
+      const isUnknownError = !errorIds.has(id);
+      if (isUnknownError) return;
       errorIds.delete(id);
       publish({
         ...snapshot,

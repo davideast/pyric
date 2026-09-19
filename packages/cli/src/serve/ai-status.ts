@@ -23,6 +23,8 @@ import { sanitizeForTerminal } from './ai-terminal-text.js';
  * instantiated lazily, on the first `ai.*` op, in the page or the worker.
  */
 export interface AiStartupStatus {
+  /** The AI broker runs in the server and reaches its upstream directly. */
+  hosted?: boolean;
   /** Engine resolved by the dev server (the Vite plugin's `ai.engine` /
    *  `ai.model`). Absent means nothing server-side: the served page's own
    *  `getAI(...)` chooses the engine at runtime, and the server cannot know
@@ -55,7 +57,10 @@ function describeOpenAiModel(model: string | undefined): string {
 function describeAiStatus(status: AiStartupStatus): { mark: string; body: string } {
   const upstream = resolveAiProxyUpstream(status.proxyUpstream);
   const provenance = describeUpstreamProvenance(upstream.source);
-  const proxyChain = `${AI_PROXY_ROUTE} → ${redactUrl(upstream.target)}${provenance}`;
+  const upstreamTarget = `${redactUrl(upstream.target)}${provenance}`;
+  const proxyChain = status.hosted
+    ? `${upstreamTarget} (direct from Node)`
+    : `${AI_PROXY_ROUTE} → ${upstreamTarget}`;
 
   const engine = status.engine;
   if (engine === undefined) {

@@ -13,18 +13,19 @@ import type {
 import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
 import { pageListenerOwners } from './listener-owners.js';
+import { makeDocSnapshot, makeQuerySnapshot, makeSnapshot } from './snapshots.js';
 import { beginWorkerFirestoreActivity } from './sdk-activity.js';
-import { finishSdkRead } from 'pyric/sandbox/internal';
-import { makeDocSnapshot, makeQuerySnapshot } from './snapshots.js';
+import { finishSdkRead, type UsageEvidence } from 'pyric/sandbox/internal';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot } from './snapshots.js';
+import type { DocumentData } from 'pyric/firestore';
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
 
-export function getDoc(ref: DocRefHandle): Promise<ClientDocSnapshot> {
+export function getDoc<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>> {
   return readDocumentAs(ref, 'getDoc');
 }
 
-export async function readDocumentAs(ref: DocRefHandle, method: string): Promise<ClientDocSnapshot> {
+export async function readDocumentAs<T = DocumentData>(ref: DocRefHandle<T>, method: string): Promise<ClientDocSnapshot<T>> {
   const activity = beginWorkerFirestoreActivity(ref, method, 'operation');
   try {
     const result = await dataRpc(ref.port, {
@@ -33,7 +34,7 @@ export async function readDocumentAs(ref: DocRefHandle, method: string): Promise
       method: 'getDoc',
       path: ref.descriptor.path,
     }) as RawDocResult;
-    return finishSdkRead(activity, makeDocSnapshot(result, ref.port));
+    return finishSdkRead(activity, makeDocSnapshot(result, ref.port, ref));
   } catch (error) { activity.fail(); throw error; }
 }
 
@@ -174,14 +175,15 @@ export function onSnapshot(
   callbackOrError?: SnapshotCallback | SnapshotErrorCallback,
   maybeError?: SnapshotErrorCallback,
 ): Unsubscribe {
-  const listenOptions = typeof optionsOrCallback === 'function' ? undefined : optionsOrCallback;
+  const hasDirectCallback = typeof optionsOrCallback === 'function';
+  const listenOptions = hasDirectCallback ? undefined : optionsOrCallback;
   // Derived before the message is built: `captureCreationFrame` reads the
   // stack this call is still on.
   const owners = pageListenerOwners(listenOptions);
-  const callback = (typeof optionsOrCallback === 'function'
+  const callback = (hasDirectCallback
     ? optionsOrCallback
     : callbackOrError) as SnapshotCallback;
-  const errorCallback = (typeof optionsOrCallback === 'function'
+  const errorCallback = (hasDirectCallback
     ? callbackOrError
     : maybeError) as SnapshotErrorCallback | undefined;
   let currentSubId = nextSubId();
@@ -193,68 +195,56 @@ export function onSnapshot(
     port,
     service: 'firestore' as const,
     next: (raw: unknown) => {
+      let snapshot: ClientDocSnapshot | ClientQuerySnapshot;
+      try {
+        snapshot = makeSnapshot(raw, port);
+      } catch (error) {
+        stop();
+        const hasErrorCallback = errorCallback !== undefined;
+        if (hasErrorCallback) errorCallback(error);
+        else console.error('pyric/firestore: Uncaught Error in snapshot listener:', error);
+        return;
+      }
       // Reported on the subscription id the sandbox also records as the
       // listener id, immediately before the application's callback runs.
-      const r = raw as Record<string, unknown>;
-      if ('docs' in r) {
-        const snapshot = makeQuerySnapshot(r as unknown as RawQueryResult, port);
-        activity.delivered(snapshot, (r as { usage?: import('pyric/sandbox/internal').UsageEvidence }).usage);
-        callback(snapshot);
-      } else {
-        const snapshot = makeDocSnapshot(r as unknown as RawDocResult, port);
-        activity.delivered(snapshot, (r as { usage?: import('pyric/sandbox/internal').UsageEvidence }).usage);
-        callback(snapshot);
-      }
+      const result = raw as { usage?: UsageEvidence };
+      activity.delivered(snapshot, result.usage);
+      callback(snapshot);
     },
     error: (error: unknown) => { activity.fail(); errorCallback?.(error); },
     close: () => activity.close(),
   };
 
-  const descriptor: TargetDescriptor =
-    target.__kind === 'doc-ref'
-      ? (target as DocRefHandle).descriptor
-      : target.__kind === 'coll-ref'
-        ? (target as CollRefHandle).descriptor
-        : (target as QueryHandle).descriptor;
-
-  const opened = openSnapshotSubscription(
-    port,
-    currentSubId,
-    subscription,
-    stampIssuer(
-      (_defaultLens
-        ? { t: 'sub', subId: currentSubId, target: descriptor, actAs: _defaultLens, ...(owners ? { owners } : {}) }
-        : { t: 'sub', subId: currentSubId, target: descriptor, ...(owners ? { owners } : {}) }) satisfies InboundMessage,
-    ),
-  );
-  if (!opened) activity.fail();
-  if (!opened && errorCallback) queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
+  const descriptor = target.descriptor;
+  function subscribe(): boolean {
+    const message: InboundMessage = { t: 'sub', subId: currentSubId, target: descriptor };
+    const hasLens = _defaultLens !== undefined;
+    if (hasLens) message.actAs = _defaultLens;
+    const hasOwners = owners !== undefined;
+    if (hasOwners) message.owners = owners;
+    const opened = openSnapshotSubscription(port, currentSubId, subscription, stampIssuer(message));
+    const failedToOpen = !opened;
+    if (failedToOpen) activity.fail();
+    const reportsDeletedApp = !opened && errorCallback !== undefined;
+    if (reportsDeletedApp) queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
+    return opened;
+  }
+  subscribe();
 
   let unsubscribed = false;
-  const unsubLens = subscribeLens((newLens) => {
+  const unsubLens = subscribeLens(() => {
     if (unsubscribed) return;
     closeSubscription(port, currentSubId);
     currentSubId = nextSubId();
     activity.transport(currentSubId);
-    const reopened = openSnapshotSubscription(
-      port,
-      currentSubId,
-      subscription,
-      stampIssuer(
-        (newLens
-          ? { t: 'sub', subId: currentSubId, target: descriptor, actAs: newLens, ...(owners ? { owners } : {}) }
-          : { t: 'sub', subId: currentSubId, target: descriptor, ...(owners ? { owners } : {}) }) satisfies InboundMessage,
-      ),
-    );
-    if (!reopened && errorCallback) {
-      queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
-    }
+    subscribe();
   });
 
-  return () => {
+  function stop(): void {
     unsubscribed = true;
     activity.close();
     unsubLens();
     closeSubscription(port, currentSubId);
-  };
+  }
+  return stop;
 }

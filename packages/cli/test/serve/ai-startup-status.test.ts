@@ -86,6 +86,16 @@ describe('pyric dev AI startup status', () => {
     );
   });
 
+  it('describes Node AI as direct upstream traffic', () => {
+    const line = formatAiStatusLine({
+      hosted: true, engine: { kind: 'openai', model: 'local-model' },
+      proxyUpstream: 'http://127.0.0.1:11434/v1',
+    });
+    expect(line).toContain('openai (model local-model) → http://127.0.0.1:11434/v1');
+    expect(line).toContain('direct from Node');
+    expect(line).not.toContain('/__pyric/ai-proxy');
+  });
+
   it('reports a gemini engine without ever printing the key', () => {
     expect(
       formatAiStatusLine({ engine: { kind: 'gemini', apiKey: 'AIzaSyTOPSECRET' }, mode: 'production' }),

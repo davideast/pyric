@@ -17,6 +17,8 @@ import {
 import type { InitPayload } from '../../../src/serve/namespace.js';
 import type { OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../src/serve/worker/protocol.js';
+import { buildVerifyFixture } from '../../../src/verify/fixture.js';
+import { getClock } from 'pyric/sandbox/internal';
 import { sandbox as authOps } from 'pyric/auth';
 import { avatarSeed, defaultAvatarDataUri } from 'pyric/auth/internal';
 import { avatarAssetUrl } from '../../../src/serve/assets/avatar-url.js';
@@ -24,6 +26,7 @@ import {
   initializeSandbox,
   createMemoryBackend,
   serializeToBuckets,
+  type SandboxEvent,
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 
@@ -78,7 +81,7 @@ async function makeCtx(): Promise<HostCtx> {
     key: `serve-init-${Math.random()}`,
     injectedBackend: createMemoryBackend(),
   });
-  return { db: getFirestore(sandbox), sandbox, subs: new Map() };
+  return { db: getFirestore(sandbox), sandbox, subs: new Map(), instanceId: 'serve-init-test' };
 }
 
 function fakePort(): PortLike & { messages: OutboundMessage[] } {
@@ -344,11 +347,14 @@ describe('applyServeInit — seed applies only into an empty home (guardrail)', 
     expect((res.value as { exists: boolean }).exists).toBe(false); // fixture never applied
   });
 
-  it('adds missing state-fixture identities without replacing restored accounts', async () => {
+  it.each([
+    { source: 'state fixture', restoration: { seedState: { version: 1, firestore: {} } } },
+    { source: 'persisted state', restoration: { persist: true } },
+  ])('adds missing $source identities without replacing restored accounts', async ({ restoration }) => {
     const ctx = await makeCtx();
     await handleMessage(ctx, fakePort(), { t: 'op', id: 'pre', method: 'setDoc', path: 'todos/existing', data: { title: 'lived' } });
     authOps.seedUsers(ensureAuth(ctx), [{ uid: 'existing', email: 'existing@example.com', password: 'original', displayName: 'Kept' }]);
-    const payload = { ...basePayload, seedState: { version: 1, firestore: {} }, authUsers: [
+    const payload = { ...basePayload, ...restoration, authUsers: [
       { uid: 'existing', email: 'existing@example.com', password: 'replacement', displayName: 'Wrong' },
       { uid: 'conflict', email: 'EXISTING@example.com', password: 'replacement' },
       { uid: 'alice', email: 'alice@example.com', password: 'fixture-password' },
@@ -421,7 +427,7 @@ describe('applyServeInit — seed applies only into an empty home (guardrail)', 
     const idb = createMemoryBackend();
     await idb.putRecords('pyric-shared-worker', serializeToBuckets({ 'todos/carried-over': { v: 1 } }, {}, 0));
     await sandbox.enablePersistence({ key: 'pyric-shared-worker', injectedBackend: idb });
-    const ctx: HostCtx = { db: getFirestore(sandbox), sandbox, subs: new Map() };
+    const ctx: HostCtx = { db: getFirestore(sandbox), sandbox, subs: new Map(), instanceId: 'serve-init-test' };
 
     const result = applyServeInit(
       ctx,
@@ -434,6 +440,31 @@ describe('applyServeInit — seed applies only into an empty home (guardrail)', 
 });
 
 describe('applyServeInit — capture (the verify loop)', () => {
+  it('delivers captures while writes continue without a quiet period', async () => {
+    const ctx = await makeCtx();
+    const fetchSpy = recordingFetch();
+    const result = applyServeInit(ctx, { ...basePayload, capture: true }, {
+      fetch: fetchSpy, captureDebounceMs: 50,
+    });
+    try {
+      const port = fakePort();
+      for (let index = 0; index < 20; index++) {
+        await handleMessage(ctx, port, {
+          t: 'op', id: `continuous-${index}`, method: 'setDoc',
+          path: 'notes/latest', data: { index },
+        });
+        await tick(10);
+      }
+      const captures = fetchSpy.calls.filter(call => call.url === '/__pyric/capture');
+      expect(captures.length).toBeGreaterThan(0);
+      const fixture = JSON.parse(captures.at(-1)!.body);
+      expect(fixture.services.firestore.state.documents['notes/latest'].index).toBeGreaterThan(0);
+    } finally {
+      result.dispose();
+      ctx.sandbox.dispose();
+    }
+  });
+
   it('POSTs the service-shaped session fixture to /__pyric/capture, then dispose stops it', async () => {
     const ctx = await makeCtx();
     const fetchSpy = recordingFetch();
@@ -486,12 +517,44 @@ describe('applyServeInit — capture (the verify loop)', () => {
     expect(fetchSpy.calls.length).toBe(0);
   });
 
+  it('finishes an older capture before publishing the reset state', async () => {
+    const ctx = await makeCtx();
+    const release = Promise.withResolvers<Response>();
+    const bodies: string[] = [];
+    const fetchCapture = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      const firstPost = bodies.length === 1;
+      return firstPost ? release.promise : new Response(null, { status: 204 });
+    }, { preconnect() {} });
+    const result = applyServeInit(ctx, { ...basePayload, rules: PERMISSIVE_RULES, capture: true }, {
+      fetch: fetchCapture, captureDebounceMs: 10,
+    });
+    try {
+      ctx.sandbox.admin.setDocument('notes/old', { message: 'before reset' });
+      const beforeReset = ctx.captureFlush!();
+      await tick(1);
+      ctx.sandbox.reset();
+      const afterReset = ctx.captureFlush!();
+      await tick(30);
+      expect(bodies).toHaveLength(1);
+      release.resolve(new Response(null, { status: 204 }));
+      await Promise.all([beforeReset, afterReset]);
+      expect(bodies).toHaveLength(2);
+      const fixture = JSON.parse(bodies[1]!);
+      expect(fixture.services.firestore.state.documents).toEqual({});
+    } finally {
+      release.resolve(new Response(null, { status: 204 }));
+      result.dispose();
+      ctx.sandbox.dispose();
+    }
+  });
+
   it('exposes an immediate capture flush that resolves only after its POST settles', async () => {
     const ctx = await makeCtx();
     let resolvePost!: (response: Response) => void;
-    const pendingFetch = (() => new Promise<Response>((resolve) => {
+    const pendingFetch = Object.assign(() => new Promise<Response>((resolve) => {
       resolvePost = resolve;
-    })) as typeof fetch;
+    }), { preconnect() {} });
     applyServeInit(
       ctx,
       { ...basePayload, capture: true },
@@ -506,6 +569,50 @@ describe('applyServeInit — capture (the verify loop)', () => {
     resolvePost({ ok: true, status: 204 } as Response);
     await flushing;
     expect(settled).toBe(true);
+  });
+
+  it('coalesces changes during a slow POST and stops pending captures on disposal', async () => {
+    const ctx = await makeCtx();
+    const firstPost = Promise.withResolvers<Response>();
+    const secondPost = Promise.withResolvers<Response>();
+    const bodies: string[] = [];
+    const fetchCapture = Object.assign(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(String(init?.body));
+      const isFirst = bodies.length === 1;
+      return isFirst ? firstPost.promise : secondPost.promise;
+    }, { preconnect() {} });
+    const result = applyServeInit(ctx, { ...basePayload, capture: true }, {
+      fetch: fetchCapture, captureDebounceMs: 5,
+    });
+    const port = fakePort();
+    const write = (value: number) => handleMessage(ctx, port, {
+      t: 'op', id: `slow-${value}`, method: 'setDoc', path: 'notes/latest', data: { value },
+    });
+    try {
+      await write(1);
+      const flushing = ctx.captureFlush!();
+      for (let value = 2; value <= 10; value++) {
+        await write(value);
+        await tick(2);
+      }
+      expect(bodies).toHaveLength(1);
+      firstPost.resolve(new Response(null, { status: 204 }));
+      await flushing;
+      await tick(20);
+      expect(bodies).toHaveLength(2);
+      const fixture = JSON.parse(bodies[1]!);
+      expect(fixture.services.firestore.state.documents['notes/latest']).toEqual({ value: 10 });
+      await write(11);
+      result.dispose();
+      secondPost.resolve(new Response(null, { status: 204 }));
+      await tick(20);
+      expect(bodies).toHaveLength(2);
+    } finally {
+      firstPost.resolve(new Response(null, { status: 204 }));
+      secondPost.resolve(new Response(null, { status: 204 }));
+      result.dispose();
+      ctx.sandbox.dispose();
+    }
   });
 });
 
@@ -567,15 +674,20 @@ describe('setupWorkerHotReload — the worker owns the single SSE', () => {
 // ─── Event-history hydration: survive worker death ──────────────────────────
 
 /** A capture fixture with `n` events, optionally stamped with `capturedBy`. */
-function captureFixture(n: number, capturedBy?: string): string {
+function captureFixture(n: number, capturedBy?: string, observedAt = Date.now()): string {
   const events = Array.from({ length: n }, (_, i) => ({
     kind: 'service_mutation',
+    service: 'auth',
+    op: 'users_clear',
+    auth: null,
     id: `cap-${i}`,
     at: i,
-  }));
+    // Live emission stamps wall time independently of the simulated clock.
+    observedAt,
+  } satisfies SandboxEvent));
   return JSON.stringify({
     schema: 'pyric.verify.fixture.v1',
-    ...(capturedBy ? { capturedBy } : {}),
+    capturedBy,
     events,
     services: {},
   });
@@ -599,6 +711,38 @@ function captureFetch(captureBody: string | null): typeof fetch & { calls: strin
 }
 
 describe('hydrateEventHistory — Traffic/activity survives worker death', () => {
+  it('restores observations older than thirty minutes without losing history', async () => {
+    const ctx = { ...(await makeCtx()), instanceId: 'inst-A' };
+    const observedAt = Date.now() - 31 * 60_000;
+    await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(2, 'inst-A', observedAt)) });
+    expect(ctx.sandbox.history()).toEqual([0, 1].map(index => ({
+      kind: 'service_mutation', service: 'auth', op: 'users_clear',
+      auth: null, id: `cap-${index}`, at: index, observedAt,
+    })));
+  });
+
+  it('uses event time for a recent legacy capture without observation timestamps', async () => {
+    const ctx = await makeCtx();
+    const event = {
+      kind: 'service_mutation', service: 'auth', op: 'users_clear',
+      auth: null, id: 'legacy', at: Date.now(),
+    } satisfies SandboxEvent;
+    await hydrateEventHistory(ctx, { fetch: captureFetch(JSON.stringify({ events: [event] })) });
+    expect(ctx.sandbox.history()).toEqual([event]);
+  });
+
+  it('restores actual captured writes even when the simulated clock is at zero', async () => {
+    const source = await makeCtx();
+    getClock(source.sandbox).set(0);
+    const port = fakePort();
+    await handleMessage(source, port, { t: 'op', id: 'captured-write', method: 'setDoc', path: 'notes/captured', data: { message: 'retained' } });
+    const fixture = buildVerifyFixture({ sandbox: source.sandbox, capturedBy: 'inst-A' });
+    expect(fixture.events).toContainEqual(expect.objectContaining({ kind: 'write', at: 0 }));
+    const restored = { ...(await makeCtx()), instanceId: 'inst-A' };
+    await hydrateEventHistory(restored, { fetch: captureFetch(JSON.stringify(fixture)) });
+    expect(restored.sandbox.history()).toEqual(fixture.events);
+  });
+
   it('primes eventHistory from the served capture on a fresh worker', async () => {
     const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
     const primed = await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(3, 'inst-A')) });
@@ -630,17 +774,18 @@ describe('hydrateEventHistory — Traffic/activity survives worker death', () =>
     expect(ctx.sandbox.history().length).toBe(before);
   });
 
-  it(`caps priming at the most recent ${MAX_PRIMED_EVENTS} events`, async () => {
+  it(`retains the most recent ${MAX_PRIMED_EVENTS} events and reports omitted history`, async () => {
     const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
     const primed = await hydrateEventHistory(ctx, {
       fetch: captureFetch(captureFixture(MAX_PRIMED_EVENTS + 50, 'inst-A')),
     });
-    expect(primed).toBe(MAX_PRIMED_EVENTS);
+    expect(primed).toBe(MAX_PRIMED_EVENTS + 1);
     const hist = ctx.sandbox.history();
     // Kept the tail (most recent), dropped the oldest 50.
-    expect(hist).toHaveLength(MAX_PRIMED_EVENTS);
-    expect(hist[0].id).toBe('cap-50');
-    expect(hist.at(-1)!.id).toBe(`cap-${MAX_PRIMED_EVENTS + 49}`);
+    expect(hist).toHaveLength(MAX_PRIMED_EVENTS + 1);
+    expect(hist[0]).toMatchObject({ kind: 'observation_gap', reason: 'history-limit', omittedCount: 50, firstEventId: 'cap-0', lastEventId: 'cap-49' });
+    expect(hist[1]?.id).toBe('cap-50');
+    expect(hist.at(-1)?.id).toBe(`cap-${MAX_PRIMED_EVENTS + 49}`);
   });
 
   it('skips a capture produced by a DIFFERENT instance (identity guard)', async () => {
@@ -664,7 +809,7 @@ describe('hydrateEventHistory — Traffic/activity survives worker death', () =>
 
   it('skips cleanly when fetch throws (standalone worker, no pyric dev)', async () => {
     const ctx = { ...(await makeCtx()), instanceId: 'inst-A' } as HostCtx;
-    const throwing = (() => Promise.reject(new Error('offline'))) as unknown as typeof fetch;
+    const throwing: typeof fetch = Object.assign(() => Promise.reject(new Error('offline')), { preconnect: fetch.preconnect });
     const primed = await hydrateEventHistory(ctx, { fetch: throwing });
     expect(primed).toBe(0);
   });

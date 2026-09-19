@@ -1,10 +1,8 @@
 /**
  * The activity incidents that mark a listener outline's badge.
  *
- * The chip holds the page's event history already, so it raises incidents the
- * same way a read-only bridge method does: a transient monitor over a fixed
- * history, reported once and disposed. No warning is delivered from here; the
- * incidents are read for their pattern and count alone.
+ * Snapshot callers fold a fixed history; the live chip retains its monitor
+ * across batches. Neither emits warnings: outlines read patterns and counts.
  */
 import { monitorFirebaseActivity, type ActivityFeed, type ActivityIncident } from 'pyric/firestore/internal';
 import type { SandboxEvent } from 'pyric/sandbox';
@@ -27,4 +25,23 @@ export function incidentsFromEvents(events: readonly SandboxEvent[]): readonly A
   } finally {
     monitor.dispose();
   }
+}
+
+/** Preserve the monitor across batches; historical hydration uses the same fold. */
+export function createListenerIncidents() {
+  let observe: (event: SandboxEvent) => void = () => {};
+  const monitor = monitorFirebaseActivity({
+    history: () => [],
+    subscribe(listener) {
+      observe = listener;
+      return () => { observe = () => {}; };
+    },
+  }, () => {});
+  return {
+    append(events: readonly SandboxEvent[]) {
+      for (const event of events) observe(event);
+    },
+    read: () => monitor.report().incidents,
+    dispose: () => monitor.dispose(),
+  };
 }

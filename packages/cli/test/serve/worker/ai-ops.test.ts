@@ -269,6 +269,8 @@ describe('ai.streamGenerateContent', () => {
       error: { code: 400, message: 'bad stream', status: 'INVALID_ARGUMENT' },
     });
     expect(ctx.subs.get(port)?.has('s-2') ?? false).toBe(false);
+    const failure = ctx.sandbox.history().find(event => event.kind === 'operation' && event.service === 'ai');
+    expect(failure).toMatchObject({ observation: { status: 'failed', error: { code: 'ai/INVALID_ARGUMENT' } }, rulesDisposition: { kind: 'not-evaluated' } });
   });
 
   it('an unsub mid-stream cancels delivery (no done snap after cancel)', async () => {
@@ -288,6 +290,9 @@ describe('ai.streamGenerateContent', () => {
     // Give the pump time to (not) deliver.
     await new Promise((r) => setTimeout(r, 50));
     expect(port.snaps.filter((s) => s.subId === 's-3')).toEqual([]);
+    const cancelled = ctx.sandbox.history().filter(event => event.kind === 'operation' && event.service === 'ai');
+    expect(cancelled).toHaveLength(1);
+    expect(cancelled[0]).toMatchObject({ observation: { status: 'cancelled' } });
   });
 });
 
@@ -406,4 +411,61 @@ describe('AI observation identity on worker errors', () => {
     await waitFor(() => port.snaps.length > 0);
     expect(port.snaps[0]!.value).toMatchObject({ __error: { aiEvidence: { routedModel: 'qwen3:8b', engine: 'openai' } } });
   });
+});
+
+it('retains one inspectable worker AI request for a late traffic observer', async () => {
+  const ctx = makeCtx();
+  const producer = fakePort();
+  await handleMessage(ctx, producer, {
+    t: 'sub', subId: 'background-generation', target: { service: 'ai', op: 'streamGenerateContent' },
+    model: MODEL, request: genRequest('synthetic observation'),
+    engine: { kind: 'scripted', script: [{ respond: { text: 'Synthetic worker answer' } }] },
+  });
+  await waitFor(() => producer.snaps.some(s => (s.value as { done?: boolean }).done));
+  const { createTrafficFeed } = await import('../../../src/serve/runtime/chip-traffic.js');
+  const feed = createTrafficFeed({ subscribeEvents: callback => {
+    callback(ctx.sandbox.history());
+    return ctx.sandbox.onEvent(event => callback([event]));
+  } });
+  const requests = feed.requests().filter(request => request.service === 'ai');
+  expect(requests).toHaveLength(1);
+  expect(requests[0]?.aiRequest?.status).toBe('completed');
+  expect(requests[0]?.aiRequest?.response?.text).toBe('Synthetic worker answer');
+  expect(requests[0]?.aiRequest?.detail.requestedModel).toBe(MODEL);
+  feed.dispose();
+});
+
+it('keeps the request identity across live updates and replay, beyond 64 operations', async () => {
+  const ctx = makeCtx();
+  const { createTrafficFeed } = await import('../../../src/serve/runtime/chip-traffic.js');
+  let deliver: (events: readonly import('pyric/sandbox').SandboxEvent[]) => void = () => {};
+  const feed = createTrafficFeed({ subscribeEvents: callback => {
+    deliver = callback;
+    return ctx.sandbox.onEvent(event => callback([event]));
+  } });
+  await sendOp(ctx, fakePort(), { t: 'op', id: 'inspectable', method: 'ai.generateContent',
+    model: MODEL, request: genRequest('synthetic') });
+  for (let index = 0; index < 70; index++) {
+    await sendOp(ctx, fakePort(), { t: 'op', id: `noise-${index}`, method: 'ai.countTokens', model: MODEL, request: genRequest('noise') });
+  }
+  deliver(ctx.sandbox.history());
+  expect(feed.requests()).toHaveLength(71);
+  expect(feed.requests().filter(request => request.method === 'generateContent')).toHaveLength(1);
+  feed.dispose();
+});
+
+it('records the issuing port identity rather than a later observer session', async () => {
+  const ctx = makeCtx();
+  const producer = fakePort();
+  await sendOp(ctx, producer, { t: 'op', id: 'sign-in', method: 'auth.signInAnonymously' });
+  const originalUid = ctx.portSessions?.get(producer)?.user.uid;
+  expect(originalUid).toBeDefined();
+  await handleMessage(ctx, producer, { t: 'sub', subId: 'identity-stream',
+    target: { service: 'ai', op: 'streamGenerateContent' }, model: MODEL, request: genRequest('synthetic') });
+  await sendOp(ctx, producer, { t: 'op', id: 'sign-out', method: 'auth.signOut' });
+  await waitFor(() => producer.snaps.some(s => (s.value as { done?: boolean }).done));
+  const requests = ctx.sandbox.history().filter(event => event.kind === 'operation' && event.service === 'ai');
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({ auth: { uid: originalUid }, observation: { status: 'completed' },
+    operationContext: { source: { kind: 'app' } } });
 });
