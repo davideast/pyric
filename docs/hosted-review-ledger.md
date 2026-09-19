@@ -391,7 +391,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I8. Storage reads do not wait behind queued mutations
 
-- Severity: should-fix. Slice: `host`. Status: fixing (Codex, `work/integration`).
+- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`). `getBlob` and `listByPrefix` await the shared mutation queue, matching `getMetadata`. Real Node SQLite acceptance covers upload, deletion, reset, and reads across bucket views.
 - Location: `packages/cli/src/serve/hosted/persistence/storage.ts:57,93`.
 - Defect: `getBlob` and `listByPrefix` skip the mutation queue that `getMetadata` awaits. A reader can see metadata for an object whose bytes are still queued, or a listing that omits it.
 - Acceptance: all reads await the queue; test upload-then-list ordering.

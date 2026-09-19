@@ -55,6 +55,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
       },
       putBytes,
       async getBlob(path, bucket = defaultBucket) {
+        await mutations;
         const row = read.get(bucket, path);
         const missingObject = row === undefined;
         if (missingObject) return undefined;
@@ -91,6 +92,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
         await enqueue(() => commit(() => { remove.run(bucket, path); }));
       },
       async listByPrefix(prefix, bucket = defaultBucket) {
+        await mutations;
         return list.all(bucket, prefix, prefix).map(metadataOf);
       },
       async reset(bucket = scope) {
