@@ -98,3 +98,7 @@ test('archive retries temporary file locks and preserves the source when retries
 test('stale metadata cannot overwrite a newer object and does not poison persistence', async () => {
   expect(await runNodeFixture('metadata')).toBe('Metadata concurrency passed');
 });
+
+test('a concurrent reader and transient SQLite busy do not latch persistence unhealthy', async () => {
+  expect(await runNodeFixture('busy')).toBe('Busy recovery passed');
+});
