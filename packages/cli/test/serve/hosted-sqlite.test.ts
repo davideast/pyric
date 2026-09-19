@@ -98,39 +98,3 @@ test('archive retries temporary file locks and preserves the source when retries
 test('stale metadata cannot overwrite a newer object and does not poison persistence', async () => {
   expect(await runNodeFixture('metadata')).toBe('Metadata concurrency passed');
 });
-
-test('history and state commit together and history remains paginated after restart', async () => {
-  expect(await runNodeFixture('history')).toBe('History restart passed');
-});
-
-test('Firestore undo and redo preserve exact transform results after restart', async () => {
-  expect(await runNodeFixture('undo')).toBe('Durable undo passed');
-});
-
-test('history exports rotate, verify and resume without deleting durable history', async () => {
-  expect(await runNodeFixture('export')).toBe('History export passed');
-});
-
-test('bounded undo crosses eviction and preserves batches, transactions and reset boundaries', async () => {
-  expect(await runNodeFixture('retention')).toBe('Bounded undo passed');
-}, 20_000);
-
-test('history failure rolls state back; migration and salvage preserve readable records', async () => {
-  expect(await runNodeFixture('history-failures')).toBe('History failures passed');
-});
-
-test('history CLI authenticates live access, refuses other projects and honors offline ownership', async () => {
-  expect(await runNodeFixture('history-cli')).toBe('History CLI passed');
-}, 20_000);
-
-test('killed observation and export processes leave explicit gaps and recoverable archives', async () => {
-  expect(await runNodeFixture('history-crash')).toBe('History crash recovery passed');
-});
-
-test('the real host journals Auth, Firestore, Database, Storage, Messaging and AI operations', async () => {
-  expect(await runNodeFixture('services')).toContain('All services recorded');
-});
-
-test('portable history values preserve typed values and browser decoding parity', async () => {
-  expect(await runNodeFixture('history-values')).toBe('History values passed');
-});

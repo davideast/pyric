@@ -8,7 +8,7 @@ import { createOperationBudget } from '../../bridge/operation-budget.js';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
 import { directoryCheckpointBackend } from 'pyric/sandbox/checkpoints/directory';
-import { installHostedHistory, createSandboxRoot, emitSandboxEvent, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
+import { createSandboxRoot, emitSandboxEvent, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { FirebaseError } from 'pyric/app';
 import { installStorageBackend } from 'pyric/storage/internal';
@@ -66,8 +66,6 @@ export async function createHostedRuntime(
   try {
     installStorageBackend(sandbox, persistence.storage);
     await sandbox.enablePersistence({ key: HOSTED_NAMESPACE, injectedBackend: persistence.backend });
-    installHostedHistory(sandbox, persistence.history.engine, persistence.history.observe);
-    persistence.history.startSession();
   } catch (error) {
     sandbox.dispose();
     closeOwnedPersistence();
@@ -84,9 +82,7 @@ export async function createHostedRuntime(
   }
   async function persistState(): Promise<void> {
     try {
-      requireHealthyPersistence();
       await sandbox.flush();
-      persistence.history.flush();
     } catch (error) {
       persistence.markUnhealthy();
       console.error('[pyric hosted] persistence failed:', error);

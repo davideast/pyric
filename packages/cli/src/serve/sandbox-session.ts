@@ -338,7 +338,6 @@ export async function createSandboxSession(
       state,
       stateOwner,
       persistenceStatus: hostedPersistence?.status,
-      history: hostedPersistence?.history,
       capture,
       sessionToken,
       studio: mountsStudio

@@ -69,10 +69,7 @@ export function createHostedStateView(projectDir: string, directory: string, dat
           decodeImportBundle(bundleRecords(records));
         }
         const removed = [...database.readRecords(namespace).keys()].filter(id => !records.has(id));
-        database.history.commit(() => {
-          database.history.boundary('state-import');
-          database.commitChanges(namespace, records, removed);
-        });
+        database.commitChanges(namespace, records, removed);
         return;
       }
       const isAuth = section === 'auth';

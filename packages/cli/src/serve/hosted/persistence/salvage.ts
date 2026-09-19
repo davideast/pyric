@@ -1,4 +1,3 @@
-import { salvageHistory } from './history-salvage.js';
 import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -14,7 +13,6 @@ export interface RecoveryReport {
   recoveredDocuments: number;
   recoveredServices: number;
   recoveredObjects: number;
-  recoveredHistory: number;
   excluded: Array<{ namespace: string; id: string; reason: string }>;
 }
 
@@ -58,7 +56,7 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
       if (unsupported) throw new Error(`Unsupported hosted database version ${String(version)}; recovery was not attempted.`);
       const corrupt = input.prepare('PRAGMA quick_check').all().some(row => row.quick_check !== 'ok');
       if (corrupt) throw new Error('Physical SQLite corruption prevents this recovery. The original directory is unchanged.');
-      const report: RecoveryReport = { recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, recoveredHistory: 0, excluded: [] };
+      const report: RecoveryReport = { recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, excluded: [] };
       const documents: Record<string, Record<string, unknown>> = {};
       const services: Record<string, unknown> = {};
       const duplicatePaths = new Set<string>();
@@ -153,12 +151,9 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
         const decoded = decodeImportBundle(bundleRecords(records));
         for (const [name, data] of Object.entries(decoded.services)) validatePersistedService(name, data);
         await recovered.records.putRecords('hosted', records);
-        salvageHistory(input, recovered, report);
         validateHostedDatabase(recovered);
         recovered.connection.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       } finally { recovered.close(); }
-      const reopened = await openHostedDatabase(output, { readOnly: true });
-      try { validateHostedDatabase(reopened); } finally { reopened.close(); }
       writeFileSync(join(output, 'recovery-report.json'), JSON.stringify(report, null, 2));
       return report;
     } finally { input.close(); }

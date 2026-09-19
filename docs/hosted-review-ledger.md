@@ -348,7 +348,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I2. Retention fixture fails deterministically on the tip
 
-- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18): the undo history commit `6b450256` is reverted during the phase 3 extraction. Verify the fixture is gone with the revert.
+- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): D1 revert removes the failing retention fixture and its suite case; pending reviewer closure by deletion.
 - Location: `packages/cli/test/serve/fixtures/hosted-sqlite-retention.ts:59`.
 - Defect: `assert.deepEqual` on two `DocumentSnapshot.data()` results, which are Proxy objects. Node's strict deep equality never treats two distinct proxies as equal. Verified at the assertion point: same prototype, equal fields, equal `Timestamp`, spread copies compare equal. The codec is not at fault.
 - Failure: the hosted SQLite suite reports 22 pass, 1 fail on every run. Introduced in `6b450256`.
@@ -356,14 +356,14 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I3. Salvage overwrites readable history when it meets an unknown codec version
 
-- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18): the history codec and history salvage are removed with `6b450256`. Bucket salvage keeps the shared validator; verify that remains after the revert.
+- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): D1 revert removes the history codec and history salvage. Bucket salvage retains `validatePersistenceEncoding`; pending reviewer closure by deletion.
 - Location: `packages/cli/src/serve/hosted/persistence/history-codec.ts:4`, `history.ts:198`, `history-salvage.ts:33`.
 - Defect: the history codec pins `encoding` to one literal, contradicting the shared `validatePersistenceEncoding` policy in `packages/pyric/src/sandbox/persistence/import-bundle.ts` that unknown codecs are not corruption. A record written by a newer encoding fails to parse, startup refuses, and salvage then replaces the record with an exclusion boundary. Bucket salvage already uses the shared validator at `salvage.ts:105`.
 - Acceptance: history uses the shared seam; a fixture with a newer-encoding record salvages with the record retained.
 
 ### I4. Migration mutates a store before refusing it
 
-- Severity: should-fix. Slice: `host`. Status: moot by revert (owner ruling D1, 2026-09-18): schema stays at version 1 with no migration. The validate-before-migrate order is still required for any future migration; keep the ordering test when one is added.
+- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): moot under D1 after the revert restores schema version 1 and removes the v1-to-v2 migration; pending reviewer verification. Validate-before-migrate remains required for any future migration.
 - Location: `packages/cli/src/serve/hosted/persistence/database.ts:57`; validation order at `persistence.ts:19`.
 - Defect: the v1 to v2 history migration writes tables and bumps `user_version` before `validateHostedDatabase` runs. A v1 store with malformed application records is modified, then refused. The contract requires refusal to leave the database unchanged.
 - Acceptance: validate before migrate; test that a refused v1 store is byte-identical after refusal.
@@ -398,7 +398,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I9. Undo history grows the database without bound
 
-- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18). The `quick_check`-on-a-full-copy behavior in `archive.ts:44` is independent of undo and stays open as I9b: run `quick_check` in place, not on a copy of the whole directory.
+- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): D1 revert removes durable undo history; pending reviewer closure by deletion. The independent archive copy issue remains open as I9b.
 - Location: `packages/cli/src/serve/hosted/persistence/undo.ts:14`, `history.ts:45`, `archive.ts:44`.
 - Defect: every allowed write stores prior and next documents in `history_records` forever; nothing prunes. The history contract admits unbounded disk; the persistence contract does not mention it. `fresh` also copies the whole directory to the temp filesystem to run `quick_check`.
 - Acceptance: a retention bound on `history_records` with a test, the bound stated in the persistence contract, and `quick_check` run in place.
@@ -412,7 +412,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I11. Synchronous history decode on the request path
 
-- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18).
+- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): D1 revert removes the synchronous durable-history decode path; pending reviewer closure by deletion.
 - Location: `packages/cli/src/serve/hosted/persistence/history.ts:151`; callers `undo.ts:139,167`.
 - Defect: `recentEngineEvents` decodes up to 1,000 records with hash, parse, and schema validation synchronously, and backs `size()` as well as the event getters. A count request blocks the event loop for the full page.
 - Acceptance: a separate count query; decode only on demand.

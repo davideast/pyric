@@ -15,7 +15,6 @@ export type Commit = <T>(work: () => T) => T;
 export function createCommitController(connection: SqlConnection) {
   let status: PersistenceStatus = { state: 'healthy', commits: 0, lastCommitMs: null, maxCommitMs: 0, failedAt: null };
   let active = false;
-  let completed: Array<() => void> = [];
   const listeners = new Set<() => void>();
   function markUnhealthy(): void {
     const alreadyFailed = status.state === 'unhealthy';
@@ -32,8 +31,6 @@ export function createCommitController(connection: SqlConnection) {
     active = true;
     try {
       const result = inTransaction(connection, work);
-      for (const callback of completed) callback();
-      completed = [];
       const duration = performance.now() - started;
       status = { ...status, commits: status.commits + 1, lastCommitMs: duration, maxCommitMs: Math.max(status.maxCommitMs, duration) };
       return result;
@@ -42,14 +39,10 @@ export function createCommitController(connection: SqlConnection) {
       const sqliteFailure = error instanceof Error && 'errcode' in error;
       if (sqliteFailure) throw new FirebaseError('persistence-unhealthy', 'The persistence transaction failed. Repair the store and restart before further mutations.', { cause: error });
       throw error;
-    } finally { active = false; completed = []; }
+    } finally { active = false; }
   }
   return {
     commit,
-    afterCommit(callback: () => void) {
-      if (active) completed.push(callback);
-      else callback();
-    },
     markUnhealthy,
     status: (): PersistenceStatus => ({ ...status }),
     onFailure(listener: () => void): () => void {

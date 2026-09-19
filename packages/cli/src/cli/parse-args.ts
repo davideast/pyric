@@ -167,7 +167,7 @@ function isExecutionSubcommand(subcommand: string | null, positional: readonly s
   if (isOtherService) return false;
   const first = positional[0];
   // Offline recovery is a CLI command, not a surface method or child process.
-  const isRecovery = first === 'salvage' || first === 'history';
+  const isRecovery = first === 'salvage';
   if (isRecovery) return false;
   return first === undefined || !SANDBOX_METHOD_WORDS.has(first);
 }
