@@ -58,5 +58,10 @@
     "phase": 2,
     "tests": ["packages/cli/test/bridge/peer-standby.test.ts"],
     "note": "Peer handshakes, replacement standby, takeover, and reconnect preserve text frames."
+  },
+  "A15": {
+    "phase": 2,
+    "tests": ["packages/cli/test/remote/loop-hold.test.ts"],
+    "note": "Unknown-method refusals preserve the remote client's version-skew guidance."
   }
 }
