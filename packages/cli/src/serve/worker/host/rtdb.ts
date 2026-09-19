@@ -210,7 +210,7 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike): Pr
       failures.push(error);
     }
   }
-  await bestEffortFlush(ctx);
+  await bestEffortFlush(ctx, 'disconnect');
   if (failures.length === 1) throw failures[0];
   if (failures.length > 1) throw new AggregateError(failures, 'Multiple SharedWorker onDisconnect operations failed');
 }
@@ -248,7 +248,7 @@ export async function handleRtdbOp(
         const db = lensRtdb(ctx, msg.actAs, port);
         const value = resolveRtdbSentinels(msg.value);
         await rtdbSet(rtdbRef(db, msg.path), value as never);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -258,7 +258,7 @@ export async function handleRtdbOp(
       try {
         const db = lensRtdb(ctx, msg.actAs, port);
         await rtdbSetPriority(rtdbRef(db, msg.path), msg.priority);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -272,7 +272,7 @@ export async function handleRtdbOp(
           resolveRtdbSentinels(msg.value) as never,
           msg.priority,
         );
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -282,7 +282,7 @@ export async function handleRtdbOp(
       try {
         const db = lensRtdb(ctx, msg.actAs, port);
         await rtdbUpdate(rtdbRef(db, msg.path), resolveRtdbSentinels(msg.values) as Record<string, unknown>);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -292,7 +292,7 @@ export async function handleRtdbOp(
       try {
         const db = lensRtdb(ctx, msg.actAs, port);
         await rtdbRemove(rtdbRef(db, msg.path));
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -315,7 +315,7 @@ export async function handleRtdbOp(
             rtdbRef(db, childPath),
             resolveRtdbSentinels(msg.value) as never,
           );
-          await bestEffortFlush(ctx);
+          await bestEffortFlush(ctx, msg.method);
         }
         const normalizedPath = `/${childPath.split('/').filter(Boolean).join('/')}`;
         ok(port, msg.id, { key, path: normalizedPath });
@@ -399,7 +399,7 @@ export async function handleRtdbOp(
           },
           { applyLocally: msg.applyLocally },
         );
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, {
           retry,
           committed: result.committed,

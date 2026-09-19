@@ -124,7 +124,7 @@ export async function handleConnectionOp(
       try {
         await importStateBundle(ctx.sandbox, msg.bundle);
         restoreSubscriptions(ctx);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { ok: true });
       } catch (error) {
         fail(port, msg.id, error);
@@ -171,7 +171,7 @@ export async function handleConnectionOp(
         break;
       }
       restoreSubscriptions(ctx);
-      await bestEffortFlush(ctx);
+      await bestEffortFlush(ctx, msg.method);
       ok(port, msg.id, { ok: true, at: restored.at, counts: restored.counts });
       break;
     }

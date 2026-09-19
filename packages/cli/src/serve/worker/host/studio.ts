@@ -63,7 +63,7 @@ export async function handleStudioOp(
         // the wiped session's events on the next boot.
         await ctx.captureFlush?.();
         // The hosted policy waits for earlier saves and persists the cleared state.
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { errors });
       } catch (e) {
         const isError = e instanceof Error;

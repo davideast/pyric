@@ -51,7 +51,7 @@ export async function handleAdminFirestoreOp(
     case 'admin.setDocument': {
       try {
         ctx.sandbox.admin.setDocument(msg.path, msg.data as Record<string, unknown>);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -60,7 +60,7 @@ export async function handleAdminFirestoreOp(
     case 'admin.deleteDocument': {
       try {
         const deleted = ctx.sandbox.admin.deleteDocument(msg.path);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, deleted);
       } catch (e) { fail(port, msg.id, e); }
       break;

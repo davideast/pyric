@@ -473,7 +473,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I14. The unhealthy-persistence gate admits RTDB, admin, and state mutations
 
-- Severity: should-fix. Slice: `host`. Status: fixing (Codex, `work/integration`). Pre-existing; made visible by A7's enumeration.
+- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`). Pre-existing; made visible by A7's enumeration.
 - Location: `packages/cli/src/serve/hosted/persistence-admission.ts`, the `return false` group.
 - Defect: `rtdb.update`, `rtdb.push`, `rtdb.setPriority`, `rtdb.setWithPriority`, `rtdb.transactionCommit`, `admin.setDocument`, `admin.deleteDocument`, `importState`, `checkpoint`, `deleteCheckpoint`, and `auth.setProviderConfig` are classified as not requiring healthy persistence. Each mutates persisted state. While persistence is `committed-but-not-durable`, these are still admitted, so the contract's "block further mutations" holds only for the listed subset.
 - Acceptance: every method that reaches a persistence flush is classified `true`, derived from the same source the flush path uses rather than hand-listed; a test that walks `OpMessage['method']` and asserts each mutation is gated.
