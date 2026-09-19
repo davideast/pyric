@@ -85,4 +85,4 @@ A failure in step 4 or 5 that traces to the extracted packages is a ledger item,
 
 ## After verification
 
-The reviewer records the branch and result in the plan's tracking table. The owner opens or approves the pull request; no agent opens or merges it. The transport slice is specified after this pull request is approved, and it cuts from this branch rather than from `main` so it inherits the foundation.
+The reviewer records the branch and result in the plan's tracking table. With the owner's approval the reviewer pushes the slice and opens the pull request from the repository template; the owner reviews and merges it. No agent merges. The transport slice is specified after this pull request is approved, and it cuts from this branch rather than from `main` so it inherits the foundation.
