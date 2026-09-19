@@ -370,7 +370,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I5. Transient `SQLITE_BUSY` latches the host unhealthy
 
-- Severity: should-fix. Slice: `host`. Status: fixing (Codex, `work/integration`).
+- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`). Persistence connections retry contention through SQLite with a 250 ms busy timeout per statement; the project-ownership lock retains 0. A real WAL reader and a competing writer released within the window leave persistence healthy. Exhausted retries remain fail-closed, with no acknowledged write. Acceptance covers both outcomes.
 - Location: `packages/cli/src/serve/hosted/persistence/database.ts:34`, `commits.ts:40`.
 - Defect: the persistence connection sets `busy_timeout=0` and any busy result calls `markUnhealthy()`, a permanent latch until restart. A checkpoint, a snapshot reader, a backup agent, or antivirus produces the same outcome as corruption.
 - Acceptance: a bounded busy policy on persistence connections (the ownership lock keeps 0), retry on busy, and a test that a concurrent reader during commit does not latch unhealthy.

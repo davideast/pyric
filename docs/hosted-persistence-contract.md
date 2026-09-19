@@ -25,6 +25,11 @@ operations have no new cross-service transaction guarantee. A successful mutatio
 acknowledgment follows its required persistence commit. A lost acknowledgment
 does not prove the operation was absent; do not promise exactly-once requests.
 
+Persistence connections let SQLite retry lock contention for up to 250 ms per
+statement. The project-ownership lock retains its zero timeout. Contention that
+clears within the window does not mark persistence unhealthy. An exhausted retry
+is a persistence failure under the fail-closed policy below.
+
 WAL uses `synchronous=FULL`. Durability assumes the filesystem and device honor
 SQLite's synchronization. SQL failures roll back. If an in-memory mutation cannot
 be persisted, report `committed-but-not-durable`, mark the host unhealthy, and

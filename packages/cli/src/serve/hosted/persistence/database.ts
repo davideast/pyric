@@ -28,7 +28,9 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
     const mode = connection.prepare(readOnly ? 'PRAGMA journal_mode' : 'PRAGMA journal_mode=WAL').get()?.journal_mode;
     const lacksWal = mode !== 'wal';
     if (lacksWal) throw new Error('Hosted persistence requires local storage supporting SQLite WAL.');
-    connection.exec('PRAGMA synchronous=FULL; PRAGMA busy_timeout=0');
+    // SQLite retries transient contention within this bound. The separate
+    // project-ownership connection retains its fail-fast busy_timeout=0.
+    connection.exec('PRAGMA synchronous=FULL; PRAGMA busy_timeout=250');
     const isNew = version === 0;
     if (isNew) {
       inTransaction(connection, () => {
