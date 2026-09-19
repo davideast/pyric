@@ -73,7 +73,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A5. Top-level await in the worker runtime entry breaks Service Worker installs
 
-- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `cf3dccb9`.
+- Severity: should-fix. Slice: `core`. Status: closed at `703a384c`. Reviewer acceptance: 4 pass, 0 fail; suites and typecheck reproduced.
 - Location: `packages/cli/src/serve/entries/worker-runtime.ts:34`.
 - Defect: `const payload = await initPayload` at module scope. `main` had no top-level await in this module. The module is imported by every SDK entry and is designed for Service Worker realms on both branches. Module Service Workers reject top-level await at evaluation. The branch's own `messaging-sw-client.ts` documents this and works around it for messaging only.
 - Failure: an application Service Worker imports `firebase/firestore` through Vite. Script evaluation fails and the Service Worker does not install.
@@ -81,7 +81,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A6. RTDB connection-metadata listeners leak their activity handle
 
-- Severity: should-fix. Slice: `core`. Status: open.
+- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `703a384c`.
 - Location: `packages/pyric/src/database/listeners.ts:205`.
 - Defect: `onValue` opens an activity through `beginDatabaseActivity`, then the `.info` and `.info/connected` branch returns `observeConnectionMetadata(...)` without closing or failing the activity. Sibling branches close it.
 - Failure: each connection-state listener leaves one activity open for the sandbox lifetime; listener accounting and retirement drain wait on it.

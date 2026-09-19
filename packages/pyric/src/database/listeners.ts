@@ -113,6 +113,7 @@ function observeConnectionMetadata(
   query: Query,
   callback: (snapshot: DataSnapshot) => void,
   registryCallback: (snapshot: DataSnapshot) => void,
+  activity: SdkActivityHandle,
 ): Unsubscribe {
   const reference = query.ref;
   const target = targetOf(reference);
@@ -129,6 +130,7 @@ function observeConnectionMetadata(
     stopObserving();
     release?.();
     listenerRegistry.removeExact(target, reference._path, 'value', registryCallback, registration, scope);
+    activity.close();
   };
   const registration: ListenerRegistration = { unsubscribe: stop };
   listenerRegistry.add(target, reference._path, 'value', registryCallback, registration, scope);
@@ -202,7 +204,7 @@ function onValueInternal(
   const isMetadataRoot = reference._path === '/.info';
   const hasDefaultQuery = isDefaultQuerySpec(r._spec);
   const observesConnection = isMetadataRoot || (hasDefaultQuery && isConnectionValue);
-  if (observesConnection) return observeConnectionMetadata(r, cb, registryCallback);
+  if (observesConnection) return observeConnectionMetadata(r, cb, registryCallback, activity);
   // Query branch — fire only when the windowed result changes.
   // Locked by oracle observation `rtdb-modular-onvalue-with-query.json`:
   // a write OUTSIDE the window does NOT re-fire the listener; a write
