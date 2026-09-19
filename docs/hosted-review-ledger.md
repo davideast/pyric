@@ -186,7 +186,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C6. Production flag is dropped on the hosted CLI path
 
-- Severity: should-fix, low. Slice: `host`. Status: open.
+- Severity: should-fix, low. Slice: `host`. Status: fixing (Codex, `work/integration`).
 - Location: `packages/cli/src/cli/surface-method-runner.ts:96`; host default at `serve/hosted/runtime.ts:341`.
 - Defect: `--allow-production` is parsed but not sent with the hosted method call. The host runs with the flag off and refuses without saying why.
 - Acceptance: the flag travels with the call; CLI test asserting the hosted path honors it.

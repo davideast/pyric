@@ -78,6 +78,13 @@
     "node": true,
     "note": "Salvage and archive recover a crashed writer's committed WAL without SHM, preserving the salvage source."
   },
+  "C6": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
+    "filter": "hosted CLI preserves",
+    "node": true,
+    "note": "The CLI production opt-in reaches the real hosted HTTP endpoint and remains scoped to the call."
+  },
   "I14": {
     "phase": 3,
     "tests": ["packages/cli/test/serve/entries/ledger/i14-persistence-admission.test.ts"],

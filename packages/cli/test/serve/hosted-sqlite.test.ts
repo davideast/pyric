@@ -114,3 +114,7 @@ test('salvage and archive recover committed WAL without a shared-memory file', a
 test('Storage reads await queued uploads, deletions and resets across bucket views', async () => {
   expect(await runNodeFixture('storage-read-order')).toBe('Storage read order passed');
 });
+
+test('hosted CLI preserves the production flag without bypassing confirmation', async () => {
+  expect(await runNodeFixture('cli-production')).toBe('Hosted CLI production flag passed');
+});
