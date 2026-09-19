@@ -65,7 +65,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A4. Hosted history expires after 30 minutes and then replay and verify throw
 
-- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `9115b78d`.
+- Severity: should-fix. Slice: `core`. Status: closed at `cf3dccb9`. Reviewer acceptance: 2 pass, 0 fail; shims removed, call sites clean, suites and typecheck reproduced after a pyric rebuild.
 - Location: `packages/pyric/src/sandbox/internal/observation-history.ts` (`maxAgeMs`), `event-history.ts:315`, `replay/index.ts:116`, `database/replay.ts:60`.
 - Defect: served sandboxes use limits with a 30 minute age bound. Aged events become a `history-limit` gap and `assertCompleteHistory` rejects replay and fixture parsing. The support contract bounds history by count and bytes only. On `main` history was unbounded.
 - Failure: a developer works in a served app for more than 30 minutes, then runs verify or capture and gets "Cannot replay or verify incomplete observation history".
@@ -73,7 +73,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A5. Top-level await in the worker runtime entry breaks Service Worker installs
 
-- Severity: should-fix. Slice: `core`. Status: open.
+- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `cf3dccb9`.
 - Location: `packages/cli/src/serve/entries/worker-runtime.ts:34`.
 - Defect: `const payload = await initPayload` at module scope. `main` had no top-level await in this module. The module is imported by every SDK entry and is designed for Service Worker realms on both branches. Module Service Workers reject top-level await at evaluation. The branch's own `messaging-sw-client.ts` documents this and works around it for messaging only.
 - Failure: an application Service Worker imports `firebase/firestore` through Vite. Script evaluation fails and the Service Worker does not install.

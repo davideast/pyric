@@ -1,3 +1,4 @@
+import { stampHostedTarget } from './runtime/hosted-target.js';
 import { REACT_BOOTSTRAP } from './react-bootstrap.js';
 import { SANDBOX_BUILD_MARKER } from './sandbox-marker.js';
 
@@ -48,22 +49,16 @@ export interface ServeTagOptions {
   hosted?: { projectKey: string };
 }
 
-export function injectServeTags(
-  html: string,
-  options: ServeTagOptions = {},
-): string {
+export function injectServeTags(html: string, options: ServeTagOptions = {}): string {
+  return stampHostedTarget(injectRuntimeTags(html, options), options.hosted?.projectKey);
+}
+
+function injectRuntimeTags(html: string, options: ServeTagOptions): string {
   const importMap = options.importMap ?? sdkImportMap();
-  const { workerVersion, forceInPage = false, hosted } = options;
+  const { workerVersion, forceInPage = false } = options;
   const marker = 'data-pyric-serve';
   const isAlreadyInjected = html.includes(marker);
   if (isAlreadyInjected) return html;
-  let hostMeta = '';
-  const hasHostedSandbox = hosted !== undefined;
-  if (hasHostedSandbox) {
-    const projectKey = hosted.projectKey.replaceAll('&', '&amp;').replaceAll('"', '&quot;')
-      .replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-    hostMeta = `<meta name="pyric-sandbox-host" content="node" data-project-key="${projectKey}" ${marker}>`;
-  }
   // A sandbox build already bundles its runtime. Adding the import map and
   // init module would boot a second backend; only the staleness stamp belongs.
   const isSandboxBuild = html.includes(SANDBOX_BUILD_MARKER);
@@ -71,7 +66,7 @@ export function injectServeTags(
   if (isSandboxBuild) {
     const needsVersionStamp = hasWorkerVersion && !html.includes('pyric-worker-v');
     const hasReactBootstrap = html.includes('data-pyric-react-hook');
-    let meta = (hasReactBootstrap ? '' : REACT_BOOTSTRAP) + hostMeta;
+    let meta = (hasReactBootstrap ? '' : REACT_BOOTSTRAP);
     if (needsVersionStamp) meta += `<meta name="pyric-worker-v" content="${workerVersion}" ${marker}>`;
     const hasNoRuntimeStamp = meta.length === 0;
     if (hasNoRuntimeStamp) return html;
@@ -96,7 +91,6 @@ export function injectServeTags(
     : '';
   const tags =
     REACT_BOOTSTRAP +
-    hostMeta +
     versionMeta +
     forceTag +
     `<script type="importmap" ${marker}>${JSON.stringify({ imports: importMap })}</script>` +

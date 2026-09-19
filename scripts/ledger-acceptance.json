@@ -26,7 +26,11 @@
   },
   "A5": {
     "phase": 1,
-    "tests": ["packages/cli/test/serve/entries/ledger/a5-worker-runtime-no-top-level-await.test.ts"],
+    "tests": [
+      "packages/cli/test/serve/entries/ledger/a5-worker-runtime-no-top-level-await.test.ts",
+      "packages/cli/test/serve/entries/ledger/a5-page-sdk-selection.test.ts",
+      "packages/cli/test/serve/entries/ledger/a5-service-worker-sdk-selection.test.ts"
+    ],
     "note": "The shared worker runtime entry has no top-level await."
   },
   "A6": {

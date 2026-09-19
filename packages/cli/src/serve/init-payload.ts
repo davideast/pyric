@@ -65,3 +65,10 @@ export interface InitPayload {
    */
   ai?: { engine?: AiEngineConfigWire } | null;
 }
+
+/** Synchronous page transport selection, injected before application modules. */
+export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy'>;
+
+declare global {
+  var __PYRIC_WORKER_INIT__: WorkerInitPayload | undefined;
+}

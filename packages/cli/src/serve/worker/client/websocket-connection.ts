@@ -17,7 +17,7 @@ const utf8 = new TextEncoder();
 export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed';
 
 /** Own one app's physical connections while retaining its logical SDK port. */
-export function getHostedFirestore(target: { url: string; projectKey: string; onConnection?: (state: HostedConnectionState) => void; onError?: (error: FirebaseError) => void }): ClientDb {
+export function getHostedFirestore(target: { url: string; projectKey: string; onConnection?: (state: HostedConnectionState) => void; onError?: (error: FirebaseError) => void }, existingPort?: ClientPort): ClientDb {
   const connectionId = `socket-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const report = (phase: DiagnosticEvent['phase'], code?: number) => {
     recordDiagnostic({ phase, connectionId, endpoint: target.url, code });
@@ -38,8 +38,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
   let heartbeatTimer: ReturnType<typeof setTimeout> | undefined;
   let lastReceivedAt = 0;
 
-  const port: ClientPort = {
-    onmessage: null,
+  const port: ClientPort = Object.assign(existingPort ?? {}, {
+    onmessage: existingPort?.onmessage ?? null,
     postMessage(message) {
       const isClosed = state === 'closed';
       if (isClosed) throw new FirebaseError('unavailable', 'The hosted sandbox connection is closed.');
@@ -102,7 +102,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
       closingSocket?.close();
       port.onmessage = null;
     },
-  };
+  } satisfies ClientPort);
 
   function notifyConnectionChange(): void {
     report(state);
@@ -345,7 +345,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
   }
 
   const db = { __kind: 'client-db', port } satisfies ClientDb;
-  wirePort(port);
+  if (!existingPort) wirePort(port);
   connect();
   return db;
 }
