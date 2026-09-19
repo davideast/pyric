@@ -57,7 +57,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A3. Persistence restore aborts on one bad document
 
-- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `abc7efbb`.
+- Severity: should-fix. Slice: `core`. Status: closed at `9115b78d` (branch `hosted-main-integration`). Verified 2026-09-18 by the reviewer: `verify-ledger A3` 1 pass, 0 fail; acceptance unchanged; persistence, chunk-format, incremental, partial-restore, auth and RTDB persistence, checkpoint, and branch suites 174 pass, 0 fail; pyric typecheck exit 0. The decoder is strict by default and the shared restore opts into per-document skipping, so imports and hosted validation keep refusing. Follow-ups A12 and A13.
 - Location: `packages/pyric/src/sandbox/persistence/chunk-format.ts:393`; caller `controller.ts:492` has no error handling.
 - Defect: `deserializeFromBuckets` throws on a non-object document, a document nested deeper than 64 containers, or an unknown bucket encoding. The checksum branch still warns and skips. On `main` restore rehydrated whatever was readable.
 - Failure: one malformed document in the store makes `enablePersistence` reject and no Firestore state restores.
@@ -65,7 +65,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A4. Hosted history expires after 30 minutes and then replay and verify throw
 
-- Severity: should-fix. Slice: `core`. Status: open.
+- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `9115b78d`.
 - Location: `packages/pyric/src/sandbox/internal/observation-history.ts` (`maxAgeMs`), `event-history.ts:315`, `replay/index.ts:116`, `database/replay.ts:60`.
 - Defect: served sandboxes use limits with a 30 minute age bound. Aged events become a `history-limit` gap and `assertCompleteHistory` rejects replay and fixture parsing. The support contract bounds history by count and bytes only. On `main` history was unbounded.
 - Failure: a developer works in a served app for more than 30 minutes, then runs verify or capture and gets "Cannot replay or verify incomplete observation history".
@@ -121,6 +121,20 @@ These affect users who never enable hosted mode. Fix against `main` first.
 - Location: `packages/pyric/src/firestore/sandbox/atomic-write-pipeline.ts`.
 - Defect: a batch with set then delete on the same path classifies the set from the final projection, so the set evaluates under the delete rule.
 - Acceptance: a batch test pins the set operation's evaluated rule method independently of a later delete on the same path.
+
+### A12. A skipped document is dropped from its bucket on the next flush
+
+- Severity: nit. Slice: `core`. Status: open. Follow-up from the A3 verification; same behavior as `main`.
+- Location: `packages/pyric/src/sandbox/persistence/controller.ts:541` with the flush path.
+- Defect: the shared restore skips an unreadable document and warns, but the bucket's in-memory content no longer holds it. The first flush that touches that bucket rewrites it without the skipped document. The stored bytes are then gone. This is the concern the hosted fail-closed ruling addressed for the SQLite store; the SharedWorker and in-page stores have no equivalent.
+- Acceptance: either the skipped document's raw record is carried through to the next flush of its bucket unchanged, or the warning states that the document will be dropped on the next write and the contract document says so.
+
+### A13. The in-process MCP store load is strict with no recovery path
+
+- Severity: nit, needs a ruling. Slice: `core`. Status: open.
+- Location: `packages/cli/src/bridge/server/in-process.ts:244`.
+- Defect: the MCP host decodes its JSON store with the strict default. One malformed document makes `pyric mcp` fail to load its state. On `main` the decoder did not validate document roots or depth, so this store restored whatever it held. Hosted is fail-closed by ruling but has salvage; this store has neither the ruling nor a recovery command.
+- Acceptance: the owner rules whether the in-process store skips like the shared restore or fails closed like hosted. If fail-closed, the error names how to recover, and `pyric sandbox salvage` accepts this store's format or a sibling command exists.
 
 ## B. Failing tests on the branch tip
 

@@ -17,7 +17,6 @@ import {
 import type { InitPayload } from '../../../src/serve/namespace.js';
 import type { OutboundMessage, ResMessage } from '../../../src/serve/worker/protocol.js';
 import { bytesToBase64 } from '../../../src/serve/worker/protocol.js';
-import { SERVE_HISTORY_LIMITS } from '../../../src/serve/observation-limits.js';
 import { buildVerifyFixture } from '../../../src/verify/fixture.js';
 import { getClock } from 'pyric/sandbox/internal';
 import { sandbox as authOps } from 'pyric/auth';
@@ -712,16 +711,14 @@ function captureFetch(captureBody: string | null): typeof fetch & { calls: strin
 }
 
 describe('hydrateEventHistory — Traffic/activity survives worker death', () => {
-  it('reports expired observations as a gap instead of resurrecting them', async () => {
+  it('restores observations older than thirty minutes without losing history', async () => {
     const ctx = { ...(await makeCtx()), instanceId: 'inst-A' };
-    const expiredAt = Date.now() - SERVE_HISTORY_LIMITS.maxAgeMs - 60_000;
-    await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(2, 'inst-A', expiredAt)) });
-    expect(ctx.sandbox.history()).toEqual([
-      expect.objectContaining({
-        kind: 'observation_gap', reason: 'history-limit', omittedCount: 2,
-        firstEventId: 'cap-0', lastEventId: 'cap-1',
-      }),
-    ]);
+    const observedAt = Date.now() - 31 * 60_000;
+    await hydrateEventHistory(ctx, { fetch: captureFetch(captureFixture(2, 'inst-A', observedAt)) });
+    expect(ctx.sandbox.history()).toEqual([0, 1].map(index => ({
+      kind: 'service_mutation', service: 'auth', op: 'users_clear',
+      auth: null, id: `cap-${index}`, at: index, observedAt,
+    })));
   });
 
   it('uses event time for a recent legacy capture without observation timestamps', async () => {

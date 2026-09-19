@@ -62,22 +62,24 @@ test('active requests survive eviction, settle once, and ignore replayed starts'
   expect(ai).toEqual([completed]);
 });
 
-test('expiry is visible and active listener registrations remain available', () => {
-  const history = new EventHistory({ maxEvents: 2, maxBytes: 100_000, maxAgeMs: 1000 });
+test('age retains observations and only capacity eviction creates a gap', () => {
+  const history = new EventHistory({ maxEvents: 2, maxBytes: 100_000 });
   const attach = { kind: 'listener_attach', id: 'attach', at: 0, listenerId: 'listener',
     target: { kind: 'doc', path: 'notes/a' }, auth: null } as const;
   history.append(attach);
   history.append(request(1));
   const events = history.snapshot();
-  expect(events[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 2 });
-  expect(events).toContainEqual(attach);
-  history.append({ ...attach, kind: 'listener_detach', id: 'detach', at: Date.now() });
-  expect(history.snapshot()).not.toContainEqual(attach);
+  expect(events).toEqual([attach, request(1)]);
+  const detach = { ...attach, kind: 'listener_detach', id: 'detach', at: Date.now() } as const;
+  history.append(detach);
+  const retained = history.snapshot();
+  expect(retained[0]).toMatchObject({ kind: 'observation_gap', omittedCount: 1 });
+  expect(retained.slice(1)).toEqual([request(1), detach]);
 });
 
-test('retention uses observation time when the sandbox clock is in the past', () => {
-  const history = new EventHistory({ maxEvents: 10, maxBytes: 100_000, maxAgeMs: 1000 });
-  const event = { ...request(1), observedAt: Date.now() };
+test('old observations survive snapshots without another append', () => {
+  const history = new EventHistory({ maxEvents: 10, maxBytes: 100_000 });
+  const event = { ...request(1), observedAt: Date.now() - 60_000 };
   history.append(event);
   expect(history.snapshot()).toEqual([event]);
 });

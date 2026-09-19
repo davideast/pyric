@@ -4,7 +4,6 @@ import type { SandboxEvent, SandboxObservationGapEvent } from '../types/events.j
 export interface EventHistoryLimits {
   maxEvents: number;
   maxBytes: number;
-  maxAgeMs?: number;
 }
 
 interface HistoryEntry {
@@ -91,7 +90,6 @@ export class EventHistory {
   }
 
   snapshot(): SandboxEvent[] {
-    this.pruneExpired();
     const events = [...this.entries.map(entry => entry.event), ...[...this.activeRequests.values()].map(entry => entry.event),
       ...[...this.activeListeners.values()].map(entry => entry.event).filter(event => !this.retainedIds.has(event.id))];
     const gap = this.gap;
@@ -140,23 +138,6 @@ export class EventHistory {
     } else this.activeListeners.delete(event.listenerId);
   }
 
-  private pruneExpired(): void {
-    const maxAge = this.limits?.maxAgeMs;
-    if (maxAge === undefined) return;
-    const cutoff = Date.now() - maxAge;
-    const oldestIsExpired = () => {
-      const event = this.entries[0]?.event;
-      return event !== undefined && (event.observedAt ?? event.at) < cutoff;
-    };
-    while (oldestIsExpired()) {
-      const oldest = this.entries.shift()!;
-      this.forgetId(oldest.event);
-      this.rulesEvidence.forget(oldest);
-      this.bytes -= oldest.bytes;
-      this.omit(oldest.event);
-    }
-  }
-
   private expireRulesEvidence(entry: HistoryEntry): void {
     const event = entry.event;
     const isOtherEvent = event.kind !== 'request';
@@ -180,7 +161,6 @@ export class EventHistory {
   }
 
   private prune(): void {
-    this.pruneExpired();
     let exceedsLimits = this.exceedsLimits();
     while (exceedsLimits) {
       const oldest = this.entries.shift();

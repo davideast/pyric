@@ -180,7 +180,7 @@ describe('the order Traffic reads in', () => {
 describe('the bounded tail the view reads', () => {
   it('updates new rows without projecting previously consumed request payloads again', () => {
     let deliver: (events: readonly SandboxEvent[]) => void = () => {};
-    const feed = createTrafficFeed({ retentionMs: Infinity, subscribeEvents(callback) {
+    const feed = createTrafficFeed({ subscribeEvents(callback) {
       deliver = callback;
       return () => {};
     } });
@@ -202,7 +202,7 @@ describe('the bounded tail the view reads', () => {
 
   it('expires cached evidence without changing an already inspected row', () => {
     let deliver: (events: readonly SandboxEvent[]) => void = () => {};
-    const feed = createTrafficFeed({ retentionMs: Infinity, subscribeEvents(callback) {
+    const feed = createTrafficFeed({ subscribeEvents(callback) {
       deliver = callback;
       return () => {};
     } });
@@ -226,7 +226,7 @@ describe('the bounded tail the view reads', () => {
 
   it('retains an active request through eviction and settles it once despite replayed starts', () => {
     let deliver: (events: readonly SandboxEvent[]) => void = () => {};
-    const feed = createTrafficFeed({ limit: 2, retentionMs: Infinity, subscribeEvents(callback) {
+    const feed = createTrafficFeed({ limit: 2, subscribeEvents(callback) {
       deliver = callback;
       return () => {};
     } });
@@ -248,7 +248,7 @@ describe('the bounded tail the view reads', () => {
   it('folds the page stream, reports each change, and keeps only the last rows', () => {
     let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
     let changes = 0;
-    const feed = createTrafficFeed({ retentionMs: Infinity,
+    const feed = createTrafficFeed({
       subscribeEvents: (callback) => {
         deliver = callback;
         return () => {
@@ -277,7 +277,7 @@ describe('the bounded tail the view reads', () => {
   it('says whether anything failed inside the window, and stops after disposal', () => {
     let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
     let unsubscribed = false;
-    const feed = createTrafficFeed({ retentionMs: Infinity,
+    const feed = createTrafficFeed({
       subscribeEvents: (callback) => {
         deliver = callback;
         return () => {

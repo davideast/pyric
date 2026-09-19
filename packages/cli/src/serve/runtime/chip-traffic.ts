@@ -188,7 +188,6 @@ export interface TrafficFeedOptions {
   /** How many rows to keep. */
   limit?: number;
   maxBytes?: number;
-  retentionMs?: number;
 }
 
 /** Start folding the page's sandbox events into Traffic's rows. */
@@ -196,7 +195,6 @@ export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
   const history = new EventHistory({
     maxEvents: options.limit ?? TRAFFIC_TAIL,
     maxBytes: options.maxBytes ?? OBSERVATION_HISTORY_LIMITS.maxBytes,
-    maxAgeMs: options.retentionMs ?? OBSERVATION_HISTORY_LIMITS.maxAgeMs,
   });
   // Cache only the current retained snapshot. EventHistory replaces an event
   // when evidence expires, so its old projection leaves this cache as well.
