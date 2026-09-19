@@ -53,5 +53,10 @@
     "phase": 1,
     "tests": ["packages/pyric/test/firestore/ledger/a14-collection-query-types.test.ts"],
     "note": "A collection reference is accepted by onSnapshot and getDocs and is assignable to Query."
+  },
+  "C13": {
+    "phase": 2,
+    "tests": ["packages/cli/test/bridge/peer-standby.test.ts"],
+    "note": "Peer handshakes, replacement standby, takeover, and reconnect preserve text frames."
   }
 }
