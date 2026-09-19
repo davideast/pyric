@@ -79,9 +79,9 @@ function reportResult(
     logger.warn(
       mode === 'reload'
         ? `  ✖ [pyric] functions not restarted — no sandbox peer connected. ` +
-            `Startup will retry when a sandbox peer connects, or on the next save.`
+            `Functions stay down until the next save with ${serveUrl} open.`
         : `  ⚠ [pyric] functions not started — no browser tab connected after 30s. ` +
-            `Open ${serveUrl}; startup will retry when a sandbox peer connects.`,
+            `Open ${serveUrl} and restart the dev server.`,
     );
     return;
   }
@@ -125,9 +125,6 @@ export function attachViteFunctionsDevelopment(
   let reloadDebounce: ReturnType<typeof setTimeout> | null = null;
   let reportedReload: Promise<FunctionsDevelopmentResult> | null = null;
   let closed = false;
-  let running = false;
-  let starting: Promise<FunctionsDevelopmentResult> | null = null;
-  let reconnectQueued = false;
   let closePromise: Promise<void> | null = null;
 
   const serveUrl = (): string | null => {
@@ -135,26 +132,6 @@ export function attachViteFunctionsDevelopment(
     const port = address && typeof address === 'object' ? address.port : 0;
     return port > 0 ? `http://${host}:${port}` : null;
   };
-
-  const retryQueued = (): void => {
-    const shouldRetry = reconnectQueued && !running && !closed;
-    reconnectQueued = false;
-    if (shouldRetry) startFunctions();
-  };
-  const startFunctions = (): void => {
-    const activeRuntime = runtime;
-    const unavailable = activeRuntime === null || closed || running;
-    if (unavailable) return;
-    const transitioning = starting !== null || reportedReload !== null;
-    if (transitioning) { reconnectQueued = true; return; }
-    starting = activeRuntime.start();
-    void starting.then(result => {
-      running = result.kind === 'ready';
-      const shouldReport = !closed;
-      if (shouldReport) reportResult(options, result, 'initial', serveUrl() ?? `http://${host}:0`);
-    }).finally(() => { starting = null; retryQueued(); });
-  };
-  const releasePeerListener = bridge.onSandboxPeerConnected(startFunctions);
 
   const onListening = (): void => {
     const url = serveUrl();
@@ -169,14 +146,12 @@ export function attachViteFunctionsDevelopment(
       location: options.region ?? options.baseEnv.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
       projectId: options.projectId,
       readiness: createInProcessFunctionsPeerReadiness(bridge.sandboxConnected),
-      onEvent: (event) => {
-        const exited = event.type === 'unexpected-exit';
-        if (exited) running = false;
-        reportEvent(options.logger, event);
-      },
+      onEvent: (event) => reportEvent(options.logger, event),
       ...(options.childModuleUrl === undefined ? {} : { childModuleUrl: options.childModuleUrl }),
     });
-    startFunctions();
+    void runtime.start().then((result) => {
+      if (!closed) reportResult(options, result, 'initial', url);
+    });
   };
 
   const onFunctionsFsEvent = (file: string): void => {
@@ -187,16 +162,13 @@ export function attachViteFunctionsDevelopment(
     if (reloadDebounce) clearTimeout(reloadDebounce);
     reloadDebounce = setTimeout(() => {
       if (!runtime || closed) return;
-      running = false;
       const transition = runtime.reload();
       if (reportedReload === transition) return;
       reportedReload = transition;
       void transition.then((result) => {
-        running = result.kind === 'ready';
         if (!closed) reportResult(options, result, 'reload', serveUrl() ?? `http://${host}:0`);
       }).finally(() => {
         if (reportedReload === transition) reportedReload = null;
-        retryQueued();
       });
     }, 300);
   };
@@ -215,8 +187,6 @@ export function attachViteFunctionsDevelopment(
       if (closePromise) return closePromise;
       closePromise = (async () => {
         closed = true;
-        releasePeerListener();
-        reconnectQueued = false;
         if (reloadDebounce) clearTimeout(reloadDebounce);
         httpServer.removeListener('listening', onListening);
         if (options.watch !== false) {

@@ -255,10 +255,9 @@ describe('pyric sandbox command surface', () => {
     expect(code).toBe(0);
     expect(stdout).toContain('pyric sandbox [flags] [--] [command...]');
     expect(stdout).not.toContain('pyric dev');
-    // Named inspection commands remain; bare `pyric serve` is still retired.
-    expect(stdout).toContain('pyric serve diagnostics');
-    expect(stdout).toContain('pyric serve sessions');
-    expect(stdout).not.toMatch(/pyric serve(?!(?: sessions| diagnostics)\b)/);
+    // `pyric serve sessions` is a bridge query, not the removed name for the
+    // sandbox: `pyric serve` on its own is still not a command.
+    expect(stdout).not.toMatch(/pyric serve(?! sessions)/);
   });
 
   it('rejects the removed serve spelling for the sandbox', async () => {

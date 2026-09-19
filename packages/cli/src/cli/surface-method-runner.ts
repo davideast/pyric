@@ -1,12 +1,11 @@
 /**
  * `pyric <tool> <method> --<arg> <value>`: one method record, run from the
- * command line against the project's hosted or in-process sandbox.
+ * command line against the project's own in-process sandbox.
  *
  * The record is the declaration the MCP tool and this command both derive from,
  * so the CLI cannot drift from the surface: it reads the same schema, runs the
- * same validator and calls the same handler. A running Node host owns execution;
- * otherwise it persists to the state file `pyric mcp --in-process` reads.
- * The input differences are the transport, and the
+ * same validator, calls the same handler, and persists to the same state file
+ * `pyric mcp --in-process` reads. The only difference is the transport, and the
  * two things the transport changes are that an object argument arrives as a
  * JSON string, and that any argument may instead be read from a file with
  * `--<arg>-file <path>`.
@@ -28,8 +27,6 @@ import type { OperationResult } from '../bridge/surface/types.js';
 import { discoverServe } from '../serve/discovery.js';
 import { argumentsFromFlags } from './surface-method-args.js';
 import { selectAllowProduction } from './mcp-proxy.js';
-import { callHostedMethod } from './hosted-method.js';
-import { claimProjectState } from '../serve/hosted/project-ownership.js';
 import type { ParsedArgs } from './parse-args.js';
 
 /** Where output goes. A test supplies its own so it can read what was printed. */
@@ -50,8 +47,8 @@ const USAGE_ERROR = 1;
 /**
  * The sentence printed when a running serve owns this project's sandbox.
  *
- * A browser-owned serve cannot run these method records on the Node host.
- * Acting on the in-process sandbox in `.pyric/state` silently
+ * A running serve holds the sandbox in the browser tab, and this command can
+ * only act on the in-process sandbox in `.pyric/state`. Acting there silently
  * would answer about a different sandbox than the one the app is using, so the
  * command refuses unless the caller says which one they mean.
  */
@@ -59,8 +56,7 @@ export function runningServeRefusal(url: string): string {
   return (
     `a running \`pyric serve\` at ${url} owns this project's sandbox in the browser, ` +
     `and this command acts only on the in-process sandbox in ${IN_PROCESS_STATE_RELATIVE}. ` +
-    'Pass --in-process to select the local sandbox when its persisted state is free, ' +
-    'or reach the running sandbox through `pyric mcp`.'
+    'Pass --in-process to act on that one anyway, or reach the running sandbox through `pyric mcp`.'
   );
 }
 
@@ -75,13 +71,13 @@ function report(
     return;
   }
   stdout.write(`${result.summary}\n`);
-  const hasData = result.data !== undefined;
-  if (hasData) stdout.write(`${JSON.stringify(result.data, null, 2)}\n`);
+  if (result.data !== undefined) stdout.write(`${JSON.stringify(result.data, null, 2)}\n`);
 }
 
 /**
- * Run one method record on the selected owner. Hosted execution never opens
- * local persistence. In-process execution loads and saves the project's state.
+ * Run one method record against the project's sandbox. The sandbox is loaded
+ * from `.pyric/state` before the call and written back after it, so a sequence
+ * of commands composes the same way a sequence of MCP calls does.
  */
 export async function runSurfaceMethod(
   key: string,
@@ -96,79 +92,57 @@ export async function runSurfaceMethod(
   const allowProduction = selectAllowProduction(parsed, env);
 
   const read = argumentsFromFlags(method, parsed, cwd);
-  const hasArgumentError = 'error' in read;
-  if (hasArgumentError) {
+  if ('error' in read) {
     stderr.write(`pyric: ${read.error}\n`);
     return USAGE_ERROR;
   }
 
-  // Only the project's pointer authorizes attachment; a scanned server may
-  // belong to another project. An unsupported host retains the explicit refusal.
-  const discoversHost = parsed.flags.get('in-process') !== true;
-  const printsJson = parsed.flags.get('json') === true;
-  if (discoversHost) {
+  // Which sandbox this command acts on is the first thing it says. Without
+  // `--in-process`, a running serve for this project means the caller most
+  // likely meant the sandbox the app is using, which this command cannot reach.
+  // Only the project's own pointer counts: a port scan can find a serve that
+  // belongs to another project on the same machine.
+  if (parsed.flags.get('in-process') !== true) {
     const found = await (deps.discover ?? discoverServe)(cwd);
-    const foundProjectHost = found !== null && found.source.startsWith('pointer');
-    if (foundProjectHost) {
-      try {
-        const result = await callHostedMethod(found, key, read.args, cwd);
-        const attachedToHost = result !== null;
-        if (attachedToHost) {
-          stderr.write(`pyric: hosted sandbox, ${found.url}\n`);
-          report(result, stdout, printsJson);
-          const succeeded = result.ok;
-          return succeeded ? 0 : CALL_FAILED;
-        }
-      } catch (error) {
-        stderr.write(`pyric: ${thrownFailure(error).summary}\n`);
-        return CALL_FAILED;
-      }
+    if (found !== null && found.source.startsWith('pointer')) {
       stderr.write(`pyric: ${runningServeRefusal(found.url)}\n`);
       return USAGE_ERROR;
     }
   }
   stderr.write(`pyric: in-process sandbox, ${IN_PROCESS_STATE_RELATIVE}\n`);
 
-  const owner = await claimProjectState(cwd);
-  try {
-    const sandbox = initializeSandbox();
-    const storage = openPersistedServices(sandbox, cwd);
-    loadSandboxSnapshot(sandbox, cwd);
-    loadProjectRules(sandbox, cwd);
-    await loadStorageSidecar(storage, cwd);
+  const sandbox = initializeSandbox();
+  const storage = openPersistedServices(sandbox, cwd);
+  loadSandboxSnapshot(sandbox, cwd);
+  loadProjectRules(sandbox, cwd);
+  await loadStorageSidecar(storage, cwd);
 
-    const ctx = createSurfaceContext(sandbox, cwd);
-    const rejection = validateArguments(method, read.args, allowProduction);
-    const rejected = rejection !== null;
-    if (rejected) {
-      stderr.write(`pyric: ${rejection.summary}\n`);
-      return CALL_FAILED;
-    }
-
-    let result: OperationResult;
-    try {
-      result = markDenial(method.tool, await method.handler(read.args, ctx));
-    } catch (error) {
-      const failed = markDenial(method.tool, thrownFailure(error));
-      stderr.write(`pyric: ${failed.summary}\n`);
-      return CALL_FAILED;
-    }
-
-    // A read changes nothing, so it writes nothing back: running `whoami` in a
-    // directory must not create a state file there.
-    const changedState = result.ok && method.effect !== 'read';
-    if (changedState) {
-      saveSandboxSnapshot(sandbox, cwd);
-      await saveStorageSidecar(storage, cwd);
-    }
-    report(result, stdout, printsJson);
-    const failed = !result.ok;
-    if (failed) {
-      stderr.write(`pyric: state in ${IN_PROCESS_STATE_RELATIVE} is unchanged.\n`);
-      return CALL_FAILED;
-    }
-    return 0;
-  } finally {
-    owner.close();
+  const ctx = createSurfaceContext(sandbox, cwd);
+  const rejection = validateArguments(method, read.args, allowProduction);
+  if (rejection !== null) {
+    stderr.write(`pyric: ${rejection.summary}\n`);
+    return CALL_FAILED;
   }
+
+  let result: OperationResult;
+  try {
+    result = markDenial(method.tool, await method.handler(read.args, ctx));
+  } catch (error) {
+    const failed = markDenial(method.tool, thrownFailure(error));
+    stderr.write(`pyric: ${failed.summary}\n`);
+    return CALL_FAILED;
+  }
+
+  // A read changes nothing, so it writes nothing back: running `whoami` in a
+  // directory must not create a state file there.
+  if (result.ok && method.effect !== 'read') {
+    saveSandboxSnapshot(sandbox, cwd);
+    await saveStorageSidecar(storage, cwd);
+  }
+  report(result, stdout, parsed.flags.get('json') === true);
+  if (!result.ok) {
+    stderr.write(`pyric: state in ${IN_PROCESS_STATE_RELATIVE} is unchanged.\n`);
+    return CALL_FAILED;
+  }
+  return 0;
 }

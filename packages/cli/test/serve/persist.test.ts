@@ -194,7 +194,7 @@ describe('pyric dev --fresh guardrails', () => {
     const cwd = project();
     await expect(
       startServe({ cwd, port: 0, cacheRoot: join(cwd, '.cache'), fresh: true, logger: silentServeLogger() }),
-    ).rejects.toThrow(/--fresh requires --hosted or --persist/);
+    ).rejects.toThrow(/--fresh requires --persist/);
   });
 
   it('--persist --fresh is fine (the escape hatch works)', async () => {

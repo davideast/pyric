@@ -52,7 +52,6 @@ import {
 } from './audit.js';
 import type { BridgeToolEvent } from './bridge.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { claimProjectState } from '../../serve/hosted/project-ownership.js';
 
 /** The stdio transport is a late import: the SDK is heavy and only needed here. */
 async function openStdioTransport(): Promise<Transport> {
@@ -317,53 +316,28 @@ export async function runInProcessMcp(
   cwd: string = process.cwd(),
   options: InProcessRunOptions = {},
 ): Promise<number> {
-  const projectDir = resolve(cwd, options.projectDir ?? '.');
-  mkdirSync(projectDir, { recursive: true });
-  const owner = await claimProjectState(projectDir);
-  try {
-    return await runInProcessSession(projectDir, options);
-  } finally {
-    owner.close();
-  }
-}
-
-async function runInProcessSession(
-  projectDir: string,
-  options: InProcessRunOptions,
-): Promise<number> {
   const log = (m: string): void => {
     process.stderr.write(`[pyric mcp in-process] ${m}\n`);
   };
-  const failureMessage = (error: unknown): string => {
-    const isError = error instanceof Error;
-    return isError ? error.message : String(error);
-  };
 
+  const projectDir = resolve(cwd, options.projectDir ?? '.');
   const env = options.env ?? process.env;
   const evalLog = createInProcessEventWriter(env);
-  const recordsEvaluation = evalLog !== null;
-  if (recordsEvaluation) log(`recording tool events to ${evalLog.path}`);
+  if (evalLog) log(`recording tool events to ${evalLog.path}`);
 
   const sandbox = initializeSandbox();
   // Before the snapshot, and before the transport serves a single call.
   const storage = openPersistedServices(sandbox, projectDir);
   const restored = loadSandboxSnapshot(sandbox, projectDir);
-  const restoredSnapshot = restored !== null;
-  if (restoredSnapshot) {
+  if (restored !== null) {
     log(`restored ${restored} docs from ${join(projectDir, IN_PROCESS_STATE_RELATIVE)}`);
   }
   // After the snapshot: restoring it resets the ruleset to the sandbox default,
   // and the project's rules file is the authority for what the server enforces.
   const rulesPath = loadProjectRules(sandbox, projectDir);
-  const hasProjectRules = rulesPath !== null;
-  if (hasProjectRules) {
-    log(`rules loaded from ${rulesPath}`);
-  } else {
-    log(`no firestore.rules found in ${projectDir}`);
-  }
+  log(rulesPath ? `rules loaded from ${rulesPath}` : `no firestore.rules found in ${projectDir}`);
   const restoredObjects = await loadStorageSidecar(storage, projectDir);
-  const restoredStorage = restoredObjects > 0;
-  if (restoredStorage) {
+  if (restoredObjects > 0) {
     log(`restored ${restoredObjects} objects from ${join(projectDir, STORAGE_SIDECAR_RELATIVE)}`);
   }
 
@@ -378,23 +352,19 @@ async function runInProcessSession(
     try {
       saveSandboxSnapshot(sandbox, projectDir);
     } catch (e) {
-      log(`persist failed: ${failureMessage(e)}`);
+      log(`persist failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
   const flush = (): void => {
-    const pendingTimer = saveTimer;
-    const hasSaveTimer = pendingTimer !== null;
-    if (hasSaveTimer) {
-      clearTimeout(pendingTimer);
+    if (saveTimer) {
+      clearTimeout(saveTimer);
       saveTimer = null;
     }
     saveNow();
   };
   const scheduleSave = (): void => {
     pendingSave = true;
-    const pendingTimer = saveTimer;
-    const hasSaveTimer = pendingTimer !== null;
-    if (hasSaveTimer) clearTimeout(pendingTimer);
+    if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(saveNow, 750);
   };
   const saveIfPendingAtExit = (): void => {
@@ -415,7 +385,7 @@ async function runInProcessSession(
     server = buildInProcessMcpServer(sandbox, withInProcessEventWriter(baseServerOptions, evalLog));
   } catch (e) {
     process.off('exit', saveIfPendingAtExit);
-    log(failureMessage(e));
+    log(e instanceof Error ? e.message : String(e));
     return 1;
   }
   const transport = options.transport ?? (await openStdioTransport());
@@ -432,7 +402,7 @@ async function runInProcessSession(
       try {
         await saveStorageSidecar(storage, projectDir);
       } catch (e) {
-        log(`storage persist failed: ${failureMessage(e)}`);
+        log(`storage persist failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     };
     const finishStop = async (code: number): Promise<number> => {
@@ -441,9 +411,8 @@ async function runInProcessSession(
         await server.close();
         return code;
       } catch (e) {
-        log(`shutdown failed: ${failureMessage(e)}`);
-        const wasSuccessful = code === 0;
-        return wasSuccessful ? 1 : code;
+        log(`shutdown failed: ${e instanceof Error ? e.message : String(e)}`);
+        return code === 0 ? 1 : code;
       }
     };
     const stop = (code: number): void => {
@@ -467,7 +436,7 @@ async function runInProcessSession(
     void server.connect(transport).then(
       () => log(`in-process sandbox MCP server ready (persisting to ${IN_PROCESS_STATE_RELATIVE})`),
       (e) => {
-        log(`failed to start: ${failureMessage(e)}`);
+        log(`failed to start: ${e instanceof Error ? e.message : String(e)}`);
         resolve(1);
       },
     );

@@ -287,36 +287,23 @@ for (const runtime of ['inpage', 'worker']) {
   test(`${runtime}: signed-in project denials explain ownership, roles and validation`, async ({ page }) => {
     await page.setViewportSize({ width: 1500, height: 1100 });
     await page.goto(`${server.url}/?runtime=${runtime}`);
-    const scenarios = [
-      { id: 'ownership', path: 'projects/bobs-launch', evidence: 'bob' },
-      { id: 'role', path: 'projects/publishing', evidence: 'editor' },
-      { id: 'validation', path: 'projects/budget', evidence: '-250' },
-    ];
-    for (const scenario of scenarios) {
-      await page.locator('#security-scenario').selectOption(scenario.id);
+    for (const [scenario, expected] of [['ownership', 'bob'], ['role', 'editor'], ['validation', '-250']]) {
+      await page.locator('#security-scenario').selectOption(scenario!);
       await page.locator('[data-security-load]').click();
       await expect(page.locator('[data-security-result]')).toContainText('North launch');
       await page.locator('[data-security-attempt]').click();
       await expect(page.locator('[data-security-result]')).toContainText('Change denied');
       await page.getByRole('tab', { name: 'Traffic' }).click();
       const back = page.locator('[data-clear-traffic-source]');
-      const isInspectingRequest = await back.isVisible();
-      if (isInspectingRequest) await back.click();
-      // Inspecting a request pins the log. Resume before looking for the next write.
-      const resume = page.getByRole('button', { name: /^Resume live/ });
-      const isHistoryPaused = await resume.isVisible();
-      if (isHistoryPaused) await resume.click();
-      const row = page.locator('[data-inspect-request]').filter({ hasText: scenario.path }).filter({ hasText: 'Denied' });
-      await expect(row).toHaveCount(1);
+      if (await back.count()) await back.click();
+      const row = page.locator('[data-request-row]').filter({ hasText: 'projects/' }).filter({ hasText: 'Denied' }).first();
       await row.click();
       await expect(page.locator('[data-traffic-detail]')).toContainText('alice');
-      await expect(page.locator('.rule-comparison')).not.toHaveCount(0);
-      await expect(page.locator('[data-traffic-detail]')).toContainText(scenario.path);
-      await expect(page.locator('.rules-evidence')).toContainText(scenario.evidence);
+        await expect(page.locator('.rule-comparison')).not.toHaveCount(0);
+      await expect(page.locator('.rules-evidence')).toContainText(expected!);
       await page.locator('.rule-comparison').last().scrollIntoViewIfNeeded();
-      await page.screenshot({ path: `/tmp/security-${runtime}-${scenario.id}.png` });
-      const checksOwnershipLayout = scenario.id === 'ownership';
-      if (checksOwnershipLayout) {
+      await page.screenshot({ path: `/tmp/security-${runtime}-${scenario}.png` });
+      if (scenario === 'ownership') {
         await page.getByText('Rule details', { exact: true }).click();
         await expect(page.locator('.rules-detail-body')).toContainText('does not cover projects/bobs-launch');
         await expect(page.locator('.rules-detail-body')).toContainText('covers projects/bobs-launch');

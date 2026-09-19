@@ -1,1 +1,0 @@
-{"version":1,"firestore":null,"auth":{"users":[{"uid":"blue-user","email":"blue@example.test","password":"password","providerId":"password","tenantId":"blue","customClaims":{"role":"editor"}},{"uid":"red-user","email":"red@example.test","password":"password","providerId":"password","tenantId":"red","customClaims":{"role":"viewer"}}]}}

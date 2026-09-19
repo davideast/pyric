@@ -102,10 +102,7 @@ describe('integration — bridge mounts in a real vite dev server (middlewareMod
 describe('integration — configureServer rules prelude + the /__pyric middleware', () => {
   const RULES = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /posts/{id} { allow read: if true; }\n  }\n}\n`;
   let tmp: string;
-  afterAll(() => {
-    const hasTempProject = Boolean(tmp);
-    if (hasTempProject) rmSync(tmp, { recursive: true, force: true });
-  });
+  afterAll(() => { if (tmp) rmSync(tmp, { recursive: true, force: true }); });
 
   it('serves the project rules at /__pyric/init.json, and 403s a forged Host (DNS guard)', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-cfg-'));
@@ -163,45 +160,37 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     expect(threw).toBe(true);
   });
 
-  it('server close disposes the session in Vite middleware mode', async () => {
+  it('closeBundle disposes the session in Vite middleware mode', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-close-'));
     let handler: PyricMiddleware | undefined;
     const p = pyric({ ui: false });
     const watcher = { add() {}, on() {}, off() {} };
-    const server = {
-      async close() {},
+    await (p.configureServer as (server: unknown) => Promise<void>)({
       config: { root: tmp, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
-      middlewares: {
-        use(route: string, candidate: PyricMiddleware) {
-          const isPyricRoute = route === '/__pyric';
-          if (isPyricRoute) handler = candidate;
-        },
-      },
+      middlewares: { use(route: string, candidate: PyricMiddleware) { if (route === '/__pyric') handler = candidate; } },
       watcher,
       httpServer: null,
-    };
-    await (p.configureServer as (server: unknown) => Promise<void>)(server);
-    const hasNoHandler = handler === undefined;
-    if (hasNoHandler) throw new Error('plugin did not mount middleware');
+    });
+    if (!handler) throw new Error('plugin did not mount middleware');
 
-    const request: PyricReq = Object.assign(new EventEmitter(), {
+    const request = Object.assign(new EventEmitter(), {
       method: 'GET',
       url: '/__pyric/events',
       originalUrl: '/__pyric/events',
       headers: { host: 'localhost' },
-    });
+    }) as unknown as PyricReq;
     const response = new MockRes();
     handler(request, response, () => {});
     await Bun.sleep(0);
     expect(response.body).toContain(': connected');
     expect(response.writableEnded).toBe(false);
 
-    await server.close();
-    await server.close();
+    await (p.closeBundle as () => Promise<void>)();
+    await (p.closeBundle as () => Promise<void>)();
     expect(response.writableEnded).toBe(true);
   });
 
-  it('reconfiguration and server close remove all Functions watcher listeners', async () => {
+  it('reconfiguration and closeBundle remove all Functions watcher listeners', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-reconfigure-'));
     mkdirSync(path.join(tmp, 'functions'));
     writeFileSync(path.join(tmp, 'firebase.json'), JSON.stringify({ functions: { source: 'functions' } }));
@@ -216,15 +205,13 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
         listening: false,
         address: () => ({ port: 5173 }),
       });
-      const server = {
-        async close() {},
+      await (p.configureServer as (server: unknown) => Promise<void>)({
         config: { root: tmp, logger: { info() {}, warn() {}, error() {} }, server: { allowedHosts: [], host: 'localhost' } },
         middlewares: { use() {} },
         watcher,
         httpServer,
-      };
-      await (p.configureServer as (server: unknown) => Promise<void>)(server);
-      return { watcher, httpServer, server };
+      });
+      return { watcher, httpServer };
     };
 
     const first = await configure();
@@ -238,7 +225,7 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     expect(first.watcher.listenerCount('unlink')).toBe(0);
     expect(first.httpServer.listenerCount('upgrade')).toBe(0);
 
-    await second.server.close();
+    await (p.closeBundle as () => Promise<void>)();
     expect(second.watcher.listenerCount('change')).toBe(0);
     expect(second.watcher.listenerCount('add')).toBe(0);
     expect(second.watcher.listenerCount('unlink')).toBe(0);
@@ -251,12 +238,10 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     const handlers: PyricMiddleware[] = [];
     const watcher = { add() {}, on() {}, off() {} };
     const server = {
-      async close() {},
       config: { root: tmp, logger: { info() {}, warn() {}, error() {} }, server: { allowedHosts: [], host: 'localhost' } },
       middlewares: {
         use(route: string, handler: PyricMiddleware) {
-          const isPyricRoute = route === '/__pyric';
-          if (isPyricRoute) handlers.push(handler);
+          if (route === '/__pyric') handlers.push(handler);
         },
       },
       watcher,
@@ -271,7 +256,7 @@ describe('integration — configureServer rules prelude + the /__pyric middlewar
     expect(health.statusCode).toBe(200);
     expect(health.nexted).toBe(false);
     expect(JSON.parse(health.body).status).toBe('ok');
-    await server.close();
+    await (p.closeBundle as () => Promise<void>)();
   });
 });
 

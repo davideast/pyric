@@ -22,8 +22,6 @@ export type FlagValue = string | boolean | Array<string | boolean>;
 const BOOLEAN_FLAGS = new Set([
   'json',
   'bridge',
-  'hosted',
-  'live',
   // `pyric auth impersonate` identity selectors — valueless, and each sits
   // beside a uid positional a value-taking parse would eat.
   'admin',
@@ -163,12 +161,8 @@ export const SANDBOX_METHOD_WORDS: ReadonlySet<string> = new Set([
  * `pyric sandbox <method>` calls derived from the method records.
  */
 function isExecutionSubcommand(subcommand: string | null, positional: readonly string[]): boolean {
-  const isOtherService = subcommand !== 'sandbox';
-  if (isOtherService) return false;
+  if (subcommand !== 'sandbox') return false;
   const first = positional[0];
-  // Offline recovery is a CLI command, not a surface method or child process.
-  const isRecovery = first === 'salvage' || first === 'history';
-  if (isRecovery) return false;
   return first === undefined || !SANDBOX_METHOD_WORDS.has(first);
 }
 

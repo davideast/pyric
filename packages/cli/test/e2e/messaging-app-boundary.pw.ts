@@ -24,7 +24,7 @@ test('served canonical Messaging imports stay app-owned over the SharedWorker', 
       name: generation ? `pyric-shared-worker:${generation}` : 'pyric-shared-worker',
     });
     worker.port.start();
-    const workerAccepted = await new Promise<boolean>((resolve, reject) => {
+    const workerToken = await new Promise<string>((resolve, reject) => {
       const id = 'messaging-browser-boundary';
       worker.port.onmessage = (event) => {
         const message = event.data as {
@@ -36,14 +36,13 @@ test('served canonical Messaging imports stay app-owned over the SharedWorker', 
         };
         if (message.t !== 'res' || message.id !== id) return;
         if (!message.ok) reject(new Error(message.error?.message ?? 'worker token failed'));
-        else resolve(message.ok === true);
+        else resolve(message.value?.token ?? '');
       };
       worker.port.postMessage({
         t: 'op',
         id,
-        method: 'messaging.send',
-        message: { token: primaryToken },
-        validateOnly: true,
+        method: 'messaging.getToken',
+        registrationId: 'swreg-port-default',
       });
     });
     worker.port.close();
@@ -83,8 +82,7 @@ test('served canonical Messaging imports stay app-owned over the SharedWorker', 
         && primaryToken.includes(':')
         && siblingToken.length === 142
         && siblingToken.includes(':'),
-      workerBacked: workerAccepted,
-      distinctAppTokens: primaryToken !== siblingToken,
+      workerBacked: primaryToken === workerToken,
       retainedErrorCode: retainedError?.code ?? null,
       siblingSurvived: (await messagingModule.getToken(primaryMessaging)).length === 142,
     };
@@ -99,7 +97,6 @@ test('served canonical Messaging imports stay app-owned over the SharedWorker', 
     swBoundary: true,
     tokenShape: true,
     workerBacked: true,
-    distinctAppTokens: true,
     retainedErrorCode: 'app/app-deleted',
     siblingSurvived: true,
   });
@@ -148,27 +145,20 @@ test('firebase/messaging/sw receives the shared broker from a real module Servic
       'pyric-messaging-ready',
     );
 
-    const sdk = await import('firebase/messaging');
-    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
-    const messaging = sdk.getMessaging();
-    const token = await sdk.getToken(messaging, { serviceWorkerRegistration: first.registration });
-
-    const received = (source: string): Promise<string | null> => new Promise(resolve => {
-      const listener = (event: MessageEvent): void => {
-        const matches = event.data?.type === 'pyric-background-message' && event.data.payload?.data?.source === source;
-        if (!matches) return;
+    const delivered = new Promise<unknown>((resolve) => {
+      const timeout = setTimeout(() => resolve(null), 2_000);
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type !== 'pyric-background-message') return;
         clearTimeout(timeout);
-        navigator.serviceWorker.removeEventListener('message', listener);
-        resolve(event.data.payload.data.source);
-      };
-      const timeout = setTimeout(() => {
-        navigator.serviceWorker.removeEventListener('message', listener);
-        resolve(null);
-      }, 2_000);
-      navigator.serviceWorker.addEventListener('message', listener);
+        resolve(event.data.payload);
+      }, { once: true });
     });
 
-    const deliver = (id: string, source: string, notification = false): Promise<void> => {
+    const deliver = (
+      id: string,
+      source: string,
+      notification = false,
+    ): Promise<{ route?: string; handlerCount?: number; payload?: unknown }> => {
       const generation = localStorage.getItem('pyric:worker-generation');
       const worker = new SharedWorker('/__pyric/sdk/worker.js', {
         type: 'classic',
@@ -176,29 +166,46 @@ test('firebase/messaging/sw receives the shared broker from a real module Servic
       });
       worker.port.start();
       return new Promise((resolve, reject) => {
-        worker.port.onmessage = event => {
-          const message = event.data;
-          const isResponse = message.t === 'res' && message.id === id;
-          if (!isResponse) return;
-          worker.port.close();
+        worker.port.onmessage = (event) => {
+          const message = event.data as {
+            t?: string;
+            id?: string;
+            ok?: boolean;
+            value?: { route?: string; handlerCount?: number; payload?: unknown };
+            error?: { message?: string };
+          };
+          if (message.t !== 'res' || message.id !== id) return;
           if (!message.ok) reject(new Error(message.error?.message ?? 'delivery failed'));
-          else resolve();
+          else {
+            worker.port.close();
+            resolve(message.value ?? {});
+          }
         };
         worker.port.postMessage({
-          t: 'op', id, method: 'messaging.send',
-          message: {
-            token, data: { source },
-            ...(notification ? { notification: { title: 'Pyric background notification' } } : {}),
+          t: 'op',
+          id,
+          method: 'messaging.deliver',
+          spec: {
+            data: { source },
+            ...(notification
+              ? { notification: { title: 'Pyric background notification' } }
+              : {}),
+            messageId: id,
           },
         });
       });
     };
-    const delivered = received('real-service-worker');
-    await deliver('sw-boundary-message', 'real-service-worker');
-    const source = await delivered;
+    const result = await deliver('sw-boundary-message', 'real-service-worker');
+
+    const payload = await delivered as { messageId?: string; data?: Record<string, string> } | null;
     let notificationTitles: string[] = [];
     if (Notification.permission === 'granted') {
-      const notificationDelivered = received('native-display');
+      const notificationDelivered = new Promise<void>((resolve) => {
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data?.type === 'pyric-background-message'
+            && event.data.payload?.messageId === 'sw-native-notification') resolve();
+        }, { once: true });
+      });
       await deliver('sw-native-notification', 'native-display', true);
       await notificationDelivered;
       notificationTitles = (await first.registration.getNotifications())
@@ -211,25 +218,29 @@ test('firebase/messaging/sw receives the shared broker from a real module Servic
       second.active,
       'pyric-messaging-ready',
     );
-    const restarted = received('restarted-service-worker');
-    await deliver('sw-restart-message', 'restarted-service-worker');
-    const restartedSource = await restarted;
+    const restarted = await deliver('sw-restart-message', 'restarted-service-worker');
     await request<{ cleaned: true }>(second.active, 'pyric-messaging-cleanup');
     await second.registration.unregister();
 
     return {
       permission: Notification.permission,
-      source,
+      route: result.route ?? null,
+      handlerCount: result.handlerCount ?? null,
+      messageId: payload?.messageId ?? null,
+      source: payload?.data?.source ?? null,
       notificationTitles,
       replacedRealm: firstReady.realmId !== secondReady.realmId,
-      restartedSource,
+      restartedHandlerCount: restarted.handlerCount ?? null,
     };
   });
 
   expect(actual).toMatchObject({
+    route: 'background',
+    handlerCount: 1,
+    messageId: 'sw-boundary-message',
     source: 'real-service-worker',
     replacedRealm: true,
-    restartedSource: 'restarted-service-worker',
+    restartedHandlerCount: 1,
   });
   expect(['granted', 'denied']).toContain(actual.permission);
   expect(actual.notificationTitles).toEqual(

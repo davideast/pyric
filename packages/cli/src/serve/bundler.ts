@@ -27,7 +27,6 @@ import { homedir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
-import { firebaseResolvePlugin } from './live/firebase-resolution.js';
 
 /** Modules the import map serves. Keys are the bare specifiers app code uses. */
 export const SDK_MODULES = [
@@ -46,29 +45,26 @@ export const SDK_MODULES = [
  * module: compiled `.js` siblings when running from dist (npx install), `.ts`
  * sources in the workspace (tests / dev). esbuild bundles either.
  */
-export function defaultSdkEntries(options: { live?: boolean } = {}): Record<string, string> {
+export function defaultSdkEntries(): Record<string, string> {
   const here = dirname(fileURLToPath(import.meta.url));
-  const usesLiveSdk = options.live === true;
   const pick = (name: string): string => {
     const js = join(here, 'entries', `${name}.js`);
-    const hasCompiledEntry = existsSync(js);
-    if (hasCompiledEntry) return js;
+    if (existsSync(js)) return js;
     const ts = join(here, 'entries', `${name}.ts`);
-    const hasSourceEntry = existsSync(ts);
-    if (hasSourceEntry) return ts;
+    if (existsSync(ts)) return ts;
     throw new Error(`pyric sandbox: missing SDK entry '${name}' next to ${here}`);
   };
   return {
-    ai: pick(usesLiveSdk ? 'live/unsupported' : 'ai'),
-    app: pick(usesLiveSdk ? 'live/app' : 'app'),
-    'app-ai-passthrough': pick(usesLiveSdk ? 'live/app' : 'app-ai-passthrough'),
-    auth: pick(usesLiveSdk ? 'live/auth' : 'auth'),
-    firestore: pick(usesLiveSdk ? 'live/firestore' : 'firestore'),
-    database: pick(usesLiveSdk ? 'live/unsupported' : 'database'),
-    messaging: pick(usesLiveSdk ? 'live/unsupported' : 'messaging'),
-    'messaging-sw': pick(usesLiveSdk ? 'live/unsupported' : 'messaging-sw'),
-    storage: pick(usesLiveSdk ? 'live/unsupported' : 'storage'),
-    init: pick(usesLiveSdk ? 'live/init' : 'init'),
+    ai: pick('ai'),
+    app: pick('app'),
+    'app-ai-passthrough': pick('app-ai-passthrough'),
+    auth: pick('auth'),
+    firestore: pick('firestore'),
+    database: pick('database'),
+    messaging: pick('messaging'),
+    'messaging-sw': pick('messaging-sw'),
+    storage: pick('storage'),
+    init: pick('init'),
   };
 }
 
@@ -171,8 +167,6 @@ export interface BundleOptions {
   /** Entry files (the wrapper modules in `entries/`), keyed by the served
    *  basename (`auth` → `/__pyric/sdk/auth.js`). */
   entries: Record<string, string>;
-  /** Resolve real Firebase from the consuming project only in live mode. */
-  liveProjectRoot?: string;
   /** Bypass the cache and build an immutable, process-independent generation. */
   noCache?: boolean;
   /** Override the cache root (tests). Default `~/.pyric/serve-cache`. */
@@ -265,12 +259,6 @@ export function cacheKey(
   h.update(sourceTreeHash(graphRoot));
   h.update(sourceTreeHash(join(pyricRoot, 'dist')));
   h.update(packageResolutionHash(graphRoot, pyricRoot));
-  const liveProjectRoot = opts.liveProjectRoot;
-  const hasLiveProject = liveProjectRoot !== undefined;
-  if (hasLiveProject) {
-    h.update(liveProjectRoot);
-    h.update(packageResolutionHash(liveProjectRoot, pyricRoot));
-  }
   for (const [name, file] of Object.entries(opts.entries).sort()) {
     h.update(name);
     h.update(readFileSync(file, 'utf8'));
@@ -293,18 +281,16 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
   // singleton module state (notably the app registry). Each bypass build gets
   // an immutable generation; the OS-level mkdir primitive makes concurrent
   // callers distinct without coordination.
-  const needsFreshBundle = opts.noCache === true;
-  const generationRoot = needsFreshBundle
+  const generationRoot = opts.noCache
     ? mkdtempSync(join(cacheRoot, `.no-cache-${key}-`))
     : join(cacheRoot, key);
   const outDir = join(generationRoot, 'sdk');
-  const dispose = needsFreshBundle
+  const dispose = opts.noCache
     ? () => rmSync(generationRoot, { recursive: true, force: true })
     : () => {};
 
-  const hasCachedBundle = !needsFreshBundle && existsSync(join(outDir, '.complete'));
-  if (hasCachedBundle) {
-    const files = readdirSync(outDir)
+  if (!opts.noCache && existsSync(join(outDir, '.complete'))) {
+    const files = (readdirSync(outDir) as string[])
       .filter((f) => f.endsWith('.js'))
       .map((f) => join(outDir, f));
     return { outDir, files, cached: true, dispose };
@@ -312,10 +298,6 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
 
   mkdirSync(outDir, { recursive: true });
   try {
-    const usesLiveSdk = opts.liveProjectRoot !== undefined;
-    const provenance = usesLiveSdk
-      ? '/* Pyric live instrumentation over the project\'s real Firebase SDK. */'
-      : '/* pyric sandbox shim serving firebase/*. This is not the real Firebase SDK. */';
     const result = await esbuild.build({
       entryPoints: Object.fromEntries(
         Object.entries(opts.entries).map(([name, file]) => [name, file]),
@@ -328,21 +310,22 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
       sourcemap: 'linked',
       minify: opts.minify ?? true,
       logLevel: 'silent',
-      // Source inspection identifies the execution mode selected for this bundle.
+      external: ['firebase/*'],
+      // Provenance: any stack frame or "view source" into these bundles must
+      // self-identify as the sandbox shim, not the real Firebase SDK.
       chunkNames: 'pyric-sandbox-[hash]',
       banner: {
-        js: provenance,
+        js: '/* pyric sandbox shim serving firebase/*. This is not the real Firebase SDK. */',
       },
-      plugins: [firebaseResolvePlugin(opts.entries, opts.liveProjectRoot), pyricResolvePlugin(), nodeShimPlugin()],
+      plugins: [pyricResolvePlugin(), nodeShimPlugin()],
     });
-    const hasBuildErrors = result.errors.length > 0;
-    if (hasBuildErrors) {
+    if (result.errors.length > 0) {
       throw new Error(
         `pyric sandbox: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
       );
     }
     writeFileSync(join(outDir, '.complete'), new Date().toISOString());
-    const files = readdirSync(outDir)
+    const files = (readdirSync(outDir) as string[])
       .filter((f) => f.endsWith('.js'))
       .map((f) => join(outDir, f));
     return { outDir, files, cached: false, dispose };

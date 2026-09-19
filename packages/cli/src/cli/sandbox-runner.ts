@@ -190,11 +190,14 @@ export function buildChildEnv(
  * Grouped in a cleanly formatted console block for easy selection and copying
  * into a separate terminal (for example, when running Next.js independently).
  *
- * Only the spawned-child environment receives the beacon secret. Printed
- * output is safe to share; independently started commands still intercept.
+ * The beacon secret is part of the block: without it a process started this
+ * way still intercepts, but the dev server cannot confirm that it did.
  */
 export function formatStartupEnvExport(opts: ChildActivation): string {
   const lines = [`export PYRIC_SANDBOX="remote:${opts.serveUrl}"`];
+  if (opts.beaconToken !== undefined) {
+    lines.push(`export PYRIC_BEACON_TOKEN="${opts.beaconToken}"`);
+  }
   lines.push(`export NODE_OPTIONS="--import ${opts.registerUrl}"`);
   const width = Math.max(...lines.map((line) => line.length));
   const divider = '─'.repeat(width + 4);
@@ -204,8 +207,7 @@ export function formatStartupEnvExport(opts: ChildActivation): string {
     '  To run external commands against this sandbox, paste in another terminal:\n' +
     `  ${divider}\n` +
     body +
-    `  ${divider}\n` +
-    '  Automatic interception confirmation requires launching the command through pyric.\n'
+    `  ${divider}\n`
   );
 }
 
