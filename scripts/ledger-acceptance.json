@@ -48,5 +48,10 @@
     "tests": ["packages/pyric/test/sandbox/ledger/i1-live-state-does-not-evict.test.ts"],
     "filter": "omittedCount",
     "note": "omittedCount counts only events missing from the snapshot."
+  },
+  "A14": {
+    "phase": 1,
+    "tests": ["packages/pyric/test/firestore/ledger/a14-collection-query-types.test.ts"],
+    "note": "A collection reference is accepted by onSnapshot and getDocs and is assignable to Query."
   }
 }

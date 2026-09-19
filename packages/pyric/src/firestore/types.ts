@@ -81,7 +81,7 @@ export interface DocumentReference<_T = DocumentData> {
   withConverter(converter: null): DocumentReference<DocumentData>;
 }
 /** A reference to a Firestore collection. Backend-opaque. */
-export interface CollectionReference<_T = DocumentData> {
+export interface CollectionReference<_T = DocumentData> extends Query<_T> {
   readonly id: string;
   readonly path: string;
 }
