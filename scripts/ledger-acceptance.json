@@ -38,6 +38,11 @@
     "tests": ["packages/pyric/test/database/ledger/a6-info-listener-closes-activity.test.ts"],
     "note": "A .info/connected listener releases its activity on unsubscribe."
   },
+  "A7": {
+    "phase": 1,
+    "tests": ["packages/cli/test/serve/entries/ledger/a7-operation-admission-exhaustive.test.ts"],
+    "note": "Unknown operations are refused; extending OpMessage requires explicit persistence and argument handling."
+  },
   "I13-omitted": {
     "phase": 1,
     "tests": ["packages/pyric/test/sandbox/ledger/i1-live-state-does-not-evict.test.ts"],

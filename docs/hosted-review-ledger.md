@@ -89,7 +89,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A7. Non-exhaustive switches fail open
 
-- Severity: should-fix. Slice: `core`. Status: open.
+- Severity: should-fix. Slice: `core`. Status: fixing. Owner: Codex; branch: `hosted-main-integration`; base: `2ba2c664`. Acceptance submitted for review before implementation.
 - Locations: `packages/cli/src/serve/hosted/persistence-admission.ts` (`requiresHealthyPersistence` falls to `default`), `packages/cli/src/serve/worker/inbound-validation/operation-arguments.ts` (`assertOperationArguments` has no refusing default).
 - Defect: neither switch is exhaustively typed. A newly added mutation kind bypasses the unhealthy-persistence guard and passes without argument validation.
 - Acceptance: exhaustive typing with a `never` check so a new kind fails to compile, or a refusing default with a test that an unknown kind is refused.
@@ -368,7 +368,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I1. Live state can consume the whole history budget and evict every event
 
-- Severity: blocker. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; base: `1ad8580a`.
+- Severity: blocker. Slice: `core`. Status: closed at `2ba2c664`. Reviewer acceptance: I1, I13-omitted, and A4 pass; suites and typecheck reproduced.
 - Location: `packages/pyric/src/sandbox/internal/event-history.ts:203`.
 - Defect: `liveCount` and `liveBytes` reserve capacity but are themselves uncapped and never evictable. Once live state alone reaches `maxEvents` or `maxBytes`, every appended event is evicted into a `history-limit` gap.
 - Failure: dangling `pending` observations accumulate because nothing under `packages/cli/src/serve` emits `interrupted` or `cancelled` for a dropped client (see C11). At 10,000 of them, retained history is zero and stays zero; replay and verify are refused permanently. Confirmed by probe at `maxEvents: 10`.
@@ -459,5 +459,5 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - `state-view.ts:96` the storage seed bypasses the mutation queue.
 - `history-route.ts:9` writes the 200 status before evaluating the body, so a throw sends headers twice.
 - `serve-init.ts:365` capture delivery re-arms after the POST settles, so the worst case is interval plus POST latency; the new test asserts no time bound against the 2 s contract.
-- `event-history.ts:209` counts evicted listener-attach entries as omitted although `snapshot()` still returns them. `I13-omitted`: verify with I1; owner: Codex; branch: `hosted-main-integration`.
+- `event-history.ts:209` counts evicted listener-attach entries as omitted although `snapshot()` still returns them. `I13-omitted`: closed at `2ba2c664`; reviewer acceptance passed with I1 and A4.
 - `persistence.ts:12` and `undo.ts:138` call pyric's own surfaces "legacy".

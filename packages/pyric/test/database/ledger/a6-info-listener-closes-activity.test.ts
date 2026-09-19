@@ -14,9 +14,10 @@ import { setRules } from '../../../src/database/sandbox-controls.js';
 
 const LIVE = new Set(['pending', 'active']);
 
-function liveDatabaseActivities(target: string): number {
+/** The journal is process-global; count only activities this test opened. */
+function liveDatabaseActivities(target: string, since: number): number {
   return sdkActivity.records().filter((record) =>
-    record.service === 'database' && record.target === target && LIVE.has(record.status)).length;
+    record.service === 'database' && record.target === target && record.startedAt >= since && LIVE.has(record.status)).length;
 }
 
 function openSandbox() {
@@ -29,24 +30,27 @@ function openSandbox() {
 describe('ledger A6: connection-metadata listeners release their activity', () => {
   it('control: an ordinary onValue releases its activity on unsubscribe', () => {
     const rtdb = openSandbox();
+    const since = Date.now();
     const unsubscribe = onValue(ref(rtdb, 'rooms/lobby'), () => {});
-    expect(liveDatabaseActivities('/rooms/lobby')).toBe(1);
+    expect(liveDatabaseActivities('/rooms/lobby', since)).toBe(1);
     unsubscribe();
-    expect(liveDatabaseActivities('/rooms/lobby')).toBe(0);
+    expect(liveDatabaseActivities('/rooms/lobby', since)).toBe(0);
   });
 
   it('/.info/connected releases its activity on unsubscribe', () => {
     const rtdb = openSandbox();
+    const since = Date.now();
     const unsubscribe = onValue(ref(rtdb, '.info/connected'), () => {});
-    expect(liveDatabaseActivities('/.info/connected')).toBe(1);
+    expect(liveDatabaseActivities('/.info/connected', since)).toBe(1);
     unsubscribe();
-    expect(liveDatabaseActivities('/.info/connected')).toBe(0);
+    expect(liveDatabaseActivities('/.info/connected', since)).toBe(0);
   });
 
   it('/.info releases its activity on unsubscribe', () => {
     const rtdb = openSandbox();
+    const since = Date.now();
     const unsubscribe = onValue(ref(rtdb, '.info'), () => {});
     unsubscribe();
-    expect(liveDatabaseActivities('/.info')).toBe(0);
+    expect(liveDatabaseActivities('/.info', since)).toBe(0);
   });
 });
