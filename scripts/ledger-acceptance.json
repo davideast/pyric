@@ -78,6 +78,11 @@
     "node": true,
     "note": "Salvage and archive recover a crashed writer's committed WAL without SHM, preserving the salvage source."
   },
+  "I14": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/entries/ledger/i14-persistence-admission.test.ts"],
+    "note": "Walk OpMessage and require healthy persistence for every handler reaching a flush or checkpoint write."
+  },
   "I8": {
     "phase": 3,
     "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
