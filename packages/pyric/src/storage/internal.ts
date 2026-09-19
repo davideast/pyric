@@ -18,6 +18,7 @@
 export {
   bindStorageOperationContext,
   getAdminStorageSandbox,
+  installStorageBackend,
   getStorageCrossServiceIam,
   getStorageRulesResolution,
   replaceCrossServiceIam,
@@ -30,5 +31,7 @@ export {
 } from './upload.js';
 export { arrayBufferToBase64, base64ToBytes } from './base64.js';
 export type { StorageRulesResolution } from './rules-resolution.js';
+export { snapshotStorageState, restoreStorageState, resetStorageState, type StorageStateRecord } from './sandbox/persistence-state.js';
+export type { StorageBackend, StoredMetadata } from './persistence.js';
 
 export { observeStorageOperation, storageTaskProgress, storageTaskResult } from '../sandbox/internal/storage-activity.js';

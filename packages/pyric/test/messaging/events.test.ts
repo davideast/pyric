@@ -16,6 +16,7 @@ describe('messaging event record', () => {
       'message_rejected',
       'delivery_routed',
       'message_delivered',
+      'delivery_acknowledged',
     ]);
   });
 

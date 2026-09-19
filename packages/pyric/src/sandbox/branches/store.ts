@@ -37,6 +37,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DOC_VALUE_ENCODING } from '../../firestore/internal/value-codec.js';
 
 import {
   SANDBOX_SERVICES,
@@ -58,6 +59,7 @@ const MANIFEST_FILE = 'manifest.json';
 const EVENTS_FILE = 'events.json';
 const CANDIDATE_RULES_FILE = 'candidate-rules.json';
 const CLOCK_FILE = 'clock.json';
+const FIRESTORE_ENCODING_FILE = 'firestore-encoding.json';
 const BASE_DIRECTORY = 'base';
 const STATE_DIRECTORY = 'state';
 
@@ -139,6 +141,20 @@ function writeState(dir: string, stateDir: string, state: FullSandboxState): voi
     `${JSON.stringify(state.clock ?? wallClockState())}\n`,
     'utf8',
   );
+  writeFileSync(join(dir, stateDir, FIRESTORE_ENCODING_FILE), `${JSON.stringify(state.firestoreEncoding ?? null)}\n`, 'utf8');
+}
+
+/** Older branch directories contain unencoded maps and have no encoding file. */
+function readFirestoreEncoding(dir: string, stateDir: string): FullSandboxState['firestoreEncoding'] {
+  const path = join(dir, stateDir, FIRESTORE_ENCODING_FILE);
+  const hasNoEncoding = !existsSync(path);
+  if (hasNoEncoding) return undefined;
+  const encoding: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  const isLegacyState = encoding === null;
+  if (isLegacyState) return undefined;
+  const isSupported = encoding === DOC_VALUE_ENCODING;
+  if (isSupported) return encoding;
+  throw new Error('Unsupported Firestore value encoding in branch state.');
 }
 
 /** Read one service's slice back, or null when the branch directory has no such file. */
@@ -159,6 +175,7 @@ function readClock(dir: string, stateDir: string): SandboxClockState {
 function readState(dir: string, stateDir: string): FullSandboxState {
   return {
     clock: readClock(dir, stateDir),
+    firestoreEncoding: readFirestoreEncoding(dir, stateDir),
     firestore: (readSandboxService(dir, stateDir, 'firestore') ?? {}) as FullSandboxState['firestore'],
     database: readSandboxService(dir, stateDir, 'database') as FullSandboxState['database'],
     storage: (readSandboxService(dir, stateDir, 'storage') ?? []) as FullSandboxState['storage'],

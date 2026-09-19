@@ -20,7 +20,6 @@
 import { describe, test, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
 import { ReadAfterWriteError } from 'pyric/sandbox/internal';
-import { AmbiguousPostDeleteWriteError } from 'pyric/sandbox/internal';
 import { READ_AFTER_WRITE_MESSAGE } from 'pyric/sandbox/internal';
 
 const RULES_OPEN = `rules_version = '2';
@@ -59,11 +58,11 @@ describe('LocalEnvironment.transaction — sync path', () => {
 
     expect(result.allowed).toBe(true);
     expect(result.writes).toHaveLength(1);
-    expect(result.writes[0]!.allowed).toBe(true);
-    expect(result.writes[0]!.method).toBe('create');
+    expect(result.writes[0]?.allowed).toBe(true);
+    expect(result.writes[0]?.method).toBe('create');
     expect(env.getDocument('games/g1')).toEqual({ host: 'alice', status: 'waiting' });
     expect(env.getEvents()).toHaveLength(1);
-    expect(env.getEvents()[0]!.type).toBe('transaction');
+    expect(env.getEvents()[0]?.type).toBe('transaction');
   });
 
   test('multi-write tx — all-or-none atomicity (one rule denial = no writes apply)', () => {
@@ -133,9 +132,9 @@ describe('LocalEnvironment.transaction — sync path', () => {
     // Aborted event recorded
     const events = env.getEvents();
     expect(events).toHaveLength(1);
-    expect(events[0]!.aborted).toBe(true);
-    expect(events[0]!.error?.name).toBe('CustomError');
-    expect(events[0]!.error?.message).toBe('user code blew up');
+    expect(events[0]?.aborted).toBe(true);
+    expect(events[0]?.error?.name).toBe('CustomError');
+    expect(events[0]?.error?.message).toBe('user code blew up');
   });
 
   test('aborted tx is NOT undoable — undo skips it and returns prior write', () => {
@@ -263,7 +262,7 @@ describe('LocalEnvironment.transaction — sync path', () => {
     }, { auth: { uid: 'a' } });
 
     expect(result.allowed).toBe(true);
-    expect(result.writes[0]!.method).toBe('create');
+    expect(result.writes[0]?.method).toBe('create');
     expect(env.getDocument('games/g1')).toEqual({ status: 'waiting' });
   });
 
@@ -279,7 +278,7 @@ describe('LocalEnvironment.transaction — sync path', () => {
     }, { auth: { uid: 'a' } });
 
     expect(result.allowed).toBe(true);
-    expect(result.writes[0]!.method).toBe('update');
+    expect(result.writes[0]?.method).toBe('update');
     expect(env.getDocument('games/g1')).toEqual({ status: 'playing' });
   });
 
@@ -323,12 +322,12 @@ describe('LocalEnvironment.transaction — sync path', () => {
       tx.update('a/1', { score: (snap.data() as { score: number }).score + 1 });
     }, { auth: { uid: 'a' } });
 
-    const event = env.getEvents()[0]!;
-    expect(event.type).toBe('transaction');
-    expect(event.reads).toEqual([{ path: 'a/1', data: { score: 10 } }]);
-    expect(event.operations).toHaveLength(1);
-    expect(event.operations![0]!.method).toBe('update');
-    expect(event.snapshot).toBeDefined();
+    const event = env.getEvents()[0];
+    expect(event?.type).toBe('transaction');
+    expect(event?.reads).toEqual([{ path: 'a/1', data: { score: 10 } }]);
+    expect(event?.operations).toHaveLength(1);
+    expect(event?.operations?.[0]?.method).toBe('update');
+    expect(event?.snapshot).toBeDefined();
   });
 
   test('successful tx is undoable — undo restores pre-tx snapshot', () => {
@@ -418,8 +417,8 @@ describe('LocalEnvironment.transaction — sync path', () => {
     // Aborted event present
     const events = env.getEvents();
     expect(events).toHaveLength(1);
-    expect(events[0]!.aborted).toBe(true);
-    expect(events[0]!.error?.message).toBe('async boom');
+    expect(events[0]?.aborted).toBe(true);
+    expect(events[0]?.error?.message).toBe('async boom');
   });
 
   test('async callback: read-after-write still throws synchronously inside callback', async () => {
@@ -473,23 +472,26 @@ describe('LocalEnvironment.transaction — sync path', () => {
     expect(Date.now()).toBeGreaterThanOrEqual(before);
   });
 
-  test('delete + write merge throws AmbiguousPostDeleteWriteError; aborts tx', () => {
+  test('delete then update returns invalid-argument and aborts the transaction', () => {
     const env = new LocalEnvironment();
     env.seed({
       rules: RULES_OPEN,
       documents: { 'a/1': { x: 1 } },
     });
 
-    expect(() => env.transaction((tx) => {
+    const result = env.transaction((tx) => {
       tx.delete('a/1');
       tx.update('a/1', { x: 2 });
-    }, { auth: { uid: 'a' } })).toThrow(AmbiguousPostDeleteWriteError);
+    }, { auth: { uid: 'a' } });
+    expect(result.allowed).toBe(false);
+    expect(result.error?.code).toBe('invalid-argument');
 
     // No state change
     expect(env.getDocument('a/1')).toEqual({ x: 1 });
     // Aborted event logged
     const events = env.getEvents();
     expect(events).toHaveLength(1);
-    expect(events[0]!.aborted).toBe(true);
+    expect(events[0]?.aborted).toBe(true);
+    expect(events[0]?.error?.code).toBe('invalid-argument');
   });
 });

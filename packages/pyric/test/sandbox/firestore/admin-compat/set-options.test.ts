@@ -124,15 +124,16 @@ describe('set(data, { mergeFields: [...] })', () => {
     });
   });
 
-  test('mergeField missing from data is silently skipped', async () => {
-    const { env, db } = fresh();
-    await db.doc('profile/alice').set(
+  test('mergeField missing from data rejects without changing the document', async () => {
+    const { db } = fresh();
+    const profile = db.doc('profile/alice');
+    await expect(profile.set(
       { age: 50 },
       { mergeFields: ['age', 'missing'] },
-    );
-    expect(env.getDocument('profile/alice')).toEqual({
+    )).rejects.toMatchObject({ code: 'invalid-argument' });
+    expect((await profile.get()).data()).toEqual({
       name: 'Alice',
-      age: 50,
+      age: 30,
       role: 'admin',
     });
   });

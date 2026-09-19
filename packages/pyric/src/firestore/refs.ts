@@ -17,10 +17,11 @@ import {
   buildSandboxShell,
   asChainColl,
   asChainDoc,
+  type Target,
 } from './state.js';
+import { DocumentReference } from './types.js';
 import type {
   Firestore,
-  DocumentReference,
   CollectionReference,
   Query,
   FirestoreDataConverter,
@@ -29,13 +30,32 @@ import {
   boundedActivityIdentity,
   registerActivityValue,
 } from './sandbox/activity-value-registry.js';
-import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
-import { copyQueryValueRegistration } from './sandbox/query-value-registry.js';
+import {
+  registerReferenceQueryValue,
+  copyQueryValueRegistration,
+} from './sandbox/query-value-registry.js';
 
-function registerDocumentValue<T extends object>(ref: T, path: string, owner: object): T {
-  registerActivityValue(ref, boundedActivityIdentity('reference', path));
-  registerReferenceQueryValue(ref, path, owner);
-  return ref;
+function registerDocumentValue<T extends { id: string; path: string }>(
+  ref: T,
+  path: string,
+  owner: Target,
+  converter: FirestoreDataConverter<unknown> | null = null,
+) {
+  function convert<A, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<A, D>): DocumentReference<A>;
+  function convert(converter: null): DocumentReference<DocumentData>;
+  function convert(converter: FirestoreDataConverter<unknown> | null): DocumentReference<unknown> {
+    const removesConverter = converter === null;
+    if (removesConverter) return withConverter(reference, null);
+    return withConverter(reference, converter);
+  }
+  // Modular methods must live outside the Admin error-translation proxy.
+  const underlying = underlyingOf(ref) as { id?: string; path?: string };
+  const shell = buildSandboxShell(underlying, owner, converter);
+  const reference = Object.assign(shell, { withConverter: convert });
+  registerActivityValue(reference, boundedActivityIdentity('reference', path));
+  registerReferenceQueryValue(underlying, path, owner);
+  copyQueryValueRegistration(underlying, reference);
+  return reference;
 }
 
 // ─── Path constructors ────────────────────────────────────────────────
@@ -51,35 +71,33 @@ export function doc<T = DocumentData>(
   const conv = isHandle ? undefined : converterOf(parent);
   const db = sandboxDb(target);
   if (isHandle) {
-    if (pathSegments.length === 0) {
+    const hasNoPath = pathSegments.length === 0;
+    if (hasNoPath) {
       throw new TypeError('doc(db, path) requires at least one path segment.');
     }
     const path = pathSegments.join('/');
     const built = db.doc(path);
     const tagged = tagSandboxRef(
-      built as object,
+      built,
       target,
-      (fresh) => fresh.doc(path) as unknown as object,
+      (fresh) => fresh.doc(path),
     );
     return registerDocumentValue(tagged, path, target) as DocumentReference<T>;
   }
   const coll = asChainColl(underlyingOf(parent));
-  const ref = pathSegments.length === 0
-    ? coll.doc()
-    : coll.doc(pathSegments.join('/'));
-  const absPath = (ref as { path: string }).path;
+  const createsId = pathSegments.length === 0;
+  let ref;
+  if (createsId) ref = coll.doc();
+  else ref = coll.doc(pathSegments.join('/'));
+  const absPath = ref.path;
   const tagged = tagSandboxRef(
-    ref as object,
+    ref,
     target,
-    (fresh) => fresh.doc(absPath) as unknown as object,
+    (fresh) => fresh.doc(absPath),
   );
-  if (conv) {
-    const shell = buildSandboxShell(
-      tagged as { id: string; path: string },
-      target,
-      conv,
-    );
-    return registerDocumentValue(shell, absPath, target) as DocumentReference<T>;
+  const hasConverter = conv !== undefined && conv !== null;
+  if (hasConverter) {
+    return registerDocumentValue(tagged, absPath, target, conv) as DocumentReference<T>;
   }
   return registerDocumentValue(tagged, absPath, target) as DocumentReference<T>;
 }
@@ -134,9 +152,8 @@ export function collection(parent: Firestore | DocumentReference, ...pathSegment
 
 // ─── withConverter (typed refs / queries) ────────────────────────────
 //
-// Modular Web-SDK shape (the JS SDK exposes it as a method on the ref;
-// pyric exposes it as a free function for consistency with the rest of
-// the surface, where every operation routes through a free call):
+// Document references expose the Firebase-shaped method. This free function
+// remains available for existing document, collection, and query callers:
 //
 //   interface UserDb { name: string; createdAt: Timestamp; }
 //   interface User    { name: string; createdAt: Date; }
@@ -161,8 +178,8 @@ export function collection(parent: Firestore | DocumentReference, ...pathSegment
 //   - `getDoc` / `getDocs` invoke `fromFirestore` on each result.
 //   - `updateDoc` does NOT run the converter (matches JS SDK; partial
 //     writes don't have a typed home).
-//   - Passing `null` strips an existing converter, returning the
-//     underlying untyped ref.
+//   - Passing `null` strips an existing converter while retaining a
+//     usable untyped reference.
 
 export function withConverter<AppModel, DbModel extends DocumentData = DocumentData>(
   ref: DocumentReference<DocumentData>,
@@ -193,12 +210,15 @@ export function withConverter(
   converter: FirestoreDataConverter<unknown, DocumentData> | null,
 ): object {
   const target = targetOf(source);
-  if (converter === null) {
-    // Strip — return the underlying plain ref. Falls back to `source`
-    // itself if it was never wrapped (no-op).
-    return underlyingOf(source);
-  }
   const underlying = underlyingOf(source) as { id?: string; path?: string };
+  const isDocument = underlying instanceof DocumentReference;
+  if (isDocument) {
+    return registerDocumentValue(underlying, underlying.path, target, converter);
+  }
+  const removesConverter = converter === null;
+  if (removesConverter) {
+    return underlying;
+  }
   const shell = buildSandboxShell(underlying, target, converter);
   copyQueryValueRegistration(underlying, shell);
   return shell;

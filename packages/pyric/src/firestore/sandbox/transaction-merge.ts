@@ -1,16 +1,17 @@
 /**
- * Item 1.3 — Same-path queued-write collapse.
+ * Legacy same-path queued-write collapse for sandbox/internal callers.
  *
- * `TransactionContext` queues writes append-only (Item 1.2). Before
- * commit, ops at the same path collapse into a single operation so the
- * existing `LocalState.applyBatch` can run rules-eval + apply atomically
- * without per-call divergence.
+ * Transaction execution no longer uses this reducer: the shared atomic
+ * pipeline resolves its append-only queue in order. This exported helper
+ * retains its earlier contract and does not implement general field-mask
+ * or transform composition.
  *
  * Probe 0.D verified `update + update` merges fields (last-wins per
  * field, earlier-but-non-overlapping fields preserved). The other
  * combinations are extrapolated from Admin SDK semantics:
  *
- *   set    + set        → second `set` wins (overwrite semantics).
+ *   set    + set        → second non-merge `set` wins (overwrite semantics).
+ *   set    + set(merge) → merge the next payload while retaining prior intent.
  *   set    + update     → `set` with `{ ...set.data, ...update.data }`.
  *   set    + delete     → `delete` wins (the set never observable).
  *   create + update     → `create` with `{ ...create.data, ...update.data }`.
@@ -24,13 +25,15 @@
  *                         than guess. Decisions Log: "delete + write
  *                         merge unprobed; v1 throws ambiguous".
  *
- * Output is `LocalState.BatchOperation[]` directly — that's what the
- * commit path (Item 2) feeds into `applyBatch`. Same-path entries
+ * Output retains `BatchOperationInput` intent for the atomic pipeline
+ * to resolve before storage. Same-path entries
  * collapse into one entry; different paths preserve order of first
  * appearance (insertion order in the path map).
  */
-import type { BatchOperation, DocumentData } from './local-state.js';
+import type { DocumentData } from './local-state.js';
+import type { BatchOperationInput } from './writes.js';
 import type { QueuedWrite } from './transaction-types.js';
+import { applyMerge } from './field-merge.js';
 
 /**
  * Thrown when the queue contains a `delete` followed by another write
@@ -63,19 +66,21 @@ export class AmbiguousPostDeleteWriteError extends Error {
  *   data) and folds in subsequent writes per the table above.
  * - Throws `AmbiguousPostDeleteWriteError` on `delete + anything`.
  */
-export function mergeQueuedWrites(writes: readonly QueuedWrite[]): BatchOperation[] {
+export function mergeQueuedWrites(writes: readonly QueuedWrite[]): BatchOperationInput[] {
   // Insertion-ordered map keeps the output stable for callers that
   // care about ordering across paths (none today, but cheap to preserve).
-  const byPath = new Map<string, BatchOperation>();
+  const byPath = new Map<string, BatchOperationInput>();
 
   for (const w of writes) {
     const prior = byPath.get(w.path);
-    if (prior === undefined) {
+    const isFirstWrite = prior === undefined;
+    if (isFirstWrite) {
       byPath.set(w.path, toBatchOp(w));
       continue;
     }
 
-    if (prior.method === 'delete') {
+    const followsDelete = prior.method === 'delete';
+    if (followsDelete) {
       throw new AmbiguousPostDeleteWriteError(w.path, w.method);
     }
 
@@ -86,34 +91,42 @@ export function mergeQueuedWrites(writes: readonly QueuedWrite[]): BatchOperatio
 }
 
 /** Convert a single queued write to its initial `BatchOperation` shape. */
-function toBatchOp(w: QueuedWrite): BatchOperation {
-  if (w.method === 'delete') {
+function toBatchOp(w: QueuedWrite): BatchOperationInput {
+  const isDelete = w.method === 'delete';
+  if (isDelete) {
     return { method: 'delete', path: w.path };
   }
   // set / create / update all carry data; queue invariant.
-  if (w.data === undefined) {
+  const hasNoData = w.data === undefined;
+  if (hasNoData) {
     throw new Error(
       `internal: queued ${w.method} on ${w.path} has no data — ` +
       `Transaction class invariant violated`,
     );
   }
-  return { method: w.method, path: w.path, data: w.data };
+  const operation: BatchOperationInput = { method: w.method, path: w.path, data: w.data };
+  const hasMerge = w.merge !== undefined;
+  if (hasMerge) operation.merge = w.merge;
+  return operation;
 }
 
 /**
  * Fold a new queued write into an existing same-path effective op.
  * Pre: `prior.method !== 'delete'` (caller checked).
  */
-function fold(prior: BatchOperation, next: QueuedWrite): BatchOperation {
+function fold(prior: BatchOperationInput, next: QueuedWrite): BatchOperationInput {
   switch (next.method) {
     case 'delete':
       // Anything-then-delete: final state is gone.
       return { method: 'delete', path: next.path };
 
     case 'set': {
-      // Anything-then-set: set replaces entirely. The earlier op is
-      // semantically erased (Admin's set is overwrite).
       const data = requireData(next);
+      const mergesFields = next.merge === true;
+      if (mergesFields) {
+        return { ...prior, data: applyMerge(prior.data ?? {}, data) };
+      }
+      // A set without merge replaces the earlier write entirely.
       return { method: 'set', path: next.path, data };
     }
 

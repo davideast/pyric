@@ -20,12 +20,21 @@ import {
   Bytes as InternalBytes,
   LatLng as InternalLatLng,
   Vector as InternalVector,
+  Reference as InternalReference,
 } from 'pyric/rules/internal';
 import { Timestamp as CompatTimestamp, type DocumentData } from './types.js';
+import { registerReferenceQueryValue } from '../query-value-registry.js';
 
 function translateValue(value: unknown): unknown {
-  if (value instanceof InternalTimestamp) {
+  const isTimestamp = value instanceof InternalTimestamp;
+  if (isTimestamp) {
     return new CompatTimestamp(value.seconds, value.nanos);
+  }
+  const isReference = value instanceof InternalReference;
+  if (isReference) {
+    // Stored values have reference identity but no client connection owner.
+    registerReferenceQueryValue(value, value.path);
+    return value;
   }
   // Bytes + LatLng wrappers (rules-internal) ride through the read path
   // as their instance form. The `pyric/firestore` modular layer does
@@ -35,13 +44,16 @@ function translateValue(value: unknown): unknown {
   // `instanceof` against `pyric/rules`. Without these
   // short-circuits, the generic object walk below would destructure the
   // class instance into a plain `{...}` and erase the type.
-  if (value instanceof InternalBytes) return value;
-  if (value instanceof InternalLatLng) return value;
-  if (value instanceof InternalVector) return value;
-  if (Array.isArray(value)) {
+  const isPreservedScalar = value instanceof InternalBytes
+    || value instanceof InternalLatLng
+    || value instanceof InternalVector;
+  if (isPreservedScalar) return value;
+  const isArray = Array.isArray(value);
+  if (isArray) {
     return value.map(translateValue);
   }
-  if (value && typeof value === 'object') {
+  const isMap = value !== null && typeof value === 'object';
+  if (isMap) {
     // Rebuild via `Object.fromEntries` (CreateDataProperty semantics) rather
     // than `out[k] = …`: a stored field literally named `__proto__` would,
     // through bare bracket assignment, invoke the prototype accessor and

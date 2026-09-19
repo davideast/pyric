@@ -159,11 +159,20 @@ interface ActiveListenerDraft {
  * reattached under the same id is folded from its most recent attach.
  */
 export function activeListeners(events: readonly SandboxEvent[]): readonly ActiveListener[] {
+  const state = createActiveListenerState();
+  for (const event of events) state.append(event);
+  return state.snapshot();
+}
+
+/** The same lifecycle fold, retained by adapters that consume a live stream. */
+export function createActiveListenerState() {
   const active = new Map<string, ActiveListenerDraft>();
-  for (const event of events) {
+  const append = (event: SandboxEvent): void => {
     const info = listenerEventInfo(event);
-    if (info === null) continue;
-    if (info.phase === 'attach') {
+    const isOtherEvent = info === null;
+    if (isOtherEvent) return;
+    const attaches = info.phase === 'attach';
+    if (attaches) {
       const draft: ActiveListenerDraft = {
         id: info.listenerId,
         service: info.service,
@@ -174,29 +183,40 @@ export function activeListeners(events: readonly SandboxEvent[]): readonly Activ
         deliveryCount: 0,
         suppressedCount: 0,
       };
-      if (info.owners !== undefined) draft.owners = [...info.owners];
-      if (info.query !== undefined) draft.query = info.query;
+      const hasOwners = info.owners !== undefined;
+      if (hasOwners) draft.owners = [...info.owners];
+      const hasQuery = info.query !== undefined;
+      if (hasQuery) draft.query = info.query;
       const clientListenerId = (event as { activity?: { listenerId?: unknown } }).activity?.listenerId;
-      if (typeof clientListenerId === 'string') draft.clientListenerId = clientListenerId;
+      const hasClientListener = typeof clientListenerId === 'string';
+      if (hasClientListener) draft.clientListenerId = clientListenerId;
       active.set(info.listenerId, draft);
-      continue;
+      return;
     }
     const entry = active.get(info.listenerId);
-    if (entry === undefined) continue;
-    if (info.phase === 'delivery') {
+    const isDetached = entry === undefined;
+    if (isDetached) return;
+    const delivers = info.phase === 'delivery';
+    if (delivers) {
       entry.deliveryCount += 1;
       entry.lastDeliveryAt = event.at;
-      if (info.owners !== undefined) entry.owners = withDeliveryOwners(entry.owners, info.owners);
-      continue;
+      const hasOwners = info.owners !== undefined;
+      if (hasOwners) entry.owners = withDeliveryOwners(entry.owners, info.owners);
+      return;
     }
-    if (info.phase === 'suppressed') {
+    const suppresses = info.phase === 'suppressed';
+    if (suppresses) {
       entry.suppressedCount += 1;
-      continue;
+      return;
     }
     // 'detach' and 'errored' both end a listener's active life.
     active.delete(info.listenerId);
-  }
-  return Object.freeze([...active.values()].map((entry) => Object.freeze({ ...entry })));
+  };
+  return {
+    append,
+    snapshot: (): readonly ActiveListener[] => Object.freeze([...active.values()].map(entry => Object.freeze({ ...entry }))),
+    clear: (): void => active.clear(),
+  };
 }
 
 /**

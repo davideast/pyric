@@ -5,6 +5,8 @@
  * under current auth, threading the follows-current-user marker, tagging +
  * rehydrating delivered snapshots, and the default uncaught-error handler.
  */
+// Modular listeners use the chainable adapter installed by this module.
+import '../sandbox/admin-firestore/listeners.js';
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 import { AUTH_SESSION_SCOPE, FOLLOWS_CURRENT_USER } from 'pyric/firestore/internal';
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';

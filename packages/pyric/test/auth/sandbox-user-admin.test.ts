@@ -277,6 +277,23 @@ describe('sandbox.createSignInCredential (A2)', () => {
 // ─── A3: user-admin CRUD ──────────────────────────────────────────────
 
 describe('sandbox.listUsers / createUser (A3)', () => {
+  it('creates a new account after restoring generated user IDs without replacing restored users', async () => {
+    const auth = freshAuth();
+    authSandbox.seedUsers(auth, [
+      { uid: 'user-1', email: 'first@example.test', password: 'original-password' },
+      { uid: 'user-2', email: 'second@example.test', password: 'original-password' },
+    ]);
+    const created = authSandbox.createUser(auth, {
+      email: 'new@example.test', password: 'new-password',
+    });
+    expect(['user-1', 'user-2']).not.toContain(created.uid);
+    expect(authSandbox.listUsers(auth)).toHaveLength(3);
+    const restored = await signInWithEmailAndPassword(auth, 'first@example.test', 'original-password');
+    expect(restored.user.uid).toBe('user-1');
+    const added = await signInWithEmailAndPassword(auth, 'new@example.test', 'new-password');
+    expect(added.user.uid).toBe(created.uid);
+  });
+
   it('createUser round-trips through listUsers without signing in', () => {
     const auth = freshAuth();
     const record = authSandbox.createUser(auth, {

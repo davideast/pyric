@@ -98,6 +98,10 @@ export interface SandboxPersistenceOptions {
  * them. (v2 and earlier used a single string blob; v3 is record-shaped.)
  */
 export interface PersistenceBackend {
+  /** False when a failed durable write requires operator repair and restart. */
+  retryFailedFlush?: boolean;
+  /** Commit changed and removed records atomically when the backend supports it. */
+  applyChanges?(key: string, changed: ReadonlyMap<string, unknown>, removed: readonly string[]): Promise<void>;
   /** Read one record by id under `key`. Resolves `null` when absent. */
   getRecord(key: string, recordId: string): Promise<unknown | null>;
   /** List all record ids under `key`, any order. */

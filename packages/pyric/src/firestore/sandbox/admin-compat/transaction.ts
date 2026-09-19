@@ -30,6 +30,7 @@ import {
   type DocumentSnapshot,
   type Query,
   type QuerySnapshot,
+  type SetOptions,
   type Transaction,
 } from './types.js';
 
@@ -50,13 +51,15 @@ export class TransactionImpl implements Transaction {
   get(ref: DocumentReference): Promise<DocumentSnapshot>;
   get(query: Query): Promise<QuerySnapshot>;
   async get(refOrQuery: DocumentReference | Query): Promise<DocumentSnapshot | QuerySnapshot> {
-    if (isQuery(refOrQuery)) {
+    const readsQuery = isQuery(refOrQuery);
+    if (readsQuery) {
       // Run the query through the wrapper's normal path. In the
       // single-threaded simulator, env.listDocuments and simTx.get see
       // the same state snapshot, so registering reads after-the-fact
       // is consistent.
       const snap = await refOrQuery.get();
-      if (snap.size > 0) {
+      const hasDocuments = snap.size > 0;
+      if (hasDocuments) {
         // Registers the touched paths in the tx's read set so the
         // simulator's commit-time read-after-write check sees them.
         // Throws ReadAfterWriteError if any tx.set/update/delete
@@ -71,8 +74,15 @@ export class TransactionImpl implements Transaction {
     return makeDocSnapshot(refOrQuery, data);
   }
 
-  set(ref: DocumentReference, data: DocumentData): Transaction {
-    this.simTx.set(ref.path, data);
+  set(ref: DocumentReference, data: DocumentData, options?: SetOptions): Transaction {
+    const mergeFields = options?.mergeFields;
+    const hasFieldMask = mergeFields !== undefined;
+    if (hasFieldMask) {
+      this.simTx.set(ref.path, data, { mergeFields });
+      return this;
+    }
+    const mergesAllFields = options?.merge === true;
+    this.simTx.set(ref.path, data, mergesAllFields ? true : undefined);
     return this;
   }
 

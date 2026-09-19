@@ -14,6 +14,7 @@ import type { AdminDocumentSnapshot as ChainDocSnap, DocumentData } from 'pyric/
 
 import {
   tag,
+  TARGET_SYMBOL,
   sandboxDb,
   sandboxLiveRebuild,
   refToUnderlying,
@@ -22,6 +23,8 @@ import {
   underlyingOf,
   type Target,
 } from './state.js';
+import { doc } from './refs.js';
+import type { ReferenceDecoder } from './internal/value-codec.js';
 import { firestoreValuesEqual } from './sandbox/value-equality.js';
 import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
 import { clientStateFor } from './client-state.js';
@@ -238,24 +241,35 @@ export function recordQuerySnapshot(
  * Other surface (id / ref / exists) passes through unchanged so
  * `tagSnapshotRefs` still operates on the original snap object.
  */
-export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSnapshot<T> {
+export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSnapshot<T> & { exists(): boolean } {
   const s = snap as {
     data: () => DocumentData | undefined;
     ref?: { path?: string };
+    exists?: boolean | (() => boolean);
   };
+  normalizeExists(s);
   const original = s.data.bind(snap);
+  const hasTarget = target !== undefined;
+  let references: ReferenceDecoder | undefined;
+  if (hasTarget) {
+    references = { create: (path) => doc({ [TARGET_SYMBOL]: target }, path) };
+  }
   Object.defineProperty(s, 'data', {
-    value: () => finalizeSandboxData(original()),
+    value: () => finalizeSandboxData(original(), references),
     configurable: true,
     writable: true,
   });
-  if (target && s.ref?.path) {
-    Object.defineProperty(s, 'metadata', {
-      value: clientStateFor(target).snapshotMetadata(s.ref.path),
-      configurable: true,
-    });
+  if (hasTarget) {
+    const path = s.ref?.path;
+    const hasPath = path !== undefined && path.length > 0;
+    if (hasPath) {
+      Object.defineProperty(s, 'metadata', {
+        value: clientStateFor(target).snapshotMetadata(path),
+        configurable: true,
+      });
+    }
   }
-  return snap as DocumentSnapshot<T>;
+  return snap as DocumentSnapshot<T> & { exists(): boolean };
 }
 
 /**
@@ -267,26 +281,27 @@ export function applyConverterToDocSnap<AppModel>(
   conv: FirestoreDataConverter<AppModel>,
   target: Target,
   kind: 'document' | 'query-child',
-): DocumentSnapshot<AppModel> {
+): DocumentSnapshot<AppModel> & { exists(): boolean } {
+  const rawReference = doc({ [TARGET_SYMBOL]: target }, snap.ref.path);
+  const reference = rawReference.withConverter(conv);
+  const references: ReferenceDecoder = { create: (path) => doc({ [TARGET_SYMBOL]: target }, path) };
   const wrapped = {
     id: snap.id,
-    ref: snap.ref,
-    exists: snap.exists,
+    ref: reference,
+    exists: () => snapshotExists(snap),
     metadata: clientStateFor(target).snapshotMetadata(snap.ref.path),
     data: () => {
       // Sandbox snaps expose `exists` as a property (Admin shape).
-      const exists = typeof snap.exists === 'function'
-        ? (snap.exists as () => boolean)()
-        : snap.exists;
-      if (!exists) return undefined;
-      const raw = finalizeSandboxData(snap.data() as DocumentData) as DocumentData;
+      const isMissing = !snapshotExists(snap);
+      if (isMissing) return undefined;
+      const raw = finalizeSandboxData(snap.data() as DocumentData, references) as DocumentData;
       // fromFirestore receives a QueryDocumentSnapshot-narrowed view —
       // doc is known to exist at this branch, so `data()` returns the
       // raw value (never undefined).
       const queryDocSnap: QueryDocumentSnapshot = {
         id: snap.id,
-        ref: snap.ref as unknown as QueryDocumentSnapshot['ref'],
-        exists: true,
+        ref: rawReference,
+        exists: () => true,
         metadata: clientStateFor(target).snapshotMetadata(snap.ref.path),
         data: () => raw,
       };

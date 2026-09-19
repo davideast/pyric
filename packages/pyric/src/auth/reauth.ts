@@ -179,8 +179,9 @@ function completeReauth(
   // Force a refresh: a successful re-auth produces a NEW token with a new
   // authTime. That advance is the observable trace of the re-verification
   // (and what prod's recent-login gate reads).
-  target.backend.getIdTokenResultFor(user.uid, claims, true);
-  const refreshed = stored ? target.backend.buildUserFromStored(stored) : user;
+  target.backend.getIdTokenResultFor(user.uid, claims, true, user.tenantId);
+  const hasStoredUser = stored !== undefined;
+  const refreshed = hasStoredUser ? target.backend.buildUserFromStored(stored) : user;
   return {
     user: refreshed,
     providerId,

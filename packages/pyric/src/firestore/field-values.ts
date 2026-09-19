@@ -10,117 +10,10 @@ import {
   Timestamp as ChainTimestamp,
   type FieldValueSentinel,
 } from 'pyric/sandbox/admin-firestore';
-import {
-  boundedActivityBytes,
-  boundedActivityIdentity,
-  registerActivityValue,
-} from './sandbox/activity-value-registry.js';
-import { registerQueryValue } from './sandbox/query-value-registry.js';
 
-export class Bytes {
-  private constructor(private readonly bytes: Uint8Array) {
-    registerActivityValue(this, boundedActivityBytes(bytes));
-    registerQueryValue(this, Object.freeze({
-      type: 'bytes',
-      values: Object.freeze(Array.from(bytes)),
-    }), () => new Bytes(bytes.slice()));
-  }
+export { Bytes } from './bytes.js';
 
-  static fromBase64String(base64: string): Bytes {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-    return new Bytes(bytes);
-  }
-
-  static fromUint8Array(array: Uint8Array): Bytes {
-    return new Bytes(array.slice());
-  }
-
-  toBase64(): string {
-    let binary = '';
-    for (const byte of this.bytes) binary += String.fromCharCode(byte);
-    return btoa(binary);
-  }
-
-  toUint8Array(): Uint8Array {
-    return this.bytes.slice();
-  }
-
-  toString(): string {
-    return `Bytes(base64: ${this.toBase64()})`;
-  }
-
-  isEqual(other: Bytes): boolean {
-    return other instanceof Bytes
-      && this.bytes.length === other.bytes.length
-      && this.bytes.every((byte, index) => byte === other.bytes[index]);
-  }
-
-  toJSON(): object {
-    return { type: 'firestore/bytes/1.0', bytes: this.toBase64() };
-  }
-
-  static fromJSON(json: object): Bytes {
-    const value = json as { type?: unknown; bytes?: unknown };
-    if (value.type !== 'firestore/bytes/1.0' || typeof value.bytes !== 'string') {
-      throw new TypeError('Invalid Bytes JSON value.');
-    }
-    return Bytes.fromBase64String(value.bytes);
-  }
-}
-
-export class GeoPoint {
-  constructor(
-    private readonly lat: number,
-    private readonly lng: number,
-  ) {
-    if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
-      throw new TypeError('Latitude must be a number between -90 and 90.');
-    }
-    if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
-      throw new TypeError('Longitude must be a number between -180 and 180.');
-    }
-    registerActivityValue(
-      this,
-      boundedActivityIdentity('geo-point', String(lat), '\0', String(lng)),
-    );
-    registerQueryValue(this, Object.freeze({
-      type: 'geo-point',
-      latitude: lat,
-      longitude: lng,
-    }), () => new GeoPoint(lat, lng));
-  }
-
-  get latitude(): number { return this.lat; }
-  get longitude(): number { return this.lng; }
-
-  isEqual(other: GeoPoint): boolean {
-    return other instanceof GeoPoint
-      && this.lat === other.lat
-      && this.lng === other.lng;
-  }
-
-  toJSON(): { latitude: number; longitude: number; type: string } {
-    return {
-      latitude: this.lat,
-      longitude: this.lng,
-      type: 'firestore/geoPoint/1.0',
-    };
-  }
-
-  static fromJSON(json: object): GeoPoint {
-    const value = json as { type?: unknown; latitude?: unknown; longitude?: unknown };
-    if (
-      value.type !== 'firestore/geoPoint/1.0'
-      || typeof value.latitude !== 'number'
-      || typeof value.longitude !== 'number'
-    ) {
-      throw new TypeError('Invalid GeoPoint JSON value.');
-    }
-    return new GeoPoint(value.latitude, value.longitude);
-  }
-}
+export { GeoPoint } from './geo-point.js';
 
 export class FieldPath {
   readonly _internalPath: { segments: string[]; offset: number; len: number };
@@ -149,55 +42,7 @@ export function documentId(): FieldPath {
   return new FieldPath('__name__');
 }
 
-export class VectorValue {
-  private constructor(readonly _values: number[]) {
-    registerQueryValue(this, Object.freeze({
-      type: 'vector',
-      values: Object.freeze(_values.slice()),
-    }), () => new VectorValue(_values.slice()));
-  }
-
-  static create(values: number[]): VectorValue {
-    if (!values.every((value) => typeof value === 'number')) {
-      throw new TypeError('Vector values must be numbers.');
-    }
-    return new VectorValue(values.slice());
-  }
-
-  toArray(): number[] {
-    return this._values.slice();
-  }
-
-  isEqual(other: VectorValue): boolean {
-    const theirs = other instanceof VectorValue ? other._values : undefined;
-    return theirs !== undefined
-      && this._values.length === theirs.length
-      && this._values.every((value, index) => value === theirs[index]);
-  }
-
-  toJSON(): object {
-    return {
-      type: 'firestore/vectorValue/1.0',
-      vectorValues: this.toArray(),
-    };
-  }
-
-  static fromJSON(json: object): VectorValue {
-    const value = json as { type?: unknown; vectorValues?: unknown };
-    if (
-      value.type !== 'firestore/vectorValue/1.0'
-      || !Array.isArray(value.vectorValues)
-      || !value.vectorValues.every((entry) => typeof entry === 'number')
-    ) {
-      throw new TypeError('Invalid VectorValue JSON value.');
-    }
-    return VectorValue.create(value.vectorValues);
-  }
-}
-
-export function vector(values: number[] = []): VectorValue {
-  return VectorValue.create(values);
-}
+export { VectorValue, vector } from './vector-value.js';
 
 export { ChainFieldValue as FieldValue, ChainTimestamp as Timestamp };
 

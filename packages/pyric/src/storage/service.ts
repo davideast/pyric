@@ -26,7 +26,7 @@ import {
   provenanceForOperationContext,
   resolveOperationContext,
 } from 'pyric/sandbox/internal';
-import { openStorageBackend, storageDbName } from './persistence.js';
+import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
 import { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
 import type { StorageRules } from './sandbox/rules.js';
 import {
@@ -153,6 +153,14 @@ interface OpenStorageService {
 
 /** One open storage service, with its opening configuration, per `Sandbox`. */
 const OPEN_SERVICES = new WeakMap<Sandbox, OpenStorageService>();
+const HOST_BACKENDS = new WeakMap<Sandbox, StorageBackend>();
+
+/** Hosts install their durable backend before any Storage service is created. */
+export function installStorageBackend(sandbox: Sandbox, backend: StorageBackend): void {
+  const alreadyOpened = OPEN_SERVICES.has(sandbox) || HOST_BACKENDS.has(sandbox);
+  if (alreadyOpened) throw new Error('Storage backend must be installed once, before Storage initializes.');
+  HOST_BACKENDS.set(sandbox, backend);
+}
 
 /** One scoped `StorageService` per (Sandbox, bucket). */
 const SCOPED_SERVICES = new WeakMap<Sandbox, Map<string, Promise<StorageService>>>();
@@ -319,7 +327,8 @@ function ensureService(
   caller: string,
 ): Promise<StorageService> {
   const existing = OPEN_SERVICES.get(sandbox);
-  if (existing) {
+  const alreadyOpen = existing !== undefined;
+  if (alreadyOpen) {
     rejectDifferingLateConfig(
       'rules',
       'rules source',
@@ -338,18 +347,27 @@ function ensureService(
   }
   let rules: StorageRules | null = null;
   let resolution: StorageRulesResolution | null = null;
-  if (options.rules) {
-    const compiled = compileStorageRules(options.rules);
+  const rulesSource = options.rules;
+  const hasRules = typeof rulesSource === 'string' && rulesSource.length > 0;
+  if (hasRules) {
+    const compiled = compileStorageRules(rulesSource);
     rules = compiled.rules;
     resolution = compiled.resolution;
   }
   // Explicit dbName wins; otherwise scope the default by project identity so
   // two projects on one origin never share a storage database (issue #359).
   const crossServiceIam = options.crossServiceIam ?? 'granted';
-  const servicePromise = openStorageBackend(
-    options.dbName ?? storageDbName(options.projectId),
-    options.bucket ?? DEFAULT_BUCKET,
-  ).then(
+  const injectedBackend = HOST_BACKENDS.get(sandbox);
+  let backendPromise: Promise<StorageBackend>;
+  const hasInjectedBackend = injectedBackend !== undefined;
+  if (hasInjectedBackend) backendPromise = Promise.resolve(injectedBackend);
+  else {
+    backendPromise = openStorageBackend(
+      options.dbName ?? storageDbName(options.projectId),
+      options.bucket ?? DEFAULT_BUCKET,
+    );
+  }
+  const servicePromise = backendPromise.then(
     (backend) => new StorageService(backend, rules, crossServiceIam),
   );
   OPEN_SERVICES.set(sandbox, {

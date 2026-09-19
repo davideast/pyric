@@ -15,6 +15,7 @@
  */
 
 import type { FullSandboxState } from '../full-state.js';
+import { z } from 'zod';
 
 /** The tag every checkpoint carries, so an unrelated record is not read as one. */
 export const CHECKPOINT_FORMAT = 'pyric-checkpoint-v1';
@@ -85,22 +86,21 @@ export interface CheckpointBackend {
   remove(name: string): Promise<boolean>;
 }
 
-/**
- * Whether one value a backend read back is a checkpoint this project wrote.
- *
- * Every backend asks before returning a value as state. A file, or a record,
- * that carries no format tag, carries another writer's, or is missing the
- * counts or the state is not a checkpoint, and returning it would put whatever
- * it holds into a sandbox on the next restore.
- */
+const checkpointEnvelopeSchema = z.object({
+  format: z.literal(CHECKPOINT_FORMAT),
+  at: z.number().finite(),
+  counts: z.object({
+    firestore: z.number().int().nonnegative(),
+    database: z.number().int().nonnegative(),
+    storage: z.number().int().nonnegative(),
+    auth: z.number().int().nonnegative(),
+  }),
+  state: z.unknown().refine(value => value !== undefined, 'Required'),
+});
+
+/** Recognize the envelope; restore validates each service before resetting state. */
 export function isCheckpointEnvelope(value: unknown): value is Checkpoint {
-  if (value === null || typeof value !== 'object') return false;
-  const candidate = value as Partial<Checkpoint>;
-  if (candidate.format !== CHECKPOINT_FORMAT) return false;
-  if (typeof candidate.at !== 'number') return false;
-  if (candidate.counts === undefined) return false;
-  if (candidate.state === undefined) return false;
-  return true;
+  return checkpointEnvelopeSchema.safeParse(value).success;
 }
 
 /** Reject a name that is not one segment of a backend's keyspace. */

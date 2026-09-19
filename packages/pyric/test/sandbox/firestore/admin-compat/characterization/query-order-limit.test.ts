@@ -4,8 +4,8 @@
  * supported (offset). Public surface only.
  *
  * Notable current behaviors locked below:
- *   - With no orderBy, no cursor, and no inequality filter, results come
- *     back in seed/insertion order (the raw candidate scan order).
+ *   - With no orderBy, results use ascending document-key order, including
+ *     equality filters and limits (confirmed against the Firebase SDK).
  *   - orderBy excludes any doc missing the ordered field.
  *   - Mixed-type orderBy sorts by canonical type rank: null before
  *     numbers before strings.
@@ -47,23 +47,23 @@ const TICKETS = {
 } as const;
 
 describe('characterization — implicit ordering (no orderBy)', () => {
-  it('a bare collection get returns seed/insertion order, not id order', async () => {
+  it('a bare collection get returns document-key order', async () => {
     const db = seededDb(TICKETS);
-    expect(await ids(db.collection('tickets'))).toEqual(['T-3', 'T-1', 'T-5', 'T-2', 'T-4']);
+    expect(await ids(db.collection('tickets'))).toEqual(['T-1', 'T-2', 'T-3', 'T-4', 'T-5']);
   });
 
-  it('later writes append after seeded docs in the bare scan order', async () => {
+  it('later writes appear at their document-key position', async () => {
     const db = seededDb(TICKETS);
     await db.doc('tickets/T-0').set({ priority: 0, group: 'c' });
     expect(await ids(db.collection('tickets'))).toEqual([
-      'T-3', 'T-1', 'T-5', 'T-2', 'T-4', 'T-0',
+      'T-0', 'T-1', 'T-2', 'T-3', 'T-4', 'T-5',
     ]);
   });
 
-  it('an equality-only where preserves the bare scan order', async () => {
+  it('an equality-only where uses document-key order', async () => {
     const db = seededDb(TICKETS);
     expect(await ids(db.collection('tickets').where('group', '==', 'a'))).toEqual([
-      'T-1', 'T-5', 'T-4',
+      'T-1', 'T-4', 'T-5',
     ]);
   });
 
@@ -133,9 +133,9 @@ describe('characterization — limit / limitToLast', () => {
     ]);
   });
 
-  it('limit without orderBy slices the bare scan order', async () => {
+  it('limit without orderBy selects the first document keys', async () => {
     const db = seededDb(TICKETS);
-    expect(await ids(db.collection('tickets').limit(2))).toEqual(['T-3', 'T-1']);
+    expect(await ids(db.collection('tickets').limit(2))).toEqual(['T-1', 'T-2']);
   });
 
   it('limit(0) returns an empty snapshot', async () => {

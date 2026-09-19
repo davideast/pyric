@@ -71,3 +71,10 @@ describe('rehydrateDocValue', () => {
     expect(hydrated.nested).toBeInstanceOf(Reference);
   });
 });
+
+it('preserves non-finite numbers and negative zero without interpreting literal maps', async () => {
+  const { encodeDocValue, rehydrateEncodedDocValue, DOC_VALUE_ENCODING } = await import('../../../src/firestore/internal/value-codec.js');
+  const source = { numbers: [NaN, Infinity, -Infinity, -0], literal: { type: 'pyric/number/1.0', value: 'NaN' } };
+  const transported = JSON.parse(JSON.stringify(encodeDocValue(source)));
+  expect(rehydrateEncodedDocValue(transported, DOC_VALUE_ENCODING)).toEqual(source);
+});

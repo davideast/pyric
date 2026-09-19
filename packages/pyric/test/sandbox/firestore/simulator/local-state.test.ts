@@ -24,7 +24,7 @@ describe('LocalState', () => {
       const data = { name: 'Alice' };
       const state = new LocalState({ 'users/alice': data });
       data.name = 'MUTATED';
-      expect(state.get('users/alice')!.name).toBe('Alice');
+      expect(state.get('users/alice')?.name).toBe('Alice');
     });
   });
 
@@ -62,20 +62,20 @@ describe('LocalState', () => {
       });
       const rows = state.scan('items', { directOnly: true, projection: ['name'] });
       expect(rows).toHaveLength(2);
-      expect(rows.find((r) => r.path === 'items/a')!.data).toEqual({ name: 'A' });
-      expect(rows.find((r) => r.path === 'items/b')!.data).toEqual({ name: 'B' });
+      expect(rows.find((r) => r.path === 'items/a')?.data).toEqual({ name: 'A' });
+      expect(rows.find((r) => r.path === 'items/b')?.data).toEqual({ name: 'B' });
     });
 
     test('a projected field that is absent is simply omitted', () => {
       const state = new LocalState({ 'items/a': { name: 'A' } });
       const rows = state.scan('items', { directOnly: true, projection: ['name', 'vector'] });
-      expect(rows.find((r) => r.path === 'items/a')!.data).toEqual({ name: 'A' });
+      expect(rows.find((r) => r.path === 'items/a')?.data).toEqual({ name: 'A' });
     });
 
     test('no projection returns full docs unchanged', () => {
       const state = new LocalState({ 'items/a': { name: 'A', vector: [1, 2, 3] } });
       const rows = state.scan('items', { directOnly: true });
-      expect(rows.find((r) => r.path === 'items/a')!.data).toEqual({ name: 'A', vector: [1, 2, 3] });
+      expect(rows.find((r) => r.path === 'items/a')?.data).toEqual({ name: 'A', vector: [1, 2, 3] });
     });
   });
 
@@ -157,9 +157,9 @@ describe('LocalState', () => {
         const users = state.list('users');
         const byPath = Object.fromEntries(users.map(u => [u.path, u]));
         expect(Object.keys(byPath).sort()).toEqual(['users/alice', 'users/u2']);
-        expect(byPath['users/alice']!.phantom).toBeUndefined();
-        expect(byPath['users/u2']!.phantom).toBe(true);
-        expect(byPath['users/u2']!.data).toEqual({});
+        expect(byPath['users/alice']).toEqual({ path: 'users/alice', data: { name: 'Alice' } });
+        expect(byPath['users/u2']?.phantom).toBe(true);
+        expect(byPath['users/u2']?.data).toEqual({});
       });
 
       test('phantom synthesis only kicks in for the queried collection', () => {
@@ -185,7 +185,7 @@ describe('LocalState', () => {
       const state = new LocalState({ 'a/1': { x: 1 } });
       const snap = state.snapshot();
       snap['a/1'].x = 999;
-      expect(state.get('a/1')!.x).toBe(1);
+      expect(state.get('a/1')?.x).toBe(1);
     });
   });
 
@@ -204,7 +204,7 @@ describe('LocalState', () => {
       const result = state.create('users/alice', { name: 'New Alice' });
       expect(result.success).toBe(false);
       expect(result.error).toContain('already exists');
-      expect(state.get('users/alice')!.name).toBe('Alice'); // unchanged
+      expect(state.get('users/alice')?.name).toBe('Alice'); // unchanged
     });
 
     test('data is copied', () => {
@@ -212,7 +212,7 @@ describe('LocalState', () => {
       const data = { name: 'Alice' };
       state.create('users/alice', data);
       data.name = 'MUTATED';
-      expect(state.get('users/alice')!.name).toBe('Alice');
+      expect(state.get('users/alice')?.name).toBe('Alice');
     });
   });
 
@@ -306,8 +306,8 @@ describe('LocalState', () => {
         { method: 'delete', path: 'lobbies/l1' },
       ]);
       expect(result.success).toBe(true);
-      expect(state.get('games/g1')!.status).toBe('finished');
-      expect(state.get('games/g1')!.host).toBe('alice'); // merge preserved
+      expect(state.get('games/g1')?.status).toBe('finished');
+      expect(state.get('games/g1')?.host).toBe('alice'); // merge preserved
       expect(state.exists('results/r1')).toBe(true);
       expect(state.exists('lobbies/l1')).toBe(false);
     });
@@ -322,7 +322,7 @@ describe('LocalState', () => {
       ]);
       expect(result.success).toBe(false);
       // NONE of the operations should have applied
-      expect(state.get('games/g1')!.status).toBe('playing'); // unchanged
+      expect(state.get('games/g1')?.status).toBe('playing'); // unchanged
     });
 
     test('returns prior states for undo', () => {
@@ -336,9 +336,9 @@ describe('LocalState', () => {
         { method: 'create', path: 'results/r1', data: { score: 10 } },
       ]);
       expect(result.success).toBe(true);
-      expect(result.priorStates!.get('games/g1')).toEqual({ status: 'playing' });
-      expect(result.priorStates!.get('lobbies/l1')).toEqual({ host: 'alice' });
-      expect(result.priorStates!.get('results/r1')).toBe(null); // didn't exist before
+      expect(result.priorStates?.get('games/g1')).toEqual({ status: 'playing' });
+      expect(result.priorStates?.get('lobbies/l1')).toEqual({ host: 'alice' });
+      expect(result.priorStates?.get('results/r1')).toBe(null); // didn't exist before
     });
 
     test('create in batch fails if document exists', () => {
@@ -347,7 +347,7 @@ describe('LocalState', () => {
         { method: 'create', path: 'x/1', data: { a: 2 } },
       ]);
       expect(result.success).toBe(false);
-      expect(result.errors![0].error).toContain('already exists');
+      expect(result.errors?.[0]?.error).toContain('already exists');
     });
 
     test('set in batch always succeeds (create or overwrite)', () => {
@@ -361,17 +361,14 @@ describe('LocalState', () => {
       expect(state.get('x/2')).toEqual({ c: 3 }); // created
     });
 
-    test('no cross-visibility: operations see pre-batch state', () => {
-      // This tests that a create in position 0 is NOT visible to an
-      // operation in position 1. Each operation validates against the
-      // state BEFORE the batch started.
+    test('later updates see a document created in the batch', () => {
       const state = new LocalState();
       const result = state.applyBatch([
         { method: 'create', path: 'x/1', data: { a: 1 } },
-        { method: 'update', path: 'x/1', data: { b: 2 } }, // x/1 doesn't exist in pre-batch state
+        { method: 'update', path: 'x/1', data: { b: 2 } },
       ]);
-      expect(result.success).toBe(false);
-      expect(result.errors!.some(e => e.error.includes('does not exist'))).toBe(true);
+      expect(result.success).toBe(true);
+      expect(state.get('x/1')).toEqual({ a: 1, b: 2 });
     });
   });
 
@@ -405,24 +402,24 @@ describe('LocalState', () => {
       // Join game (merge)
       const j = state.update('chess/g1', { guest: 'black', status: 'playing' });
       expect(j.success).toBe(true);
-      expect(state.get('chess/g1')!.host).toBe('white');      // preserved
-      expect(state.get('chess/g1')!.guest).toBe('black');     // added
-      expect(state.get('chess/g1')!.status).toBe('playing');  // updated
-      expect(state.get('chess/g1')!.e1).toBe('K');            // preserved
+      expect(state.get('chess/g1')?.host).toBe('white');      // preserved
+      expect(state.get('chess/g1')?.guest).toBe('black');     // added
+      expect(state.get('chess/g1')?.status).toBe('playing');  // updated
+      expect(state.get('chess/g1')?.e1).toBe('K');            // preserved
 
       // Make move (merge)
       const m = state.update('chess/g1', {
         b1: '', c3: 'N', currentTurn: 'guest', moveCount: 1,
       });
       expect(m.success).toBe(true);
-      expect(state.get('chess/g1')!.b1).toBe('');
-      expect(state.get('chess/g1')!.c3).toBe('N');
-      expect(state.get('chess/g1')!.e1).toBe('K');  // still there
+      expect(state.get('chess/g1')?.b1).toBe('');
+      expect(state.get('chess/g1')?.c3).toBe('N');
+      expect(state.get('chess/g1')?.e1).toBe('K');  // still there
 
       // Game over — delete
       const d = state.delete('chess/g1');
       expect(d.success).toBe(true);
-      expect(d.priorData!.c3).toBe('N');
+      expect(d.priorData?.c3).toBe('N');
       expect(state.exists('chess/g1')).toBe(false);
     });
   });

@@ -6,7 +6,7 @@ import type { MutationEventService } from './service-event-records.js';
  * it rides its own rule-eval-shaped `request`/`write` path rather than the
  * cross-service mutation envelope; every other service reaches this union by
  * declaring an event record beside its own code. */
-export type EventService = 'firestore' | MutationEventService;
+export type EventService = 'firestore' | 'runtime' | MutationEventService;
 
 /** Who initiated the operation behind an event. Missing source is represented
  * explicitly as `unattributed`; it is never silently promoted to app traffic. */
@@ -42,7 +42,8 @@ export type RulesDisposition =
   | { kind: 'bypassed'; reason: 'admin' }
   | {
       kind: 'not-evaluated';
-      reason: 'no-rules' | 'unsupported' | 'not-a-rules-operation' | 'runtime-error';
+      /** External execution supplies an SDK outcome, without a local rules evaluation. */
+      reason: 'no-rules' | 'unsupported' | 'not-a-rules-operation' | 'runtime-error' | 'external-execution';
     };
 
 /** Provenance consumed only by the firestore activity diagnostics. Bundled in
@@ -60,6 +61,8 @@ export interface ActivityEventProvenance {
 /** Compatibility provenance carried by sandbox events while producers and
  * consumers migrate to the canonical `operationContext`. */
 export interface EventProvenance {
+  /** Wall-clock observation time, independent of the simulated service clock. */
+  observedAt?: number;
   service?: EventService;
   actor?: EventActor;
   authLens?: AuthLens;

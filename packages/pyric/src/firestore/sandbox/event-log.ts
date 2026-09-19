@@ -52,6 +52,8 @@ export interface AgentEvent {
    * write paths so the undo stack is O(affected) not O(keyspace).
    */
   priorDocs?: Record<string, DocumentData | null>;
+  /** Exact committed result, used by durable redo without rerunning transforms. */
+  nextDocs?: Record<string, DocumentData | null>;
   /**
    * Whole-keyspace snapshot BEFORE this event (for undo). Still used by
    * transactions, whose affected paths aren't known until the callback runs.
@@ -61,8 +63,29 @@ export interface AgentEvent {
   debugMessages: string[];
 }
 
+/** Adapter storage for hosted history; default environments keep their memory log. */
+export interface AgentEventStore {
+  append(event: AgentEvent, preserveRedo: boolean): AgentEvent;
+  getEvents(): AgentEvent[];
+  getWriteEvents(): AgentEvent[];
+  lastWriteEvent(): AgentEvent | null;
+  popLastWrite(): AgentEvent | null;
+  popLastUndo(): AgentEvent | null;
+  size(): number;
+  clear(): void;
+}
+
 export class EventLog {
   private events: AgentEvent[] = [];
+  private store?: AgentEventStore;
+  private captureCurrent?: (paths: readonly string[]) => Record<string, DocumentData | null>;
+
+  installStore(store: AgentEventStore, captureCurrent: (paths: readonly string[]) => Record<string, DocumentData | null>): void {
+    this.events = [];
+    this.undoneEvents = [];
+    this.store = store;
+    this.captureCurrent = captureCurrent;
+  }
   private nextId = 1;
   private undoneEvents: AgentEvent[] = [];
 
@@ -76,25 +99,50 @@ export class EventLog {
       id: this.nextId++,
       timestamp: new Date(this.clock.now()).toISOString(),
     };
+    const store = this.store;
+    const usesDurableStore = store !== undefined;
+    if (usesDurableStore) {
+      const undoable = full.allowed && !full.aborted && (full.priorDocs !== undefined || full.snapshot !== undefined);
+      if (undoable) {
+        const paths = full.operations?.map(operation => operation.path) ?? [full.path];
+        const previous = full.snapshot;
+        const hasSnapshot = previous !== undefined;
+        if (hasSnapshot) full.priorDocs = Object.fromEntries(paths.map(path => [path, previous[path] ?? null]));
+        full.nextDocs = this.captureCurrent?.(paths);
+        delete full.snapshot;
+      }
+      return store.append(full, preserveRedo);
+    }
     this.events.push(full);
-    if (!preserveRedo) this.undoneEvents = [];
+    const invalidatesRedo = !preserveRedo;
+    if (invalidatesRedo) this.undoneEvents = [];
     return full;
   }
 
   /** Get all events. */
   getEvents(): AgentEvent[] {
+    const store = this.store;
+    const usesDurableStore = store !== undefined;
+    if (usesDurableStore) return store.getEvents();
     return [...this.events];
   }
 
   /** Get write events only (create, update, delete, set — not reads). */
   getWriteEvents(): AgentEvent[] {
+    const store = this.store;
+    const usesDurableStore = store !== undefined;
+    if (usesDurableStore) return store.getWriteEvents();
     return this.events.filter(e => e.allowed && e.method !== 'get' && e.method !== 'list');
   }
 
   /** Get the last write event (for undo). */
   lastWriteEvent(): AgentEvent | null {
+    const store = this.store;
+    const usesDurableStore = store !== undefined;
+    if (usesDurableStore) return store.lastWriteEvent();
     const writes = this.getWriteEvents();
-    return writes.length > 0 ? writes[writes.length - 1] : null;
+    const hasWrites = writes.length > 0;
+    return hasWrites ? writes[writes.length - 1] : null;
   }
 
   /**
@@ -107,10 +155,19 @@ export class EventLog {
    * still returns them) but do not enter the undo stack.
    */
   popLastWrite(): AgentEvent | null {
-    for (let i = this.events.length - 1; i >= 0; i--) {
+    const store = this.store;
+    const usesDurableStore = store !== undefined;
+    if (usesDurableStore) return store.popLastWrite();
+    let i = this.events.length;
+    let hasPrevious = i > 0;
+    while (hasPrevious) {
+      i--;
+      hasPrevious = i > 0;
       const e = this.events[i];
-      if (e.aborted) continue;
-      if (e.allowed && e.method !== 'get' && e.method !== 'list') {
+      const aborted = e.aborted === true;
+      if (aborted) continue;
+      const undoable = e.allowed && e.method !== 'get' && e.method !== 'list';
+      if (undoable) {
         this.events.splice(i, 1);
         this.undoneEvents.push(e);
         return e;
@@ -121,16 +178,25 @@ export class EventLog {
 
   /** Get the last undone event (for redo). */
   popLastUndo(): AgentEvent | null {
+    const store = this.store;
+    const usesDurableStore = store !== undefined;
+    if (usesDurableStore) return store.popLastUndo();
     return this.undoneEvents.pop() ?? null;
   }
 
   /** Total event count. */
   size(): number {
+    const store = this.store;
+    const usesDurableStore = store !== undefined;
+    if (usesDurableStore) return store.size();
     return this.events.length;
   }
 
   /** Clear all events. */
   clear(): void {
+    const store = this.store;
+    const usesDurableStore = store !== undefined;
+    if (usesDurableStore) return store.clear();
     this.events = [];
     this.undoneEvents = [];
     this.nextId = 1;

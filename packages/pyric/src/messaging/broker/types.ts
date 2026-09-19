@@ -113,7 +113,22 @@ export interface RegisteredToken {
  * retained it; this is the retained form the `deliveries` service-tool method
  * reads.
  */
+export const DELIVERY_STAGES = [
+  'received', 'handler-completed', 'handler-rejected',
+  'display-requested', 'display-accepted', 'display-rejected',
+] as const;
+export type DeliveryStage = typeof DELIVERY_STAGES[number];
+export interface DeliveryAcknowledgment {
+  observerId: string;
+  stage: DeliveryStage;
+  at: number;
+}
+
 export interface DeliveryLogEntry {
+  recipientId: string;
+  /** Browser-reported evidence, not proof of OS display. */
+  receipt: 'unconfirmed' | 'received';
+  acknowledgments: DeliveryAcknowledgment[];
   messageId: string;
   route: DeliveryRoute;
   /** Whether any handler on the chosen route ran (`handlerCount > 0`). */

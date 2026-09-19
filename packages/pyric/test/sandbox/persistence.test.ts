@@ -573,3 +573,19 @@ describe('createIndexedDBBackend (fake-indexeddb)', () => {
     expect(await backend.getRecord('pyric:idb-a', 'r1')).toBeNull();
   });
 });
+
+it('does not schedule retries when the durable host requires repair', async () => {
+  const { sandbox, env } = seedSandbox();
+  let attempts = 0;
+  const backend: PersistenceBackend = {
+    ...createMemoryBackend(),
+    retryFailedFlush: false,
+    async applyChanges() { attempts++; throw new Error('offline durable store'); },
+  };
+  try {
+    await sandbox.enablePersistence({ key: 'repair-required', injectedBackend: backend, flushIntervalMs: 5 });
+    env.execute({ method: 'set', path: 'sessions/one', auth: { uid: 'alice' }, data: { value: 1 } });
+    await new Promise(resolve => setTimeout(resolve, 45));
+    expect(attempts).toBe(1);
+  } finally { sandbox.dispose(); }
+});
