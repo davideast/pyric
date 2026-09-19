@@ -78,6 +78,13 @@
     "node": true,
     "note": "Salvage and archive recover a crashed writer's committed WAL without SHM, preserving the salvage source."
   },
+  "I8": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
+    "filter": "Storage reads await queued",
+    "node": true,
+    "note": "Storage bytes, metadata and listings observe earlier queued mutations across bucket views."
+  },
   "A15": {
     "phase": 2,
     "tests": ["packages/cli/test/remote/loop-hold.test.ts"],

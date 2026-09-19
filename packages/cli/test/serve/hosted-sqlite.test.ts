@@ -110,3 +110,7 @@ test('SQLite busy beyond the retry window fails without acknowledging a write', 
 test('salvage and archive recover committed WAL without a shared-memory file', async () => {
   expect(await runNodeFixture('wal-recovery')).toBe('WAL recovery passed');
 });
+
+test('Storage reads await queued uploads, deletions and resets across bucket views', async () => {
+  expect(await runNodeFixture('storage-read-order')).toBe('Storage read order passed');
+});
