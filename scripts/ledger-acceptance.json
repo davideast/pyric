@@ -59,6 +59,11 @@
     "tests": ["packages/cli/test/bridge/peer-standby.test.ts"],
     "note": "Peer handshakes, replacement standby, takeover, and reconnect preserve text frames."
   },
+  "C14": {
+    "phase": 2,
+    "tests": ["packages/cli/test/serve/worker/ledger/c14-served-entry-order.test.ts"],
+    "note": "Served RTDB cases remain independent of earlier browser-entry evaluation."
+  },
   "A15": {
     "phase": 2,
     "tests": ["packages/cli/test/remote/loop-hold.test.ts"],
