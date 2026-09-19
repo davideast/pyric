@@ -32,18 +32,22 @@ Run every command from the repository root on a clean tree. Do not use `git stas
 
    The commit body lists, one line each, the ledger items whose fixes are included: A1, A2, A3, A4, A6, I1, I13, and the A11, A12, A13 follow-ups as still open. If `git apply` reports a conflict, stop and report the file; do not resolve by hand.
 
-3. Add the handoff documents and the runner as a second commit.
+3. Add the handoff documents and the runner as a second commit. Read each blob with `git show`; nothing on `main` is overwritten and the command does not trip the checkout guard.
 
    ```
-   git checkout origin/hosted-main-integration -- docs/hosted-release-plan.md docs/hosted-review-ledger.md docs/hosted-agent-brief.md docs/hosted-persistence-plan-review.md docs/hosted-extraction-spec.md scripts/verify-ledger.ts scripts/ledger-acceptance.json
+   for f in docs/hosted-release-plan.md docs/hosted-review-ledger.md docs/hosted-agent-brief.md docs/hosted-persistence-plan-review.md docs/hosted-extraction-spec.md scripts/verify-ledger.ts scripts/ledger-acceptance.json; do
+     mkdir -p "$(dirname "$f")"
+     git show origin/hosted-main-integration:"$f" > "$f"
+   done
    ```
 
    Then edit `scripts/ledger-acceptance.json` on this branch to keep only entries whose test files exist on this branch: A1, A2, A3, A4, A6, I1, I13-omitted. Remove A5 and A7. Commit as `docs(hosted): review ledger, plan, and acceptance runner`.
 
-4. Prove the slice stands alone. Every command must be green with no test changed.
+4. Prove the slice stands alone. Every command must be green with no test changed. The packages build comes first because several cli files are generated and gitignored; a checkout that last built another branch carries stale copies of them.
 
    ```
    bun install --frozen-lockfile
+   bash scripts/build.sh --packages-only
    bun run --cwd packages/pyric build
    bun run --cwd packages/pyric typecheck
    bun run --cwd packages/pyric-admin typecheck
@@ -67,6 +71,10 @@ Run every command from the repository root on a clean tree. Do not use `git stas
    These exercise main's worker against the slice's shared shapes. A failure here is a dual-plane parity break (AGENTS.md boundary 3) and is reported, not patched on this branch.
 
 6. Submit in the standard block. The `After` line is the `verify-ledger --phase 1` output on the tip. `Suites` lists every command in steps 4 and 5 with counts. `Files` is the `git diff --stat origin/main` summary.
+
+## When the proof finds a defect in the slice
+
+A failure in step 4 or 5 that traces to the extracted packages is a ledger item, not a patch on the slice. File it, fix it on `hosted-main-integration` with a failing test first, then delete `slice/foundation` and run this specification again from step 1, so the slice's first commit stays byte-equal to the remote diff. The first such item was A14.
 
 ## What the reviewer checks
 
