@@ -84,6 +84,7 @@ beforeAll(async () => {
   // Worker path: SharedWorker present, not forced in-page.
   g.SharedWorker = class {
     port = clientPort;
+    addEventListener() {}
     constructor(_url: unknown, _opts: unknown) {}
   };
   // runtime.ts fires a fire-and-forget /__pyric/init.json bridge probe on the
