@@ -114,6 +114,7 @@ const MCP_CONTRIBUTIONS = [
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreDataTools', gate: 'forwarded' },
   { file: `${PYRIC}/firestore/tools.ts`, factory: 'createFirestoreInspectTools', gate: 'forwarded' },
   { file: `${TOOLS}/rtdb/inspection.ts`, factory: 'createRtdbInspectionTools', gate: 'forwarded' },
+  { file: `${TOOLS}/messaging/inspection.ts`, factory: 'createMessagingInspectionTools', gate: 'forwarded' },
   { file: `${TOOLS}/auth/users.ts`, factory: 'createAuthUsersTools', gate: 'forwarded' },
   // The identity tools read the bridge process's client registry and caller
   // identity, so they run in-process and report nothing without a live bridge.
