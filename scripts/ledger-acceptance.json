@@ -71,6 +71,13 @@
     "node": true,
     "note": "Real SQLite contention is bounded and does not permanently latch a healthy store."
   },
+  "I7": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
+    "filter": "committed WAL",
+    "node": true,
+    "note": "Salvage and archive recover a crashed writer's committed WAL without SHM, preserving the salvage source."
+  },
   "A15": {
     "phase": 2,
     "tests": ["packages/cli/test/remote/loop-hold.test.ts"],

@@ -106,3 +106,7 @@ test('a concurrent reader and transient SQLite busy do not latch persistence unh
 test('SQLite busy beyond the retry window fails without acknowledging a write', async () => {
   expect(await runNodeFixture('busy-timeout')).toBe('Busy timeout passed');
 });
+
+test('salvage and archive recover committed WAL without a shared-memory file', async () => {
+  expect(await runNodeFixture('wal-recovery')).toBe('WAL recovery passed');
+});

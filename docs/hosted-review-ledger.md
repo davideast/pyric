@@ -384,9 +384,9 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I7. Salvage and archive open the copy read-only
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: closed as not a defect (2026-09-19). The scratch copy is the whole directory in a writable temp directory, so SQLite recreates the -shm on a read-only open. Acceptance kept as a regression guard for a crash after a WAL commit with no -shm.
 - Location: `packages/cli/src/serve/hosted/persistence/salvage.ts:54`, `archive.ts:49`.
-- Defect: a crashed host leaves `state.sqlite-wal`. Without the `-shm` file SQLite cannot open a WAL database read-only, so salvage fails on the input it exists for.
+- Defect: Correction: a crashed host leaves `state.sqlite-wal`. Without the `-shm` file SQLite cannot open a WAL database read-only, so salvage fails on the input it exists for.
 - Acceptance: open the disposable copy read-write, or recover the WAL first; fixture with a `-wal` and no `-shm`.
 
 ### I8. Storage reads do not wait behind queued mutations
