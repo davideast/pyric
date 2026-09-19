@@ -31,7 +31,7 @@ These apply to every agent touching this work.
 3. **One slice per commit.** Tag commits with the slice: `fix(core): ...`, `fix(host): ...`, `fix(transport): ...`, `fix(evidence): ...`. Never mix slices in one commit.
 4. **Claims cite committed, re-runnable evidence.** A verification doc may only claim what a committed test, fixture, or CI job reproduces. Results stored under `ignored/` do not count. Results JSON that nothing consumes is not evidence; either a test reads it or it is deleted.
 5. **No new features on this branch.** Until section 5 phase 5 is complete, the branch accepts fixes and extractions only. Undo history and backups were the last feature added; see decision D1.
-6. **No push without the owner's approval, and no agent ever merges a pull request.** Work stays local until the owner says push. Pull requests are opened for the owner to review and merge in order.
+6. **No push and no pull request without the owner's approval, and no agent ever merges one.** Work stays local until the owner says push. With approval, the reviewer pushes the slice and opens the pull request using the repository template; the owner reviews and merges in order.
 7. **Report cost at every phase boundary.** Agent runs, test sweeps, and long harness runs are quota. State what a phase cost before starting the next.
 8. **Terminology.** Code, docs, and commit messages use direct technical prose. Do not call pyric's own surfaces "legacy". Do not reference issue numbers or tools in code or docs.
 
@@ -172,7 +172,7 @@ Update this table as pull requests open and merge. Ledger item status is tracked
 
 | Phase | Branch | Pull request | Verifier sign-off | Merged |
 | --- | --- | --- | --- | --- |
-| 1 Foundation | fixes on `hosted-main-integration` through `5538e1d2`; extraction pending | | exit gate verified 2026-09-18: all 9 phase 1 items pass, pyric 7647 pass with network, cli serve 1463 pass, both typechecks exit 0; the 6 bridge failures are C13, a pre-existing transport-slice regression | |
+| 1 Foundation | `slice/foundation` at `3dcc9d4a`, pull request https://github.com/davideast/pyric/pull/653 opened 2026-09-19 (two commits on `main` `f7e90081`: package diff byte-equal to `origin/main...origin/hosted-main-integration -- packages/pyric packages/pyric-admin` at `1138983b`, plus the seven handoff files) | to open | verified 2026-09-19 by the reviewer on the slice: 8 phase 1 items pass; pyric 7648 pass including the 33 network parity tests; pyric-admin 660; conformance 391; cli worker 512 against the slice; cli, Studio, pyric, pyric-admin typechecks exit 0; main's Studio unchanged. Exit gate on the integration branch verified 2026-09-18; the 6 bridge failures are C13, transport slice | |
 | 2 Transport | | | | |
 | 3 Host | | | | |
 | 4 Acceptance | | | | |
