@@ -40,6 +40,7 @@ Excluded tests (they exercise the excluded source):
 packages/cli/test/serve/hosted/
 packages/cli/test/serve/hosted-sqlite.test.ts
 packages/cli/test/serve/fixtures/hosted-sqlite-*.ts
+packages/cli/test/serve/diagnostics.test.ts
 packages/cli/test/serve/persist.test.ts
 packages/cli/test/serve/vite-functions-development.test.ts
 packages/cli/test/serve/vite-plugin-integration.test.ts
@@ -49,7 +50,7 @@ packages/cli/test/e2e/
 packages/cli/test/manual/
 ```
 
-The A7 acceptance moves to the host slice because half of it targets `serve/hosted/persistence-admission.ts`. The A5 acceptance stays; all three of its files are in this slice.
+The A7 acceptance moves to the host slice because half of it targets `serve/hosted/persistence-admission.ts`. The A5 acceptance stays; all three of its files are in this slice. `test/serve/diagnostics.test.ts` imports the serve-diagnostics command under `src/cli`, so it moves with the host slice; the reviewer's dry run missed it because it fails at import rather than at an assertion.
 
 Follower, one line, as its own commit named `fix(transport): follow the injectServeTags signature`:
 

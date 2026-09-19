@@ -465,7 +465,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### C13. Bridge sends a Buffer instead of a string and breaks the peer handshake
 
-- Severity: blocker for the transport slice. Slice: `transport`. Status: closed at `2a39d6b7`. Reviewer verified the fix; the unchanged peer-standby acceptance and bridge suite pass. String sends are restored. Pre-existing on `origin/hosted-live-mode`; found by the phase 1 exit gate.
+- Severity: blocker for the transport slice. Slice: `transport`. Status: closed at `2a39d6b7` (branch `work/integration`). Verified 2026-09-19 by the reviewer: `verify-ledger C13` 6 pass, 0 fail; `bun test packages/cli/test/bridge` 1320 pass, 0 fail; worker suite green after regenerating the cli registries; cli typecheck exit 0. The Buffer conversion is removed and the string send restored; frame and backlog checks unchanged. Pre-existing on `origin/hosted-live-mode`; found by the phase 1 exit gate.
 - Location: `packages/cli/src/bridge/server/socket-message.ts:30`, commit `5e8f40a3` ("queue UTF-8 buffers for slow readers").
 - Defect: `socket.send(Buffer.from(payload), { binary: false })` replaced `socket.send(payload)`. Bisected by the reviewer on 2026-09-18: `packages/cli/test/bridge/peer-standby.test.ts` is 6 pass at the parent `6433d9bd` and 6 fail at `5e8f40a3`, including "sandbox not connected" after a peer hello. Every later tip inherits it.
 - Failure: a bridge peer connects, sends hello, and the server's reply arrives in a form the client does not accept as a bridge frame, so the sandbox is never marked connected.
@@ -498,7 +498,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### A15. A7 changed the unknown-method wire text the remote client parses
 
-- Severity: should-fix, blocks the transport slice. Slice: `core`. Status: closed at `984e75e6`. Reviewer verified both defaults preserve the established unknown-method wire text; the unchanged remote suite and A7 acceptance pass. Found by the reviewer's transport dry run on 2026-09-19.
+- Severity: should-fix, blocks the transport slice. Slice: `core`. Status: closed at `984e75e6` (branch `work/integration`, now the shared tip). Verified 2026-09-19 by the reviewer: `verify-ledger A15` 10 pass, 0 fail; A7 and C13 acceptance still pass on the same commit; remote and entries suites 30 pass, 0 fail. Both defaults now throw `Unknown method: <method>`. Found by the reviewer's transport dry run on 2026-09-19.
 - Location: `packages/cli/src/serve/hosted/persistence-admission.ts` and `packages/cli/src/serve/worker/inbound-validation/operation-arguments.ts`, the `never` defaults added by A7.
 - Defect: both throw `Unknown sandbox method: <method>.` Every host dispatch site refuses with `Unknown method: <method>` (`worker/host/dispatch.ts:122` and seven service handlers), and the remote client keys its version-skew guidance on `/^Unknown method:/` at `packages/cli/src/remote/index.ts:438`. A refusal from the new validation path therefore reaches the client without the restart-or-reload guidance. `packages/cli/test/remote/loop-hold.test.ts:324` fails.
 - Acceptance: both defaults throw `Unknown method: <method>` with no trailing period; `bun test packages/cli/test/remote` green with no test changed; the A7 acceptance still passes.
