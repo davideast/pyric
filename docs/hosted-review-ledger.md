@@ -348,7 +348,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I2. Retention fixture fails deterministically on the tip
 
-- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): D1 revert removes the failing retention fixture and its suite case; pending reviewer closure by deletion.
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert (branch `work/integration`, now the shared tip). Verified 2026-09-19 by the reviewer: the revert is the exact inverse of `6b450256` for every package file except one line retained from the later incremental-flush commit; no history or undo source remains; schema version 1; `hosted-sqlite.test.ts` 14 pass, 0 fail; cli typecheck exit 0.
 - Location: `packages/cli/test/serve/fixtures/hosted-sqlite-retention.ts:59`.
 - Defect: `assert.deepEqual` on two `DocumentSnapshot.data()` results, which are Proxy objects. Node's strict deep equality never treats two distinct proxies as equal. Verified at the assertion point: same prototype, equal fields, equal `Timestamp`, spread copies compare equal. The codec is not at fault.
 - Failure: the hosted SQLite suite reports 22 pass, 1 fail on every run. Introduced in `6b450256`.
@@ -356,14 +356,14 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I3. Salvage overwrites readable history when it meets an unknown codec version
 
-- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): D1 revert removes the history codec and history salvage. Bucket salvage retains `validatePersistenceEncoding`; pending reviewer closure by deletion.
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert. Verified 2026-09-19 by the reviewer: history codec and history salvage removed; bucket salvage keeps the shared encoding validator.
 - Location: `packages/cli/src/serve/hosted/persistence/history-codec.ts:4`, `history.ts:198`, `history-salvage.ts:33`.
 - Defect: the history codec pins `encoding` to one literal, contradicting the shared `validatePersistenceEncoding` policy in `packages/pyric/src/sandbox/persistence/import-bundle.ts` that unknown codecs are not corruption. A record written by a newer encoding fails to parse, startup refuses, and salvage then replaces the record with an exclusion boundary. Bucket salvage already uses the shared validator at `salvage.ts:105`.
 - Acceptance: history uses the shared seam; a fixture with a newer-encoding record salvages with the record retained.
 
 ### I4. Migration mutates a store before refusing it
 
-- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): moot under D1 after the revert restores schema version 1 and removes the v1-to-v2 migration; pending reviewer verification. Validate-before-migrate remains required for any future migration.
+- Severity: should-fix. Slice: `host`. Status: moot, confirmed at `08828705`: schema version 1, no migration code remains. The validate-before-migrate order is still required for any future migration; keep the ordering test when one is added.
 - Location: `packages/cli/src/serve/hosted/persistence/database.ts:57`; validation order at `persistence.ts:19`.
 - Defect: the v1 to v2 history migration writes tables and bumps `user_version` before `validateHostedDatabase` runs. A v1 store with malformed application records is modified, then refused. The contract requires refusal to leave the database unchanged.
 - Acceptance: validate before migrate; test that a refused v1 store is byte-identical after refusal.
@@ -398,7 +398,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I9. Undo history grows the database without bound
 
-- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): D1 revert removes durable undo history; pending reviewer closure by deletion. The independent archive copy issue remains open as I9b.
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert, verified 2026-09-19. The `quick_check`-on-a-full-copy behavior in `archive.ts:44` is independent of undo and stays open as I9b: run `quick_check` in place, not on a copy of the whole directory.
 - Location: `packages/cli/src/serve/hosted/persistence/undo.ts:14`, `history.ts:45`, `archive.ts:44`.
 - Defect: every allowed write stores prior and next documents in `history_records` forever; nothing prunes. The history contract admits unbounded disk; the persistence contract does not mention it. `fresh` also copies the whole directory to the temp filesystem to run `quick_check`.
 - Acceptance: a retention bound on `history_records` with a test, the bound stated in the persistence contract, and `quick_check` run in place.
@@ -412,7 +412,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I11. Synchronous history decode on the request path
 
-- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`): D1 revert removes the synchronous durable-history decode path; pending reviewer closure by deletion.
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert, verified 2026-09-19.
 - Location: `packages/cli/src/serve/hosted/persistence/history.ts:151`; callers `undo.ts:139,167`.
 - Defect: `recentEngineEvents` decodes up to 1,000 records with hash, parse, and schema validation synchronously, and backs `size()` as well as the event getters. A count request blocks the event loop for the full page.
 - Acceptance: a separate count query; decode only on demand.
@@ -502,3 +502,10 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - Location: `packages/cli/src/serve/hosted/persistence-admission.ts` and `packages/cli/src/serve/worker/inbound-validation/operation-arguments.ts`, the `never` defaults added by A7.
 - Defect: both throw `Unknown sandbox method: <method>.` Every host dispatch site refuses with `Unknown method: <method>` (`worker/host/dispatch.ts:122` and seven service handlers), and the remote client keys its version-skew guidance on `/^Unknown method:/` at `packages/cli/src/remote/index.ts:438`. A refusal from the new validation path therefore reaches the client without the restart-or-reload guidance. `packages/cli/test/remote/loop-hold.test.ts:324` fails.
 - Acceptance: both defaults throw `Unknown method: <method>` with no trailing period; `bun test packages/cli/test/remote` green with no test changed; the A7 acceptance still passes.
+
+### C14. Served-entry tests depend on which file evaluated the browser entry first
+
+- Severity: blocker for the transport pull request. Slice: `transport`. Status: open. Found by CI on the transport pull request, 2026-09-19.
+- Location: `packages/cli/src/serve/entries/worker-runtime.ts` (`useWorker` and `hasSharedWorker` captured at module evaluation; `openWorkerDb` refuses when `useWorker` is false) and `packages/cli/test/serve/worker/rtdb-integration.test.ts:40,168` (installs a `SharedWorker` double inside each case, then dynamically imports `entries/app-client.js`).
+- Defect: in one `bun test` process the entry evaluates once. CI's Linux runner orders files differently from macOS, and in its second shard some earlier file evaluated the entry with no `SharedWorker` global, so `useWorker` was captured false and both cases that reach `openWorkerDb` fail with "No Pyric worker transport is initialized in this browser context." The whole shard passes locally in either pairing the reviewer tried, so the poisoning file is not yet identified. `main`'s `openWorkerDb` had the same capture but gated only on the captured `SharedWorker` presence; A5 added the `useWorker` refusal.
+- Acceptance: the served-entry cases pass regardless of file order. Either the test evaluates the entry in its own realm or process, as the A5 page and Service Worker fixtures already do through `test/serve/entries/worker-runtime-realm.ts`, or `openWorkerDb` consults the live globals at call time in page realms instead of the captured value, with a test that evaluates the entry first without a `SharedWorker` and then installs one. Prove with `bun test --cwd packages/cli --shard=2/2` green on the transport slice in CI, since local order does not reproduce it.

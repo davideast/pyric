@@ -173,7 +173,7 @@ Update this table as pull requests open and merge. Ledger item status is tracked
 | Phase | Branch | Pull request | Verifier sign-off | Merged |
 | --- | --- | --- | --- | --- |
 | 1 Foundation | `slice/foundation` at `3dcc9d4a`, pull request https://github.com/davideast/pyric/pull/653 opened 2026-09-19 (two commits on `main` `f7e90081`: package diff byte-equal to `origin/main...origin/hosted-main-integration -- packages/pyric packages/pyric-admin` at `1138983b`, plus the seven handoff files) | to open | verified 2026-09-19 by the reviewer on the slice: 8 phase 1 items pass; pyric 7648 pass including the 33 network parity tests; pyric-admin 660; conformance 391; cli worker 512 against the slice; cli, Studio, pyric, pyric-admin typechecks exit 0; main's Studio unchanged. Exit gate on the integration branch verified 2026-09-18; the 6 bridge failures are C13, transport slice | |
-| 2 Transport | | | | |
+| 2 Transport | `slice/transport` at `d8d33e10` (four commits on `main` `9ec53e1f`: full `packages/cli` diff byte-equal to the remote at `984e75e6`, reverse diff for the 26 excluded paths, one follower line in `cli/serve.ts`, handoff docs) | https://github.com/davideast/pyric/pull/654 opened 2026-09-19 | verified 2026-09-19 by the reviewer: phase 2 acceptance A5, C13, A15 pass; bridge and remote 1340 pass; serve 1427 pass; cli, Studio, UI typecheck exit 0; no path outside `packages/cli` and the handoff files | |
 | 3 Host | | | | |
 | 4 Acceptance | | | | |
 | 5 Studio and peel | | | | |
