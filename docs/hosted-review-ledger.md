@@ -486,3 +486,19 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - Reviewer probe against the slice's pyric: three errors (TS2559 on assignment to `Query`, TS2345 on `onSnapshot`, TS2559 on `getDocs`). Against `main`: the two TS2559 errors only.
 - Failure: any consumer typed against `pyric/firestore` directly (Studio, `@pyric/ui`, in-page sandbox apps) cannot subscribe to a collection without wrapping it in `query()`. The branch worked around this in `packages/studio/src/clients/worker-live.test.ts` with exactly that wrap, which hides the type defect.
 - Acceptance: `CollectionReference<T>` extends `Query<T>` in `types.ts`; a type-level test in `packages/pyric/test/firestore/ledger/` compiles a probe with the TypeScript API (the A7 technique) asserting zero diagnostics for the three probe lines above; main's Studio compiles against the slice without the `query()` wrap. Land the fix on `hosted-main-integration` first, then re-run the extraction so the slice's first commit stays byte-equal to the remote diff.
+
+## E. Evidence owed
+
+### E1. Conformance evidence for the foundation slice's engine changes
+
+- Severity: should-fix. Slice: `evidence`. Status: open. Filed 2026-09-19 when the coupling gate refused the foundation pull request.
+- Context: the slice changes engine files under `packages/pyric` without moving any observation, registry row, or generated projection. `compat:generate` and `compat:validate` produce no diff, the conformance suite passes, and the registry count is unchanged, so the pull request carries a `Conformance-Exempt` trailer stating exactly that. The exemption is a claim that nothing observable changed; it is not evidence that the new behaviors match production.
+- Owed: registry rows with oracle observations for (a) the query validation refusals introduced on the branch (unsupported target descriptors, order directions, filter operators, non-array membership operands, invalid limits), asserting that pyric refuses what the Firebase SDK refuses and accepts what it accepts; and (b) the atomic write rule method, asserting that batch and transaction `update` on a missing document and `create` on an existing document produce the production error codes.
+- Acceptance: the rows exist with `oracle-backed` automation and captured observations; `compat:conformance` verifies them; the registry count test is updated; the trailer's reason is no longer needed for any later slice touching the same files.
+
+### A15. A7 changed the unknown-method wire text the remote client parses
+
+- Severity: should-fix, blocks the transport slice. Slice: `core`. Status: open. Found by the reviewer's transport dry run on 2026-09-19.
+- Location: `packages/cli/src/serve/hosted/persistence-admission.ts` and `packages/cli/src/serve/worker/inbound-validation/operation-arguments.ts`, the `never` defaults added by A7.
+- Defect: both throw `Unknown sandbox method: <method>.` Every host dispatch site refuses with `Unknown method: <method>` (`worker/host/dispatch.ts:122` and seven service handlers), and the remote client keys its version-skew guidance on `/^Unknown method:/` at `packages/cli/src/remote/index.ts:438`. A refusal from the new validation path therefore reaches the client without the restart-or-reload guidance. `packages/cli/test/remote/loop-hold.test.ts:324` fails.
+- Acceptance: both defaults throw `Unknown method: <method>` with no trailing period; `bun test packages/cli/test/remote` green with no test changed; the A7 acceptance still passes.
