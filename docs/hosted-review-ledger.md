@@ -14,7 +14,7 @@ Status values:
 - `closed`: acceptance evidence ran green on the branch tip. Record the commit.
 - `declined`: the behavior is intended. Record the decision and update the docs or tests that pin it.
 
-Executable acceptance: `scripts/ledger-acceptance.json` maps items to test files; `bun scripts/verify-ledger.ts <item>` runs them and prints pass or fail with the commit hash. Phase 1 items A1, A2, A3, A4, A5, A6, I1, and I13 (omitted count) have tests committed under `*/test/**/ledger/` that fail at 26a6ae0d. A fix submission is the runner output, per `docs/hosted-agent-brief.md`.
+Executable acceptance: `scripts/ledger-acceptance.json` maps items to test files; `bun scripts/verify-ledger.ts <item>` runs them and prints pass or fail with the commit hash. Phase 1 items A1, A2, A3, A4, A5, A6, I1, and I13 (omitted count) have tests committed under `*/test/**/ledger/` that fail at 26a6ae0d. A fix submission is the runner output, per `docs/hosted-agent-brief.md`. The `packages/cli` suites resolve `pyric` through its built `dist`; run `bun run --cwd packages/pyric build` before verifying any item whose fix touches `packages/pyric/src`, or a stale build reports a false failure.
 
 Rules for a fix:
 
@@ -40,7 +40,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A1. Batch and transaction writes evaluate the wrong rule
 
-- Severity: blocker. Slice: `core`. Status: closed at `100031ac`. Reviewer acceptance: 5 pass, 0 fail; suites and typecheck reproduced.
+- Severity: blocker. Slice: `core`. Status: closed at `100031ac` (branch `hosted-main-integration`). Verified 2026-09-18 by the reviewer: `verify-ledger A1` 5 pass, 0 fail on that commit; acceptance tests byte-identical to the reviewer's copy; `bun test packages/pyric/test/sandbox/firestore packages/pyric/test/firestore packages/pyric/test/e2e-soundness` 1920 pass, 0 fail; pyric typecheck exit 0. Residual filed as A11.
 - Location: `packages/pyric/src/firestore/sandbox/atomic-write-pipeline.ts:143`.
 - Defect: `evaluateAndApply` discards the operation's method and derives it from the batch projection. On `main` the method came from `operation.method`.
 - Failure: rules `allow create: if false; allow update: if true; allow delete: if true`, then `WriteBatch.update` on a missing document. The projection is `null`, the pipeline treats it as a delete, the delete rule runs and allows, and the result reports method `delete`. Conversely `create` on an existing document under `allow create: if true; allow update: if false` runs the update rule and returns `permission-denied` instead of `already-exists`. Same for `Transaction.update` and `Transaction.create`.
@@ -61,11 +61,11 @@ These affect users who never enable hosted mode. Fix against `main` first.
 - Location: `packages/pyric/src/sandbox/persistence/chunk-format.ts:393`; caller `controller.ts:492` has no error handling.
 - Defect: `deserializeFromBuckets` throws on a non-object document, a document nested deeper than 64 containers, or an unknown bucket encoding. The checksum branch still warns and skips. On `main` restore rehydrated whatever was readable.
 - Failure: one malformed document in the store makes `enablePersistence` reject and no Firestore state restores.
-- Acceptance: the shared restore path restores every readable document, skips and reports unreadable documents by path and bucket, and does not reject the entire restore. The owner confirmed that this core acceptance is independent of hosted fail-closed recovery; hosted validation and H1 remain separate.
+- Acceptance depends on the owner's ruling in `docs/hosted-persistence-plan-review.md` decision 3. Under quarantine-with-retention: a bucket with one malformed and one valid document restores the valid one, retains the malformed one in a quarantine table, and warns by namespace and id. Under fail-closed: startup refuses with a message that names the salvage command in H1, the database directory is preserved unmodified, and A3 closes only when H1 exists. In both cases the JSON path on `main` restores what it can, so the `core` fix against `main` restores that behavior regardless of the hosted ruling.
 
 ### A4. Hosted history expires after 30 minutes and then replay and verify throw
 
-- Severity: should-fix. Slice: `core`. Status: closed at `cf3dccb9`. Reviewer acceptance: 2 pass, 0 fail; shims removed, call sites clean, suites and typecheck reproduced after a pyric rebuild.
+- Severity: should-fix. Slice: `core`. Status: closed at `cf3dccb9` (branch `hosted-main-integration`). Verified 2026-09-18 by the reviewer: `verify-ledger A4` 2 pass, 0 fail; acceptance identical to the reviewer's revised copy (`e49ce111`); age eviction and both option fields removed with no shim; retention, replay-gap, traffic-observation, chip-traffic, and worker init suites 135 pass, 0 fail after rebuilding `packages/pyric`; pyric typecheck exit 0. First submission returned once for keeping the fields as ignored inputs.
 - Location: `packages/pyric/src/sandbox/internal/observation-history.ts` (`maxAgeMs`), `event-history.ts:315`, `replay/index.ts:116`, `database/replay.ts:60`.
 - Defect: served sandboxes use limits with a 30 minute age bound. Aged events become a `history-limit` gap and `assertCompleteHistory` rejects replay and fixture parsing. The support contract bounds history by count and bytes only. On `main` history was unbounded.
 - Failure: a developer works in a served app for more than 30 minutes, then runs verify or capture and gets "Cannot replay or verify incomplete observation history".
@@ -73,15 +73,16 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A5. Top-level await in the worker runtime entry breaks Service Worker installs
 
-- Severity: should-fix. Slice: `core`. Status: closed at `703a384c`. Reviewer acceptance: 4 pass, 0 fail; suites and typecheck reproduced.
+- Severity: should-fix. Slice: `core`. Status: closed at `703a384c` (branch `hosted-main-integration`). Verified 2026-09-18 by the reviewer: `verify-ledger A5` 4 pass, 0 fail across the source-form check, the page ordering fixture, and the Service Worker relay and hosted fixtures; entries, worker, injection, Vite plugin, runtime, and bridge-mount suites 934 pass, 0 fail; cli typecheck exit 0. Returned twice: first for exported live bindings that let SDK entries bind in-page before the init fetch resolved, then for Service Worker realms that never initialized. Final shape: pages read an inline payload synchronously; Service Workers bind the worker side synchronously and defer only the transport behind a port that keeps its identity (`worker/client/deferred-connection.ts`). The inline endpoint is asserted equal to `bridge.wsUrl()`.
 - Location: `packages/cli/src/serve/entries/worker-runtime.ts:34`.
 - Defect: `const payload = await initPayload` at module scope. `main` had no top-level await in this module. The module is imported by every SDK entry and is designed for Service Worker realms on both branches. Module Service Workers reject top-level await at evaluation. The branch's own `messaging-sw-client.ts` documents this and works around it for messaging only.
 - Failure: an application Service Worker imports `firebase/firestore` through Vite. Script evaluation fails and the Service Worker does not install.
-- Acceptance: the payload is consulted lazily inside the functions that need it, matching the messaging client. A test that evaluates the entry in a realm where `ServiceWorkerGlobalScope` is defined and asserts it loads.
+- Acceptance: the payload is consulted lazily inside the functions that need it, matching the messaging client. A test that evaluates the entry in a realm where `ServiceWorkerGlobalScope` is defined and asserts it loads. In addition, no SDK entry may bind a backend before the payload is known: a page-realm test evaluates `firestore.ts`, `auth.ts`, and `database.ts` with `SharedWorker` present and the init response resolving after evaluation, then asserts a read goes to the worker transport.
+- Review note 2026-09-18: first submission (`1daa6cbd`) returned. It replaced the module-scope await with an async initializer and exported live bindings, but `auth.ts:36`, `database.ts:86`, `firestore.ts:33`, `storage.ts:37`, and `init.ts:37` still bind their backend from `useWorker` at module scope, and none of them import the bootstrap that awaits initialization. Top-level await blocks only importers, not sibling module scripts, so an app whose module graph reaches an SDK entry before the init fetch resolves binds the in-page sandbox permanently while the chip reports shared-worker mode. On `main` the payload was not fetched at all; `useWorker` was computed synchronously from the environment.
 
 ### A6. RTDB connection-metadata listeners leak their activity handle
 
-- Severity: should-fix. Slice: `core`. Status: closed at `1ad8580a`. Reviewer acceptance: 3 pass, 0 fail; suites and typecheck reproduced.
+- Severity: should-fix. Slice: `core`. Status: closed at `1ad8580a` (branch `hosted-main-integration`). Verified 2026-09-18 by the reviewer: `verify-ledger A6` 3 pass, 0 fail; acceptance unchanged; database, active-listener, rate, and listener-attach suites 541 pass, 0 fail; pyric typecheck exit 0. The handle is passed into `observeConnectionMetadata` and closed once in its idempotent stop; the agent's added test covers both metadata paths through unsubscribe, `off`, `onlyOnce`, and app deletion.
 - Location: `packages/pyric/src/database/listeners.ts:205`.
 - Defect: `onValue` opens an activity through `beginDatabaseActivity`, then the `.info` and `.info/connected` branch returns `observeConnectionMetadata(...)` without closing or failing the activity. Sibling branches close it.
 - Failure: each connection-state listener leaves one activity open for the sandbox lifetime; listener accounting and retirement drain wait on it.
@@ -89,7 +90,7 @@ These affect users who never enable hosted mode. Fix against `main` first.
 
 ### A7. Non-exhaustive switches fail open
 
-- Severity: should-fix. Slice: `core`. Status: verify. Owner: Codex; branch: `hosted-main-integration`; acceptance approved at `709bfc54`. Unknown methods are refused at both boundaries; extending the protocol requires explicit handling in both dispatches. Firestore write classification uses the existing method list.
+- Severity: should-fix. Slice: `core`. Status: closed at `5538e1d2` (branch `hosted-main-integration`). Verified 2026-09-18 by the reviewer: `verify-ledger A7` 6 pass, 0 fail on the agent-authored acceptance approved at `709bfc54` (runtime refusal of an unknown wire method at both boundaries, plus compiler-enforced exhaustiveness by injecting a protocol variant in the compiler's view). `isFirestoreWriteOp` is now a type predicate over a `satisfies`-typed list, so the write set has one source. Classification of existing methods is unchanged; the gap that enumeration exposed is filed as I14.
 - Locations: `packages/cli/src/serve/hosted/persistence-admission.ts` (`requiresHealthyPersistence` falls to `default`), `packages/cli/src/serve/worker/inbound-validation/operation-arguments.ts` (`assertOperationArguments` has no refusing default).
 - Defect: neither switch is exhaustively typed. A newly added mutation kind bypasses the unhealthy-persistence guard and passes without argument validation.
 - Acceptance: exhaustive typing with a `never` check so a new kind fails to compile, or a refusing default with a test that an unknown kind is refused.
@@ -114,27 +115,6 @@ These affect users who never enable hosted mode. Fix against `main` first.
 - Location: `packages/pyric/src/auth/sandbox-backend.ts:1375`.
 - Defect: sign-out deletes the whole per-uid token map. Another port holding the same uid under a different tenant gets a silent token rotation on its next `getIdToken(false)`.
 - Acceptance: delete only the signed-out tenant's entry; test with two ports, one uid, two tenants.
-
-### A11. Set followed by delete evaluates set under the delete rule
-
-- Severity: nit. Slice: `core`. Status: open. Non-blocking reviewer follow-up to A1.
-- Location: `packages/pyric/src/firestore/sandbox/atomic-write-pipeline.ts`.
-- Defect: a batch with set then delete on the same path classifies the set from the final projection, so the set evaluates under the delete rule.
-- Acceptance: a batch test pins the set operation's evaluated rule method independently of a later delete on the same path.
-
-### A12. A skipped document is dropped from its bucket on the next flush
-
-- Severity: nit. Slice: `core`. Status: open. Follow-up from the A3 verification; same behavior as `main`.
-- Location: `packages/pyric/src/sandbox/persistence/controller.ts:541` with the flush path.
-- Defect: the shared restore skips an unreadable document and warns, but the bucket's in-memory content no longer holds it. The first flush that touches that bucket rewrites it without the skipped document. The stored bytes are then gone. This is the concern the hosted fail-closed ruling addressed for the SQLite store; the SharedWorker and in-page stores have no equivalent.
-- Acceptance: either the skipped document's raw record is carried through to the next flush of its bucket unchanged, or the warning states that the document will be dropped on the next write and the contract document says so.
-
-### A13. The in-process MCP store load is strict with no recovery path
-
-- Severity: nit, needs a ruling. Slice: `core`. Status: open.
-- Location: `packages/cli/src/bridge/server/in-process.ts:244`.
-- Defect: the MCP host decodes its JSON store with the strict default. One malformed document makes `pyric mcp` fail to load its state. On `main` the decoder did not validate document roots or depth, so this store restored whatever it held. Hosted is fail-closed by ruling but has salvage; this store has neither the ruling nor a recovery command.
-- Acceptance: the owner rules whether the in-process store skips like the shared restore or fails closed like hosted. If fail-closed, the error names how to recover, and `pyric sandbox salvage` accepts this store's format or a sibling command exists.
 
 ## B. Failing tests on the branch tip
 
@@ -247,21 +227,13 @@ Each is `declined` or `open` once you decide. Record the decision here.
 - The in-page tab-sync fallback no longer propagates sign-in and sign-out across tabs (`packages/cli/src/serve/entries/tab-sync-wiring.ts`). The rewritten tests pin the new behavior. This is a visible change for users of the fallback.
 - Pending observations with no terminal status are exempt from every history limit (`packages/pyric/src/sandbox/internal/event-history.ts:232`). No code under `packages/cli/src/serve` emits `interrupted` or `cancelled` for a dropped client.
 
-### C12. Served worker does not re-deploy RTDB rules after a reset
-
-- Severity: should-fix. Slice: `transport`. Status: open. Pre-existing on `main`; surfaced by the A2 verification.
-- Location: `packages/cli/src/serve/worker/host/studio.ts:52`; the RTDB rules source is retained at `ctx.activeRules.database` by `serve-init.ts:103`.
-- Defect: after `resetAll`, the worker re-deploys only the Firestore rules. Its comment assumes RTDB rules survive the reset. On `main` the backend reset already cleared them, and after A2 the session boundary clears them too, so a Studio reset in served mode leaves RTDB under the default deny policy until the rules file next changes.
-- Failure: served app with `database.rules.json` granting reads; Studio reset; every RTDB read is refused until the developer edits the rules file.
-- Acceptance: the worker re-deploys `ctx.activeRules.database` after `resetAll` the same way it re-deploys Firestore rules, and `packages/cli/test/serve/worker/reset-all-op.test.ts` gains a case mirroring its Firestore case at line 107: an RTDB read governed by active rules still succeeds after `resetAll`.
-
 ## D. Spec gaps and contract violations
 
 Contract: `docs/hosted-sandbox-live-mode-support.md`.
 
 ### D1. The live Firestore surface is a stub
 
-- Slice: `live`. Status: open.
+- Slice: `live`. Status: open, ruled (owner ruling D3, 2026-09-18): remove `entries/live`, `serve/live`, and every doc reference from the release sequence; delete the emulator-backed tests under `test/e2e/live`; the live work parks on its own branch with gates 7 through 9 open. This also closes C3 (live capture growth) by removal.
 - Contract: "Reads, queries, document listeners, query listeners, writes, batches, transactions, converters, metadata options, and the network/cache controls exposed by the normal Firestore entry need explicit forwarding or a documented refusal backed by a scenario."
 - State: `packages/cli/src/serve/entries/live/firestore.ts` forwards `getDoc`, `doc`, `getFirestore`, `connectFirestoreEmulator`, and `DocumentSnapshot`. Everything else is a missing export. `live/unsupported.ts` throws at module evaluation, which breaks the importing module rather than refusing per operation. Gates 7 through 9 have no implementation.
 - Acceptance: either the full surface with scenarios, or per-operation refusals each backed by a scenario. Until then the live entry is removed from the playground and the site docs.
@@ -368,7 +340,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I1. Live state can consume the whole history budget and evict every event
 
-- Severity: blocker. Slice: `core`. Status: closed at `2ba2c664`. Reviewer acceptance: I1, I13-omitted, and A4 pass; suites and typecheck reproduced.
+- Severity: blocker. Slice: `core`. Status: closed at `2ba2c664` (branch `hosted-main-integration`), together with I13 (omitted count). Verified 2026-09-18 by the reviewer: `verify-ledger I1 I13-omitted A4` all pass (3, 1, and 2); acceptance unchanged; retention, replay-gap, traffic-observation, active-listener, and rate suites 30 pass, 0 fail; pyric typecheck exit 0. Live reservations are charged at most half of each limit, so retained history always keeps at least half the budget; live state stays visible, so a snapshot can exceed the limits under live overload. Bounding live state itself depends on C11 (terminal status for a dropped client's pending observations). An attach is counted as omitted only when it actually leaves the snapshot.
 - Location: `packages/pyric/src/sandbox/internal/event-history.ts:203`.
 - Defect: `liveCount` and `liveBytes` reserve capacity but are themselves uncapped and never evictable. Once live state alone reaches `maxEvents` or `maxBytes`, every appended event is evicted into a `history-limit` gap.
 - Failure: dangling `pending` observations accumulate because nothing under `packages/cli/src/serve` emits `interrupted` or `cancelled` for a dropped client (see C11). At 10,000 of them, retained history is zero and stays zero; replay and verify are refused permanently. Confirmed by probe at `maxEvents: 10`.
@@ -376,7 +348,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I2. Retention fixture fails deterministically on the tip
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18): the undo history commit `6b450256` is reverted during the phase 3 extraction. Verify the fixture is gone with the revert.
 - Location: `packages/cli/test/serve/fixtures/hosted-sqlite-retention.ts:59`.
 - Defect: `assert.deepEqual` on two `DocumentSnapshot.data()` results, which are Proxy objects. Node's strict deep equality never treats two distinct proxies as equal. Verified at the assertion point: same prototype, equal fields, equal `Timestamp`, spread copies compare equal. The codec is not at fault.
 - Failure: the hosted SQLite suite reports 22 pass, 1 fail on every run. Introduced in `6b450256`.
@@ -384,14 +356,14 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I3. Salvage overwrites readable history when it meets an unknown codec version
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18): the history codec and history salvage are removed with `6b450256`. Bucket salvage keeps the shared validator; verify that remains after the revert.
 - Location: `packages/cli/src/serve/hosted/persistence/history-codec.ts:4`, `history.ts:198`, `history-salvage.ts:33`.
 - Defect: the history codec pins `encoding` to one literal, contradicting the shared `validatePersistenceEncoding` policy in `packages/pyric/src/sandbox/persistence/import-bundle.ts` that unknown codecs are not corruption. A record written by a newer encoding fails to parse, startup refuses, and salvage then replaces the record with an exclusion boundary. Bucket salvage already uses the shared validator at `salvage.ts:105`.
 - Acceptance: history uses the shared seam; a fixture with a newer-encoding record salvages with the record retained.
 
 ### I4. Migration mutates a store before refusing it
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: moot by revert (owner ruling D1, 2026-09-18): schema stays at version 1 with no migration. The validate-before-migrate order is still required for any future migration; keep the ordering test when one is added.
 - Location: `packages/cli/src/serve/hosted/persistence/database.ts:57`; validation order at `persistence.ts:19`.
 - Defect: the v1 to v2 history migration writes tables and bumps `user_version` before `validateHostedDatabase` runs. A v1 store with malformed application records is modified, then refused. The contract requires refusal to leave the database unchanged.
 - Acceptance: validate before migrate; test that a refused v1 store is byte-identical after refusal.
@@ -426,21 +398,21 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I9. Undo history grows the database without bound
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18). The `quick_check`-on-a-full-copy behavior in `archive.ts:44` is independent of undo and stays open as I9b: run `quick_check` in place, not on a copy of the whole directory.
 - Location: `packages/cli/src/serve/hosted/persistence/undo.ts:14`, `history.ts:45`, `archive.ts:44`.
 - Defect: every allowed write stores prior and next documents in `history_records` forever; nothing prunes. The history contract admits unbounded disk; the persistence contract does not mention it. `fresh` also copies the whole directory to the temp filesystem to run `quick_check`.
 - Acceptance: a retention bound on `history_records` with a test, the bound stated in the persistence contract, and `quick_check` run in place.
 
 ### I10. Hosted mode is announced in the site docs while acceptance is failing
 
-- Severity: should-fix. Slice: `evidence`. Status: open.
+- Severity: should-fix. Slice: `evidence`. Status: open, ruled (owner ruling D2, 2026-09-18): remove the three public pages now; they return only when the phase 4 harness passes in CI with a committed artifact. Acceptance is the removal commit plus a site build with no hosted reference.
 - Location: `packages/site-docs/src/content/build/hosted-persistence.md`, `reference/cli.md`, `get-started/vite.md`; `docs/hosted-multiclient-results.json`.
 - Defect: the plan forbids release claims until every gate passes. Step 6 is open. The committed acceptance artifact is a failing run: 62,599 of 90,000 operations completed, p95 4,250 ms, maximum capture delay 1,025 s against a 2 s bound. The passing run the verification docs cite lives in gitignored `ignored/`.
 - Acceptance: remove the public pages until step 6 passes, or commit the passing artifact and make the harness re-runnable.
 
 ### I11. Synchronous history decode on the request path
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18).
 - Location: `packages/cli/src/serve/hosted/persistence/history.ts:151`; callers `undo.ts:139,167`.
 - Defect: `recentEngineEvents` decodes up to 1,000 records with hash, parse, and schema validation synchronously, and backs `size()` as well as the event getters. A count request blocks the event loop for the full page.
 - Acceptance: a separate count query; decode only on demand.
@@ -459,5 +431,49 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - `state-view.ts:96` the storage seed bypasses the mutation queue.
 - `history-route.ts:9` writes the 200 status before evaluating the body, so a throw sends headers twice.
 - `serve-init.ts:365` capture delivery re-arms after the POST settles, so the worst case is interval plus POST latency; the new test asserts no time bound against the 2 s contract.
-- `event-history.ts:209` counts evicted listener-attach entries as omitted although `snapshot()` still returns them. `I13-omitted`: closed at `2ba2c664`; reviewer acceptance passed with I1 and A4.
+- `event-history.ts:209` counts evicted listener-attach entries as omitted although `snapshot()` still returns them.
 - `persistence.ts:12` and `undo.ts:138` call pyric's own surfaces "legacy".
+
+### A11. A set followed by a delete of the same path in one batch evaluates the set as a delete
+
+- Severity: nit. Slice: `core`. Status: open. Follow-up from the A1 verification.
+- Location: `packages/pyric/src/firestore/sandbox/atomic-write-pipeline.ts:148`.
+- Defect: after the A1 fix, only `set` operations still derive their rule method from the batch projection. When a later operation in the same batch deletes the path, the projection is null and the `set` is evaluated under the delete rule. On `main`, `set` classified by existence only. Production evaluates each write under its own method with `getAfter` reflecting the final state.
+- Acceptance: a batch of `set` then `delete` on one path under `allow create, update: if true; allow delete: if false` is denied for the delete and the set's evidence names `create` or `update`, never `delete`.
+
+### C12. Served worker does not re-deploy RTDB rules after a reset
+
+- Severity: should-fix. Slice: `transport`. Status: open. Pre-existing on `main`; surfaced by the A2 verification.
+- Location: `packages/cli/src/serve/worker/host/studio.ts:52`; the RTDB rules source is retained at `ctx.activeRules.database` by `serve-init.ts:103`.
+- Defect: after `resetAll`, the worker re-deploys only the Firestore rules. Its comment assumes RTDB rules survive the reset. On `main` the backend reset already cleared them, and after A2 the session boundary clears them too, so a Studio reset in served mode leaves RTDB under the default deny policy until the rules file next changes.
+- Failure: served app with `database.rules.json` granting reads; Studio reset; every RTDB read is refused until the developer edits the rules file.
+- Acceptance: the worker re-deploys `ctx.activeRules.database` after `resetAll` the same way it re-deploys Firestore rules, and `packages/cli/test/serve/worker/reset-all-op.test.ts` gains a case mirroring its Firestore case at line 107: an RTDB read governed by active rules still succeeds after `resetAll`.
+
+### A12. A skipped document is dropped from its bucket on the next flush
+
+- Severity: nit. Slice: `core`. Status: open. Follow-up from the A3 verification; same behavior as `main`.
+- Location: `packages/pyric/src/sandbox/persistence/controller.ts:541` with the flush path.
+- Defect: the shared restore skips an unreadable document and warns, but the bucket's in-memory content no longer holds it. The first flush that touches that bucket rewrites it without the skipped document. The stored bytes are then gone. This is the concern the hosted fail-closed ruling addressed for the SQLite store; the SharedWorker and in-page stores have no equivalent.
+- Acceptance: either the skipped document's raw record is carried through to the next flush of its bucket unchanged, or the warning states that the document will be dropped on the next write and the contract document says so.
+
+### A13. The in-process MCP store load is strict with no recovery path
+
+- Severity: nit, needs a ruling. Slice: `core`. Status: open.
+- Location: `packages/cli/src/bridge/server/in-process.ts:244`.
+- Defect: the MCP host decodes its JSON store with the strict default. One malformed document makes `pyric mcp` fail to load its state. On `main` the decoder did not validate document roots or depth, so this store restored whatever it held. Hosted is fail-closed by ruling but has salvage; this store has neither the ruling nor a recovery command.
+- Acceptance: the owner rules whether the in-process store skips like the shared restore or fails closed like hosted. If fail-closed, the error names how to recover, and `pyric sandbox salvage` accepts this store's format or a sibling command exists.
+
+### C13. Bridge sends a Buffer instead of a string and breaks the peer handshake
+
+- Severity: blocker for the transport slice. Slice: `transport`. Status: open. Pre-existing on `origin/hosted-live-mode`; found by the phase 1 exit gate.
+- Location: `packages/cli/src/bridge/server/socket-message.ts:30`, commit `5e8f40a3` ("queue UTF-8 buffers for slow readers").
+- Defect: `socket.send(Buffer.from(payload), { binary: false })` replaced `socket.send(payload)`. Bisected by the reviewer on 2026-09-18: `packages/cli/test/bridge/peer-standby.test.ts` is 6 pass at the parent `6433d9bd` and 6 fail at `5e8f40a3`, including "sandbox not connected" after a peer hello. Every later tip inherits it.
+- Failure: a bridge peer connects, sends hello, and the server's reply arrives in a form the client does not accept as a bridge frame, so the sandbox is never marked connected.
+- Acceptance: `bun test packages/cli/test/bridge` green with no test changed. If the intent was to avoid retaining large strings, prove the benefit with the sustained-write harness before reintroducing it, and keep the frame a text frame the clients parse.
+
+### I14. The unhealthy-persistence gate admits RTDB, admin, and state mutations
+
+- Severity: should-fix. Slice: `host`. Status: open. Pre-existing; made visible by A7's enumeration.
+- Location: `packages/cli/src/serve/hosted/persistence-admission.ts`, the `return false` group.
+- Defect: `rtdb.update`, `rtdb.push`, `rtdb.setPriority`, `rtdb.setWithPriority`, `rtdb.transactionCommit`, `admin.setDocument`, `admin.deleteDocument`, `importState`, `checkpoint`, `deleteCheckpoint`, and `auth.setProviderConfig` are classified as not requiring healthy persistence. Each mutates persisted state. While persistence is `committed-but-not-durable`, these are still admitted, so the contract's "block further mutations" holds only for the listed subset.
+- Acceptance: every method that reaches a persistence flush is classified `true`, derived from the same source the flush path uses rather than hand-listed; a test that walks `OpMessage['method']` and asserts each mutation is gated.

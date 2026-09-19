@@ -39,12 +39,12 @@ These apply to every agent touching this work.
 
 | Id | Decision | Recommendation | Status |
 | --- | --- | --- | --- |
-| D1 | Revert undo history and rotating backups (commit `6b450256`, about 3,000 lines) from this release and reintroduce it later as its own slice | Revert. It was not in the accepted persistence plan and it carries ledger items I2, I3, I9, I11, and part of I13. Removing it closes five items at once. | open |
-| D2 | Hosted mode ships flag-gated and unannounced until phase 4 acceptance passes; the three public site-docs pages come out now | Yes. Ledger I10. | open |
-| D3 | Live mode is removed from the browser entry and all docs until it forwards the full Firestore surface or documents each refusal with a scenario | Remove. Ledger D1. The current entry forwards one function and throws at module evaluation for other services. | open |
+| D1 | Revert undo history and rotating backups (commit `6b450256`, about 3,000 lines) from this release and reintroduce it later as its own slice | Revert. It was not in the accepted persistence plan and it carries ledger items I2, I3, I9, I11, and part of I13. Removing it closes five items at once. | ruled 2026-09-18: revert during the phase 3 extraction; I2, I3, I9, I11, and the I13 export item close by deletion; schema stays at version 1 so I4 is moot |
+| D2 | Hosted mode ships flag-gated and unannounced until phase 4 acceptance passes; the three public site-docs pages come out now | Yes. Ledger I10. | ruled 2026-09-18: flag-gated and unannounced; the three site-docs pages come out in the evidence slice and return only when the phase 4 harness passes in CI with a committed artifact |
+| D3 | Live mode is removed from the browser entry and all docs until it forwards the full Firestore surface or documents each refusal with a scenario | Remove. Ledger D1. The current entry forwards one function and throws at module evaluation for other services. | ruled 2026-09-18: remove `entries/live`, `serve/live`, and every doc reference; the live work parks on its own branch with gates 7 through 9 open; the emulator-backed tests under `test/e2e/live` are deleted |
 | D4 | Bun adapter now, or Node only with the standalone-binary limitation stated in the support contract | Already ruled Node only in the accepted plan. The contract statement must land with the host slice. | ruled |
 | D5 | Fail-closed on malformed application records with salvage as a release requirement | Ruled fail-closed. Salvage exists; ledger H1 is at `verify`. | ruled |
-| D6 | Quota approval for the phases below, reported at each boundary | Approve phases 1 through 3; re-approve phase 4 after the first instrumented acceptance run sizes it. | open |
+| D6 | Quota approval for the phases below, reported at each boundary | Approve phases 1 through 3; re-approve phase 4 after the first instrumented acceptance run sizes it. | ruled 2026-09-18: phases 2 and 3 approved at the current cadence with per-item verification and no fan-outs; phase 4 held until the reviewer reports the first instrumented run's numbers |
 
 ## 5. Phases
 
@@ -172,7 +172,7 @@ Update this table as pull requests open and merge. Ledger item status is tracked
 
 | Phase | Branch | Pull request | Verifier sign-off | Merged |
 | --- | --- | --- | --- | --- |
-| 1 Foundation | | | | |
+| 1 Foundation | fixes on `hosted-main-integration` through `5538e1d2`; extraction pending | | exit gate verified 2026-09-18: all 9 phase 1 items pass, pyric 7647 pass with network, cli serve 1463 pass, both typechecks exit 0; the 6 bridge failures are C13, a pre-existing transport-slice regression | |
 | 2 Transport | | | | |
 | 3 Host | | | | |
 | 4 Acceptance | | | | |
