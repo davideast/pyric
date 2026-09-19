@@ -1,4 +1,5 @@
-import { RulesEvidenceRetention } from './rules-evidence-retention.js';
+import type { AgentEventStore } from '../../firestore/sandbox/event-log.js';
+import { EventHistory, type EventHistoryLimits } from './event-history.js';
 /**
  * Internal `Sandbox` implementation — backs the public interface from
  * `/app` and exposes the hook (`getEnv`) that other in-package modules
@@ -92,9 +93,8 @@ export class SandboxImpl implements LocalSandbox {
   /** Append-only history of every SandboxEvent emitted on this sandbox.
    *  Cleared on `reset()` AFTER the session_boundary event is appended,
    *  so the boundary is the last entry of the old session's history.
-   *  v1 doesn't cap; consumers persist the snapshot they need. */
-  private eventHistory: SandboxEvent[] = [];
-  private readonly rulesEvidenceRetention = new RulesEvidenceRetention();
+   *  Hosted adapters may bound observation retention; direct SDK roots retain full history. */
+  private readonly eventHistory: EventHistory;
 
   /** Ambient provenance for the current {@link runWithProvenance} window
    *  (undefined outside any window). Purely synchronous — set on entry,
@@ -112,6 +112,17 @@ export class SandboxImpl implements LocalSandbox {
   /** Subscribers to currentUser changes. Stable across reset() and
    *  dispose() the same way `eventSubs` is — dispose clears them. */
   private currentUserSubs = new Set<(user: AuthState) => void>();
+  private readonly documentChanges = new Set<(path: string | null) => void>();
+
+  /** Persistence tracks mutations independently of retained events and SDK transport. */
+  onDocumentChange(callback: (path: string | null) => void): () => void {
+    this.documentChanges.add(callback);
+    return () => { this.documentChanges.delete(callback); };
+  }
+
+  private readonly documentChanged = (path: string | null): void => {
+    for (const callback of this.documentChanges) callback(path);
+  };
 
   /** Persistence controller. Null until `enablePersistence` is called.
    *  Survives `reset()` so the next write re-flushes the empty state;
@@ -145,6 +156,15 @@ export class SandboxImpl implements LocalSandbox {
    * Only one controller at a time (enforced by `enablePersistence`),
    * so a single slot is sufficient.
    */
+  private historyStore?: AgentEventStore;
+  private historyObserver?: (event: SandboxEvent) => void;
+  installHistoryStore(store: AgentEventStore, observe?: (event: SandboxEvent) => void): LocalEnvironment {
+    this.historyObserver = observe;
+    this.historyStore = store;
+    this._env.installHistoryStore(store);
+    return this._env;
+  }
+
   private _onServiceRegistered: ((name: string, hooks: PersistableService) => void) | null = null;
   private _onServiceUnregistered: ((name: string) => void) | null = null;
 
@@ -158,7 +178,8 @@ export class SandboxImpl implements LocalSandbox {
   /** The cross-module-instance key `getClock` reads. See `sandbox/clock.ts`. */
   declare readonly [SANDBOX_CLOCK]: SandboxClock;
 
-  private constructor(env: LocalEnvironment, clock: SandboxClock) {
+  private constructor(env: LocalEnvironment, clock: SandboxClock, historyLimits?: EventHistoryLimits) {
+    this.eventHistory = new EventHistory(historyLimits);
     this._env = env;
     this.clock = clock;
     Object.defineProperty(this, SANDBOX_CLOCK, { value: clock, enumerable: false });
@@ -166,9 +187,9 @@ export class SandboxImpl implements LocalSandbox {
   }
 
   /** Factory used by `initializeSandbox`. */
-  static createRoot(): SandboxImpl {
+  static createRoot(historyLimits?: EventHistoryLimits): SandboxImpl {
     const clock = new SandboxClock();
-    return new SandboxImpl(new LocalEnvironment(clock), clock);
+    return new SandboxImpl(new LocalEnvironment(clock), clock, historyLimits);
   }
 
   /**
@@ -191,6 +212,7 @@ export class SandboxImpl implements LocalSandbox {
    * through {@link emit}. Refreshed on `reset()` after the env swap.
    */
   private attachToEnv(): void {
+    this.envUnsubs.push(this._env.onStateChange(this.documentChanged));
     this.envUnsubs.push(
       this._env.onRequest((event) => {
         // RequestEvent already carries `kind: 'request'` from buildRequestEvent.
@@ -288,17 +310,20 @@ export class SandboxImpl implements LocalSandbox {
    * the raw fan-out + history append it wraps.
    */
   private dispatch(event: SandboxEvent): void {
+    event = { ...event, observedAt: Date.now() };
     // Append to history unconditionally — consumers that call
     // sandbox.history() expect every event the sandbox saw, regardless
     // of whether onEvent subscribers were attached at emit time.
-    this.eventHistory.push(event);
-    this.rulesEvidenceRetention.record(this.eventHistory, this.eventHistory.length - 1);
+    this.historyObserver?.(event);
+    this.eventHistory.append(event);
     this.dispatchedCount++;
-    if (this.eventSubs.size === 0) return;
+    const hasNoSubscribers = this.eventSubs.size === 0;
+    if (hasNoSubscribers) return;
     for (const cb of this.eventSubs) {
       try {
         const result = cb(event) as unknown;
-        if (result && typeof (result as { then?: unknown }).then === 'function') {
+        const isAsyncResult = result !== null && result !== undefined && typeof (result as { then?: unknown }).then === 'function';
+        if (isAsyncResult) {
           (result as Promise<unknown>).catch(() => { /* swallow */ });
         }
       } catch { /* swallow — observational */ }
@@ -338,7 +363,7 @@ export class SandboxImpl implements LocalSandbox {
    * `dispose()` leaves the boundary as the final entry.
    */
   history(): SandboxEvent[] {
-    return [...this.eventHistory];
+    return this.eventHistory.snapshot();
   }
 
   /**
@@ -362,10 +387,19 @@ export class SandboxImpl implements LocalSandbox {
    * interleave after live ones. Returns the number of events primed.
    */
   primeEventHistory(events: readonly SandboxEvent[]): number {
-    if (this.eventHistory.length > 0) return 0;
-    if (events.length === 0) return 0;
-    this.eventHistory.push(...events);
-    for (let index = 0; index < events.length; index++) this.rulesEvidenceRetention.record(this.eventHistory, index);
+    const hasHistory = this.eventHistory.length > 0;
+    const isEmpty = events.length === 0;
+    if (hasHistory) return 0;
+    if (isEmpty) return 0;
+    for (const event of events) {
+      const unfinished = event.kind === 'operation' && event.observation?.status === 'pending';
+      if (unfinished) {
+        const observation: NonNullable<SandboxOperationEvent['observation']> = {
+          ...event.observation!, status: 'interrupted', error: { code: 'host-restarted' },
+        };
+        this.eventHistory.append({ ...event, observation });
+      } else this.eventHistory.append(event);
+    }
     return events.length;
   }
 
@@ -398,13 +432,13 @@ export class SandboxImpl implements LocalSandbox {
     // The boundary is now the last entry in eventHistory; clear the
     // history AFTER emit so consumers that took a snapshot before
     // reset() retain the boundary in their copy.
-    this.eventHistory = [];
-    this.rulesEvidenceRetention.clear();
+    this.eventHistory.clear();
 
     // Clear currentUser to null and notify — a reset wipes everything
     // including signed-in identity. Subscribers see the sign-out so
     // their UI / Firestore handles reflect the post-reset state.
-    if (this._currentUser !== null) {
+    const hadCurrentUser = this._currentUser !== null;
+    if (hadCurrentUser) {
       this._currentUser = null;
       this.notifyCurrentUserSubs(null);
     }
@@ -416,7 +450,11 @@ export class SandboxImpl implements LocalSandbox {
     this.envUnsubs = [];
     this._env.dispose();
     this._env = new LocalEnvironment(this.clock);
+    const historyStore = this.historyStore;
+    const hasHistoryStore = historyStore !== undefined;
+    if (hasHistoryStore) { historyStore.clear(); this._env.installHistoryStore(historyStore); }
     this.attachToEnv();
+    this.documentChanged(null);
   }
 
   async resetAll(): Promise<{ errors: string[] }> {
@@ -480,6 +518,7 @@ export class SandboxImpl implements LocalSandbox {
     // subscriptions on it would leak.
     this.eventSubs.clear();
     this.currentUserSubs.clear();
+    this.documentChanges.clear();
   }
 
   snapshot(): SandboxSnapshot {

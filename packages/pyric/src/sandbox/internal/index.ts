@@ -15,6 +15,9 @@
  * scope summary".
  */
 export { getInternalEnv } from './sandbox-impl.js';
+export { decodeImportBundle, validatePersistenceEncoding } from '../persistence/import-bundle.js';
+export { validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from '../persistence/validate-services.js';
+export { seedUserSchema, storedMetadataSchema } from './state-schemas.js';
 export { captureIndexQuery, analyzeIndexQuery, readIndexConfig, type IndexQuery, type IndexFinding } from '../../rules/indexes/query-analysis.js';
 export type { IndexesConfig, IndexesConfigEntry } from '../../rules/indexes/types.js';
 export {
@@ -143,7 +146,19 @@ export * from '../../firestore/sandbox/wire-encoder.js';
 // this list first. Future-us should consider replacing the stars
 // with explicit named re-exports once the admin-compat layer's
 // surface stops drifting.
-export { createSandboxRoot } from './root.js';
+export { createSandboxRoot, installHostedHistory } from './root.js';
 
+export { assertCompleteHistory } from './history-integrity.js';
+export { EventHistory } from './event-history.js';
 export { firestoreReadUsage } from './usage-evidence.js';
 export type { UsageEvidence } from './usage-evidence.js';
+
+export { OBSERVATION_HISTORY_LIMITS } from './observation-history.js';
+export { observationPayload, observationText } from './observation-payload.js';
+
+export { aiCompletionUsage } from './usage-evidence.js';
+export { requestStatusLabel } from '../types/request-observation.js';
+
+export { createActiveListenerState } from '../active-listeners.js';
+
+export type { AgentEvent, AgentEventStore } from '../../firestore/sandbox/event-log.js';

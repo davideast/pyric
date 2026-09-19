@@ -2,10 +2,10 @@ import { sdkActivity, type SdkActivityHandle } from '../sandbox/internal/sdk-act
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
-import type { JsonValue } from './sandbox/data-tree.js';
+import { jsonValuesEqual, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, targetOf, type Target } from './routing.js';
 import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
-import type { QueryRow } from './sandbox/query.js';
+import { executeQuery, type QueryRow } from './internal/query-projection.js';
 import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
 import type { ListenerAttribution } from '../sandbox/attribution/listener-owners.js';
 import { child } from './references.js';
@@ -109,6 +109,57 @@ export function onValue(
   } catch (error) { activity.fail(); throw error; }
 }
 
+function observeConnectionMetadata(
+  query: Query,
+  callback: (snapshot: DataSnapshot) => void,
+  registryCallback: (snapshot: DataSnapshot) => void,
+  activity: SdkActivityHandle,
+): Unsubscribe {
+  const reference = query.ref;
+  const target = targetOf(reference);
+  const isMetadataRoot = reference._path === '/.info';
+  const scope = queryScope(query);
+  const hasConstraints = !isDefaultQuerySpec(query._spec);
+  let stopped = false;
+  let stopObserving: Unsubscribe = () => {};
+  let release: Unsubscribe | undefined;
+  let previousRows: QueryRow[] | undefined;
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    stopObserving();
+    release?.();
+    listenerRegistry.removeExact(target, reference._path, 'value', registryCallback, registration, scope);
+    activity.close();
+  };
+  const registration: ListenerRegistration = { unsubscribe: stop };
+  listenerRegistry.add(target, reference._path, 'value', registryCallback, registration, scope);
+  const hasAppLifetime = target.kind === 'sandbox-live';
+  if (hasAppLifetime) release = target.own?.(stop);
+  stopObserving = target.connection.observeConnection((connected) => {
+    if (stopped) return;
+    const value = isMetadataRoot ? { connected, serverTimeOffset: 0 } : connected;
+    const filtersChildren = isMetadataRoot && hasConstraints;
+    let snapshot: DataSnapshot;
+    if (filtersChildren) {
+      const rows = executeQuery(value, query._spec);
+      const isUnchangedSelection = jsonValuesEqual(previousRows, rows);
+      if (isUnchangedSelection) return;
+      previousRows = rows;
+      snapshot = buildSandboxQuerySnap(target, reference, rows);
+    } else {
+      snapshot = buildSandboxSnapFromRaw(target, reference, value);
+    }
+    try {
+      callback(snapshot);
+    } catch {
+      // Match ordinary RTDB listener isolation.
+    }
+  });
+  if (stopped) stopObserving();
+  return stop;
+}
+
 function onValueInternal(
   r: DatabaseReference | Query,
   cb: (snap: DataSnapshot) => void,
@@ -117,16 +168,15 @@ function onValueInternal(
   registryCallback: (snap: DataSnapshot) => void,
   activity: SdkActivityHandle,
 ): Unsubscribe {
-  const cancelCallback = typeof cancelCallbackOrOptions === 'function'
-    ? cancelCallbackOrOptions
-    : undefined;
-  const listenOptions = typeof cancelCallbackOrOptions === 'function'
-    ? options
-    : cancelCallbackOrOptions;
+  const hasCancelCallback = typeof cancelCallbackOrOptions === 'function';
+  const cancelCallback = hasCancelCallback ? cancelCallbackOrOptions : undefined;
+  const reportsCancel = cancelCallback !== undefined;
+  const listenOptions = hasCancelCallback ? options : cancelCallbackOrOptions;
   // `onlyOnce` (DB-B12): wrap the callback so it unsubscribes itself
   // after the first fire. The unsub is filled in once the real
   // subscription is created below.
-  if (listenOptions?.onlyOnce) {
+  const isOnce = listenOptions?.onlyOnce === true;
+  if (isOnce) {
     let unsub: Unsubscribe | null = null;
     let fired = false;
     const onceCb = (snap: DataSnapshot): void => {
@@ -135,22 +185,35 @@ function onValueInternal(
       // `unsub` may not be assigned yet if the initial fire is
       // synchronous (the backend fires during subscribe, before
       // `onValue` returns). The post-subscribe check below covers it.
-      if (unsub) unsub();
+      const currentUnsubscribe = unsub;
+      const hasUnsubscribe = currentUnsubscribe !== null;
+      if (hasUnsubscribe) currentUnsubscribe();
       cb(snap);
     };
     unsub = onValueInternal(r, onceCb, cancelCallback, ownerOnlyOptions(listenOptions), registryCallback, activity);
     // Synchronous initial fire: `onceCb` ran before `unsub` was set, so
     // remove the now-stale listener here.
-    if (fired) unsub();
-    return fired ? () => {} : unsub;
+    if (fired) {
+      unsub();
+      return () => {};
+    }
+    return unsub;
   }
+  const reference = r.ref;
+  const isConnectionValue = reference._path === '/.info/connected';
+  const isMetadataRoot = reference._path === '/.info';
+  const hasDefaultQuery = isDefaultQuerySpec(r._spec);
+  const observesConnection = isMetadataRoot || (hasDefaultQuery && isConnectionValue);
+  if (observesConnection) return observeConnectionMetadata(r, cb, registryCallback, activity);
   // Query branch — fire only when the windowed result changes.
   // Locked by oracle observation `rtdb-modular-onvalue-with-query.json`:
   // a write OUTSIDE the window does NOT re-fire the listener; a write
   // INSIDE or one that displaces a member DOES.
-  if (isQuery(r as object)) {
-    const q = r as Query;
-    const target = targetOf(q.ref as unknown as object);
+  const isQueryTarget = isQuery(r);
+  if (isQueryTarget) {
+    const q = r;
+    const target = targetOf(q.ref);
+    const isAdmin = target.admin === true;
     const scope = queryScope(q);
     const deliver = (raw: { val: JsonValue; key: string | null; rows?: QueryRow[] }): void => {
       const rows = raw.rows ?? [];
@@ -168,34 +231,39 @@ function onValueInternal(
     let registration: ListenerRegistration | undefined;
     const unregister = (): void => {
       activity.close();
-      if (registration) {
-        listenerRegistry.removeExact(target, q.ref._path, 'value', registryCallback, registration, scope);
+      const currentRegistration = registration;
+      const hasRegistration = currentRegistration !== undefined;
+      if (hasRegistration) {
+        listenerRegistry.removeExact(target, q.ref._path, 'value', registryCallback, currentRegistration, scope);
       }
     };
-    const subscribed = target.admin
-      ? target.backend.adminOnValue(q.ref._path, deliver, q._spec)
-      : subscribeWithLiveAuth(
+    let subscribed: Unsubscribe;
+    if (isAdmin) {
+      subscribed = target.backend.adminOnValue(q.ref._path, deliver, q._spec);
+    } else {
+      subscribed = subscribeWithLiveAuth(
         target,
         (auth, onCanceled) => target.backend.onValue(
           auth,
           q.ref._path,
           deliver,
           q._spec,
-          cancelCallback ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
+          reportsCancel ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
           () => { activity.fail(); onCanceled(); },
           attributionOf(listenOptions),
         ),
         unregister,
       );
-    const unsub = target.admin
-      ? () => { unregister(); subscribed(); }
-      : subscribed;
+    }
+    let unsub = subscribed;
+    if (isAdmin) unsub = () => { unregister(); subscribed(); };
     registration = { unsubscribe: unsub };
     listenerRegistry.add(target, q.ref._path, 'value', registryCallback, registration, scope);
     return unsub;
   }
-  const ref0 = r as DatabaseReference;
-  const target = targetOf(ref0 as unknown as object);
+  const ref0 = reference;
+  const target = targetOf(ref0);
+  const isAdmin = target.admin === true;
   const wrapper = (raw: { val: JsonValue; key: string | null }): void => {
     const snap = buildSandboxSnapFromRaw(target, ref0, raw.val);
     try {
@@ -208,26 +276,30 @@ function onValueInternal(
   let registration: ListenerRegistration | undefined;
   const unregister = (): void => {
     activity.close();
-    if (registration) listenerRegistry.removeExact(target, ref0._path, 'value', registryCallback, registration);
+    const currentRegistration = registration;
+    const hasRegistration = currentRegistration !== undefined;
+    if (hasRegistration) listenerRegistry.removeExact(target, ref0._path, 'value', registryCallback, currentRegistration);
   };
-  const subscribed = target.admin
-    ? target.backend.adminOnValue(ref0._path, wrapper)
-    : subscribeWithLiveAuth(
+  let subscribed: Unsubscribe;
+  if (isAdmin) {
+    subscribed = target.backend.adminOnValue(ref0._path, wrapper);
+  } else {
+    subscribed = subscribeWithLiveAuth(
       target,
       (auth, onCanceled) => target.backend.onValue(
         auth,
         ref0._path,
         wrapper,
         undefined,
-        cancelCallback ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
+        reportsCancel ? (error) => { activity.fail(); cancelCallback(error); } : undefined,
         () => { activity.fail(); onCanceled(); },
         attributionOf(listenOptions),
       ),
       unregister,
     );
-  const unsub = target.admin
-    ? () => { unregister(); subscribed(); }
-    : subscribed;
+  }
+  let unsub = subscribed;
+  if (isAdmin) unsub = () => { unregister(); subscribed(); };
   registration = { unsubscribe: unsub };
   listenerRegistry.add(target, ref0._path, 'value', registryCallback, registration);
   return unsub;

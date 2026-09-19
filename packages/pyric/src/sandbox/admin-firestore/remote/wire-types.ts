@@ -5,6 +5,8 @@
  * structurally identical to `packages/cli/src/serve/worker/protocol.ts`.
  */
 
+import type { DocValueEncoding } from 'pyric/firestore/internal/value-codec';
+
 /** Wire form of a doc/collection/group/query target. Mirrors
  *  `@pyric/cli`' `TargetDescriptor` — plain JSON, spelled loosely here
  *  because `pyric` cannot import the protocol module. */
@@ -41,6 +43,7 @@ export type WireWrite =
 
 /** Mirrors the protocol's `SerializedDocData` — the JSON string envelope. */
 export interface WireDocData {
+  valueEncoding?: DocValueEncoding;
   json: string;
 }
 

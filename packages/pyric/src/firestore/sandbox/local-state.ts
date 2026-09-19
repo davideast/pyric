@@ -13,8 +13,7 @@
  *   before the value lands in storage. The resolver is the single
  *   chokepoint where Date → Timestamp coercion, FieldValue sentinel
  *   resolution, DocumentReference wrapping, etc. happen (see
- *   value-resolver.ts). Today the registry is empty (Item 0); Items 1+
- *   plug in converters without touching this file.
+ *   value-resolver.ts).
  *
  *   Idempotency: callers higher up the stack (e.g.,
  *   `LocalEnvironment.execute`) may resolve before us so rules see the
@@ -23,85 +22,24 @@
  */
 import { resolveValueTree, partitionDeletes } from './value-resolver.js';
 import { applyUpdate, applyMerge } from './field-merge.js';
-
-export type DocumentData = Record<string, unknown>;
-
-/** One row from a {@link DocStore} scan/list. */
-export interface DocEntry {
-  path: string;
-  data: DocumentData;
-  /** Synthesized parent of deeper descendants (no stored doc of its own). */
-  phantom?: true;
-}
-
-/** Options for {@link DocStore.scan}. */
-export interface ScanOptions {
-  /** Only direct children of the prefix (a collection scan), not all descendants. */
-  directOnly?: boolean;
-  /** Synthesize phantom-parent entries for paths whose parent has no stored doc. */
-  phantoms?: boolean;
-  /** Project each emitted doc's data down to only these top-level fields (others
-   *  omitted), so callers can skip large fields like vectors. Phantoms stay `{}`. */
-  projection?: readonly string[];
-}
-
-/**
- * The store seam over the document keyspace. Everything that touches documents
- * (queries, listeners, the worker, branches, writes, undo) goes through this
- * contract rather than a raw Map, so the backing store can be swapped (a CoW
- * overlay for branches, chunked persistence) without touching the callers.
- * `scan` is the single read-iteration primitive; `list` builds on it.
- * Synchronous by design: the rules simulator consumes pre-resolved reads, so the
- * read path cannot go async.
- */
-export interface DocStore {
-  // Reads
-  get(path: string): DocumentData | null;
-  /** Monotonic local write version used for optimistic transaction checks. */
-  version(path: string): number;
-  /** Latest version allocated anywhere in this store. */
-  currentVersion(): number;
-  exists(path: string): boolean;
-  scan(prefix: string, opts?: ScanOptions): DocEntry[];
-  list(collection: string): DocEntry[];
-  listRootCollections(): string[];
-  listSubcollections(docPath: string): string[];
-  snapshot(): Record<string, DocumentData>;
-  size(): number;
-  // Writes
-  create(path: string, data: DocumentData): CreateResult;
-  update(path: string, data: DocumentData): UpdateResult;
-  set(path: string, data: DocumentData): SetResult;
-  setMerge(path: string, data: DocumentData, mergeFields?: readonly string[]): SetResult;
-  delete(path: string): DeleteResult;
-  applyBatch(operations: BatchOperation[]): BatchResult;
-  // Undo support
-  restore(snapshot: Record<string, DocumentData>): void;
-  restorePaths(priorDocs: Record<string, DocumentData | null>): void;
-}
-
-/**
- * The raw key->doc backing under {@link LocalState}: the subset of `Map` the
- * store uses. A plain `Map` satisfies it (the default); branches inject an
- * `OverlayBacking` for copy-on-write over an immutable base, so the store's
- * read/write/merge logic is reused unchanged over either backing.
- */
-export interface DocBacking {
-  get(path: string): DocumentData | undefined;
-  set(path: string, data: DocumentData): void;
-  has(path: string): boolean;
-  delete(path: string): boolean;
-  clear(): void;
-  keys(): IterableIterator<string>;
-  readonly size: number;
-  [Symbol.iterator](): IterableIterator<[string, DocumentData]>;
-}
+import { applyAtomicBatch } from './atomic-state.js';
+import type {
+  BatchOperation, BatchResult, CreateResult, DeleteResult, DocBacking, DocEntry,
+  DocStore, DocumentData, ScanOptions, SetResult, UpdateResult,
+} from './document-store.js';
+export type {
+  BatchOperation, BatchResult, CreateResult, DeleteResult, DocBacking, DocEntry,
+  DocStore, DocumentData, ScanOptions, SetResult, UpdateResult,
+} from './document-store.js';
 
 /** Pick only `fields` from `data` (a shallow top-level projection). */
-function projectFields(data: DocumentData, fields: readonly string[]): DocumentData {
+function projectFields(data: DocumentData, fields: readonly string[] | undefined): DocumentData {
+  const projectionMissing = fields === undefined;
+  if (projectionMissing) throw new TypeError('Projection fields are not iterable');
   const out: DocumentData = {};
   for (const f of fields) {
-    if (Object.prototype.hasOwnProperty.call(data, f)) out[f] = data[f];
+    const hasField = Object.prototype.hasOwnProperty.call(data, f);
+    if (hasField) out[f] = data[f];
   }
   return out;
 }
@@ -111,7 +49,11 @@ export class LocalState implements DocStore {
   private readonly versions = new Map<string, number>();
   private nextVersion = 1;
 
-  constructor(seed: Record<string, DocumentData> = {}, backing?: DocBacking) {
+  constructor(
+    seed: Record<string, DocumentData> = {},
+    backing?: DocBacking,
+    private readonly onChange?: (path: string) => void,
+  ) {
     this.documents = backing ?? new Map();
     for (const [path, data] of Object.entries(seed)) {
       // Seed pass: no prior state, method='seed' so converters can branch.
@@ -160,38 +102,48 @@ export class LocalState implements DocStore {
    * real doc always wins over its phantom synthesis.
    */
   scan(prefix: string, opts: ScanOptions = {}): DocEntry[] {
-    const norm = prefix === '' || prefix.endsWith('/') ? prefix : prefix + '/';
-    const project = opts.projection
-      ? (d: DocumentData) => projectFields(d, opts.projection!)
-      : (d: DocumentData) => d;
+    const prefixIsNormalized = prefix === '' || prefix.endsWith('/');
+    const norm = prefixIsNormalized ? prefix : prefix + '/';
+    const hasProjection = Boolean(opts.projection);
+    let project = (data: DocumentData) => data;
+    if (hasProjection) project = (data) => projectFields(data, opts.projection);
     const results: DocEntry[] = [];
     const seenIds = new Set<string>();
     const phantomIds: string[] = [];
     for (const [path, data] of this.documents) {
-      if (norm !== '' && !path.startsWith(norm)) continue;
-      if (!opts.directOnly) {
+      const outsidePrefix = norm !== '' && !path.startsWith(norm);
+      if (outsidePrefix) continue;
+      const includesDescendants = !opts.directOnly;
+      if (includesDescendants) {
         results.push({ path, data: project(data) });
         continue;
       }
       const remainder = path.slice(norm.length);
       const slashIdx = remainder.indexOf('/');
-      if (slashIdx === -1) {
+      const isDirectChild = slashIdx === -1;
+      if (isDirectChild) {
         // Direct child — real stored doc.
         results.push({ path, data: project(data) });
         seenIds.add(remainder);
-      } else if (opts.phantoms) {
+        continue;
+      }
+      const includesPhantoms = Boolean(opts.phantoms);
+      if (includesPhantoms) {
         // Deeper descendant — its top segment is a parent id under our
         // collection. Record once; synthesize after the scan so real
         // stored docs win over the phantom synthesis.
         const parentId = remainder.slice(0, slashIdx);
-        if (parentId.length > 0 && !phantomIds.includes(parentId)) {
+        const isNewParent = parentId.length > 0 && !phantomIds.includes(parentId);
+        if (isNewParent) {
           phantomIds.push(parentId);
         }
       }
     }
-    if (opts.directOnly && opts.phantoms) {
+    const includesPhantomParents = Boolean(opts.directOnly && opts.phantoms);
+    if (includesPhantomParents) {
       for (const id of phantomIds) {
-        if (seenIds.has(id)) continue;
+        const hasStoredDocument = seenIds.has(id);
+        if (hasStoredDocument) continue;
         results.push({ path: norm + id, data: {}, phantom: true });
       }
     }
@@ -223,9 +175,11 @@ export class LocalState implements DocStore {
     const seen = new Set<string>();
     const out: string[] = [];
     for (const path of this.documents.keys()) {
-      const first = path.split('/', 1)[0]!;
-      if (first.length === 0) continue;
-      if (!seen.has(first)) {
+      const first = path.split('/', 1)[0] ?? '';
+      const isEmptySegment = first.length === 0;
+      if (isEmptySegment) continue;
+      const isNewCollection = !seen.has(first);
+      if (isNewCollection) {
         seen.add(first);
         out.push(first);
       }
@@ -243,15 +197,19 @@ export class LocalState implements DocStore {
    * have stored data.
    */
   listSubcollections(docPath: string): string[] {
-    const prefix = docPath.endsWith('/') ? docPath : docPath + '/';
+    const hasTrailingSlash = docPath.endsWith('/');
+    const prefix = hasTrailingSlash ? docPath : docPath + '/';
     const seen = new Set<string>();
     const out: string[] = [];
     for (const path of this.documents.keys()) {
-      if (!path.startsWith(prefix)) continue;
+      const outsideDocument = !path.startsWith(prefix);
+      if (outsideDocument) continue;
       const remainder = path.slice(prefix.length);
-      const next = remainder.split('/', 1)[0]!;
-      if (next.length === 0) continue;
-      if (!seen.has(next)) {
+      const next = remainder.split('/', 1)[0] ?? '';
+      const isEmptySegment = next.length === 0;
+      if (isEmptySegment) continue;
+      const isNewCollection = !seen.has(next);
+      if (isNewCollection) {
         seen.add(next);
         out.push(next);
       }
@@ -280,7 +238,8 @@ export class LocalState implements DocStore {
    * Sets the full document data (no merge).
    */
   create(path: string, data: DocumentData): CreateResult {
-    if (this.documents.has(path)) {
+    const documentExists = this.documents.has(path);
+    if (documentExists) {
       return { success: false, error: `Document '${path}' already exists` };
     }
     let writes: DocumentData;
@@ -308,7 +267,8 @@ export class LocalState implements DocStore {
    */
   update(path: string, data: DocumentData): UpdateResult {
     const existing = this.documents.get(path);
-    if (!existing) {
+    const documentMissing = !existing;
+    if (documentMissing) {
       return { success: false, error: `Document '${path}' does not exist` };
     }
     let merged: DocumentData;
@@ -343,9 +303,9 @@ export class LocalState implements DocStore {
     data: DocumentData,
     mergeFields?: readonly string[],
   ): SetResult {
-    const priorData = this.documents.has(path)
-      ? { ...this.documents.get(path)! }
-      : null;
+    const documentExists = this.documents.has(path);
+    let priorData: DocumentData | null = null;
+    if (documentExists) priorData = { ...this.documents.get(path) };
     const resolved = resolveValueTree({ ...data }, {
       path,
       method: 'set',
@@ -362,9 +322,9 @@ export class LocalState implements DocStore {
    * Replaces the entire document (no merge).
    */
   set(path: string, data: DocumentData): SetResult {
-    const priorData = this.documents.has(path)
-      ? { ...this.documents.get(path)! }
-      : null;
+    const documentExists = this.documents.has(path);
+    let priorData: DocumentData | null = null;
+    if (documentExists) priorData = { ...this.documents.get(path) };
     const resolved = resolveValueTree({ ...data }, {
       path,
       method: 'set',
@@ -387,7 +347,8 @@ export class LocalState implements DocStore {
    */
   delete(path: string): DeleteResult {
     const existing = this.documents.get(path);
-    if (!existing) {
+    const documentMissing = !existing;
+    if (documentMissing) {
       return { success: false, error: `Document '${path}' does not exist` };
     }
     this.documents.delete(path);
@@ -399,100 +360,14 @@ export class LocalState implements DocStore {
 
   /**
    * Apply multiple writes atomically.
-   * Evaluates all operations against CURRENT state (no cross-visibility).
+   * Validates existence preconditions in write order before applying data.
    * If all succeed, applies all. If any fails, none apply.
    *
    * Note: This handles the DATA side only. Rules evaluation is the caller's
    * responsibility (LocalEnvironment evaluates rules, then calls batch).
    */
   applyBatch(operations: BatchOperation[]): BatchResult {
-    // Validate all operations against current state first
-    const errors: { index: number; error: string }[] = [];
-    for (let i = 0; i < operations.length; i++) {
-      const op = operations[i];
-      switch (op.method) {
-        case 'create':
-          if (this.documents.has(op.path)) {
-            errors.push({ index: i, error: `Document '${op.path}' already exists` });
-          }
-          break;
-        case 'update':
-          if (!this.documents.has(op.path)) {
-            errors.push({ index: i, error: `Document '${op.path}' does not exist` });
-          }
-          break;
-        case 'delete':
-          // Delete-missing is a no-op in production: `WriteBatch.delete`
-          // and `Transaction.delete` on an absent doc resolve cleanly,
-          // matching the single-op `deleteDoc` contract (matrix row
-          // Firestore #39, oracle:
-          // packages/conformance/observations/firestore/firestore-deletedoc-missing.json).
-          // Apply phase below tolerates the absence via `documents.delete`,
-          // which is itself a no-op on a missing key.
-          break;
-        // 'set' always succeeds
-      }
-    }
-
-    if (errors.length > 0) {
-      return { success: false, errors };
-    }
-
-    // Capture prior state for all affected documents (for undo)
-    const priorStates = new Map<string, DocumentData | null>();
-    for (const op of operations) {
-      if (!priorStates.has(op.path)) {
-        priorStates.set(op.path, this.documents.has(op.path) ? { ...this.documents.get(op.path)! } : null);
-      }
-    }
-
-    // Apply all operations. Each non-delete write routes through the
-    // resolver with the correct prior — captured above, so resolution
-    // order within the batch sees the same prior the rules saw. Item 2:
-    // every non-delete branch partitions DELETE_FIELD markers out via
-    // partitionDeletes so they don't leak into storage.
-    for (const op of operations) {
-      switch (op.method) {
-        case 'create': {
-          const resolved = resolveValueTree({ ...op.data! }, {
-            path: op.path,
-            method: 'create',
-            prior: null,
-          });
-          const { writes } = partitionDeletes(resolved);
-          this.documents.set(op.path, writes);
-          break;
-        }
-        case 'update': {
-          const existing = this.documents.get(op.path)!;
-          const resolved = resolveValueTree({ ...op.data! }, {
-            path: op.path,
-            method: 'update',
-            prior: existing,
-          });
-          // FS-B5: dot-path FieldPath expansion + sibling-preserving merge.
-          this.documents.set(op.path, applyUpdate(existing, resolved));
-          break;
-        }
-        case 'set': {
-          const priorForSet = priorStates.get(op.path) ?? null;
-          const resolved = resolveValueTree({ ...op.data! }, {
-            path: op.path,
-            method: 'set',
-            prior: priorForSet,
-          });
-          const { writes } = partitionDeletes(resolved);
-          this.documents.set(op.path, writes);
-          break;
-        }
-        case 'delete':
-          this.documents.delete(op.path);
-          break;
-      }
-      this.bumpVersion(op.path);
-    }
-
-    return { success: true, priorStates };
+    return applyAtomicBatch(this.documents, operations, (path) => this.bumpVersion(path));
   }
 
   /**
@@ -516,7 +391,8 @@ export class LocalState implements DocStore {
    */
   restorePaths(priorDocs: Record<string, DocumentData | null>): void {
     for (const [path, data] of Object.entries(priorDocs)) {
-      if (data === null) this.documents.delete(path);
+      const documentMissing = data === null;
+      if (documentMissing) this.documents.delete(path);
       else this.documents.set(path, { ...data });
       this.bumpVersion(path);
     }
@@ -524,43 +400,7 @@ export class LocalState implements DocStore {
 
   private bumpVersion(path: string): void {
     this.versions.set(path, this.nextVersion++);
+    this.onChange?.(path);
   }
 
-}
-
-// ═══ Types ═══
-
-export interface CreateResult {
-  success: boolean;
-  error?: string;
-}
-
-export interface UpdateResult {
-  success: boolean;
-  error?: string;
-  priorData?: DocumentData;
-}
-
-export interface SetResult {
-  success: true;
-  priorData: DocumentData | null;
-  created: boolean;
-}
-
-export interface DeleteResult {
-  success: boolean;
-  error?: string;
-  priorData?: DocumentData;
-}
-
-export interface BatchOperation {
-  method: 'create' | 'update' | 'set' | 'delete';
-  path: string;
-  data?: DocumentData;
-}
-
-export interface BatchResult {
-  success: boolean;
-  errors?: { index: number; error: string }[];
-  priorStates?: Map<string, DocumentData | null>;
 }

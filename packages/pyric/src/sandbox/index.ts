@@ -43,6 +43,7 @@ export type {
   SandboxEvent,
   SandboxListenerEvent,
   SandboxOperationEvent,
+  SandboxObservationGapEvent,
   SandboxRuntimeErrorEvent,
   SandboxSnapshot,
   ServiceEventOperation,
@@ -78,6 +79,7 @@ export {
   rulesDispositionFor,
   toListenerRecord,
   toOperationRecord,
+  trafficOperationEvent,
 } from './operation-record.js';
 export type { ListenerPhase, OperationRecord } from './operation-record.js';
 

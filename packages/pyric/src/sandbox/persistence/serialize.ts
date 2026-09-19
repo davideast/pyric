@@ -24,7 +24,7 @@
 // engine. `serialize.ts` re-uses that same codec so there is exactly one
 // rehydrate implementation — the IDB persistence format and the MessagePort
 // wire format can't drift.
-import { rehydrateDocValue } from '../../firestore/internal/value-codec.js';
+import { assertEncodedDocValueDepth, rehydrateDocValue } from '../../firestore/internal/value-codec.js';
 
 // Re-exported so existing consumers (`sandbox/persistence/index.ts` →
 // `pyric/sandbox`) keep their import path; the implementation now lives in the
@@ -101,32 +101,37 @@ export function deserializeSnapshot(raw: string): DeserializedSnapshot {
   let parsed: SerializedBlob;
   try {
     parsed = JSON.parse(raw) as SerializedBlob;
-  } catch (e) {
+  } catch (error) {
+    const isError = error instanceof Error;
     throw new PersistenceSchemaError(
-      `Persisted blob is not valid JSON: ${(e as Error).message}`,
+      `Persisted blob is not valid JSON: ${isError ? error.message : String(error)}`,
     );
   }
-  if (typeof parsed !== 'object' || parsed === null) {
+  const isInvalidBlob = typeof parsed !== 'object' || parsed === null;
+  if (isInvalidBlob) {
     throw new PersistenceSchemaError('Persisted blob is not an object');
   }
   // Accept v1 (no services) and v2 (with services). Any other version
   // is unrecognized — quarantine it so we don't silently corrupt state.
-  if (parsed.version !== 1 && parsed.version !== 2) {
+  const hasUnsupportedVersion = parsed.version !== 1 && parsed.version !== 2;
+  if (hasUnsupportedVersion) {
     throw new PersistenceSchemaError(
       `Persisted blob has version ${String(parsed.version)}, expected 1 or 2`,
     );
   }
-  if (typeof parsed.firestore !== 'object' || parsed.firestore === null) {
+  const hasNoFirestore = typeof parsed.firestore !== 'object' || parsed.firestore === null;
+  if (hasNoFirestore) {
     throw new PersistenceSchemaError('Persisted blob has no firestore field');
   }
   const firestore: Record<string, Record<string, unknown>> = {};
   for (const [path, data] of Object.entries(parsed.firestore)) {
+    assertEncodedDocValueDepth(data);
     firestore[path] = rehydrateDocValue(data) as Record<string, unknown>;
   }
   // v1 blobs lack `services` — default to {} so the restore path
   // proceeds without error. No auth users in the blob = no auth restore.
-  const services = (parsed.services !== undefined && typeof parsed.services === 'object' && parsed.services !== null)
-    ? (parsed.services as Record<string, unknown>)
-    : {};
+  const serviceState = parsed.services;
+  const hasServices = serviceState !== undefined && typeof serviceState === 'object' && serviceState !== null;
+  const services = hasServices ? serviceState : {};
   return { firestore, services };
 }

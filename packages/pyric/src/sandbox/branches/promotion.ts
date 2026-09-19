@@ -30,6 +30,7 @@ import {
   type StorageObjectState,
 } from '../full-state.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
+import { decodeStateDocument } from '../internal/state-values.js';
 import type { LocalSandbox } from '../types/service.js';
 import {
   AUTH_PROVIDER_CONFIG_PATH,
@@ -63,11 +64,12 @@ function promoteFirestore(
 ): void {
   for (const path of divergedPaths(divergences)) {
     const document = next.firestore[path];
-    if (document === undefined) {
+    const wasDeleted = document === undefined;
+    if (wasDeleted) {
       target.admin.deleteDocument(path);
       continue;
     }
-    target.admin.setDocument(path, structuredClone(document));
+    target.admin.setDocument(path, decodeStateDocument(document, next.firestoreEncoding));
   }
 }
 

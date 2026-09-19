@@ -7,7 +7,7 @@
  *
  *   Firestore documents
  *   the Realtime Database tree, with its priorities
- *   Storage objects, with their bytes, content type, and custom metadata
+ *   Storage objects, with their bytes and complete stored metadata
  *   auth accounts, with the fields the auth sandbox exports, plus provider config
  *   the three rule sources: Firestore, Realtime Database, and Storage
  *
@@ -30,23 +30,24 @@ import { getAuth, sandbox as authSandbox, type Auth, type SeedUser } from '../au
 import { getOrCreateBackend } from '../database/sandbox/backend-for.js';
 import type { RtdbBackend } from '../database/sandbox/backend.js';
 import type { JsonValue } from '../database/sandbox/data-tree.js';
+import { DOC_VALUE_ENCODING, type DocValueEncoding } from '../firestore/internal/value-codec.js';
 import {
-  deleteObject,
-  getBytes,
-  getMetadata,
-  listAll,
   ref,
   uploadBytes,
   type FirebaseStorage,
 } from '../storage/index.js';
 import {
-  arrayBufferToBase64,
   base64ToBytes,
   getAdminStorageSandbox,
   getStorageRulesResolution,
   replaceStorageRules,
+  resetStorageState,
+  restoreStorageState,
+  snapshotStorageState,
+  type StorageStateRecord,
 } from '../storage/internal.js';
 import { getInternalEnv } from './internal/sandbox-impl.js';
+import { encodeStateDocument, decodeStateDocument } from './internal/state-values.js';
 import { getClock, type SandboxClockState } from './clock.js';
 import type { LocalSandbox } from './types/service.js';
 
@@ -65,6 +66,10 @@ export interface StorageObjectState {
   contentType?: string;
   /** The object's custom metadata. Always present, empty when it carries none. */
   customMetadata: Record<string, string>;
+  /** Remaining persisted metadata; absent in legacy states that only kept upload fields. */
+  metadata?: Omit<StorageStateRecord['metadata'], 'fullPath' | 'contentType' | 'customMetadata'>;
+  /** The stored Blob's MIME type, which can differ from its object metadata. */
+  blobType?: string;
 }
 
 /** The auth account store: the users and the provider configuration over them. */
@@ -72,8 +77,8 @@ export interface AuthAccountsState {
   /**
    * Every account the auth sandbox exports, in the `seedUsers` shape: uid,
    * email, password, and the optional displayName, customClaims, photoUrl,
-   * phoneNumber, emailVerified, disabled, tenantId, and providerId. Anonymous
-   * accounts are not exported, matching what the auth sandbox persists.
+   * phoneNumber, emailVerified, disabled, tenantId, providerId and account
+   * timestamps. Anonymous accounts are included in the same export contract.
    */
   users: SeedUser[];
   /** Which sign-in providers are enabled, by provider id. */
@@ -107,6 +112,8 @@ export type SandboxService = (typeof SANDBOX_SERVICES)[number];
 export interface FullSandboxState {
   /** Firestore documents by full path. */
   firestore: Record<string, Record<string, unknown>>;
+  /** Declared value encoding; absent in legacy states that carry plain document maps. */
+  firestoreEncoding?: DocValueEncoding;
   /**
    * The Realtime Database persistence envelope: the tree and its priorities.
    * The database's rules travel in {@link SandboxRuleSources} instead, so the
@@ -161,32 +168,27 @@ function databaseStateWithoutRules(backend: RtdbBackend): JsonValue {
   return envelope as unknown as JsonValue;
 }
 
-/** Every object path in the bucket. `listAll` reports one level, so this descends. */
-async function storagePaths(storage: FirebaseStorage): Promise<string[]> {
-  const paths: string[] = [];
-  const pending: string[] = [''];
-  while (pending.length > 0) {
-    const prefix = pending.pop() as string;
-    const listing = await listAll(ref(storage, prefix));
-    for (const item of listing.items) paths.push(item.fullPath);
-    for (const child of listing.prefixes) pending.push(child.fullPath);
-  }
-  paths.sort();
-  return paths;
-}
-
 /** Read every Storage object out of the bucket, bytes included. */
 async function captureStorage(storage: FirebaseStorage): Promise<StorageObjectState[]> {
   const objects: StorageObjectState[] = [];
-  for (const path of await storagePaths(storage)) {
-    const metadata = await getMetadata(ref(storage, path));
-    const bytes = await getBytes(ref(storage, path));
+  const records = await snapshotStorageState(storage);
+  records.sort((left, right) => {
+    const sortsBefore = left.metadata.fullPath < right.metadata.fullPath;
+    if (sortsBefore) return -1;
+    const sortsAfter = left.metadata.fullPath > right.metadata.fullPath;
+    return sortsAfter ? 1 : 0;
+  });
+  for (const record of records) {
+    const { fullPath, contentType, customMetadata, ...metadata } = record.metadata;
     const object: StorageObjectState = {
-      path,
-      contentBase64: arrayBufferToBase64(bytes),
-      customMetadata: { ...(metadata.customMetadata ?? {}) },
+      path: fullPath,
+      contentBase64: record.dataBase64,
+      customMetadata: customMetadata ?? {},
+      metadata,
+      blobType: record.blobType,
     };
-    if (metadata.contentType !== undefined) object.contentType = metadata.contentType;
+    const hasContentType = contentType !== undefined;
+    if (hasContentType) object.contentType = contentType;
     objects.push(object);
   }
   return objects;
@@ -211,7 +213,8 @@ export async function captureFullState(sandbox: LocalSandbox): Promise<FullSandb
   };
 
   return {
-    firestore: structuredClone(env.snapshot()) as Record<string, Record<string, unknown>>,
+    firestore: Object.fromEntries(Object.entries(env.snapshot()).map(([path, data]) => [path, encodeStateDocument(data)])),
+    firestoreEncoding: DOC_VALUE_ENCODING,
     database: databaseStateWithoutRules(database),
     storage: await captureStorage(storage),
     auth: {
@@ -241,14 +244,16 @@ function applyClock(sandbox: LocalSandbox, captured: SandboxClockState | undefin
 function applyFirestoreDocuments(
   sandbox: LocalSandbox,
   documents: Record<string, Record<string, unknown>>,
+  encoding: DocValueEncoding | undefined,
 ): void {
   const env = getInternalEnv(sandbox);
   for (const path of Object.keys(env.snapshot())) {
-    if (path in documents) continue;
+    const isRetained = path in documents;
+    if (isRetained) continue;
     sandbox.admin.deleteDocument(path);
   }
   for (const [path, data] of Object.entries(documents)) {
-    sandbox.admin.setDocument(path, structuredClone(data));
+    sandbox.admin.setDocument(path, decodeStateDocument(data, encoding));
   }
 }
 
@@ -273,14 +278,24 @@ async function applyStorage(
   objects: readonly StorageObjectState[],
 ): Promise<void> {
   const storage = storageFor(sandbox);
-  for (const path of await storagePaths(storage)) {
-    await deleteObject(ref(storage, path));
-  }
+  await resetStorageState(storage);
   for (const object of objects) {
+    const metadata = object.metadata;
+    const hasStoredMetadata = metadata !== undefined;
+    if (hasStoredMetadata) {
+      await restoreStorageState(storage, [{
+        dataBase64: object.contentBase64,
+        blobType: object.blobType ?? object.contentType ?? '',
+        metadata: { ...metadata, fullPath: object.path, contentType: object.contentType,
+          customMetadata: { ...object.customMetadata } },
+      }]);
+      continue;
+    }
     const settable: { contentType?: string; customMetadata?: Record<string, string> } = {
       customMetadata: { ...object.customMetadata },
     };
-    if (object.contentType !== undefined) settable.contentType = object.contentType;
+    const hasContentType = object.contentType !== undefined;
+    if (hasContentType) settable.contentType = object.contentType;
     await uploadBytes(ref(storage, object.path), base64ToBytes(object.contentBase64), settable);
   }
 }
@@ -315,7 +330,7 @@ export async function applyFullState(
   state: FullSandboxState,
 ): Promise<void> {
   applyClock(sandbox, state.clock);
-  applyFirestoreDocuments(sandbox, state.firestore);
+  applyFirestoreDocuments(sandbox, state.firestore, state.firestoreEncoding);
   getInternalEnv(sandbox).deployRules(state.rules.firestore);
   applyDatabase(sandbox, state);
   applyAuth(sandbox, state.auth);

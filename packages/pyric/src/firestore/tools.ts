@@ -13,6 +13,7 @@
  */
 
 import type { ToolHandler } from '@inbrowser/agent';
+import { QUERY_WHERE_OPERATORS } from './sandbox/query-operators.js';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { inspect } from './sandbox-controls.js';
 import type { Firestore } from './index.js';
@@ -64,8 +65,7 @@ const AS_SCHEMA = {
 
 /** Pre-mortem M9 — constrain where-op to the WhereFilterOp union
  *  at the schema level so agents can't pass `==` typos. */
-const WHERE_OPS = ['<', '<=', '==', '!=', '>=', '>', 'in', 'not-in', 'array-contains', 'array-contains-any'] as const;
-type WhereOp = typeof WHERE_OPS[number];
+type WhereOp = typeof QUERY_WHERE_OPERATORS[number];
 
 interface WhereClause {
   field: string;
@@ -77,7 +77,7 @@ const WHERE_CLAUSE_SCHEMA = {
   type: 'object' as const,
   properties: {
     field: { type: 'string' as const },
-    op: { type: 'string' as const, enum: [...WHERE_OPS] },
+    op: { type: 'string' as const, enum: [...QUERY_WHERE_OPERATORS] },
     value: {},
   },
   required: ['field', 'op', 'value'],

@@ -36,6 +36,8 @@ import {
   stripMarkers,
   type DocumentData,
 } from './value-resolver.js';
+import { FirebaseError } from '../../sandbox/internal/firebase-error.js';
+import { cloneDoc } from './document-copy.js';
 
 /** Split a dot-separated FieldPath string into segments. */
 function splitPath(key: string): string[] {
@@ -61,22 +63,6 @@ function assertSafeSegment(seg: string): void {
         'and constructor are reserved and cannot appear in a field path.',
     );
   }
-}
-
-/** Deep clone a plain document tree, leaving class instances by reference
- *  (Timestamp, Bytes, etc. are immutable wrappers — safe to share). */
-function cloneDoc(data: DocumentData): DocumentData {
-  const out: DocumentData = {};
-  for (const [k, v] of Object.entries(data)) {
-    out[k] = cloneValue(v);
-  }
-  return out;
-}
-
-function cloneValue(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(cloneValue);
-  if (isPlainObject(v)) return cloneDoc(v);
-  return v;
 }
 
 /**
@@ -185,13 +171,18 @@ export function applyMerge(
   const out = cloneDoc(existing);
   const mask: Array<{ segments: string[]; value: unknown }> = [];
 
-  if (mergeFields !== undefined) {
+  const hasFieldMask = mergeFields !== undefined;
+  if (hasFieldMask) {
     // Restrict to the listed field paths. Each is a dot-separated path
-    // into `resolved`; read the value at that path (skip absent ones).
+    // into `resolved` and must be present in the supplied data.
     for (const field of mergeFields) {
       const segments = splitPath(field);
       const value = readPath(resolved, segments);
-      if (value !== ABSENT) mask.push({ segments, value });
+      const isMissing = value === ABSENT;
+      if (isMissing) {
+        throw new FirebaseError('invalid-argument', `Field '${field}' is specified in your field mask but missing from your input data.`);
+      }
+      mask.push({ segments, value });
     }
   } else {
     collectLeaves(resolved, [], mask);

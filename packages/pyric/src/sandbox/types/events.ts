@@ -450,6 +450,7 @@ export interface SessionBoundaryEvent {
  * their state is a Firestore document.
  */
 export interface SandboxOperationEvent {
+  observation?: import('./request-observation.js').RequestObservation;
   kind: 'operation';
   id: string;
   at: number;
@@ -574,6 +575,17 @@ export interface SandboxRuntimeErrorEvent {
   detail?: Record<string, unknown>;
 }
 
+/** A delivery failure, not a failed sandbox operation. Source IDs delimit the omitted batch. */
+export interface SandboxObservationGapEvent {
+  kind: 'observation_gap';
+  id: string;
+  at: number;
+  reason: 'frame-limit' | 'history-limit';
+  omittedCount: number;
+  firstEventId: string;
+  lastEventId: string;
+}
+
 /**
  * Discriminated union of every event the sandbox emits to
  * {@link Sandbox.onEvent} subscribers.
@@ -600,5 +612,6 @@ export type SandboxEvent = (
   | SandboxCommitEvent
   | SandboxListenerEvent
   | SandboxRuntimeErrorEvent
+  | SandboxObservationGapEvent
 ) &
   EventProvenance;

@@ -42,7 +42,10 @@ export {
   EMPIRICAL_DATA_CAP_BYTES,
 } from './validate.js';
 export { mintToken, TOKEN_LENGTH, TOKEN_SUFFIX_PREFIX } from './tokens.js';
+export { DELIVERY_STAGES } from './types.js';
 export type {
+  DeliveryStage,
+  DeliveryAcknowledgment,
   AcceptedSend,
   BrokerMessage,
   ClientVisibilityState,
@@ -70,5 +73,11 @@ export function getMessagingBroker(sandbox: Sandbox, config?: MessagingBrokerCon
   if (existing !== undefined) return existing;
   const broker = new MessagingBroker({ ...config, sandbox });
   brokers.set(sandbox, broker);
+  sandbox.registerPersistableService('messaging', {
+    snapshot: () => broker.snapshot(),
+    restore: data => broker.restore(data),
+    reset: () => broker.reset(),
+    subscribe: listener => broker.onChange(listener),
+  });
   return broker;
 }

@@ -21,54 +21,23 @@ import type { AuthObserver, User } from './types.js';
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /** Seed record for `sandbox.seedUsers`. */
-/** Stand-in password for exported provider-flow identities that never had
- *  one — keeps `exportUsers` → `seedUsers` round-trips lossless without
- *  widening the `SeedUser` shape. Not a secret: sandbox-only. */
+/** Legacy passwordless-account marker, accepted on import only.
+ * New exports omit the password instead. Kept for older fixture readers. */
 export const NO_PASSWORD_SENTINEL = '__pyric_no_password__';
 
-export interface SeedUser {
-  uid: string;
-  /** Absent for an anonymous account (`providerId: 'anonymous'`), which has
-   *  no address to sign in with. Required for every other provider. */
-  email?: string;
-  /** Absent for an anonymous account. Required for every other provider;
-   *  a provider-flow identity with no password uses
-   *  {@link NO_PASSWORD_SENTINEL} instead of omitting it. */
-  password?: string;
-  displayName?: string;
-  customClaims?: Record<string, unknown>;
-  /** Profile photo URL, mirroring the stored record's `photoUrl`.
-   *  Omitted for records that carry none. */
-  photoUrl?: string;
-  /** Phone number on the record. Omitted for records that carry none. */
-  phoneNumber?: string;
-  /** Whether the address on the record is verified. Omitted when false
-   *  — the seeded default. */
-  emailVerified?: boolean;
-  /** Whether the account rejects every sign-in with
-   *  `auth/user-disabled`. Omitted when false — the seeded default. */
-  disabled?: boolean;
-  /** Identity Platform tenant the record belongs to. Omitted for
-   *  untenanted identities. Absent is the seeded default. */
-  tenantId?: string;
-  /** Originating provider for this identity (e.g. `'google.com'`).
-   *  Defaults to `'password'` — the natural provider for a record
-   *  seeded with an email + password. A host seeding popup-flow
-   *  identities passes the real provider so `listIdentities` /
-   *  `IdTokenResult.signInProvider` label them correctly. */
-  providerId?: string;
-}
+export type { SeedUser } from './seed-user.js';
 
 /**
  * Request for {@link SandboxBackend.mintDetachedSession} — one variant
- * per client sign-in shape, plus `uid` for existing identities
- * (session restore, provider-bridge accept).
+ * per client sign-in shape, plus `uid` for session restoration and
+ * `provider` for a provider sign-in to an existing linked identity.
  */
 export type MintSessionRequest = TenantScope & (
   | { kind: 'anonymous' }
   | { kind: 'password'; email: string; password: string }
   | { kind: 'createPassword'; email: string; password: string }
   | { kind: 'uid'; uid: string }
+  | { kind: 'provider'; uid: string; providerId: string }
 );
 
 /** The tenant a minted session authenticates under. Carried on every

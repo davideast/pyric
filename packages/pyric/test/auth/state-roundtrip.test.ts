@@ -7,6 +7,7 @@ import {
   onAuthStateChanged,
   signInAnonymously,
   signInWithPopup,
+  signInWithEmailAndPassword,
   GoogleAuthProvider,
   sandbox as authSandbox,
 } from '../../src/auth/index.js';
@@ -32,9 +33,34 @@ describe('sandbox.exportUsers', () => {
     expect(ids.find((i) => i.email === 'b@x.com')?.providerId).toBe('google.com');
   });
 
+  it('preserves linked providers and password login through an account round-trip', async () => {
+    const source = wire();
+    authSandbox.seedUsers(source, [{ uid: 'linked', email: 'linked@example.com', password: 'original-password' }]);
+    authSandbox.createSignInCredential(source, { providerId: 'google.com', uid: 'linked' });
+    const restored = wire();
+    authSandbox.seedUsers(restored, authSandbox.exportUsers(source));
+    const credential = await signInWithEmailAndPassword(restored, 'linked@example.com', 'original-password');
+    expect(credential.user.providerData.map(provider => provider.providerId)).toEqual(['password', 'google.com']);
+  });
+
+  it('keeps provider-only accounts passwordless after export and legacy import', async () => {
+    const source = wire();
+    authSandbox.createSignInCredential(source, { providerId: 'google.com', spec: { email: 'provider@example.com' } });
+    const exported = authSandbox.exportUsers(source);
+    expect(exported[0]?.password).toBeUndefined();
+    for (const password of [undefined, NO_PASSWORD_SENTINEL, '__pyric_popup_no_password__']) {
+      const restored = wire();
+      authSandbox.seedUsers(restored, [{ ...exported[0]!, password }]);
+      for (const attempted of ['some-password', NO_PASSWORD_SENTINEL, '__pyric_popup_no_password__']) {
+        await expect(signInWithEmailAndPassword(restored, 'provider@example.com', attempted))
+          .rejects.toMatchObject({ code: 'auth/wrong-password' });
+      }
+    }
+  });
+
   it('round-trips photoUrl, phoneNumber, emailVerified and disabled', () => {
     const a = wire();
-    authSandbox.createUser(a, {
+    const original = authSandbox.createUser(a, {
       uid: 'full',
       email: 'full@x.com',
       password: 'pw-full',
@@ -49,9 +75,12 @@ describe('sandbox.exportUsers', () => {
     expect(exported).toEqual([
       {
         uid: 'full',
+        createdAt: original.createdAt,
+        lastLoginAt: null,
         email: 'full@x.com',
         password: 'pw-full',
         providerId: 'password',
+        providerUserInfo: [{ providerId: 'password' }],
         displayName: 'Full Record',
         photoUrl: 'https://cdn.example.com/full.png',
         phoneNumber: '+15555550123',
@@ -82,17 +111,22 @@ describe('sandbox.exportUsers', () => {
     const [seed] = authSandbox.exportUsers(a);
     expect(seed).toEqual({
       uid: 'bare',
+      createdAt: expect.any(String),
+      lastLoginAt: null,
       email: 'bare@x.com',
       password: 'pw',
       providerId: 'password',
+      providerUserInfo: [{ providerId: 'password' }],
     });
-    expect('photoUrl' in seed!).toBe(false);
-    expect('phoneNumber' in seed!).toBe(false);
-    expect('emailVerified' in seed!).toBe(false);
-    expect('disabled' in seed!).toBe(false);
+    const hasNoSeed = seed === undefined;
+    if (hasNoSeed) throw new Error('Expected the exported account');
+    expect('photoUrl' in seed).toBe(false);
+    expect('phoneNumber' in seed).toBe(false);
+    expect('emailVerified' in seed).toBe(false);
+    expect('disabled' in seed).toBe(false);
   });
 
-  it('passwordless provider identities export with the sentinel; anonymous export too', async () => {
+  it('passwordless provider identities omit passwords; anonymous export too', async () => {
     const a = wire();
     authSandbox.setAuthProviderConfig(a, 'google.com', true);
     // provider-flow identity without a password (createSignInCredential spec path)
@@ -108,13 +142,15 @@ describe('sandbox.exportUsers', () => {
 
     const exported = authSandbox.exportUsers(a);
     const popup = exported.find((u) => u.email === 'popup@x.com');
-    expect(popup?.password).toBe(NO_PASSWORD_SENTINEL);
+    expect(popup?.password).toBeUndefined();
     expect(popup?.providerId).toBe('google.com');
     // the anonymous identity is exported alongside every other account, the
     // way real Firebase keeps anonymous accounts in its user pool.
     expect(authSandbox.listIdentities(a).some((i) => i.isAnonymous)).toBe(true);
     const anonymousSeed = exported.find((u) => u.uid === anon.user.uid);
-    expect(anonymousSeed).toEqual({ uid: anon.user.uid, providerId: 'anonymous' });
+    const original = authSandbox.listUsers(a).find(user => user.uid === anon.user.uid);
+    expect(anonymousSeed).toEqual({ uid: anon.user.uid, providerId: 'anonymous',
+      createdAt: original?.createdAt, lastLoginAt: original?.lastLoginAt });
     expect(exported).toHaveLength(2);
   });
 

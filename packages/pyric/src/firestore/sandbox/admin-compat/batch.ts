@@ -4,12 +4,8 @@
  *
  * Ported from bench's `pilot/src/firestore-wrapper.ts:360-391`.
  *
- * Set semantics: `WriteBatch.set(ref, data)` translates to either
- * `'create'` (doc absent) or `'update'` (doc present) at queue time —
- * the simulator's `BatchOperationInput` accepts only
- * `'create' | 'update' | 'delete'`. The peek runs in the wrapper
- * thread (single-threaded; the simulator is synchronous), so no other
- * write can interleave between peek and queue.
+ * Set writes retain replacement intent until commit. The engine selects
+ * the create/update rule from the document's state at commit time.
  *
  * Error translation: `LocalEnvironment.batch(...)` returns a
  * `BatchResult` whose `.error` carries a typed `FirestoreSimError`
@@ -22,12 +18,14 @@
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
 import type { BatchOperationInput } from 'pyric/sandbox/internal';
 import { makeError } from 'pyric/sandbox/internal';
+import { cloneDoc } from '../document-copy.js';
 import {
   FirestoreCompatError,
   type AuthContext,
   type DocumentData,
   type DocumentReference,
   type OperationOptions,
+  type SetOptions,
   type WriteBatch,
 } from './types.js';
 
@@ -42,18 +40,22 @@ export class WriteBatchImpl implements WriteBatch {
     private readonly bypassRules: boolean = false,
   ) {}
 
-  set(ref: DocumentReference, data: DocumentData): WriteBatch {
-    // Dispatch to create-or-update at queue time — same logic as
-    // DocumentRefImpl.set, kept here rather than shared because the
-    // batch path has no async wrapping.
-    const existing = this.env.getDocument(ref.path);
-    const method: 'create' | 'update' = existing === null ? 'create' : 'update';
-    this.ops.push({ method, path: ref.path, data });
+  set(ref: DocumentReference, data: DocumentData, options?: SetOptions): WriteBatch {
+    const operation: BatchOperationInput = { method: 'set', path: ref.path, data: cloneDoc(data) };
+    const mergeFields = options?.mergeFields;
+    const hasFieldMask = mergeFields !== undefined;
+    if (hasFieldMask) {
+      operation.merge = { mergeFields: [...mergeFields] };
+    } else {
+      const mergesAllFields = options?.merge === true;
+      if (mergesAllFields) operation.merge = true;
+    }
+    this.ops.push(operation);
     return this;
   }
 
   update(ref: DocumentReference, data: DocumentData): WriteBatch {
-    this.ops.push({ method: 'update', path: ref.path, data });
+    this.ops.push({ method: 'update', path: ref.path, data: cloneDoc(data) });
     return this;
   }
 
@@ -65,17 +67,22 @@ export class WriteBatchImpl implements WriteBatch {
   async commit(opts?: OperationOptions): Promise<void> {
     // Empty batch is a no-op — match Admin SDK behavior (commit() of an
     // empty WriteBatch resolves cleanly without a network round-trip).
-    if (this.ops.length === 0) return;
+    const isEmpty = this.ops.length === 0;
+    if (isEmpty) return;
+    const authOverride = opts?.auth;
+    const hasAuthOverride = authOverride !== undefined;
     const result = this.env.batch(
       this.ops,
-      opts?.auth !== undefined ? opts.auth : this.auth,
+      hasAuthOverride ? authOverride : this.auth,
       this.bypassRules,
     );
-    if (result.allowed) return;
+    const { allowed, error } = result;
+    if (allowed) return;
     // Surface the structured error if present (always present per
     // Item 6 — see errors.ts; first per-op error mirrored to top-level).
-    if (result.error) {
-      throw new FirestoreCompatError(result.error);
+    const hasError = error !== undefined;
+    if (hasError) {
+      throw new FirestoreCompatError(error);
     }
     // Defensive fallback — should be unreachable given Item 6's
     // invariant that every denial carries an error.

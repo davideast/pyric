@@ -11,7 +11,7 @@
  *   - A missing field never matches any operator, including `== null`.
  *   - `!=` and `not-in` require the field to exist and be non-null.
  *   - `not-in` with a `null` in the operand list matches nothing.
- *   - `in` with a non-array operand silently matches nothing (no throw).
+ *   - `in` and `array-contains-any` refuse non-array operands.
  */
 import { describe, it, expect } from 'bun:test';
 import { LocalEnvironment } from 'pyric/sandbox/internal';
@@ -138,9 +138,9 @@ describe('characterization — where() in / not-in', () => {
     expect(await ids(db.collection('items').where('n', 'in', []))).toEqual([]);
   });
 
-  it('in with a non-array operand silently matches nothing (no throw)', async () => {
+  it('in refuses a non-array operand', () => {
     const db = seededDb(MIXED);
-    expect(await ids(db.collection('items').where('n', 'in', 1))).toEqual([]);
+    expect(() => db.collection('items').where('n', 'in', 1)).toThrow('Firestore in filter requires an array operand.');
   });
 
   it('not-in excludes listed values; null-valued and missing fields never match', async () => {
@@ -174,14 +174,13 @@ describe('characterization — where() array-contains(-any)', () => {
     expect(await ids(db.collection('posts').where('tags', 'array-contains', 'a'))).toEqual(['p1']);
   });
 
-  it('array-contains-any matches on any overlap; non-array operand matches nothing', async () => {
+  it('array-contains-any matches overlap and refuses a non-array operand', async () => {
     const db = seededDb(TAGGED);
     expect(
       await ids(db.collection('posts').where('tags', 'array-contains-any', ['a', 'c'])),
     ).toEqual(['p1', 'p2']);
-    expect(
-      await ids(db.collection('posts').where('tags', 'array-contains-any', 'a')),
-    ).toEqual([]);
+    expect(() => db.collection('posts').where('tags', 'array-contains-any', 'a'))
+      .toThrow('Firestore array-contains-any filter requires an array operand.');
   });
 });
 

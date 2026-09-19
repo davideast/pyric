@@ -33,7 +33,6 @@ import {
   getMessagingBroker,
   BrokerSendError,
   type BrokerMessage,
-  type MessagingBroker,
   type TopicManagementOutcome,
 } from 'pyric/messaging/internal';
 
@@ -137,7 +136,6 @@ function invalidArgument(message: string): Error & { readonly code: string } {
 
 async function dispatchSend(
   sandbox: Sandbox,
-  broker: MessagingBroker,
   message: BrokerMessage,
   validateOnly: boolean,
 ): Promise<string> {
@@ -149,12 +147,11 @@ async function dispatchSend(
     })) as { name: string };
     return res.name;
   }
-  return broker.send(message, { validateOnly }).name;
+  return getMessagingBroker(sandbox).send(message, { validateOnly }).name;
 }
 
 async function dispatchTopicOp(
   sandbox: Sandbox,
-  broker: MessagingBroker,
   action: 'subscribe' | 'unsubscribe',
   tokens: string[],
   topic: string,
@@ -166,6 +163,7 @@ async function dispatchTopicOp(
       topic,
     })) as TopicManagementOutcome;
   }
+  const broker = getMessagingBroker(sandbox);
   return action === 'subscribe'
     ? broker.subscribeToTopic(tokens, topic)
     : broker.unsubscribeFromTopic(tokens, topic);
@@ -178,12 +176,10 @@ async function dispatchTopicOp(
  * the broker.
  */
 export class Messaging {
-  private readonly broker: MessagingBroker;
   private readonly boundApp: PyricAdminApp;
 
   constructor(app: SandboxAdminApp) {
     this.boundApp = app;
-    this.broker = getMessagingBroker(app.sandbox);
   }
 
   /** The app this `Messaging` instance is bound to (upstream `get app(): App`). */
@@ -202,7 +198,6 @@ export class Messaging {
     try {
       return await dispatchSend(
         this.boundApp.sandbox,
-        this.broker,
         message as BrokerMessage,
         dryRun === true,
       );
@@ -227,7 +222,6 @@ export class Messaging {
       try {
         const name = await dispatchSend(
           this.boundApp.sandbox,
-          this.broker,
           message as BrokerMessage,
           dryRun === true,
         );
@@ -288,7 +282,6 @@ export class Messaging {
     try {
       outcome = await dispatchTopicOp(
         this.boundApp.sandbox,
-        this.broker,
         action,
         tokens,
         topic,

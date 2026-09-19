@@ -50,7 +50,7 @@ import {
 } from './sandbox/project-store.js';
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
 
-import type { AuthState, Sandbox } from 'pyric/sandbox';
+import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { AuthEventOperation } from './events.js';
 
@@ -133,7 +133,6 @@ export class SandboxBackend {
   /** Monotonic uid counter for `createUser` calls without a uid. */
   private readonly sharedCounters: {
     nextAdminUserId: number;
-    nextAnonymousId: number;
   };
 
   /** Popup / redirect / credential flow-staging machinery — the
@@ -167,12 +166,12 @@ export class SandboxBackend {
    *  (direct sandbox writes, `reset()`, another handle). */
   private applyingTransition = false;
 
-  /** Per-uid current ID token + result. Refreshed on each
+  /** Per-uid and signed-in tenant current ID token + result. Refreshed on each
    *  `getIdToken(forceRefresh=true)` and on each new sign-in
    *  transition (so a sign-out / sign-in round-trip mints a fresh
    *  token, matching prod's "new session = new token" semantics).
    *  Subsequent `getIdToken(false)` reads return the cached value. */
-  private readonly tokenCache = new Map<string, { token: string; result: IdTokenResult }>();
+  private readonly tokenCache = new Map<string, Map<string | null, { token: string; result: IdTokenResult }>>();
 
   /** Monotonic counter used to disambiguate freshly-minted tokens
    *  for the same uid + claims map. Without this, two refreshes that
@@ -795,15 +794,23 @@ export class SandboxBackend {
       // in (AUTH-B9) — otherwise both emails would resolve, the old one
       // to a now-orphaned record.
       const prior = this.usersByUid.get(u.uid);
-      if (prior?.email && prior.email.toLowerCase() !== u.email?.toLowerCase()) {
-        this.usersByEmail.delete(prior.email.toLowerCase());
+      const priorEmail = prior?.email;
+      const hasPriorEmail = typeof priorEmail === 'string' && priorEmail.length > 0;
+      const changesEmail = hasPriorEmail && priorEmail.toLowerCase() !== u.email?.toLowerCase();
+      if (changesEmail) {
+        this.usersByEmail.delete(priorEmail.toLowerCase());
       }
       const isAnonymousSeed = u.providerId === 'anonymous';
-      const providerUserInfo = isAnonymousSeed ? [] : [{ providerId: u.providerId ?? 'password' }];
+      const linkedProviders = u.providerUserInfo ?? [{ providerId: u.providerId ?? 'password' }];
+      const providerUserInfo = isAnonymousSeed ? [] : linkedProviders.map(provider => ({ ...provider }));
+      const hasPasswordProvider = providerUserInfo.some(provider => provider.providerId === 'password');
+      const hasLegacyPlaceholder = u.password === NO_PASSWORD_SENTINEL || u.password === '__pyric_popup_no_password__';
+      const isLegacyPasswordlessAccount = hasLegacyPlaceholder && !hasPasswordProvider;
+      const hasNoPassword = isAnonymousSeed || isLegacyPasswordlessAccount;
       const record = this.makeStored({
         uid: u.uid,
         email: isAnonymousSeed ? null : (u.email ?? null),
-        password: isAnonymousSeed ? null : (u.password ?? null),
+        password: hasNoPassword ? null : (u.password ?? null),
         displayName: u.displayName ?? null,
         phoneNumber: u.phoneNumber ?? null,
         photoUrl: u.photoUrl ?? null,
@@ -814,20 +821,24 @@ export class SandboxBackend {
         providerUserInfo,
         tenantId: u.tenantId ?? null,
       });
-      if (!isAnonymousSeed && u.email !== undefined) this.usersByEmail.set(u.email.toLowerCase(), record);
+      const { createdAt, lastLoginAt, email } = u;
+      const hasCreatedAt = createdAt !== undefined;
+      if (hasCreatedAt) record.createdAt = createdAt;
+      const hasLastLoginAt = lastLoginAt !== undefined;
+      if (hasLastLoginAt) record.lastLoginAt = lastLoginAt;
+      const indexesEmail = !isAnonymousSeed && email !== undefined;
+      if (indexesEmail) this.usersByEmail.set(email.toLowerCase(), record);
       this.usersByUid.set(u.uid, record);
     }
-    if (users.length > 0) this.notifyUsersChanged();
+    const hasSeedUsers = users.length > 0;
+    if (hasSeedUsers) this.notifyUsersChanged();
   }
 
   /**
    * Export the user DB as `SeedUser`s — the exact shape `seedUsers`
-   * accepts, so export → seed round-trips (the persistence substrate,
-   * the design rationale section 3c). Identities with an email but no
-   * password (provider-flow users created via `createSignInCredential`)
-   * export with {@link NO_PASSWORD_SENTINEL} so they survive the
-   * round-trip (same trick hosts already use when seeding popup
-   * identities). Anonymous users (no email) export with
+   * accepts, including every linked provider. Passwordless accounts omit
+   * the password; legacy placeholder values are decoded only on import.
+   * Anonymous users (no email) export with
    * `providerId: 'anonymous'` and no email or password, so a checkpoint,
    * a branch, and a restart keep them, matching real Firebase, which
    * keeps anonymous accounts in its user pool rather than discarding them.
@@ -835,30 +846,42 @@ export class SandboxBackend {
   exportUsers(): SeedUser[] {
     const out: SeedUser[] = [];
     for (const u of this.usersByUid.values()) {
-      if (u.isAnonymous) {
-        const seed: SeedUser = { uid: u.uid, providerId: 'anonymous' };
-        if (u.displayName !== null) seed.displayName = u.displayName;
-        if (u.photoUrl !== null) seed.photoUrl = u.photoUrl;
-        if (Object.keys(u.customClaims).length > 0) seed.customClaims = u.customClaims;
-        if (u.disabled) seed.disabled = true;
-        if (u.tenantId !== null) seed.tenantId = u.tenantId;
+      const { email, displayName, photoUrl, tenantId, phoneNumber, isAnonymous, disabled, emailVerified } = u;
+      const hasDisplayName = displayName !== null;
+      const hasPhotoUrl = photoUrl !== null;
+      const hasCustomClaims = Object.keys(u.customClaims).length > 0;
+      const hasTenant = tenantId !== null;
+      if (isAnonymous) {
+        const seed: SeedUser = { uid: u.uid, providerId: 'anonymous', createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
+        if (hasDisplayName) seed.displayName = displayName;
+        if (hasPhotoUrl) seed.photoUrl = photoUrl;
+        if (hasCustomClaims) seed.customClaims = u.customClaims;
+        if (disabled) seed.disabled = true;
+        if (hasTenant) seed.tenantId = tenantId;
         out.push(seed);
         continue;
       }
-      if (u.email === null) continue; // credential-less, non-anonymous: not round-trippable
+      const hasNoEmail = email === null;
+      if (hasNoEmail) continue; // credential-less, non-anonymous: not round-trippable
       const seed: SeedUser = {
         uid: u.uid,
-        email: u.email,
-        password: u.password ?? NO_PASSWORD_SENTINEL,
+        createdAt: u.createdAt,
+        lastLoginAt: u.lastLoginAt,
+        email,
         providerId: u.providerUserInfo[0]?.providerId ?? 'password',
+        providerUserInfo: u.providerUserInfo.map(provider => ({ ...provider })),
       };
-      if (u.displayName !== null) seed.displayName = u.displayName;
-      if (u.photoUrl !== null) seed.photoUrl = u.photoUrl;
-      if (u.phoneNumber !== null) seed.phoneNumber = u.phoneNumber;
-      if (Object.keys(u.customClaims).length > 0) seed.customClaims = u.customClaims;
-      if (u.emailVerified) seed.emailVerified = true;
-      if (u.disabled) seed.disabled = true;
-      if (u.tenantId !== null) seed.tenantId = u.tenantId;
+      const { password } = u;
+      const hasPassword = password !== null;
+      if (hasPassword) seed.password = password;
+      if (hasDisplayName) seed.displayName = displayName;
+      if (hasPhotoUrl) seed.photoUrl = photoUrl;
+      const hasPhoneNumber = phoneNumber !== null;
+      if (hasPhoneNumber) seed.phoneNumber = phoneNumber;
+      if (hasCustomClaims) seed.customClaims = u.customClaims;
+      if (emailVerified) seed.emailVerified = true;
+      if (disabled) seed.disabled = true;
+      if (hasTenant) seed.tenantId = tenantId;
       out.push(seed);
     }
     return out;
@@ -1017,8 +1040,10 @@ export class SandboxBackend {
     validateEmailFormat(email);
     const key = email.toLowerCase();
     const existing = this.usersByEmail.get(key);
-    if (existing) {
-      if (!existing.providerUserInfo.some((p) => p.providerId === 'password')) {
+    const hasAccount = existing !== undefined;
+    if (hasAccount) {
+      const needsPasswordProvider = !existing.providerUserInfo.some((p) => p.providerId === 'password');
+      if (needsPasswordProvider) {
         existing.providerUserInfo.push({ providerId: 'password' });
       }
       // Redeeming a link mailed to this address proves control of it.
@@ -1026,7 +1051,8 @@ export class SandboxBackend {
       this.notifyUsersChanged();
       return { stored: existing, isNewUser: false };
     }
-    const uid = `email-${key}-${this.usersByEmail.size + 1}`;
+    // Email punctuation is invalid in common UID-keyed RTDB paths.
+    const uid = `email-${globalThis.crypto.randomUUID()}`;
     const record = this.makeStored({
       uid,
       email,
@@ -1167,13 +1193,15 @@ export class SandboxBackend {
     validateEmailFormat(email);
     validatePasswordStrength(password);
     const key = email.toLowerCase();
-    if (this.usersByEmail.has(key)) {
+    const emailInUse = this.usersByEmail.has(key);
+    if (emailInUse) {
       throw makeAuthError(
         'auth/email-already-in-use',
         `An account already exists for ${email}.`,
       );
     }
-    const uid = `email-${key}-${this.usersByEmail.size + 1}`;
+    // Email punctuation is invalid in common UID-keyed RTDB paths.
+    const uid = `email-${globalThis.crypto.randomUUID()}`;
     const record = this.makeStored({
       uid,
       email,
@@ -1335,7 +1363,8 @@ export class SandboxBackend {
   }
 
   setCurrentUser(user: User | null, signInProvider?: string | null): void {
-    if (user === null) {
+    const signsOut = user === null;
+    if (signsOut) {
       // Sign-out. Drop the cached token so a later re-sign-in for the
       // same uid mints a fresh one ("new session = new token"). Fire
       // listeners only if we were actually signed in (signing out an
@@ -1348,7 +1377,8 @@ export class SandboxBackend {
       } finally {
         this.applyingTransition = false;
       }
-      if (previousUser) {
+      const hadUser = previousUser !== null;
+      if (hadUser) {
         this.tokenCache.delete(previousUser.uid);
         this.notifyAuthListeners();
         this.notifySessionChanged();
@@ -1363,9 +1393,10 @@ export class SandboxBackend {
       return;
     }
 
+    const isSignIn = signInProvider !== undefined;
     // Record this session's provider BEFORE any token mint below so
     // the freshly-minted token carries the right sign_in_provider.
-    if (signInProvider !== undefined) {
+    if (isSignIn) {
       this.signInProviderByUid.set(user.uid, signInProvider);
     }
 
@@ -1377,7 +1408,8 @@ export class SandboxBackend {
 
     // A `signInProvider` argument marks an actual sign-in (the test
     // driver omits it) — bump the record's lastLoginAt.
-    if (signInProvider !== undefined && stored) {
+    const recordsSignIn = isSignIn && stored !== undefined;
+    if (recordsSignIn) {
       stored.lastLoginAt = this.now().toISOString();
       this.notifyUsersChanged();
     }
@@ -1389,13 +1421,14 @@ export class SandboxBackend {
     // is unchanged (AUTH-B8: a same-uid re-sign-in still rotates the
     // token, which `onIdTokenChanged` then observes). Matches prod's
     // "new session = new token".
-    this.tokenCache.set(user.uid, this.mintToken(user.uid, claims));
+    this.mintToken(user.uid, claims, user.tenantId ?? null);
 
     // Push to the sandbox under the guard so the synchronous subscriber
     // doesn't notify — we drive the fan-out below with the correct
     // id-token / auth-state split.
     const signedInState: NonNullable<AuthState> = { uid: user.uid, token: claims };
-    if (typeof user.tenantId === 'string') signedInState.tenant = user.tenantId;
+    const hasTenant = typeof user.tenantId === 'string';
+    if (hasTenant) signedInState.tenant = user.tenantId;
     const nextState: AuthState = signedInState;
     this.applyingTransition = true;
     try {
@@ -1414,7 +1447,7 @@ export class SandboxBackend {
     // the test driver (`sandbox.setUser`) omits it and is not a sign-in
     // worth surfacing on the activity stream. The acting identity IS the
     // user that just signed in.
-    if (signInProvider !== undefined) {
+    if (isSignIn) {
       this.emitAuthEvent('sign_in', {
         path: user.uid,
         auth: nextState,
@@ -1532,12 +1565,14 @@ export class SandboxBackend {
           `createSignInCredential: no identity with uid ${req.uid}. Use the {spec} shape to create one.`,
         );
       }
+      this.assertUserEnabled(found);
       stored = found;
     } else {
       const { spec } = req;
       const specPhotoUrl = spec.photoUrl ?? null;
       const byEmail = this.usersByEmail.get(spec.email.toLowerCase());
       if (byEmail) {
+        this.assertUserEnabled(byEmail);
         stored = byEmail;
         if (refreshStoredPhoto(stored, specPhotoUrl)) this.notifyUsersChanged();
       } else {
@@ -1649,11 +1684,20 @@ export class SandboxBackend {
     return next;
   }
 
+  /** Restored or explicitly seeded users may already occupy generated IDs. */
+  private nextAvailableAdminUid(): string {
+    for (;;) {
+      const uid = `user-${this.sharedCounters.nextAdminUserId++}`;
+      const isAvailable = !this.usersByUid.has(uid);
+      if (isAvailable) return uid;
+    }
+  }
+
   /** Admin user creation. Does NOT sign the user in (unlike
    *  `createUserWithEmailAndPassword`) — matches the emulator's
    *  add-user flow / admin SDK semantics. */
   createUser(req: CreateUserRequest): AuthUserRecord {
-    const uid = req.uid ?? `user-${this.sharedCounters.nextAdminUserId++}`;
+    const uid = req.uid ?? this.nextAvailableAdminUid();
     if (this.usersByUid.has(uid)) {
       throw makeAuthError(
         'auth/uid-already-exists',
@@ -1827,7 +1871,7 @@ export class SandboxBackend {
    *  the emulator) so `listIdentities` / future user-admin surfaces
    *  see anonymous accounts too. */
   mintAnonymousUser(): User {
-    const uid = `anonymous-${this.sharedCounters.nextAnonymousId++}`;
+    const uid = `anonymous-${globalThis.crypto.randomUUID()}`;
     const record = this.makeStored({ uid, isAnonymous: true });
     this.usersByUid.set(uid, record);
     this.notifyUsersChanged();
@@ -1888,19 +1932,19 @@ export class SandboxBackend {
           'password',
           tenantId,
         );
+      case 'provider':
       case 'uid': {
+        const isProviderSignIn = request.kind === 'provider';
+        if (isProviderSignIn) this.assertProviderEnabled(request.providerId);
         // restoreSession semantics minus the global set: an EXISTING
         // identity (per-tab session restore / provider-bridge accept).
         const stored = this.usersByUid.get(request.uid);
         if (!stored) {
           throw makeAuthError('auth/user-not-found', `mintSession: no identity with uid ${request.uid}.`);
         }
-        if (stored.disabled) {
-          throw makeAuthError('auth/user-disabled', `mintSession: user ${request.uid} is disabled.`);
-        }
-        const providerId = stored.isAnonymous
-          ? 'anonymous'
-          : (stored.providerUserInfo[0]?.providerId ?? 'password');
+        this.assertUserEnabled(stored);
+        const restoredProvider = stored.isAnonymous ? 'anonymous' : (stored.providerUserInfo[0]?.providerId ?? 'password');
+        const providerId = isProviderSignIn ? request.providerId : restoredProvider;
         return this.establishDetachedSession(this.buildUserFromStored(stored), providerId, tenantId);
       }
     }
@@ -1917,17 +1961,19 @@ export class SandboxBackend {
     this.signInProviderByUid.set(user.uid, signInProvider);
     const stored = this.usersByUid.get(user.uid);
     const claims = stored?.customClaims ?? {};
-    if (stored) {
+    const hasStoredUser = stored !== undefined;
+    if (hasStoredUser) {
       stored.lastLoginAt = this.now().toISOString();
       this.notifyUsersChanged();
     }
-    this.tokenCache.set(user.uid, this.mintToken(user.uid, claims));
     // The tenant rides on the session, not on the shared record: ports are
     // independent sessions over one user pool, so two ports can hold the same
     // identity under different tenants and neither may overwrite the other.
     (user as Mutable<User>).tenantId = tenantId;
+    this.mintToken(user.uid, claims, tenantId);
     const state: NonNullable<AuthState> = { uid: user.uid, token: claims };
-    if (tenantId !== null) state.tenant = tenantId;
+    const hasTenant = tenantId !== null;
+    if (hasTenant) state.tenant = tenantId;
     this.emitAuthEvent('sign_in', {
       path: user.uid,
       auth: state,
@@ -1976,12 +2022,12 @@ export class SandboxBackend {
   private mintToken(
     uid: string,
     claims: Record<string, unknown>,
+    tenantId: string | null,
   ): { token: string; result: IdTokenResult } {
     const issuedAt = this.now();
     // 100 years out — sandbox tokens never expire.
     const expires = new Date(issuedAt.getTime() + 100 * 365 * 24 * 60 * 60 * 1000);
     const serial = this.nextTokenSerial++;
-    const token = sandboxTokenFor(uid, claims, serial);
     // The provider of the current sign-in session for this uid —
     // recorded by setCurrentUser at sign-in time. Null for identities
     // driven via the test driver (no prod analog for that path).
@@ -2000,15 +2046,23 @@ export class SandboxBackend {
       // `firebase.sign_in_provider`.
       firebase: { sign_in_provider: signInProvider },
     };
+    const identity = normalizeAuthState({ uid, tenant: tenantId ?? undefined, token: fullClaims });
+    const tokenClaims = identity?.token ?? fullClaims;
+    const sessionClaims = { ...claims, firebase: tokenClaims.firebase };
+    const token = sandboxTokenFor(uid, sessionClaims, serial);
     const result: IdTokenResult = {
       token,
-      claims: fullClaims,
+      claims: tokenClaims,
       expirationTime: expires.toISOString(),
       issuedAtTime: issuedAt.toISOString(),
       authTime: issuedAt.toISOString(),
       signInProvider,
     };
-    return { token, result };
+    const entry = { token, result };
+    const tokens = this.tokenCache.get(uid) ?? new Map<string | null, typeof entry>();
+    tokens.set(tenantId, entry);
+    this.tokenCache.set(uid, tokens);
+    return entry;
   }
 
   /**
@@ -2027,20 +2081,9 @@ export class SandboxBackend {
     uid: string,
     claims: Record<string, unknown>,
     forceRefresh: boolean,
+    tenantId: string | null = null,
   ): string {
-    if (forceRefresh) {
-      const fresh = this.mintToken(uid, claims);
-      this.tokenCache.set(uid, fresh);
-      // Fan out to onIdTokenChanged listeners only — identity is
-      // unchanged, so onAuthStateChanged stays silent.
-      this.fanOut('id-token');
-      return fresh.token;
-    }
-    const cached = this.tokenCache.get(uid);
-    if (cached) return cached.token;
-    const fresh = this.mintToken(uid, claims);
-    this.tokenCache.set(uid, fresh);
-    return fresh.token;
+    return this.getIdTokenResultFor(uid, claims, forceRefresh, tenantId).token;
   }
 
   /** {@link getIdTokenFor} variant returning the full IdTokenResult.
@@ -2049,17 +2092,28 @@ export class SandboxBackend {
     uid: string,
     claims: Record<string, unknown>,
     forceRefresh: boolean,
+    tenantId: string | null = null,
   ): IdTokenResult {
     if (forceRefresh) {
-      const fresh = this.mintToken(uid, claims);
-      this.tokenCache.set(uid, fresh);
+      const fresh = this.mintToken(uid, claims, tenantId);
+      const current = this.session.currentUser;
+      const refreshesCurrentUser = current !== null && current.uid === uid && (current.tenant ?? null) === tenantId;
+      if (refreshesCurrentUser) {
+        // Rules follow refreshed claims without turning a token refresh into a sign-in.
+        this.applyingTransition = true;
+        try {
+          this.session.currentUser = { ...current, token: claims };
+        } finally {
+          this.applyingTransition = false;
+        }
+      }
       this.fanOut('id-token');
       return fresh.result;
     }
-    const cached = this.tokenCache.get(uid);
-    if (cached) return cached.result;
-    const fresh = this.mintToken(uid, claims);
-    this.tokenCache.set(uid, fresh);
+    const cached = this.tokenCache.get(uid)?.get(tenantId);
+    const hasCachedToken = cached !== undefined;
+    if (hasCachedToken) return cached.result;
+    const fresh = this.mintToken(uid, claims, tenantId);
     return fresh.result;
   }
 
@@ -2106,7 +2160,8 @@ export class SandboxBackend {
     // `unlink` of the last provider produces. Falling back on `[]` would
     // resurrect the very provider the user just removed.
     const linked: ProviderUserInfo[] = args.providers ?? [{ providerId: 'password' }];
-    const providerData: UserInfo[] = args.isAnonymous
+    const isAnonymous = args.isAnonymous === true;
+    const providerData: UserInfo[] = isAnonymous
       ? []
       : linked.map((p) => ({
         uid: args.uid,
@@ -2134,9 +2189,9 @@ export class SandboxBackend {
       // Falls back to the closed-over claims for users not in the DB
       // (anonymous / popup), matching how they were minted.
       getIdToken: async (forceRefresh?: boolean) =>
-        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true),
+        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId),
       getIdTokenResult: async (forceRefresh?: boolean) =>
-        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true),
+        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId),
     };
     // Stamp the backend-dispatch hook non-enumerably so the top-level
     // `updateProfile(user, …)` free function can update THIS user (and the
@@ -2380,6 +2435,12 @@ export class SandboxBackend {
     return this.usersByUid.get(uid)?.customClaims ?? fallback;
   }
 
+  private assertUserEnabled(user: StoredUser): void {
+    if (user.disabled) {
+      throw makeAuthError('auth/user-disabled', 'The user account has been disabled by an administrator.');
+    }
+  }
+
   /** Internal validator for email/password — checks the password
    *  matches the stored record. Throws `auth/invalid-email` on a
    *  malformed email, `auth/wrong-password` on mismatch,
@@ -2418,12 +2479,7 @@ export class SandboxBackend {
     // exact prod ordering (disabled-vs-wrong-password) is flagged for
     // an oracle capture; the code (`auth/user-disabled`) and message
     // match prod's documented shape.
-    if (stored.disabled) {
-      throw makeAuthError(
-        'auth/user-disabled',
-        'The user account has been disabled by an administrator.',
-      );
-    }
+    this.assertUserEnabled(stored);
     if (stored.password !== password) {
       throw makeAuthError(
         'auth/wrong-password',

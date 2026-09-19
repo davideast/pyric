@@ -20,8 +20,8 @@
 export interface PersistableService {
   /**
    * Return a plain-JSON-serializable snapshot of this service's state.
-   * Called by the persistence controller on every flush. The return
-   * value is stored under the service's registered name in the
+   * Called when the service changes, or on every flush when `subscribe`
+   * is omitted. The return value is stored under the service's registered name in the
    * `services` map of the persisted blob.
    */
   snapshot(): unknown;

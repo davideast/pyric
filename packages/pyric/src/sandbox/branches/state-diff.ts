@@ -22,6 +22,7 @@ import type {
   StorageObjectState,
 } from '../full-state.js';
 import type { Divergence } from '../replay/index.js';
+import { decodeStateDocument } from '../internal/state-values.js';
 
 /**
  * One divergence, tagged with the service whose state it concerns.
@@ -177,16 +178,25 @@ function walkDocument(
   }
 }
 
+/** Compare user fields rather than the escaped representation stored on disk. */
+function documentForDiff(state: FullSandboxState, path: string): Record<string, unknown> | undefined {
+  const document = state.firestore[path];
+  const isMissing = document === undefined;
+  if (isMissing) return undefined;
+  return decodeStateDocument(document, state.firestoreEncoding);
+}
+
 /** Firestore documents, by full document path. */
 function diffFirestore(before: FullSandboxState, after: FullSandboxState): BranchDivergence[] {
   const out: BranchDivergence[] = [];
   const paths = new Set([...Object.keys(before.firestore), ...Object.keys(after.firestore)]);
   for (const path of paths) {
-    const beforeDoc = before.firestore[path];
-    const afterDoc = after.firestore[path];
+    const beforeDoc = documentForDiff(before, path);
+    const afterDoc = documentForDiff(after, path);
     const oneSideMissing = beforeDoc === undefined || afterDoc === undefined;
     if (oneSideMissing) {
-      if (jsonEqual(beforeDoc ?? null, afterDoc ?? null)) continue;
+      const bothMissing = jsonEqual(beforeDoc ?? null, afterDoc ?? null);
+      if (bothMissing) continue;
       out.push(divergenceAt('firestore', path, undefined, beforeDoc, afterDoc));
       continue;
     }

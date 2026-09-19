@@ -62,3 +62,16 @@ export function firestoreWriteUsage(method: string): UsageEvidence | undefined {
   if (method === 'writeBatch.commit' || method === 'runTransaction') return { unmeasured: 1 };
   return undefined;
 }
+
+/** Shared page/host accounting: synthetic and estimated tokens are never backend usage. */
+export function aiCompletionUsage(detail: import('./ai-evidence.js').AiEvidence, method: string): UsageEvidence {
+  if (method === 'countTokens') return { aiCompleted: 1 };
+  const backend = detail.usageSource === 'backend';
+  const estimated = detail.usageSource === 'estimated' || detail.usageSource === 'scripted';
+  const incomplete = detail.inputTokens === undefined || detail.outputTokens === undefined || detail.usageSource === 'unknown';
+  return { aiCompleted: 1,
+    ...(backend ? { aiInputTokens: detail.inputTokens, aiOutputTokens: detail.outputTokens } : {}),
+    ...(estimated ? { aiEstimatedTokens: detail.totalTokens } : {}),
+    aiUnknownUsage: incomplete ? 1 : 0,
+  };
+}

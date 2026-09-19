@@ -156,12 +156,12 @@ export class PersistenceState {
     const state: Record<string, JsonValue> = {
       '.pyricRtdbPersistence': 1,
       data: this.state.tree.snapshot(),
-      priorities: Object.fromEntries(this.state.priorities.entries()) as JsonValue,
+      priorities: Object.fromEntries(this.state.priorities.entries()),
     };
     if (hasActiveRules) {
-      state.rules = structuredClone(this.state.activeRules) as unknown as JsonValue;
+      state.rules = structuredClone(this.state.activeRules) as JsonValue;
     }
-    return state as unknown as JsonValue;
+    return state;
   }
 
   restore(root: JsonValue): void {
@@ -169,14 +169,7 @@ export class PersistenceState {
     const persisted = decode(root);
 
     let dataToRestore: JsonValue = {};
-    const isPersistedDataNull = persisted.data === null;
-    const isPersistedDataUndefined = persisted.data === undefined;
-    let hasPersistedData = false;
-    if (!isPersistedDataNull) {
-      if (!isPersistedDataUndefined) {
-        hasPersistedData = true;
-      }
-    }
+    const hasPersistedData = persisted.data !== null && persisted.data !== undefined;
     if (hasPersistedData) {
       dataToRestore = persisted.data;
     }

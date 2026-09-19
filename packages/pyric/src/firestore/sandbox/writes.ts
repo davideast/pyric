@@ -72,9 +72,11 @@ export interface OperationResult {
 }
 
 export interface BatchOperationInput {
-  method: 'create' | 'update' | 'delete';
+  /** `set` replaces data; its create/update rule is selected at commit. */
+  method: 'create' | 'update' | 'set' | 'delete';
   path: string;
   data?: DocumentData;
+  merge?: Operation['merge'];
 }
 
 export interface BatchResult {

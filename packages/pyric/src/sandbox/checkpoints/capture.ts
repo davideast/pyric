@@ -15,6 +15,7 @@ import { applyFullState, captureFullState, type FullSandboxState } from '../full
 import type { LocalSandbox } from '../types/service.js';
 import { getClock } from '../clock.js';
 import { CHECKPOINT_FORMAT, type Checkpoint, type CheckpointCounts } from './types.js';
+import { assertCheckpointState } from './validation.js';
 
 /** True when a JSON value is a plain object with keys to count. */
 function isCountableTree(value: unknown): value is Record<string, unknown> {
@@ -70,6 +71,7 @@ export async function restoreCheckpoint(
   sandbox: LocalSandbox,
   checkpoint: Checkpoint,
 ): Promise<void> {
+  assertCheckpointState(checkpoint.state);
   sandbox.reset();
   await applyFullState(sandbox, checkpoint.state);
 }

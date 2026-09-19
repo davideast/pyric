@@ -181,14 +181,22 @@ export class QueryImpl implements Query {
   }
 
   orderBy(field: string, direction: OrderDirection = 'asc'): Query {
+    const hasInvalidDirection = direction !== 'asc' && direction !== 'desc';
+    if (hasInvalidDirection) {
+      throw new FirestoreCompatError({
+        code: 'invalid-argument', message: "orderBy() direction must be 'asc' or 'desc'.",
+      });
+    }
     return this.clone({ orders: [...this.orders, { field, direction }] });
   }
 
   limit(n: number): Query {
+    assertFiniteLimit(n);
     return this.clone({ limitCount: n, limitFromEnd: false });
   }
 
   limitToLast(n: number): Query {
+    assertFiniteLimit(n);
     return this.clone({ limitCount: n, limitFromEnd: true });
   }
 
@@ -514,4 +522,11 @@ function computeAggregate(
   if (field.kind === 'sum') return sum;
   // average — undefined for empty/all-non-numeric sets
   return n === 0 ? null : sum / n;
+}
+
+function assertFiniteLimit(n: number): void {
+  const hasInvalidLimit = !Number.isFinite(n);
+  if (hasInvalidLimit) {
+    throw new FirestoreCompatError({ code: 'invalid-argument', message: 'Query limit must be a finite number.' });
+  }
 }

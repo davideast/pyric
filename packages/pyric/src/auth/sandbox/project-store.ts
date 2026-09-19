@@ -9,7 +9,6 @@ export interface AuthProjectStore {
   readonly providerConfigSubscribers: Set<() => void>;
   readonly counters: {
     nextAdminUserId: number;
-    nextAnonymousId: number;
   };
 }
 
@@ -25,7 +24,6 @@ export function createAuthProjectStore(): AuthProjectStore {
     providerConfigSubscribers: new Set(),
     counters: {
       nextAdminUserId: 1,
-      nextAnonymousId: 1,
     },
   };
 }
