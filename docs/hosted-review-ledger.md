@@ -465,7 +465,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### C13. Bridge sends a Buffer instead of a string and breaks the peer handshake
 
-- Severity: blocker for the transport slice. Slice: `transport`. Status: open. Pre-existing on `origin/hosted-live-mode`; found by the phase 1 exit gate.
+- Severity: blocker for the transport slice. Slice: `transport`. Status: verify. Owner: Codex; branch: `work/integration`. The existing peer-standby suite is mapped under C13; string sends are restored. Pre-existing on `origin/hosted-live-mode`; found by the phase 1 exit gate.
 - Location: `packages/cli/src/bridge/server/socket-message.ts:30`, commit `5e8f40a3` ("queue UTF-8 buffers for slow readers").
 - Defect: `socket.send(Buffer.from(payload), { binary: false })` replaced `socket.send(payload)`. Bisected by the reviewer on 2026-09-18: `packages/cli/test/bridge/peer-standby.test.ts` is 6 pass at the parent `6433d9bd` and 6 fail at `5e8f40a3`, including "sandbox not connected" after a peer hello. Every later tip inherits it.
 - Failure: a bridge peer connects, sends hello, and the server's reply arrives in a form the client does not accept as a bridge frame, so the sandbox is never marked connected.
@@ -480,9 +480,25 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### A14. A collection reference is not a query in pyric's Firestore types
 
-- Severity: should-fix, blocks the foundation slice. Slice: `core`. Status: verify. Owner: Codex; branch: `work/integration`; base: `e3db109a`. The compiler acceptance reproduces all three diagnostics before the fix and passes after the single-declaration change. Found by the extraction proof on 2026-09-19.
+- Severity: should-fix, blocks the foundation slice. Slice: `core`. Status: closed at `1138983b` (branch `work/integration`, fast-forwarded to `origin/hosted-main-integration`). Verified 2026-09-19 by the reviewer: `verify-ledger A14` 1 pass, 0 fail; the reviewer's independent probe compiles with zero diagnostics; Firestore SDK and sandbox suites 1775 pass, 0 fail; pyric typecheck exit 0. One-declaration fix, `CollectionReference<_T> extends Query<_T>`. Found by the extraction proof on 2026-09-19.
 - Location: `packages/pyric/src/firestore/types.ts`, `CollectionReference` and `Query`.
 - Defect: `Query<T>` is `{ _isQuery?: true }`, a weak type, and `CollectionReference<T>` is `{ id; path }`, so a collection reference is not assignable to `Query`. In the Firebase SDK `CollectionReference<T> extends Query<T>`. On `main` this was masked for `onSnapshot` only, because `CollectionReference` and `DocumentReference` were structurally identical and `onSnapshot` accepts either. The slice adds `withConverter` to `DocumentReference`, so `onSnapshot(collection(db, 'users'), cb)` now fails to typecheck. `getDocs(collection(db, 'users'))` and `const q: Query = collection(db, 'users')` already failed on `main`.
 - Reviewer probe against the slice's pyric: three errors (TS2559 on assignment to `Query`, TS2345 on `onSnapshot`, TS2559 on `getDocs`). Against `main`: the two TS2559 errors only.
 - Failure: any consumer typed against `pyric/firestore` directly (Studio, `@pyric/ui`, in-page sandbox apps) cannot subscribe to a collection without wrapping it in `query()`. The branch worked around this in `packages/studio/src/clients/worker-live.test.ts` with exactly that wrap, which hides the type defect.
 - Acceptance: `CollectionReference<T>` extends `Query<T>` in `types.ts`; a type-level test in `packages/pyric/test/firestore/ledger/` compiles a probe with the TypeScript API (the A7 technique) asserting zero diagnostics for the three probe lines above; main's Studio compiles against the slice without the `query()` wrap. Land the fix on `hosted-main-integration` first, then re-run the extraction so the slice's first commit stays byte-equal to the remote diff.
+
+## E. Evidence owed
+
+### E1. Conformance evidence for the foundation slice's engine changes
+
+- Severity: should-fix. Slice: `evidence`. Status: open. Filed 2026-09-19 when the coupling gate refused the foundation pull request.
+- Context: the slice changes engine files under `packages/pyric` without moving any observation, registry row, or generated projection. `compat:generate` and `compat:validate` produce no diff, the conformance suite passes, and the registry count is unchanged, so the pull request carries a `Conformance-Exempt` trailer stating exactly that. The exemption is a claim that nothing observable changed; it is not evidence that the new behaviors match production.
+- Owed: registry rows with oracle observations for (a) the query validation refusals introduced on the branch (unsupported target descriptors, order directions, filter operators, non-array membership operands, invalid limits), asserting that pyric refuses what the Firebase SDK refuses and accepts what it accepts; and (b) the atomic write rule method, asserting that batch and transaction `update` on a missing document and `create` on an existing document produce the production error codes.
+- Acceptance: the rows exist with `oracle-backed` automation and captured observations; `compat:conformance` verifies them; the registry count test is updated; the trailer's reason is no longer needed for any later slice touching the same files.
+
+### A15. A7 changed the unknown-method wire text the remote client parses
+
+- Severity: should-fix, blocks the transport slice. Slice: `core`. Status: verify. Owner: Codex; branch: `work/integration`. Both defaults preserve the established unknown-method wire text; the unchanged remote suite and A7 acceptance pass. Found by the reviewer's transport dry run on 2026-09-19.
+- Location: `packages/cli/src/serve/hosted/persistence-admission.ts` and `packages/cli/src/serve/worker/inbound-validation/operation-arguments.ts`, the `never` defaults added by A7.
+- Defect: both throw `Unknown sandbox method: <method>.` Every host dispatch site refuses with `Unknown method: <method>` (`worker/host/dispatch.ts:122` and seven service handlers), and the remote client keys its version-skew guidance on `/^Unknown method:/` at `packages/cli/src/remote/index.ts:438`. A refusal from the new validation path therefore reaches the client without the restart-or-reload guidance. `packages/cli/test/remote/loop-hold.test.ts:324` fails.
+- Acceptance: both defaults throw `Unknown method: <method>` with no trailing period; `bun test packages/cli/test/remote` green with no test changed; the A7 acceptance still passes.
