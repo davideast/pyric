@@ -100,7 +100,7 @@ export function requiresHealthyPersistence(message: OpMessage): boolean {
       return false;
     default: {
       const unsupportedMethod: never = method;
-      throw new FirebaseError('invalid-argument', `Unknown sandbox method: ${unsupportedMethod}.`);
+      throw new FirebaseError('invalid-argument', `Unknown method: ${unsupportedMethod}`);
     }
   }
 }

@@ -319,7 +319,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       return;
     default: {
       const unsupportedMethod: never = method;
-      throw new FirebaseError('invalid-argument', `Unknown sandbox method: ${unsupportedMethod}.`);
+      throw new FirebaseError('invalid-argument', `Unknown method: ${unsupportedMethod}`);
     }
   }
 }

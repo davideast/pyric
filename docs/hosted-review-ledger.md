@@ -498,7 +498,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### A15. A7 changed the unknown-method wire text the remote client parses
 
-- Severity: should-fix, blocks the transport slice. Slice: `core`. Status: fixing. Owner: Codex; branch: `work/integration`. Found by the reviewer's transport dry run on 2026-09-19.
+- Severity: should-fix, blocks the transport slice. Slice: `core`. Status: verify. Owner: Codex; branch: `work/integration`. Both defaults preserve the established unknown-method wire text; the unchanged remote suite and A7 acceptance pass. Found by the reviewer's transport dry run on 2026-09-19.
 - Location: `packages/cli/src/serve/hosted/persistence-admission.ts` and `packages/cli/src/serve/worker/inbound-validation/operation-arguments.ts`, the `never` defaults added by A7.
 - Defect: both throw `Unknown sandbox method: <method>.` Every host dispatch site refuses with `Unknown method: <method>` (`worker/host/dispatch.ts:122` and seven service handlers), and the remote client keys its version-skew guidance on `/^Unknown method:/` at `packages/cli/src/remote/index.ts:438`. A refusal from the new validation path therefore reaches the client without the restart-or-reload guidance. `packages/cli/test/remote/loop-hold.test.ts:324` fails.
 - Acceptance: both defaults throw `Unknown method: <method>` with no trailing period; `bun test packages/cli/test/remote` green with no test changed; the A7 acceptance still passes.
