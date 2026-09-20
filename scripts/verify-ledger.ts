@@ -19,6 +19,7 @@ interface Entry {
   tests: string[];
   filter?: string;
   node?: boolean;
+  playwright?: boolean;
   note?: string;
 }
 
@@ -44,11 +45,13 @@ let failed = unknown.length > 0;
 for (const id of unknown) console.log(`${id}\tNO MAP ENTRY`);
 
 for (const [id, entry] of selected) {
-  const command = ['test', ...entry.tests];
-  if (entry.filter) command.push('-t', entry.filter);
+  const command = entry.playwright
+    ? ['node_modules/@playwright/test/cli.js', 'test', '--config=packages/cli/test/e2e/hosted/playwright.config.ts', ...entry.tests]
+    : ['test', ...entry.tests];
+  if (entry.filter) command.push(entry.playwright ? '--grep' : '-t', entry.filter);
   const env = { ...process.env };
   if (entry.node) env.PYRIC_TEST_NODE = env.PYRIC_TEST_NODE ?? 'node';
-  const result = spawnSync('bun', command, { encoding: 'utf8', env, timeout: 300_000 });
+  const result = spawnSync(entry.playwright ? 'node' : 'bun', command, { encoding: 'utf8', env, timeout: 300_000 });
   const output = `${result.stdout}\n${result.stderr}`;
   const passMatch = output.match(/(\d+) pass/);
   const failMatch = output.match(/(\d+) fail/);

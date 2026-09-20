@@ -1,4 +1,10 @@
 {
+  "C1": {
+    "phase": 3,
+    "tests": ["packages/cli/test/e2e/hosted/restart-subscriptions.pw.ts"],
+    "playwright": true,
+    "note": "Browser RTDB, presence and event listeners survive a real Node host restart without reloading."
+  },
   "A1": {
     "phase": 1,
     "tests": ["packages/pyric/test/sandbox/firestore/ledger/a1-atomic-rule-method.test.ts"],
