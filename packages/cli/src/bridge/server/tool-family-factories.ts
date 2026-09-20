@@ -1,3 +1,4 @@
+import { createMessagingInspectionTools } from '../../messaging/inspection.js';
 import { createCaptureTools } from './capture-tools.js';
 /**
  * Node-side factory for each tool family. This is the only bridge module
@@ -44,6 +45,7 @@ export const FORWARDED_METADATA_FACTORIES = {
   'firestore-simulator': (stub) => createFirestoreSimulatorTools({ resolveSandbox: stub as never }),
   'firestore-data': (stub) => createFirestoreDataTools({ resolveDb: stub as never }),
   'firestore-inspect': (stub) => createFirestoreInspectTools({ resolveSandbox: stub as never }),
+  'messaging-inspection': (stub) => createMessagingInspectionTools(stub),
   'rtdb-inspection': (stub) => createRtdbInspectionTools({ resolveSandbox: stub as never }),
   'auth-users': (stub) => createAuthUsersTools({ resolveSandbox: stub as never }),
 } satisfies Record<ForwardedFamilyKey, (stub: StubResolver) => ToolHandler[]>;

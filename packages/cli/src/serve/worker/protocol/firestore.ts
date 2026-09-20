@@ -2,7 +2,8 @@
  * SharedWorker protocol — Firestore reference descriptors, sentinels,
  * aggregate descriptors, write descriptors, and document data serialization.
  */
-import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
+import { decodeDocValue, encodeDocValue, rehydrateEncodedDocValue, DOC_VALUE_ENCODING, type DocValueEncoding, type ReferenceDecoder } from 'pyric/firestore/internal/value-codec';
+export type { DocValueEncoding } from 'pyric/firestore/internal/value-codec';
 import type { AuthLens, ListenerOwner } from 'pyric/sandbox';
 
 // ─── Ref descriptors (client-side, never cross the port directly) ──────────
@@ -53,7 +54,7 @@ export interface QueryDescriptor {
  * and the worker rebuilds them with the pyric/firestore `and`/`or` factories.
  */
 export type FilterConstraintDescriptor =
-  | { kind: 'where'; field: string; op: string; value: unknown }
+  | { kind: 'where'; field: string; op: string; value: unknown; valueEncoding?: DocValueEncoding }
   | { kind: 'and'; filters: readonly FilterConstraintDescriptor[] }
   | { kind: 'or'; filters: readonly FilterConstraintDescriptor[] };
 
@@ -63,10 +64,10 @@ export type QueryConstraintDescriptor =
   | { kind: 'orderBy'; field: string; direction?: 'asc' | 'desc' }
   | { kind: 'limit'; n: number }
   | { kind: 'limitToLast'; n: number }
-  | { kind: 'startAt'; values: unknown[]; isSnapshot?: false }
-  | { kind: 'startAfter'; values: unknown[]; isSnapshot?: false }
-  | { kind: 'endAt'; values: unknown[]; isSnapshot?: false }
-  | { kind: 'endBefore'; values: unknown[]; isSnapshot?: false };
+  | { kind: 'startAt'; values: unknown[]; isSnapshot?: false; valueEncoding?: DocValueEncoding }
+  | { kind: 'startAfter'; values: unknown[]; isSnapshot?: false; valueEncoding?: DocValueEncoding }
+  | { kind: 'endAt'; values: unknown[]; isSnapshot?: false; valueEncoding?: DocValueEncoding }
+  | { kind: 'endBefore'; values: unknown[]; isSnapshot?: false; valueEncoding?: DocValueEncoding };
 
 export type TargetDescriptor = DocRef | CollRef | GroupRef | QueryDescriptor;
 
@@ -120,8 +121,8 @@ export type AggregateSpecDescriptor = Record<string, AggregateFieldDescriptor>;
 // ─── Write descriptors for batch + transaction ────────────────────────────
 
 export type WriteDescriptor =
-  | { method: 'set'; path: string; data: unknown; options?: { merge?: boolean; mergeFields?: string[] } }
-  | { method: 'update'; path: string; data: unknown }
+  | { method: 'set'; path: string; data: unknown; valueEncoding?: DocValueEncoding; options?: { merge?: boolean; mergeFields?: string[] } }
+  | { method: 'update'; path: string; data: unknown; valueEncoding?: DocValueEncoding }
   | { method: 'delete'; path: string };
 
 /**
@@ -179,11 +180,13 @@ export interface FirestoreSubMessage {
 
 /**
  * Document data as it crosses the port: Timestamp/Bytes/LatLng/etc. are
- * serialized to their JSON marker shapes so they survive structured clone,
- * then rehydrated back to REAL class instances on the receiving side.
+ * serialized to marker shapes so they survive structured clone, while maps
+ * with marker keys are escaped. The receiver restores each value's meaning.
  */
 export interface SerializedDocData {
-  /** JSON string of the document data (Timestamp/Bytes/LatLng serialized via toJSON). */
+  /** Absent on legacy peers; declared outside document fields to avoid marker collisions. */
+  valueEncoding?: DocValueEncoding;
+  /** Encoded document data, including scalar markers and escaped user maps. */
   json: string;
 }
 
@@ -191,12 +194,15 @@ export interface SerializedDocData {
  * Serialize document data to cross-port form.
  */
 export function serializeDocData(data: Record<string, unknown>): SerializedDocData {
-  return { json: JSON.stringify(data) };
+  return { valueEncoding: DOC_VALUE_ENCODING, json: JSON.stringify(encodeDocValue(data)) };
 }
 
 /**
  * Deserialize document data from cross-port form.
  */
-export function deserializeDocData(serialized: SerializedDocData): unknown {
-  return rehydrateDocValue(JSON.parse(serialized.json));
+export function deserializeDocData(serialized: SerializedDocData, references?: ReferenceDecoder): unknown {
+  const value: unknown = JSON.parse(serialized.json);
+  const hasReferenceOwner = references !== undefined;
+  if (hasReferenceOwner) return decodeDocValue(value, references, serialized.valueEncoding);
+  return rehydrateEncodedDocValue(value, serialized.valueEncoding);
 }

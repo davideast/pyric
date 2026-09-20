@@ -5,10 +5,11 @@
  * identity-pinning rules instead of drifting copies.
  *
  * Strategy: the `.pyric/serve.json` pointer serve writes in the project cwd
- * (exact + project-correct) first, then a health probe across the scan
- * window as a fallback. Degrades LEGIBLY: if no serve is found, or the
+ * first, then a health probe across the scan window as a fallback. The
+ * canonical pointer directory is returned for endpoint verification; copying
+ * a pointer does not establish project ownership. If no serve is found, or the
  * pointed server's identity can't be matched, callers get `null` (plus a
- * `log` diagnostic) — never a silent wrong-server hit.
+ * `log` diagnostic).
  *
  * IDENTITY — the discovery pointer records the bridge's `instanceId`; a
  * server is accepted only if its `/__pyric/health` reports the SAME id. Two
@@ -16,7 +17,7 @@
  * `[::1]:P`); without this, a client locks onto whichever family answers
  * first while the browser is on the other — split-brain.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 /** Ports probed when the pointer is absent — serve's default scan window PLUS
@@ -55,6 +56,8 @@ export interface HealthLite {
 }
 
 export interface Discovered {
+  /** Canonical directory containing the discovered .pyric/serve.json; absent for a port scan. */
+  pointerProjectDir?: string;
   mcpUrl: string;
   /**
    * The CANONICAL display URL — what a human/browser should OPEN. Comes from
@@ -162,7 +165,8 @@ export async function discoverServe(
   scanPorts: number[] = SCAN_PORTS,
 ): Promise<Discovered | null> {
   for (const pointerPath of candidatePointerPaths(cwd)) {
-    if (existsSync(pointerPath)) {
+    const hasPointerFile = existsSync(pointerPath);
+    if (hasPointerFile) {
       try {
         const p = JSON.parse(readFileSync(pointerPath, 'utf8')) as {
           url?: string;
@@ -171,11 +175,16 @@ export async function discoverServe(
           instanceId?: string;
         };
         const port = p.port ?? portOf(p.mcpUrl) ?? portOf(p.url);
-        if (port) {
-          const expectedId = typeof p.instanceId === 'string' && p.instanceId ? p.instanceId : null;
+        const hasPort = port !== null && Boolean(port);
+        if (hasPort) {
+          const pointerId = p.instanceId;
+          const hasExpectedId = typeof pointerId === 'string' && pointerId !== '';
+          const expectedId = hasExpectedId ? pointerId : null;
           const hit = await healthyBase(port, expectedId);
-          if (hit) {
+          const hasMatchingHost = hit !== null;
+          if (hasMatchingHost) {
             return {
+              pointerProjectDir: realpathSync(dirname(dirname(pointerPath))),
               mcpUrl: `${hit.base}/__pyric/mcp`,
               url: canonicalServeUrl(port, p.url),
               base: hit.base,
@@ -187,7 +196,8 @@ export async function discoverServe(
           // a different sandbox may be squatting it (cross-family collision) or
           // the server stopped. Do NOT scan into a possibly-wrong server — that
           // split-brain is exactly what this identity check prevents. Fail legibly.
-          if (expectedId) {
+          const pinsInstance = expectedId !== null;
+          if (pinsInstance) {
             log(
               `pointer ${pointerPath} names a server (instanceId ${expectedId.slice(0, 8)}…) ` +
                 `that isn't answering on port ${port} — another sandbox may be squatting the ` +
@@ -206,7 +216,8 @@ export async function discoverServe(
   }
   for (const port of scanPorts) {
     const hit = await healthyBase(port);
-    if (hit) {
+    const foundByScan = hit !== null;
+    if (foundByScan) {
       return {
         mcpUrl: `${hit.base}/__pyric/mcp`,
         url: canonicalServeUrl(port),

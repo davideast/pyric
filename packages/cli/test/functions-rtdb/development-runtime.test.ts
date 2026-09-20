@@ -224,3 +224,26 @@ describe('Functions development runtime', () => {
     expect(events).toContainEqual({ type: 'unexpected-exit', code: 9 });
   });
 });
+
+it('retries a failed initial child once requested, coalesces callers, and refuses after close', async () => {
+  const firstReady = deferred<FunctionsRtdbChildReady>();
+  const failed = fakeChild(firstReady.promise);
+  const ready = { triggerCount: 1, unsupportedTriggers: [] };
+  const replacement = fakeChild(Promise.resolve(ready));
+  let spawns = 0;
+  const runtime = createFunctionsDevelopmentRuntime(runtimeOptions(
+    { wait: async () => true },
+    () => ++spawns === 1 ? failed.handle : replacement.handle,
+  ));
+  try {
+    const initial = runtime.start();
+    firstReady.reject(new Error('no browser tab is connected to the sandbox'));
+    expect((await initial).kind).toBe('failed');
+    expect(failed.stops()).toBe(1);
+    const recovered = await Promise.all([runtime.start(), runtime.start()]);
+    expect(recovered).toEqual([{ kind: 'ready', ready }, { kind: 'ready', ready }]);
+    expect(spawns).toBe(2);
+  } finally { await runtime.close(); }
+  expect((await runtime.start()).kind).toBe('failed');
+  expect(replacement.stops()).toBe(1);
+});

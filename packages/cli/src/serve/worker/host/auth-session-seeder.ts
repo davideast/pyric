@@ -1,5 +1,5 @@
 /**
- * SharedWorker host — session seeding, profile mutation, and OAuth credential
+ * SharedWorker host — provider linking, profile mutation, and OAuth credential
  * resolution extracted from `host-auth.ts`.
  */
 
@@ -11,13 +11,6 @@ import {
 } from 'pyric/auth';
 import { serializeUser } from '../protocol.js';
 
-/**
- * Synthetic password seeded for bridged provider identities (popup/redirect).
- * Provider users never authenticate with a password — this just satisfies the
- * SeedUser shape. Matches `ServeAuthHelper`'s in-page constant in spirit.
- */
-export const PROVIDER_SYNTHETIC_PASSWORD = '__pyric_popup_no_password__';
-
 /** Payload describing an OAuth credential submitted for sign-in over the bridge. */
 export interface OAuthCredentialPayload {
   readonly providerId: string;
@@ -28,26 +21,7 @@ export interface OAuthCredentialPayload {
   readonly displayName?: string | null;
   readonly photoURL?: string | null;
   readonly uid?: string | null;
-}
-
-/**
- * The `photoUrl` a bridged provider identity should be seeded with.
- *
- * A provider sign-in refreshes the stored photo when the identity carries one,
- * and leaves it alone when it does not — the same rule the in-page backend's
- * `recordProviderSignIn` applies. `seedUsers` replaces the whole record, so an
- * identity with no photo has to carry the stored value forward here or the
- * re-seed would blank a photo an earlier sign-in established.
- */
-export function seedPhotoUrl(
-  auth: Auth,
-  uid: string,
-  identityPhotoURL: string | null,
-): string | undefined {
-  if (identityPhotoURL !== null) return identityPhotoURL;
-  const stored = authSandboxOps.listUsers(auth).find((user) => user.uid === uid);
-  if (!stored?.photoUrl) return undefined;
-  return stored.photoUrl;
+  readonly customClaims?: Record<string, unknown>;
 }
 
 /** Serialized UserCredential reply shape for a minted session. */
@@ -87,19 +61,15 @@ export function requireSessionUser(session: MintedSession | null, api: string): 
 }
 
 /**
- * Re-mint an existing port session by UID while preserving any custom claims
- * carried on `session.state.token`.
+ * Refresh a port session from the stored account while retaining its tenant.
+ * Session claims may predate an admin change or checkpoint restore; they must
+ * never be written back to the account during refresh.
  */
 export function remintSessionWithClaims(auth: Auth, session: MintedSession): MintedSession {
-  const rawToken = (session.state.token ?? {}) as Record<string, unknown>;
-  const { sub: _sub, firebase: _firebase, ...customClaims } = rawToken;
-  if (Object.keys(customClaims).length > 0) {
-    authSandboxOps.updateUser(auth, session.user.uid, { customClaims });
-  }
   return authSandboxOps.mintSession(auth, {
     kind: 'uid',
     uid: session.user.uid,
-    ...(session.user.tenantId ? { tenantId: session.user.tenantId } : {}),
+    tenantId: session.user.tenantId ?? null,
   });
 }
 
@@ -155,15 +125,10 @@ export function resolveOAuthCredentialUser(
 
   const existing = existingUsers.find((u) => u.uid === targetUid);
   if (existing) {
-    const providers = existing.providerUserInfo ?? [];
-    const hasProvider = providers.some((p) => p.providerId === credential.providerId);
-    const nextProviders = hasProvider
-      ? [...providers]
-      : [...providers, { providerId: credential.providerId }];
+    authSandboxOps.createSignInCredential(auth, { providerId: credential.providerId, uid: targetUid });
     authSandboxOps.updateUser(auth, targetUid, {
       displayName: credential.displayName ?? existing.displayName,
       email: credential.email ?? existing.email ?? undefined,
-      providerUserInfo: nextProviders,
     });
     if (credential.photoURL !== undefined) {
       authSandboxOps.updateProfile(auth, targetUid, {
@@ -177,6 +142,7 @@ export function resolveOAuthCredentialUser(
       email: credential.email ?? undefined,
       displayName: credential.displayName ?? undefined,
       photoUrl: credential.photoURL ?? undefined,
+      customClaims: credential.customClaims,
       providerUserInfo: [{ providerId: credential.providerId }],
     });
   }

@@ -32,7 +32,10 @@ describe('M2 — transformIndexHtml in-page output (workerReady false, configure
 
 describe('M2 — worker bundle + persist (via the /__pyric middleware)', () => {
   let tmp: string;
-  afterAll(() => { if (tmp) rmSync(tmp, { recursive: true, force: true }); });
+  afterAll(() => {
+    const hasTempProject = Boolean(tmp);
+    if (hasTempProject) rmSync(tmp, { recursive: true, force: true });
+  });
 
   it('serves the SharedWorker bundle at /__pyric/sdk/worker.js', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-worker-'));
@@ -48,6 +51,7 @@ describe('M2 — worker bundle + persist (via the /__pyric middleware)', () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-stamp-'));
     const p = pyric({});
     const stub = {
+      async close() {},
       config: { root: tmp, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
       middlewares: { use() {} },
       watcher: { add() {}, on() {} },
@@ -109,7 +113,10 @@ describe('M2 — seed precedence + persist validation', () => {
     writeFileSync(path.join(tmp, 'seed.json'), JSON.stringify(obj));
     return 'seed.json';
   };
-  afterAll(() => { if (tmp) rmSync(tmp, { recursive: true, force: true }); });
+  afterAll(() => {
+    const hasTempProject = Boolean(tmp);
+    if (hasTempProject) rmSync(tmp, { recursive: true, force: true });
+  });
 
   it('keeps the existing Vite policy where fresh without persist is inert', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-fresh-inert-'));
@@ -188,7 +195,10 @@ describe('M2 — seed precedence + persist validation', () => {
 // package's own tests + serve's bridge tests — not re-tested here.
 describe('M3 — bridge fold (handler-based)', () => {
   let tmp: string;
-  afterAll(() => { if (tmp) rmSync(tmp, { recursive: true, force: true }); });
+  afterAll(() => {
+    const hasTempProject = Boolean(tmp);
+    if (hasTempProject) rmSync(tmp, { recursive: true, force: true });
+  });
 
   it('bridge:true → init.json carries the absolute ws bridgeUrl (stub port 5173)', async () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-bridgeurl-'));
@@ -215,6 +225,7 @@ describe('M3 — bridge fold (handler-based)', () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-bridgeworker-'));
     const p = pyric({ bridge: true });
     const stub = {
+      async close() {},
       config: { root: tmp, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
       middlewares: { use() {} },
       watcher: { add() {}, on() {} },
@@ -231,6 +242,7 @@ describe('M3 — bridge fold (handler-based)', () => {
     tmp = mkdtempSync(path.join(tmpdir(), 'pyric-vite-bridgews-'));
     const events: string[] = [];
     const stub = {
+      async close() {},
       config: { root: tmp, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
       middlewares: { use() {} },
       watcher: { add() {}, on() {} },
@@ -339,6 +351,7 @@ describe('ui: Pyric Studio mount (parity with dev --ui)', () => {
     const tmp = mkTmp('pyric-vite-ui-bridge-');
     const warnings: string[] = [];
     const stub = {
+      async close() {},
       config: { root: tmp, logger: { info() {}, warn(m: string) { warnings.push(String(m)); } }, server: { allowedHosts: [], host: 'localhost' } },
       middlewares: { use() {} },
       watcher: { add() {}, on() {} },
@@ -353,10 +366,18 @@ describe('ui: Pyric Studio mount (parity with dev --ui)', () => {
 // mcp-proxy finds it by PORT (probing both loopback families) instead of a static URL.
 describe('bridge: .pyric/serve.json discovery pointer (A2)', () => {
   const pointerStub = (root: string, onSet: (cb: () => void) => void) => ({
+    async close() {},
     config: { root, logger: { info() {}, warn() {} }, server: { allowedHosts: [], host: 'localhost' } },
     middlewares: { use() {} },
     watcher: { add() {}, on() {} },
-    httpServer: { address: () => ({ port: 4321 }), on() {}, once(ev: string, cb: () => void) { if (ev === 'listening') onSet(cb); } },
+    httpServer: {
+      address: () => ({ port: 4321 }),
+      on() {},
+      once(ev: string, cb: () => void) {
+        const startsListening = ev === 'listening';
+        if (startsListening) onSet(cb);
+      },
+    },
   });
 
   it('writes the pointer (port + mcpUrl + project) when the server binds', async () => {
@@ -366,7 +387,7 @@ describe('bridge: .pyric/serve.json discovery pointer (A2)', () => {
       pointerStub(tmp, (cb) => { onListening = cb; }),
     );
     expect(typeof onListening).toBe('function'); // hooked, not written until bound
-    onListening!();
+    onListening?.();
     const ptr = JSON.parse(readFileSync(path.join(tmp, '.pyric', 'serve.json'), 'utf8')) as { port: number; mcpUrl: string; project: string };
     expect(ptr.port).toBe(4321);
     expect(ptr.mcpUrl).toContain('/__pyric/mcp');

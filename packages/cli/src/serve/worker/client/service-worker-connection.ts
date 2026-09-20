@@ -12,14 +12,16 @@ function newSessionId(): string {
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function getServiceWorkerFirestore(appName: string): ClientDb {
+export function getServiceWorkerFirestore(appName: string, existingPort?: ClientPort): ClientDb {
   if (typeof BroadcastChannel === 'undefined') {
     throw new Error('BroadcastChannel is required to connect firebase/messaging/sw to the Pyric backend.');
   }
   const channel = new BroadcastChannel(SERVICE_WORKER_CHANNEL);
   // Stable logical id + fresh realm id lets the host replace stale subscriptions
   // without accepting late frames from the superseded Service Worker realm.
-  const clientId = `service-worker:${encodeURIComponent(appName)}`;
+  const worker = globalThis as typeof globalThis & { registration?: { scope: string } };
+  const scope = worker.registration?.scope ?? '/';
+  const clientId = `service-worker:${encodeURIComponent(appName)}:${encodeURIComponent(scope)}`;
   const sessionId = newSessionId();
   channel.postMessage({
     direction: 'host',
@@ -27,8 +29,9 @@ export function getServiceWorkerFirestore(appName: string): ClientDb {
     clientId,
     sessionId,
   } satisfies ServiceWorkerChannelMessage);
-  const port: ClientPort = {
-    onmessage: null,
+  const port: ClientPort = Object.assign(existingPort ?? {}, {
+    onmessage: existingPort?.onmessage ?? null,
+    observeConnection: undefined,
     postMessage(message) {
       channel.postMessage({
         direction: 'host',
@@ -43,7 +46,7 @@ export function getServiceWorkerFirestore(appName: string): ClientDb {
       channel.close();
       port.onmessage = null;
     },
-  } satisfies ClientPort;
+  } satisfies ClientPort);
   channel.onmessage = (event: MessageEvent<ServiceWorkerChannelMessage>) => {
     const envelope = event.data;
     if (
@@ -54,6 +57,6 @@ export function getServiceWorkerFirestore(appName: string): ClientDb {
     port.onmessage?.({ data: envelope.message } as MessageEvent);
   };
   const db = { __kind: 'client-db', port } satisfies ClientDb;
-  wirePort(db.port);
+  if (!existingPort) wirePort(db.port);
   return db;
 }

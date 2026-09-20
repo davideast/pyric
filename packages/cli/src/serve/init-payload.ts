@@ -26,6 +26,9 @@ export interface InitPayload {
    */
   projectKey?: string | null;
   bridgeUrl: string | null;
+  /** Explicit Node ownership; browser startup must not select a local store. */
+  hosted?: boolean;
+  persistenceUnhealthy?: boolean;
   seed: Record<string, Record<string, unknown>> | null;
   persist?: boolean;
   seedState?: unknown | null;
@@ -61,4 +64,11 @@ export interface InitPayload {
    * synchronously by the served `getAI`).
    */
   ai?: { engine?: AiEngineConfigWire } | null;
+}
+
+/** Synchronous page transport selection, injected before application modules. */
+export type WorkerInitPayload = Pick<InitPayload, 'hosted' | 'projectKey' | 'bridgeUrl' | 'persistenceUnhealthy'>;
+
+declare global {
+  var __PYRIC_WORKER_INIT__: WorkerInitPayload | undefined;
 }

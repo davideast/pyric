@@ -39,7 +39,8 @@ import {
   type CollectionReference,
   type Query,
 } from 'pyric/firestore';
-import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
+import { assertEncodedDocValueDepth, decodeDocValue, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
+import { FirebaseError } from 'pyric/app';
 import {
   getDatabase as pyricGetDatabase,
   getAdminDatabase as pyricGetAdminDatabase,
@@ -56,6 +57,7 @@ import type {
 import { serializeDocData } from '../protocol.js';
 import { type HostCtx, type PortLike } from '../host-context.js';
 import { portSession } from '../host-auth.js';
+import { assertQueryStructure } from './query-structure.js';
 
 // ─── Descriptor → live ref resolution ───────────────────────────────────
 
@@ -73,54 +75,74 @@ export function resolveTarget(
   db: Firestore,
   target: TargetDescriptor,
 ): DocumentReference | CollectionReference | Query {
-  if (target.__ref === 'doc') {
+  assertQueryStructure(target);
+  return constructTarget(db, target);
+}
+
+function constructTarget(
+  db: Firestore,
+  target: TargetDescriptor,
+): DocumentReference | CollectionReference | Query {
+  const isDocument = target.__ref === 'doc';
+  if (isDocument) {
     return pyricDoc(db, target.path);
   }
-  if (target.__ref === 'collection') {
+  const isCollection = target.__ref === 'collection';
+  if (isCollection) {
     return pyricCollection(db, target.path);
   }
-  if (target.__ref === 'group') {
+  const isGroup = target.__ref === 'group';
+  if (isGroup) {
     return pyricCollectionGroup(db, target.collectionId);
   }
-  // query descriptor
-  const source = resolveTarget(db, target.source) as CollectionReference | Query;
-  const constraints = target.constraints.map((c) => resolveConstraint(c));
+  const hasUnsupportedTarget = target.__ref !== 'query';
+  if (hasUnsupportedTarget) {
+    throw new FirebaseError('invalid-argument', 'Unsupported Firestore target descriptor.');
+  }
+  const source = constructTarget(db, target.source);
+  const constraints = target.constraints.map((constraint) => resolveConstraint(constraint, db));
   return pyricQuery(source, ...constraints);
 }
 
-function resolveConstraint(c: QueryConstraintDescriptor): ReturnType<typeof pyricWhere> {
-  switch (c.kind) {
+function resolveConstraint(constraint: QueryConstraintDescriptor, db: Firestore): ReturnType<typeof pyricWhere> {
+  const references = { create: (path: string) => pyricDoc(db, path) };
+  const decodeCursorValues = (values: readonly unknown[], encoding?: DocValueEncoding): unknown[] => {
+    for (const value of values) assertEncodedDocValueDepth(value);
+    return values.map(value => decodeDocValue(value, references, encoding));
+  };
+  switch (constraint.kind) {
     case 'where':
+      assertEncodedDocValueDepth(constraint.value);
       // Rehydrate the comparison value (same rationale as prepareWriteData,
       // spike gap 4, applied to READ inputs): over the JSON relay legs a
       // Node-side Timestamp/Bytes/GeoPoint arrives as its marker shape;
       // without rehydration the comparison would see a plain map and the
       // filter would silently mismatch typed stored values.
-      return pyricWhere(c.field, c.op as Parameters<typeof pyricWhere>[1], rehydrateDocValue(c.value));
+      return pyricWhere(constraint.field, constraint.op as Parameters<typeof pyricWhere>[1], decodeDocValue(constraint.value, references, constraint.valueEncoding));
     // Composite filters rebuild through the modular `and`/`or` factories,
     // which validate operands: an empty composite or a nested non-filter
     // throws the same TypeError the in-page SDK raises (surfaces as an
     // error res / snap-error, never a crash).
     case 'and':
-      return pyricAnd(...c.filters.map(resolveConstraint));
+      return pyricAnd(...constraint.filters.map((filter) => resolveConstraint(filter, db)));
     case 'or':
-      return pyricOr(...c.filters.map(resolveConstraint));
+      return pyricOr(...constraint.filters.map((filter) => resolveConstraint(filter, db)));
     case 'orderBy':
-      return pyricOrderBy(c.field, c.direction);
+      return pyricOrderBy(constraint.field, constraint.direction);
     case 'limit':
-      return pyricLimit(c.n);
+      return pyricLimit(constraint.n);
     case 'limitToLast':
-      return pyricLimitToLast(c.n);
+      return pyricLimitToLast(constraint.n);
     // Cursor values rehydrate for the same reason as `where` values —
     // `startAfter(<timestamp>)` must position against real Timestamps.
     case 'startAt':
-      return pyricStartAt(...c.values.map(rehydrateDocValue));
+      return pyricStartAt(...decodeCursorValues(constraint.values, constraint.valueEncoding));
     case 'startAfter':
-      return pyricStartAfter(...c.values.map(rehydrateDocValue));
+      return pyricStartAfter(...decodeCursorValues(constraint.values, constraint.valueEncoding));
     case 'endAt':
-      return pyricEndAt(...c.values.map(rehydrateDocValue));
+      return pyricEndAt(...decodeCursorValues(constraint.values, constraint.valueEncoding));
     case 'endBefore':
-      return pyricEndBefore(...c.values.map(rehydrateDocValue));
+      return pyricEndBefore(...decodeCursorValues(constraint.values, constraint.valueEncoding));
   }
 }
 

@@ -238,6 +238,7 @@ export function createFunctionsDevelopmentRuntime(
     const reportUnexpectedExit = (code: number): void => {
       if (activeChild === handle && !closed && !expectedStops.has(handle)) {
         activeChild = null;
+        startPromise = null;
         emit({ type: 'unexpected-exit', code });
       }
     };
@@ -262,7 +263,15 @@ export function createFunctionsDevelopmentRuntime(
 
   const runtime: FunctionsDevelopmentRuntime = {
     start() {
-      startPromise ??= launch('initial');
+      if (closed) return Promise.resolve({ kind: 'failed', error: new Error('Functions runtime is closed') });
+      const activeReload = reloadPromise;
+      const reloading = activeReload !== null;
+      if (reloading) return activeReload;
+      startPromise ??= launch('initial').then(result => {
+        const retryable = result.kind !== 'ready';
+        if (retryable) startPromise = null;
+        return result;
+      });
       return startPromise;
     },
     reload() {
@@ -279,7 +288,11 @@ export function createFunctionsDevelopmentRuntime(
             result = await launch('reload');
           } while (reloadQueued && !closed);
           return result;
-        })().finally(() => { reloadPromise = null; });
+        })().then(result => {
+          const ready = result.kind === 'ready';
+          startPromise = ready ? Promise.resolve(result) : null;
+          return result;
+        }).finally(() => { reloadPromise = null; });
       }
       return reloadPromise as Promise<FunctionsDevelopmentResult>;
     },

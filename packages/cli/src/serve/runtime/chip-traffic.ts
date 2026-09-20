@@ -1,3 +1,4 @@
+import { EventHistory, OBSERVATION_HISTORY_LIMITS } from 'pyric/sandbox/internal';
 import type { AiRequestObservation } from 'pyric/sandbox/internal';
 /**
  * The chip's Traffic view: what the page just asked the sandbox for, and what
@@ -56,8 +57,8 @@ function requestIdentity(event: SandboxEvent, verdict: ChipRequest['verdict']): 
   return typeof uid === 'string' ? uid : 'Signed-in user';
 }
 
-/** How many rows the tail keeps. The view shows eight of them. */
-export const TRAFFIC_TAIL = 64;
+/** Shared retention ceiling; the view pages independently. */
+export const TRAFFIC_TAIL = OBSERVATION_HISTORY_LIMITS.maxEvents;
 
 /** How long a failure stays the reason the panel opens on Traffic. */
 export const RECENT_FAILURE_MS = 60_000;
@@ -83,10 +84,18 @@ export function isPermissionDeniedCode(code: string | undefined): boolean {
 export function chipRequestFromEvent(event: SandboxEvent): ChipRequest | null {
   const record = toOperationRecord(event);
   if (record !== null) {
+    const observation = record.observation;
+    if (observation?.ai) {
+      const request = aiTrafficRequest({ id: record.id, startedAt: observation.startedAt,
+        at: observation.endedAt ?? event.at, second: Math.floor(event.at / 1000),
+        method: record.method, status: observation.status, detail: observation.ai, response: observation.response });
+      return { ...request, identity: record.auth?.uid ?? null };
+    }
     let verdict: ChipRequest['verdict'] = 'ok';
     if (record.rules.kind === 'evaluated' && record.rules.verdict === 'deny') verdict = 'denied';
     if (record.rules.kind === 'not-evaluated' && record.rules.reason === 'unsupported') verdict = 'unsupported';
     if (record.rules.kind === 'not-evaluated' && record.rules.reason === 'runtime-error') verdict = 'error';
+    if (record.result === 'error') verdict = 'error';
     const request: ChipRequest = {
       id: record.id, at: record.at, service: record.service,
       method: record.eventKind === 'listener' ? 'listen' : record.method,
@@ -161,6 +170,7 @@ export interface TrafficFeed {
   requests(): readonly ChipRequest[];
   /** `true` when a request failed within the last minute. */
   failedRecently(now?: number): boolean;
+  omittedCount(): number;
   dispose(): void;
 }
 
@@ -177,35 +187,78 @@ export interface TrafficFeedOptions {
   onRequest?: (request: ChipRequest, event: SandboxEvent) => void;
   /** How many rows to keep. */
   limit?: number;
+  maxBytes?: number;
 }
 
 /** Start folding the page's sandbox events into Traffic's rows. */
 export function createTrafficFeed(options: TrafficFeedOptions): TrafficFeed {
-  const limit = options.limit ?? TRAFFIC_TAIL;
-  let tail: ChipRequest[] = [];
-  const unsubscribe = options.subscribeEvents((batch) => {
-    let added = false;
-    for (const event of batch) {
-      const request = chipRequestFromEvent(event);
-      if (request === null) continue;
-      tail.push(request);
-      options.onRequest?.(request, event);
-      added = true;
+  const history = new EventHistory({
+    maxEvents: options.limit ?? TRAFFIC_TAIL,
+    maxBytes: options.maxBytes ?? OBSERVATION_HISTORY_LIMITS.maxBytes,
+  });
+  // Cache only the current retained snapshot. EventHistory replaces an event
+  // when evidence expires, so its old projection leaves this cache as well.
+  let projections = new Map<SandboxEvent, ChipRequest | null>();
+  let cachedRequests: ChipRequest[] = [];
+  let cacheSecond = -Infinity;
+  const requests = (): ChipRequest[] => {
+    const second = Math.floor(Date.now() / 1000);
+    const isCurrentSnapshot = cacheSecond === second;
+    if (isCurrentSnapshot) return cachedRequests;
+    cacheSecond = second;
+    const rows = new Map<string, ChipRequest>();
+    const retainedProjections = new Map<SandboxEvent, ChipRequest | null>();
+    for (const event of history.snapshot()) {
+      const cached = projections.get(event);
+      const needsProjection = cached === undefined;
+      const request = needsProjection ? chipRequestFromEvent(event) : cached;
+      retainedProjections.set(event, request);
+      const hasRequest = request !== null;
+      if (hasRequest) rows.set(request.id, request);
     }
-    if (!added) return;
-    if (tail.length > limit) tail = tail.slice(tail.length - limit);
-    options.onChange?.();
+    projections = retainedProjections;
+    cachedRequests = [...rows.values()];
+    return cachedRequests;
+  };
+  const unsubscribe = options.subscribeEvents(batch => {
+    let changed = false;
+    for (const event of batch) {
+      const resetsSession = event.kind === 'session_boundary' && event.phase === 'reset';
+      if (resetsSession) { history.clear(); changed = true; }
+      const request = chipRequestFromEvent(event);
+      if (request) {
+        changed = true;
+        history.append(event);
+        options.onRequest?.(request, event);
+      } else {
+        const closesListener = event.kind === 'listener_detach' || event.kind === 'listener_errored'
+          || (event.kind === 'listener' && (event.phase === 'detach' || event.phase === 'errored'));
+        const tracksRetention = closesListener || event.kind === 'observation_gap';
+        if (tracksRetention) { history.append(event); changed = true; }
+      }
+    }
+    if (changed) {
+      cacheSecond = -Infinity;
+      options.onChange?.();
+    }
   });
   return {
     requests() {
-      return tail;
+      return requests();
     },
     failedRecently(now = Date.now()) {
-      return tail.some((request) => request.verdict !== 'ok' && now - request.at <= RECENT_FAILURE_MS);
+      return requests().some((request) => request.verdict !== 'ok' && now - request.at <= RECENT_FAILURE_MS);
+    },
+    omittedCount() {
+      const gap = history.snapshot().find(event => event.kind === 'observation_gap');
+      return gap?.kind === 'observation_gap' ? gap.omittedCount : 0;
     },
     dispose() {
       unsubscribe();
-      tail = [];
+      history.clear();
+      projections.clear();
+      cachedRequests = [];
+      cacheSecond = -Infinity;
     },
   };
 }

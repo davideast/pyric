@@ -178,6 +178,73 @@ describe('the order Traffic reads in', () => {
 });
 
 describe('the bounded tail the view reads', () => {
+  it('updates new rows without projecting previously consumed request payloads again', () => {
+    let deliver: (events: readonly SandboxEvent[]) => void = () => {};
+    const feed = createTrafficFeed({ subscribeEvents(callback) {
+      deliver = callback;
+      return () => {};
+    } });
+    let consumed = false;
+    const first = new Proxy(request('first', 1000, 'deny'), { get(event, property, receiver) {
+      const replaysPayload = consumed && property === 'auth';
+      if (replaysPayload) throw new Error('Previously consumed request was projected again');
+      return Reflect.get(event, property, receiver);
+    } });
+    try {
+      deliver([first]);
+      expect(feed.requests()[0]).toMatchObject({ id: 'first', verdict: 'denied', identity: 'signed out' });
+      consumed = true;
+      deliver([request('second', 2000, 'allow')]);
+      expect(feed.requests().map(row => row.id)).toEqual(['first', 'second']);
+      expect(feed.failedRecently(2000)).toBe(true);
+    } finally { feed.dispose(); }
+  });
+
+  it('expires cached evidence without changing an already inspected row', () => {
+    let deliver: (events: readonly SandboxEvent[]) => void = () => {};
+    const feed = createTrafficFeed({ subscribeEvents(callback) {
+      deliver = callback;
+      return () => {};
+    } });
+    const evidenceRequest = (id: number): SandboxEvent => ({
+      kind: 'request', id: String(id), at: id, evalMs: 0, method: 'get',
+      path: 'notes/a', auth: null, result: 'deny', reasons: [], origin: 'user',
+      rulesEvidence: { version: 'rules-v1', decision: 'DENY', scope: 'request', truncated: false, rules: [], paths: [] },
+    });
+    try {
+      deliver([evidenceRequest(0)]);
+      const inspected = feed.requests()[0];
+      for (const index of Array.from({ length: 64 }, (_, index) => index + 1)) deliver([evidenceRequest(index)]);
+      const rows = feed.requests();
+      expect(rows).toHaveLength(65);
+      expect(rows[0].evidenceExpired).toBe(true);
+      expect(rows[0].rulesEvidence).toBeUndefined();
+      expect(rows.filter(row => row.rulesEvidence !== undefined)).toHaveLength(64);
+      expect(inspected.rulesEvidence?.decision).toBe('DENY');
+    } finally { feed.dispose(); }
+  });
+
+  it('retains an active request through eviction and settles it once despite replayed starts', () => {
+    let deliver: (events: readonly SandboxEvent[]) => void = () => {};
+    const feed = createTrafficFeed({ limit: 2, subscribeEvents(callback) {
+      deliver = callback;
+      return () => {};
+    } });
+    const pending = { kind: 'operation', id: 'start', at: 1000, service: 'ai', method: 'generateContent',
+      path: 'synthetic', auth: null, origin: 'user', result: 'not-applicable',
+      observation: { id: 'request', startedAt: 1000, status: 'pending' } } as const;
+    const completed = { ...pending, id: 'end', observation: { ...pending.observation, status: 'completed' as const } };
+    try {
+      deliver([pending]);
+      expect(feed.requests().find(row => row.id === 'request')).toBeDefined();
+      for (const index of [0, 1, 2, 3, 4]) deliver([request(String(index), 2000 + index, 'allow')]);
+      expect(feed.requests().find(row => row.id === 'request')).toBeDefined();
+      deliver([completed, pending, completed]);
+      expect(feed.requests().filter(row => row.id === 'request')).toHaveLength(1);
+      expect(feed.omittedCount()).toBeGreaterThan(0);
+    } finally { feed.dispose(); }
+  });
+
   it('folds the page stream, reports each change, and keeps only the last rows', () => {
     let deliver: ((events: readonly SandboxEvent[]) => void) | null = null;
     let changes = 0;
@@ -198,12 +265,13 @@ describe('the bounded tail the view reads', () => {
     expect(feed.requests().map((entry) => entry.id)).toEqual(['r1', 'r2']);
     expect(changes).toBe(1);
 
-    // A batch with nothing Traffic can draw is not a change.
+    // Reset clears the old session, including retained requests.
     deliver!([{ kind: 'session_boundary', id: 's1', at: 1, phase: 'reset', priorOpCount: 0 } as unknown as SandboxEvent]);
-    expect(changes).toBe(1);
+    expect(changes).toBe(2);
+    expect(feed.requests()).toEqual([]);
 
     deliver!([request('r3', 3000, 'allow'), request('r4', 4000, 'allow')]);
-    expect(feed.requests().map((entry) => entry.id)).toEqual(['r2', 'r3', 'r4']);
+    expect(feed.requests().map((entry) => entry.id)).toEqual(['r3', 'r4']);
   });
 
   it('says whether anything failed inside the window, and stops after disposal', () => {

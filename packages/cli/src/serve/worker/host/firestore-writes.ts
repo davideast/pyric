@@ -1,3 +1,4 @@
+import { sdkActivity } from 'pyric/sandbox/internal';
 /**
  * SharedWorker host — Firestore write ops (single writes + batch + transaction).
  *
@@ -10,7 +11,7 @@
  * Routed here by the host dispatcher (host/dispatch.ts) with the op's resolved
  * Firestore handle (`db`). Never imports the dispatcher.
  */
-import { sdkActivity } from 'pyric/sandbox/internal';
+
 import {
   doc as pyricDoc,
   collection as pyricCollection,
@@ -29,10 +30,12 @@ import {
   type DocumentReference,
   type SetOptions,
 } from 'pyric/firestore';
-import { rehydrateDocValue } from 'pyric/firestore/internal/value-codec';
+import { assertEncodedDocValueDepth, rehydrateEncodedDocValue, requireDocumentData, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
+import { FirebaseError } from 'pyric/app';
 
-import type { OpMessage, WriteDescriptor, TxnReadEntry, SentinelMarker } from '../protocol.js';
+import type { OpMessage, WriteDescriptor, SentinelMarker, SerializedDocData } from '../protocol.js';
 import { serializeDocData, isSentinelMarker } from '../protocol.js';
+import { assertAtomicList, requireFirestorePath } from '../protocol/firestore-validation.js';
 import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from '../host-context.js';
 
 // ─── Sentinel resolution ──────────────────────────────────────────────────
@@ -78,25 +81,14 @@ function resolveSentinels(value: unknown): unknown {
 }
 
 /**
- * Prepare an incoming WRITE payload for the sandbox: rehydrate marker-shaped
- * scalars into REAL wrapper instances, then rebuild FieldValue sentinels.
- *
- * WHY REHYDRATE WRITES (spike gap 4): over the JSON relay legs a Node-side
- * `Timestamp`/`Bytes`/`GeoPoint` arrives as its `toJSON()` marker
- * (`{ type: 'firestore/timestamp/1.0', … }` or `{ __type: 'timestamp', … }`).
- * Without rehydration the worker STORES the marker as a plain map — reads
- * mask the bug (the read path rehydrates), but in-worker rules comparisons
- * and `orderBy` over that field see a map, not a timestamp. `rehydrateDocValue`
- * is the same canonical codec the read path / persistence uses, so the wire,
- * store, and IDB formats stay one format.
- *
- * Order matters: rehydration first (it passes `__sentinel` markers through
- * as plain objects, rehydrating any marker-shaped values nested inside
- * arrayUnion/arrayRemove), then sentinel resolution (which now skips the
- * freshly rehydrated class instances — see resolveSentinels).
+ * Decode document values using the request's declared encoding, then rebuild
+ * write transforms. Legacy callers retain their original marker contract.
+ * Value decoding never executes a transform; sentinel resolution preserves
+ * decoded scalar instances and prepares transforms for the sandbox write.
  */
-export function prepareWriteData(value: unknown): unknown {
-  return resolveSentinels(rehydrateDocValue(value));
+export function prepareWriteData(value: unknown, valueEncoding?: DocValueEncoding): unknown {
+  assertEncodedDocValueDepth(value);
+  return resolveSentinels(rehydrateEncodedDocValue(value, valueEncoding));
 }
 
 function resolveSentinel(marker: SentinelMarker): unknown {
@@ -137,46 +129,60 @@ function indexMapToBase64Url(data: unknown): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// ─── Batch write helper ───────────────────────────────────────────────────
+// ─── Atomic write helper ──────────────────────────────────────────────────
 
-type BatchHandle = {
+type AtomicWriter = {
   set(ref: DocumentReference, data: Record<string, unknown>, options?: SetOptions): void;
   update(ref: DocumentReference, data: Record<string, unknown>): void;
   delete(ref: DocumentReference): void;
 };
 
-function applyWriteToBatch(
+function applyAtomicWrite(
   db: Firestore,
-  batch: unknown,
-  w: WriteDescriptor,
+  writer: AtomicWriter,
+  write: WriteDescriptor,
 ): void {
-  const b = batch as BatchHandle;
-  const ref = pyricDoc(db, w.path);
-  if (w.method === 'set') {
-    const data = prepareWriteData(w.data) as Record<string, unknown>;
-    b.set(ref, data, w.options as SetOptions | undefined);
-  } else if (w.method === 'update') {
-    const data = prepareWriteData(w.data) as Record<string, unknown>;
-    b.update(ref, data);
-  } else if (w.method === 'delete') {
-    b.delete(ref);
+  const isInvalidWrite = write === null || typeof write !== 'object' || Array.isArray(write);
+  if (isInvalidWrite) {
+    throw new FirebaseError('invalid-argument', 'Firestore atomic writes must be objects.');
+  }
+  const path = requireFirestorePath(write.path);
+  const ref = pyricDoc(db, path);
+  switch (write.method) {
+    case 'set': {
+      const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
+      writer.set(ref, data, write.options);
+      return;
+    }
+    case 'update': {
+      const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
+      writer.update(ref, data);
+      return;
+    }
+    case 'delete':
+      writer.delete(ref);
+      return;
+    default:
+      throw new FirebaseError('invalid-argument', 'Unknown Firestore atomic write method.');
   }
 }
 
 // ─── Op handler ────────────────────────────────────────────────────────────
 
 /** The write op methods routed to {@link handleFirestoreWriteOp}. */
-const WRITE_METHODS = new Set<string>([
+const WRITE_METHODS = [
   'setDoc',
   'updateDoc',
   'deleteDoc',
   'addDoc',
   'batchCommit',
   'txnCommit',
-]);
+] as const satisfies readonly OpMessage['method'][];
 
-export function isFirestoreWriteOp(method: OpMessage['method']): boolean {
-  return WRITE_METHODS.has(method);
+const writeMethods = new Set<string>(WRITE_METHODS);
+
+export function isFirestoreWriteOp(method: OpMessage['method']): method is typeof WRITE_METHODS[number] {
+  return writeMethods.has(method);
 }
 
 export async function handleFirestoreWriteOp(
@@ -188,8 +194,9 @@ export async function handleFirestoreWriteOp(
   switch (msg.method) {
     case 'setDoc': {
       try {
-        const ref = pyricDoc(db, msg.path);
-        const data = prepareWriteData(msg.data) as Record<string, unknown>;
+        const path = requireFirestorePath(msg.path);
+        const ref = pyricDoc(db, path);
+        const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
         await sdkActivity.silence(() => setDoc(ref, data, msg.options as SetOptions | undefined));
         await bestEffortFlush(ctx);
         ok(port, msg.id, null);
@@ -200,7 +207,7 @@ export async function handleFirestoreWriteOp(
     case 'updateDoc': {
       try {
         const ref = pyricDoc(db, msg.path);
-        const data = prepareWriteData(msg.data) as Record<string, unknown>;
+        const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
         await sdkActivity.silence(() => updateDoc(ref, data));
         await bestEffortFlush(ctx);
         ok(port, msg.id, null);
@@ -221,7 +228,7 @@ export async function handleFirestoreWriteOp(
     case 'addDoc': {
       try {
         const coll = pyricCollection(db, msg.collectionPath);
-        const data = prepareWriteData(msg.data) as Record<string, unknown>;
+        const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
         const ref = await sdkActivity.silence(() => addDoc(coll, data));
         await bestEffortFlush(ctx);
         ok(port, msg.id, { id: ref.id, path: ref.path });
@@ -236,11 +243,12 @@ export async function handleFirestoreWriteOp(
        * reconstruct the batch here from the wire write descriptors.
        * Atomicity guarantee: the sandbox backend applies all writes or none
        * (per-collection lock semantics of LocalEnvironment.batch()).
-       */
+      */
       try {
+        assertAtomicList(msg.writes, 'write');
         const batch = writeBatch(db);
         for (const w of msg.writes) {
-          applyWriteToBatch(db, batch, w);
+          applyAtomicWrite(db, batch, w);
         }
         await sdkActivity.silence(() => batch.commit());
         await bestEffortFlush(ctx);
@@ -284,7 +292,7 @@ export async function handleFirestoreWriteOp(
        * SERIALIZED-FORM EQUALITY — VIA THE CANONICAL CODEC
        * ---------------------------------------------------
        * Both JSON strings are CANONICALIZED before comparison:
-       * `JSON.stringify(rehydrateDocValue(JSON.parse(json)))`. Raw string
+       * the declared value encoding before JSON stringification. Raw string
        * equality is NOT safe here even within one process, because the two
        * read paths yield DIFFERENT wrapper classes for the same stored
        * value: `getDoc` (what the client's read-set echoes) returns
@@ -317,7 +325,7 @@ export async function handleFirestoreWriteOp(
        * Canonicalize a serialized doc-data JSON string (see
        * SERIALIZED-FORM EQUALITY above). Two normalization passes:
        *
-       *   1. `rehydrateDocValue` collapses the marker families (`__type`
+       *   1. `rehydrateEncodedDocValue` uses each envelope's encoding and collapses the marker families (`__type`
        *      persistence markers and `firebase/firestore` `toJSON()`
        *      markers) into the one set of wrapper classes, whose
        *      `toJSON()` re-emits a single deterministic form.
@@ -329,11 +337,21 @@ export async function handleFirestoreWriteOp(
        *      typed doc would never compare equal to the client's getDoc
        *      echo (a guaranteed phantom abort → retry livelock).
        */
-      const canonicalDocJson = (json: string): string =>
-        JSON.stringify(rehydrateDocValue(JSON.parse(json)), (_key, v) => {
-          if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
+      const canonicalDocJson = (json: string, valueEncoding?: DocValueEncoding): string => {
+        let data: unknown;
+        try {
+          data = JSON.parse(json);
+        } catch {
+          throw new FirebaseError('invalid-argument', 'Firestore transaction read JSON must contain valid JSON.');
+        }
+        assertEncodedDocValueDepth(data);
+        const document = requireDocumentData(rehydrateEncodedDocValue(data, valueEncoding));
+        return JSON.stringify(document, (_key, v: unknown) => {
+          const isNonMapValue = v === null || typeof v !== 'object' || Array.isArray(v);
+          if (isNonMapValue) return v;
           const o = v as Record<string, unknown>;
-          if (typeof o.typeName !== 'string' || o.__type !== undefined) return v;
+          const isNotWrapperClone = typeof o.typeName !== 'string' || o.__type !== undefined;
+          if (isNotWrapperClone) return v;
           // Re-shape a stripped rules-wrapper clone into the wrapper's own
           // canonical toJSON marker form (kept in sync with pyric/rules'
           // simulator/wrappers/* instance fields + toJSON()) — but ONLY
@@ -345,100 +363,97 @@ export async function handleFirestoreWriteOp(
           // near-miss map passes through unchanged — worst case is a
           // spurious abort + retry, never a lost update.
           switch (o.typeName) {
-            case 'timestamp':
-              return hasExactKeys(o, TS_CLONE_KEYS)
-                ? { __type: 'timestamp', seconds: o.seconds, nanos: o.nanos }
-                : v;
-            case 'duration':
-              return hasExactKeys(o, TS_CLONE_KEYS)
-                ? { __type: 'duration', seconds: o.seconds, nanos: o.nanos }
-                : v;
-            case 'latlng':
-              return hasExactKeys(o, ['typeName', 'lat', 'lng'])
-                ? { __type: 'latlng', lat: o.lat, lng: o.lng }
-                : v;
-            case 'reference':
-              return hasExactKeys(o, ['typeName', 'path'])
-                ? { __type: 'reference', path: o.path }
-                : v;
-            case 'path':
-              return hasExactKeys(o, ['typeName', 'segments', 'bindings'])
-                ? { __type: 'path', segments: o.segments }
-                : v;
-            case 'bytes':
-              // The Uint8Array field serialized as an index-keyed map;
-              // rebuild and emit Bytes.toJSON()'s base64url form.
-              return hasExactKeys(o, ['typeName', 'data'])
-                ? { __type: 'bytes', base64: indexMapToBase64Url(o.data) }
-                : v;
+            case 'timestamp': {
+              const hasTimestampFields = hasExactKeys(o, TS_CLONE_KEYS);
+              if (hasTimestampFields) return { __type: 'timestamp', seconds: o.seconds, nanos: o.nanos };
+              return v;
+            }
+            case 'duration': {
+              const hasDurationFields = hasExactKeys(o, TS_CLONE_KEYS);
+              if (hasDurationFields) return { __type: 'duration', seconds: o.seconds, nanos: o.nanos };
+              return v;
+            }
+            case 'latlng': {
+              const hasLocationFields = hasExactKeys(o, ['typeName', 'lat', 'lng']);
+              if (hasLocationFields) return { __type: 'latlng', lat: o.lat, lng: o.lng };
+              return v;
+            }
+            case 'reference': {
+              const hasReferenceFields = hasExactKeys(o, ['typeName', 'path']);
+              if (hasReferenceFields) return { __type: 'reference', path: o.path };
+              return v;
+            }
+            case 'path': {
+              const hasPathFields = hasExactKeys(o, ['typeName', 'segments', 'bindings']);
+              if (hasPathFields) return { __type: 'path', segments: o.segments };
+              return v;
+            }
+            case 'bytes': {
+              // Rebuild the Uint8Array's index-keyed map in canonical base64url form.
+              const hasByteFields = hasExactKeys(o, ['typeName', 'data']);
+              if (hasByteFields) return { __type: 'bytes', base64: indexMapToBase64Url(o.data) };
+              return v;
+            }
             default:
               return v;
           }
         });
+      };
 
       try {
+        assertAtomicList(msg.writes, 'write');
+        assertAtomicList(msg.reads, 'read');
         await sdkActivity.silence(() => runTransaction(db, async (tx) => {
           // ── Step 1: validate the read-set ──────────────────────────────
           // Re-read each doc the client touched and compare its current
           // serialized form against what the client recorded at read time.
-          const modularTx = tx as {
-            get(ref: DocumentReference): Promise<{ exists: boolean | (() => boolean); data(): Record<string, unknown> | undefined }>;
-            set(ref: DocumentReference, data: Record<string, unknown>, opts?: SetOptions): void;
-            update(ref: DocumentReference, data: Record<string, unknown>): void;
-            delete(ref: DocumentReference): void;
-          };
+          for (const read of msg.reads) {
+            const isInvalidRead = read === null || typeof read !== 'object' || Array.isArray(read);
+            if (isInvalidRead) {
+              throw new FirebaseError('invalid-argument', 'Firestore transaction reads must be objects.');
+            }
+            const clientData = read.data;
+            const isInvalidReadData = clientData !== null && (typeof clientData !== 'object' || Array.isArray(clientData));
+            if (isInvalidReadData) {
+              throw new FirebaseError('invalid-argument', 'Firestore transaction read data must be a serialized document or null.');
+            }
+            const isInvalidReadJson = clientData !== null && typeof clientData.json !== 'string';
+            if (isInvalidReadJson) {
+              throw new FirebaseError('invalid-argument', 'Firestore transaction read JSON must be a string.');
+            }
+            const clientHadNull = clientData === null;
+            const clientJson = clientHadNull ? null : canonicalDocJson(clientData.json, clientData.valueEncoding);
+            const path = requireFirestorePath(read.path);
+            const ref = pyricDoc(db, path);
+            const currentSnap = await tx.get(ref);
+            const existsBool = currentSnap.exists();
 
-          for (const r of (msg as { reads: TxnReadEntry[]; writes: typeof msg.writes }).reads) {
-            const ref = pyricDoc(db, r.path);
-            const currentSnap = await modularTx.get(ref);
-            const existsBool = typeof currentSnap.exists === 'function'
-              ? (currentSnap.exists as () => boolean)()
-              : currentSnap.exists as boolean;
+            // Retain the original short-circuiting and snapshot access timing.
+            let currentSerialized: SerializedDocData | null = null;
+            const hasCurrentData = existsBool && Boolean(currentSnap.data());
+            if (hasCurrentData) {
+              currentSerialized = serializeDocData(currentSnap.data() as Record<string, unknown>);
+            }
 
-            // Compute the serialized form of the current doc state.
-            const currentSerialized = existsBool && currentSnap.data()
-              ? serializeDocData(currentSnap.data() as Record<string, unknown>)
-              : null;
-
-            // Compare against what the client recorded:
-            //   both null → ok (doc still doesn't exist)
-            //   both present + same JSON → ok
-            //   anything else → conflict
-            const clientHadNull = r.data === null;
             const workerHasNull = currentSerialized === null;
+            const hasChangedExistence = clientHadNull !== workerHasNull;
+            if (hasChangedExistence) throw TXN_ABORT;
 
-            if (clientHadNull !== workerHasNull) {
-              // Existence changed (created or deleted by another tab).
-              throw TXN_ABORT;
-            }
-            if (
-              !clientHadNull &&
-              !workerHasNull &&
-              canonicalDocJson(r.data!.json) !== canonicalDocJson(currentSerialized!.json)
-            ) {
-              // Data changed by another tab.
-              throw TXN_ABORT;
-            }
+            const hasChangedData = clientJson !== null && currentSerialized !== null
+              && clientJson !== canonicalDocJson(currentSerialized.json, currentSerialized.valueEncoding);
+            if (hasChangedData) throw TXN_ABORT;
           }
 
           // ── Step 2: apply the queued writes ────────────────────────────
-          for (const w of msg.writes) {
-            const ref = pyricDoc(db, w.path);
-            if (w.method === 'set') {
-              const data = prepareWriteData(w.data) as Record<string, unknown>;
-              modularTx.set(ref, data, w.options as SetOptions | undefined);
-            } else if (w.method === 'update') {
-              const data = prepareWriteData(w.data) as Record<string, unknown>;
-              modularTx.update(ref, data);
-            } else if (w.method === 'delete') {
-              modularTx.delete(ref);
-            }
+          for (const write of msg.writes) {
+            applyAtomicWrite(db, tx, write);
           }
         }));
         await bestEffortFlush(ctx);
         ok(port, msg.id, null);
       } catch (e) {
-        if (e === TXN_ABORT) {
+        const isReadConflict = e === TXN_ABORT;
+        if (isReadConflict) {
           // Read-set conflict — signal the client to retry its updateFn.
           const abortErr = { code: 'aborted', message: 'Transaction read-set conflict: a concurrent write invalidated the read snapshot.' };
           post(port, { t: 'res', id: msg.id, ok: false, error: abortErr });

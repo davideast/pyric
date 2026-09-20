@@ -1,27 +1,53 @@
+import { runSdkWrite, sdkActivity } from 'pyric/sandbox/internal';
+import { beginWorkerFirestoreActivity } from './sdk-activity.js';
 /**
  * Firestore write execution — single-document writes, `writeBatch`, and
  * `runTransaction` with read-set validation + retry for multi-tab correctness.
  */
-import { runSdkWrite, sdkActivity } from 'pyric/sandbox/internal';
-import { beginWorkerFirestoreActivity } from './sdk-activity.js';
+
 import type { WriteDescriptor, TxnReadEntry } from '../protocol.js';
+import { encodeDocValue, requireDocumentData, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
 import { nextId, dataRpc } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
 import { makeDocSnapshot } from './snapshots.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
+import { createDocumentReference } from './firestore-reference.js';
+import type { DocumentData } from 'pyric/firestore';
 
-export async function setDoc(
-  ref: DocRefHandle,
-  data: Record<string, unknown>,
-  options?: { merge?: boolean; mergeFields?: string[] },
+interface ClientSetOptions {
+  merge?: boolean;
+  mergeFields?: string[];
+}
+
+function captureSetOptions(options: ClientSetOptions | undefined): ClientSetOptions | undefined {
+  const hasOptions = options !== undefined;
+  if (hasOptions) return { ...options, mergeFields: options.mergeFields?.slice() };
+  return undefined;
+}
+
+/** Convert models before encoding; update payloads bypass model converters. */
+function convertSetData(ref: DocRefHandle, data: unknown): DocumentData {
+  const converter = ref.converter;
+  const hasConverter = converter !== null;
+  let payload = data;
+  if (hasConverter) payload = converter.toFirestore(data);
+  return requireDocumentData(payload);
+}
+
+export async function setDoc<T = DocumentData>(
+  ref: DocRefHandle<T>,
+  data: T,
+  options?: ClientSetOptions,
 ): Promise<void> {
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'setDoc', 'operation'), async () => {
+    const payload = convertSetData(ref, data);
     await dataRpc(ref.port, {
       t: 'op',
       id: nextId(),
       method: 'setDoc',
       path: ref.descriptor.path,
-      data,
+      data: encodeDocValue(payload),
+      valueEncoding: DOC_VALUE_ENCODING,
       options,
     });
   });
@@ -37,7 +63,8 @@ export async function updateDoc(
       id: nextId(),
       method: 'updateDoc',
       path: ref.descriptor.path,
-      data,
+      data: encodeDocValue(data),
+      valueEncoding: DOC_VALUE_ENCODING,
     });
   });
 }
@@ -63,16 +90,11 @@ export async function addDoc(
       id: nextId(),
       method: 'addDoc',
       collectionPath: coll.descriptor.path,
-      data,
+      data: encodeDocValue(data),
+      valueEncoding: DOC_VALUE_ENCODING,
     }) as { id: string; path: string };
 
-    return {
-      __kind: 'doc-ref',
-      descriptor: { __ref: 'doc', path: result.path },
-      port: coll.port,
-      id: result.id,
-      path: result.path,
-    };
+    return createDocumentReference(coll.port, result.path);
   });
 }
 
@@ -89,7 +111,7 @@ export async function addDoc(
  *   await batch.commit();
  */
 export interface ClientWriteBatch {
-  set(ref: DocRefHandle, data: Record<string, unknown>, options?: { merge?: boolean; mergeFields?: string[] }): ClientWriteBatch;
+  set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): ClientWriteBatch;
   update(ref: DocRefHandle, data: Record<string, unknown>): ClientWriteBatch;
   delete(ref: DocRefHandle): ClientWriteBatch;
   commit(): Promise<void>;
@@ -101,11 +123,13 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
 
   const batch: ClientWriteBatch = {
     set(ref, data, options) {
-      writes.push({ method: 'set', path: ref.descriptor.path, data, options });
+      const capturedOptions = captureSetOptions(options);
+      const payload = convertSetData(ref, data);
+      writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
       return batch;
     },
     update(ref, data) {
-      writes.push({ method: 'update', path: ref.descriptor.path, data });
+      writes.push({ method: 'update', path: ref.descriptor.path, data: encodeDocValue(data), valueEncoding: DOC_VALUE_ENCODING });
       return batch;
     },
     delete(ref) {
@@ -118,8 +142,10 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
         id: nextId(),
         method: 'batchCommit',
         writes: [...writes],
-      }), () => ({ documentWrites: writes.filter(write => write.method !== 'delete').length,
-        documentDeletes: writes.filter(write => write.method === 'delete').length }));
+      }), () => ({
+        documentWrites: writes.filter(write => write.method !== 'delete').length,
+        documentDeletes: writes.filter(write => write.method === 'delete').length,
+      }));
     },
   };
   return batch;
@@ -129,8 +155,8 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
 
 /** Client-side transaction handle. */
 export interface ClientTransaction {
-  get(ref: DocRefHandle): Promise<ClientDocSnapshot>;
-  set(ref: DocRefHandle, data: Record<string, unknown>, options?: { merge?: boolean; mergeFields?: string[] }): void;
+  get<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>>;
+  set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): void;
   update(ref: DocRefHandle, data: Record<string, unknown>): void;
   delete(ref: DocRefHandle): void;
 }
@@ -173,7 +199,10 @@ export async function runTransaction<R>(
   return runSdkWrite(beginGroupActivity(db, 'runTransaction'), async () => {
     const port = db.port;
 
-    for (let attempt = 0; attempt < TXN_MAX_ATTEMPTS; attempt++) {
+    let attemptsRemaining = TXN_MAX_ATTEMPTS;
+    let hasAttempts = attemptsRemaining > 0;
+    while (hasAttempts) {
+      attemptsRemaining -= 1;
       // Fresh read-set and write buffer for each attempt.
       const reads: TxnReadEntry[] = [];
       const writes: WriteDescriptor[] = [];
@@ -192,18 +221,22 @@ export async function runTransaction<R>(
           // Record the raw serialized data (or null) in the read-set.
           // We preserve the wire-form SerializedDocData so the worker can
           // re-serialize the current doc and compare JSON strings.
+          const serialized = rawResult.data;
+          const hasData = rawResult.exists && serialized !== undefined;
           reads.push({
             path: ref.descriptor.path,
-            data: (rawResult.exists && rawResult.data) ? rawResult.data : null,
+            data: hasData ? serialized : null,
           });
 
-          return makeDocSnapshot(rawResult, ref.port);
+          return makeDocSnapshot(rawResult, ref.port, ref);
         },
         set(ref, data, options) {
-          writes.push({ method: 'set', path: ref.descriptor.path, data, options });
+          const capturedOptions = captureSetOptions(options);
+          const payload = convertSetData(ref, data);
+          writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
         },
         update(ref, data) {
-          writes.push({ method: 'update', path: ref.descriptor.path, data });
+          writes.push({ method: 'update', path: ref.descriptor.path, data: encodeDocValue(data), valueEncoding: DOC_VALUE_ENCODING });
         },
         delete(ref) {
           writes.push({ method: 'delete', path: ref.descriptor.path });
@@ -223,9 +256,11 @@ export async function runTransaction<R>(
         });
         return result;
       } catch (err) {
-        const e = err as { code?: string };
-        if (e.code === 'aborted') {
+        const isErrorObject = err !== null && typeof err === 'object';
+        const isConflict = isErrorObject && 'code' in err && err.code === 'aborted';
+        if (isConflict) {
           // Conflict detected — retry updateFn on the next attempt.
+          hasAttempts = attemptsRemaining > 0;
           continue;
         }
         // Permission-denied, not-found, etc. — propagate immediately.
@@ -234,11 +269,13 @@ export async function runTransaction<R>(
     }
 
     // Exceeded max attempts.
-    const abortErr = new Error(
-      `Transaction failed after ${TXN_MAX_ATTEMPTS} attempts due to repeated conflicts. ` +
-      'Another tab is concurrently writing to the same documents.',
-    ) as Error & { code: string };
-    abortErr.code = 'aborted';
+    const abortErr = Object.assign(
+      new Error(
+        `Transaction failed after ${TXN_MAX_ATTEMPTS} attempts due to repeated conflicts. ` +
+        'Another tab is concurrently writing to the same documents.',
+      ),
+      { code: 'aborted' },
+    );
     throw abortErr;
   });
 }

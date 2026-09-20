@@ -11,12 +11,11 @@ import { startServer } from '../../src/bridge/server.js';
 import { SANDBOX_TOOL_NAMES } from '../../src/bridge/client/dispatch.js';
 
 function withServer<T>(
-  startPort: number,
   fn: (server: Awaited<ReturnType<typeof startServer>>) => Promise<T>,
   opts: Parameters<typeof startServer>[0] = {},
 ): Promise<T> {
   return startServer({
-    port: startPort,
+    port: 0,
     disableAuditLog: true,
     silent: true,
     ...opts,
@@ -32,7 +31,6 @@ function withServer<T>(
 describe('Premortem fixes — A2 (session leak)', () => {
   test('max-session cap rejects new sessions at limit', async () => {
     await withServer(
-      5196,
       async (server) => {
         const initBody = {
           jsonrpc: '2.0',
@@ -70,7 +68,6 @@ describe('Premortem fixes — A2 (session leak)', () => {
 
   test('idle session is auto-closed after sessionIdleMs', async () => {
     await withServer(
-      5197,
       async (server) => {
         const initRes = await fetch(`${server.url}/mcp`, {
           method: 'POST',
@@ -137,6 +134,8 @@ describe('Premortem fixes — A1 (dispatcher drift eliminated)', () => {
       'auth_delete_user',
       'auth_set_claims',
       'auth_custom_token',
+      // sandbox messaging inspection
+      'messaging_deliveries',
     ]);
   });
 });

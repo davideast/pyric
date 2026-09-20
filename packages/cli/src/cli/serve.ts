@@ -373,7 +373,7 @@ export async function startServe(opts: {
       // Never force in-page: serve always serves the worker, and the bridge peer
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
-      transformHtml: (html) => injectServeTags(html, undefined, workerVersion),
+      transformHtml: (html) => injectServeTags(html, { workerVersion }),
       allowedHosts: opts.allowedHosts,
       logger,
     });

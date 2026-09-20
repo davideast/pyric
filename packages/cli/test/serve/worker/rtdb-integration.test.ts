@@ -25,6 +25,7 @@ describe('RTDB served-entry integration', () => {
     const ctx = await makeHostCtx();
     (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
       port: FakePort;
+      addEventListener() {}
       constructor(_url: unknown, _opts: unknown) {
         const { a: clientPort, b: hostPort } = portPair();
         const hostPortLike: PortLike = {
@@ -56,6 +57,7 @@ describe('RTDB served-entry integration', () => {
     const ctx = await makeHostCtx();
     (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
       port: FakePort;
+      addEventListener() {}
       constructor(_url: unknown, _opts: unknown) {
         const { a: clientPort, b: hostPort } = portPair();
         const hostPortLike: PortLike = {
@@ -151,6 +153,7 @@ describe('RTDB served-entry integration', () => {
     try {
       (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
         port: FakePort;
+        addEventListener() {}
         constructor(_url: unknown, _opts: unknown) {
           const { a: clientPort, b: hostPort } = portPair();
           const hostPortLike: PortLike = {

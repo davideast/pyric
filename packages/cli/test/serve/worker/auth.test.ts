@@ -577,6 +577,72 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
     if (!res.ok) expect(res.error.code).toBe('auth/operation-not-allowed');
   });
 
+  it('provider acceptance preserves changed passwords and authoritative account fields', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    try {
+      const auth = getAuth(ctx.sandbox);
+      authSandboxOps.seedUsers(auth, [{
+        uid: 'preserved', email: 'preserved@example.com', password: 'original-password',
+        customClaims: { role: 'editor' }, tenantId: 'account-tenant',
+        emailVerified: true, createdAt: '2020-01-01T00:00:00.000Z',
+      }]);
+      await enableProvider(ctx, port, 'google.com');
+      okValue(await sendOp(ctx, port, {
+        t: 'op', id: id(), method: 'auth.signInEmail',
+        email: 'preserved@example.com', password: 'original-password',
+      }));
+      okValue(await sendOp(ctx, port, {
+        t: 'op', id: id(), method: 'auth.updatePassword', password: 'changed-password',
+      }));
+      const accepted = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+        t: 'op', id: id(), method: 'auth.acceptIdentity', tenantId: 'session-tenant',
+        identity: { uid: 'preserved', email: 'preserved@example.com', displayName: 'Updated',
+          photoURL: null, customClaims: { role: 'stale' }, providerId: 'google.com' },
+      }));
+      expect(accepted.user.tenantId).toBe('session-tenant');
+      expect(accepted.user.providerData.map(provider => provider.providerId)).toEqual(['password', 'google.com']);
+      const token = okValue<SerializedIdTokenResult>(await sendOp(ctx, port, {
+        t: 'op', id: id(), method: 'auth.getIdTokenResult',
+      }));
+      expect(token.signInProvider).toBe('google.com');
+      expect(token.claims.role).toBe('editor');
+      const account = authSandboxOps.listUsers(auth).find(user => user.uid === 'preserved');
+      expect(account).toMatchObject({ tenantId: 'account-tenant', emailVerified: true,
+        createdAt: '2020-01-01T00:00:00.000Z', customClaims: { role: 'editor' } });
+      const signedIn = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
+        t: 'op', id: id(), method: 'auth.signInEmail', email: 'preserved@example.com', password: 'changed-password',
+      }));
+      expect(signedIn.user.uid).toBe('preserved');
+      const stalePassword = await sendOp(ctx, port, {
+        t: 'op', id: id(), method: 'auth.signInEmail', email: 'preserved@example.com', password: 'original-password',
+      });
+      expect(stalePassword).toMatchObject({ ok: false, error: { code: 'auth/wrong-password' } });
+    } finally {
+      ctx.sandbox.dispose();
+    }
+  });
+
+  it('rejects disabled accounts without changing their profile or linked providers', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    try {
+      const auth = getAuth(ctx.sandbox);
+      authSandboxOps.seedUsers(auth, [{ uid: 'disabled', email: 'disabled@example.com',
+        password: 'original-password', displayName: 'Original', disabled: true }]);
+      await enableProvider(ctx, port, 'google.com');
+      const before = authSandboxOps.listUsers(auth);
+      const result = await sendOp(ctx, port, {
+        t: 'op', id: id(), method: 'auth.acceptIdentity',
+        identity: { uid: 'disabled', email: 'disabled@example.com', displayName: 'Replacement',
+          photoURL: 'https://example.com/replacement.png', customClaims: {}, providerId: 'google.com' },
+      });
+      expect(result).toMatchObject({ ok: false, error: { code: 'auth/user-disabled' } });
+      expect(authSandboxOps.listUsers(auth)).toEqual(before);
+      expect(await currentUser(ctx, port)).toBeNull();
+    } finally { ctx.sandbox.dispose(); }
+  });
+
   // ── Profile photo: the identity carries it, the seed record stores it, and
   // the serialized user hands it back to the page. An identity that carries
   // NO photo gets the mint this worker was booted with — here, the built-in

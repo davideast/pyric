@@ -1,4 +1,4 @@
-import { setAiEvidence, type AiEvidence } from 'pyric/ai/internal';
+import { setAiEvidence } from 'pyric/ai/internal';
 /**
  * Worker-client transport core — the shared singleton machinery every API
  * family (firestore, auth, rtdb, storage) rides on: port wiring, RPC
@@ -19,6 +19,8 @@ import type { AuthLens, SandboxEvent } from 'pyric/sandbox';
 import { FirebaseError } from 'pyric/app';
 import { receiveClockState } from './clock.js';
 import type { ClientPort } from './handles.js';
+import { createOperationBudget } from '../../../bridge/operation-budget.js';
+import { hasValidOutboundEnvelope, hasValidReplyOutcome, snapshotError } from '../outbound-validation.js';
 
 // ─── Port + correlation machinery ─────────────────────────────────────────
 
@@ -35,6 +37,9 @@ export function nextSubId(): string { return `sub-${++_subCounter}`; }
  */
 export const _pending = new Map<string, {
   port: ClientPort;
+  clientSessionId?: string;
+  budget?: ReturnType<typeof createOperationBudget>;
+  release?: () => void;
   resolve: (v: unknown) => void;
   reject: (e: Error & { code: string }) => void;
 }>();
@@ -49,6 +54,7 @@ export const _snapSubs = new Map<string, {
   error?: (err: unknown) => void;
   /** Firestore listeners abort on app deletion; RTDB/Auth stop silently. */
   service?: 'firestore';
+  message?: InboundMessage;
   close?: () => void;
 }>();
 
@@ -60,6 +66,7 @@ export const _snapSubs = new Map<string, {
 export const _eventSubs = new Map<string, {
   port: ClientPort;
   next: (events: readonly SandboxEvent[]) => void;
+  error?: (error: Error & { code: string }) => void;
 }>();
 const disconnectedPorts = new WeakSet<ClientPort>();
 const runtimeReloadListeners = new Set<(message: RuntimeReloadMessage) => void>();
@@ -86,9 +93,15 @@ export function openSnapshotSubscription(
   subscription: (typeof _snapSubs extends Map<string, infer T> ? T : never),
   message: InboundMessage,
 ): boolean {
-  if (disconnectedPorts.has(port)) return false;
-  _snapSubs.set(subId, subscription);
-  port.postMessage(message);
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) return false;
+  _snapSubs.set(subId, { ...subscription, message });
+  try {
+    port.postMessage(message);
+  } catch (error) {
+    _snapSubs.delete(subId);
+    throw error;
+  }
   return true;
 }
 
@@ -98,11 +111,69 @@ export function openEventSubscription(
   subId: string,
   next: (events: readonly SandboxEvent[]) => void,
   message: InboundMessage,
+  error?: (error: Error & { code: string }) => void,
 ): boolean {
-  if (disconnectedPorts.has(port)) return false;
-  _eventSubs.set(subId, { port, next });
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) { error?.(appDeletedError()); return false; }
+  _eventSubs.set(subId, { port, next, error });
   port.postMessage(message);
   return true;
+}
+
+/** Move existing observers when getToken selects a different Service Worker scope. */
+export function retargetMessagingSubscriptions(port: ClientPort, recipientId: string): void {
+  for (const [subId, subscription] of _snapSubs) {
+    const message = subscription.message;
+    const ownsSubscription = subscription.port === port && message?.t === 'sub';
+    if (!ownsSubscription) continue;
+    const isMessaging = message.target === 'messaging.foreground' || message.target === 'messaging.background';
+    if (!isMessaging) continue;
+    port.postMessage({ t: 'unsub', subId });
+    message.recipientId = recipientId;
+    port.postMessage(message);
+  }
+}
+
+/** Reattach Messaging observers without replaying sends or token mutations. */
+export function restoreMessagingSubscriptions(port: ClientPort, postMessage: ClientPort['postMessage']): void {
+  const visibility = port.messagingVisibility;
+  if (visibility) postMessage({ ...visibility, id: nextId() });
+  for (const [subId, subscription] of _snapSubs) {
+    const message = subscription.message;
+    const ownsSubscription = subscription.port === port && message?.t === 'sub';
+    if (!ownsSubscription) continue;
+    const isMessaging = message.target === 'messaging.foreground' || message.target === 'messaging.background';
+    if (!isMessaging) continue;
+    postMessage({ t: 'unsub', subId });
+    postMessage(message);
+  }
+}
+
+/** Re-establish document listener intent without repeating one-shot operations. */
+export function restoreFirestoreSubscriptions(
+  port: ClientPort,
+  postMessage: ClientPort['postMessage'] = message => port.postMessage(message),
+): void {
+  for (const [subId, subscription] of _snapSubs) {
+    const message = subscription.message;
+    const ownsDocumentListener = subscription.port === port && subscription.service === 'firestore' && message?.t === 'sub';
+    if (ownsDocumentListener) {
+      postMessage({ t: 'unsub', subId });
+      postMessage(message);
+    }
+  }
+}
+
+/** A replacement host has no Auth observers, even when the app retains its handle. */
+export function restoreAuthSubscriptions(port: ClientPort, postMessage: ClientPort['postMessage']): void {
+  for (const subscription of _snapSubs.values()) {
+    const message = subscription.message;
+    const ownsSubscription = subscription.port === port && message?.t === 'sub';
+    if (ownsSubscription) {
+      const observesAuth = message.target === 'authState' || message.target === 'idToken';
+      if (observesAuth) postMessage(message);
+    }
+  }
 }
 
 /** Remove a local subscription and notify only a live app port. */
@@ -113,35 +184,48 @@ export function closeSubscription(
 ): void {
   _snapSubs.delete(subId);
   _eventSubs.delete(subId);
-  if (!disconnectedPorts.has(port)) {
-    port.postMessage({
-      t: 'unsub',
-      subId,
-      ...(clientSessionId ? { clientSessionId } : {}),
-    } satisfies InboundMessage);
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) return;
+  const message: InboundMessage = { t: 'unsub', subId };
+  const hasSessionId = clientSessionId !== undefined && clientSessionId !== '';
+  if (hasSessionId) message.clientSessionId = clientSessionId;
+  try {
+    port.postMessage(message);
+  } catch {
+    // Local cancellation is complete even when the host cannot be notified.
+  }
+}
+
+/** Settle outstanding calls without claiming that the owning app was deleted. */
+export function rejectPendingRequests(port: ClientPort, error: Error & { code: string }): void {
+  for (const [id, pending] of [..._pending]) {
+    const isOwnedRequest = pending.port === port;
+    if (isOwnedRequest) {
+      takePendingRequest(id);
+      pending.reject(error);
+    }
   }
 }
 
 /** Drop every client-side correlation owned by a closing app port. */
 export function disconnectPort(port: ClientPort): void {
   disconnectedPorts.add(port);
-  const error = appDeletedError();
-  for (const [id, pending] of [..._pending]) {
-    if (pending.port !== port) continue;
-    _pending.delete(id);
-    pending.reject(error);
-  }
+  rejectPendingRequests(port, appDeletedError());
   for (const [id, subscription] of [..._snapSubs]) {
-    if (subscription.port !== port) continue;
+    const isForeignSubscription = subscription.port !== port;
+    if (isForeignSubscription) continue;
     _snapSubs.delete(id);
-    if (subscription.service === 'firestore') {
+    const isFirestoreSubscription = subscription.service === 'firestore';
+    if (isFirestoreSubscription) {
       subscription.error?.(new FirebaseError('aborted', 'The operation was aborted.'));
     }
     subscription.close?.();
   }
   for (const [id, subscription] of [..._eventSubs]) {
-    if (subscription.port !== port) continue;
+    const isForeignSubscription = subscription.port !== port;
+    if (isForeignSubscription) continue;
     _eventSubs.delete(id);
+    subscription.error?.(appDeletedError());
   }
   port.onmessage = null;
 }
@@ -198,11 +282,38 @@ function relayDenial(
 export function wirePort(port: ClientPort): void {
   port.onmessage = (ev: MessageEvent<OutboundMessage>) => {
     const msg = ev.data;
-    if (msg.t === 'res') {
+    const hasInvalidEnvelope = !hasValidOutboundEnvelope(msg);
+    if (hasInvalidEnvelope) {
+      const error = new FirebaseError('unavailable',
+        'The sandbox sent a malformed reply envelope. The operation may have completed; check state before retrying.');
+      rejectPendingRequests(port, error);
+      for (const [id, subscription] of _snapSubs) {
+        const ownsSubscription = subscription.port === port;
+        if (ownsSubscription) { closeSubscription(port, id); subscription.error?.(error); }
+      }
+      for (const [id, subscription] of _eventSubs) {
+        const ownsSubscription = subscription.port === port;
+        if (ownsSubscription) { closeSubscription(port, id); subscription.error?.(error); }
+      }
+      return;
+    }
+    const isResponse = msg.t === 'res';
+    const isSnapshot = msg.t === 'snap';
+    const isEventBatch = msg.t === 'event';
+    const isRuntimeReload = msg.t === 'runtime-reload';
+    const isClock = msg.t === 'clock';
+    if (isResponse) {
       const pending = _pending.get(msg.id);
-      if (!pending) return;
-      _pending.delete(msg.id);
-      if (msg.ok) {
+      const isForeignRequest = pending === undefined || pending.port !== port;
+      if (isForeignRequest) return;
+      takePendingRequest(msg.id);
+      const hasInvalidOutcome = !hasValidReplyOutcome(msg);
+      if (hasInvalidOutcome) {
+        pending.reject(new FirebaseError('unavailable', 'The sandbox sent a malformed operation reply. The operation may have completed; check state before retrying.'));
+        return;
+      }
+      const succeeded = msg.ok;
+      if (succeeded) {
         pending.resolve(msg.value);
       } else {
         const err = new Error(msg.error.message) as Error & {
@@ -214,49 +325,60 @@ export function wirePort(port: ClientPort): void {
         // Structured denial context (spike gap 6): re-attach so consumers —
         // and the bridge relay, which re-serializes thrown errors — see the
         // same shape a local SandboxError carries.
-        if (msg.error.denialContext !== undefined) {
+        const hasDenialContext = msg.error.denialContext !== undefined;
+        if (hasDenialContext) {
           err.denialContext = msg.error.denialContext;
         }
         // AI wire error envelope (pyric/ai): re-attach so the served
         // `firebase/ai` entry can mint the exact SDK AIError decoration the
         // in-process plane applies (see entries/ai.ts).
-        if (msg.error.aiEvidence) setAiEvidence(err, msg.error.aiEvidence);
-        if (msg.error.aiEnvelope !== undefined) {
+        const aiEvidence = msg.error.aiEvidence;
+        const hasAiEvidence = aiEvidence !== undefined;
+        if (hasAiEvidence) setAiEvidence(err, aiEvidence);
+        const hasAiEnvelope = msg.error.aiEnvelope !== undefined;
+        if (hasAiEnvelope) {
           err.aiEnvelope = msg.error.aiEnvelope;
         }
         relayDenial('read', err);
         pending.reject(err);
       }
-    } else if (msg.t === 'snap') {
+    } else if (isSnapshot) {
       const sub = _snapSubs.get(msg.subId);
-      if (!sub) return;
-      // Auth snaps carry `SerializedUser | null` — a null value is a valid
-      // "signed out" payload, not an error, so guard the __error sniff.
-      const value = (msg.value ?? {}) as Record<string, unknown>;
-      if (value.__error) {
-        const errPayload = value.__error as { aiEvidence?: Partial<AiEvidence>; code: string; message: string; denialContext?: unknown; aiEnvelope?: unknown };
+      const isForeignSubscription = sub === undefined || sub.port !== port;
+      if (isForeignSubscription) return;
+      const errPayload = snapshotError(msg);
+      const hasError = errPayload !== undefined;
+      if (hasError) {
+        closeSubscription(port, msg.subId);
         const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown; aiEnvelope?: unknown };
         err.code = errPayload.code;
-        if (errPayload.denialContext !== undefined) err.denialContext = errPayload.denialContext;
-        if (errPayload.aiEvidence) setAiEvidence(err, errPayload.aiEvidence);
-        if (errPayload.aiEnvelope !== undefined) err.aiEnvelope = errPayload.aiEnvelope;
+        const hasDenialContext = errPayload.denialContext !== undefined;
+        if (hasDenialContext) err.denialContext = errPayload.denialContext;
+        const aiEvidence = errPayload.aiEvidence;
+        const hasAiEvidence = aiEvidence !== undefined;
+        if (hasAiEvidence) setAiEvidence(err, aiEvidence);
+        const hasAiEnvelope = errPayload.aiEnvelope !== undefined;
+        if (hasAiEnvelope) err.aiEnvelope = errPayload.aiEnvelope;
         relayDenial('listener', err);
         // Surface an unobserved listener error instead of swallowing it — the
         // worker-path twin of the in-page default (a denied listener after a
         // rules change / sign-out must not fail silently on the page console).
-        if (sub.error) sub.error(err);
+        const handleError = sub.error;
+        const hasErrorHandler = handleError !== undefined;
+        if (hasErrorHandler) handleError.call(sub, err);
         else console.error('pyric/firestore: Uncaught Error in snapshot listener:', err);
         return;
       }
       sub.next(msg.value);
-    } else if (msg.t === 'event') {
+    } else if (isEventBatch) {
       // Event-stream batch (Pyric Studio keystone). Plain JSON SandboxEvents —
       // no rehydration. Deliver the whole batch to the registered subscriber.
       const subscription = _eventSubs.get(msg.subId);
-      if (subscription) subscription.next(msg.events);
-    } else if (msg.t === 'runtime-reload') {
+      const ownsSubscription = subscription !== undefined && subscription.port === port;
+      if (ownsSubscription) subscription.next(msg.events);
+    } else if (isRuntimeReload) {
       for (const listener of runtimeReloadListeners) listener(msg);
-    } else if (msg.t === 'clock') {
+    } else if (isClock) {
       receiveClockState(msg.state);
     }
   };
@@ -430,17 +552,53 @@ export function stampIssuer<T extends { t?: string }>(msg: T): T {
  * implicit stamping. The RELAY path ({@link relayWorkerOp}) explicitly owns
  * the final remote provenance fields before sending through this function.
  */
-export function rawRpc(port: ClientPort, msg: InboundMessage): Promise<unknown> {
-  if (disconnectedPorts.has(port)) return Promise.reject(appDeletedError());
+export function rawRpc(
+  port: ClientPort,
+  msg: InboundMessage,
+  postMessage: ClientPort['postMessage'] = message => port.postMessage(message),
+): Promise<unknown> {
+  const isDeleted = disconnectedPorts.has(port);
+  if (isDeleted) return Promise.reject(appDeletedError());
+  const isOperation = msg.t === 'op' || msg.t === 'tool';
+  const budget = isOperation ? operationBudget(port, msg.clientSessionId) : undefined;
+  const reservation = budget?.reserve(msg);
+  const isRefused = reservation?.accepted === false;
+  if (isRefused) return Promise.reject(new FirebaseError(reservation.error.code, reservation.error.message));
   return new Promise<unknown>((resolve, reject) => {
     const opMsg = msg as { id: string };
     _pending.set(opMsg.id, {
       port,
+      clientSessionId: msg.clientSessionId,
+      budget,
+      release: reservation?.release,
       resolve,
-      reject: reject as (e: Error & { code: string }) => void,
+      reject,
     });
-    port.postMessage(msg);
+    try {
+      postMessage(msg);
+    } catch (error) {
+      takePendingRequest(opMsg.id);
+      reject(error);
+    }
   });
+}
+
+function operationBudget(port: ClientPort, clientSessionId: string | undefined): ReturnType<typeof createOperationBudget> {
+  for (const request of _pending.values()) {
+    const belongsToClient = request.port === port && request.clientSessionId === clientSessionId;
+    const budget = request.budget;
+    const hasClientBudget = belongsToClient && budget !== undefined;
+    if (hasClientBudget) return budget;
+  }
+  return createOperationBudget();
+}
+
+/** Removing correlation releases its operation charge, including local cancellation. */
+function takePendingRequest(id: string) {
+  const request = _pending.get(id);
+  _pending.delete(id);
+  request?.release?.();
+  return request;
 }
 
 /** Send a CLIENT-CONSTRUCTED message: stamps the declared op source, then sends. */
@@ -462,12 +620,14 @@ export function rpcWithTimeout(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      if (!_pending.delete(id)) return;
+      const isAlreadySettled = takePendingRequest(id) === undefined;
+      if (isAlreadySettled) return;
       reject(new Error(timeoutMessage));
     }, timeoutMs);
   });
   return Promise.race([rpc(port, msg), timeout]).finally(() => {
-    if (timer) clearTimeout(timer);
+    const hasTimer = timer !== undefined;
+    if (hasTimer) clearTimeout(timer);
   });
 }
 

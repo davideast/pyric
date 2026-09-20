@@ -22,18 +22,19 @@ import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
-import { getAuth, onAuthStateChanged, signOut, sandbox as authOps, type SeedUser } from 'pyric/auth';
+import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
   callTool as workerCallTool,
   relayWorkerOp,
   relayWorkerSub,
   relayWorkerDisconnect,
 } from '../worker/client.js';
-import { useWorker, workerDb } from './worker-runtime.js';
+import { useWorker, workerDb, useHosted } from './worker-runtime.js';
+import { initPayload, initPayloadRequest } from './init-payload.js';
+export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
-import type { InitPayload } from '../init-payload.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
 import { setupAiDiagnosticsRelay } from '../ai-diagnostics-relay.js';
@@ -125,11 +126,6 @@ let activityTokenFromPayload: string | null = null;
  * the avatar-upgrade flag `entries/init.ts` acts on), so both modes share this
  * request rather than each issuing their own.
  */
-const initPayloadRequest = (async (): Promise<InitPayload> => {
-  const res = await fetch('/__pyric/init.json');
-  if (!res.ok) throw new Error(`/__pyric/init.json → ${res.status}`);
-  return (await res.json()) as InitPayload;
-})();
 
 /**
  * The payload for page-level consumers, `null` when it could not be read.
@@ -137,7 +133,6 @@ const initPayloadRequest = (async (): Promise<InitPayload> => {
  * consumer of one flag must not have to own it a second time. Awaiting this
  * also keeps `initPayloadRequest`'s rejection handled.
  */
-export const initPayload: Promise<InitPayload | null> = initPayloadRequest.catch(() => null);
 
 // ── init payload: fetch + apply (top-level await — see header) ────────
 // WORKER PATH: skipped — the worker fetches the same init.json and owns
@@ -484,6 +479,7 @@ if (typeof window !== 'undefined') {
 // ── bridge peer (only when `pyric dev --bridge` put a URL in the payload;
 //    dynamic import so bridge-less pages never load the client chunk) ─────
 async function connectBridgePeer(rawUrl: string): Promise<void> {
+  if (useHosted) return;
   // Re-anchor the bridge WS to THIS page's origin so it reaches the server the
   // page was actually served from over Tailscale / a LAN IP / https, not the
   // server's baked-in localhost. See bridge-url.ts.
@@ -492,11 +488,12 @@ async function connectBridgePeer(rawUrl: string): Promise<void> {
   // On the worker path, route agent tool-calls THROUGH the SharedWorker so the
   // agent shares the one sandbox the app + Studio use (no separate in-page
   // backend). Off the worker path (in-page fallback), dispatch in-page as before.
-  if (useWorker && workerDb) {
-    const wdb = workerDb;
+  const wdb = workerDb;
+  const hasWorkerBridge = useWorker && wdb !== null;
+  if (hasWorkerBridge) {
     connectBridge(sandbox, {
       url,
-      dispatcher: (_sandbox, name, args, actAs) => workerCallTool(wdb, name, args, actAs),
+      dispatcher: (_sandbox, name, args, actAs, callerId) => workerCallTool(wdb, name, args, actAs, callerId),
       // Generic worker relay (remote sandbox, slice 1): server-side Node code
       // (`connectRemoteSandbox`) reaches THIS page's SharedWorker through the
       // bridge — ops and snap-delivering subscriptions pass straight through
@@ -553,7 +550,7 @@ if (bridgeUrlFromPayload) {
 //
 //   Channel 2 — Auth state (`pyric:serve:auth-sync`):
 //     Auth lives outside the Firestore environment so `enableTabSync` can't
-//     carry it. `wireAuthTabSync` bridges sign-in/sign-out/user-DB changes
+//     carry it. `wireAuthTabSync` shares account changes while retaining per-tab sessions
 //     over its own BroadcastChannel using a full-state protocol (see
 //     `tab-sync-wiring.ts` for the detailed protocol + echo-guard rationale).
 //
@@ -563,7 +560,8 @@ if (bridgeUrlFromPayload) {
 // cross-tab Firestore + auth are automatic — the in-page sandbox these channels
 // would sync isn't the data backend here. Kept ONLY for the in-page fallback
 // (the tier the plan designates for browsers without SharedWorker).
-if (!useWorker && typeof BroadcastChannel !== 'undefined') {
+const enablesFallbackTabSync = !useWorker && typeof BroadcastChannel !== 'undefined';
+if (enablesFallbackTabSync) {
   // 1. Firestore cross-tab — library primitive does the heavy lifting.
   sandbox.enableTabSync({
     channel: new BroadcastChannel('pyric:serve:tabsync'),
@@ -576,12 +574,7 @@ if (!useWorker && typeof BroadcastChannel !== 'undefined') {
   void import('./tab-sync-wiring.js').then(({ wireAuthTabSync }) => {
     wireAuthTabSync(
       getAuth(sandbox),
-      // Cast: authOps's generics are narrowed to `Auth` which is exactly what
-      // wireAuthTabSync expects; `as` here avoids a deep generic unification
-      // that TypeScript can't resolve across module boundaries.
-      authOps as import('./tab-sync-wiring.js').AuthOps,
-      onAuthStateChanged,
-      signOut,
+      authOps,
     );
   });
 }

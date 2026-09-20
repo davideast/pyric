@@ -191,7 +191,7 @@ describe('remote session isolation across bridge relay (M1)', () => {
     const ctx = await makeWorkerCtx();
     connectTab(bridge, ctx);
 
-    authSandbox.seedUsers(ctx.auth!, [
+    authSandbox.seedUsers(getAuth(ctx.sandbox), [
       { uid: 'alice', email: 'alice@example.com', password: 'password123' },
       { uid: 'bob', email: 'bob@example.com', password: 'password123' },
     ]);
@@ -219,7 +219,7 @@ describe('remote session isolation across bridge relay (M1)', () => {
     const ctx = await makeWorkerCtx();
     connectTab(bridge, ctx);
 
-    authSandbox.seedUsers(ctx.auth!, [
+    authSandbox.seedUsers(getAuth(ctx.sandbox), [
       { uid: 'alice', email: 'alice@example.com', password: 'password123' },
       { uid: 'bob', email: 'bob@example.com', password: 'password123' },
     ]);
@@ -251,8 +251,12 @@ describe('remote session isolation across bridge relay (M1)', () => {
     connectTab(bridge, ctx);
 
     const c1 = await connectConsumer(bridge);
+    expect((await c1.op({ method: 'auth.signInAnonymously' })).ok).toBe(true);
     c1.sub('c1-notes', { target: { __ref: 'doc', path: 'shared/note1' } });
     await tick();
+    expect(c1.snaps).toContainEqual(expect.objectContaining({
+      subId: 'c1-notes', value: expect.objectContaining({ exists: false }),
+    }));
 
     // Tab replacement occurs
     const tab2 = connectTab(bridge, ctx);

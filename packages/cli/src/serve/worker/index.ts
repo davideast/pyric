@@ -1,9 +1,9 @@
 /**
- * Browser-safe SharedWorker CLIENT surface (Pyric Studio data plane).
+ * Browser-safe SharedWorker and hosted CLIENT surface (Studio/Playground data plane).
  *
  * This barrel exports ONLY the leaf client + the wire-protocol types — the
  * pieces a browser app (the served page, or Pyric Studio's Vite app) imports to
- * connect to the `pyric-shared-worker` over its `MessagePort`. It deliberately
+ * connect by SharedWorker MessagePort or hosted WebSocket. It deliberately
  * does NOT re-export `host.ts`/`entry.ts`:
  *   - `host.ts` imports the full `pyric/firestore` + `pyric/auth` engine (it IS
  *     the backend) — node/engine-heavy, never wanted in a page bundle.
@@ -16,7 +16,9 @@
  *
  * Exposed by `@pyric/cli`'s `./serve/worker` package export so Studio can
  * `import { getFirestore, subscribeEvents, setLens } from
- * '@pyric/cli/serve/worker'` and reach the live SharedWorker backend.
+ * '@pyric/cli/serve/worker'` and reach the SharedWorker backend.
+ * `readHostedTarget` reads the host declaration; `getHostedFirestore` opens its
+ * WebSocket client. Both are supported adapter exports used by Studio/Playground.
  */
 
 export {
@@ -250,3 +252,6 @@ export type {
   SerializedIdTokenResult,
   ResolvedIdentity,
 } from './protocol.js';
+
+export { getHostedFirestore } from './client/websocket-connection.js';
+export { readHostedTarget } from '../runtime/hosted-target.js';

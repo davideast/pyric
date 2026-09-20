@@ -14,6 +14,14 @@ const loc = (href: string) => {
 const RAW = 'ws://localhost:5173/__pyric/sandbox';
 
 describe('toPageOriginWsUrl', () => {
+  it('uses the public proxy port for a hosted sandbox on the page origin', () => {
+    expect(toPageOriginWsUrl(
+      'ws://127.0.0.1:5217/__pyric/sandbox',
+      loc('https://box.tail1234.ts.net:8457/'),
+      'page-origin',
+    )).toBe('wss://box.tail1234.ts.net:8457/__pyric/sandbox');
+  });
+
   it('rewrites to wss + the tailnet host over https (tailscale serve, no port)', () => {
     expect(toPageOriginWsUrl(RAW, loc('https://box.tail1234.ts.net/app'))).toBe(
       'wss://box.tail1234.ts.net/__pyric/sandbox',

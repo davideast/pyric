@@ -1,3 +1,5 @@
+import { requestStatusLabel } from 'pyric/sandbox/internal';
+import { workerAiRates } from './worker-ai-rates.js';
 import { aiModelHtml } from './ai-model-label.js';
 import { projectCaptures, captureList, captureEditor } from './project-captures.js';
 import type { CaptureEntry } from '../rate-capture-store.js';
@@ -120,17 +122,10 @@ export interface PyricRuntimeChip {
   dispose(): void;
 }
 
-interface AiEngineDisplay {
-  primary: string;
-  detail: string | null;
-}
-
-function aiEngineState(): AiEngineDisplay {
+function configuredAiRoute(): string {
   const engine = (globalThis as { __PYRIC_AI_ENGINE__?: { kind?: string; model?: string } }).__PYRIC_AI_ENGINE__;
-  if (engine?.kind === 'gemini') return { primary: 'Gemini', detail: 'Configured provider' };
-  if (engine?.kind === 'openai') return { primary: 'OpenAI-compatible', detail: engine.model ? `Configured model: ${engine.model}` : 'Configured provider' };
-  if (engine?.kind === 'scripted') return { primary: 'Scripted', detail: 'No model invoked' };
-  return { primary: 'Not reported', detail: 'AI configuration is unavailable' };
+  if (engine?.kind === 'scripted') return 'No model invoked';
+  return engine?.model ?? 'Not reported';
 }
 
 const styles = `
@@ -341,8 +336,17 @@ const styles = `
   .listener-toolbar { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: var(--space-2); width: 100%; min-width: 0; }
   .paint-switch { display: grid; grid-template-columns: repeat(2, 64px); gap: 4px; }
   .paint-switch .btn { width: 64px; min-width: 0; font-size: 11px; }
-  .listener-toolbar select { font: inherit; font-size: 11px; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 32px; min-width: 0; text-overflow: ellipsis; }
-  .listener-toolbar select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
+  .listener-toolbar select, .request-controls select { font: inherit; font-size: 11px; color: var(--pyric-text); background: var(--pyric-content); border: 1px solid var(--pyric-border); border-radius: 6px; width: 100%; height: 32px; min-width: 0; text-overflow: ellipsis; }
+  .listener-toolbar select:focus-visible, .request-controls select:focus-visible { outline: 2px solid var(--pyric-accent); outline-offset: 2px; }
+  .request-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); padding-inline-end: var(--record-inset); }
+  .request-controls select { appearance: none; padding-inline: var(--space-3) 28px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%23a4acbb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right var(--space-2) center; background-size: 16px; }
+  .request-pagination .btn { width: auto; padding-inline: var(--space-3); justify-self: start; }
+  .request-retention { margin: 0; }
+  .sandbox-ai-facts { grid-column: 2; grid-row: 2; display: grid; gap: var(--space-3); min-width: 0; margin: 0; }
+  .sandbox-ai-facts > div { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: baseline; gap: var(--space-3); }
+  .sandbox-ai-facts dt { color: var(--pyric-muted); font-size: 11px; }
+  .sandbox-ai-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-family: "Pyric Geist Mono", ui-monospace, monospace; font-size: 12px; }
+
   .listener-toolbar .icon-button { grid-column: 3; }
   .listener-toolbar-notice { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2); }
 
@@ -390,6 +394,8 @@ function iconHtml(name: string): string {
     check: '<path d="m5 12 4 4L19 6"/>',
     unavailable: '<circle cx="12" cy="12" r="9"/><path d="m6 18 12-12"/>',
     warning: '<path d="M12 3 2 21h20L12 3Z"/><path d="M12 9v5m0 3v1"/>',
+    pause: '<path d="M8 5v14M16 5v14"/>',
+    play: '<path d="m7 4 13 8-13 8Z"/>',
     copy: '<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v12h5"/>',
     chevron: '<path d="m9 5 7 7-7 7"/>',
     minimize: '<path d="M5 12h14"/>',
@@ -462,7 +468,7 @@ function displayTarget(outline: ListenerOutline): string {
 interface ChipView { body: string; bar: string }
 
 /** Traffic is a bounded recent feed; the identity directory has searchable pages. */
-const MAX_ROWS = 7;
+const REQUEST_PAGE_SIZE = 25;
 const USER_PAGE_SIZE = 20;
 const PROVIDER_ICON_LIMIT = 3;
 
@@ -560,7 +566,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   const existingHost = documentLike.querySelector<HTMLElement>(
     '[data-pyric-runtime-chip-host], pyric-runtime-chip',
   );
-  if (existingHost) {
+  const hasExistingHost = existingHost !== null;
+  if (hasExistingHost) {
     existingHost.remove();
   }
 
@@ -573,10 +580,13 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   host.setAttribute('data-pyric-runtime-chip-host', '');
   const root = host.attachShadow({ mode: 'open' });
   root.innerHTML = `<style>${styles}</style><div class="announcer" role="status" aria-live="polite" aria-atomic="true"></div><div data-view></div>`;
-  const view = root.querySelector<HTMLElement>('[data-view]')!;
-  const announcer = root.querySelector<HTMLElement>('.announcer')!;
+  const view = root.querySelector<HTMLElement>('[data-view]');
+  const announcer = root.querySelector<HTMLElement>('.announcer');
+  const isMissingView = view === null || announcer === null;
+  if (isMissingView) throw new Error('Pyric chip markup is incomplete.');
   const clipboard = options.clipboard ?? documentLike.defaultView?.navigator.clipboard;
-  const studioUrl = 'studioUrl' in options
+  const hasStudioOverride = 'studioUrl' in options;
+  const studioUrl = hasStudioOverride
     ? options.studioUrl
     : options.runtime.getSnapshot().manifest.studioUrl;
   let snapshot = options.runtime.getSnapshot();
@@ -686,12 +696,30 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   /** Which requests Traffic lists. A page session remembers nothing here: the
    * filter is a way of reading the last minute, not a preference. */
   let trafficFilter: 'all' | 'denied' = 'all';
+  let requestPageSize = REQUEST_PAGE_SIZE;
+  let requestService = '';
+  let pinnedRequestIds: Set<string> | null = null;
+  let requestListScroll = 0;
+  let projectAiRates: ReturnType<typeof workerAiRates> | undefined;
+  let ratesDirty = true;
+  let observesHostAi = false;
   let trafficDisplay: 'requests' | 'rates' = 'requests';
   let selectedRateService: string | null = null;
   let rateSection: 'chart' | 'incidents' | 'measurements' | 'captures' | 'capture-rename' | 'capture-delete' = 'chart';
   const serviceHistories = { ai: createRateHistory('ai'), firestore: createRateHistory('firestore'), rtdb: createRateHistory('rtdb'), storage: createRateHistory('storage') };
   const currentRateHistory = () => serviceHistories[isThresholdService(selectedRateService) ? selectedRateService : 'rtdb'];
-  const rates = options.rates ?? sdkRates;
+  const localRates = options.rates ?? sdkRates;
+  const rates = { snapshot: () => {
+    const snapshot = localRates.snapshot();
+    if (!options.sandboxEvents) return snapshot;
+    if (ratesDirty) {
+      const ai = (trafficFeed?.requests() ?? []).flatMap(request => request.aiRequest ? [request.aiRequest] : []);
+      observesHostAi ||= ai.length > 0;
+      projectAiRates = observesHostAi ? workerAiRates(ai) : undefined;
+      ratesDirty = false;
+    }
+    return projectAiRates?.(snapshot) ?? snapshot;
+  } };
   let captureError = '';
   let savedCaptureList: CaptureEntry[] | null = null;
   let capturesLoading = false;
@@ -708,7 +736,12 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   });
   const thresholdMonitor = createRateThresholdMonitor();
   let thresholdSignature = '';
-  const thresholdClient = options.thresholdConfig === null ? undefined : options.thresholdConfig ?? (documentLike.defaultView?.fetch && /^https?:$/.test(documentLike.defaultView.location.protocol) ? createThresholdConfigClient(documentLike.defaultView.fetch.bind(documentLike.defaultView)) : undefined);
+  const pageWindow = documentLike.defaultView;
+  const canFetchThresholds = pageWindow?.fetch !== undefined && /^https?:$/.test(pageWindow.location.protocol);
+  const disablesThresholds = options.thresholdConfig === null;
+  let thresholdClient = options.thresholdConfig ?? undefined;
+  const needsThresholdClient = !disablesThresholds && thresholdClient === undefined && canFetchThresholds;
+  if (needsThresholdClient) thresholdClient = createThresholdConfigClient(pageWindow.fetch.bind(pageWindow));
   const thresholdSettings = createThresholdSettings(thresholdClient, () => { if (mounted) render(); });
   /** `false` until the first render. The fold's history batch arrives while this
    * function is still running, before there is a view for it to rebuild. */
@@ -723,12 +756,22 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       root.querySelector<HTMLButtonElement>('[data-request-back]')?.focus();
     },
   });
-  const trafficFeed: TrafficFeed | null = options.sandboxEvents
+  const sandboxEvents = options.sandboxEvents;
+  const observesSandboxEvents = sandboxEvents !== undefined && sandboxEvents !== null;
+  const trafficFeed: TrafficFeed | null = observesSandboxEvents
     ? createTrafficFeed({
-      subscribeEvents: options.sandboxEvents,
-      onRequest: (request, event) => { if (mounted && listenerMode?.enabled()) denials.show(request, event); },
+      subscribeEvents: sandboxEvents,
+      onRequest: (request, event) => {
+        const showsDenials = mounted && listenerMode?.enabled() === true;
+        if (showsDenials) denials.show(request, event);
+      },
       onChange: () => {
-        if (mounted && (!open || (tab === 'traffic' && trafficDisplay === 'requests'))) render();
+        ratesDirty = true;
+        const isHydrating = !mounted;
+        if (isHydrating) return;
+        const showsRequestEvidence = tab === 'sandbox' || (tab === 'traffic' && trafficDisplay === 'requests');
+        const needsRender = !open || showsRequestEvidence;
+        if (needsRender) render();
       },
     })
     : null;
@@ -741,10 +784,16 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   let trafficSource: { service: string; target: string } | null = null;
   const trafficRows = (): ChipRequest[] => {
     const byId = new Map<string, ChipRequest>();
-    for (const request of rates.snapshot().services.find(service => service.service === 'ai')?.aiRequests ?? []) byId.set(request.id, aiTrafficRequest(request));
-    for (const request of trafficFeed?.requests() ?? []) byId.set(request.id, request);
+    const recorded = trafficFeed?.requests() ?? [];
+    observesHostAi ||= recorded.some(request => request.aiRequest !== undefined);
+    if (!observesHostAi) {
+      for (const request of localRates.snapshot().services.find(service => service.service === 'ai')?.aiRequests ?? []) byId.set(request.id, aiTrafficRequest(request));
+    }
+    for (const request of recorded) byId.set(request.id, request);
     for (const error of snapshot.errors) {
-      if (byId.has(error.id)) continue;
+      const representedByHost = observesHostAi && error.service === 'ai';
+      const alreadyRepresented = representedByHost || byId.has(error.id);
+      if (alreadyRepresented) continue;
       byId.set(error.id, {
         id: error.id,
         at: error.at,
@@ -761,12 +810,15 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const ordered = orderChipRequests([...byId.values()], Date.now());
     const kept = trafficFilter === 'denied' ? ordered.filter((request) => request.verdict !== 'ok') : ordered;
     const matching = kept.filter(request => !trafficSource || ((request.service === trafficSource.service || (request.service === 'rtdb' && trafficSource.service === 'database')) && activityDisplayTarget(request.path ?? '').replace(/^\//, '') === trafficSource.target.replace(/^\//, '')));
-    return matching.slice(0, MAX_ROWS);
+    return matching.filter(request => !requestService || request.service === requestService);
   };
 
   // ── Which view is showing ──────────────────────────────────────────────────
   const tabStorage = pageChipTabStorage(documentLike);
-  const indexClient = options.indexConfig === null ? undefined : options.indexConfig ?? (documentLike.defaultView?.fetch ? createIndexConfigClient(documentLike.defaultView.fetch.bind(documentLike.defaultView)) : undefined);
+  const disablesIndexes = options.indexConfig === null;
+  let indexClient = options.indexConfig ?? undefined;
+  const needsIndexClient = !disablesIndexes && indexClient === undefined && pageWindow?.fetch !== undefined;
+  if (needsIndexClient) indexClient = createIndexConfigClient(pageWindow.fetch.bind(pageWindow));
   const indexInspector = createIndexInspector(indexClient, () => { if (mounted) render(); });
   const missingIndex = (query: ServiceIndexQuery | undefined): boolean => query !== undefined && indexInspector.finding(query).status === 'missing';
   const requestMissingIndex = (request: ChipRequest): boolean => {
@@ -1020,7 +1072,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     const notice = treatment?.error ? `<span class="hint" role="alert">${escapeAttribute(treatment.error)}</span>${buttonHtml(`data-treatment-retry="${escapeAttribute(treatment.retry ?? treatment.selected)}"`, 'Retry')}` : treatment?.loading ? '<span class="hint" role="status">Loading treatment…</span>' : '';
     const toolbar = `<div class="listener-toolbar"><div class="paint-switch" role="group" aria-label="Highlight mode">${buttonHtml(`data-listener-mode="overview" aria-pressed="${pressed('overview')}"`, 'Overview')}${buttonHtml(`data-listener-mode="flow" aria-pressed="${pressed('flow')}"${flowReason === null ? '' : ' disabled'}`, 'Flow', flowReason ?? 'Show what rendered after each delivery')}</div>${picker}<button type="button" class="btn icon-button" data-open-overlay-theme aria-label="Highlight settings" title="Highlight settings">${iconHtml('settings')}</button>${notice ? `<span class="listener-toolbar-notice">${notice}</span>` : ''}</div>`;
     let bar = barHtml([toolbar]);
-    const guidance = blocked ?? flowReason;
+    const overviewReason = listenerMode?.overviewUnavailableReason();
+    const regionGuidance = [overviewReason, flowReason].filter(Boolean).join(' ');
+    const guidance = blocked ?? regionGuidance;
     const list = `<div class="rows" data-listener-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml('No reads or listeners yet', 'Read or subscribe to data in your app to see activity here. Select a row to highlight its associated components.')}`;
     let body = sectionHtml(pluralize(groups.length, 'source'), list, listenerMode?.history?.counts({ scope: { kind: 'retained' } }).partial ? 'Retained history / incomplete' : '', toggle);
     if (selected) {
@@ -1081,7 +1135,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       const method = request.method ?? 'Request';
       const target = request.path ?? request.label ?? 'Request';
       const service = serviceLabel(request.service);
-      const outcome = request.aiRequest?.status === 'pending' ? 'In progress' : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
+      const outcome = request.aiRequest ? requestStatusLabel(request.aiRequest.status) : { ok: 'Succeeded', denied: 'Denied', error: 'Failed', unsupported: 'Unsupported' }[request.verdict];
       const fact = (label: string, value: string, cell: string) => `<div class="request-fact"><dt>${label}</dt><dd class="${cell} activity-path">${escapeAttribute(value)}</dd></div>`;
       let identityFact = '';
       if (request.identity) identityFact = fact('Identity', request.identity, 's2');
@@ -1094,7 +1148,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       if (request.aiRequest) {
         const response = request.aiRequest.response;
         const content = response
-          ? `<div class="request-response"><pre class="request-response-body mono" tabindex="0" aria-label="Returned response">${escapeAttribute(response.text)}</pre><button class="btn icon-button request-response-copy" type="button" data-copy-response aria-label="Copy response" title="Copy response"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button></div>${response.truncated ? '<p class="rules-privacy">Preview limited to the first 65,536 characters.</p>' : ''}`
+          ? `<div class="request-response"><pre class="request-response-body mono" tabindex="0" aria-label="Returned response">${escapeAttribute(response.text)}</pre><button class="btn icon-button request-response-copy" type="button" data-copy-response aria-label="Copy response" title="Copy response"${clipboard ? '' : ' disabled'}>${iconHtml('copy')}</button></div>${response.truncated ? '<p class="rules-privacy">Response preview was truncated.</p>' : ''}`
           : `<p class="rules-privacy">${request.aiRequest.status === 'pending' ? 'Waiting for the completed response.' : request.aiRequest.status === 'failed' ? 'No successful response was returned.' : 'Response content was not recorded for this request.'}</p>`;
         evidenceDetails += `<details class="rules-disclosure" data-request-response="${escapeAttribute(request.id)}"><summary><span>Response</span><span class="rules-chevron">${iconHtml('chevron')}</span></summary><div class="rules-detail-body">${content}</div></details>`;
       }
@@ -1103,10 +1157,18 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       return {
         body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
           + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${request.aiRequest ? fact('Requested', target, 'c2') + fact('Routed to', request.aiRequest.detail.routedModel ?? (request.aiRequest.detail.engine === 'scripted' ? 'Scripted — no model invoked' : 'Unknown'), 'c2') + fact('Reported by backend', request.aiRequest.detail.reportedModel ?? 'Not reported', 'c2') : fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
-        bar: barHtml([indexActionHtml(request.indexQuery, request.id, indexInspector, escapeAttribute)]),
+        bar: barHtml([indexActionHtml(request.indexQuery, request.id, indexInspector, escapeAttribute), studioUrl ? `<a class="btn" href="${escapeAttribute(studioSectionUrl(studioUrl, 'traffic', 'inspect=' + encodeURIComponent(request.id) + '&service=' + encodeURIComponent(request.service ?? '')))}" target="_blank" rel="noopener">Inspect in Studio</a>` : '']),
       };
     }
-    const rows = trafficRows().map((request) => {
+    const retained = trafficRows();
+    const retainedById = new Map(retained.map(request => [request.id, request]));
+    const browsing = pinnedRequestIds ? [...pinnedRequestIds].flatMap(id => {
+      const request = retainedById.get(id);
+      return request ? [request] : [];
+    }) : retained;
+    const newCount = retained.length - browsing.length;
+    const shown = browsing.slice(0, requestPageSize);
+    const rows = shown.map((request) => {
       // Keep named cells stable for copying while the path owns the main line.
       const indexMissing = requestMissingIndex(request);
       const named = request.service !== null && request.method !== null;
@@ -1117,7 +1179,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         c2: request.aiRequest ? aiModelHtml(request.aiRequest.detail, escapeAttribute, request.method ?? undefined) : named ? `<span class="mono">${escapeAttribute(what)}</span>` : escapeAttribute(what),
         s1: `<span class="mono">${clockTime(request.at)}</span>`,
         s2: escapeAttribute(request.identity ?? ''),
-        slot: request.aiRequest ? `<span class="listener-fact">${request.aiRequest.status === 'pending' ? 'In progress' : request.aiRequest.status === 'failed' ? 'Failed' : 'Completed'}</span>` : trafficBadgeHtml(request.verdict, indexMissing),
+        slot: request.aiRequest ? `<span class="listener-fact">${requestStatusLabel(request.aiRequest.status)}</span>` : trafficBadgeHtml(request.verdict, indexMissing),
         className: `traffic-row${indexMissing && request.verdict !== 'denied' ? ' pending' : request.verdict === 'ok' ? '' : ' problem'}`,
         title: [call, what, request.identity].filter(Boolean).join(' —'),
         attributes: `data-request-row="${escapeAttribute(request.id)}" data-inspect-request="${escapeAttribute(request.id)}"`,
@@ -1126,23 +1188,57 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     });
     const copy = `<button class="btn icon-button" type="button" data-copy-traffic aria-label="Copy traffic" title="Copy traffic"${clipboard && rows.length ? '' : ' disabled'}>${iconHtml('copy')}</button>`;
     const bar = trafficToolbar();
-    return { body: `${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Latest requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} shown`, copy)}`, bar };
+    const updatesPaused = pinnedRequestIds !== null;
+    const updateLabel = updatesPaused ? `Resume live${newCount ? ` · ${newCount} new` : ''}` : 'Pause updates';
+    const updateIcon = updatesPaused ? 'play' : 'pause';
+    const controls = `<div class="request-controls"><select data-request-service aria-label="Request service">${['', 'ai', 'firestore', 'rtdb', 'storage', 'auth'].map(service => `<option value="${service}" ${service === requestService ? 'selected' : ''}>${service ? serviceLabel(service) : 'All services'}</option>`).join('')}</select><button type="button" class="btn icon-button" data-request-pause aria-label="${updateLabel}" title="${updateLabel}">${iconHtml(updateIcon)}</button></div>`;
+    const older = browsing.length > shown.length ? '<div class="history-context request-pagination"><button type="button" class="btn" data-request-older>Load older</button></div>' : '';
+    const omitted = trafficFeed?.omittedCount() ?? 0;
+    const retention = omitted ? `<div class="history-context"><p class="hint request-retention">Older history discarded (${omitted} events). Retention is limited by age and memory.</p></div>` : '';
+    return { body: `${controls}${trafficSource ? `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<span class="breadcrumb-service">${serviceLabel(trafficSource.service)}</span>${iconHtml('chevron')}<span class="mono breadcrumb-target" aria-current="page" title="${escapeAttribute(trafficSource.target)}">${trafficSource.service === 'ai' ? 'Model requests' : escapeAttribute(trafficSource.target)}</span></nav></div>` : ''}${sectionHtml(trafficFilter === 'denied' ? 'Denied & failed' : 'Requests', `<div class="rows" data-traffic-rows>${rows.join('')}</div>${rows.length ? '' : emptyHtml(trafficFilter === 'denied' ? 'No denied or failed requests' : 'No requests yet', 'Use your app to see its data activity here.')}`, `${rows.length} of ${retained.length} retained`, copy)}${older}${retention}`, bar };
   };
 
   const sandboxViewHtml = (): ChipView => {
-    const aiState = aiEngineState();
+    const isHosted = snapshot.mode === 'hosted';
+    const hostedLabels = { connecting: 'Connecting', restoring: 'Restoring app session', attached: 'Connected', interrupted: 'Reconnecting', closed: 'Connection closed — reload after repairing the host' };
+    const hostedLabel = hostedLabels[snapshot.hostedConnection ?? 'connecting'];
+    const hasRunningEpoch = snapshot.runningEpoch !== null;
+    const hasUpdate = snapshot.updateAvailable;
+    let workerDetail = 'Waiting for the sandbox to connect';
+    if (hasRunningEpoch) workerDetail = 'Current sandbox version';
+    if (hasUpdate) workerDetail = 'A newer version is available';
+    let workerRow = rowHtml({ c1: 'Worker', s1: workerDetail, slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch });
+    const persistenceFailed = snapshot.persistenceUnhealthy === true;
+    if (isHosted) workerRow = rowHtml({ c1: 'Hosted', s1: persistenceFailed ? 'Persistence failed — mutations blocked. Repair the store and restart.' : undefined, slot: escapeAttribute(hostedLabel), attributes: 'data-worker-row' });
+    const isInPage = snapshot.mode === 'in-page';
+    if (isInPage) workerRow = rowHtml({ c1: 'Runtime', s1: 'Services run in this page', slot: 'In-page', attributes: 'data-runtime-row' });
     const configuration = options.aiConfiguration?.getSnapshot();
-    const rows = [
-      ...(configuration ? [
-        rowHtml({ c1: 'AI backend', s1: 'Configuration for new actions', slot: escapeAttribute(configuration.backend), attributes: 'data-ai-row' }),
-        rowHtml({ c1: 'Requested', slot: escapeAttribute(configuration.requestedModel), attributes: 'data-ai-requested-row' }),
-        rowHtml({ c1: 'Configured route', slot: escapeAttribute(configuration.route), attributes: 'data-ai-route-row' }),
-      ] : [rowHtml({ c1: 'Model', s1: escapeAttribute(aiState.detail ?? ''), slot: escapeAttribute(aiState.primary), attributes: 'data-ai-row' })]),
-      snapshot.mode === 'in-page'
-        ? rowHtml({ c1: 'Runtime', s1: 'Services run in this page', slot: 'In-page', attributes: 'data-runtime-row' })
-        : rowHtml({ c1: 'Worker', s1: snapshot.updateAvailable ? 'A newer version is available' : snapshot.runningEpoch ? 'Current sandbox version' : 'Waiting for the sandbox to connect', slot: `<span class="mono" data-running-epoch>${escapeAttribute(snapshot.runningEpoch?.slice(0, 8) ?? 'Pending')}</span>`, attributes: 'data-worker-row', title: snapshot.runningEpoch }),
-    ];
-    const theme = rowHtml({ c1: 'Theme', s1: 'Colors and outlines for listeners', slot: buttonHtml(`data-open-overlay-theme${options.listeners ? '' : ' disabled'}`, 'Edit', options.listeners ? "Edit the overlay's custom properties" : 'Listener overlays are unavailable on this page'), attributes: 'data-theme-row' });
+    const modelFact = (label: string, value: string, attributes = '') => `<div ${attributes}><dt>${label}</dt><dd>${escapeAttribute(value)}</dd></div>`;
+    const routes = new Map<string, { requestedModel: string; route: string }>();
+    const hasConfiguration = configuration !== undefined;
+    if (hasConfiguration) {
+      routes.set(configuration.requestedModel, configuration);
+    } else {
+      const hostRequests = (trafficFeed?.requests() ?? []).flatMap(request => request.aiRequest ? [request.aiRequest] : []);
+      const pageRequests = localRates.snapshot().services.find(service => service.service === 'ai')?.aiRequests ?? [];
+      const hasHostRequests = hostRequests.length > 0;
+      const requests = hasHostRequests ? hostRequests : pageRequests;
+      for (const request of requests) {
+        const requestedModel = request.detail.requestedModel.replace(/^models\//, '');
+        const route = request.detail.routedModel ?? 'Not reported';
+        routes.set(`${requestedModel}:${route}`, { requestedModel, route });
+      }
+    }
+    const hasNoRoutes = routes.size === 0;
+    if (hasNoRoutes) routes.set('unobserved', { requestedModel: 'Not reported', route: configuredAiRoute() });
+    const modelRows = [...routes.values()].map(({ requestedModel, route }) => {
+      const facts = modelFact('Model', requestedModel, 'data-ai-requested-row') + modelFact('Routed model', route, 'data-ai-route-row');
+      return `<div class="row" data-ai-row><dl class="sandbox-ai-facts">${facts}</dl></div>`;
+    });
+    const rows = [...modelRows, workerRow];
+    const supportsListeners = options.listeners !== undefined;
+    const listenerHint = supportsListeners ? "Edit the overlay's custom properties" : 'Listener overlays are unavailable on this page';
+    const theme = rowHtml({ c1: 'Theme', s1: 'Colors and outlines for listeners', slot: buttonHtml(`data-open-overlay-theme${supportsListeners ? '' : ' disabled'}`, 'Edit', listenerHint), attributes: 'data-theme-row' });
     return {
       body: `${introHtml('Your local sandbox', 'The configuration behind this page.')}${sectionHtml('Runtime', `<div class="rows">${rows.join('')}</div>`)}${sectionHtml('Page overlays', `<div class="rows">${theme}</div>`)}`,
       bar: barHtml([buttonHtml('data-dismiss-chip', 'Hide', 'Hide pyric on this page')], 'Hide until reload'),
@@ -1684,11 +1780,31 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         root.querySelector<HTMLButtonElement>('[data-sources-back]')?.focus();
       });
     }
-    root.querySelector('[data-request-back]')?.addEventListener('click', () => { selectedRequest = null; render(); });
+    root.querySelector('[data-request-back]')?.addEventListener('click', () => {
+      selectedRequest = null; render();
+      const view = root.querySelector<HTMLElement>('[data-chip-view]');
+      if (view) view.scrollTop = requestListScroll;
+    });
+    root.querySelector('[data-request-older]')?.addEventListener('click', () => {
+      pinnedRequestIds ??= new Set(trafficRows().map(request => request.id));
+      requestPageSize += REQUEST_PAGE_SIZE;
+      render();
+    });
+    root.querySelector('[data-request-pause]')?.addEventListener('click', () => {
+      pinnedRequestIds = pinnedRequestIds ? null : new Set(trafficRows().map(request => request.id));
+      render();
+    });
+    root.querySelector<HTMLSelectElement>('[data-request-service]')?.addEventListener('change', event => {
+      requestService = (event.currentTarget as HTMLSelectElement).value;
+      requestPageSize = REQUEST_PAGE_SIZE; pinnedRequestIds = null;
+      render();
+    });
     for (const row of root.querySelectorAll<HTMLButtonElement>('[data-inspect-request]')) {
       row.addEventListener('click', () => {
         const request = trafficRows().find(request => request.id === row.dataset.inspectRequest);
         if (!request) return;
+        requestListScroll = root.querySelector<HTMLElement>('[data-chip-view]')?.scrollTop ?? 0;
+        pinnedRequestIds ??= new Set(trafficRows().map(row => row.id));
         selectedRequest = { ...request };
         render();
         const view = root.querySelector<HTMLElement>('.view'); if (view) view.scrollTop = 0;
@@ -1768,7 +1884,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     if (aiTrafficSignatures.get(event.record.id) === signature) return;
     aiTrafficSignatures.set(event.record.id, signature);
     if (aiTrafficSignatures.size > 100) aiTrafficSignatures.delete(aiTrafficSignatures.keys().next().value!);
-    if (open && tab === 'traffic' && trafficDisplay === 'requests') render();
+    const showsAiEvidence = tab === 'sandbox' || (tab === 'traffic' && trafficDisplay === 'requests');
+    if (open && showsAiEvidence) render();
   });
 
   const unsubLens = subscribeLensFn(() => {
@@ -1799,7 +1916,8 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
     }
     if (open && tab === 'traffic' && trafficDisplay === 'rates' && !thresholdSettings.state().service) { const snapshot = rates.snapshot(); refreshRateView(root, snapshot, isThresholdService(selectedRateService) ? currentRateHistory().view(snapshot) : undefined); }
   }, 1000);
-  if (typeof rateClock === 'object' && 'unref' in rateClock) rateClock.unref();
+  const canUnrefRateClock = typeof rateClock === 'object' && 'unref' in rateClock;
+  if (canUnrefRateClock) rateClock.unref();
   void indexInspector.refresh();
   void thresholdSettings.load();
   // The chip fades in once, when the page first gets it. The class sits on the

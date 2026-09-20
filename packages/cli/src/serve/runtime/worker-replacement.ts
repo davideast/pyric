@@ -1,5 +1,6 @@
 export interface WorkerReplacementOptions {
-  targetEpoch: string;
+  /** @deprecated The retire callback owns the target epoch. Kept for existing callers. */
+  targetEpoch?: string;
   retire(): Promise<void>;
   subscribeReload(listener: (epoch: string) => void): () => void;
   preflight(): void;

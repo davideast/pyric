@@ -89,7 +89,10 @@ export async function handleFirestoreReadOp(
       try {
         const source = resolveTarget(db, msg.source);
         const snap = await sdkActivity.silence(() => getAggregateFromServer(source as Query, msg.spec as AggregateSpec));
-        ok(port, msg.id, { data: snap.data() });
+        // The sandbox's error-translation adapter wraps result objects in a Proxy.
+        // Copy numeric aggregate fields into a cloneable wire result.
+        const data = { ...snap.data() };
+        ok(port, msg.id, { data });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

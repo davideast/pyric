@@ -8,10 +8,9 @@
  * baked `localhost` from a remote tab dials the WRONG machine (the client's own
  * localhost), so the WS fails.
  *
- * Keep only the PATH from the server's URL and rebuild the scheme + host from the
- * page's `location`. The bridge is always mounted on the same server that served
- * the page, so the page's origin is the correct target wherever it is reached,
- * with no plugin configuration. This also sidesteps the localhost / 127.0.0.1 /
+ * Hosted callers select `page-origin`: retain the path and use the page's full
+ * public origin, including a reverse proxy's port. The default `bridge-port`
+ * preserves an explicit server port for existing two-server development setups. This also sidesteps the localhost / 127.0.0.1 /
  * ::1 family ambiguity, because the browser dials the exact host it loaded from.
  *
  * Pure (location is injected) so it is unit-testable. Returns `raw` unchanged if
@@ -20,6 +19,7 @@
 export function toPageOriginWsUrl(
   raw: string,
   loc: { href: string; protocol: string; host: string },
+  routing: 'page-origin' | 'bridge-port' = 'bridge-port',
 ): string {
   try {
     const rawUrl = new URL(raw, loc.href);
@@ -28,7 +28,8 @@ export function toPageOriginWsUrl(
 
     const hasExplicitLocPort = locUrl.port.length > 0;
     const hasExplicitRawPort = rawUrl.port.length > 0;
-    const shouldPreserveRawPort = hasExplicitLocPort && hasExplicitRawPort;
+    const usesSeparateBridgePort = routing === 'bridge-port';
+    const shouldPreserveRawPort = usesSeparateBridgePort && hasExplicitLocPort && hasExplicitRawPort;
     const hostTarget = shouldPreserveRawPort ? `${locUrl.hostname}:${rawUrl.port}` : locUrl.host;
 
     return `${scheme}//${hostTarget}${rawUrl.pathname}`;

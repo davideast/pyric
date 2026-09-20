@@ -26,13 +26,13 @@ export const DEFAULT_MCP_TOOL_NAMES: readonly string[] = TOOLS.map((tool) => too
 
 /** The exact tools a bridge forwards to its browser sandbox peer, in order. */
 export const BRIDGE_FORWARDED_TOOL_NAMES: readonly string[] = toolFamilies('forwarded').flatMap(
-  (family) => family.tools,
+  (family) => Object.keys(family.tools),
 );
 
 /** Local rules and conformance tools that run in this process without a peer. */
 export const BRIDGE_IN_PROCESS_TOOL_NAMES: readonly string[] = toolFamilies(
   'in-process',
-).flatMap((family) => family.tools);
+).flatMap((family) => Object.keys(family.tools));
 
 /** The whole transport surface, forwarded families first. */
 export const BRIDGE_TOOL_NAMES: readonly string[] = [

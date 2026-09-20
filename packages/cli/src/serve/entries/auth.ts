@@ -36,6 +36,7 @@ const wc = wcRaw as unknown as typeof ipAuth;
 const A = useWorker ? wc : ipAuth;
 export const onAuthStateChanged = A.onAuthStateChanged;
 export const onIdTokenChanged = A.onIdTokenChanged;
+export const getIdTokenResult = ipAuth.getIdTokenResult;
 /**
  * Worker mode: the gate can't run before a worker-committed transition
  * (see `worker/client.ts`'s `beforeAuthStateChanged` doc) — registering
@@ -257,4 +258,3 @@ export const reload = (
 export const updateCurrentUser = (
   useWorker ? wc.updateCurrentUser : ipAuth.updateCurrentUser
 ) as typeof ipAuth.updateCurrentUser;
-
