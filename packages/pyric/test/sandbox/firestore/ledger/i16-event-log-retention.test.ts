@@ -63,6 +63,22 @@ describe('I16 engine event retention', () => {
     expect(log.getRetention()).toEqual({ retainedEvents: 0, retainedBytes: 0, omittedCount: 0 });
   });
 
+  test('oldest-first eviction follows event age after undo, redo, and undo again', () => {
+    const log = new EventLog(undefined, { maxEvents: 3, maxBytes: 100_000 });
+    for (let index = 1; index <= 3; index++) log.append(write(index));
+    log.popLastWrite(); // Undo 3, then 2.
+    log.popLastWrite();
+    const redo = log.popLastUndo();
+    expect(redo?.id).toBe(2);
+    log.append(redo!, true); // Redo 2 as event 4, preserving redo 3.
+    log.popLastWrite(); // Redo stack now contains 3, then 4.
+    log.append(write(5), true);
+    log.append(write(6), true);
+    expect(log.getEvents().map(event => event.id)).toEqual([5, 6]);
+    expect(log.popLastUndo()?.id).toBe(4); // Older 3 must be evicted first.
+    expect(log.popLastUndo()).toBeNull();
+  });
+
   test('an oversized event leaves no undo path across the omitted write', () => {
     const log = new EventLog(undefined, { maxEvents: 10, maxBytes: 1_000 });
     log.append(write(1));

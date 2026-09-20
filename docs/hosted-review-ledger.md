@@ -517,7 +517,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I16. The Firestore engine's event log retains every written document without bound
 
-- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `core`. Status: fixing (codex, work/integration). Reproduced by the reviewer at 9228d3cf on a second machine, two runs: growth of 282,820,608 then 342,654,976 bytes, and 281,542,656 then 319,455,232 bytes. The second cycle added 38 to 60 MiB there against 108 MiB on the implementing agent's machine, which is consistent with growth that is slowing but does not establish it; the six-cycle diagnostic with forced collection decides.
+- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `core`. Status: verify (codex, work/integration). Reproduced by the reviewer at 9228d3cf on a second machine, two runs: growth of 282,820,608 then 342,654,976 bytes, and 281,542,656 then 319,455,232 bytes. The second cycle added 38 to 60 MiB there against 108 MiB on the implementing agent's machine, which is consistent with growth that is slowing but does not establish it; the six-cycle diagnostic with forced collection decides.
 - Location: `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`, resident-growth test.
 - Defect: the existing scenario exceeds its 201,326,592-byte ceiling. Earlier runs measured 202,080,256 and 215,810,048 bytes after the first cycle. The split test preserves that ceiling and uses soft assertions so both cycles are measured.
 - Evidence: one split memory run on 9c5bf75e with the test split measured 223,821,824 bytes after cycle 0 and 332,480,512 bytes after cycle 1: another 108,658,688 bytes in the second cycle. Growth continues across cycles rather than plateauing after the first. This is a possible leak signal, not evidence sufficient to attribute a leak to a particular allocation. A bounded six-cycle diagnostic with two forced collections after each cycle is authorized to distinguish retained objects, uncollected garbage/allocator effects, and bounded buffers filling toward their caps; no retainer hunt is authorized.
@@ -570,6 +570,19 @@ undo/redo within the retained window and exposing omitted count to the events
 tool. Proposed defaults: 10,000 events and 8 MiB, matching observation history
 and bounding repeated large replacements. Reuse the history limit shape and
 byte estimator through a dependency-free sandbox leaf module.
+
+Implementation evidence: the engine log now uses a single 10,000-event / 8 MiB
+serialized-byte budget across visible and undone events, sharing the dependency-free
+limit shape and byte estimator with observation history. Oldest-first eviction
+follows append order even after undo/redo reorders stacks. Undo stops at the retained
+boundary, redo works within it, and the simulator events tool reports omitted count.
+The core acceptance has seven cases, including a separately reproduced undo/redo
+ordering edge case. The original hosted memory acceptance passed in one run without
+changing its 192 MiB ceiling: cycle 0 growth 69,189,632 bytes, cycle 1 growth
+90,046,464 bytes (previously 223,821,824 and 332,480,512). The browser run preceded
+the subsequent undo-stack ordering correction; its workload does not use undo/redo.
+The six-cycle diagnostic was not repeated. Independent reviewer verification remains
+required before closing I16.
 
 ## E. Evidence owed
 

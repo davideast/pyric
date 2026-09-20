@@ -316,7 +316,7 @@ export function createFirestoreSimulatorTools(
     {
       name: 'firestore_simulator_undo',
       description:
-        'Undo the last allowed write. Restores state to immediately before that op. Returns the undone event, or a `{ undone: false }` outcome when the log is empty.',
+        'Undo the last allowed write. Restores state to immediately before that op. Returns the undone event, or a `{ undone: false }` outcome when no retained write remains.',
       parameters: { type: 'object', properties: {} },
       async execute() {
         const env = await resolveSandbox();
@@ -361,14 +361,17 @@ export function createFirestoreSimulatorTools(
     {
       name: 'firestore_simulator_events',
       description:
-        'Return every event the sandbox has seen — allowed and denied — with timestamps, auth, and debug messages. Useful for audit / replay / "why did this rule deny?" investigations.',
+        'Return retained events — allowed and denied — with timestamps, auth, debug messages, and an omitted count when the bounded log was trimmed. Useful for audit / replay / "why did this rule deny?" investigations.',
       parameters: { type: 'object', properties: {} },
       async execute() {
         const env = await resolveSandbox();
+        const { omittedCount } = env.getEventRetention();
+        const wasTrimmed = omittedCount > 0;
         return {
           ok: true,
-          summary: 'Event log',
+          summary: wasTrimmed ? `Event log (${omittedCount} omitted)` : 'Event log',
           data: {
+            omittedCount,
             events: env.getEvents().map((e) => ({
               id: e.id,
               method: e.method,
