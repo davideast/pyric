@@ -179,7 +179,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C5. Restore double-delivers to live listeners
 
-- Severity: nit. Slice: `host`. Status: verify (Codex, `work/integration`).
+- Severity: nit. Slice: `host`. Status: closed at db87701b (verified 2026-09-19; the agent's 6c558b8a rebased onto the shared tip). Diagnosis narrowed: only RTDB double-delivered, because its snapshot load already re-evaluates listeners in place; Firestore disposes its environment on reset and must rebind. The fix rebinds Firestore only. Acceptance covers named checkpoint load, portable import, and reset for Firestore and RTDB, page and explicit-admin Studio listeners, asserting exactly one state delivery and one subsequent write delivery each. Reviewer probe: rebinding every listener again fails the six RTDB cases. Session-only reauthorization on auth transitions is unchanged.
 - Location: `packages/cli/src/serve/worker/host/connection.ts:118`, `host/studio.ts:59`.
 - Defect: `restoreSubscriptions` re-registers every retained intent after `importState`, `restore`, and `resetAll`, but `loadSnapshot` and `restoreCheckpoint` already re-evaluate live listeners. Each page listener gets two deliveries per restore. Explicit-lens Studio subscriptions are re-registered too, unlike the session-only rule on `main`.
 - Acceptance: test counting deliveries per listener across a restore.
