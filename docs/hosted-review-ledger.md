@@ -490,6 +490,13 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - Failure: any consumer typed against `pyric/firestore` directly (Studio, `@pyric/ui`, in-page sandbox apps) cannot subscribe to a collection without wrapping it in `query()`. The branch worked around this in `packages/studio/src/clients/worker-live.test.ts` with exactly that wrap, which hides the type defect.
 - Acceptance: `CollectionReference<T>` extends `Query<T>` in `types.ts`; a type-level test in `packages/pyric/test/firestore/ledger/` compiles a probe with the TypeScript API (the A7 technique) asserting zero diagnostics for the three probe lines above; main's Studio compiles against the slice without the `query()` wrap. Land the fix on `hosted-main-integration` first, then re-run the extraction so the slice's first commit stays byte-equal to the remote diff.
 
+### I15. The snapshot fixture resolves the built CLI from the working directory
+
+- Severity: blocker for the host pull request. Slice: `host`. Status: fixing (Codex, `work/integration`).
+- Location: `packages/cli/test/serve/fixtures/hosted-sqlite-snapshot.ts:7`.
+- Defect: the fixture joins `process.cwd()` with `packages/cli/dist/cli/snapshot.js`. It passes from the repository root but duplicates `packages/cli` when CI runs `bun test --cwd packages/cli`, causing `ERR_MODULE_NOT_FOUND` before snapshot assertions execute.
+- Acceptance: statically import `../../../src/cli/snapshot.js`, like the persistence import, so `runNodeFixture` resolves the built module through its source-to-dist rewrite. The case passes both from the repository root and under `bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts`. The I15 map selects `offline snapshots`; package-directory invocation is also required.
+
 ## E. Evidence owed
 
 ### E1. Conformance evidence for the foundation slice's engine changes

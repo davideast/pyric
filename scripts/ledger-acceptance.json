@@ -159,5 +159,12 @@
     "phase": 3,
     "tests": ["scripts/check-support-contract.test.ts"],
     "filter": "hosted runtime declarations"
+  },
+  "I15": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
+    "filter": "offline snapshots",
+    "node": true,
+    "note": "Also run from packages/cli: bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts."
   }
 }
