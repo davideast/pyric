@@ -523,6 +523,43 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - Evidence: one split memory run on 9c5bf75e with the test split measured 223,821,824 bytes after cycle 0 and 332,480,512 bytes after cycle 1: another 108,658,688 bytes in the second cycle. Growth continues across cycles rather than plateauing after the first. This is a possible leak signal, not evidence sufficient to attribute a leak to a particular allocation. A bounded six-cycle diagnostic with two forced collections after each cycle is authorized to distinguish retained objects, uncollected garbage/allocator effects, and bounded buffers filling toward their caps; no retainer hunt is authorized.
 - Acceptance: `bun scripts/verify-ledger.ts I16`. Re-derive the ceiling from a frozen baseline as I6 requires, or reduce growth below 192 MiB. Either way, the memory test must pass in the phase 4 CI job. Until then its separate map entry preserves the failing result; D3's policy acceptance does not hide it.
 
+
+Bounded diagnostic (Node 22.15.0, 2026-09-20, six cycles, 192 replacements of
+256 KiB per cycle): both `gc()` calls and `process.memoryUsage()` execute inside
+the host through its loopback Node inspector. Each stalled consumer closes with
+1013 and the contracted reason; the page writes successfully afterward. Values
+below are bytes after collection, not growth from the baseline.
+
+| Cycle | rss | heapUsed | external | arrayBuffers | Retained history count / bytes |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 0 | 245,956,608 | 119,882,688 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 1 | 301,580,288 | 170,563,704 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 2 | 354,074,624 | 221,189,344 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 3 | 351,764,480 | 271,781,272 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 4 | 407,797,760 | 322,412,040 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 5 | 436,207,616 | 372,915,600 | 3,669,675 | 94,691 | Not reachable through inspector import |
+
+Heap after collection does **not** plateau by cycle 5 (the sixth cycle): it rises
+from 119,882,688 to 372,915,600 bytes, with about 50.6 MB added per later cycle.
+The pre-burst collected baseline was 71,075,504 bytes of heap and 211,959,808 bytes
+RSS. External memory and array buffers remain effectively flat. Thus delayed
+collection/allocator fragmentation alone does not explain the measured heap
+growth; the retaining owner is not identified by this diagnostic.
+
+Configured history limits remain 10,000 events / 8,388,608 bytes, including a
+live-state reservation of at most half that budget. Measured history count and
+bytes are unavailable: the diagnostic attempted the existing `SandboxImpl.history()`
+API via inspector object discovery, but inspector evaluation refused the module
+import with `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`. No product instrumentation
+was added and no alternate retainer investigation was attempted. The diagnostic
+releases its inspector object group after every sample and closes its browser,
+sockets, and host in `finally`.
+
+Reproduce only when another run is authorized:
+`node node_modules/@playwright/test/cli.js test --config=scripts/diagnostics/i16-memory.config.ts`.
+This isolated diagnostic is outside the normal hosted acceptance test match and
+does not change the uncollected 192 MiB acceptance or satisfy it.
+
 ## E. Evidence owed
 
 ### E1. Conformance evidence for the foundation slice's engine changes
