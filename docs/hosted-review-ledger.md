@@ -150,7 +150,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C1. Resume after host restart drops RTDB, presence, and event-stream subscriptions
 
-- Severity: should-fix. Slice: `host`. Status: verify (codex, work/integration).
+- Severity: should-fix. Slice: `host`. Status: closed at f2eb1830 (verified 2026-09-20). After a reconnect the client reissues every live observation it owns (Firestore, RTDB, presence, and the event stream) and does not replay operations or AI requests. Acceptance is a Chromium page against a real Node host that is killed and restarted on its port. Reviewer probe: with restoration reduced to Firestore only, the RTDB and presence cases fail.
 - Location: `packages/cli/src/serve/worker/client/websocket-connection.ts:224`; `restoreFirestoreSubscriptions` filters on `service === 'firestore'`; `client/rtdb-listeners.ts` subscriptions carry no service tag.
 - Failure: host restart or retention expiry. Pending calls are rejected, but `onValue` listeners silently stop delivering with no error callback.
 - Seam: application SDK over the hosted transport.
@@ -158,7 +158,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C2. A consumer can subscribe under another consumer's session
 
-- Severity: should-fix. Slice: `transport`. Status: verify (codex, work/integration).
+- Severity: should-fix. Slice: `transport`. Status: closed at 9a34796f (verified 2026-09-20). Subscriptions are pinned to the attached identity. Reviewer probe: with the caller-supplied session honored again, the forged-session acceptance fails.
 - Location: `packages/cli/src/bridge/server/peer.ts` (`worker-sub` honors `msg.clientSessionId`). `worker-op` is already pinned to the attached identity.
 - Failure: consumer A sends a subscription naming consumer B's session and receives B-scoped snapshots.
 - Acceptance: bridge consumer test asserting a subscription naming another consumer's session is refused or rewritten to the attached identity, and cannot read the other consumer's rules-protected document.
@@ -173,7 +173,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C4. Subscription error close ignores the logical session
 
-- Severity: should-fix. Slice: `transport`. Status: verify (codex, work/integration).
+- Severity: should-fix. Slice: `transport`. Status: closed at 26d446d6 (verified 2026-09-20). An errored relayed subscription is closed under its logical session; the acceptance inspects host output, so a leaked host listener cannot hide behind a dropped client callback. Reviewer probe: without the session argument the acceptance fails.
 - Location: `packages/cli/src/serve/worker/client/core.ts:353`; host side `host/subscriptions.ts:273`.
 - Defect: on a `snap` error the client closes the subscription without its `clientSessionId`. For bridge-relayed subscriptions the `unsub` reaches the worker on the physical port, finds nothing, and the remote port's listener and retained intent stay alive until the remote disconnects. A later auth transition re-registers it.
 - Acceptance: test that a relayed subscription which errors is fully removed from the host.
@@ -194,7 +194,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C7. Unwrapped throw in the worker-message path
 
-- Severity: should-fix, low. Slice: `transport`. Status: verify (codex, work/integration).
+- Severity: should-fix, low. Slice: `transport`. Status: closed at 6afbdda2 (verified 2026-09-20). A synchronous forwarding failure becomes a failed result or an error snapshot addressed to the request, under the attached consumer's session. Nine cases: three request types against peer disappearance, replacement without worker-port support, and a throwing transport. Reviewer probe: with the catch rethrowing, all nine fail.
 - Location: `packages/cli/src/bridge/server/bridge.ts:776`, `peer.ts:344`.
 - Defect: `forwardWorkerMessage` throws when the peer is null or lacks a worker port, and the socket message listener does not catch it. Under `pyric serve` the process guard logs it; under other mounts it is uncaught. The client's request is stranded until its own timeout.
 - Acceptance: the client receives a refusal response; test with a consumer attaching during a host restart.
@@ -454,7 +454,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### C12. Served worker does not re-deploy RTDB rules after a reset
 
-- Severity: should-fix. Slice: `transport`. Status: verify (codex, work/integration). Pre-existing on `main`; surfaced by the A2 verification.
+- Severity: should-fix. Slice: `transport`. Status: closed at 7cedc51b (verified 2026-09-20). Reset re-deploys the active or last-known-good RTDB rules before acknowledging, matching Firestore; the acceptance pins allowed and denied access on both sides of the reset. Reviewer probe: without the re-deploy the acceptance fails. Pre-existing on `main`; surfaced by the A2 verification.
 - Location: `packages/cli/src/serve/worker/host/studio.ts:52`; the RTDB rules source is retained at `ctx.activeRules.database` by `serve-init.ts:103`.
 - Defect: after `resetAll`, the worker re-deploys only the Firestore rules. Its comment assumes RTDB rules survive the reset. On `main` the backend reset already cleared them, and after A2 the session boundary clears them too, so a Studio reset in served mode leaves RTDB under the default deny policy until the rules file next changes.
 - Failure: served app with `database.rules.json` granting reads; Studio reset; every RTDB read is refused until the developer edits the rules file.
