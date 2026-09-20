@@ -48,7 +48,7 @@ test('unsupported database versions refuse startup without replacing data', asyn
   expect(await runNodeFixture('version')).toBe('Version refusal passed');
 });
 
-test('the Node host recovers acknowledged writes without modifying legacy JSON', async () => {
+test('the Node host recovers acknowledged writes without modifying existing JSON', async () => {
   expect(await runNodeFixture('runtime')).toBe('Hosted restart passed');
 });
 

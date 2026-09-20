@@ -428,13 +428,14 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I13. Smaller items
 
-- `history-export.ts:275` leaves `.segment-*.tmp` and `.checkpoint-*.tmp` behind on a failed export.
-- `sqlite.ts:43` a throwing `ROLLBACK` after a failed `COMMIT` replaces the original error.
-- `state-view.ts:96` the storage seed bypasses the mutation queue.
-- `history-route.ts:9` writes the 200 status before evaluating the body, so a throw sends headers twice.
-- `serve-init.ts:365` capture delivery re-arms after the POST settles, so the worst case is interval plus POST latency; the new test asserts no time bound against the 2 s contract.
-- `event-history.ts:209` counts evicted listener-attach entries as omitted although `snapshot()` still returns them.
-- `persistence.ts:12` and `undo.ts:138` call pyric's own surfaces "legacy".
+- Status: verify (Codex, `work/integration`). Remaining rollback and seed fixes submitted separately; dispositions below await reviewer closure.
+- `history-export.ts:275` left `.segment-*.tmp` and `.checkpoint-*.tmp` behind on a failed export. Removed with the export implementation by D1 at `08828705`.
+- `sqlite.ts:43` a throwing `ROLLBACK` after a failed `COMMIT` replaced the original error. Fix submitted at `015c99ba`; acceptance: `I13-rollback`.
+- `state-view.ts:96` the storage seed bypassed the mutation queue. Fix submitted at `fa9e5501`; acceptance: `I13-seed`.
+- `history-route.ts:9` wrote the 200 status before evaluating the body, so a throw sent headers twice. Removed with the history route by D1 at `08828705`.
+- `serve-init.ts:365` capture delivery re-armed after the POST settled. Closed with D4 at `c6c899ed`, verified by the reviewer; its mapped acceptance pins the 2 s deadline.
+- `event-history.ts:209` counted evicted listener-attach entries as omitted although `snapshot()` still returned them. Closed as `I13-omitted` with I1 at `2ba2c664`.
+- Terminology: `persistence.ts` now describes existing browser/MCP files; `undo.ts` was removed by D1 at `08828705`.
 
 ### A11. A set followed by a delete of the same path in one batch evaluates the set as a delete
 

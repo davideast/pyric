@@ -8,7 +8,7 @@ import { archiveHostedDirectory } from './persistence/archive.js';
 export const HOSTED_NAMESPACE = 'hosted';
 export const hostedStateDirectory = (projectDir: string): string => join(projectDir, '.pyric', 'state', 'hosted');
 
-/** Node owns one durable store; legacy browser/MCP files are unrelated. */
+/** Node owns one durable store; existing browser/MCP files are unrelated. */
 export async function createHostedPersistence(projectDir: string, options: { fresh?: boolean } = {}) {
   requireNodePersistence();
   const directory = hostedStateDirectory(projectDir);
