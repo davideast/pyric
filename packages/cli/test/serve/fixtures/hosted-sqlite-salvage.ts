@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { readFileSync, readdirSync } from 'node:fs';
 import { openHostedDatabase } from '../../../src/serve/hosted/persistence/database.js';
@@ -13,9 +15,16 @@ await database.records.putRecords('hosted', new Map<string, unknown>([
 ]));
 database.close();
 const before = new Map(readdirSync(source).map(name => [name, readFileSync(join(source, name))]));
-const report = await salvageHostedState(source, output);
+const cli = fileURLToPath(new URL('../../../src/cli/index.js', import.meta.url));
+const result = spawnSync(process.execPath, [cli, 'sandbox', 'salvage', '--source', source, '--out', output], {
+  encoding: 'utf8', timeout: 10_000,
+});
+assert.equal(result.status, 0, result.stderr);
+const report = JSON.parse(result.stdout);
+assert.deepEqual(report.excluded, [{ namespace: 'hosted', id: 'shared/broken', reason: 'Document validation failed' }]);
+assert.deepEqual(JSON.parse(readFileSync(join(output, 'recovery-report.json'), 'utf8')).excluded, report.excluded);
 assert.equal(report.recoveredDocuments, 1);
-assert.equal(report.excluded.some(entry => entry.id === 'shared/broken'), true);
+assert.equal(report.excluded.some((entry: { id: string }) => entry.id === 'shared/broken'), true);
 assert.deepEqual(readdirSync(source).sort(), [...before.keys()].sort());
 for (const [name, bytes] of before) assert.deepEqual(readFileSync(join(source, name)), bytes);
 const repaired = await openHostedDatabase(output);
