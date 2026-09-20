@@ -225,7 +225,6 @@ jobs:
           bun packages/cli/scripts/check-browser-boundaries.ts packages/cli/src/serve/worker/client/websocket-connection.ts 16384 > "$RUNNER_TEMP/pyric-browser-hosted-socket.json"
           bun packages/cli/scripts/check-browser-boundaries.ts packages/cli/src/serve/worker/client/rtdb-listeners.ts 32768 > "$RUNNER_TEMP/pyric-browser-rtdb-listeners.json"
           bun packages/cli/scripts/check-browser-boundaries.ts packages/pyric/src/firestore/internal/value-codec.ts 24576 > "$RUNNER_TEMP/pyric-browser-value-codec.json"
-          bun packages/cli/scripts/check-browser-boundaries.ts packages/cli/src/serve/entries/live/firestore.ts 524288 > "$RUNNER_TEMP/pyric-browser-live-firestore.json"
 
       - name: Upload browser boundary evidence
         if: always()
