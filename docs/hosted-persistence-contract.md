@@ -59,6 +59,28 @@ databases checkpoint first; damaged ones remain archivable without checkpointing
 Never copy only the main file while a host is writing. Logical JSON exports use
 a consistent read transaction, without stopping the host.
 
+## Transport backlog and recovery
+
+Each WebSocket has one 24 MiB output backlog shared by all frames. The bridge
+closes that socket with code `1013` when sending the next encoded frame would
+exceed the limit. A stalled observation consumer therefore interrupts its own
+operations on that socket; healthy consumers on other sockets can continue.
+This bounds buffered socket output, not total host memory.
+
+Mutations already sent may have completed even if their acknowledgments are
+lost. Reconnect restores observations, including Firestore, RTDB, presence and
+event streams, without replaying writes. Callers must check state before
+retrying a mutation whose outcome is unknown.
+
+Per-consumer observation queues with drop reporting are not part of this
+release. The release policy is a shared socket cutoff and reconnect, not
+independent scheduling of operation and observation traffic.
+
+The backlog acceptance is
+`packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`; observation
+restoration is covered separately by
+`packages/cli/test/e2e/hosted/restart-subscriptions.pw.ts`.
+
 ## Limits and verification
 
 Storage operations retain the 8 MiB decoded limit. AI/Traffic history, delivery

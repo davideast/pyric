@@ -250,10 +250,11 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D3. Observation backpressure closes the socket instead of reporting drops
 
-- Slice: `transport`. Status: open.
-- Contract: per-consumer queue of 1,000 events or 16 MiB, report the dropped sequence range, keep operation and control traffic independent.
-- State: `packages/cli/src/bridge/server/socket-message.ts:25` hard-codes a 24 MiB backlog and closes with 1013. The contract text notes this is unresolved.
-- Acceptance: implement the per-consumer queue with drop reporting, or amend the contract table and every doc that cites it.
+- Slice: `transport`. Status: contract amended; acceptance blocked on the existing RSS limit (codex, work/integration).
+- Decision 2026-09-20: retain the existing shared 24 MiB socket backlog for this release; defer independent observation queues and drop reporting to D7.
+- Contract: `docs/hosted-persistence-contract.md`, Transport backlog and recovery. All frames share one socket backlog; close with 1013 when the next frame would exceed 24 MiB. A stalled observation consumer interrupts its own operations; sent mutations may have completed. Reconnect restores observations without replaying writes.
+- State: `packages/cli/src/bridge/server/socket-message.ts` implements this cutoff. No product change is required for the amendment.
+- Acceptance: `bun scripts/verify-ledger.ts D3`; C1 separately proves restored observations. The pre-amendment run at 06695c79 passed close/latency assertions but exceeded the existing RSS ceiling (202,080,256 bytes against 201,326,592); the post-amendment run also exceeded it (215,810,048 bytes). Preserve both failures and the threshold rather than treating the item as verified.
 
 ### D4. Capture flush deadline does not exist
 
@@ -273,6 +274,14 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 - Slice: `core`. Status: open. Same fix as A4.
 - Contract bounds history by count and bytes. The implementation adds 30 minutes.
+
+### D7. Per-consumer observation queue with drop reporting
+
+- Severity: nit. Slice: `post-release`. Status: open.
+- Location: bridge output scheduling and consumer lifecycle.
+- Scope: bound pending observations per consumer at 1,000 events or 16 MiB of serialized data. Drop observation batches under pressure and report omitted count and range, preserving ordering around the gap. Keep operation and control scheduling independent; do not replay writes or classify data-subscription results as disposable history. Keep an overall transport safety bound.
+- Wire decision 2026-09-20: reuse the existing `observation_gap` envelope with first and last event ids for the dropped range; do not add a numeric sequence protocol.
+- Acceptance: count and byte boundaries; a stalled observation consumer receives a gap while its operation completes; another consumer remains healthy; drain and disconnect release all queued memory and timers. No cross-consumer queue sharing or write replay. Include a real slow-consumer browser case and lifecycle tests.
 
 ## E. Scope to peel into separate pull requests
 

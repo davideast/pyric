@@ -105,7 +105,7 @@ Extract `packages/cli/src/serve/worker`, `packages/cli/src/bridge`, `packages/cl
 | C8 | One malformed peer reply fails every pending call (decide and document) |
 | A7 (worker side) | `operation-arguments.ts` refusing default |
 | C11 (part) | Emit a terminal status for a dropped client's pending observations |
-| D3 (ledger) | Observation backpressure: implement the per-consumer queue with drop reporting, or amend the contract table and every doc that cites it |
+| D3 (ledger) | Retain the shared 24 MiB socket backlog and 1013 close policy in the release contract; independent observation queues and drop reporting are deferred to post-release D7 |
 
 Exit gate: `bun test packages/cli/test/serve packages/cli/test/bridge packages/cli/test/remote` green; the served-app conformance job green in CI on the pull request; verifier closures recorded. Pull request opened.
 
