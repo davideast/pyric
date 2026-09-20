@@ -40,7 +40,9 @@ export function inTransaction<T>(connection: SqlConnection, work: () => T, mode:
     connection.exec('COMMIT');
     return result;
   } catch (error) {
-    connection.exec('ROLLBACK');
+    // SQLite may already have rolled back. Cleanup must preserve the failure
+    // that caused the transaction to abort, including its SQLite error code.
+    try { connection.exec('ROLLBACK'); } catch {}
     throw error;
   }
 }
