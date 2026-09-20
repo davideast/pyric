@@ -242,7 +242,7 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D2. Close during startup returns success
 
-- Slice: `host`. Status: open.
+- Slice: `host`. Status: fixing (Codex, work/integration).
 - Contract: "The start caller receives a closed-startup error."
 - State: `packages/cli/src/serve/bridge-mount.ts:258` returns on `closed` and `startHostedSandbox` resolves. `section-one-lifecycle-startup.pw.ts:22` uses `Promise.allSettled` and never asserts the error.
 - Acceptance: the start promise rejects with the contracted error; the scenario asserts it.

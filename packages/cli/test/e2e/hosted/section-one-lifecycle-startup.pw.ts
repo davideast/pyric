@@ -20,9 +20,10 @@ test('closing a mount during startup prevents late sandbox registration', async 
   const mount = createBridgeMount({ hosted: true, projectKey: project, disableAuditLog: true });
   try {
     const starting = mount.startHostedSandbox(payload, 'http://127.0.0.1:1');
-    // Startup owns asynchronous work before its runtime becomes available.
+    // Attach the rejection assertion before shutdown settles startup.
+    const rejected = expect(starting).rejects.toThrow('The hosted sandbox closed during startup.');
     await mount.close();
-    await Promise.allSettled([starting]);
+    await rejected;
     expect(mount.sandboxConnected()).toBe(false);
   } finally {
     await mount.close();

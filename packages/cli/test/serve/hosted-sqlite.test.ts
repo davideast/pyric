@@ -122,3 +122,7 @@ test('hosted CLI preserves the production flag without bypassing confirmation', 
 test('hosted close drains accepted method, tool and page calls before disposal', async () => {
   expect(await runNodeFixture('close-drain')).toBe('Hosted close drain passed');
 });
+
+test('hosted start rejects when its mount closes during startup', async () => {
+  expect(await runNodeFixture('close-startup')).toBe('Closed startup rejected');
+});
