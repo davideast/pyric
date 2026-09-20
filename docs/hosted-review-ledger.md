@@ -207,14 +207,14 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C9. Hosted runtime disposes before draining in-flight work
 
-- Severity: nit. Slice: `host`. Status: closed as already fixed at 1ac597ff (2026-09-20). close() drains pending method and tool calls, port closures, and persistence work, then flushes, and disposes in finally. Acceptance kept as a regression guard: queued method, tool, and page writes across close() all complete and are readable after a restart of the real Node/SQLite runtime; repeated close shares its promise.
+- Severity: nit. Slice: `host`. Status: closed as already fixed at 1ac597ff (2026-09-20). close() drains pending method and tool calls, port closures, and persistence work, then flushes, and disposes in finally. Acceptance kept as a regression guard: queued method, tool, and page writes across close() all complete and are readable after a restart of the real Node/SQLite runtime; repeated close shares its promise. Reviewer probes on c6c899ed (2026-09-20): the guard fails when the sandbox is disposed before the drain and when close does not await pending calls; disposing only the capture subscription early does not fail it, because queued work does not depend on it.
 - Location: `packages/cli/src/serve/hosted/runtime.ts:392`.
 - Defect: Correction: `close()` disposes the initialized host before accepted method and tool work settles, so late failures surface to callers as spurious errors.
 - Acceptance: drain, then dispose; test with an in-flight call across `close()`.
 
 ### C10. Service Worker install fails permanently on a transient bridge outage
 
-- Severity: nit. Slice: `host`. Status: verify (Codex, work/integration). Installation waits for the initial attempt but does not reject on attachment failure; hosted Messaging retries initial transport outages and restores observers, without changing page startup refusal.
+- Severity: nit. Slice: `host`. Status: closed at 52465eee (verified 2026-09-20). Decision: install does not wait for the host. Reviewer probe: with the Service Worker retry opt-in forced off, the acceptance fails. Installation waits for the initial attempt but does not reject on attachment failure; hosted Messaging retries initial transport outages and restores observers, without changing page startup refusal.
 - Location: `packages/cli/src/serve/entries/messaging-sw.ts:335`, `messaging-sw-client.ts:248`.
 - Defect: `waitUntil(ready)` on install and activate means a failed hosted attach fails the install, retried only on the next registration.
 - Acceptance: decide whether install must wait for the host. If not, install succeeds and the attach retries.
@@ -242,7 +242,7 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D2. Close during startup returns success
 
-- Slice: `host`. Status: verify (Codex, work/integration).
+- Slice: `host`. Status: closed at be6693b3 (verified 2026-09-20). The mount rejects the start caller with "The hosted sandbox closed during startup."; the hosted lifecycle scenario asserts the rejection. Reviewer probe: with the throw put back to a silent return in the built mount, the acceptance fails.
 - Contract: "The start caller receives a closed-startup error."
 - State: `packages/cli/src/serve/bridge-mount.ts:258` returns on `closed` and `startHostedSandbox` resolves. `section-one-lifecycle-startup.pw.ts:22` uses `Promise.allSettled` and never asserts the error.
 - Acceptance: the start promise rejects with the contracted error; the scenario asserts it.
@@ -256,7 +256,7 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D4. Capture flush deadline does not exist
 
-- Slice: `host`. Status: verify (Codex, work/integration).
+- Slice: `host`. Status: closed at c6c899ed (verified 2026-09-20). The defect was in the worker's capture scheduler, not the server sink: the debounce timer never resets under traffic, but a POST that never settled blocked every later flush. Capture POSTs now abort after 2 s and the next flush is scheduled within the remaining pending-age budget. Scope of the bound: it limits scheduling delay and stalls; it does not promise storage when the endpoint stays unavailable. Reviewer probe: with the abort signal removed, the acceptance fails.
 - Contract: maximum capture delay of 2 seconds under continuous traffic.
 - State: no timer or deadline in `packages/cli/src/serve/capture-store.ts` or `rate-capture-service.ts`.
 - Acceptance: a max-age flush with a test under continuous traffic.
