@@ -49,9 +49,11 @@ export function defaultSdkEntries(): Record<string, string> {
   const here = dirname(fileURLToPath(import.meta.url));
   const pick = (name: string): string => {
     const js = join(here, 'entries', `${name}.js`);
-    if (existsSync(js)) return js;
+    const hasCompiledEntry = existsSync(js);
+    if (hasCompiledEntry) return js;
     const ts = join(here, 'entries', `${name}.ts`);
-    if (existsSync(ts)) return ts;
+    const hasSourceEntry = existsSync(ts);
+    if (hasSourceEntry) return ts;
     throw new Error(`pyric sandbox: missing SDK entry '${name}' next to ${here}`);
   };
   return {
@@ -281,16 +283,18 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
   // singleton module state (notably the app registry). Each bypass build gets
   // an immutable generation; the OS-level mkdir primitive makes concurrent
   // callers distinct without coordination.
-  const generationRoot = opts.noCache
+  const needsFreshBundle = opts.noCache === true;
+  const generationRoot = needsFreshBundle
     ? mkdtempSync(join(cacheRoot, `.no-cache-${key}-`))
     : join(cacheRoot, key);
   const outDir = join(generationRoot, 'sdk');
-  const dispose = opts.noCache
+  const dispose = needsFreshBundle
     ? () => rmSync(generationRoot, { recursive: true, force: true })
     : () => {};
 
-  if (!opts.noCache && existsSync(join(outDir, '.complete'))) {
-    const files = (readdirSync(outDir) as string[])
+  const hasCachedBundle = !needsFreshBundle && existsSync(join(outDir, '.complete'));
+  if (hasCachedBundle) {
+    const files = readdirSync(outDir)
       .filter((f) => f.endsWith('.js'))
       .map((f) => join(outDir, f));
     return { outDir, files, cached: true, dispose };
@@ -310,22 +314,22 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
       sourcemap: 'linked',
       minify: opts.minify ?? true,
       logLevel: 'silent',
-      external: ['firebase/*'],
-      // Provenance: any stack frame or "view source" into these bundles must
-      // self-identify as the sandbox shim, not the real Firebase SDK.
+      // Source inspection identifies the execution mode selected for this bundle.
       chunkNames: 'pyric-sandbox-[hash]',
       banner: {
         js: '/* pyric sandbox shim serving firebase/*. This is not the real Firebase SDK. */',
       },
+      external: ['firebase/*'],
       plugins: [pyricResolvePlugin(), nodeShimPlugin()],
     });
-    if (result.errors.length > 0) {
+    const hasBuildErrors = result.errors.length > 0;
+    if (hasBuildErrors) {
       throw new Error(
         `pyric sandbox: SDK bundle failed:\n${result.errors.map((e) => e.text).join('\n')}`,
       );
     }
     writeFileSync(join(outDir, '.complete'), new Date().toISOString());
-    const files = (readdirSync(outDir) as string[])
+    const files = readdirSync(outDir)
       .filter((f) => f.endsWith('.js'))
       .map((f) => join(outDir, f));
     return { outDir, files, cached: false, dispose };

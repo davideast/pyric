@@ -198,7 +198,7 @@ export async function handleFirestoreWriteOp(
         const ref = pyricDoc(db, path);
         const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
         await sdkActivity.silence(() => setDoc(ref, data, msg.options as SetOptions | undefined));
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -209,7 +209,7 @@ export async function handleFirestoreWriteOp(
         const ref = pyricDoc(db, msg.path);
         const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
         await sdkActivity.silence(() => updateDoc(ref, data));
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -219,7 +219,7 @@ export async function handleFirestoreWriteOp(
       try {
         const ref = pyricDoc(db, msg.path);
         await sdkActivity.silence(() => deleteDoc(ref));
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -230,7 +230,7 @@ export async function handleFirestoreWriteOp(
         const coll = pyricCollection(db, msg.collectionPath);
         const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
         const ref = await sdkActivity.silence(() => addDoc(coll, data));
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { id: ref.id, path: ref.path });
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -251,7 +251,7 @@ export async function handleFirestoreWriteOp(
           applyAtomicWrite(db, batch, w);
         }
         await sdkActivity.silence(() => batch.commit());
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -449,7 +449,7 @@ export async function handleFirestoreWriteOp(
             applyAtomicWrite(db, tx, write);
           }
         }));
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) {
         const isReadConflict = e === TXN_ABORT;

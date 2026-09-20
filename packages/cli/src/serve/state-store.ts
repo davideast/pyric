@@ -50,8 +50,9 @@ export interface StateStore {
   readSection(section: StateSection): unknown | null;
   /** Read-modify-write the envelope; atomic tmp+rename. A firestore write
    *  that would collapse a non-empty doc set to empty first preserves the
-   *  prior file as `.bak` (pre-mortem #2). */
-  writeSection(section: StateSection, value: unknown): void;
+   *  prior file as `.bak` (pre-mortem #2). Hosted writes await queued mutations
+   *  and commit before their returned promise resolves. */
+  writeSection(section: StateSection, value: unknown): void | Promise<void>;
   exists(): boolean;
 }
 

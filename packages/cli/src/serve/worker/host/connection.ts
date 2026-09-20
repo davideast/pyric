@@ -25,7 +25,7 @@ import {
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
-import { restoreSubscriptions } from './subscriptions.js';
+import { restoreFirestoreSubscriptions } from './subscriptions.js';
 import { exportStateBundle, importStateBundle } from './state-transfer.js';
 
 /** Build hash injected by the bundler's esbuild `define`. Undefined when the
@@ -123,8 +123,8 @@ export async function handleConnectionOp(
     case 'importState': {
       try {
         await importStateBundle(ctx.sandbox, msg.bundle);
-        restoreSubscriptions(ctx);
-        await bestEffortFlush(ctx);
+        restoreFirestoreSubscriptions(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { ok: true });
       } catch (error) {
         fail(port, msg.id, error);
@@ -170,8 +170,8 @@ export async function handleConnectionOp(
         ok(port, msg.id, { ok: false, error: `no such checkpoint: ${msg.name}` });
         break;
       }
-      restoreSubscriptions(ctx);
-      await bestEffortFlush(ctx);
+      restoreFirestoreSubscriptions(ctx);
+      await bestEffortFlush(ctx, msg.method);
       ok(port, msg.id, { ok: true, at: restored.at, counts: restored.counts });
       break;
     }

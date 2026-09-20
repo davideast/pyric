@@ -38,7 +38,7 @@ import { rtdbSnapToWire, rtdbTarget } from './rtdb.js';
 
 /**
  * The original data-subscription messages, including explicit lenses. State
- * replacement re-establishes all; auth changes select only app-session ones.
+ * replacement re-establishes Firestore; auth changes select only app-session ones.
  * Parallel to `ctx.subs` (which holds only the unsub fns).
  */
 type DataSubMessage = FirestoreSubMessage | RtdbValueSubMessage;
@@ -96,14 +96,15 @@ function resubscribeSessionSubs(ctx: HostCtx, port: PortLike): void {
   }
 }
 
-/** Bind every retained data listener to the restored sandbox environment. */
-export function restoreSubscriptions(ctx: HostCtx): void {
+/** Firestore replaces its environment; RTDB restores in place and already notified its listeners. */
+export function restoreFirestoreSubscriptions(ctx: HostCtx): void {
   const byPort = _subscriptionIntents.get(ctx);
   const hasNoIntents = byPort === undefined;
   if (hasNoIntents) return;
   for (const [port, intents] of [...byPort]) {
     for (const [subId, msg] of [...intents]) {
-      restartSubscription(ctx, port, subId, msg);
+      const requiresRebinding = !isRtdbSub(msg);
+      if (requiresRebinding) restartSubscription(ctx, port, subId, msg);
     }
   }
 }

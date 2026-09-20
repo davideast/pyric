@@ -255,7 +255,7 @@ export async function handleStorageOp(
           bytes,
           toSettableMetadata(msg),
         );
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         // FullMetadata — plain JSON, relay-safe.
         ok(port, msg.id, result.metadata);
       } catch (e) { fail(port, msg.id, e); }
@@ -305,7 +305,7 @@ export async function handleStorageOp(
           opProvenance(msg),
         );
         await storageDeleteObject(storageRef(storage, msg.path));
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;

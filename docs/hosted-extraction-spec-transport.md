@@ -62,6 +62,8 @@ packages/cli/src/cli/serve.ts
 
 `main`'s serve command passes the old three-argument form; A5 changed the signature. Nothing else in `cli/serve.ts` changes.
 
+Second follower, found by the pull request's build job on 2026-09-19 and applied by the reviewer as `fix(transport): audit the messaging inspection tool family`: the agent tool parity audit refuses any bridge factory the manifest does not list. The slice carries the `messaging-inspection` family, so `scripts/tool-parity.mjs` gains the branch's one-line manifest entry and `scripts/tool-parity.annotations.json` records `messaging_deliveries` as a deliberate MCP-only exposure, mirroring the RTDB inspection tools. The source branch never annotated it because no CI ran there. Later slices that add a tool family must include both files.
+
 ## Steps
 
 1. `git fetch origin main hosted-main-integration` then `git checkout -b slice/transport origin/main`.

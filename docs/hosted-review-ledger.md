@@ -165,7 +165,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C3. Live capture grows without bound and re-posts everything
 
-- Severity: should-fix. Slice: `live`. Status: open.
+- Severity: should-fix. Slice: `live`. Status: closed by removal at 14039436 (verified 2026-09-19): owner ruling D3; preserved on `live/parked` with gates 7 through 9 open.
 - Location: `packages/cli/src/serve/live/capture.ts:84`.
 - Defect: `events` is never trimmed and every read serializes the cumulative array to the capture endpoint. Flushes run concurrently, so an older post can overwrite a newer fixture.
 - Acceptance: bounded buffer, incremental posts, serialized flushes, and a test with many reads asserting bounded payload size and fixture order.
@@ -179,14 +179,14 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C5. Restore double-delivers to live listeners
 
-- Severity: nit. Slice: `host`. Status: open.
+- Severity: nit. Slice: `host`. Status: closed at db87701b (verified 2026-09-19; the agent's 6c558b8a rebased onto the shared tip). Diagnosis narrowed: only RTDB double-delivered, because its snapshot load already re-evaluates listeners in place; Firestore disposes its environment on reset and must rebind. The fix rebinds Firestore only. Acceptance covers named checkpoint load, portable import, and reset for Firestore and RTDB, page and explicit-admin Studio listeners, asserting exactly one state delivery and one subsequent write delivery each. Reviewer probe: rebinding every listener again fails the six RTDB cases. Session-only reauthorization on auth transitions is unchanged.
 - Location: `packages/cli/src/serve/worker/host/connection.ts:118`, `host/studio.ts:59`.
 - Defect: `restoreSubscriptions` re-registers every retained intent after `importState`, `restore`, and `resetAll`, but `loadSnapshot` and `restoreCheckpoint` already re-evaluate live listeners. Each page listener gets two deliveries per restore. Explicit-lens Studio subscriptions are re-registered too, unlike the session-only rule on `main`.
 - Acceptance: test counting deliveries per listener across a restore.
 
 ### C6. Production flag is dropped on the hosted CLI path
 
-- Severity: should-fix, low. Slice: `host`. Status: open.
+- Severity: should-fix, low. Slice: `host`. Status: closed at 77f070ca (verified 2026-09-19). The CLI runner forwards the production opt-in per call; the hosted request schema defaults it to false. Reviewer probe: with the forwarded field removed from the built runner the acceptance fails, so it discriminates.
 - Location: `packages/cli/src/cli/surface-method-runner.ts:96`; host default at `serve/hosted/runtime.ts:341`.
 - Defect: `--allow-production` is parsed but not sent with the hosted method call. The host runs with the flag off and refuses without saying why.
 - Acceptance: the flag travels with the call; CLI test asserting the hosted path honors it.
@@ -207,14 +207,14 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C9. Hosted runtime disposes before draining in-flight work
 
-- Severity: nit. Slice: `host`. Status: open.
+- Severity: nit. Slice: `host`. Status: closed as already fixed at 1ac597ff (2026-09-20). close() drains pending method and tool calls, port closures, and persistence work, then flushes, and disposes in finally. Acceptance kept as a regression guard: queued method, tool, and page writes across close() all complete and are readable after a restart of the real Node/SQLite runtime; repeated close shares its promise. Reviewer probes on c6c899ed (2026-09-20): the guard fails when the sandbox is disposed before the drain and when close does not await pending calls; disposing only the capture subscription early does not fail it, because queued work does not depend on it.
 - Location: `packages/cli/src/serve/hosted/runtime.ts:392`.
-- Defect: `close()` disposes the initialized host before accepted method and tool work settles, so late failures surface to callers as spurious errors.
+- Defect: Correction: `close()` disposes the initialized host before accepted method and tool work settles, so late failures surface to callers as spurious errors.
 - Acceptance: drain, then dispose; test with an in-flight call across `close()`.
 
 ### C10. Service Worker install fails permanently on a transient bridge outage
 
-- Severity: nit. Slice: `host`. Status: open.
+- Severity: nit. Slice: `host`. Status: closed at 52465eee (verified 2026-09-20). Decision: install does not wait for the host. Reviewer probe: with the Service Worker retry opt-in forced off, the acceptance fails. Installation waits for the initial attempt but does not reject on attachment failure; hosted Messaging retries initial transport outages and restores observers, without changing page startup refusal.
 - Location: `packages/cli/src/serve/entries/messaging-sw.ts:335`, `messaging-sw-client.ts:248`.
 - Defect: `waitUntil(ready)` on install and activate means a failed hosted attach fails the install, retried only on the next registration.
 - Acceptance: decide whether install must wait for the host. If not, install succeeds and the attach retries.
@@ -229,18 +229,20 @@ Each is `declined` or `open` once you decide. Record the decision here.
 
 ## D. Spec gaps and contract violations
 
-Contract: `docs/hosted-sandbox-live-mode-support.md`.
+Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the combined live-mode contract is preserved on `live/parked`.
 
 ### D1. The live Firestore surface is a stub
 
-- Slice: `live`. Status: open, ruled (owner ruling D3, 2026-09-18): remove `entries/live`, `serve/live`, and every doc reference from the release sequence; delete the emulator-backed tests under `test/e2e/live`; the live work parks on its own branch with gates 7 through 9 open. This also closes C3 (live capture growth) by removal.
+- Slice: `live`. Status: closed by removal at 14039436 (verified 2026-09-19; the reviewer removed one leftover workflow step that checked the deleted live Firestore entry's browser boundary). Ruled (owner ruling D3, 2026-09-18): remove `entries/live`, `serve/live`, and every doc reference from the release sequence; delete the emulator-backed tests under `test/e2e/live`; the live work parks on its own branch with gates 7 through 9 open. This also closes C3 (live capture growth) by removal.
 - Contract: "Reads, queries, document listeners, query listeners, writes, batches, transactions, converters, metadata options, and the network/cache controls exposed by the normal Firestore entry need explicit forwarding or a documented refusal backed by a scenario."
 - State: `packages/cli/src/serve/entries/live/firestore.ts` forwards `getDoc`, `doc`, `getFirestore`, `connectFirestoreEmulator`, and `DocumentSnapshot`. Everything else is a missing export. `live/unsupported.ts` throws at module evaluation, which breaks the importing module rather than refusing per operation. Gates 7 through 9 have no implementation.
 - Acceptance: either the full surface with scenarios, or per-operation refusals each backed by a scenario. Until then the live entry is removed from the playground and the site docs.
 
+- Removal scope clarification (review channel 0011): retain only sandbox/hosted declarations in `docs/hosted-support.json`, with `policyDocument` pointing to the release plan; keep its required CI check and wiring test in the evidence slice.
+
 ### D2. Close during startup returns success
 
-- Slice: `host`. Status: open.
+- Slice: `host`. Status: closed at be6693b3 (verified 2026-09-20). The mount rejects the start caller with "The hosted sandbox closed during startup."; the hosted lifecycle scenario asserts the rejection. Reviewer probe: with the throw put back to a silent return in the built mount, the acceptance fails.
 - Contract: "The start caller receives a closed-startup error."
 - State: `packages/cli/src/serve/bridge-mount.ts:258` returns on `closed` and `startHostedSandbox` resolves. `section-one-lifecycle-startup.pw.ts:22` uses `Promise.allSettled` and never asserts the error.
 - Acceptance: the start promise rejects with the contracted error; the scenario asserts it.
@@ -254,7 +256,7 @@ Contract: `docs/hosted-sandbox-live-mode-support.md`.
 
 ### D4. Capture flush deadline does not exist
 
-- Slice: `host`. Status: open.
+- Slice: `host`. Status: closed at c6c899ed (verified 2026-09-20). The defect was in the worker's capture scheduler, not the server sink: the debounce timer never resets under traffic, but a POST that never settled blocked every later flush. Capture POSTs now abort after 2 s and the next flush is scheduled within the remaining pending-age budget. Scope of the bound: it limits scheduling delay and stalls; it does not promise storage when the endpoint stays unavailable. Reviewer probe: with the abort signal removed, the acceptance fails.
 - Contract: maximum capture delay of 2 seconds under continuous traffic.
 - State: no timer or deadline in `packages/cli/src/serve/capture-store.ts` or `rate-capture-service.ts`.
 - Acceptance: a max-age flush with a test under continuous traffic.
@@ -307,6 +309,13 @@ Not hosted or live work. Each moves to its own branch with its own tests, or wai
 - State: `vite-plugin-bridge-e2e.test.ts:42` is skipped unless an environment flag is set; `examples/teams-workspace/notifications.pw.ts` skips 8 cases by mode, so "6 browser checks passed" is a partial selection.
 - Acceptance: counts in the docs state the total and the skipped number.
 
+### F5. The two cli test shards do not partition the suite
+
+- Severity: nit, cost only. Slice: `peel`. Status: open. Found by the implementing agent during the host extraction proofs, 2026-09-20; confirmed by the reviewer from CI logs.
+- Location: `.github/workflows/build.yml` (`bun run test:ci:cli --shard=${{ matrix.shard }}/2`) and the `test:ci:cli` script in the root `package.json`.
+- Defect: the pinned Bun release does not act on `--shard`. Both jobs on pull request 655 report the identical run, 3804 tests across 398 files, so every pull request runs the whole cli suite twice. Coverage is complete; about three minutes of runner time per pull request is wasted, and a failure that appears in only one job is an order or timing effect, not a property of that job's file set.
+- Acceptance: either the two jobs run disjoint file sets whose union is the whole suite, proven by their reported file counts, or the matrix collapses to one job.
+
 ## G. Coordination with the persistence work
 
 The SQLite unified backend touches `packages/pyric/src/sandbox/persistence/chunk-format.ts`, `controller.ts`, `packages/cli/src/serve/worker/durable-persistence.ts`, and `packages/cli/src/serve/hosted/runtime.ts`. Items A3, C5, C9, D2, and D4 touch the same files. Before the persistence agent starts, a one-page contract should state:
@@ -324,7 +333,7 @@ See `docs/hosted-persistence-plan-review.md` for the discussion.
 
 ### H1. Salvage command for a preserved hosted database
 
-- Severity: should-fix. Slice: `host`. Status: verify. Implemented at 26a6ae0d in `packages/cli/src/cli/salvage.ts` and `serve/hosted/persistence/salvage.ts`: source preserved by hash, output revalidated, empty output refused. Open sub-items I3 and I7 block closure. Companion to A3.
+- Severity: should-fix. Slice: `host`. Status: closed at 9fce2d1c (verified 2026-09-20). The acceptance drives the built CLI under Node against a database with an unreadable record: stdout and `recovery-report.json` agree on the excluded namespace and id, the source directory is byte-identical afterward, and the repaired copy opens. The blocking sub-items are resolved: I3 by the D1 revert, I7 as not a defect. Reviewer probe: with excluded records no longer reported by the built salvage module, the acceptance fails. Implemented at 26a6ae0d in `packages/cli/src/cli/salvage.ts` and `serve/hosted/persistence/salvage.ts`: source preserved by hash, output revalidated, empty output refused. Open sub-items I3 and I7 block closure. Companion to A3.
 - Context: the persistence slice fails closed on a malformed application record and preserves the database directory for repair. Until a repair path exists, one malformed record blocks the host and `fresh` is the only remedy in practice.
 - Acceptance: a CLI command reads a preserved database, reports unreadable records by namespace and id, and writes a repaired copy without modifying the original. The startup refusal message names this command. A3 closes when the command exists and the refusal names it.
 
@@ -348,7 +357,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I2. Retention fixture fails deterministically on the tip
 
-- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18): the undo history commit `6b450256` is reverted during the phase 3 extraction. Verify the fixture is gone with the revert.
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert (branch `work/integration`, now the shared tip). Verified 2026-09-19 by the reviewer: the revert is the exact inverse of `6b450256`. Correction, same day: that inverse also dropped the explicit `null` auth argument from the batch call in `packages/pyric/test/rules/oracle-conformance.test.ts`, which the batch executor requires, so rules row 190 failed on the shared branch from `08828705` until the argument was put back; the reviewer had run only the cli suites at closure and missed it. The engine half of the revert lands on `main` as `slice/undo-revert` for every package file except one line retained from the later incremental-flush commit; no history or undo source remains; schema version 1; `hosted-sqlite.test.ts` 14 pass, 0 fail; cli typecheck exit 0.
 - Location: `packages/cli/test/serve/fixtures/hosted-sqlite-retention.ts:59`.
 - Defect: `assert.deepEqual` on two `DocumentSnapshot.data()` results, which are Proxy objects. Node's strict deep equality never treats two distinct proxies as equal. Verified at the assertion point: same prototype, equal fields, equal `Timestamp`, spread copies compare equal. The codec is not at fault.
 - Failure: the hosted SQLite suite reports 22 pass, 1 fail on every run. Introduced in `6b450256`.
@@ -356,21 +365,21 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I3. Salvage overwrites readable history when it meets an unknown codec version
 
-- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18): the history codec and history salvage are removed with `6b450256`. Bucket salvage keeps the shared validator; verify that remains after the revert.
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert. Verified 2026-09-19 by the reviewer: history codec and history salvage removed; bucket salvage keeps the shared encoding validator.
 - Location: `packages/cli/src/serve/hosted/persistence/history-codec.ts:4`, `history.ts:198`, `history-salvage.ts:33`.
 - Defect: the history codec pins `encoding` to one literal, contradicting the shared `validatePersistenceEncoding` policy in `packages/pyric/src/sandbox/persistence/import-bundle.ts` that unknown codecs are not corruption. A record written by a newer encoding fails to parse, startup refuses, and salvage then replaces the record with an exclusion boundary. Bucket salvage already uses the shared validator at `salvage.ts:105`.
 - Acceptance: history uses the shared seam; a fixture with a newer-encoding record salvages with the record retained.
 
 ### I4. Migration mutates a store before refusing it
 
-- Severity: should-fix. Slice: `host`. Status: moot by revert (owner ruling D1, 2026-09-18): schema stays at version 1 with no migration. The validate-before-migrate order is still required for any future migration; keep the ordering test when one is added.
+- Severity: should-fix. Slice: `host`. Status: moot, confirmed at `08828705`: schema version 1, no migration code remains. The validate-before-migrate order is still required for any future migration; keep the ordering test when one is added.
 - Location: `packages/cli/src/serve/hosted/persistence/database.ts:57`; validation order at `persistence.ts:19`.
 - Defect: the v1 to v2 history migration writes tables and bumps `user_version` before `validateHostedDatabase` runs. A v1 store with malformed application records is modified, then refused. The contract requires refusal to leave the database unchanged.
 - Acceptance: validate before migrate; test that a refused v1 store is byte-identical after refusal.
 
 ### I5. Transient `SQLITE_BUSY` latches the host unhealthy
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: closed at dbd49609 (verified 2026-09-19). Persistence connections retry contention through SQLite with a 250 ms busy timeout per statement; the project-ownership lock retains 0. A real WAL reader and a competing writer released within the window leave persistence healthy. Exhausted retries remain fail-closed, with no acknowledged write. Reviewer probe: with the built artifact patched back to a zero timeout the recovery case fails with "database is locked" and the exhausted-retry case still passes, so the acceptance discriminates. Contract page records the policy.
 - Location: `packages/cli/src/serve/hosted/persistence/database.ts:34`, `commits.ts:40`.
 - Defect: the persistence connection sets `busy_timeout=0` and any busy result calls `markUnhealthy()`, a permanent latch until restart. A checkpoint, a snapshot reader, a backup agent, or antivirus produces the same outcome as corruption.
 - Acceptance: a bounded busy policy on persistence connections (the ownership lock keeps 0), retry on busy, and a test that a concurrent reader during commit does not latch unhealthy.
@@ -384,21 +393,21 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I7. Salvage and archive open the copy read-only
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: closed as not a defect (2026-09-19). The scratch copy is the whole directory in a writable temp directory, so SQLite recreates the -shm on a read-only open. Acceptance kept as a regression guard for a crash after a WAL commit with no -shm.
 - Location: `packages/cli/src/serve/hosted/persistence/salvage.ts:54`, `archive.ts:49`.
-- Defect: a crashed host leaves `state.sqlite-wal`. Without the `-shm` file SQLite cannot open a WAL database read-only, so salvage fails on the input it exists for.
+- Defect: Correction: a crashed host leaves `state.sqlite-wal`. Without the `-shm` file SQLite cannot open a WAL database read-only, so salvage fails on the input it exists for.
 - Acceptance: open the disposable copy read-write, or recover the WAL first; fixture with a `-wal` and no `-shm`.
 
 ### I8. Storage reads do not wait behind queued mutations
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: closed at ee2bcc35 (verified 2026-09-19). `getBlob` and `listByPrefix` await the shared mutation queue, matching `getMetadata`. Reviewer probe: with the awaits removed from the built artifact the acceptance fails on the upload read, so it discriminates. Real Node SQLite acceptance covers upload, deletion, reset, and reads across bucket views.
 - Location: `packages/cli/src/serve/hosted/persistence/storage.ts:57,93`.
 - Defect: `getBlob` and `listByPrefix` skip the mutation queue that `getMetadata` awaits. A reader can see metadata for an object whose bytes are still queued, or a listing that omits it.
 - Acceptance: all reads await the queue; test upload-then-list ordering.
 
 ### I9. Undo history grows the database without bound
 
-- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18). The `quick_check`-on-a-full-copy behavior in `archive.ts:44` is independent of undo and stays open as I9b: run `quick_check` in place, not on a copy of the whole directory.
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert, verified 2026-09-19. The `quick_check`-on-a-full-copy behavior in `archive.ts:44` is independent of undo and stays open as I9b: run `quick_check` in place, not on a copy of the whole directory.
 - Location: `packages/cli/src/serve/hosted/persistence/undo.ts:14`, `history.ts:45`, `archive.ts:44`.
 - Defect: every allowed write stores prior and next documents in `history_records` forever; nothing prunes. The history contract admits unbounded disk; the persistence contract does not mention it. `fresh` also copies the whole directory to the temp filesystem to run `quick_check`.
 - Acceptance: a retention bound on `history_records` with a test, the bound stated in the persistence contract, and `quick_check` run in place.
@@ -412,27 +421,28 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I11. Synchronous history decode on the request path
 
-- Severity: should-fix. Slice: `host`. Status: closes by revert (owner ruling D1, 2026-09-18).
+- Severity: should-fix. Slice: `host`. Status: closed at `08828705` by the D1 revert, verified 2026-09-19.
 - Location: `packages/cli/src/serve/hosted/persistence/history.ts:151`; callers `undo.ts:139,167`.
 - Defect: `recentEngineEvents` decodes up to 1,000 records with hash, parse, and schema validation synchronously, and backs `size()` as well as the event getters. A count request blocks the event loop for the full page.
 - Acceptance: a separate count query; decode only on demand.
 
 ### I12. Bun refusal branch untested
 
-- Severity: nit. Slice: `host`. Status: open.
+- Severity: nit. Slice: `host`. Status: closed at 38141e92 (verified 2026-09-20). A Node fixture spoofs `process.versions.bun` and asserts the standalone-specific refusal with the database bytes and directory entries unchanged even when a fresh start is requested; the existing real-Bun case is mapped alongside it. Reviewer probe: with the Bun check disabled in the built SQLite and ownership modules, the acceptance fails.
 - Location: `packages/cli/src/serve/hosted/persistence/sqlite.ts:18`.
 - Defect: only the Node-version refusal is tested. Nothing spoofs `process.versions.bun`, so the branch that decides whether the standalone binary refuses cleanly is unverified.
 - Acceptance: the same spoofing fixture for the Bun case.
 
 ### I13. Smaller items
 
-- `history-export.ts:275` leaves `.segment-*.tmp` and `.checkpoint-*.tmp` behind on a failed export.
-- `sqlite.ts:43` a throwing `ROLLBACK` after a failed `COMMIT` replaces the original error.
-- `state-view.ts:96` the storage seed bypasses the mutation queue.
-- `history-route.ts:9` writes the 200 status before evaluating the body, so a throw sends headers twice.
-- `serve-init.ts:365` capture delivery re-arms after the POST settles, so the worst case is interval plus POST latency; the new test asserts no time bound against the 2 s contract.
-- `event-history.ts:209` counts evicted listener-attach entries as omitted although `snapshot()` still returns them.
-- `persistence.ts:12` and `undo.ts:138` call pyric's own surfaces "legacy".
+- Status: closed at 617213e1 (verified 2026-09-20). Every sub-item below is fixed, removed by D1, or closed under another item. Reviewer probes: with the rollback guard removed the `I13-rollback` acceptance fails both cases; with the seed no longer entering the Storage mutation queue the `I13-seed` acceptance fails. Every `writeSection` and `seed` caller awaits the returned promise, and the queued seed joins one reentrant transaction.
+- `history-export.ts:275` left `.segment-*.tmp` and `.checkpoint-*.tmp` behind on a failed export. Removed with the export implementation by D1 at `08828705`.
+- `sqlite.ts:43` a throwing `ROLLBACK` after a failed `COMMIT` replaced the original error. Fixed at `015c99ba`; acceptance: `I13-rollback`.
+- `state-view.ts:96` the storage seed bypassed the mutation queue. Fixed at `fa9e5501`; acceptance: `I13-seed`.
+- `history-route.ts:9` wrote the 200 status before evaluating the body, so a throw sent headers twice. Removed with the history route by D1 at `08828705`.
+- `serve-init.ts:365` capture delivery re-armed after the POST settled. Closed with D4 at `c6c899ed`, verified by the reviewer; its mapped acceptance pins the 2 s deadline.
+- `event-history.ts:209` counted evicted listener-attach entries as omitted although `snapshot()` still returned them. Closed as `I13-omitted` with I1 at `2ba2c664`.
+- Terminology: `persistence.ts` now describes existing browser/MCP files; `undo.ts` was removed by D1 at `08828705`.
 
 ### A11. A set followed by a delete of the same path in one batch evaluates the set as a delete
 
@@ -465,7 +475,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### C13. Bridge sends a Buffer instead of a string and breaks the peer handshake
 
-- Severity: blocker for the transport slice. Slice: `transport`. Status: verify. Owner: Codex; branch: `work/integration`. The existing peer-standby suite is mapped under C13; string sends are restored. Pre-existing on `origin/hosted-live-mode`; found by the phase 1 exit gate.
+- Severity: blocker for the transport slice. Slice: `transport`. Status: closed at `2a39d6b7` (branch `work/integration`). Verified 2026-09-19 by the reviewer: `verify-ledger C13` 6 pass, 0 fail; `bun test packages/cli/test/bridge` 1320 pass, 0 fail; worker suite green after regenerating the cli registries; cli typecheck exit 0. The Buffer conversion is removed and the string send restored; frame and backlog checks unchanged. Pre-existing on `origin/hosted-live-mode`; found by the phase 1 exit gate.
 - Location: `packages/cli/src/bridge/server/socket-message.ts:30`, commit `5e8f40a3` ("queue UTF-8 buffers for slow readers").
 - Defect: `socket.send(Buffer.from(payload), { binary: false })` replaced `socket.send(payload)`. Bisected by the reviewer on 2026-09-18: `packages/cli/test/bridge/peer-standby.test.ts` is 6 pass at the parent `6433d9bd` and 6 fail at `5e8f40a3`, including "sandbox not connected" after a peer hello. Every later tip inherits it.
 - Failure: a bridge peer connects, sends hello, and the server's reply arrives in a form the client does not accept as a bridge frame, so the sandbox is never marked connected.
@@ -473,7 +483,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I14. The unhealthy-persistence gate admits RTDB, admin, and state mutations
 
-- Severity: should-fix. Slice: `host`. Status: open. Pre-existing; made visible by A7's enumeration.
+- Severity: should-fix. Slice: `host`. Status: closed at 57ca27d4 (verified 2026-09-19). Pre-existing; made visible by A7's enumeration. One policy table in `worker/operation-persistence.ts` drives admission, and the flush helper's method parameter accepts only methods the table marks true, so a new flush under a false method fails typechecking. `rtdb.goOffline` and `auth.setProviderConfig` were added to the gated set. Reviewer probe: flipping one method to false in source fails the acceptance for that method. Note for extraction: the fix edits worker host files that belong to transport paths; it rides with the host slice.
 - Location: `packages/cli/src/serve/hosted/persistence-admission.ts`, the `return false` group.
 - Defect: `rtdb.update`, `rtdb.push`, `rtdb.setPriority`, `rtdb.setWithPriority`, `rtdb.transactionCommit`, `admin.setDocument`, `admin.deleteDocument`, `importState`, `checkpoint`, `deleteCheckpoint`, and `auth.setProviderConfig` are classified as not requiring healthy persistence. Each mutates persisted state. While persistence is `committed-but-not-durable`, these are still admitted, so the contract's "block further mutations" holds only for the listed subset.
 - Acceptance: every method that reaches a persistence flush is classified `true`, derived from the same source the flush path uses rather than hand-listed; a test that walks `OpMessage['method']` and asserts each mutation is gated.
@@ -487,6 +497,13 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - Failure: any consumer typed against `pyric/firestore` directly (Studio, `@pyric/ui`, in-page sandbox apps) cannot subscribe to a collection without wrapping it in `query()`. The branch worked around this in `packages/studio/src/clients/worker-live.test.ts` with exactly that wrap, which hides the type defect.
 - Acceptance: `CollectionReference<T>` extends `Query<T>` in `types.ts`; a type-level test in `packages/pyric/test/firestore/ledger/` compiles a probe with the TypeScript API (the A7 technique) asserting zero diagnostics for the three probe lines above; main's Studio compiles against the slice without the `query()` wrap. Land the fix on `hosted-main-integration` first, then re-run the extraction so the slice's first commit stays byte-equal to the remote diff.
 
+### I15. The snapshot fixture resolves the built CLI from the working directory
+
+- Severity: blocker for the host pull request. Slice: `host`. Status: closed at 6fe34321 (verified 2026-09-20). Found by running CI's package-directory invocation locally before the pull request, as the host extraction spec's step 5 requires. The reviewer reproduced the whole cli package under `bun test --cwd packages/cli` on the slice: 3880 pass, 21 skip, 0 fail.
+- Location: `packages/cli/test/serve/fixtures/hosted-sqlite-snapshot.ts:7`.
+- Defect: the fixture joins `process.cwd()` with `packages/cli/dist/cli/snapshot.js`. It passes from the repository root but duplicates `packages/cli` when CI runs `bun test --cwd packages/cli`, causing `ERR_MODULE_NOT_FOUND` before snapshot assertions execute.
+- Acceptance: statically import `../../../src/cli/snapshot.js`, like the persistence import, so `runNodeFixture` resolves the built module through its source-to-dist rewrite. The case passes both from the repository root and under `bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts`. The I15 map selects `offline snapshots`; package-directory invocation is also required.
+
 ## E. Evidence owed
 
 ### E1. Conformance evidence for the foundation slice's engine changes
@@ -498,7 +515,14 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### A15. A7 changed the unknown-method wire text the remote client parses
 
-- Severity: should-fix, blocks the transport slice. Slice: `core`. Status: verify. Owner: Codex; branch: `work/integration`. Both defaults preserve the established unknown-method wire text; the unchanged remote suite and A7 acceptance pass. Found by the reviewer's transport dry run on 2026-09-19.
+- Severity: should-fix, blocks the transport slice. Slice: `core`. Status: closed at `984e75e6` (branch `work/integration`, now the shared tip). Verified 2026-09-19 by the reviewer: `verify-ledger A15` 10 pass, 0 fail; A7 and C13 acceptance still pass on the same commit; remote and entries suites 30 pass, 0 fail. Both defaults now throw `Unknown method: <method>`. Found by the reviewer's transport dry run on 2026-09-19.
 - Location: `packages/cli/src/serve/hosted/persistence-admission.ts` and `packages/cli/src/serve/worker/inbound-validation/operation-arguments.ts`, the `never` defaults added by A7.
 - Defect: both throw `Unknown sandbox method: <method>.` Every host dispatch site refuses with `Unknown method: <method>` (`worker/host/dispatch.ts:122` and seven service handlers), and the remote client keys its version-skew guidance on `/^Unknown method:/` at `packages/cli/src/remote/index.ts:438`. A refusal from the new validation path therefore reaches the client without the restart-or-reload guidance. `packages/cli/test/remote/loop-hold.test.ts:324` fails.
 - Acceptance: both defaults throw `Unknown method: <method>` with no trailing period; `bun test packages/cli/test/remote` green with no test changed; the A7 acceptance still passes.
+
+### C14. Served-entry tests depend on which file evaluated the browser entry first
+
+- Severity: blocker for the transport pull request. Slice: `transport`. Status: closed (verified 2026-09-19). Two fixes landed. The transport pull request carries the direct cause, the composite served-entry test's `SharedWorker` double lacking `addEventListener` (65536ea7 on `slice/transport`, d44ecc81 here); its second CI shard is green. The shared branch also carries the structural fix at 47161358: the served RTDB cases run unchanged in a fresh process (`rtdb-served-entry.cases.ts`), and the acceptance preloads a no-`SharedWorker` evaluation of the entry before the suite to reproduce the prior order. The structural fix is test-only and rides with the host slice extraction rather than reopening the transport pull request. Found by CI on the transport pull request, 2026-09-19.
+- Location: `packages/cli/src/serve/entries/worker-runtime.ts` (`useWorker` and `hasSharedWorker` captured at module evaluation; `openWorkerDb` refuses when `useWorker` is false) and `packages/cli/test/serve/worker/rtdb-integration.test.ts:40,168` (installs a `SharedWorker` double inside each case, then dynamically imports `entries/app-client.js`).
+- Defect: in one `bun test` process the entry evaluates once. CI's Linux runner orders files differently from macOS, and in its second shard some earlier file evaluated the entry with no `SharedWorker` global, so `useWorker` was captured false and both cases that reach `openWorkerDb` fail with "No Pyric worker transport is initialized in this browser context." The whole shard passes locally in either pairing the reviewer tried, so the poisoning file is not yet identified. `main`'s `openWorkerDb` had the same capture but gated only on the captured `SharedWorker` presence; A5 added the `useWorker` refusal.
+- Acceptance: the served-entry cases pass regardless of file order. Either the test evaluates the entry in its own realm or process, as the A5 page and Service Worker fixtures already do through `test/serve/entries/worker-runtime-realm.ts`, or `openWorkerDb` consults the live globals at call time in page realms instead of the captured value, with a test that evaluates the entry first without a `SharedWorker` and then installs one. Prove with `bun test --cwd packages/cli --shard=2/2` green on the transport slice in CI, since local order does not reproduce it.

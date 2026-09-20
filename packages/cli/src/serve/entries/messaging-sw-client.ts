@@ -27,6 +27,7 @@ export async function messagingSwClient(app: FirebaseApp): Promise<ClientDb | nu
       client = getHostedFirestore({
         url: toPageOriginWsUrl(bridgeUrl, location, 'page-origin'),
         projectKey,
+        retryInitialConnection: isServiceWorkerRealm(),
       });
     } else if (isServiceWorkerRealm()) {
       client = getServiceWorkerFirestore(app.name);
@@ -47,13 +48,15 @@ export async function messagingSwClient(app: FirebaseApp): Promise<ClientDb | nu
   } finally { release(); }
 }
 
-/** A registered worker is ready only after its background observers reach the host. */
+/** Keep initial attachment alive without making an outage invalidate the worker installation. */
 export function holdMessagingWorkerStartup(ready: Promise<void>): void {
   if (!isServiceWorkerRealm()) return;
   const worker = globalThis as typeof globalThis & {
     addEventListener(type: 'install' | 'activate', listener: (event: { waitUntil(work: Promise<void>): void }) => void, options: { once: boolean }): void;
   };
-  const wait = (event: { waitUntil(work: Promise<void>): void }): void => event.waitUntil(ready);
+  // The observer reports startup failures; the transport owns reconnect attempts.
+  const attempted = ready.catch(() => {});
+  const wait = (event: { waitUntil(work: Promise<void>): void }): void => event.waitUntil(attempted);
   worker.addEventListener('install', wait, { once: true });
   worker.addEventListener('activate', wait, { once: true });
 }

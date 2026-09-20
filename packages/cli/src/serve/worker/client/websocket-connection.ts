@@ -17,7 +17,7 @@ const utf8 = new TextEncoder();
 export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed';
 
 /** Own one app's physical connections while retaining its logical SDK port. */
-export function getHostedFirestore(target: { url: string; projectKey: string; onConnection?: (state: HostedConnectionState) => void; onError?: (error: FirebaseError) => void }, existingPort?: ClientPort): ClientDb {
+export function getHostedFirestore(target: { url: string; projectKey: string; retryInitialConnection?: boolean; onConnection?: (state: HostedConnectionState) => void; onError?: (error: FirebaseError) => void }, existingPort?: ClientPort): ClientDb {
   const connectionId = `socket-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const report = (phase: DiagnosticEvent['phase'], code?: number) => {
     recordDiagnostic({ phase, connectionId, endpoint: target.url, code });
@@ -52,7 +52,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
         deliver({ t: 'res', id: message.id, ok: true, value: undefined });
         return;
       }
-      const isInitialStartup = state === 'connecting' && !hasEverAttached;
+      const isInitialStartup = !hasEverAttached;
       const cancelsSubscription = !isAttached && message.t === 'unsub';
       const canQueue = isInitialStartup || cancelsSubscription;
       if (canQueue) {
@@ -178,6 +178,7 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
   }
 
   async function finishAttachment(connection: WebSocket, isResume: boolean): Promise<void> {
+    const needsMessagingRestore = isResume || reconnectAttempt > 0;
     const postMessage = (message: InboundMessage): void => {
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) throw new FirebaseError('unavailable', CONNECTION_LOST);
@@ -208,8 +209,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
     if (isResume) {
       postMessage({ t: 'clock-subscribe' });
       restoreFirestoreSubscriptions(port, postMessage);
-      restoreMessagingSubscriptions(port, postMessage);
     }
+    if (needsMessagingRestore) restoreMessagingSubscriptions(port, postMessage);
     notifyConnectionChange();
   }
 
@@ -231,7 +232,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
       const isStaleConnection = !isCurrent(connection);
       if (isStaleConnection) return;
       report('timeout');
-      if (hasEverAttached) connection.close();
+      const shouldRetry = hasEverAttached || target.retryInitialConnection === true;
+      if (shouldRetry) interruptConnection(connection);
       else failConnection('Timed out connecting to the hosted sandbox.');
     }, 5_000);
 
@@ -335,7 +337,8 @@ export function getHostedFirestore(target: { url: string; projectKey: string; on
       clearTimeout(attachDeadline);
       const hasExpiredSession = hasEverAttached && event.code === WORKER_SESSION_EXPIRED_CLOSE_CODE;
       if (hasExpiredSession) resumeToken = undefined;
-      const canResume = hasEverAttached && event.code !== 1008;
+      const permitsRetry = hasEverAttached || target.retryInitialConnection === true;
+      const canResume = permitsRetry && event.code !== 1008;
       if (canResume) {
         interruptConnection(connection);
       } else {
