@@ -194,7 +194,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C7. Unwrapped throw in the worker-message path
 
-- Severity: should-fix, low. Slice: `transport`. Status: fixing (codex, work/integration).
+- Severity: should-fix, low. Slice: `transport`. Status: verify (codex, work/integration).
 - Location: `packages/cli/src/bridge/server/bridge.ts:776`, `peer.ts:344`.
 - Defect: `forwardWorkerMessage` throws when the peer is null or lacks a worker port, and the socket message listener does not catch it. Under `pyric serve` the process guard logs it; under other mounts it is uncaught. The client's request is stranded until its own timeout.
 - Acceptance: the client receives a refusal response; test with a consumer attaching during a host restart.
