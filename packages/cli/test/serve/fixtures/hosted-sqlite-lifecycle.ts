@@ -16,11 +16,11 @@ const fixture = {
   } }],
 };
 try {
-  assert.throws(() => persistence.seed(fixture), /base64/);
+  await assert.rejects(persistence.seed(fixture), /base64/);
   assert.equal(persistence.state.exists(), false, 'a rejected fixture must not leave partial documents');
 } finally { persistence.close(); }
 persistence = await createHostedPersistence(project);
-try { persistence.seed({ ...fixture, storage: [] }); }
+try { await persistence.seed({ ...fixture, storage: [] }); }
 finally { persistence.close(); }
 persistence = await createHostedPersistence(project, { fresh: true });
 try {

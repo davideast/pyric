@@ -248,14 +248,14 @@ export async function createSandboxSession(
         if (initializesStateStore) {
           const seedOwner = hostedPersistence;
           const hasHostedPersistence = seedOwner !== undefined;
-          if (hasHostedPersistence) seedOwner.seed(fixture);
+          if (hasHostedPersistence) await seedOwner.seed(fixture);
           else {
             const hasFirestoreState = fixture.firestore != null;
-            if (hasFirestoreState) state.writeSection('firestore', fixture.firestore);
+            if (hasFirestoreState) await state.writeSection('firestore', fixture.firestore);
             const hasAuthState = fixture.auth != null;
-            if (hasAuthState) state.writeSection('auth', fixture.auth);
+            if (hasAuthState) await state.writeSection('auth', fixture.auth);
             const hasStorageState = fixture.storage !== undefined;
-            if (hasStorageState) state.writeSection('storage', fixture.storage);
+            if (hasStorageState) await state.writeSection('storage', fixture.storage);
           }
           persisted = state.load();
         } else {

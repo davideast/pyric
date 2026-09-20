@@ -5,9 +5,12 @@ import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../../worker/proto
 import type { Commit } from './commits.js';
 import { sqlText, type SqlConnection, type SqlRow } from './sqlite.js';
 
+export type PutStorageBytes = (path: string, bytes: Uint8Array, mime: string, metadata: StoredMetadata) => void;
+
 export interface ScopedStorageBackend extends StorageBackend {
   scoped(bucket: string): ScopedStorageBackend;
-  putBytes(path: string, bytes: Uint8Array, mime: string, metadata: StoredMetadata): void;
+  /** Run a synchronous seed transaction after earlier Storage mutations. */
+  mutate<T>(work: (putBytes: PutStorageBytes) => T): Promise<T>;
 }
 
 function metadataOf(row: SqlRow): StoredMetadata {
@@ -53,7 +56,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
           putBytes(path, bytes, blob.type, value);
         });
       },
-      putBytes,
+      mutate: work => enqueue(() => commit(() => work(putBytes))),
       async getBlob(path, bucket = defaultBucket) {
         await mutations;
         const row = read.get(bucket, path);

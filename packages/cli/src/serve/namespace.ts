@@ -223,7 +223,7 @@ async function handleState(
         return;
       }
       const body = await collectBody(req);
-      state.writeSection(section, body);
+      await state.writeSection(section, body);
       res.writeHead(204).end();
       return;
     }

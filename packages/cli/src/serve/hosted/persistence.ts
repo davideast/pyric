@@ -1,4 +1,3 @@
-import type { PyricStateFile } from '../state-file.js';
 import { requireNodePersistence } from './persistence/sqlite.js';
 import { join } from 'node:path';
 import { openHostedDatabase } from './persistence/database.js';
@@ -26,17 +25,7 @@ export async function createHostedPersistence(projectDir: string, options: { fre
     return {
       backend: database.records, storage: database.storage, state, close: database.close,
       status: database.status, onFailure: database.onFailure, markUnhealthy: database.markUnhealthy,
-      seed(fixture: PyricStateFile): void {
-        database.commit(() => {
-          const hasFirestore = fixture.firestore != null;
-          if (hasFirestore) state.writeSection('firestore', fixture.firestore);
-          const hasAuth = fixture.auth != null;
-          if (hasAuth) state.writeSection('auth', fixture.auth);
-          const hasStorage = fixture.storage !== undefined;
-          if (hasStorage) state.writeSection('storage', fixture.storage);
-          validateHostedDatabase(database);
-        });
-      },
+      seed: state.seed,
     };
   } catch (error) {
     database.close();
