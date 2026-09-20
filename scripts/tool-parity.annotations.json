@@ -173,6 +173,10 @@
       "decision": "deliberate",
       "reason": "Playground session-inspection affordance; the default MCP contract currently exposes only ratified attached-sandbox tool families"
     },
+    "messaging_deliveries": {
+      "decision": "deliberate",
+      "reason": "bounded attached-sandbox delivery inspection belongs in MCP; the Playground reads its own session messaging state directly"
+    },
     "rtdb_crawl_structure": {
       "decision": "deliberate",
       "reason": "bounded attached-sandbox inspection belongs in MCP; the Playground reads its own session state directly"
