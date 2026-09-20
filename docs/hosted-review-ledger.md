@@ -201,7 +201,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C8. One malformed peer reply fails every pending call
 
-- Severity: nit. Slice: `transport`. Status: verify (codex, work/integration).
+- Severity: nit. Slice: `transport`. Status: closed at 9c5bf75e (verified 2026-09-20). Decision: a reply or snapshot without a usable id is discarded alone, with one payload-free diagnostic through the bridge logger; every other pending call and subscription is untouched and the affected call meets its existing deadline. Reviewer probes: restoring the global failure breaks five of seven cases; silencing the diagnostic breaks the case that asserts it.
 - Location: `packages/cli/src/bridge/server/bridge.ts:612`.
 - Defect: a `tool-result` or `worker-res` frame with a non-string id calls `failAllPending` across all consumers.
 - Decision 2026-09-20: discard only uncorrelatable operation, tool and subscription replies. Emit one payload-free bridge diagnostic for each discarded frame. Keep valid-id malformed results scoped to their owner, existing call deadlines, and peer disconnect/replacement behavior.
@@ -251,7 +251,7 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D3. Observation backpressure closes the socket instead of reporting drops
 
-- Slice: `transport`. Status: closed by contract amendment (2026-09-20); shared socket cutoff retained under the release ruling. The independently mapped memory budget remains open as I16.
+- Slice: `transport`. Status: closed by contract amendment (2026-09-20); shared socket cutoff retained under the release ruling. The independently mapped memory budget remains open as I16. Verified 2026-09-20 by the reviewer at 9228d3cf: the policy test passes; every assertion of the original scenario survives the split with its threshold unchanged.
 - Decision 2026-09-20: retain the existing shared 24 MiB socket backlog for this release; defer independent observation queues and drop reporting to D7.
 - Contract: `docs/hosted-persistence-contract.md`, Transport backlog and recovery. All frames share one socket backlog; close with 1013 when the next frame would exceed 24 MiB. A stalled observation consumer interrupts its own operations; sent mutations may have completed. Reconnect restores observations without replaying writes.
 - State: `packages/cli/src/bridge/server/socket-message.ts` implements this cutoff. No product change is required for the amendment.
@@ -517,7 +517,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I16. Host resident memory keeps growing across slow-consumer cycles
 
-- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `evidence`. Status: open.
+- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `evidence`. Status: open. Reproduced by the reviewer at 9228d3cf on a second machine, two runs: growth of 282,820,608 then 342,654,976 bytes, and 281,542,656 then 319,455,232 bytes. The second cycle added 38 to 60 MiB there against 108 MiB on the implementing agent's machine, which is consistent with growth that is slowing but does not establish it; the six-cycle diagnostic with forced collection decides.
 - Location: `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`, resident-growth test.
 - Defect: the existing scenario exceeds its 201,326,592-byte ceiling. Earlier runs measured 202,080,256 and 215,810,048 bytes after the first cycle. The split test preserves that ceiling and uses soft assertions so both cycles are measured.
 - Evidence: one split memory run on 9c5bf75e with the test split measured 223,821,824 bytes after cycle 0 and 332,480,512 bytes after cycle 1: another 108,658,688 bytes in the second cycle. Growth continues across cycles rather than plateauing after the first. This is a possible leak signal, not evidence sufficient to attribute a leak to a particular allocation. A bounded six-cycle diagnostic with two forced collections after each cycle is authorized to distinguish retained objects, uncollected garbage/allocator effects, and bounded buffers filling toward their caps; no retainer hunt is authorized.
