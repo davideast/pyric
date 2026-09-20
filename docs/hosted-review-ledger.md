@@ -179,7 +179,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C5. Restore double-delivers to live listeners
 
-- Severity: nit. Slice: `host`. Status: fixing (Codex, `work/integration`).
+- Severity: nit. Slice: `host`. Status: verify (Codex, `work/integration`).
 - Location: `packages/cli/src/serve/worker/host/connection.ts:118`, `host/studio.ts:59`.
 - Defect: `restoreSubscriptions` re-registers every retained intent after `importState`, `restore`, and `resetAll`, but `loadSnapshot` and `restoreCheckpoint` already re-evaluate live listeners. Each page listener gets two deliveries per restore. Explicit-lens Studio subscriptions are re-registered too, unlike the session-only rule on `main`.
 - Acceptance: test counting deliveries per listener across a restore.
