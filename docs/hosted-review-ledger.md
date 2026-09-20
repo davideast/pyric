@@ -173,7 +173,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C4. Subscription error close ignores the logical session
 
-- Severity: should-fix. Slice: `transport`. Status: open.
+- Severity: should-fix. Slice: `transport`. Status: fixing (codex, work/integration).
 - Location: `packages/cli/src/serve/worker/client/core.ts:353`; host side `host/subscriptions.ts:273`.
 - Defect: on a `snap` error the client closes the subscription without its `clientSessionId`. For bridge-relayed subscriptions the `unsub` reaches the worker on the physical port, finds nothing, and the remote port's listener and retained intent stay alive until the remote disconnects. A later auth transition re-registers it.
 - Acceptance: test that a relayed subscription which errors is fully removed from the host.

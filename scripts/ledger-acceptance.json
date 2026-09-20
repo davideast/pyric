@@ -1,4 +1,8 @@
 {
+  "C4": {
+    "phase": 2,
+    "tests": ["packages/cli/test/serve/worker/ledger/c4-relayed-subscription-close.test.ts"]
+  },
   "C2": {
     "phase": 2,
     "tests": ["packages/cli/test/bridge/remote-session-isolation.test.ts"],
