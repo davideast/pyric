@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { serializeToBuckets, bundleRecords } from 'pyric/sandbox';
 import { createHostedPersistence } from '../../../src/serve/hosted/persistence.js';
@@ -46,4 +46,20 @@ try {
     unsupported.close();
   }, /requires Node/);
 } finally { Object.defineProperty(process.versions, 'node', { value: supportedNodeVersion, configurable: true }); }
+const bunVersion = Object.getOwnPropertyDescriptor(process.versions, 'bun');
+const directoriesBeforeRefusal = readdirSync(join(damaged, '.pyric/state'));
+const databaseBeforeRefusal = readFileSync(join(damagedStore, 'state.sqlite'));
+Object.defineProperty(process.versions, 'bun', { value: '1.3.9', configurable: true });
+try {
+  await assert.rejects(async () => {
+    const unsupported = await createHostedPersistence(damaged, { fresh: true });
+    unsupported.close();
+  }, /Hosted mode is unavailable in the Bun standalone binary/);
+  assert.deepEqual(readdirSync(join(damaged, '.pyric/state')), directoriesBeforeRefusal,
+    'Bun refusal must precede fresh archiving');
+  assert.deepEqual(readFileSync(join(damagedStore, 'state.sqlite')), databaseBeforeRefusal);
+} finally {
+  if (bunVersion) Object.defineProperty(process.versions, 'bun', bunVersion);
+  else Reflect.deleteProperty(process.versions, 'bun');
+}
 console.log('Lifecycle passed');

@@ -138,5 +138,11 @@
     "phase": 2,
     "tests": ["packages/cli/test/remote/loop-hold.test.ts"],
     "note": "Unknown-method refusals preserve the remote client's version-skew guidance."
+  },
+  "I12": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
+    "filter": "seeds are atomic|Bun rejects",
+    "node": true
   }
 }
