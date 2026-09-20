@@ -11,7 +11,7 @@ import { setRules } from 'pyric/sandbox/firestore';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
-import { restoreSubscriptions } from './subscriptions.js';
+import { restoreFirestoreSubscriptions } from './subscriptions.js';
 
 /** The Studio control op methods routed to {@link handleStudioOp}. */
 const STUDIO_METHODS = new Set<string>([
@@ -55,7 +55,7 @@ export async function handleStudioOp(
         const source = hasActiveRules ? firestoreRules.source : firestoreRules?.lastKnownGood;
         const hasRulesSource = typeof source === 'string';
         if (hasRulesSource) setRules(ctx.sandbox, source);
-        restoreSubscriptions(ctx);
+        restoreFirestoreSubscriptions(ctx);
         // The server capture (`.pyric/last-session.json`) persists the event
         // history a rebooting worker re-primes into Traffic. Flush it NOW —
         // reset just emptied `sandbox.history()`, and waiting out the
@@ -63,7 +63,7 @@ export async function handleStudioOp(
         // the wiped session's events on the next boot.
         await ctx.captureFlush?.();
         // The hosted policy waits for earlier saves and persists the cleared state.
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { errors });
       } catch (e) {
         const isError = e instanceof Error;

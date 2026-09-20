@@ -193,7 +193,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
-        await bestEffortFlush(ctx); // new user record must be durable at ack
+        await bestEffortFlush(ctx, msg.method); // new user record must be durable at ack
         ok(port, msg.id, credReply(session, null, true));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -223,7 +223,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           kind: 'anonymous', tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, null, true));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -318,7 +318,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const profile = { displayName: msg.displayName, photoURL: msg.photoURL };
         authSandboxOps.updateProfile(auth, session.user.uid, profile);
         applyProfileToUser(session.user, profile);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         const serialized = serializeUser(session.user);
         for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
           const isTokenSubscription = target === 'idToken';
@@ -346,7 +346,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const session = requirePortSession(portSession(ctx, port), 'deleteUser');
         authSandboxOps.deleteUser(auth, session.user.uid);
         setPortSession(ctx, port, null);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -359,7 +359,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         authSandboxOps.updateUser(auth, session.user.uid, { email });
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, serializeUser(freshSession.user));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -372,7 +372,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         authSandboxOps.updateUser(auth, session.user.uid, { password });
         const freshSession = remintSessionWithClaims(auth, session);
         setPortSession(ctx, port, freshSession);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, serializeUser(freshSession.user));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -417,7 +417,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, cred.providerId, isNewUser));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -433,7 +433,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           kind: 'provider', uid, providerId, tenantId: msg.tenantId ?? null,
         });
         setPortSession(ctx, port, session);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, providerId, isNewUser));
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -452,7 +452,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           auth,
           msg.request as Parameters<typeof authSandboxOps.createUser>[1],
         );
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, created);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -465,7 +465,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           msg.uid,
           msg.request as Parameters<typeof authSandboxOps.updateUser>[2],
         );
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, updated);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -474,7 +474,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.adminDeleteUser': {
       try {
         authSandboxOps.deleteUser(auth, msg.uid);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -483,7 +483,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.adminClearUsers': {
       try {
         authSandboxOps.clearUsers(auth);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -499,6 +499,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.setProviderConfig': {
       try {
         authSandboxOps.setAuthProviderConfig(auth, msg.providerId, msg.enabled);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;

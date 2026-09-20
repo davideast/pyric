@@ -16,6 +16,21 @@ import {
   waitForSandboxPeer,
 } from '../../src/cli/sandbox-runner.js';
 
+describe('sandbox salvage arguments', () => {
+  for (const flags of [
+    ['--source', '/tmp/source archive', '--out', '/tmp/recovered copy'],
+    ['--source=/tmp/source archive', '--out=/tmp/recovered copy'],
+  ]) {
+    it(`parses recovery paths rather than passing them to a child: ${flags[0]}`, () => {
+      const parsed = parseArgs(['sandbox', 'salvage', ...flags]);
+      expect(parsed.positional).toEqual(['salvage']);
+      expect(parsed.flags.get('source')).toBe('/tmp/source archive');
+      expect(parsed.flags.get('out')).toBe('/tmp/recovered copy');
+      expect(parsed.passthrough).toEqual([]);
+    });
+  }
+});
+
 describe('parseArgs `--` passthrough', () => {
   it('collects everything after -- verbatim, never as flags', () => {
     const parsed = parseArgs(['sandbox', '--bridge', '--', 'npm', 'start', '--port', '3000']);
@@ -242,7 +257,9 @@ describe('formatStartupEnvExport', () => {
       beaconToken: 'launch-secret',
     });
     expect(output).toContain('export PYRIC_SANDBOX="remote:http://localhost:3473"');
-    expect(output).toContain('export PYRIC_BEACON_TOKEN="launch-secret"');
+    expect(output).not.toContain('launch-secret');
+    expect(output).not.toContain('PYRIC_BEACON_TOKEN');
+    expect(output).toContain('Automatic interception confirmation requires launching the command through pyric.');
     expect(output).toContain(
       'export NODE_OPTIONS="--import file:///usr/local/pyric/dist/register/index.js"',
     );

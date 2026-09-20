@@ -17,7 +17,8 @@
     "database rules validate",
     "database rules generate",
     "auth reset",
-    "serve sessions"
+    "serve sessions",
+    "serve diagnostics"
   ],
   "derivedCommands": [
     "ai_logic clearScripts",
@@ -343,6 +344,7 @@
     "auth_impersonate",
     "auth_reset",
     "auth_whoami",
-    "auth_sessions"
+    "auth_sessions",
+    "messaging_deliveries"
   ]
 }

@@ -12,6 +12,7 @@
  *
  * Routes (composed into the `/__pyric/` namespace handler):
  *   POST /__pyric/mcp       MCP over streamable HTTP
+ *   POST /__pyric/hosted/method  service CLI calls on the Node-owned sandbox
  *   GET  /__pyric/health    bridge health JSON
  *   WS   /__pyric/sandbox   the in-page sandbox peer (server `upgrade`)
  */
@@ -26,9 +27,14 @@ import { createBridge, type BridgeToolEvent } from '../bridge/server/bridge.js';
 import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
-import { attachPeer } from '../bridge/server/peer.js';
+import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
 import { pyricVersion } from './standalone-assets.js';
 import { isAllowedLoopbackRequest, isAllowedUpgrade } from './server.js';
+import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
+import type { InitPayload } from './init-payload.js';
+import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
+import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, hostedMethodRequest } from './hosted/method-protocol.js';
+import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-project.js';
 
 const WS_PATH = '/__pyric/sandbox';
 const MCP_PATH = '/__pyric/mcp';
@@ -36,7 +42,9 @@ const HEALTH_PATH = '/__pyric/health';
 const BRIDGE_VERSION = pyricVersion();
 
 export interface BridgeMountOptions {
+  hosted?: boolean;
   project?: string;
+  projectKey?: string;
   disableAuditLog?: boolean;
   /** WS-upgrade rebinding/origin guard config. The upgrade path bypasses the
    *  static server's request-time `isAllowedHost`, so the mount guards it here
@@ -47,6 +55,8 @@ export interface BridgeMountOptions {
 }
 
 export interface BridgeMount {
+  deployHostedRules(service: 'firestore' | 'database', source: string): void;
+  startHostedSandbox(payload: InitPayload, baseUrl: string | (() => string), ai?: HostedRuntimeOptions): Promise<void>;
   /** Stable per-process identity (mirrors `/__pyric/health`'s instanceId).
    *  The pointer writer records this so the proxy can verify it reached this
    *  exact server across a cross-family port collision. */
@@ -64,6 +74,7 @@ export interface BridgeMount {
    *  this instead of self-fetching `/__pyric/health`, which avoids a loopback
    *  fetch on the same event loop. Mirrors `health().sandboxConnected`. */
   sandboxConnected(): boolean;
+  onSandboxPeerConnected(listener: () => void): () => void;
   /** The browser-side WS URL for the init payload (`bridgeUrl`). */
   wsUrl(origin: { host: string; port: number }): string;
   /** The MCP endpoint for the banner. */
@@ -94,14 +105,20 @@ export interface BridgeHostAttachment {
 }
 
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
+  let hostedRuntime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
+  let hostedStartup: Promise<void> | undefined;
+  let disconnectHosted: (() => void) | undefined;
   let captureProjectDir = process.cwd();
   const project = opts.project ?? 'sandbox';
-  const auditWriter = opts.disableAuditLog ? null : createAuditWriter(project);
+  const disablesAuditLog = Boolean(opts.disableAuditLog);
+  const auditWriter = disablesAuditLog ? null : createAuditWriter(project);
+  const recordsAudit = auditWriter !== null;
 
   const bridge = createBridge({
     project,
+    projectKey: opts.projectKey,
     version: BRIDGE_VERSION,
-    onToolEvent: auditWriter ? (event: BridgeToolEvent) => auditWriter.write(event) : undefined,
+    onToolEvent: recordsAudit ? (event: BridgeToolEvent) => auditWriter.write(event) : undefined,
   });
 
   // STATEFUL MCP: a per-session transport+server map, mirroring the standalone
@@ -112,7 +129,6 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   // reconnect/dev-server restart. The long-lived `bridge` (peer + dispatch +
   // audit) is shared; each session owns its transport+server.
   const SESSION_IDLE_MS = 10 * 60_000;
-  const MAX_SESSIONS = 64;
   type Session = {
     transport: StreamableHTTPServerTransport;
     close: () => Promise<void>;
@@ -127,9 +143,13 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   let closePromise: Promise<void> | null = null;
 
   const bumpIdle = (s: Session): void => {
-    if (s.idle) clearTimeout(s.idle);
+    const idle = s.idle;
+    const hasIdleTimer = idle !== null;
+    if (hasIdleTimer) clearTimeout(idle);
     s.idle = setTimeout(() => {
-      if (s.sessionId) sessions.delete(s.sessionId);
+      const sessionId = s.sessionId;
+      const isRegistered = !!sessionId;
+      if (isRegistered) sessions.delete(sessionId);
       pendingSessions.delete(s);
       void s.close();
     }, SESSION_IDLE_MS);
@@ -137,23 +157,13 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
 
   const newSession = async (): Promise<Session> => {
     if (closed) {
-      const error = new Error('pyric bridge: mount is closed');
-      (error as { statusCode?: number }).statusCode = 503;
-      throw error;
+      throw Object.assign(new Error('pyric bridge: mount is closed'), { statusCode: 503 });
     }
-    if (sessions.size + pendingSessions.size >= MAX_SESSIONS) {
-      const e = new Error(`pyric bridge: at session cap (${MAX_SESSIONS})`);
-      (e as { statusCode?: number }).statusCode = 503;
-      throw e;
+    const isAtSessionCapacity = sessions.size + pendingSessions.size >= MAX_MOUNTED_MCP_SESSIONS;
+    if (isAtSessionCapacity) {
+      throw Object.assign(new Error(`pyric bridge: at session cap (${MAX_MOUNTED_MCP_SESSIONS})`), { statusCode: 503 });
     }
-    const session: Session = {
-      transport: null as unknown as StreamableHTTPServerTransport,
-      close: async () => {},
-      idle: null,
-      sessionId: null,
-      closing: null,
-    };
-    session.transport = new StreamableHTTPServerTransport({
+    const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
         if (closed) {
@@ -167,8 +177,17 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         bumpIdle(session);
       },
     });
+    const session: Session = {
+      transport,
+      close: async () => {},
+      idle: null,
+      sessionId: null,
+      closing: null,
+    };
     session.transport.onclose = () => {
-      if (session.sessionId) sessions.delete(session.sessionId);
+      const sessionId = session.sessionId;
+      const isRegistered = !!sessionId;
+      if (isRegistered) sessions.delete(sessionId);
       pendingSessions.delete(session);
     };
     const surface = getBridgeToolSurface({
@@ -182,7 +201,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     });
     session.close = () => {
       session.closing ??= (async () => {
-        if (session.idle) clearTimeout(session.idle);
+        const idle = session.idle;
+        const hasIdleTimer = idle !== null;
+        if (hasIdleTimer) clearTimeout(idle);
         session.idle = null;
         await server.close().catch(() => {});
         await session.transport.close().catch(() => {});
@@ -201,53 +222,144 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   };
 
   const closeSession = async (session: Session): Promise<void> => {
-    if (session.sessionId) sessions.delete(session.sessionId);
+    const sessionId = session.sessionId;
+    const isRegistered = !!sessionId;
+    if (isRegistered) sessions.delete(sessionId);
     pendingSessions.delete(session);
     await session.close();
   };
 
   const removeOwnedPointer = (pointer: string): void => {
     try {
-      if (!existsSync(pointer)) return;
+      const isMissing = !existsSync(pointer);
+      if (isMissing) return;
       const current = JSON.parse(readFileSync(pointer, 'utf8')) as { instanceId?: string };
-      if (current.instanceId === bridge.instanceId) rmSync(pointer);
+      const ownsPointer = current.instanceId === bridge.instanceId;
+      if (ownsPointer) rmSync(pointer);
     } catch {
       // Best effort. A malformed or concurrently replaced pointer is not ours.
     }
   };
 
   const mount: BridgeMount = {
+    deployHostedRules(service, source) {
+      const runtime = hostedRuntime;
+      const isMissing = runtime === undefined;
+      if (isMissing) throw new Error('The hosted sandbox is not running.');
+      runtime.deployRules(service, source);
+    },
+    async startHostedSandbox(payload, baseUrl, ai) {
+      if (closed) throw new Error('pyric bridge: cannot start a closed mount');
+      const alreadyStarted = hostedRuntime !== undefined || hostedStartup !== undefined;
+      if (alreadyStarted) throw new Error('The Node sandbox is already running.');
+      const starting = (async () => {
+        const { createHostedRuntime } = await import('./hosted/runtime.js');
+        hostedRuntime = await createHostedRuntime(payload, baseUrl, (message) => bridge.handleSandboxMessage(message), opts.projectKey ?? process.cwd(), ai);
+        if (closed) throw new Error('The hosted sandbox closed during startup.');
+        disconnectHosted = bridge.registerSandboxPeer(
+          hostedRuntime.receive,
+          [...hostedRuntime.toolNames],
+          hostedRuntime.instanceId,
+          [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY],
+        );
+      })();
+      hostedStartup = starting;
+      try {
+        await starting;
+      } finally {
+        hostedStartup = undefined;
+      }
+    },
     project,
     instanceId: bridge.instanceId,
 
     async handler(req, res, url) {
-      if (closed && (url.pathname === HEALTH_PATH || url.pathname === MCP_PATH)) {
+      const isHealthRequest = url.pathname === HEALTH_PATH;
+      const isMcpRequest = url.pathname === MCP_PATH;
+      const isHostedMethod = url.pathname === HOSTED_METHOD_PATH;
+      const rejectsClosedRequest = closed && (isHealthRequest || isMcpRequest || isHostedMethod);
+      if (rejectsClosedRequest) {
         res.writeHead(503, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'pyric bridge: mount is closed' }));
         return true;
       }
-      if (url.pathname === HEALTH_PATH) {
+      if (isHealthRequest) {
         res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(bridge.health()));
         return true;
       }
-      if (url.pathname === MCP_PATH) {
+      const requiresControlGuard = isMcpRequest || isHostedMethod;
+      if (requiresControlGuard) {
         const guard = opts.upgradeGuard;
-        if (guard?.allowedHosts !== true) {
+        const requiresRequestGuard = guard?.allowedHosts !== true;
+        if (requiresRequestGuard) {
           const boundHost = guard?.boundHost ?? 'localhost';
-          const extra = Array.isArray(guard?.allowedHosts) ? guard.allowedHosts : [];
-          if (!isAllowedLoopbackRequest(req, boundHost, extra)) {
+          const allowedHosts = guard?.allowedHosts;
+          const hasNamedHosts = Array.isArray(allowedHosts);
+          const extra = hasNamedHosts ? allowedHosts : [];
+          const isForbidden = !isAllowedLoopbackRequest(req, boundHost, extra);
+          if (isForbidden) {
             res.writeHead(403, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
             return true;
           }
         }
+      }
+      if (isHostedMethod) {
+        const runtime = hostedRuntime;
+        const hasNoHostedRuntime = runtime === undefined;
+        if (hasNoHostedRuntime) {
+          res.writeHead(404).end();
+          return true;
+        }
+        const rejectsHttpMethod = req.method !== 'POST';
+        if (rejectsHttpMethod) {
+          res.writeHead(405, { allow: 'POST' }).end();
+          return true;
+        }
+        try {
+          const call = hostedMethodRequest.parse(await collectBody(req, HOSTED_METHOD_BODY_LIMIT));
+          const targetsAnotherInstance = call.instanceId !== bridge.instanceId;
+          if (targetsAnotherInstance) {
+            res.writeHead(409, { 'content-type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, summary: 'The discovered host instance has changed.' }));
+            return true;
+          }
+          const result = await runtime.runMethod(call, req.socket);
+          res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
+        } catch (error) {
+          const isError = error instanceof Error;
+          const summary = isError ? error.message : String(error);
+          const exceedsBodyLimit = isError && 'code' in error && error.code === BODY_TOO_LARGE_CODE;
+          const status = exceedsBodyLimit ? 413 : 400;
+          res.writeHead(status, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, summary }));
+        }
+        return true;
+      }
+      if (isMcpRequest) {
+        const selectedInstance = req.headers[MCP_INSTANCE_HEADER];
+        const targetsAnotherInstance = selectedInstance !== undefined && selectedInstance !== bridge.instanceId;
+        if (targetsAnotherInstance) {
+          res.writeHead(409, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'The discovered host instance has changed.' }));
+          return true;
+        }
+        const projectError = mcpProjectError(req.headers[MCP_PROJECT_HEADER], opts.projectKey ?? process.cwd());
+        const targetsWrongProject = projectError !== null;
+        if (targetsWrongProject) {
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: projectError }));
+          return true;
+        }
         try {
           const sessionId = (req.headers['mcp-session-id'] ?? req.headers['Mcp-Session-Id']) as string | undefined;
           let session: Session;
           let created = false;
-          if (sessionId) {
+          const resumesSession = !!sessionId;
+          if (resumesSession) {
             const existing = sessions.get(sessionId);
-            if (!existing) {
+            const isUnknownSession = existing === undefined;
+            if (isUnknownSession) {
               res.writeHead(404, { 'content-type': 'application/json' });
               res.end(JSON.stringify({ error: 'pyric bridge: MCP session not found' }));
               return true;
@@ -259,7 +371,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
             created = true;
           }
 
-          if (req.method === 'DELETE' && sessionId) {
+          const deletesSession = req.method === 'DELETE' && resumesSession;
+          if (deletesSession) {
             await closeSession(session);
             res.writeHead(204).end();
             return true;
@@ -273,13 +386,17 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
             // A request without a session id is allowed to allocate only while
             // it attempts initialization. Invalid/non-initialize traffic must
             // not strand an uninitialized transport against the session cap.
-            if (created && session.sessionId === null) await closeSession(session);
+            const failedToInitialize = created && session.sessionId === null;
+            if (failedToInitialize) await closeSession(session);
           }
         } catch (err) {
           const statusCode = (err as { statusCode?: number })?.statusCode ?? 500;
-          if (!res.headersSent) {
+          const canSendError = !res.headersSent;
+          if (canSendError) {
             res.writeHead(statusCode, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+            const isError = err instanceof Error;
+            const message = isError ? err.message : String(err);
+            res.end(JSON.stringify({ error: message }));
           }
         }
         return true;
@@ -296,7 +413,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     }) {
       if (closed) throw new Error('pyric bridge: cannot attach a closed mount');
       captureProjectDir = projectDir;
-      const wss = new WebSocketServer({ noServer: true });
+      const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_BRIDGE_FRAME_BYTES });
       const guard = opts.upgradeGuard;
       const pointer = join(projectDir, '.pyric', 'serve.json');
       const upgradedSockets = new Set<Duplex>();
@@ -306,30 +423,37 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       let attachmentClosePromise: Promise<void> | null = null;
 
       const onUpgrade = (req: IncomingMessage, socket: Duplex, head: Buffer): void => {
-        if ((req.url ?? '') !== WS_PATH) return;
+        const isUnrelatedPath = (req.url ?? '') !== WS_PATH;
+        if (isUnrelatedPath) return;
         // DNS-rebinding + cross-origin hijack guard. The static/dev server runs
         // isAllowedHost on the `request` event only; `upgrade` is a separate
         // listener that bypasses it, so re-check both Host and Origin here
         // before registering the peer (which last-wins the tool channel).
         // `allowedHosts: true` means the caller explicitly opted into all hosts.
-        if (guard && guard.allowedHosts !== true) {
+        const requiresUpgradeGuard = guard !== undefined && guard.allowedHosts !== true;
+        if (requiresUpgradeGuard) {
           const boundHost = guard.boundHost;
-          const extra = Array.isArray(guard.allowedHosts) ? guard.allowedHosts : [];
-          if (!isAllowedUpgrade(req.headers, boundHost, extra)) {
+          const allowedHosts = guard.allowedHosts;
+          const hasNamedHosts = Array.isArray(allowedHosts);
+          const extra = hasNamedHosts ? allowedHosts : [];
+          const isForbidden = !isAllowedUpgrade(req.headers, boundHost, extra);
+          if (isForbidden) {
             socket.destroy();
             return;
           }
         }
         upgradedSockets.add(socket);
         socket.once('close', () => upgradedSockets.delete(socket));
-        wss.handleUpgrade(req, socket as never, head, (ws: WebSocket) => {
-          attachPeer(bridge, ws);
+        wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+          const allowSandboxPeer = opts.hosted !== true;
+          attachPeer(bridge, ws, allowSandboxPeer);
         });
       };
 
       const publish = (): void => {
         const currentOrigin = origin();
-        if (!currentOrigin?.port || attachmentClosed) return;
+        const cannotPublish = !currentOrigin?.port || attachmentClosed;
+        if (cannotPublish) return;
         try {
           mkdirSync(dirname(pointer), { recursive: true });
           writeFileSync(pointer, JSON.stringify({
@@ -347,17 +471,24 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
 
       const probeCollision = async (): Promise<void> => {
         const currentOrigin = origin();
-        if (!collision || !currentOrigin?.port || attachmentClosed) return;
+        const hasNoCollisionProbe = collision === undefined;
+        if (hasNoCollisionProbe) return;
+        const cannotProbe = !currentOrigin?.port || attachmentClosed;
+        if (cannotProbe) return;
         for (const probe of [`http://127.0.0.1:${currentOrigin.port}`, `http://[::1]:${currentOrigin.port}`]) {
           try {
             const response = await (collision.fetchImpl ?? fetch)(`${probe}${HEALTH_PATH}`, {
               signal: AbortSignal.any([collisionAbort.signal, AbortSignal.timeout(1000)]),
             });
             if (attachmentClosed) return;
-            if (response.status !== 200) continue;
+            const isUnavailable = response.status !== 200;
+            if (isUnavailable) continue;
             const body = (await response.json()) as { mode?: string; instanceId?: string };
             if (attachmentClosed) return;
-            if (body.mode === 'sandbox' && body.instanceId && body.instanceId !== bridge.instanceId) {
+            const isSandbox = body.mode === 'sandbox';
+            const isOtherInstance = !!body.instanceId && body.instanceId !== bridge.instanceId;
+            const hasCollision = isSandbox && isOtherInstance;
+            if (hasCollision) {
               collision.warn(
                 `\n⚠  pyric: another sandbox already serves port ${currentOrigin.port} on a different loopback ` +
                   `family (${probe}). Two dev servers are colliding across IPv4/IPv6 — your MCP ` +
@@ -378,21 +509,25 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
 
       const announce = (): void => {
         publish();
-        if (!collisionProbe) {
+        const needsProbe = collisionProbe === null;
+        if (needsProbe) {
           const current = probeCollision();
           collisionProbe = current;
           void current.finally(() => {
-            if (collisionProbe === current) collisionProbe = null;
+            const isCurrentProbe = collisionProbe === current;
+            if (isCurrentProbe) collisionProbe = null;
           });
         }
       };
       const attachment: BridgeHostAttachment = {
         close(): Promise<void> {
-          if (attachmentClosePromise) return attachmentClosePromise;
+          const closing = attachmentClosePromise;
+          const isClosing = closing !== null;
+          if (isClosing) return closing;
           attachmentClosePromise = (async () => {
             attachmentClosed = true;
             collisionAbort.abort();
-            for (const server of servers) server.removeListener('upgrade', onUpgrade as never);
+            for (const server of servers) server.removeListener('upgrade', onUpgrade);
             lifecycleServer?.removeListener('listening', announce);
             lifecycleServer?.removeListener('close', onClose);
             await collisionProbe;
@@ -426,21 +561,30 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       };
       const onClose = (): void => { void attachment.close(); };
 
-      for (const server of servers) server.on('upgrade', onUpgrade as never);
+      for (const server of servers) server.on('upgrade', onUpgrade);
       if (closeOnServerClose) lifecycleServer?.once('close', onClose);
-      if ((lifecycleServer as unknown as { listening?: boolean } | undefined)?.listening) announce();
+      const isListening = Boolean(lifecycleServer?.listening);
+      if (isListening) announce();
       else lifecycleServer?.once('listening', announce);
       attachments.add(attachment);
       return attachment;
     },
     sandboxConnected: () => bridge.health().sandboxConnected === true,
+    onSandboxPeerConnected: bridge.onSandboxPeerConnected,
     wsUrl: ({ host, port }) => `ws://${host}:${port}${WS_PATH}`,
     mcpUrl: ({ host, port }) => `http://${host}:${port}${MCP_PATH}`,
     close(): Promise<void> {
-      if (closePromise) return closePromise;
+      const closing = closePromise;
+      const isClosing = closing !== null;
+      if (isClosing) return closing;
       closePromise = (async () => {
         closed = true;
         await Promise.all([...attachments].map((attachment) => attachment.close()));
+        // Startup reports its own failure; shutdown still owns any runtime it creates.
+        await hostedStartup?.catch(() => {});
+        bridge.workerSessions.close();
+        disconnectHosted?.();
+        await hostedRuntime?.close();
         await Promise.all([...new Set([...sessions.values(), ...pendingSessions])].map(closeSession));
       })();
       return closePromise;

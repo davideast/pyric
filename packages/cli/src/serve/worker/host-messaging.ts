@@ -129,7 +129,7 @@ export async function handleMessagingOp(
       // Stable per registration (oracle: `messaging-web-token-stability`).
       try {
         const token = broker(ctx).getTokenFor(msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID, msg.recipientId);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { token });
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
@@ -139,7 +139,7 @@ export async function handleMessagingOp(
       // Resolves truthy either way (oracle: `messaging-web-deletetoken-unregistered`).
       try {
         const deleted = broker(ctx).deleteTokenFor(msg.registrationId ?? DEFAULT_WIRE_REGISTRATION_ID);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, deleted);
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
@@ -160,7 +160,7 @@ export async function handleMessagingOp(
     case 'messaging.subscribeToTopic': {
       try {
         const outcome = broker(ctx).subscribeToTopic(msg.tokens, msg.topic);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, outcome);
       } catch (e) { failMessaging(port, msg.id, e); }
       break;
@@ -169,7 +169,7 @@ export async function handleMessagingOp(
     case 'messaging.unsubscribeFromTopic': {
       try {
         const outcome = broker(ctx).unsubscribeFromTopic(msg.tokens, msg.topic);
-        await bestEffortFlush(ctx);
+        await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, outcome);
       } catch (e) { failMessaging(port, msg.id, e); }
       break;

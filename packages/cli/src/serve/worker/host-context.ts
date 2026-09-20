@@ -1,3 +1,4 @@
+import type { PersistedOperationMethod } from './operation-persistence.js';
 import type { DeliveryStage } from 'pyric/messaging/internal';
 /**
  * SharedWorker host — shared foundation (context + reply helpers).
@@ -271,13 +272,13 @@ export function fail(port: PortLike, id: string, err: unknown): void {
  * Flushing here avoids relying on a debounce timer that worker termination
  * could interrupt after the caller has already received success.
  */
-export async function bestEffortFlush(ctx: HostCtx): Promise<void> {
+export async function bestEffortFlush(ctx: HostCtx, method: PersistedOperationMethod | 'disconnect'): Promise<void> {
   const flushPersistence = ctx.flushPersistence;
   const hasRuntimePolicy = flushPersistence !== undefined;
   if (hasRuntimePolicy) return flushPersistence();
   try {
     await ctx.sandbox.flush?.();
   } catch (e) {
-    console.warn('[pyric worker] persistence flush after acked write failed:', e);
+    console.warn(`[pyric worker] persistence flush after ${method} failed:`, e);
   }
 }
