@@ -309,6 +309,13 @@ Not hosted or live work. Each moves to its own branch with its own tests, or wai
 - State: `vite-plugin-bridge-e2e.test.ts:42` is skipped unless an environment flag is set; `examples/teams-workspace/notifications.pw.ts` skips 8 cases by mode, so "6 browser checks passed" is a partial selection.
 - Acceptance: counts in the docs state the total and the skipped number.
 
+### F5. The two cli test shards do not partition the suite
+
+- Severity: nit, cost only. Slice: `peel`. Status: open. Found by the implementing agent during the host extraction proofs, 2026-09-20; confirmed by the reviewer from CI logs.
+- Location: `.github/workflows/build.yml` (`bun run test:ci:cli --shard=${{ matrix.shard }}/2`) and the `test:ci:cli` script in the root `package.json`.
+- Defect: the pinned Bun release does not act on `--shard`. Both jobs on pull request 655 report the identical run, 3804 tests across 398 files, so every pull request runs the whole cli suite twice. Coverage is complete; about three minutes of runner time per pull request is wasted, and a failure that appears in only one job is an order or timing effect, not a property of that job's file set.
+- Acceptance: either the two jobs run disjoint file sets whose union is the whole suite, proven by their reported file counts, or the matrix collapses to one job.
+
 ## G. Coordination with the persistence work
 
 The SQLite unified backend touches `packages/pyric/src/sandbox/persistence/chunk-format.ts`, `controller.ts`, `packages/cli/src/serve/worker/durable-persistence.ts`, and `packages/cli/src/serve/hosted/runtime.ts`. Items A3, C5, C9, D2, and D4 touch the same files. Before the persistence agent starts, a one-page contract should state:
@@ -492,7 +499,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I15. The snapshot fixture resolves the built CLI from the working directory
 
-- Severity: blocker for the host pull request. Slice: `host`. Status: verify (Codex, `work/integration`).
+- Severity: blocker for the host pull request. Slice: `host`. Status: closed at 6fe34321 (verified 2026-09-20). Found by running CI's package-directory invocation locally before the pull request, as the host extraction spec's step 5 requires. The reviewer reproduced the whole cli package under `bun test --cwd packages/cli` on the slice: 3880 pass, 21 skip, 0 fail.
 - Location: `packages/cli/test/serve/fixtures/hosted-sqlite-snapshot.ts:7`.
 - Defect: the fixture joins `process.cwd()` with `packages/cli/dist/cli/snapshot.js`. It passes from the repository root but duplicates `packages/cli` when CI runs `bun test --cwd packages/cli`, causing `ERR_MODULE_NOT_FOUND` before snapshot assertions execute.
 - Acceptance: statically import `../../../src/cli/snapshot.js`, like the persistence import, so `runNodeFixture` resolves the built module through its source-to-dist rewrite. The case passes both from the repository root and under `bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts`. The I15 map selects `offline snapshots`; package-directory invocation is also required.
