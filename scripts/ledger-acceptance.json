@@ -1,4 +1,9 @@
 {
+  "C12": {
+    "phase": 2,
+    "tests": ["packages/cli/test/serve/worker/reset-all-op.test.ts"],
+    "filter": "re-deploys active RTDB rules"
+  },
   "C1": {
     "phase": 3,
     "tests": ["packages/cli/test/e2e/hosted/restart-subscriptions.pw.ts"],

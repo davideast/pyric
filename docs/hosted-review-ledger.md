@@ -453,7 +453,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### C12. Served worker does not re-deploy RTDB rules after a reset
 
-- Severity: should-fix. Slice: `transport`. Status: open. Pre-existing on `main`; surfaced by the A2 verification.
+- Severity: should-fix. Slice: `transport`. Status: fixing (codex, work/integration). Pre-existing on `main`; surfaced by the A2 verification.
 - Location: `packages/cli/src/serve/worker/host/studio.ts:52`; the RTDB rules source is retained at `ctx.activeRules.database` by `serve-init.ts:103`.
 - Defect: after `resetAll`, the worker re-deploys only the Firestore rules. Its comment assumes RTDB rules survive the reset. On `main` the backend reset already cleared them, and after A2 the session boundary clears them too, so a Studio reset in served mode leaves RTDB under the default deny policy until the rules file next changes.
 - Failure: served app with `database.rules.json` granting reads; Studio reset; every RTDB read is refused until the developer edits the rules file.
