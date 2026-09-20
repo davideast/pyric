@@ -66,6 +66,7 @@ export const _snapSubs = new Map<string, {
 export const _eventSubs = new Map<string, {
   port: ClientPort;
   next: (events: readonly SandboxEvent[]) => void;
+  message: InboundMessage;
   error?: (error: Error & { code: string }) => void;
 }>();
 const disconnectedPorts = new WeakSet<ClientPort>();
@@ -115,7 +116,7 @@ export function openEventSubscription(
 ): boolean {
   const isDeleted = disconnectedPorts.has(port);
   if (isDeleted) { error?.(appDeletedError()); return false; }
-  _eventSubs.set(subId, { port, next, error });
+  _eventSubs.set(subId, { port, next, error, message });
   port.postMessage(message);
   return true;
 }
@@ -149,18 +150,29 @@ export function restoreMessagingSubscriptions(port: ClientPort, postMessage: Cli
   }
 }
 
-/** Re-establish document listener intent without repeating one-shot operations. */
-export function restoreFirestoreSubscriptions(
+/** Re-establish live observations without replaying operations or AI requests. */
+export function restoreObservationSubscriptions(
   port: ClientPort,
   postMessage: ClientPort['postMessage'] = message => port.postMessage(message),
 ): void {
   for (const [subId, subscription] of _snapSubs) {
     const message = subscription.message;
-    const ownsDocumentListener = subscription.port === port && subscription.service === 'firestore' && message?.t === 'sub';
-    if (ownsDocumentListener) {
+    const ownsSubscription = subscription.port === port && message?.t === 'sub';
+    if (!ownsSubscription) continue;
+    const isRtdbTarget = typeof message.target === 'object' && 'service' in message.target && message.target.service === 'rtdb';
+    const observesDatabase = subscription.service === 'firestore' || isRtdbTarget;
+    const observesPresence = message.target === 'presence';
+    const restoresObservation = observesDatabase || observesPresence;
+    if (restoresObservation) {
       postMessage({ t: 'unsub', subId });
       postMessage(message);
     }
+  }
+  for (const [subId, subscription] of _eventSubs) {
+    const ownsSubscription = subscription.port === port;
+    if (!ownsSubscription) continue;
+    postMessage({ t: 'unsub', subId });
+    postMessage(subscription.message);
   }
 }
 

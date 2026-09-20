@@ -150,7 +150,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C1. Resume after host restart drops RTDB, presence, and event-stream subscriptions
 
-- Severity: should-fix. Slice: `host`. Status: fixing (codex, work/integration).
+- Severity: should-fix. Slice: `host`. Status: verify (codex, work/integration).
 - Location: `packages/cli/src/serve/worker/client/websocket-connection.ts:224`; `restoreFirestoreSubscriptions` filters on `service === 'firestore'`; `client/rtdb-listeners.ts` subscriptions carry no service tag.
 - Failure: host restart or retention expiry. Pending calls are rejected, but `onValue` listeners silently stop delivering with no error callback.
 - Seam: application SDK over the hosted transport.
