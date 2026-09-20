@@ -256,7 +256,7 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D4. Capture flush deadline does not exist
 
-- Slice: `host`. Status: open.
+- Slice: `host`. Status: fixing (Codex, work/integration).
 - Contract: maximum capture delay of 2 seconds under continuous traffic.
 - State: no timer or deadline in `packages/cli/src/serve/capture-store.ts` or `rate-capture-service.ts`.
 - Acceptance: a max-age flush with a test under continuous traffic.
