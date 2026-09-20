@@ -1,7 +1,6 @@
 /**
- * Tiny logger for bridge lifecycle events. The bridge core stays
- * silent; consumers (standalone CLI, Vite plugin) wire a logger
- * here when they want visibility.
+ * Logger for bridge lifecycle events and payload-free protocol diagnostics.
+ * Mounts can supply a logger; protocol diagnostics default to stderr.
  *
  * Premortem #U1 + #I7 + #U2 + #U3 all stemmed from "we never
  * print what's happening." This module is the single observability

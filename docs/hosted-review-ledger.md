@@ -201,7 +201,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C8. One malformed peer reply fails every pending call
 
-- Severity: nit. Slice: `transport`. Status: fixing (codex, work/integration).
+- Severity: nit. Slice: `transport`. Status: verify (codex, work/integration).
 - Location: `packages/cli/src/bridge/server/bridge.ts:612`.
 - Defect: a `tool-result` or `worker-res` frame with a non-string id calls `failAllPending` across all consumers.
 - Decision 2026-09-20: discard only uncorrelatable operation, tool and subscription replies. Emit one payload-free bridge diagnostic for each discarded frame. Keep valid-id malformed results scoped to their owner, existing call deadlines, and peer disconnect/replacement behavior.

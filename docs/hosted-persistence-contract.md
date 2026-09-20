@@ -81,6 +81,23 @@ The backlog acceptance is
 restoration is covered separately by
 `packages/cli/test/e2e/hosted/restart-subscriptions.pw.ts`.
 
+## Peer reply correlation
+
+A peer reply with a missing or non-string request id is discarded without
+settling any pending operation or tool call. A snapshot with a missing or
+non-string subscription id is discarded without closing any subscription.
+Each discarded frame emits one bridge error diagnostic naming the frame type
+and unusable id; the payload is not logged.
+
+Other valid replies continue normally. A call that receives no usable reply
+remains subject to its existing deadline; no write is automatically retried.
+A malformed result with a valid known id still fails only its matching caller.
+Peer disconnection and replacement retain their existing failure behavior for
+in-flight calls.
+
+This policy is pinned by
+`packages/cli/test/bridge/ledger/c8-malformed-peer-isolation.test.ts`.
+
 ## Limits and verification
 
 Storage operations retain the 8 MiB decoded limit. AI/Traffic history, delivery
