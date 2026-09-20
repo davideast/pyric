@@ -78,6 +78,11 @@
     "node": true,
     "note": "Salvage and archive recover a crashed writer's committed WAL without SHM, preserving the salvage source."
   },
+  "C5": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/worker/ledger/c5-restore-listener-deliveries.test.ts"],
+    "note": "State replacement delivers once and leaves Firestore and RTDB listeners live for pages and explicit Studio lenses."
+  },
   "C6": {
     "phase": 3,
     "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
