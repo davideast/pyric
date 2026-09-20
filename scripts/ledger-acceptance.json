@@ -148,5 +148,11 @@
   "I13-rollback": {
     "phase": 3,
     "tests": ["packages/cli/test/serve/ledger/i13-transaction-error.test.ts"]
+  },
+  "I13-seed": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
+    "filter": "Storage seeds|seeds are atomic",
+    "node": true
   }
 }
