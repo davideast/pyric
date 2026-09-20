@@ -118,3 +118,7 @@ test('Storage reads await queued uploads, deletions and resets across bucket vie
 test('hosted CLI preserves the production flag without bypassing confirmation', async () => {
   expect(await runNodeFixture('cli-production')).toBe('Hosted CLI production flag passed');
 });
+
+test('hosted close drains accepted method, tool and page calls before disposal', async () => {
+  expect(await runNodeFixture('close-drain')).toBe('Hosted close drain passed');
+});

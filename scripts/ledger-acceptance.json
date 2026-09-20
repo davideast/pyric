@@ -83,6 +83,13 @@
     "tests": ["packages/cli/test/cli/ledger/d3-live-removal.test.ts"],
     "note": "Owner ruling D3: park the incomplete live mode, remove its entries, options, packaging requirements, and combined evidence."
   },
+  "C9": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
+    "filter": "hosted close drains",
+    "node": true,
+    "note": "Accepted method, tool and page calls finish across close and survive restart."
+  },
   "C5": {
     "phase": 3,
     "tests": ["packages/cli/test/serve/worker/ledger/c5-restore-listener-deliveries.test.ts"],

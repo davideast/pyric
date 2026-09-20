@@ -207,9 +207,9 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C9. Hosted runtime disposes before draining in-flight work
 
-- Severity: nit. Slice: `host`. Status: open.
+- Severity: nit. Slice: `host`. Status: closed as already fixed at 1ac597ff (2026-09-20). close() drains pending method and tool calls, port closures, and persistence work, then flushes, and disposes in finally. Acceptance kept as a regression guard: queued method, tool, and page writes across close() all complete and are readable after a restart of the real Node/SQLite runtime; repeated close shares its promise.
 - Location: `packages/cli/src/serve/hosted/runtime.ts:392`.
-- Defect: `close()` disposes the initialized host before accepted method and tool work settles, so late failures surface to callers as spurious errors.
+- Defect: Correction: `close()` disposes the initialized host before accepted method and tool work settles, so late failures surface to callers as spurious errors.
 - Acceptance: drain, then dispose; test with an in-flight call across `close()`.
 
 ### C10. Service Worker install fails permanently on a transient bridge outage
