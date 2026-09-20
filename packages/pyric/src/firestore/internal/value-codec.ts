@@ -52,11 +52,6 @@ function resolveMapEncoding(encoding: DocValueEncoding | undefined): boolean {
 
 /** Encode SDK values before transport removes their class or copies their owner. */
 export function encodeDocValue(value: unknown): unknown {
-  const specialNumber = typeof value === 'number' && (!Number.isFinite(value) || Object.is(value, -0));
-  if (specialNumber) {
-    const negativeZero = Object.is(value, -0);
-    return { type: 'pyric/number/1.0', value: negativeZero ? '-0' : String(value) };
-  }
   const isScalar = value === null || typeof value !== 'object';
   if (isScalar) return value;
   const isTimestamp = value instanceof Timestamp;
@@ -171,16 +166,6 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean, construct
   }
 
   const obj = value as Record<string, unknown>;
-  const encodedNumber = allowsEscapedMaps && obj.type === 'pyric/number/1.0';
-  if (encodedNumber) {
-    switch (obj.value) {
-      case 'NaN': return NaN;
-      case 'Infinity': return Infinity;
-      case '-Infinity': return -Infinity;
-      case '-0': return -0;
-      default: throw new FirebaseError('invalid-argument', 'Invalid encoded Firestore number.');
-    }
-  }
   const withActivityIdentity = <T extends object>(hydrated: T): T => {
     if (registerRootIdentity) {
       registerActivityValue(hydrated, trustedWireActivityValue(value));

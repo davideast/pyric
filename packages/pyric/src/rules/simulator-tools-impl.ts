@@ -361,7 +361,7 @@ export function createFirestoreSimulatorTools(
     {
       name: 'firestore_simulator_events',
       description:
-        'Return retained sandbox events — allowed and denied — with timestamps, auth, and debug messages. Hosted mode returns a bounded recent window; use sandbox history list/export for durable history. Useful for audit / replay / "why did this rule deny?" investigations.',
+        'Return every event the sandbox has seen — allowed and denied — with timestamps, auth, and debug messages. Useful for audit / replay / "why did this rule deny?" investigations.',
       parameters: { type: 'object', properties: {} },
       async execute() {
         const env = await resolveSandbox();

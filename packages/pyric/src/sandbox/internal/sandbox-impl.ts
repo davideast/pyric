@@ -1,4 +1,3 @@
-import type { AgentEventStore } from '../../firestore/sandbox/event-log.js';
 import { EventHistory, type EventHistoryLimits } from './event-history.js';
 /**
  * Internal `Sandbox` implementation — backs the public interface from
@@ -156,15 +155,6 @@ export class SandboxImpl implements LocalSandbox {
    * Only one controller at a time (enforced by `enablePersistence`),
    * so a single slot is sufficient.
    */
-  private historyStore?: AgentEventStore;
-  private historyObserver?: (event: SandboxEvent) => void;
-  installHistoryStore(store: AgentEventStore, observe?: (event: SandboxEvent) => void): LocalEnvironment {
-    this.historyObserver = observe;
-    this.historyStore = store;
-    this._env.installHistoryStore(store);
-    return this._env;
-  }
-
   private _onServiceRegistered: ((name: string, hooks: PersistableService) => void) | null = null;
   private _onServiceUnregistered: ((name: string) => void) | null = null;
 
@@ -314,7 +304,6 @@ export class SandboxImpl implements LocalSandbox {
     // Append to history unconditionally — consumers that call
     // sandbox.history() expect every event the sandbox saw, regardless
     // of whether onEvent subscribers were attached at emit time.
-    this.historyObserver?.(event);
     this.eventHistory.append(event);
     this.dispatchedCount++;
     const hasNoSubscribers = this.eventSubs.size === 0;
@@ -450,9 +439,6 @@ export class SandboxImpl implements LocalSandbox {
     this.envUnsubs = [];
     this._env.dispose();
     this._env = new LocalEnvironment(this.clock);
-    const historyStore = this.historyStore;
-    const hasHistoryStore = historyStore !== undefined;
-    if (hasHistoryStore) { historyStore.clear(); this._env.installHistoryStore(historyStore); }
     this.attachToEnv();
     this.documentChanged(null);
   }
