@@ -492,7 +492,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I15. The snapshot fixture resolves the built CLI from the working directory
 
-- Severity: blocker for the host pull request. Slice: `host`. Status: fixing (Codex, `work/integration`).
+- Severity: blocker for the host pull request. Slice: `host`. Status: verify (Codex, `work/integration`).
 - Location: `packages/cli/test/serve/fixtures/hosted-sqlite-snapshot.ts:7`.
 - Defect: the fixture joins `process.cwd()` with `packages/cli/dist/cli/snapshot.js`. It passes from the repository root but duplicates `packages/cli` when CI runs `bun test --cwd packages/cli`, causing `ERR_MODULE_NOT_FOUND` before snapshot assertions execute.
 - Acceptance: statically import `../../../src/cli/snapshot.js`, like the persistence import, so `runNodeFixture` resolves the built module through its source-to-dist rewrite. The case passes both from the repository root and under `bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts`. The I15 map selects `offline snapshots`; package-directory invocation is also required.
