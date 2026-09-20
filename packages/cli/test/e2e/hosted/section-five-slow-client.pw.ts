@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { WebSocket } from 'ws';
 import { execFileSync } from 'node:child_process';
 import { isBridgeMessage } from '../../../src/bridge/protocol.js';
@@ -8,9 +8,18 @@ function residentBytes(pid: number): number {
   return Number(execFileSync('ps', ['-o', 'rss=', '-p', String(pid)], { encoding: 'utf8' }).trim()) * 1024;
 }
 
-test('a stalled event reader is bounded and isolated from healthy SDK writes', async ({ page }) => {
+interface SlowConsumerCycle {
+  cycle: number;
+  p95: number;
+  maximum: number;
+  rssGrowth: number;
+  outcome: { code: number; reason: string } | null;
+}
+
+async function runSlowConsumerCycles(page: Page): Promise<SlowConsumerCycle[]> {
   const fixture = await startHostedFixture();
   const readers: WebSocket[] = [];
+  const results: SlowConsumerCycle[] = [];
   try {
     await page.goto(fixture.info.url);
     await expect(page.locator('#document')).toHaveText('Empty');
@@ -52,17 +61,33 @@ test('a stalled event reader is bounded and isolated from healthy SDK writes', a
       const outcome = await Promise.race([closed.promise, new Promise<null>(resolve => setTimeout(() => resolve(null), 3_000))]);
       const ordered = [...times].sort((a, b) => a - b);
       const p95 = ordered[Math.floor(ordered.length * 0.95)];
-      console.log({ cycle, p95, maximum: Math.max(...times), rssGrowth: residentBytes(pid) - baseline, outcome });
-      expect(outcome).toEqual({ code: 1013, reason: 'Client output backlog exceeds 24 MiB; reconnect to resume.' });
-      expect(p95).toBeLessThan(1_000);
-      expect(Math.max(...times)).toBeLessThan(2_000);
-      expect(residentBytes(pid) - baseline).toBeLessThan(192 * 1024 * 1024);
+      const result = { cycle, p95, maximum: Math.max(...times), rssGrowth: residentBytes(pid) - baseline, outcome };
+      console.log(result);
+      results.push(result);
       await page.locator('#write').click();
       await expect(page.locator('#write-result')).toHaveText('Written');
     }
+    return results;
   } finally {
     for (const socket of readers) socket.terminate();
     await page.close();
     await fixture.stop();
+  }
+}
+
+test('a stalled observation consumer is closed with 1013 and the page keeps writing', async ({ page }) => {
+  const results = await runSlowConsumerCycles(page);
+  for (const result of results) {
+    expect(result.outcome).toEqual({ code: 1013, reason: 'Client output backlog exceeds 24 MiB; reconnect to resume.' });
+    expect(result.p95).toBeLessThan(1_000);
+    expect(result.maximum).toBeLessThan(2_000);
+  }
+});
+
+test('host resident growth stays under 192 MiB across slow-consumer cycles', async ({ page }) => {
+  const results = await runSlowConsumerCycles(page);
+  const growth = results.map(({ cycle, rssGrowth }) => ({ cycle, rssGrowth }));
+  for (const result of results) {
+    expect.soft(result.rssGrowth, `Resident growth across cycles: ${JSON.stringify(growth)}`).toBeLessThan(192 * 1024 * 1024);
   }
 });

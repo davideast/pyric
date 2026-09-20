@@ -77,7 +77,8 @@ release. The release policy is a shared socket cutoff and reconnect, not
 independent scheduling of operation and observation traffic.
 
 The backlog acceptance is
-`packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`; observation
+the policy test in `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`;
+the separate resident-growth test tracks the host memory budget. Observation
 restoration is covered separately by
 `packages/cli/test/e2e/hosted/restart-subscriptions.pw.ts`.
 

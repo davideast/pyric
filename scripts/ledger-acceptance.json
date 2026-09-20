@@ -5,9 +5,17 @@
   },
   "D3": {
     "phase": 2,
+    "filter": "a stalled observation consumer is closed with 1013 and the page keeps writing",
     "tests": ["packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts"],
     "playwright": true,
     "note": "The release contract retains the shared 24 MiB socket backlog and 1013 close policy. C1 separately proves observation restoration without page reload."
+  },
+  "I16": {
+    "phase": 4,
+    "tests": ["packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts"],
+    "filter": "host resident growth stays under 192 MiB across slow-consumer cycles",
+    "playwright": true,
+    "note": "Preserve the 192 MiB ceiling until the I6 baseline is frozen or host growth is reduced; both cycles remain visible."
   },
   "C7": {
     "phase": 2,

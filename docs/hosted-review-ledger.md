@@ -251,11 +251,11 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D3. Observation backpressure closes the socket instead of reporting drops
 
-- Slice: `transport`. Status: contract amended; acceptance blocked on the existing RSS limit (codex, work/integration).
+- Slice: `transport`. Status: closed by contract amendment (2026-09-20); shared socket cutoff retained under the release ruling. The independently mapped memory budget remains open as I16.
 - Decision 2026-09-20: retain the existing shared 24 MiB socket backlog for this release; defer independent observation queues and drop reporting to D7.
 - Contract: `docs/hosted-persistence-contract.md`, Transport backlog and recovery. All frames share one socket backlog; close with 1013 when the next frame would exceed 24 MiB. A stalled observation consumer interrupts its own operations; sent mutations may have completed. Reconnect restores observations without replaying writes.
 - State: `packages/cli/src/bridge/server/socket-message.ts` implements this cutoff. No product change is required for the amendment.
-- Acceptance: `bun scripts/verify-ledger.ts D3`; C1 separately proves restored observations. The pre-amendment run at 06695c79 passed close/latency assertions but exceeded the existing RSS ceiling (202,080,256 bytes against 201,326,592); the post-amendment run also exceeded it (215,810,048 bytes). Preserve both failures and the threshold rather than treating the item as verified.
+- Acceptance: `bun scripts/verify-ledger.ts D3` selects the stalled-observation policy test: 1013 and reason, p95 below 1,000 ms, maximum below 2,000 ms, and a successful write afterward across both cycles. C1 separately proves restored observations. The original memory failures are preserved under I16, with the unchanged threshold and a separate acceptance map entry.
 
 ### D4. Capture flush deadline does not exist
 
@@ -514,6 +514,14 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - Location: `packages/cli/test/serve/fixtures/hosted-sqlite-snapshot.ts:7`.
 - Defect: the fixture joins `process.cwd()` with `packages/cli/dist/cli/snapshot.js`. It passes from the repository root but duplicates `packages/cli` when CI runs `bun test --cwd packages/cli`, causing `ERR_MODULE_NOT_FOUND` before snapshot assertions execute.
 - Acceptance: statically import `../../../src/cli/snapshot.js`, like the persistence import, so `runNodeFixture` resolves the built module through its source-to-dist rewrite. The case passes both from the repository root and under `bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts`. The I15 map selects `offline snapshots`; package-directory invocation is also required.
+
+### I16. Host resident memory keeps growing across slow-consumer cycles
+
+- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `evidence`. Status: open.
+- Location: `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`, resident-growth test.
+- Defect: the existing scenario exceeds its 201,326,592-byte ceiling. Earlier runs measured 202,080,256 and 215,810,048 bytes after the first cycle. The split test preserves that ceiling and uses soft assertions so both cycles are measured.
+- Evidence: one split memory run on 9c5bf75e with the test split measured 223,821,824 bytes after cycle 0 and 332,480,512 bytes after cycle 1: another 108,658,688 bytes in the second cycle. Growth continues across cycles rather than plateauing after the first. This is a possible leak signal, not evidence sufficient to attribute a leak to a particular allocation. A bounded six-cycle diagnostic with two forced collections after each cycle is authorized to distinguish retained objects, uncollected garbage/allocator effects, and bounded buffers filling toward their caps; no retainer hunt is authorized.
+- Acceptance: `bun scripts/verify-ledger.ts I16`. Re-derive the ceiling from a frozen baseline as I6 requires, or reduce growth below 192 MiB. Either way, the memory test must pass in the phase 4 CI job. Until then its separate map entry preserves the failing result; D3's policy acceptance does not hide it.
 
 ## E. Evidence owed
 
