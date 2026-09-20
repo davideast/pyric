@@ -1,0 +1,9 @@
+{
+  "name": "allowance-overload-experiment",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "22.x" },
+  "scripts": { "start": "node services/cloudrun-entry.mjs" },
+  "dependencies": { "express": "5.2.1", "firebase-admin": "13.10.0" }
+}

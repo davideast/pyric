@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "experiment": "inference-allowance",
+  "revision": 1,
+  "requiredServices": ["cloud-run", "firestore"],
+  "auditCategories": ["ADMIN_READ", "DATA_READ", "DATA_WRITE"],
+  "retentionDays": 90,
+  "requiredEvidence": ["application", "http-request", "firestore-read", "firestore-write"],
+  "preflightPath": "/observability/preflight",
+  "limitations": [
+    "Enabling logging cannot recover unrecorded past events.",
+    "Firestore auditing and the dedicated sink cover Firestore operations across the project.",
+    "Configuration alone cannot establish evidence completeness; run preflight before a workload.",
+    "Trace spans and metrics export are separate from log setup."
+  ]
+}

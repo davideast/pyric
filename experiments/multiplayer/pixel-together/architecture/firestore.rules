@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function member() { return request.auth != null && request.auth.uid in ['alice', 'bob']; }
+  match /boards/{board} { allow read, write: if member(); }
+  match /pixels/{pixel} { allow read, write: if member(); }
+  match /claims/{color} {
+   allow read: if member();
+   allow create: if member() && request.resource.data.keys().hasOnly(['uid']) && request.resource.data.uid == request.auth.uid;
+   allow delete: if member() && resource.data.uid == request.auth.uid;
+  }
+  match /fencedClaims/{color} {
+   allow read: if member();
+   allow create: if member() && request.resource.data.keys().hasOnly(['uid', 'epoch'])
+    && request.resource.data.uid == request.auth.uid && request.resource.data.epoch == 1;
+   allow update: if member() && request.resource.data.keys().hasOnly(['uid', 'epoch'])
+    && request.resource.data.epoch is int
+    && ((resource.data.uid == request.auth.uid && request.resource.data.uid == null && request.resource.data.epoch == resource.data.epoch)
+     || (resource.data.uid == null && request.resource.data.uid == request.auth.uid && request.resource.data.epoch == resource.data.epoch + 1));
+  }
+  match /fencedPixels/{pixel} {
+   allow read: if member();
+   allow create, update: if member() && request.resource.data.keys().hasOnly(['color', 'epoch'])
+    && request.resource.data.epoch is int
+    && get(/databases/$(database)/documents/fencedClaims/$(request.resource.data.color)).data.uid == request.auth.uid
+    && get(/databases/$(database)/documents/fencedClaims/$(request.resource.data.color)).data.epoch == request.resource.data.epoch;
+  }
+  match /pairedBoards/{board} {
+   function colorAfter(color) {
+    return getAfter(/databases/$(database)/documents/pairedBoards/$(board)/colorClaims/$(color)).data;
+   }
+   function memberAfter(uid) {
+    return getAfter(/databases/$(database)/documents/pairedBoards/$(board)/memberClaims/$(uid)).data;
+   }
+   match /colorClaims/{color} {
+    allow read: if member();
+    allow update: if member()
+     && request.resource.data.keys().hasAll(['uid', 'epoch'])
+     && request.resource.data.keys().hasOnly(['uid', 'epoch'])
+     && request.resource.data.epoch is int
+     && ((resource.data.uid == null
+       && request.resource.data.uid == request.auth.uid
+       && request.resource.data.epoch == resource.data.epoch + 1
+       && memberAfter(request.auth.uid).color == color
+       && memberAfter(request.auth.uid).epoch == request.resource.data.epoch)
+      || (resource.data.uid == request.auth.uid
+       && request.resource.data.uid == null
+       && request.resource.data.epoch == resource.data.epoch
+       && memberAfter(request.auth.uid).color != color));
+   }
+   match /memberClaims/{uid} {
+    allow read: if member();
+    allow update: if member() && uid == request.auth.uid
+     && request.resource.data.keys().hasAll(['color', 'epoch'])
+     && request.resource.data.keys().hasOnly(['color', 'epoch'])
+     && request.resource.data.epoch is int
+     && (resource.data.color == null
+       || (colorAfter(resource.data.color).uid == null
+         && colorAfter(resource.data.color).epoch == resource.data.epoch))
+     && ((request.resource.data.color == null && request.resource.data.epoch == 0)
+       || (request.resource.data.color is string
+         && colorAfter(request.resource.data.color).uid == uid
+         && colorAfter(request.resource.data.color).epoch == request.resource.data.epoch));
+   }
+   match /pixels/{pixel} {
+    allow read: if member();
+    allow create, update: if member()
+     && request.resource.data.keys().hasAll(['color', 'epoch'])
+     && request.resource.data.keys().hasOnly(['color', 'epoch'])
+     && getAfter(/databases/$(database)/documents/pairedBoards/$(board)/colorClaims/$(request.resource.data.color)).data.uid == request.auth.uid
+     && getAfter(/databases/$(database)/documents/pairedBoards/$(board)/colorClaims/$(request.resource.data.color)).data.epoch == request.resource.data.epoch
+     && getAfter(/databases/$(database)/documents/pairedBoards/$(board)/memberClaims/$(request.auth.uid)).data.color == request.resource.data.color
+     && getAfter(/databases/$(database)/documents/pairedBoards/$(board)/memberClaims/$(request.auth.uid)).data.epoch == request.resource.data.epoch;
+   }
+  }
+  match /claimedPixels/{pixel} {
+   allow read: if member();
+   allow create, update: if member() && request.resource.data.keys().hasOnly(['color'])
+    && get(/databases/$(database)/documents/claims/$(request.resource.data.color)).data.uid == request.auth.uid;
+  }
+ }
+}

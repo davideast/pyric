@@ -1,0 +1,283 @@
+{
+  "formatVersion": 1,
+  "visibility": "private; authenticated Cloud Storage access required",
+  "bucket": "gs://digame-mas-pyric-experiment-evidence",
+  "prefix": "snapshots/2026-09-20-8eef78f3",
+  "originalIndexSha256": "ecc333bb33be9a7e0e69e177843b3e73d17b7ef125f0d38f4e10df02e95e366b",
+  "note": "Archive hashes identify the private original captures, not the sanitized public findings. The harness-source bundle is the pre-sanitization source snapshot. Runtime dependencies are not bundled.",
+  "bundles": [
+    {
+      "root": "harness-source",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/harness-source.tar.gz",
+      "sha256": "944b56a2061b181f6475cb98907158e1e73046c49140090bc49b4c793052e515",
+      "bytes": 448913,
+      "fileCount": 191
+    },
+    {
+      "root": "experiments/multiplayer/pixel-together/results/7256e37a-795f-4c3c-b508-d1b998822aef",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/multiplayer__pixel-together__results__7256e37a-795f-4c3c-b508-d1b998822aef.tar.gz",
+      "sha256": "75f8df7fc9950490285e16d40c1d9dbed066c278e3c9beea86785b2e8ae6583a",
+      "bytes": 26556,
+      "fileCount": 18
+    },
+    {
+      "root": "experiments/multiplayer/pixel-together/results/76c62038-dee3-40cf-bf03-6d032eaa1e10",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/multiplayer__pixel-together__results__76c62038-dee3-40cf-bf03-6d032eaa1e10.tar.gz",
+      "sha256": "5697ddf05da2aa50aad36557e20b558c896835560a34ab84c7ddafd41e5b6721",
+      "bytes": 26627,
+      "fileCount": 18
+    },
+    {
+      "root": "experiments/multiplayer/pixel-together/results/80bd2e24-c0e6-4434-b886-f27664583f4f",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/multiplayer__pixel-together__results__80bd2e24-c0e6-4434-b886-f27664583f4f.tar.gz",
+      "sha256": "b1b32f0da0eec99fc0aa57afeba71fab26529a9a95130d4620f4baffd4fa4691",
+      "bytes": 5506,
+      "fileCount": 4
+    },
+    {
+      "root": "experiments/multiplayer/pixel-together/results/9d0a8702-ebe5-4fa2-a946-fbb3f545b259",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/multiplayer__pixel-together__results__9d0a8702-ebe5-4fa2-a946-fbb3f545b259.tar.gz",
+      "sha256": "8b40895c40f9dccec7026ecb359c83e4b46197427706cab75191970ed7738621",
+      "bytes": 19565,
+      "fileCount": 16
+    },
+    {
+      "root": "experiments/multiplayer/pixel-together/results/d106dc67-cd0a-44dd-801b-7fc80e6a2242",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/multiplayer__pixel-together__results__d106dc67-cd0a-44dd-801b-7fc80e6a2242.tar.gz",
+      "sha256": "ca36188cdde93e43abc9371a9d17b34c337fd6363aecb3df824ef68214003190",
+      "bytes": 26801,
+      "fileCount": 18
+    },
+    {
+      "root": "experiments/multiplayer/pixel-together/results/f2ec26e4-d2ea-48e6-8057-0ecff430403e",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/multiplayer__pixel-together__results__f2ec26e4-d2ea-48e6-8057-0ecff430403e.tar.gz",
+      "sha256": "b28887d6ffdff9303801fe004ac0c0caf1bb17c62b065acd24c4bb702cca673b",
+      "bytes": 3779,
+      "fileCount": 4
+    },
+    {
+      "root": "experiments/multiplayer/pixel-together/results/fa83f4b2-c445-4997-bbdc-9f66a0d05a6f",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/multiplayer__pixel-together__results__fa83f4b2-c445-4997-bbdc-9f66a0d05a6f.tar.gz",
+      "sha256": "621325fbe804d91e0442eeb1bda4288e8f3ebe4560b928987b2e977f05ce99a2",
+      "bytes": 15138,
+      "fileCount": 15
+    },
+    {
+      "root": "experiments/rate-limiting/distributed-capacity/deployment/records/capacity-33098d86-12d7-458c-90c1-90309094cd39",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__distributed-capacity__deployment__records__capacity-33098d86-12d7-458c-90c1-90309094cd39.tar.gz",
+      "sha256": "86a454a6728c5ce52152edb8addff7801fd8dda7cab0227246e2e8206c87cdef",
+      "bytes": 66883,
+      "fileCount": 40
+    },
+    {
+      "root": "experiments/rate-limiting/distributed-capacity/hosted/analyses/96c01b31-7c74-4961-8bad-aaf34465f654",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__distributed-capacity__hosted__analyses__96c01b31-7c74-4961-8bad-aaf34465f654.tar.gz",
+      "sha256": "a5642bf0ab9f20396a15e7f14612203b03e46268be270b23d3708cd95e9dd4c9",
+      "bytes": 6129,
+      "fileCount": 4
+    },
+    {
+      "root": "experiments/rate-limiting/distributed-capacity/hosted/results/ac345b90-d27b-48c8-85e4-cd1b6f422a58",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__distributed-capacity__hosted__results__ac345b90-d27b-48c8-85e4-cd1b6f422a58.tar.gz",
+      "sha256": "0e31fc9a05fbbd2fd06f440511a4527b56807a9098bff990e269887a76767a94",
+      "bytes": 50215,
+      "fileCount": 16
+    },
+    {
+      "root": "experiments/rate-limiting/distributed-capacity/hosted/results/d1e97377-ff10-4d23-a7fd-360572adbeba",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__distributed-capacity__hosted__results__d1e97377-ff10-4d23-a7fd-360572adbeba.tar.gz",
+      "sha256": "2d864c914aa02b5d4eabf3c446b851269d12f4c6b55ec8fc929fb43ead17cdf0",
+      "bytes": 157781,
+      "fileCount": 32
+    },
+    {
+      "root": "experiments/rate-limiting/distributed-capacity/results/5a998f14-4c5c-418a-8aef-269c55a307a3",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__distributed-capacity__results__5a998f14-4c5c-418a-8aef-269c55a307a3.tar.gz",
+      "sha256": "6697d05142b8a9a64d3faf68041e29d92270aed87299b139ab5220c3daaf7d51",
+      "bytes": 68207,
+      "fileCount": 43
+    },
+    {
+      "root": "experiments/rate-limiting/distributed-capacity/results/8bf8012c-46da-4d3a-b12f-1f92405da761",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__distributed-capacity__results__8bf8012c-46da-4d3a-b12f-1f92405da761.tar.gz",
+      "sha256": "df48147fa2677bd6f9969a01d28aff8d563684a3cd16dcb686bb7ce62e0d1c94",
+      "bytes": 68379,
+      "fileCount": 43
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/comparisons/first-hosted",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__comparisons__first-hosted.tar.gz",
+      "sha256": "c5bd66678bbb787630b8869b5b321b82875a2311e7ea08e270e124b5ab8480d7",
+      "bytes": 4789,
+      "fileCount": 3
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/comparisons/hosted-execution",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__comparisons__hosted-execution.tar.gz",
+      "sha256": "46e5093b6a4c931293a89590ae688a51bf02bc8ac390391bcc3abae39356cadb",
+      "bytes": 7559,
+      "fileCount": 2
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/comparisons/inference-concurrency",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__comparisons__inference-concurrency.tar.gz",
+      "sha256": "1a61fea1af4db84d24e701ea30bd52f156b78f24467c38d5be105e62c3a6e976",
+      "bytes": 2864,
+      "fileCount": 1
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/comparisons/provider-lifecycle",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__comparisons__provider-lifecycle.tar.gz",
+      "sha256": "c2c197a78498674af46ebbaa139859d14046fea85e669955f45467b36d9da389",
+      "bytes": 3289,
+      "fileCount": 1
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/log-exports/0ba0c073-deduplicated",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__log-exports__0ba0c073-deduplicated.tar.gz",
+      "sha256": "80f97437c87e798f3344f33a644a1925372fb82cfeb88b1c417c0ce6b1adf845",
+      "bytes": 26098,
+      "fileCount": 17
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/measurements/0ba0c073-ac84-4fb4-bfa7-d08b3ce14372",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__measurements__0ba0c073-ac84-4fb4-bfa7-d08b3ce14372.tar.gz",
+      "sha256": "6473b37c42b5c0bea7ec5c4970a0e2ddc6f05ada491bb1cc87612e86b9040544",
+      "bytes": 179990,
+      "fileCount": 127
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/measurements/623ea0fd-6d2c-4223-b967-7c70fba29355",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__measurements__623ea0fd-6d2c-4223-b967-7c70fba29355.tar.gz",
+      "sha256": "97c66ba3db126793d779627ef7751fbde61ebc789c9e14a36b3686f436bd7685",
+      "bytes": 353127,
+      "fileCount": 68
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/measurements/7fbfbfe6-718b-46d4-9acf-7f697217bfd5",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__measurements__7fbfbfe6-718b-46d4-9acf-7f697217bfd5.tar.gz",
+      "sha256": "b87c06a52eac051919bfee6880f93d79634f3a77b24a124f1d0a8436ba47b746",
+      "bytes": 268554,
+      "fileCount": 65
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/measurements/ade4c25b-c830-4b1f-afff-3a1c1983cb7e",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__measurements__ade4c25b-c830-4b1f-afff-3a1c1983cb7e.tar.gz",
+      "sha256": "84c2c286ce4e188fd9fd07fc6e941d16b8b49d941c8ca491fd3c95c0996eb1a7",
+      "bytes": 381766,
+      "fileCount": 25
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/measurements/f81abaf2-5bb9-410a-b018-0f4aa6bf638b",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__measurements__f81abaf2-5bb9-410a-b018-0f4aa6bf638b.tar.gz",
+      "sha256": "6e133b936a42808e2c5affaabe9a064b5ac6d4eceac55c60236825813feaff83",
+      "bytes": 574485,
+      "fileCount": 92
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/records/cloudrun-44696d01-04d3-4a78-8a35-ef5e08892753",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__records__cloudrun-44696d01-04d3-4a78-8a35-ef5e08892753.tar.gz",
+      "sha256": "e12d73a3303403b8321397e826731013beba1db963eb4a760811b544afbb365a",
+      "bytes": 34646,
+      "fileCount": 13
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/records/cloudrun-aad5bbc1-bfb8-4943-b09d-7079b436be47",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__records__cloudrun-aad5bbc1-bfb8-4943-b09d-7079b436be47.tar.gz",
+      "sha256": "841cba69cddb3c37c9c84505940dfcaa9f9a6ce8ccbbaaab1ac0c12f3bebb990",
+      "bytes": 63386,
+      "fileCount": 34
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/records/cloudrun-bef5753e-ada7-415b-a6c6-cface7cd3270",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__records__cloudrun-bef5753e-ada7-415b-a6c6-cface7cd3270.tar.gz",
+      "sha256": "5b42d1aa5fece13c12974a0aeb71eb4b3517a6886623cd78ba01f86ba9125bea",
+      "bytes": 34704,
+      "fileCount": 13
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/deployment/records/cloudrun-d5919161-ff7c-49cd-82ab-959a2a9fa30b",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__deployment__records__cloudrun-d5919161-ff7c-49cd-82ab-959a2a9fa30b.tar.gz",
+      "sha256": "56996b8cc0eda22ca330a984940f783addbb682b39aa16440f616b3864da0ded",
+      "bytes": 44031,
+      "fileCount": 23
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/21304238-d3cf-4688-84cb-36ee8d8efffb",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__21304238-d3cf-4688-84cb-36ee8d8efffb.tar.gz",
+      "sha256": "61e76a935f602ad23de36177279acbf8eca3f900aff81d2eeb1fe32bccb1bbc2",
+      "bytes": 367489,
+      "fileCount": 63
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/2ae8baea-f35c-40b4-8431-9c645f813676",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__2ae8baea-f35c-40b4-8431-9c645f813676.tar.gz",
+      "sha256": "be601110d0bde7c0473273815a109d348e6428684b6c2e92720b72ce628e58c0",
+      "bytes": 26433,
+      "fileCount": 41
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/3cf50396-d041-4776-b536-3b15a03593cc",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__3cf50396-d041-4776-b536-3b15a03593cc.tar.gz",
+      "sha256": "a7b3a5b7a3a04cc6cc58800e820742dab380db37c6aeedddeda88284bdd046ed",
+      "bytes": 1547825,
+      "fileCount": 42
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/54acf293-edf8-4bcd-9a5b-b0e806f3c8dd",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__54acf293-edf8-4bcd-9a5b-b0e806f3c8dd.tar.gz",
+      "sha256": "ce92e1101dc0b4c695c271f14f6ed3a8301d6aff455c97ac89fb64d2b15883f4",
+      "bytes": 544363,
+      "fileCount": 43
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/6a2532d5-17c1-44f1-be6d-54766a46ecf3",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__6a2532d5-17c1-44f1-be6d-54766a46ecf3.tar.gz",
+      "sha256": "89e502c0d2aa2707bffc4370b7db07e574aa3ac39247fb82877c44e9884ecccc",
+      "bytes": 303439,
+      "fileCount": 43
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/74ef580f-008b-4e77-ae43-6bfe20675d84",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__74ef580f-008b-4e77-ae43-6bfe20675d84.tar.gz",
+      "sha256": "440854747bac47970fe3e35617bb65bd2a603c94e084b1b989076bd0d3503d3f",
+      "bytes": 426596,
+      "fileCount": 91
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/85a0edd1-b8a3-47f9-ad75-5aed664fba6b",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__85a0edd1-b8a3-47f9-ad75-5aed664fba6b.tar.gz",
+      "sha256": "1a98f1ebea21af02b641f228261e421631f00a05f1031730b249737a5bc59de0",
+      "bytes": 651364,
+      "fileCount": 50
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/b4b8a9af-13c9-4e27-b582-971c46284c3b",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__b4b8a9af-13c9-4e27-b582-971c46284c3b.tar.gz",
+      "sha256": "bce1b8c17e3a39b17fd632965179056c2f842d3061af3faf9a054b0a39b06433",
+      "bytes": 367127,
+      "fileCount": 63
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/bfa3a4ff-1365-4ad1-8db7-305dd95a3095",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__bfa3a4ff-1365-4ad1-8db7-305dd95a3095.tar.gz",
+      "sha256": "a10021a352f8f9f2c7243fdaa81d937580c110c747a6081b7a6a4ea132f01c06",
+      "bytes": 365251,
+      "fileCount": 75
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/e5df5b1a-b952-4557-8efe-41ac62057ee5",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__e5df5b1a-b952-4557-8efe-41ac62057ee5.tar.gz",
+      "sha256": "1a5cad073de54bd8f9e9873fc9eb5e2f413fa79945b688a8eed48c76bca23fd0",
+      "bytes": 545448,
+      "fileCount": 43
+    },
+    {
+      "root": "experiments/rate-limiting/inference-allowance/results/f9053384-2444-4253-ae9f-0604f0a3ebb0",
+      "object": "snapshots/2026-09-20-8eef78f3/artifacts/rate-limiting__inference-allowance__results__f9053384-2444-4253-ae9f-0604f0a3ebb0.tar.gz",
+      "sha256": "ea592a4770ea6d03ef94976399b02e280679b372873dd315698ec2c8fd9ab5ae",
+      "bytes": 217954,
+      "fileCount": 43
+    }
+  ]
+}

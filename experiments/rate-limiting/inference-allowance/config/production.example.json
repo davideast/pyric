@@ -1,0 +1,8 @@
+{
+  "profile": "production-integration",
+  "projectId": "replace-with-test-project",
+  "databaseId": "allowance-experiments",
+  "gatewayUrl": "https://replace-with-gateway.example.com",
+  "inference": { "provider": "firebase-ai-logic", "api": "generateContent", "model": "replace-with-verified-model" },
+  "limits": { "maxRequests": 50, "maxInferenceDispatches": 5, "maxDurationSeconds": 120 }
+}

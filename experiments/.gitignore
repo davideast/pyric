@@ -1,0 +1,25 @@
+# Original captures belong in the private evidence bucket. Keep public findings.
+**/results/**
+**/records/**
+**/measurements/**
+**/analyses/**
+**/comparisons/**
+**/log-exports/**
+!**/results/**/
+!**/records/**/
+!**/measurements/**/
+!**/analyses/**/
+!**/comparisons/**/
+!**/log-exports/**/
+!**/README.md
+!**/findings.md
+!**/RESULTS.md
+# Never reintroduce archived source beneath capture directories.
+**/results/**/source/**
+**/records/**/source/**
+**/measurements/**/source/**
+**/analyses/**/source/**
+**/comparisons/**/source/**
+**/log-exports/**/collector-source/**
+**/deployed-source/**
+**/collector-source/**
