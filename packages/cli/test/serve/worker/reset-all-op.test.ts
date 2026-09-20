@@ -137,13 +137,15 @@ describe('worker resetAll op', () => {
       });
       const before = await op(ctx, { method: 'rtdb.get', path: 'public/value' });
       expect(before.ok).toBe(true);
+      const deniedBefore = await op(ctx, { method: 'rtdb.get', path: 'private/value' });
+      expect(deniedBefore).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
 
       await opOk(ctx, { method: 'resetAll' });
 
       const allowed = await op(ctx, { method: 'rtdb.get', path: 'public/value' });
       expect(allowed.ok).toBe(true);
       const denied = await op(ctx, { method: 'rtdb.get', path: 'private/value' });
-      expect(denied).toMatchObject({ ok: false, error: { code: 'permission-denied' } });
+      expect(denied).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
     } finally {
       ctx.sandbox.dispose();
     }

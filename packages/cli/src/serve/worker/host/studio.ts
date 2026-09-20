@@ -8,6 +8,9 @@
  */
 
 import { setRules } from 'pyric/sandbox/firestore';
+import { sandbox as rtdbSandbox } from 'pyric/database';
+import { ensureRtdb } from './core.js';
+import { normalizeDatabaseRules } from './rules.js';
 
 import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
@@ -47,14 +50,18 @@ export async function handleStudioOp(
       // reporting a clean reset.
       try {
         const { errors } = await ctx.sandbox.resetAll();
-        // `resetAll` swapped the env, wiping env-owned FIRESTORE rules (RTDB /
-        // storage rules live on their service objects and survive). Re-deploy
-        // the active project rules so a DATA reset never de-governs writes.
+        // Reset clears Firestore and RTDB rules. Restore the active project
+        // policy before serving reads or reattaching Firestore listeners.
         const firestoreRules = ctx.activeRules?.firestore;
         const hasActiveRules = firestoreRules?.status === 'active';
         const source = hasActiveRules ? firestoreRules.source : firestoreRules?.lastKnownGood;
         const hasRulesSource = typeof source === 'string';
         if (hasRulesSource) setRules(ctx.sandbox, source);
+        const databaseRules = ctx.activeRules?.database;
+        const hasActiveDatabaseRules = databaseRules?.status === 'active';
+        const databaseSource = hasActiveDatabaseRules ? databaseRules.source : databaseRules?.lastKnownGood;
+        const hasDatabaseSource = databaseSource !== undefined;
+        if (hasDatabaseSource) rtdbSandbox.setRules(ensureRtdb(ctx), normalizeDatabaseRules(databaseSource));
         restoreFirestoreSubscriptions(ctx);
         // The server capture (`.pyric/last-session.json`) persists the event
         // history a rebooting worker re-primes into Traffic. Flush it NOW —
