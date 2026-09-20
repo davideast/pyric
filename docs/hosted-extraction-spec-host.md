@@ -41,25 +41,14 @@ All of the following closed on 2026-09-20 (C9, C10, D2, D4 at `c6c899ed`; H1, I1
 Included, as the tree difference between `origin/main` and `origin/hosted-main-integration`:
 
 ```
-packages/cli/src/serve/hosted/
-packages/cli/src/cli/
-packages/cli/src/bridge/server/in-process.ts
-packages/cli/src/serve/bridge-mount.ts
-packages/cli/src/serve/bundler.ts
-packages/cli/src/serve/diagnostics.ts
-packages/cli/src/serve/namespace.ts
-packages/cli/src/serve/sandbox-session.ts
-packages/cli/src/serve/vite-module-swap.ts
-packages/cli/src/serve/vite-sandbox-generation.ts
-packages/cli/src/serve/vite-plugin.ts
-packages/cli/src/serve/vite-generation-bridge.ts
-packages/cli/src/serve/vite-functions-development.ts
-packages/cli/src/serve/worker/
+packages/cli/src/
 packages/cli/test/serve/
 packages/cli/test/cli/
 docs/hosted-persistence-contract.md
 scripts/fixtures/cli-release-contract.json
 ```
+
+Correction, 2026-09-20: the first version of this list enumerated source files and was fixed before C10 and the I13 seed fix landed. Those edited `serve/entries/messaging-sw-client.ts` and `serve/state-store.ts`, which the list did not name, so the first extraction attempt failed the C10 acceptance. With live mode removed nothing under `packages/cli/src/` is held back, so the whole directory is taken. At shared tip `343b121d` that is the previously listed files plus those two.
 
 `packages/cli/src/serve/worker/` is included even though the transport slice owned it, because I14 (the typed persistence flush policy) and C5 (Firestore-only listener rebinding) edited worker host files after that slice was cut. The tree difference for the directory is exactly those two fixes plus `operation-persistence.ts`.
 
@@ -79,7 +68,7 @@ Excluded, with where each goes:
 | `packages/site-docs/` | Held by ruling D2 until phase 4 passes in CI; `main` has no hosted page, so nothing to remove there |
 | `docs/hosted-*` other than the persistence contract, `docs/connection-diagnostics.md`, `docs/node-host-local-example-checkpoint.md`, `docs/worker-ai-traffic-checkpoint.md`, `docs/code-conventions.md`, `docs/decisions/0001-*` | Evidence and peel slices; the review ledger, release plan, and extraction specs ride as handoff documents as before |
 
-Followers: none expected after prerequisite 1. The release-contract fixture then differs from `main` by the `serve diagnostics` command and the `messaging_deliveries` tool only, both of which belong here. `scripts/ledger-acceptance.json` is restricted to the host items listed under prerequisite 3 plus the already-closed ones, as the earlier slices did.
+Followers: none expected after prerequisite 1. The release-contract fixture then differs from `main` by the `serve diagnostics` command and the `messaging_deliveries` tool only, both of which belong here. `scripts/ledger-acceptance.json` is restricted to the host items listed under prerequisite 3 plus the already-closed ones, as the earlier slices did. Leave out `hosted-runtime-contract`: its test is `scripts/check-support-contract.test.ts`, which belongs to the evidence slice with `docs/hosted-support.json`, so it cannot run here. It stays mapped on the shared branch.
 
 ## Steps
 
