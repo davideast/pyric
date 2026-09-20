@@ -78,6 +78,11 @@
     "node": true,
     "note": "Salvage and archive recover a crashed writer's committed WAL without SHM, preserving the salvage source."
   },
+  "D3-live-removal": {
+    "phase": 3,
+    "tests": ["packages/cli/test/cli/ledger/d3-live-removal.test.ts"],
+    "note": "Owner ruling D3: park the incomplete live mode, remove its entries, options, packaging requirements, and combined evidence."
+  },
   "C5": {
     "phase": 3,
     "tests": ["packages/cli/test/serve/worker/ledger/c5-restore-listener-deliveries.test.ts"],

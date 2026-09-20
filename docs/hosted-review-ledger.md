@@ -233,7 +233,7 @@ Contract: `docs/hosted-sandbox-live-mode-support.md`.
 
 ### D1. The live Firestore surface is a stub
 
-- Slice: `live`. Status: open, ruled (owner ruling D3, 2026-09-18): remove `entries/live`, `serve/live`, and every doc reference from the release sequence; delete the emulator-backed tests under `test/e2e/live`; the live work parks on its own branch with gates 7 through 9 open. This also closes C3 (live capture growth) by removal.
+- Slice: `live`. Status: fixing (Codex, `work/integration`), ruled (owner ruling D3, 2026-09-18): remove `entries/live`, `serve/live`, and every doc reference from the release sequence; delete the emulator-backed tests under `test/e2e/live`; the live work parks on its own branch with gates 7 through 9 open. This also closes C3 (live capture growth) by removal.
 - Contract: "Reads, queries, document listeners, query listeners, writes, batches, transactions, converters, metadata options, and the network/cache controls exposed by the normal Firestore entry need explicit forwarding or a documented refusal backed by a scenario."
 - State: `packages/cli/src/serve/entries/live/firestore.ts` forwards `getDoc`, `doc`, `getFirestore`, `connectFirestoreEmulator`, and `DocumentSnapshot`. Everything else is a missing export. `live/unsupported.ts` throws at module evaluation, which breaks the importing module rather than refusing per operation. Gates 7 through 9 have no implementation.
 - Acceptance: either the full surface with scenarios, or per-operation refusals each backed by a scenario. Until then the live entry is removed from the playground and the site docs.
