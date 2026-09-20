@@ -14,8 +14,8 @@ independent. Structured records retain existing portable value codecs. Storage
 objects use raw bytes plus metadata, keyed by bucket and object path. No Node
 object serialization is persisted. Newer/unknown versions fail closed.
 
-This implementation requires Node >=22.15. Hosted mode in the Bun standalone
-binary is unavailable until its adapter exists. SharedWorker remains supported.
+Hosted mode requires Node >=22.15 and is unavailable in the Bun standalone
+binary until a Bun adapter ships. SharedWorker remains supported.
 
 ## Commit and failure
 

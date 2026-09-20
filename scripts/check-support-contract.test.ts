@@ -201,3 +201,15 @@ test('required CI runs support validation and propagates invalid declarations', 
     rule: 'unknown-scenario', configuration: 'hosted-sandbox', scenario: 'hosted.missing',
   });
 });
+
+test('hosted runtime declarations state Node minimum and standalone Bun unavailability', () => {
+  const root = resolve(__dirname, '..');
+  const manifest = z.object({ scenarios: z.array(z.object({ id: z.string(), expected: z.string() })) })
+    .parse(JSON.parse(readFileSync(join(root, 'docs/hosted-support.json'), 'utf8')));
+  const packaging = manifest.scenarios.find(scenario => scenario.id === 'hosted.packaging');
+  const requirement = 'Hosted mode requires Node >=22.15 and is unavailable in the Bun standalone binary until a Bun adapter ships.';
+  expect(packaging?.expected).toContain(requirement);
+  const persistenceContract = readFileSync(join(root, 'docs/hosted-persistence-contract.md'), 'utf8').replace(/\s+/g, ' ');
+  expect(persistenceContract).toContain(requirement);
+  expect(persistenceContract).toContain('SharedWorker remains supported.');
+});

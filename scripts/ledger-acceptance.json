@@ -154,5 +154,10 @@
     "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
     "filter": "Storage seeds|seeds are atomic",
     "node": true
+  },
+  "hosted-runtime-contract": {
+    "phase": 3,
+    "tests": ["scripts/check-support-contract.test.ts"],
+    "filter": "hosted runtime declarations"
   }
 }

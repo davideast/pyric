@@ -354,7 +354,7 @@
         "4D",
         "release"
       ],
-      "expected": "Packed installs outside the workspace boot, operate and shut down on supported Node runtimes with browser globals absent."
+      "expected": "Hosted mode requires Node >=22.15 and is unavailable in the Bun standalone binary until a Bun adapter ships. Packed Node installs outside the workspace boot, operate and shut down with browser globals absent."
     }
   ]
 }
