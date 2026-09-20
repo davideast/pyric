@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { DepOptimizationOptions, ResolvedConfig, UserConfig } from 'vite';
-import { isLiveSdkImport } from './live/firebase-resolution.js';
 import {
   SDK_MODULES,
   defaultSdkEntries,
@@ -38,20 +37,17 @@ export interface ViteModuleContext {
 export interface ViteModuleSwap {
   config(): UserConfig;
   configResolved(config: ResolvedConfig): void;
-  /** Project-owned importer used when an instrumented entry needs the real SDK. */
-  upstreamImporter(source: string, importer: string | undefined): string | null;
   resolveId(source: string, importer: string | undefined): string | null;
   load(id: string): string | null;
 }
 
-export function createViteModuleContext(options: { live?: boolean } = {}): ViteModuleContext {
-  const entries = defaultSdkEntries(options);
+export function createViteModuleContext(): ViteModuleContext {
+  const entries = defaultSdkEntries();
   return { entries, cliRoot: packageRootOf(entries.init) };
 }
 
 export interface ViteModuleSwapOptions {
   getAiMode?: () => 'sandbox' | 'production';
-  live?: boolean;
 }
 
 /** Own the Vite and optimizer forms of the Firebase-module swap. */
@@ -61,21 +57,6 @@ export function createViteModuleSwap(
 ): ViteModuleSwap {
   const { entries, cliRoot } = context;
   const pyricRoot = pyricPackageRoot();
-  const usesLiveSdk = options?.live === true;
-  const upstreamResolution = Symbol('Vite real Firebase resolution');
-  let projectRoot: string | undefined;
-
-  const upstreamImporter = (source: string, importer: string | undefined): string | null => {
-    const isLiveImport = usesLiveSdk && isLiveSdkImport(entries, source, importer);
-    if (isLiveImport) {
-      const root = projectRoot;
-      const hasNoProject = root === undefined;
-      if (hasNoProject) throw new Error('Live Firebase resolution requires the Vite project root.');
-      return path.join(root, 'package.json');
-    }
-    return null;
-  };
-
   const isPyricImporter = (importer: string | undefined): boolean => {
     const hasNoImporter = !importer;
     if (hasNoImporter) return false;
@@ -97,17 +78,6 @@ export function createViteModuleSwap(
     name: 'pyric-sandbox-optimizer',
     setup(build) {
       build.onResolve({ filter: FIREBASE_SPECIFIER }, (args) => {
-        const isUpstreamResolution = args.pluginData === upstreamResolution;
-        if (isUpstreamResolution) return null;
-        const realImporter = upstreamImporter(args.path, args.importer);
-        const hasRealImporter = realImporter !== null;
-        if (hasRealImporter) {
-          return build.resolve(args.path, {
-            resolveDir: path.dirname(realImporter),
-            kind: args.kind,
-            pluginData: upstreamResolution,
-          });
-        }
         const isShadowBridgeImporter = args.importer !== undefined && args.importer !== '' &&
           (args.importer.includes('app-ai-passthrough') || args.importer.includes('app-bridge'));
         const isFirebaseAppSpecifier = args.path === 'firebase/app';
@@ -150,7 +120,6 @@ export function createViteModuleSwap(
   };
 
   return {
-    upstreamImporter,
     config() {
       const excludedModules = [
         ...SDK_MODULES,
@@ -169,7 +138,6 @@ export function createViteModuleSwap(
       };
     },
     configResolved(config) {
-      projectRoot = config.root;
       const allow = config.server?.fs?.allow;
       const hasNoAllowList = allow === undefined || !Array.isArray(allow);
       if (hasNoAllowList) {

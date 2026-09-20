@@ -165,7 +165,7 @@ test('required CI runs support validation and propagates invalid declarations', 
   }).parse(Bun.YAML.parse(readFileSync(join(root, '.github/workflows/build.yml'), 'utf8')));
   const steps = workflow.jobs['build-packages'].steps;
   const testStep = steps.find((step) => step.name === 'Test support contract command');
-  const checkStep = steps.find((step) => step.name === 'Check hosted/live support declarations');
+  const checkStep = steps.find((step) => step.name === 'Check sandbox/hosted support declarations');
   expect(workflow.jobs.required.needs).toContain('build-packages');
   expect(testStep?.run).toBe('bun test scripts/check-support-contract.test.ts');
   expect(testStep?.if).toBeUndefined();
@@ -178,7 +178,7 @@ test('required CI runs support validation and propagates invalid declarations', 
   directories.push(fixture);
   mkdirSync(join(fixture, 'docs'));
   symlinkSync(__dirname, join(fixture, 'scripts'), 'dir');
-  const manifestPath = join(fixture, 'docs/hosted-sandbox-live-mode-support.json');
+  const manifestPath = join(fixture, 'docs/hosted-support.json');
   const reportPath = join(fixture, 'pyric-support-contract.json');
   writeFileSync(manifestPath, JSON.stringify({
     configurations: [hostedConfiguration(['hosted.restart'])], scenarios: [restartScenario],

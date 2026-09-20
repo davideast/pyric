@@ -82,8 +82,7 @@ The slow-client RSS gate remains open and has not been rerun here. The packaging
 script's orphan-process cause remains to be fixed before more packaging runs.
 No package was published, no PR was opened, and no fresh installed-package or
 phone/Tailscale acceptance is claimed. SharedWorker remains the default and hosted
-remains opt-in. Live mode is still the early read proof described in the existing
-milestone documents.
+remains opt-in. Live mode is parked on `live/parked` and is unavailable on this release branch.
 
 Next: repair packaging-process teardown, then evaluate the existing RSS workload
 on this integrated source before resuming broader live-mode development.

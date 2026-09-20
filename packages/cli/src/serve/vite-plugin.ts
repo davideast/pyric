@@ -62,8 +62,6 @@ export interface PyricOptions {
    *  Default: false (SharedWorker). Requires Vite's own HTTP server;
    *  middleware mode is unsupported. Does not affect production builds. */
   hosted?: boolean;
-  /** Execute supported Firestore operations through the application's real SDK. */
-  live?: boolean;
   /** Firestore rules path (relative to `root`). Default discovery prefers an
    *  authored `firestore.modules.rules`, then `firebase.json`, then
    *  `firestore.rules` in the project root. */
@@ -208,7 +206,7 @@ function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): 
  *   export default defineConfig({ plugins: [pyric()] });
  */
 export function pyric(options: PyricOptions = {}): Plugin {
-  const moduleContext = createViteModuleContext({ live: options.live });
+  const moduleContext = createViteModuleContext();
   const { entries, cliRoot } = moduleContext;
   const workerRuntime = createViteWorkerRuntime();
   const studioEnabled = options.ui !== false;
@@ -221,7 +219,6 @@ export function pyric(options: PyricOptions = {}): Plugin {
   const pageRuntime = createVitePageRuntime(pageRuntimeInput);
   const moduleSwap = createViteModuleSwap(moduleContext, {
     getAiMode: () => pageRuntime.ai().mode,
-    live: options.live,
   });
 
   // Normalize the public bridge shorthand once. The active generation owns the
@@ -269,9 +266,6 @@ export function pyric(options: PyricOptions = {}): Plugin {
     },
 
     resolveId(source, importer) {
-      const realImporter = moduleSwap.upstreamImporter(source, importer);
-      const hasRealImporter = realImporter !== null;
-      if (hasRealImporter) return this.resolve(source, realImporter, { skipSelf: true });
       return moduleSwap.resolveId(source, importer);
     },
 

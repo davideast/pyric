@@ -149,7 +149,7 @@ Existing demos, Tailscale routes and the pre-existing `.unlazy/` directory were
 left untouched. Temporary verification fixtures use their own shutdown cleanup.
 
 SharedWorker remains the default, hosted is opt-in, and in-page mode remains
-supported. The original [release gates](hosted-sandbox-live-mode-gates.md) remain
+supported. The original release gates are preserved on `live/parked` and remain
 separate: the full 6B sustained workload, live recording/non-interference and
 real upstream credential/tenant acceptance (7–9), and supported platform,
 package-manager and browser matrices plus required CI. Cross-service crash

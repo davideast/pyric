@@ -185,8 +185,8 @@ jobs:
       - name: Test support contract command
         run: bun test scripts/check-support-contract.test.ts
 
-      - name: Check hosted/live support declarations
-        run: bun scripts/check-support-contract.ts docs/hosted-sandbox-live-mode-support.json > "$RUNNER_TEMP/pyric-support-contract.json"
+      - name: Check sandbox/hosted support declarations
+        run: bun scripts/check-support-contract.ts docs/hosted-support.json > "$RUNNER_TEMP/pyric-support-contract.json"
 
       - name: Upload support declaration evidence
         if: always()

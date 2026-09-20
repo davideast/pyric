@@ -1,6 +1,8 @@
-# Gates: hosted sandbox and live mode
+# Historical gates: hosted sandbox and live mode
 
-OWNS: packages/**, scripts/**, .github/workflows/build.yml, docs/code-conventions.md, docs/hosted-sandbox-live-mode-*, GATES.md
+This is a historical work log. The active release scope is in [the release plan](docs/hosted-release-plan.md). Live mode and its original gate documents are parked on `live/parked`; gates 7 through 9 remain open there.
+
+OWNS: packages/**, scripts/**, .github/workflows/build.yml, docs/code-conventions.md, the combined gate documents on `live/parked`, GATES.md
 
 Scope: Complete the user-approved hosted sandbox and live-mode contract in the sequence, premortem, and gate specification. Start with the hosted browser tracer bullet; no stage-level result represents completion of the full goal.
 
@@ -75,7 +77,7 @@ This turn makes implementation progress. The in-process runtime, snapshot and St
 
 ## Full objective remains open
 
-- [ ] F0: all applicable universal, TDD, section, and release gates in docs/hosted-sandbox-live-mode-gates.md have current evidence
+- [ ] F0: all applicable universal, TDD, section, and release gates in the gate document on `live/parked` have current evidence
   EVIDENCE: pending; includes early real SDK proof, wire validation, ordering/reconnect, authority/persistence, browser sockets, bounded observations/Studio, browser live execution, hosted credentials, and packaging/runtime verification.
 
 - [ ] F1: the final implementation satisfies every requirement in the sequence and premortem without weakening the supported feature set

@@ -161,8 +161,6 @@ async function startServeRuntime(opts: {
   bridge?: boolean;
   /** Run the authoritative sandbox in this Node process. */
   hosted?: boolean;
-  /** Execute supported Firestore operations through the application's real SDK. */
-  live?: boolean;
   /** Project label for the bridge health/audit surfaces. */
   project?: string;
   /** Disable the bridge audit writer (tests). */
@@ -314,11 +312,8 @@ async function startServeRuntime(opts: {
     bundle = await materializeServeAssets();
     workerVersion = embeddedWorkerVersion();
   } else {
-    const usesLiveSdk = opts.live === true;
-    const liveProjectRoot = usesLiveSdk ? opts.cwd : undefined;
     bundle = await bundleSdk({
-      entries: defaultSdkEntries({ live: usesLiveSdk }),
-      liveProjectRoot,
+      entries: defaultSdkEntries(),
       noCache: opts.noCache,
       cacheRoot: opts.cacheRoot,
     });
@@ -925,7 +920,6 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       noCache: Boolean(parsed.flags.get('no-cache')),
       bridge: bridgeOn,
       hosted: Boolean(parsed.flags.get('hosted')),
-      live: Boolean(parsed.flags.get('live')),
       seed,
       watch,
       persist: Boolean(parsed.flags.get('persist')),

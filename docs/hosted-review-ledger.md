@@ -165,7 +165,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C3. Live capture grows without bound and re-posts everything
 
-- Severity: should-fix. Slice: `live`. Status: open.
+- Severity: should-fix. Slice: `live`. Status: verify (Codex, `work/integration`): removed by owner ruling D3; preserved on `live/parked` with gates 7 through 9 open.
 - Location: `packages/cli/src/serve/live/capture.ts:84`.
 - Defect: `events` is never trimmed and every read serializes the cumulative array to the capture endpoint. Flushes run concurrently, so an older post can overwrite a newer fixture.
 - Acceptance: bounded buffer, incremental posts, serialized flushes, and a test with many reads asserting bounded payload size and fixture order.
@@ -229,14 +229,16 @@ Each is `declined` or `open` once you decide. Record the decision here.
 
 ## D. Spec gaps and contract violations
 
-Contract: `docs/hosted-sandbox-live-mode-support.md`.
+Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the combined live-mode contract is preserved on `live/parked`.
 
 ### D1. The live Firestore surface is a stub
 
-- Slice: `live`. Status: fixing (Codex, `work/integration`), ruled (owner ruling D3, 2026-09-18): remove `entries/live`, `serve/live`, and every doc reference from the release sequence; delete the emulator-backed tests under `test/e2e/live`; the live work parks on its own branch with gates 7 through 9 open. This also closes C3 (live capture growth) by removal.
+- Slice: `live`. Status: verify (Codex, `work/integration`), ruled (owner ruling D3, 2026-09-18): remove `entries/live`, `serve/live`, and every doc reference from the release sequence; delete the emulator-backed tests under `test/e2e/live`; the live work parks on its own branch with gates 7 through 9 open. This also closes C3 (live capture growth) by removal.
 - Contract: "Reads, queries, document listeners, query listeners, writes, batches, transactions, converters, metadata options, and the network/cache controls exposed by the normal Firestore entry need explicit forwarding or a documented refusal backed by a scenario."
 - State: `packages/cli/src/serve/entries/live/firestore.ts` forwards `getDoc`, `doc`, `getFirestore`, `connectFirestoreEmulator`, and `DocumentSnapshot`. Everything else is a missing export. `live/unsupported.ts` throws at module evaluation, which breaks the importing module rather than refusing per operation. Gates 7 through 9 have no implementation.
 - Acceptance: either the full surface with scenarios, or per-operation refusals each backed by a scenario. Until then the live entry is removed from the playground and the site docs.
+
+- Removal scope clarification (review channel 0011): retain only sandbox/hosted declarations in `docs/hosted-support.json`, with `policyDocument` pointing to the release plan; keep its required CI check and wiring test in the evidence slice.
 
 ### D2. Close during startup returns success
 

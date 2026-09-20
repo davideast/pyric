@@ -23,7 +23,6 @@ const BOOLEAN_FLAGS = new Set([
   'json',
   'bridge',
   'hosted',
-  'live',
   // `pyric auth impersonate` identity selectors — valueless, and each sits
   // beside a uid positional a value-taking parse would eat.
   'admin',
