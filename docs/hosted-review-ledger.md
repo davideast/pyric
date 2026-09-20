@@ -156,12 +156,13 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 - Seam: application SDK over the hosted transport.
 - Acceptance: browser scenario in `packages/cli/test/e2e/hosted` where an `onValue` listener receives an update after a host restart. Same for presence and the event stream.
 
-### C2. Consumer isolation is half fixed
+### C2. A consumer can subscribe under another consumer's session
 
-- Severity: should-fix. Slice: `transport`. Status: open.
-- Location: `packages/cli/src/bridge/server/peer.ts:350` (`worker-sub` honors `msg.clientSessionId`), `peer.ts:300` (`remote-set-lens` applies `frame.clientSessionId` unchecked). `worker-op` at line 315 is already pinned to the attached identity.
-- Failure: consumer A sends a subscription naming consumer B's session and receives B-scoped snapshots. Any consumer can rewrite another consumer's lens, and the registry pushes the change to the victim.
-- Acceptance: bridge consumer tests asserting both frames are refused or rewritten to the attached identity.
+- Severity: should-fix. Slice: `transport`. Status: fixing (codex, work/integration).
+- Location: `packages/cli/src/bridge/server/peer.ts` (`worker-sub` honors `msg.clientSessionId`). `worker-op` is already pinned to the attached identity.
+- Failure: consumer A sends a subscription naming consumer B's session and receives B-scoped snapshots.
+- Acceptance: bridge consumer test asserting a subscription naming another consumer's session is refused or rewritten to the attached identity, and cannot read the other consumer's rules-protected document.
+- Declined 2026-09-20: remote-set-lens targeting another consumer is the Studio remote-control feature, present on main; consumers share one trust level. A consumer privilege model for the bridge is a separate design question outside this release.
 
 ### C3. Live capture grows without bound and re-posts everything
 

@@ -1,4 +1,9 @@
 {
+  "C2": {
+    "phase": 2,
+    "tests": ["packages/cli/test/bridge/remote-session-isolation.test.ts"],
+    "filter": "forged session id"
+  },
   "C12": {
     "phase": 2,
     "tests": ["packages/cli/test/serve/worker/reset-all-op.test.ts"],
