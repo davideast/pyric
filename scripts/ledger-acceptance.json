@@ -1,10 +1,115 @@
 {
+  "C8": {
+    "phase": 2,
+    "tests": [
+      "packages/cli/test/bridge/ledger/c8-malformed-peer-isolation.test.ts"
+    ]
+  },
+  "C7": {
+    "phase": 2,
+    "tests": [
+      "packages/cli/test/bridge/ledger/c7-worker-message-refusal.test.ts"
+    ]
+  },
+  "C4": {
+    "phase": 2,
+    "tests": [
+      "packages/cli/test/serve/worker/ledger/c4-relayed-subscription-close.test.ts"
+    ]
+  },
+  "C2": {
+    "phase": 2,
+    "tests": [
+      "packages/cli/test/bridge/remote-session-isolation.test.ts"
+    ],
+    "filter": "forged session id"
+  },
+  "C12": {
+    "phase": 2,
+    "tests": [
+      "packages/cli/test/serve/worker/reset-all-op.test.ts"
+    ],
+    "filter": "re-deploys active RTDB rules"
+  },
+  "A1": {
+    "phase": 1,
+    "tests": [
+      "packages/pyric/test/sandbox/firestore/ledger/a1-atomic-rule-method.test.ts"
+    ],
+    "note": "Batch and transaction writes evaluate the rule for the caller's method."
+  },
+  "A2": {
+    "phase": 1,
+    "tests": [
+      "packages/pyric/test/database/ledger/a2-reset-clears-rules.test.ts"
+    ],
+    "note": "sandbox.reset() and resetAll clear RTDB rules."
+  },
+  "A3": {
+    "phase": 1,
+    "tests": [
+      "packages/pyric/test/sandbox/persistence/ledger/a3-restore-quarantines-bad-record.test.ts"
+    ],
+    "note": "Shared restore keeps readable records and reports the unreadable one."
+  },
+  "A4": {
+    "phase": 1,
+    "tests": [
+      "packages/pyric/test/sandbox/ledger/a4-age-eviction-no-replay-gap.test.ts"
+    ],
+    "note": "History older than the age window still replays."
+  },
+  "I1": {
+    "phase": 1,
+    "tests": [
+      "packages/pyric/test/sandbox/ledger/i1-live-state-does-not-evict.test.ts"
+    ],
+    "note": "Pending observations and active listeners beyond the reserve do not evict retained events."
+  },
+  "A5": {
+    "phase": 1,
+    "tests": [
+      "packages/cli/test/serve/entries/ledger/a5-worker-runtime-no-top-level-await.test.ts",
+      "packages/cli/test/serve/entries/ledger/a5-page-sdk-selection.test.ts",
+      "packages/cli/test/serve/entries/ledger/a5-service-worker-sdk-selection.test.ts"
+    ],
+    "note": "The shared worker runtime entry has no top-level await."
+  },
+  "A6": {
+    "phase": 1,
+    "tests": [
+      "packages/pyric/test/database/ledger/a6-info-listener-closes-activity.test.ts"
+    ],
+    "note": "A .info/connected listener releases its activity on unsubscribe."
+  },
   "A7": {
     "phase": 1,
     "tests": [
       "packages/cli/test/serve/entries/ledger/a7-operation-admission-exhaustive.test.ts"
     ],
     "note": "Unknown operations are refused; extending OpMessage requires explicit persistence and argument handling."
+  },
+  "I13-omitted": {
+    "phase": 1,
+    "tests": [
+      "packages/pyric/test/sandbox/ledger/i1-live-state-does-not-evict.test.ts"
+    ],
+    "filter": "omittedCount",
+    "note": "omittedCount counts only events missing from the snapshot."
+  },
+  "A14": {
+    "phase": 1,
+    "tests": [
+      "packages/pyric/test/firestore/ledger/a14-collection-query-types.test.ts"
+    ],
+    "note": "A collection reference is accepted by onSnapshot and getDocs and is assignable to Query."
+  },
+  "C13": {
+    "phase": 2,
+    "tests": [
+      "packages/cli/test/bridge/peer-standby.test.ts"
+    ],
+    "note": "Peer handshakes, replacement standby, takeover, and reconnect preserve text frames."
   },
   "C14": {
     "phase": 2,
@@ -30,6 +135,13 @@
     "filter": "committed WAL",
     "node": true,
     "note": "Salvage and archive recover a crashed writer's committed WAL without SHM, preserving the salvage source."
+  },
+  "D3-live-removal": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/cli/ledger/d3-live-removal.test.ts"
+    ],
+    "note": "Owner ruling D3: park the incomplete live mode, remove its entries, options, packaging requirements, and combined evidence."
   },
   "H1": {
     "phase": 3,
@@ -99,6 +211,13 @@
     "filter": "Storage reads await queued",
     "node": true,
     "note": "Storage bytes, metadata and listings observe earlier queued mutations across bucket views."
+  },
+  "A15": {
+    "phase": 2,
+    "tests": [
+      "packages/cli/test/remote/loop-hold.test.ts"
+    ],
+    "note": "Unknown-method refusals preserve the remote client's version-skew guidance."
   },
   "I12": {
     "phase": 3,
