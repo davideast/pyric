@@ -347,7 +347,7 @@ export function createConsumerSession(
       case 'worker-sub': {
         const isAlreadySubscribed = subs.has(msg.subId);
         if (isAlreadySubscribed) return;
-        const subSessionId = msg.clientSessionId ?? clientSessionId;
+        const subSessionId = clientSessionId;
         const subPayload = {
           ...msg.sub,
           resumeSession: true,

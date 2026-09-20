@@ -158,7 +158,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C2. A consumer can subscribe under another consumer's session
 
-- Severity: should-fix. Slice: `transport`. Status: fixing (codex, work/integration).
+- Severity: should-fix. Slice: `transport`. Status: verify (codex, work/integration).
 - Location: `packages/cli/src/bridge/server/peer.ts` (`worker-sub` honors `msg.clientSessionId`). `worker-op` is already pinned to the attached identity.
 - Failure: consumer A sends a subscription naming consumer B's session and receives B-scoped snapshots.
 - Acceptance: bridge consumer test asserting a subscription naming another consumer's session is refused or rewritten to the attached identity, and cannot read the other consumer's rules-protected document.
