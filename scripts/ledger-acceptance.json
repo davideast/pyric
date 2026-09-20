@@ -144,5 +144,9 @@
     "tests": ["packages/cli/test/serve/hosted-sqlite.test.ts"],
     "filter": "seeds are atomic|Bun rejects",
     "node": true
+  },
+  "I13-rollback": {
+    "phase": 3,
+    "tests": ["packages/cli/test/serve/ledger/i13-transaction-error.test.ts"]
   }
 }
