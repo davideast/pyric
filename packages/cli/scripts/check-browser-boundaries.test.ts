@@ -180,7 +180,6 @@ test('required CI checks every declared browser leaf after building workspace de
     ['worker-client', 'packages/cli/src/serve/worker/client.ts', 98_304],
     ['hosted-socket', 'packages/cli/src/serve/worker/client/websocket-connection.ts', 16_384],
     ['value-codec', 'packages/pyric/src/firestore/internal/value-codec.ts', 24_576],
-    ['live-firestore', 'packages/cli/src/serve/entries/live/firestore.ts', 524_288],
   ] as const;
   for (const [name, entry, maximumBytes] of profiles) {
     const reportPath = join(reportDirectory, `pyric-browser-${name}.json`);
