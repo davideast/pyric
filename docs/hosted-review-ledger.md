@@ -515,13 +515,13 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - Defect: the fixture joins `process.cwd()` with `packages/cli/dist/cli/snapshot.js`. It passes from the repository root but duplicates `packages/cli` when CI runs `bun test --cwd packages/cli`, causing `ERR_MODULE_NOT_FOUND` before snapshot assertions execute.
 - Acceptance: statically import `../../../src/cli/snapshot.js`, like the persistence import, so `runNodeFixture` resolves the built module through its source-to-dist rewrite. The case passes both from the repository root and under `bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts`. The I15 map selects `offline snapshots`; package-directory invocation is also required.
 
-### I16. Host resident memory keeps growing across slow-consumer cycles
+### I16. The Firestore engine's event log retains every written document without bound
 
-- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `evidence`. Status: open. Reproduced by the reviewer at 9228d3cf on a second machine, two runs: growth of 282,820,608 then 342,654,976 bytes, and 281,542,656 then 319,455,232 bytes. The second cycle added 38 to 60 MiB there against 108 MiB on the implementing agent's machine, which is consistent with growth that is slowing but does not establish it; the six-cycle diagnostic with forced collection decides.
+- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `core`. Status: fixing (codex, work/integration). Reproduced by the reviewer at 9228d3cf on a second machine, two runs: growth of 282,820,608 then 342,654,976 bytes, and 281,542,656 then 319,455,232 bytes. The second cycle added 38 to 60 MiB there against 108 MiB on the implementing agent's machine, which is consistent with growth that is slowing but does not establish it; the six-cycle diagnostic with forced collection decides.
 - Location: `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`, resident-growth test.
 - Defect: the existing scenario exceeds its 201,326,592-byte ceiling. Earlier runs measured 202,080,256 and 215,810,048 bytes after the first cycle. The split test preserves that ceiling and uses soft assertions so both cycles are measured.
 - Evidence: one split memory run on 9c5bf75e with the test split measured 223,821,824 bytes after cycle 0 and 332,480,512 bytes after cycle 1: another 108,658,688 bytes in the second cycle. Growth continues across cycles rather than plateauing after the first. This is a possible leak signal, not evidence sufficient to attribute a leak to a particular allocation. A bounded six-cycle diagnostic with two forced collections after each cycle is authorized to distinguish retained objects, uncollected garbage/allocator effects, and bounded buffers filling toward their caps; no retainer hunt is authorized.
-- Acceptance: `bun scripts/verify-ledger.ts I16`. Re-derive the ceiling from a frozen baseline as I6 requires, or reduce growth below 192 MiB. Either way, the memory test must pass in the phase 4 CI job. Until then its separate map entry preserves the failing result; D3's policy acceptance does not hide it.
+- Acceptance: `bun scripts/verify-ledger.ts I16-core I16`. Re-derive the ceiling from a frozen baseline as I6 requires, or reduce growth below 192 MiB. Either way, the memory test must pass in the phase 4 CI job. Until then its separate map entry preserves the failing result; D3's policy acceptance does not hide it.
 
 
 Bounded diagnostic (Node 22.15.0, 2026-09-20, six cycles, 192 replacements of
@@ -559,6 +559,17 @@ Reproduce only when another run is authorized:
 `node node_modules/@playwright/test/cli.js test --config=scripts/diagnostics/i16-memory.config.ts`.
 This isolated diagnostic is outside the normal hosted acceptance test match and
 does not change the uncollected 192 MiB acceptance or satisfy it.
+
+Reviewer isolation probe: a bare built `LocalEnvironment` with materialized
+256 KiB strings and 192 writes per cycle retained 9.4 MiB baseline, then 58.5,
+106.8, 155.0 and 203.2 MiB of collected heap (768 events). Clearing its engine
+`eventLog` reduced heap to 11.0 MiB. The engine event log holds every event's
+data and prior documents without eviction; this predates hosted mode. Bound
+both retained and undone events under one count/byte budget while preserving
+undo/redo within the retained window and exposing omitted count to the events
+tool. Proposed defaults: 10,000 events and 8 MiB, matching observation history
+and bounding repeated large replacements. Reuse the history limit shape and
+byte estimator through a dependency-free sandbox leaf module.
 
 ## E. Evidence owed
 

@@ -10,6 +10,11 @@
     "playwright": true,
     "note": "The release contract retains the shared 24 MiB socket backlog and 1013 close policy. C1 separately proves observation restoration without page reload."
   },
+  "I16-core": {
+    "phase": 4,
+    "tests": ["packages/pyric/test/sandbox/firestore/ledger/i16-event-log-retention.test.ts"],
+    "note": "I16 engine retention and undo/redo semantics; I16 additionally keeps the unchanged hosted RSS acceptance."
+  },
   "I16": {
     "phase": 4,
     "tests": ["packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts"],
