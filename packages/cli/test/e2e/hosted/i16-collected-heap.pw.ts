@@ -1,4 +1,4 @@
-/** One bounded diagnostic, not a replacement for the uncollected I16 acceptance.
+/** I16 collected-heap acceptance; the uncollected resident ceiling remains I17.
  * PATH=/path/to/node22/bin:$PATH node node_modules/@playwright/test/cli.js test --config=scripts/diagnostics/i16-memory.config.ts
  */
 import { expect, test } from '@playwright/test';
@@ -28,13 +28,13 @@ function inspectorCall<T>(socket: WebSocket, method: string, params: object): Pr
   });
 }
 
-interface Evaluation {
-  result: { objectId?: string; value?: unknown };
+interface Evaluation<T = unknown> {
+  result: { objectId?: string; value?: T };
   exceptionDetails?: unknown;
 }
 
-async function evaluate(socket: WebSocket, expression: string, returnByValue = true): Promise<Evaluation> {
-  const result = await inspectorCall<Evaluation>(socket, 'Runtime.evaluate', {
+async function evaluate<T = unknown>(socket: WebSocket, expression: string, returnByValue = true): Promise<Evaluation<T>> {
+  const result = await inspectorCall<Evaluation<T>>(socket, 'Runtime.evaluate', {
     expression, awaitPromise: true, returnByValue, objectGroup: 'i16-sample',
   });
   const failed = result.exceptionDetails !== undefined;
@@ -45,7 +45,10 @@ async function evaluate(socket: WebSocket, expression: string, returnByValue = t
 async function collectSample(socket: WebSocket) {
   // Memory is sampled first. History inspection may allocate a serialized snapshot;
   // release every inspector handle so the next cycle's collections can reclaim it.
-  const memory = await evaluate(socket, 'gc(); gc(); process.memoryUsage()');
+  const memory = await evaluate<NodeJS.MemoryUsage>(socket, 'gc(); gc(); process.memoryUsage()');
+  const usage = memory.result.value;
+  const missingMemory = usage === undefined;
+  if (missingMemory) throw new Error('Host memory sample missing');
   const moduleUrl = new URL('../../../../pyric/dist/sandbox/internal/sandbox-impl.js', import.meta.url).href;
   try {
     const prototype = await evaluate(socket, `(async () => (await import(${JSON.stringify(moduleUrl)})).SandboxImpl.prototype)()`, false);
@@ -70,15 +73,17 @@ async function collectSample(socket: WebSocket) {
     });
     const failed = history.exceptionDetails !== undefined;
     if (failed) throw new Error(JSON.stringify(history.exceptionDetails));
-    return { memory: memory.result.value, history: history.result.value };
+    return { memory: usage, history: history.result.value };
   } catch (error) {
-    return { memory: memory.result.value, history: { unavailable: String(error) } };
+    return { memory: usage, history: { unavailable: String(error) } };
   } finally {
     await inspectorCall(socket, 'Runtime.releaseObjectGroup', { objectGroup: 'i16-sample' });
   }
 }
 
-test('six slow-consumer cycles with host collection and history measurements', async ({ page }) => {
+test('six slow-consumer cycles keep collected heap growth below 16 MiB', async ({ page }) => {
+  test.setTimeout(240_000);
+  const collectedHeap: number[] = [];
   const priorOptions = process.env.NODE_OPTIONS;
   process.env.NODE_OPTIONS = `${priorOptions ?? ''} --expose-gc --inspect=127.0.0.1:0`;
   const fixture = await startHostedFixture().finally(() => {
@@ -134,8 +139,12 @@ test('six slow-consumer cycles with host collection and history measurements', a
       expect(outcome).toEqual({ code: 1013, reason: 'Client output backlog exceeds 24 MiB; reconnect to resume.' });
       await page.locator('#write').click();
       await expect(page.locator('#write-result')).toHaveText('Written');
-      console.log('I16 cycle', JSON.stringify({ cycle, writes: times.length, ...await collectSample(inspector) }));
+      const sample = await collectSample(inspector);
+      collectedHeap.push(sample.memory.heapUsed);
+      console.log('I16 cycle', JSON.stringify({ cycle, writes: times.length, ...sample }));
     }
+    const retainedGrowth = collectedHeap[5] - collectedHeap[1];
+    expect(retainedGrowth).toBeLessThan(16 * 1024 * 1024);
   } finally {
     inspector?.terminate();
     for (const socket of readers) socket.terminate();

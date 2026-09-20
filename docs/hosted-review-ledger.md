@@ -518,10 +518,10 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 ### I16. The Firestore engine's event log retains every written document without bound
 
 - Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `core`. Status: verify (codex, work/integration). Reproduced by the reviewer at 9228d3cf on a second machine, two runs: growth of 282,820,608 then 342,654,976 bytes, and 281,542,656 then 319,455,232 bytes. The second cycle added 38 to 60 MiB there against 108 MiB on the implementing agent's machine, which is consistent with growth that is slowing but does not establish it; the six-cycle diagnostic with forced collection decides.
-- Location: `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`, resident-growth test.
+- Location: `packages/pyric/src/firestore/sandbox/event-log.ts`. Host acceptance: `packages/cli/test/e2e/hosted/i16-collected-heap.pw.ts`.
 - Defect: the existing scenario exceeds its 201,326,592-byte ceiling. Earlier runs measured 202,080,256 and 215,810,048 bytes after the first cycle. The split test preserves that ceiling and uses soft assertions so both cycles are measured.
 - Evidence: one split memory run on 9c5bf75e with the test split measured 223,821,824 bytes after cycle 0 and 332,480,512 bytes after cycle 1: another 108,658,688 bytes in the second cycle. Growth continues across cycles rather than plateauing after the first. This is a possible leak signal, not evidence sufficient to attribute a leak to a particular allocation. A bounded six-cycle diagnostic with two forced collections after each cycle is authorized to distinguish retained objects, uncollected garbage/allocator effects, and bounded buffers filling toward their caps; no retainer hunt is authorized.
-- Acceptance: `bun scripts/verify-ledger.ts I16-core I16`. Re-derive the ceiling from a frozen baseline as I6 requires, or reduce growth below 192 MiB. Either way, the memory test must pass in the phase 4 CI job. Until then its separate map entry preserves the failing result; D3's policy acceptance does not hide it.
+- Acceptance: `bun scripts/verify-ledger.ts I16-core I16`. After two forced collections per cycle, host heapUsed at cycle 5 minus cycle 1 must be under 16 MiB. The pre-fix diagnostic difference was 202,351,896 bytes. The original resident-memory test and 192 MiB ceiling are preserved unchanged under I17. The engine fix at acc7401e is independently verified; the reviewer must verify the promoted host acceptance before I16 closes.
 
 
 Bounded diagnostic (Node 22.15.0, 2026-09-20, six cycles, 192 replacements of
@@ -539,12 +539,31 @@ below are bytes after collection, not growth from the baseline.
 | 4 | 407,797,760 | 322,412,040 | 3,669,674 | 94,690 | Not reachable through inspector import |
 | 5 | 436,207,616 | 372,915,600 | 3,669,675 | 94,691 | Not reachable through inspector import |
 
-Heap after collection does **not** plateau by cycle 5 (the sixth cycle): it rises
+Before the fix, heap after collection does **not** plateau by cycle 5 (the sixth cycle): it rises
 from 119,882,688 to 372,915,600 bytes, with about 50.6 MB added per later cycle.
 The pre-burst collected baseline was 71,075,504 bytes of heap and 211,959,808 bytes
 RSS. External memory and array buffers remain effectively flat. Thus delayed
 collection/allocator fragmentation alone does not explain the measured heap
 growth; the retaining owner is not identified by this diagnostic.
+
+After the fix at acc7401e, one run of the promoted acceptance (same Node
+22.15.0 fixture and six cycles) produced these collected measurements, in bytes:
+
+| Cycle | rss | heapUsed | external | arrayBuffers |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 224,280,576 | 73,673,944 | 3,669,674 | 94,690 |
+| 1 | 196,870,144 | 73,823,304 | 3,669,674 | 94,690 |
+| 2 | 195,166,208 | 73,964,616 | 3,669,674 | 94,690 |
+| 3 | 195,706,880 | 74,048,832 | 3,669,674 | 94,690 |
+| 4 | 193,282,048 | 74,159,832 | 3,669,674 | 94,690 |
+| 5 | 199,311,360 | 74,209,240 | 3,669,675 | 94,691 |
+
+Collected heap plateaus by cycle 1 for this acceptance: cycle 5 minus cycle 1
+is 385,936 bytes, below the 16,777,216-byte limit, versus 202,351,896 bytes
+before the fix. All six stalled consumers closed with 1013 and the expected
+reason; every healthy follow-up write succeeded. History introspection remains
+unavailable for the previously recorded inspector-import reason. This host run
+passed once (43.7 s); the original uncollected RSS test was not rerun or changed.
 
 Configured history limits remain 10,000 events / 8,388,608 bytes, including a
 live-state reservation of at most half that budget. Measured history count and
@@ -557,8 +576,9 @@ sockets, and host in `finally`.
 
 Reproduce only when another run is authorized:
 `node node_modules/@playwright/test/cli.js test --config=scripts/diagnostics/i16-memory.config.ts`.
-This isolated diagnostic is outside the normal hosted acceptance test match and
-does not change the uncollected 192 MiB acceptance or satisfy it.
+This originally isolated diagnostic is now promoted to the normal hosted acceptance
+as i16-collected-heap.pw.ts. It does not change the uncollected 192 MiB test,
+which remains independently mapped as I17.
 
 Reviewer isolation probe: a bare built `LocalEnvironment` with materialized
 256 KiB strings and 192 writes per cycle retained 9.4 MiB baseline, then 58.5,
@@ -581,8 +601,36 @@ ordering edge case. The original hosted memory acceptance passed in one run with
 changing its 192 MiB ceiling: cycle 0 growth 69,189,632 bytes, cycle 1 growth
 90,046,464 bytes (previously 223,821,824 and 332,480,512). The browser run preceded
 the subsequent undo-stack ordering correction; its workload does not use undo/redo.
-The six-cycle diagnostic was not repeated. Independent reviewer verification remains
-required before closing I16.
+The subsequent six-cycle acceptance promotion is recorded above. Independent
+reviewer verification of that acceptance remains required before closing I16.
+
+Reviewer verification of acc7401e: the isolated engine probe plateaued at 14.4,
+14.4, 14.5 and 14.5 MiB after collection across four cycles, retaining 15 events.
+Removing prune() fails all seven core cases. The unchanged resident-memory test
+is not reproducible across machines; its measurements and baseline requirement
+are now tracked by I17. The collected-heap limit was set by the reviewer before
+running the promoted acceptance, with no product changes.
+
+### I17. The slow-consumer resident-memory ceiling predates persistence and is not reproducible across machines
+
+- Severity: should-fix. Slice: `evidence`. Status: open.
+- Location: `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`, resident-growth test; the file and its 192 MiB (201,326,592-byte) ceiling remain unchanged.
+- Defect: uncollected RSS immediately after a 48 MiB write burst varies with garbage collection and allocator behavior across machines. The engine leak is independently verified fixed, but this metric continues to cross the old ceiling without a consistent growth trend.
+- Acceptance: `bun scripts/verify-ledger.ts I17`. Under I6, re-derive the ceiling from a frozen baseline on the CI runner, with collection forced before sampling or a stated tolerance, and pass the test in the phase 4 CI job. The existing test remains independently mapped and may fail until then; I16's collected-heap acceptance does not replace or weaken it.
+
+All recorded resident-growth measurements are bytes:
+
+| Machine | Engine state / run | Cycle 0 | Cycle 1 |
+| --- | --- | ---: | ---: |
+| Codex | Before fix, combined test 1 | 202,080,256 | Not reached |
+| Codex | Before fix, combined test 2 | 215,810,048 | Not reached |
+| Codex | Before fix, split test | 223,821,824 | 332,480,512 |
+| Reviewer | Before fix, run 1 | 282,820,608 | 342,654,976 |
+| Reviewer | Before fix, run 2 | 281,542,656 | 319,455,232 |
+| Codex | After fix | 69,189,632 | 90,046,464 |
+| Reviewer | After fix, run 1 | 242,810,880 | 178,864,128 |
+| Reviewer | After fix, run 2 | 190,119,936 | 223,133,696 |
+| Reviewer | After fix, run 3 | 228,884,480 | 160,940,032 |
 
 ## E. Evidence owed
 

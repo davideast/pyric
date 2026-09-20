@@ -13,9 +13,15 @@
   "I16-core": {
     "phase": 4,
     "tests": ["packages/pyric/test/sandbox/firestore/ledger/i16-event-log-retention.test.ts"],
-    "note": "I16 engine retention and undo/redo semantics; I16 additionally keeps the unchanged hosted RSS acceptance."
+    "note": "I16 engine retention and undo/redo semantics; I16 additionally checks collected host heap growth; I17 keeps the unchanged resident-memory ceiling."
   },
   "I16": {
+    "phase": 4,
+    "tests": ["packages/cli/test/e2e/hosted/i16-collected-heap.pw.ts"],
+    "playwright": true,
+    "note": "Cycle 5 minus cycle 1 collected host heap stays below 16 MiB; I17 retains the original resident-memory ceiling."
+  },
+  "I17": {
     "phase": 4,
     "tests": ["packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts"],
     "filter": "host resident growth stays under 192 MiB across slow-consumer cycles",
