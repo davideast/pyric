@@ -326,7 +326,7 @@ See `docs/hosted-persistence-plan-review.md` for the discussion.
 
 ### H1. Salvage command for a preserved hosted database
 
-- Severity: should-fix. Slice: `host`. Status: verify. Implemented at 26a6ae0d in `packages/cli/src/cli/salvage.ts` and `serve/hosted/persistence/salvage.ts`: source preserved by hash, output revalidated, empty output refused. Open sub-items I3 and I7 block closure. Companion to A3.
+- Severity: should-fix. Slice: `host`. Status: closed at 9fce2d1c (verified 2026-09-20). The acceptance drives the built CLI under Node against a database with an unreadable record: stdout and `recovery-report.json` agree on the excluded namespace and id, the source directory is byte-identical afterward, and the repaired copy opens. The blocking sub-items are resolved: I3 by the D1 revert, I7 as not a defect. Reviewer probe: with excluded records no longer reported by the built salvage module, the acceptance fails. Implemented at 26a6ae0d in `packages/cli/src/cli/salvage.ts` and `serve/hosted/persistence/salvage.ts`: source preserved by hash, output revalidated, empty output refused. Open sub-items I3 and I7 block closure. Companion to A3.
 - Context: the persistence slice fails closed on a malformed application record and preserves the database directory for repair. Until a repair path exists, one malformed record blocks the host and `fresh` is the only remedy in practice.
 - Acceptance: a CLI command reads a preserved database, reports unreadable records by namespace and id, and writes a repaired copy without modifying the original. The startup refusal message names this command. A3 closes when the command exists and the refusal names it.
 
@@ -421,17 +421,17 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I12. Bun refusal branch untested
 
-- Severity: nit. Slice: `host`. Status: open.
+- Severity: nit. Slice: `host`. Status: closed at 38141e92 (verified 2026-09-20). A Node fixture spoofs `process.versions.bun` and asserts the standalone-specific refusal with the database bytes and directory entries unchanged even when a fresh start is requested; the existing real-Bun case is mapped alongside it. Reviewer probe: with the Bun check disabled in the built SQLite and ownership modules, the acceptance fails.
 - Location: `packages/cli/src/serve/hosted/persistence/sqlite.ts:18`.
 - Defect: only the Node-version refusal is tested. Nothing spoofs `process.versions.bun`, so the branch that decides whether the standalone binary refuses cleanly is unverified.
 - Acceptance: the same spoofing fixture for the Bun case.
 
 ### I13. Smaller items
 
-- Status: verify (Codex, `work/integration`). Remaining rollback and seed fixes submitted separately; dispositions below await reviewer closure.
+- Status: closed at 617213e1 (verified 2026-09-20). Every sub-item below is fixed, removed by D1, or closed under another item. Reviewer probes: with the rollback guard removed the `I13-rollback` acceptance fails both cases; with the seed no longer entering the Storage mutation queue the `I13-seed` acceptance fails. Every `writeSection` and `seed` caller awaits the returned promise, and the queued seed joins one reentrant transaction.
 - `history-export.ts:275` left `.segment-*.tmp` and `.checkpoint-*.tmp` behind on a failed export. Removed with the export implementation by D1 at `08828705`.
-- `sqlite.ts:43` a throwing `ROLLBACK` after a failed `COMMIT` replaced the original error. Fix submitted at `015c99ba`; acceptance: `I13-rollback`.
-- `state-view.ts:96` the storage seed bypassed the mutation queue. Fix submitted at `fa9e5501`; acceptance: `I13-seed`.
+- `sqlite.ts:43` a throwing `ROLLBACK` after a failed `COMMIT` replaced the original error. Fixed at `015c99ba`; acceptance: `I13-rollback`.
+- `state-view.ts:96` the storage seed bypassed the mutation queue. Fixed at `fa9e5501`; acceptance: `I13-seed`.
 - `history-route.ts:9` wrote the 200 status before evaluating the body, so a throw sent headers twice. Removed with the history route by D1 at `08828705`.
 - `serve-init.ts:365` capture delivery re-armed after the POST settled. Closed with D4 at `c6c899ed`, verified by the reviewer; its mapped acceptance pins the 2 s deadline.
 - `event-history.ts:209` counted evicted listener-attach entries as omitted although `snapshot()` still returned them. Closed as `I13-omitted` with I1 at `2ba2c664`.
