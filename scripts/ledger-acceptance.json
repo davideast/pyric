@@ -1,4 +1,10 @@
 {
+  "D3": {
+    "phase": 2,
+    "tests": ["packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts"],
+    "playwright": true,
+    "note": "The release contract retains the shared 24 MiB socket backlog and 1013 close policy. C1 separately proves observation restoration without page reload."
+  },
   "C7": {
     "phase": 2,
     "tests": ["packages/cli/test/bridge/ledger/c7-worker-message-refusal.test.ts"]
