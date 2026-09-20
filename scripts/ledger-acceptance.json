@@ -1,25 +1,134 @@
 {
-  "A5": {
-    "phase": 2,
+  "A7": {
+    "phase": 1,
     "tests": [
-      "packages/cli/test/serve/entries/ledger/a5-worker-runtime-no-top-level-await.test.ts",
-      "packages/cli/test/serve/entries/ledger/a5-page-sdk-selection.test.ts",
-      "packages/cli/test/serve/entries/ledger/a5-service-worker-sdk-selection.test.ts"
+      "packages/cli/test/serve/entries/ledger/a7-operation-admission-exhaustive.test.ts"
     ],
-    "note": "The shared worker runtime entry has no top-level await."
+    "note": "Unknown operations are refused; extending OpMessage requires explicit persistence and argument handling."
   },
-  "C13": {
+  "C14": {
     "phase": 2,
     "tests": [
-      "packages/cli/test/bridge/peer-standby.test.ts"
+      "packages/cli/test/serve/worker/ledger/c14-served-entry-order.test.ts"
     ],
-    "note": "Peer handshakes, replacement standby, takeover, and reconnect preserve text frames."
+    "note": "Served RTDB cases remain independent of earlier browser-entry evaluation."
   },
-  "A15": {
-    "phase": 2,
+  "I5": {
+    "phase": 3,
     "tests": [
-      "packages/cli/test/remote/loop-hold.test.ts"
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
     ],
-    "note": "Unknown-method refusals preserve the remote client's version-skew guidance."
+    "filter": "SQLite busy",
+    "node": true,
+    "note": "Real SQLite contention is bounded and does not permanently latch a healthy store."
+  },
+  "I7": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
+    ],
+    "filter": "committed WAL",
+    "node": true,
+    "note": "Salvage and archive recover a crashed writer's committed WAL without SHM, preserving the salvage source."
+  },
+  "H1": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
+    ],
+    "filter": "salvage|malformed Auth",
+    "node": true
+  },
+  "D4": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/worker/ledger/d4-capture-deadline.test.ts"
+    ]
+  },
+  "D2": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
+    ],
+    "filter": "hosted start rejects",
+    "node": true
+  },
+  "C10": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/entries/ledger/c10-messaging-install-recovery.test.ts"
+    ]
+  },
+  "C9": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
+    ],
+    "filter": "hosted close drains",
+    "node": true,
+    "note": "Accepted method, tool and page calls finish across close and survive restart."
+  },
+  "C5": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/worker/ledger/c5-restore-listener-deliveries.test.ts"
+    ],
+    "note": "State replacement delivers once and leaves Firestore and RTDB listeners live for pages and explicit Studio lenses."
+  },
+  "C6": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
+    ],
+    "filter": "hosted CLI preserves",
+    "node": true,
+    "note": "The CLI production opt-in reaches the real hosted HTTP endpoint and remains scoped to the call."
+  },
+  "I14": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/entries/ledger/i14-persistence-admission.test.ts"
+    ],
+    "note": "Walk OpMessage and require healthy persistence for every handler reaching a flush or checkpoint write."
+  },
+  "I8": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
+    ],
+    "filter": "Storage reads await queued",
+    "node": true,
+    "note": "Storage bytes, metadata and listings observe earlier queued mutations across bucket views."
+  },
+  "I12": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
+    ],
+    "filter": "seeds are atomic|Bun rejects",
+    "node": true
+  },
+  "I13-rollback": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/ledger/i13-transaction-error.test.ts"
+    ]
+  },
+  "I13-seed": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
+    ],
+    "filter": "Storage seeds|seeds are atomic",
+    "node": true
+  },
+  "I15": {
+    "phase": 3,
+    "tests": [
+      "packages/cli/test/serve/hosted-sqlite.test.ts"
+    ],
+    "filter": "offline snapshots",
+    "node": true,
+    "note": "Also run from packages/cli: bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts."
   }
 }
