@@ -47,6 +47,8 @@ import { createWorkerDurableBackend, setupServerAuthFlush } from './durable-pers
 import { ensureAuth, getOrCreateInstanceId, type HostCtx } from './host.js';
 import { buildVerifyFixture, type PyricVerifyFixture } from '../../verify/fixture.js';
 
+const CAPTURE_MAX_DELAY_MS = 2_000;
+
 /** Injected environment — `fetch` is the only ambient the worker init needs
  *  (capture POSTs through it). Injectable so tests drive it with a stub. */
 export interface ServeInitEnv {
@@ -325,6 +327,7 @@ export function applyServeInit(
     let timer: ReturnType<typeof setTimeout> | null = null;
     let inFlight: Promise<void> | null = null;
     let dirty = false;
+    let dirtySince: number | undefined;
     let disposed = false;
 
     const postCapture = async (): Promise<void> => {
@@ -354,18 +357,27 @@ export function applyServeInit(
         'content-type': 'application/json',
         ...(payload.sessionToken ? { 'x-pyric-session-token': payload.sessionToken } : {}),
       };
-      await env.fetch('/__pyric/capture', {
+      const controller = new AbortController();
+      const deadline = setTimeout(() => controller.abort(), CAPTURE_MAX_DELAY_MS);
+      try {
+        await env.fetch('/__pyric/capture', {
           method: 'POST',
           headers: captureHeaders,
           body,
-        })
-        .catch(() => {});
+          signal: controller.signal,
+        }).catch(() => {});
+      } finally {
+        clearTimeout(deadline);
+      }
     };
 
     const schedule = (): void => {
       const alreadyPending = disposed || timer !== null || inFlight !== null;
       if (alreadyPending) return;
-      timer = setTimeout(() => { timer = null; void flush().catch(() => {}); }, captureIntervalMs);
+      const startedAt = dirtySince ?? performance.now();
+      const remaining = startedAt + CAPTURE_MAX_DELAY_MS - performance.now();
+      const delay = Math.max(0, Math.min(captureIntervalMs, remaining));
+      timer = setTimeout(() => { timer = null; void flush().catch(() => {}); }, delay);
     };
 
     const flush = async (): Promise<void> => {
@@ -377,6 +389,7 @@ export function applyServeInit(
         timer = null;
       }
       dirty = false;
+      dirtySince = undefined;
       inFlight = postCapture();
       try { await inFlight; }
       finally {
@@ -387,6 +400,7 @@ export function applyServeInit(
 
     const unsub = ctx.sandbox.onEvent(() => {
       dirty = true;
+      dirtySince ??= performance.now();
       schedule();
     });
 
