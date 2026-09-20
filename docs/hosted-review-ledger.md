@@ -214,7 +214,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C10. Service Worker install fails permanently on a transient bridge outage
 
-- Severity: nit. Slice: `host`. Status: open.
+- Severity: nit. Slice: `host`. Status: fixing (Codex, work/integration).
 - Location: `packages/cli/src/serve/entries/messaging-sw.ts:335`, `messaging-sw-client.ts:248`.
 - Defect: `waitUntil(ready)` on install and activate means a failed hosted attach fails the install, retried only on the next registration.
 - Acceptance: decide whether install must wait for the host. If not, install succeeds and the attach retries.
