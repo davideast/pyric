@@ -361,7 +361,7 @@ export function wirePort(port: ClientPort): void {
       const errPayload = snapshotError(msg);
       const hasError = errPayload !== undefined;
       if (hasError) {
-        closeSubscription(port, msg.subId);
+        closeSubscription(port, msg.subId, sub.message?.clientSessionId);
         const err = new Error(errPayload.message) as Error & { code: string; denialContext?: unknown; aiEnvelope?: unknown };
         err.code = errPayload.code;
         const hasDenialContext = errPayload.denialContext !== undefined;
