@@ -1,4 +1,8 @@
 {
+  "C8": {
+    "phase": 2,
+    "tests": ["packages/cli/test/bridge/ledger/c8-malformed-peer-isolation.test.ts"]
+  },
   "D3": {
     "phase": 2,
     "tests": ["packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts"],
