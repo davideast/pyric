@@ -186,7 +186,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C6. Production flag is dropped on the hosted CLI path
 
-- Severity: should-fix, low. Slice: `host`. Status: verify (Codex, `work/integration`).
+- Severity: should-fix, low. Slice: `host`. Status: closed at 77f070ca (verified 2026-09-19). The CLI runner forwards the production opt-in per call; the hosted request schema defaults it to false. Reviewer probe: with the forwarded field removed from the built runner the acceptance fails, so it discriminates.
 - Location: `packages/cli/src/cli/surface-method-runner.ts:96`; host default at `serve/hosted/runtime.ts:341`.
 - Defect: `--allow-production` is parsed but not sent with the hosted method call. The host runs with the flag off and refuses without saying why.
 - Acceptance: the flag travels with the call; CLI test asserting the hosted path honors it.
@@ -473,7 +473,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### I14. The unhealthy-persistence gate admits RTDB, admin, and state mutations
 
-- Severity: should-fix. Slice: `host`. Status: verify (Codex, `work/integration`). Pre-existing; made visible by A7's enumeration.
+- Severity: should-fix. Slice: `host`. Status: closed at 57ca27d4 (verified 2026-09-19). Pre-existing; made visible by A7's enumeration. One policy table in `worker/operation-persistence.ts` drives admission, and the flush helper's method parameter accepts only methods the table marks true, so a new flush under a false method fails typechecking. `rtdb.goOffline` and `auth.setProviderConfig` were added to the gated set. Reviewer probe: flipping one method to false in source fails the acceptance for that method. Note for extraction: the fix edits worker host files that belong to transport paths; it rides with the host slice.
 - Location: `packages/cli/src/serve/hosted/persistence-admission.ts`, the `return false` group.
 - Defect: `rtdb.update`, `rtdb.push`, `rtdb.setPriority`, `rtdb.setWithPriority`, `rtdb.transactionCommit`, `admin.setDocument`, `admin.deleteDocument`, `importState`, `checkpoint`, `deleteCheckpoint`, and `auth.setProviderConfig` are classified as not requiring healthy persistence. Each mutates persisted state. While persistence is `committed-but-not-durable`, these are still admitted, so the contract's "block further mutations" holds only for the listed subset.
 - Acceptance: every method that reaches a persistence flush is classified `true`, derived from the same source the flush path uses rather than hand-listed; a test that walks `OpMessage['method']` and asserts each mutation is gated.
