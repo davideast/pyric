@@ -255,7 +255,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const starting = (async () => {
         const { createHostedRuntime } = await import('./hosted/runtime.js');
         hostedRuntime = await createHostedRuntime(payload, baseUrl, (message) => bridge.handleSandboxMessage(message), opts.projectKey ?? process.cwd(), ai);
-        if (closed) return;
+        if (closed) throw new Error('The hosted sandbox closed during startup.');
         disconnectHosted = bridge.registerSandboxPeer(
           hostedRuntime.receive,
           [...hostedRuntime.toolNames],
