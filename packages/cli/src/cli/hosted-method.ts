@@ -9,13 +9,14 @@ export async function callHostedMethod(
   key: string,
   args: Record<string, unknown>,
   projectDir: string,
+  allowProduction: boolean,
 ): Promise<OperationResult | null> {
   const lacksInstanceIdentity = host.instanceId === null;
   if (lacksInstanceIdentity) return null;
   const response = await fetch(new URL(HOSTED_METHOD_PATH, host.base), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ instanceId: host.instanceId, projectDir: realpathSync(projectDir), key, args }),
+    body: JSON.stringify({ instanceId: host.instanceId, projectDir: realpathSync(projectDir), key, args, allowProduction }),
     signal: AbortSignal.timeout(30_000),
   });
   const lacksMethodEndpoint = response.status === 404;

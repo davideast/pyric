@@ -10,6 +10,7 @@ export const hostedMethodRequest = z.object({
   projectDir: z.string(),
   key: z.string(),
   args: z.record(z.unknown()),
+  allowProduction: z.boolean().default(false),
 }).strict();
 
 export type HostedMethodRequest = z.infer<typeof hostedMethodRequest>;

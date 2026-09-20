@@ -353,7 +353,7 @@ export async function createHostedRuntime(
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
         const changesDurableState = hasMutationEffect && !changesHeldIdentity;
         if (changesDurableState) requireHealthyPersistence();
-        let outcome = await callMethod(method, args, surfaceContext);
+        let outcome = await callMethod(method, args, surfaceContext, call.allowProduction);
         if (changesDurableState) outcome = await persistMutationResult(outcome);
         const isRead = method.effect === 'read';
         if (isRead) return describeRead(outcome);

@@ -111,7 +111,7 @@ export async function runSurfaceMethod(
     const foundProjectHost = found !== null && found.source.startsWith('pointer');
     if (foundProjectHost) {
       try {
-        const result = await callHostedMethod(found, key, read.args, cwd);
+        const result = await callHostedMethod(found, key, read.args, cwd, allowProduction);
         const attachedToHost = result !== null;
         if (attachedToHost) {
           stderr.write(`pyric: hosted sandbox, ${found.url}\n`);
