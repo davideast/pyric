@@ -29,6 +29,7 @@ import {
   WORKER_RELAY_CAPABILITY,
   WORKER_PORT_CAPABILITY,
 } from '../protocol.js';
+import { createConsoleLogger, type BridgeLogger } from './logger.js';
 import { createOperationBudget } from '../operation-budget.js';
 import { hasValidToolReply } from './reply-envelope.js';
 import { hasValidReplyOutcome, snapshotError } from '../../serve/worker/outbound-validation.js';
@@ -47,6 +48,8 @@ export interface BridgeToolResult {
 export type SendToPeer = (msg: BridgeMessage) => void;
 
 export interface BridgeOptions {
+  /** Payload-free protocol diagnostics; defaults to the bridge stderr logger. */
+  logger?: BridgeLogger;
   /** Sandbox label surfaced in /health and audit-log paths. */
   project?: string;
   /** Local project directory identity supplied by the owning serve session. */
@@ -279,6 +282,7 @@ export function createBridge(opts: BridgeOptions): Bridge {
   const startedAt = new Date().toISOString();
   const instanceId = randomUUID();
   const onToolEvent = opts.onToolEvent;
+  const logger = opts.logger ?? createConsoleLogger();
 
   let peer: ActivePeer | null = null;
   const pending = new Map<string, PendingCall>();
@@ -611,14 +615,12 @@ export function createBridge(opts: BridgeOptions): Bridge {
     const isOperationReply = msg.type === 'tool-result' || msg.type === 'worker-res';
     const hasInvalidReplyId = isOperationReply && typeof msg.id !== 'string';
     if (hasInvalidReplyId) {
-      failAllPending('The sandbox sent a reply without a valid request ID.');
+      logger.error(`Discarded ${msg.type}: no usable request id.`);
       return;
     }
     const hasInvalidSubscriptionId = msg.type === 'worker-snap' && typeof msg.subId !== 'string';
     if (hasInvalidSubscriptionId) {
-      for (const subId of workerSubs.keys()) {
-        failWorkerSubscription(subId, { code: 'unavailable', message: 'The sandbox sent a snapshot without a valid subscription ID.' });
-      }
+      logger.error('Discarded worker-snap: no usable subscription id.');
       return;
     }
     switch (msg.type) {

@@ -59,6 +59,46 @@ databases checkpoint first; damaged ones remain archivable without checkpointing
 Never copy only the main file while a host is writing. Logical JSON exports use
 a consistent read transaction, without stopping the host.
 
+## Transport backlog and recovery
+
+Each WebSocket has one 24 MiB output backlog shared by all frames. The bridge
+closes that socket with code `1013` when sending the next encoded frame would
+exceed the limit. A stalled observation consumer therefore interrupts its own
+operations on that socket; healthy consumers on other sockets can continue.
+This bounds buffered socket output, not total host memory.
+
+Mutations already sent may have completed even if their acknowledgments are
+lost. Reconnect restores observations, including Firestore, RTDB, presence and
+event streams, without replaying writes. Callers must check state before
+retrying a mutation whose outcome is unknown.
+
+Per-consumer observation queues with drop reporting are not part of this
+release. The release policy is a shared socket cutoff and reconnect, not
+independent scheduling of operation and observation traffic.
+
+The backlog acceptance is
+the policy test in `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`;
+the separate resident-growth test tracks the host memory budget. Observation
+restoration is covered separately by
+`packages/cli/test/e2e/hosted/restart-subscriptions.pw.ts`.
+
+## Peer reply correlation
+
+A peer reply with a missing or non-string request id is discarded without
+settling any pending operation or tool call. A snapshot with a missing or
+non-string subscription id is discarded without closing any subscription.
+Each discarded frame emits one bridge error diagnostic naming the frame type
+and unusable id; the payload is not logged.
+
+Other valid replies continue normally. A call that receives no usable reply
+remains subject to its existing deadline; no write is automatically retried.
+A malformed result with a valid known id still fails only its matching caller.
+Peer disconnection and replacement retain their existing failure behavior for
+in-flight calls.
+
+This policy is pinned by
+`packages/cli/test/bridge/ledger/c8-malformed-peer-isolation.test.ts`.
+
 ## Limits and verification
 
 Storage operations retain the 8 MiB decoded limit. AI/Traffic history, delivery

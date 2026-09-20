@@ -19,7 +19,7 @@ import type { OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import { ensureRtdb } from './core.js';
 
-function normalizeDatabaseRules(source: unknown): { rules: Record<string, unknown> } | null {
+export function normalizeDatabaseRules(source: unknown): { rules: Record<string, unknown> } | null {
   if (source === null) return null;
   if (typeof source === 'string') {
     return JSON.parse(stripJsonComments(source)) as { rules: Record<string, unknown> };
