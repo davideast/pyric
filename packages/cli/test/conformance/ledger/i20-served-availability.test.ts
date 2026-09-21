@@ -60,6 +60,9 @@ test('existing unconditional worker refusals are imports-only too', () => {
   expect(canIUse('updateMetadata', { importPath: 'firebase/storage' })).toMatchObject({
     match: 'exact', supports: [{ served: 'imports-only' }],
   });
+  for (const feature of ['beforeAuthStateChanged', 'updateMetadata']) {
+    expect(canIUse(feature).supports[0]?.caveats[0]).toMatch(/served.*throws/i);
+  }
 });
 
 const imports = [
