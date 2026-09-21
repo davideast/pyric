@@ -6,6 +6,7 @@
       "packages/cli/test/serve/entries/ledger/i20-unsupported-exports.test.ts",
       "packages/cli/test/serve/worker/ledger/i20-account-linking.test.ts",
       "packages/cli/test/serve/worker/ledger/i20-reauthentication.test.ts",
+      "packages/cli/test/serve/worker/ledger/i20-action-codes.test.ts",
       "packages/pyric/test/storage/runtime-constants.test.ts",
       "packages/pyric/test/auth/runtime-constants.test.ts",
       "packages/pyric/test/ai/runtime-constants.test.ts"
