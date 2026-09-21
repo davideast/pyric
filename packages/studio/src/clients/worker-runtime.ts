@@ -16,6 +16,7 @@ interface EpochStorage {
 }
 
 export interface StudioWorkerRuntimeSnapshot {
+  mode?: 'hosted';
   servedEpoch: string | null;
   runningEpoch: string | null;
   updateAvailable: boolean;

@@ -179,7 +179,7 @@ function fakeWrite(id: string): SandboxEvent {
   return {
     kind: 'write',
     id,
-    at: 0,
+    at: Date.now(),
     method: 'create',
     path: `users/${id}`,
     auth: null,
@@ -200,13 +200,15 @@ describe('Studio Firestore data lens', () => {
   it('pins admin before the first data-view subscription is registered', () => {
     const sw = controllableSharedWorker();
     restore = sw.restore;
-    const plane = connectWorkerLive('worker://test')!;
+    const plane = connectWorkerLive('worker://test');
+    const hasNoPlane = plane === null;
+    if (hasNoPlane) throw new Error('Expected the live Studio plane');
     const users = plane.firestoreApi.collection(
       plane.db as never,
       'users',
     );
 
-    const unsubscribe = plane.firestoreApi.onSnapshot(users, () => {});
+    const unsubscribe = plane.firestoreApi.onSnapshot(plane.firestoreApi.query(users), () => {});
     const subscription = sw.port.sent.find(
       (message): message is { t: 'sub'; target: object; actAs?: { mode: string } } =>
         (message as { t?: string }).t === 'sub' &&
@@ -318,7 +320,7 @@ describe('workerEventFeed (F1 live-feed adapter)', () => {
     const boundary = {
       kind: 'session_boundary',
       id: 'b1',
-      at: 1,
+      at: Date.now(),
       phase: 'reset',
       priorOpCount: 3,
     } as unknown as SandboxEvent;

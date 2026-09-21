@@ -30,6 +30,7 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useStudioEvents } from './studio-events.js';
 import { useEnvironment } from './environment.js';
 import { useServeInit } from './serve-init.js';
 import { useBridgeAvailability } from './bridge-availability.js';
@@ -52,6 +53,14 @@ const getEmptyWorkerRuntime = () => EMPTY_WORKER_RUNTIME;
 export function StatusCluster() {
   const env = useEnvironment();
   const serve = useServeInit();
+  const events = useStudioEvents();
+  const [persistenceFailed, setPersistenceFailed] = useState(false);
+  const reportedPersistenceFailure = events.some(event => event.kind === 'runtime_error' && event.error.code === 'persistence-unhealthy');
+  const startedUnhealthy = serve.status === 'ready' && serve.payload.persistenceUnhealthy === true;
+  useEffect(() => {
+    const unhealthy = reportedPersistenceFailure || startedUnhealthy;
+    if (unhealthy) setPersistenceFailed(true);
+  }, [reportedPersistenceFailure, startedUnhealthy]);
   const bridgeAvailability = useBridgeAvailability();
   const presence = usePresenceView();
   const [presenceOpen, setPresenceOpen] = useState(false);
@@ -60,8 +69,10 @@ export function StatusCluster() {
   const [remoteOpen, setRemoteOpen] = useState(false);
   const remoteTriggerRef = useRef<HTMLButtonElement>(null);
   const studioData = useStudioDataSource();
-  const authHandle = studioData.status === 'ready' ? (studioData.handles?.auth as any) : undefined;
-  const workerRuntime = env.status === 'ready' ? env.env.live?.runtime : undefined;
+  const hasStudioData = studioData.status === 'ready';
+  const authHandle = hasStudioData ? studioData.handles?.auth : undefined;
+  const environmentReady = env.status === 'ready';
+  const workerRuntime = environmentReady ? env.env.live?.runtime : undefined;
   const workerRuntimeSnapshot = useSyncExternalStore(
     workerRuntime?.subscribe ?? subscribeToNothing,
     workerRuntime?.getSnapshot ?? getEmptyWorkerRuntime,
@@ -71,19 +82,22 @@ export function StatusCluster() {
   const served = serve.status === 'ready';
   const workerDown = served && env.status === 'ready' && !env.env.live;
   const envDown = env.status === 'error';
-  const degraded = workerRuntimeSnapshot.error
-    ? 'worker update failed'
-    : envDown
-      ? 'backend error'
-      : workerDown
-        ? 'worker unreachable'
-        : null;
-  const degradedTitle = workerRuntimeSnapshot.error
-    ?? (envDown
-      ? env.error.message
-      : 'Served, but the shared sandbox worker is not reachable; data views may be stale. Open Settings diagnostics.');
+  const isHostedRuntime = 'mode' in workerRuntimeSnapshot && workerRuntimeSnapshot.mode === 'hosted';
+  const runtimeFailureLabel = isHostedRuntime ? workerRuntimeSnapshot.error : 'worker update failed';
+  const hasRuntimeError = workerRuntimeSnapshot.error !== null;
+  let degraded: string | null = null;
+  if (workerDown) degraded = 'worker unreachable';
+  if (envDown) degraded = 'backend error';
+  if (hasRuntimeError) degraded = runtimeFailureLabel;
+  if (persistenceFailed) degraded = 'persistence failed — writes blocked';
+  let degradedTitle = 'Served, but the shared sandbox worker is not reachable; data views may be stale. Open Settings diagnostics.';
+  if (envDown) degradedTitle = env.error.message;
+  if (hasRuntimeError) degradedTitle = workerRuntimeSnapshot.error ?? degradedTitle;
+  if (persistenceFailed) degradedTitle = 'Reads may include unsaved changes. Repair the hosted store and restart the host.';
 
-  const connected = bridgeAvailability === 'available';
+  const hasRuntimeConnection = !hasRuntimeError;
+  const connected = isHostedRuntime ? hasRuntimeConnection : bridgeAvailability === 'available';
+  const showsConnectionCounts = !isHostedRuntime || hasRuntimeConnection;
 
   useEffect(() => {
     if (!presenceOpen) return;
@@ -97,9 +111,34 @@ export function StatusCluster() {
     return () => document.removeEventListener('keydown', onKey);
   }, [presenceOpen]);
 
+  const hasWorkerUpdate = workerRuntimeSnapshot.updateAvailable;
+  const isUpdating = workerRuntimeSnapshot.updating;
+  const updateLabel = isUpdating ? 'updating worker…' : 'update worker';
+  const isDegraded = degraded !== null;
+  const hasPresence = showsConnectionCounts && presence !== null && presence.count > 0;
+  const prominentPresence = presence?.prominent === true;
+  const presenceClass = prominentPresence ? 'studio-chip studio-chip--live studio-presence__trigger' : 'studio-chip studio-presence__trigger';
+  const hasOtherPages = presence !== null && presence.otherCount > 0;
+  const hasOneOtherPage = presence?.otherCount === 1;
+  const otherPageSuffix = hasOneOtherPage ? '' : 's';
+  let presenceTitle = `${presence?.chipLabel}. Expand for details.`;
+  if (hasOtherPages) presenceTitle = `${presence.chipLabel}. ${presence.otherCount} other page${otherPageSuffix} can keep the worker alive.`;
+  if (isHostedRuntime) presenceTitle = `${presence?.chipLabel}. These pages share the Node host.`;
+  const presenceBoundary = isHostedRuntime ? 'Data is shared by every client connected to this host.' : presence?.boundaryCopy;
+  const isOnlyPage = presence?.count === 1;
+  let presenceLead = isOnlyPage
+    ? 'This page is the only connection to the shared sandbox worker.'
+    : `${presence?.count} pages share this sandbox worker. Closing this page alone will not restart it.`;
+  if (isHostedRuntime) presenceLead = 'These pages share the Node-hosted sandbox. Closing a page does not stop the host.';
+  const hasRemoteClients = showsConnectionCounts && remoteConsumers.length > 0;
+  const hasOneRemoteClient = remoteConsumers.length === 1;
+  const remoteSuffix = hasOneRemoteClient ? '' : 's';
+  const remoteLabel = hasOneRemoteClient ? '1 remote client' : `${remoteConsumers.length} remote clients`;
+
+
   return (
     <div className="studio__status" aria-label="Studio status">
-      {workerRuntimeSnapshot.updateAvailable ? (
+      {hasWorkerUpdate && (
         <button
           type="button"
           className="studio-chip studio-chip--warn"
@@ -108,10 +147,10 @@ export function StatusCluster() {
           onClick={() => void workerRuntime?.update().catch(() => {})}
         >
           <span className="studio-chip__dot" aria-hidden="true" />
-          {workerRuntimeSnapshot.updating ? 'updating worker…' : 'update worker'}
+          {updateLabel}
         </button>
-      ) : null}
-      {degraded ? (
+      )}
+      {isDegraded && (
         <a
           className="studio-chip studio-chip--warn"
           href={hrefFor({ tab: 'settings' })}
@@ -124,31 +163,23 @@ export function StatusCluster() {
           <span className="studio-chip__dot" aria-hidden="true" />
           {degraded}
         </a>
-      ) : null}
-      {presence && presence.count > 0 ? (
+      )}
+      {hasPresence && (
         <span className="studio-presence">
           <button
             ref={presenceTriggerRef}
             type="button"
-            className={
-              presence.prominent
-                ? 'studio-chip studio-chip--live studio-presence__trigger'
-                : 'studio-chip studio-presence__trigger'
-            }
+            className={presenceClass}
             aria-haspopup="dialog"
             aria-expanded={presenceOpen}
             aria-controls="studio-presence-panel"
-            title={
-              presence.otherCount > 0
-                ? `${presence.chipLabel}. ${presence.otherCount} other page${presence.otherCount === 1 ? '' : 's'} can keep the worker alive.`
-                : `${presence.chipLabel}. Expand for details.`
-            }
+            title={presenceTitle}
             onClick={() => setPresenceOpen((o) => !o)}
           >
             <span className="studio-chip__dot" aria-hidden="true" />
             {presence.chipLabel}
           </button>
-          {presenceOpen ? (
+          {presenceOpen && (
             <>
               <div
                 className="studio-presence__backdrop"
@@ -161,9 +192,7 @@ export function StatusCluster() {
                 aria-label="Connected pages"
               >
                 <p className="studio-presence__lead">
-                  {presence.count === 1
-                    ? 'This page is the only connection to the shared sandbox worker.'
-                    : `${presence.count} pages share this sandbox worker. Closing this page alone will not restart it.`}
+                  {presenceLead}
                 </p>
                 <ul className="studio-presence__list">
                   {presence.clients.map((c) => (
@@ -183,13 +212,13 @@ export function StatusCluster() {
                     </li>
                   ))}
                 </ul>
-                <p className="studio-presence__boundary">{presence.boundaryCopy}</p>
+                <p className="studio-presence__boundary">{presenceBoundary}</p>
               </div>
             </>
-          ) : null}
+          )}
         </span>
-      ) : null}
-      {remoteConsumers.length > 0 ? (
+      )}
+      {hasRemoteClients && (
         <span className="studio-remote-clients">
           <button
             ref={remoteTriggerRef}
@@ -198,11 +227,11 @@ export function StatusCluster() {
             aria-haspopup="dialog"
             aria-expanded={remoteOpen}
             aria-controls="studio-remote-clients-panel"
-            title={`${remoteConsumers.length} remote mobile client${remoteConsumers.length === 1 ? '' : 's'} connected over the bridge. Click to control identity.`}
+            title={`${remoteConsumers.length} remote client${remoteSuffix} connected over the bridge. Click to control identity.`}
             onClick={() => setRemoteOpen((o) => !o)}
           >
             <span className="studio-chip__dot" aria-hidden="true" />
-            {remoteConsumers.length === 1 ? '1 remote client' : `${remoteConsumers.length} remote clients`}
+            {remoteLabel}
           </button>
           <RemoteClientsPopover
             isOpen={remoteOpen}
@@ -213,8 +242,8 @@ export function StatusCluster() {
             auth={authHandle}
           />
         </span>
-      ) : null}
-      {connected ? (
+      )}
+      {connected && (
         <span
           className="studio-chip studio-chip--live"
           title="MCP bridge available — a sandbox peer is connected; external agents can reach this sandbox."
@@ -222,7 +251,7 @@ export function StatusCluster() {
           <span className="studio-chip__dot" aria-hidden="true" />
           MCP bridge
         </span>
-      ) : null}
+      )}
     </div>
   );
 }
