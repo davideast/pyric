@@ -1,0 +1,6 @@
+{
+  "profile": "local",
+  "suite": "http-overload",
+  "cases": ["http-normal", "http-unguarded", "http-user-guard", "http-combined-guard", "http-instance-guard", "http-timeout-drain", "http-disconnect-drain", "http-instance-drain"],
+  "limits": { "maxRequests": 250 }
+}

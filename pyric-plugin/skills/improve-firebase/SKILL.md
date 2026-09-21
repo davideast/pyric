@@ -56,6 +56,10 @@ Do not start a server merely to make the audit look thorough. If runtime evidenc
 
 ### Phase 2 — Collect Pyric evidence
 
+For multiplayer state, shared-document updates or exclusive claims, read
+[references/multiplayer-experiments.md](references/multiplayer-experiments.md).
+Use retained, versioned local experiments before promoting architectural guidance.
+
 Run only the applicable probes from [references/AUDIT.md](references/AUDIT.md):
 
 - Before judging a Firestore or Storage model, query the installed Rules Standard Library for that service. Read the exact signatures and compatibility of every candidate module. Use the bundled reference when the installed tool surface lacks service-neutral catalog tools. Do not copy library function bodies into project Rules.

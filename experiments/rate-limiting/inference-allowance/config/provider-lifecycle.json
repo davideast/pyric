@@ -1,0 +1,23 @@
+{
+  "profile": "local",
+  "suite": "provider-lifecycle",
+  "cases": [
+    "lifecycle-normal-stream",
+    "lifecycle-owner-cancel",
+    "lifecycle-cancel-ignored",
+    "lifecycle-deadline",
+    "lifecycle-disconnect",
+    "lifecycle-completion-race",
+    "lifecycle-before-dispatch",
+    "lifecycle-unknown",
+    "lifecycle-truncated-stream",
+    "lifecycle-transport-control",
+    "lifecycle-confirmed-pending",
+    "lifecycle-confirmed-resolved",
+    "lifecycle-completed-pending",
+    "lifecycle-confirmed-rejected"
+  ],
+  "limits": {
+    "maxRequests": 70
+  }
+}

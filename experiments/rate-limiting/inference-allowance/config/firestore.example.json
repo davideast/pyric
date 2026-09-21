@@ -1,0 +1,22 @@
+{
+  "profile": "firestore-comparison",
+  "projectId": "replace-with-test-project",
+  "databaseId": "allowance-experiments",
+  "inference": {
+    "provider": "fake"
+  },
+  "cases": [
+    "portable-burst",
+    "refill",
+    "isolation",
+    "duplicates",
+    "before-commit-failure",
+    "commit-ack-lost",
+    "dispatch-ack-lost",
+    "provider-failure",
+    "malformed"
+  ],
+  "limits": {
+    "maxRequests": 150
+  }
+}

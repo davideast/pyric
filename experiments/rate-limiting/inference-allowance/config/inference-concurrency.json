@@ -1,0 +1,10 @@
+{
+  "profile": "local",
+  "suite": "http-overload",
+  "cases": [
+    "execution-admission-only", "execution-user-guard", "execution-instance-guard",
+    "execution-stream", "execution-timeout-ignored", "execution-disconnect-ignored",
+    "execution-cancel-confirmed", "execution-provider-error", "execution-sustained"
+  ],
+  "limits": { "maxRequests": 70 }
+}
