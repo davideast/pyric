@@ -101,6 +101,7 @@ function harness(options: {
           changedNodes = [];
           return drained;
         },
+        discard() { changedNodes = []; },
         stop: () => {},
       }),
     },
@@ -389,7 +390,7 @@ describe('the two painting modes', () => {
     expect(page.flowWatching()).toBe(true);
 
     page.mode.setEnabled(false);
-    expect(page.flowWatching()).toBe(false);
+    expect(page.flowWatching()).toBe(true);
     page.mode.setEnabled(true);
     expect(page.mode.mode()).toBe('flow');
     expect(page.flowWatching()).toBe(true);
