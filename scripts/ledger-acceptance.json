@@ -1,4 +1,8 @@
 {
+  "I20": {
+    "phase": 2,
+    "tests": ["packages/cli/test/serve/entries/ledger/i20-served-public-exports.test.ts"]
+  },
   "C17": {
     "phase": 2,
     "tests": [
