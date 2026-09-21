@@ -345,6 +345,11 @@
     "auth_reset",
     "auth_whoami",
     "auth_sessions",
-    "messaging_deliveries"
+    "messaging_deliveries",
+    "sandbox_save_capture",
+    "sandbox_list_captures",
+    "sandbox_open_capture",
+    "sandbox_rename_capture",
+    "sandbox_delete_capture"
   ]
 }
