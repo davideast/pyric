@@ -46,6 +46,27 @@ test('capacity experiment capture selects its own document namespace and exclude
     } finally { await rm(out, { recursive: true, force: true }); }
 });
 
+test('provider contract experiment capture selects its own document namespace and excludes allowance records', async () => {
+    const out = await mkdtemp(join(tmpdir(), 'provider-logs-'));
+    const capacityAudit = JSON.parse(JSON.stringify(audit).replaceAll('allowanceExperiments', 'providerContractExperiments'));
+    const filters: string[] = [];
+    const api = { async request(_method, _url, body) {
+        filters.push(body.filter);
+        if (body.filter.includes('jsonPayload.runId')) return { entries: [app('start', 'request-start'), app('end', 'request-work-settled')] };
+        if (body.filter.includes('run.googleapis.com/requests')) return { entries: [http] };
+        return { entries: [capacityAudit, audit] };
+    } };
+    try {
+        const report = await captureLogs({ ...input, documentCollection: 'providerContractExperiments' }, { out, api, waitMs: 0 });
+        expect(report.coverage.status).toBe('observed');
+        expect(filters.some(filter => filter.includes('/documents/providerContractExperiments/backend-one/cases/case-one'))).toBe(true);
+        const rows = await records(out, 'firestore-audit');
+        expect(rows).toHaveLength(1);
+        expect(rows[0].correlation.paths.every(path => path.includes('/providerContractExperiments/'))).toBe(true);
+        await expect(captureLogs({ ...input, documentCollection: 'unrelated' }, { out, api, waitMs: 0 })).rejects.toThrow('Invalid capture document collection');
+    } finally { await rm(out, { recursive: true, force: true }); }
+});
+
 test('explicit default-bucket recovery records both views without widening experiment filters', async () => {
     const out = await mkdtemp(join(tmpdir(), 'recover-logs-'));
     const defaultView = 'projects/test-project/locations/global/buckets/_Default/views/_AllLogs';

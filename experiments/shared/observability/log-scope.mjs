@@ -27,7 +27,7 @@ export function captureScope(value) {
     if (!Number.isInteger(value.expectedRequests) || value.expectedRequests < 0 || value.expectedRequests > 10000) throw new Error('Invalid expected request count');
     input.expectedRequests = value.expectedRequests;
     if (value.documentCollection !== undefined) {
-        if (!['allowanceExperiments', 'capacityExperiments'].includes(value.documentCollection)) throw new Error('Invalid capture document collection');
+        if (!['allowanceExperiments', 'capacityExperiments', 'providerContractExperiments'].includes(value.documentCollection)) throw new Error('Invalid capture document collection');
         input.documentCollection = value.documentCollection;
     }
     input.logView = value.logView ?? `projects/${input.project}/locations/global/buckets/pyric-experiments/views/_AllLogs`;

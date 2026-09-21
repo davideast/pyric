@@ -1,0 +1,12 @@
+{
+  "enabled": false,
+  "provider": { "kind": "ai-logic", "backend": "GoogleAI", "api": "v1beta", "model": "REQUIRES_APPROVAL" },
+  "project": "REQUIRES_APPROVAL",
+  "limits": { "maxDispatches": 12, "maxConcurrent": 2, "maxOutputTokens": 64, "runDeadlineMs": 180000, "requestDeadlineMs": 30000 },
+  "cases": ["normal-response", "normal-stream", "abort-before-dispatch", "abort-after-chunk"],
+  "repetitions": 1,
+  "unknownOperationsRetainCapacityAcrossCases": true,
+  "automaticRetries": false,
+  "credentials": "Supply through runtime callbacks; never this file or a capture",
+  "transport": "Browser to Cloud Run to AI Logic requires a separately approved gateway deployment"
+}

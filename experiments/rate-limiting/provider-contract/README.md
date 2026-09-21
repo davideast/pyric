@@ -9,8 +9,8 @@ is Firebase AI Logic, with the exact provider, API, model and SDK pinned at run 
 Do not presume that a model endpoint has an operation-status, cancellation or
 idempotency API merely because another API from the same provider does.
 
-**Status: build brief only. This directory currently contains only this README.**
-All new files and commands below are requirements for the implementing agent.
+**Status: local implementation complete; live inference and deployment disabled.**
+The original investigation brief below remains the specification. See [local results](./RESULTS.md) and [live handoff](./LIVE-PLAN.md) for the implemented scope and remaining work.
 Follow the [shared build and evidence contract](../README.md#common-implementation-contract-for-all-four-briefs).
 No deployment or real inference is authorised by this brief.
 
@@ -62,7 +62,7 @@ provider-contract/
   scenarios/*.mjs                       # One interruption schedule per file
   harness/runner.mjs                     # Public programmatic seam and barriers
   analysis/assess.mjs                   # Coverage, evidence strength and conclusions
-  config/local.json                     # Fake provider, no credentials/network
+  config/local.json                     # Fake provider, loopback only; no credentials
   config/live.example.json              # Disabled, explicit budgets/target fields
   tests/*.test.ts
   capture-definition.mjs
@@ -154,9 +154,9 @@ AI latency. A scripted provider and a real model are different implementations;
 report a capability/contract comparison, not source-identical provider parity.
 The gateway/classifier code and relevant input policy should remain identical.
 
-## Run contract to implement — commands do not exist yet
+## Running the local implementation
 
-From the repository root, after building the proposed CLI:
+From the repository root, with workspace dependencies installed and Pyric built:
 
 ```sh
 bun test experiments/rate-limiting/provider-contract/tests
@@ -164,10 +164,9 @@ bun experiments/rate-limiting/provider-contract/run.mjs run --config experiments
 bun experiments/rate-limiting/provider-contract/run.mjs verify CAPTURE
 bun experiments/rate-limiting/provider-contract/run.mjs replay CAPTURE --out /tmp/provider-replay
 bun experiments/rate-limiting/provider-contract/run.mjs analyze CAPTURE
-bun experiments/rate-limiting/provider-contract/run.mjs compare FIXTURE_CAPTURE LIVE_CAPTURE --mode contract --out /tmp/provider-comparison.json
-bun experiments/rate-limiting/provider-contract/run.mjs preflight --config /tmp/provider-live.json
-# Only after explicit approval of this model, target and budget:
-bun experiments/rate-limiting/provider-contract/run.mjs run --config /tmp/provider-live.json --allow-production --allow-real-inference --out /tmp/provider-live
+bun experiments/rate-limiting/provider-contract/run.mjs compare CAPTURE REPLAY
+bun experiments/rate-limiting/provider-contract/run.mjs preflight --config experiments/rate-limiting/provider-contract/config/local.json
+# The disabled live example intentionally fails preflight; no CLI can deploy or call a model.
 ```
 
 Use synthetic prompts with no family/user data. The first live plan must state a
