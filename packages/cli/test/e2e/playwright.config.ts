@@ -15,6 +15,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE ?? 'http://127.0.0.1:5180',
     headless: true,
+    trace: 'retain-on-failure',
     ignoreHTTPSErrors: true,
   },
   // Only auto-start a localhost serve when not pointed at an external (tailnet) base.
