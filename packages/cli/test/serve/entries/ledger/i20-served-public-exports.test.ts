@@ -11,7 +11,8 @@ async function publicRuntimeExports(entryPoint: string): Promise<string[]> {
     platform: 'browser', format: 'esm', target: 'es2022', logLevel: 'silent',
   });
   const entry = Object.values(result.metafile.outputs).find(output => output.entryPoint);
-  if (!entry) throw new Error(`No bundled entry for ${entryPoint}`);
+  const missingEntry = entry === undefined;
+  if (missingEntry) throw new Error(`No bundled entry for ${entryPoint}`);
   // Underscore-prefixed exports are Firebase internals, not public runtime names.
   // There are no other exclusions: classes and values count as well as functions.
   return entry.exports.filter(name => !name.startsWith('_')).sort();
