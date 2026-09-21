@@ -718,7 +718,7 @@ All recorded resident-growth measurements are bytes:
 
 ### I21. inspect_auth_flow advertises take_mail and nothing implements it
 
-- Severity: should-fix. Slice: `core tools`. Status: open; owner decision required before wiring it under the served-entry work.
+- Severity: should-fix. Slice: `core tools`. Status: open, assigned to Codex; ruled. Owner ruling, 2026-09-21 ("Go with your recommendations"): connect the advertised action to the forwarded Auth outbox operation and keep it advertised; a failing acceptance through the real tool dispatcher comes first; the tool parity check applies; it lands on `main` as its own pull request after I20, whose operation it depends on.
 - Location: `packages/cli/src/bridge/surface/render/discriminator-schemas.ts` advertises `take_mail`; `packages/cli/src/bridge/surface/render/discriminator-routes.ts` has no corresponding `AUTH_ROUTES` entry or handler.
 - Defect: the rendered tool advertises a mailbox action that cannot dispatch. The engine has a consuming, in-memory Auth outbox and the served worker now forwards `auth.takeMail`; the rendered tool still does not reach it.
 - Scope: connecting the existing operation may be a small route/handler change, but the tool dispatch and schema must be tested together. It is separate from served SDK forwarding and awaits the owner's call.
