@@ -229,6 +229,15 @@ Each is `declined` or `open` once you decide. Record the decision here.
 - The in-page tab-sync fallback no longer propagates sign-in and sign-out across tabs (`packages/cli/src/serve/entries/tab-sync-wiring.ts`). The rewritten tests pin the new behavior. This is a visible change for users of the fallback.
 - Pending observations with no terminal status are exempt from every history limit (`packages/pyric/src/sandbox/internal/event-history.ts:232`). No code under `packages/cli/src/serve` emits `interrupted` or `cancelled` for a dropped client.
 
+### C15. On `main`, Studio cannot attach to a hosted sandbox and reconnects in a loop
+
+- Severity: should-fix; blocks using Studio while testing hosted mode. Slice: `studio`. Status: fix cut as `slice/studio-hosted` `e094d121` on `main` `f6e30f35`, awaiting owner approval to publish. Found by the reviewer on 2026-09-23 when the owner asked whether all of hosted mode was on `main`. The reviewer had filed every Studio change under phase 5 and deferred the phase; that was too coarse, because the hosted client is product function and not polish.
+- Observation, headless Chromium against `pyric sandbox --hosted` from a full build of `main`: Studio opened about 70 WebSocket connections to `/__pyric/sandbox` in 34 s, the page never reached network idle, the live activity feed read "No activity yet", and the seeded collection was not listed. The Node host was not disturbed: an MCP read afterward returned the document, and diagnostics still reported hosted and healthy.
+- Cause: `studio/src/clients/worker-live.ts` on `main` never reads the hosted target, so Studio starts its own SharedWorker sandbox and `env.ts` registers it as the bridge's browser peer. The Node host already holds that role, the registration is refused, and Studio retries.
+- Fix: nine files from the integration branch, none from the traffic inspector redesign: `clients/hosted-runtime.ts` (new), `clients/worker-live.ts` and its test, `clients/worker-runtime.ts`, `env.ts`, `shell/serve-init.ts`, `shell/StatusCluster.tsx`, and the playground's `lib/sandbox/runtime.ts` and `layouts/BaseLayout.astro`.
+- Verified on the slice after a full build: against a hosted server Studio opens 2 sockets and holds them, lists the collection, and shows the write in the activity feed, matching the integration branch. Against a default SharedWorker server the probe's output is identical to `main`'s (2 sockets, the same network-idle timeout, the same 404s), so that mode is unchanged. Studio 549 tests and the UI suites pass; Studio, UI, and cli typecheck. The 401 responses in the hosted probe's console appear on the integration branch too and are not the cause.
+- Left on the integration branch, still phase 5: the traffic request inspector, `TrafficSurface`, `traffic.css`, `verdict.ts`, `studio-events.ts`, the two `packages/ui` traffic components, and the playground checkpoint script.
+
 ## D. Spec gaps and contract violations
 
 Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the combined live-mode contract is preserved on `live/parked`.
