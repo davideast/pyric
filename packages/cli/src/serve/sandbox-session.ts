@@ -32,7 +32,7 @@ import {
 } from './state-store.js';
 import { restoredStateCounts } from './state-summary.js';
 import { parseStateFile } from './state-file.js';
-import { createHostedPersistence, type HostedPersistence } from './hosted/persistence.js';
+import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
 
 export interface SandboxSessionOptions {
   boundHost?: string;
@@ -202,7 +202,10 @@ export async function createSandboxSession(
   const persistsSession = Boolean(options.persistence || options.hosted);
   let hostedPersistence: HostedPersistence | undefined;
   const usesHostedPersistence = options.hosted === true;
-  if (usesHostedPersistence) hostedPersistence = await createHostedPersistence(options.projectDir, { fresh: options.persistence?.fresh });
+  if (usesHostedPersistence) {
+    hostedPersistence = await createHostedPersistence(options.projectDir, { fresh: options.persistence?.fresh });
+    for (const line of formatStorageRepairs(hostedPersistence.repairedObjects)) options.logger?.note(line);
+  }
   try {
     const state: StateStore | undefined = hostedPersistence?.state ?? (persistsSession ? createStateStore(options.projectDir) : undefined);
     const hasStateStore = state !== undefined;
