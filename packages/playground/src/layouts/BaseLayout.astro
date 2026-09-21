@@ -12,6 +12,8 @@ const base = import.meta.env.BASE_URL;
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Playground owns its sandbox runtime; the CLI should only stamp host selection. -->
+    <meta name="pyric-sandbox-build" content="1" data-pyric-sandbox-build />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
     <title>{title}</title>

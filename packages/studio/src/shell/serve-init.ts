@@ -22,6 +22,7 @@ export interface ServeInitPayload {
   databaseRulesHash?: string | null;
   bridgeUrl?: string | null;
   persist?: boolean;
+  persistenceUnhealthy?: boolean;
   seed?: Record<string, Record<string, unknown>> | null;
 }
 

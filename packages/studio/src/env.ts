@@ -164,13 +164,14 @@ export function createStudioEnvironment(
   mode: StudioMode,
   options: StudioEnvironmentOptions = {},
 ): StudioEnvironment {
-  if (mode === 'local') {
+  const isLocal = mode === 'local';
+  if (isLocal) {
     // Default to same-origin: `pyric dev --ui` serves Studio AND the routes
     // from one server, so an empty base resolves `/__pyric/*` against it.
     const baseUrl = options.baseUrl ?? '';
     const staticBuild = isStudioStatic();
-    const persistence: PersistenceBackend =
-      options.persistence === 'memory' || staticBuild
+    const usesMemory = options.persistence === 'memory' || staticBuild;
+    const persistence: PersistenceBackend = usesMemory
         ? createMemoryBackend()
         : httpPersistence(baseUrl);
 
@@ -179,7 +180,8 @@ export function createStudioEnvironment(
     // live, not a mirror. `connectWorkerLive` returns null when no SharedWorker
     // is present (SSR / unsupported browser / tests), so the HTTP project +
     // persistence path remains the fallback and the env never throws here.
-    const live = options.disableLive
+    const disablesLive = options.disableLive === true;
+    const live = disablesLive
       ? null
       : connectWorkerLive(options.workerUrl);
 
@@ -190,10 +192,12 @@ export function createStudioEnvironment(
     // factory stays synchronous, and the peer connect no-ops cleanly when no
     // serve is present (dev-seed / review) or the bridge is off. The status
     // store observes the connection so the shell's presence chip stays honest.
-    const bridge = live ? createBridgeStatusStore() : null;
+    const registersBrowserPeer = live !== null && live.runtime.getSnapshot().mode !== 'hosted';
+    const bridge = registersBrowserPeer ? createBridgeStatusStore() : null;
     let disposed = false;
     let bridgeConnection: ConnectedBridge | null = null;
-    if (live && bridge) {
+    const registersPeer = live !== null && bridge !== null;
+    if (registersPeer) {
       void connectStudioBridgePeer(live.db, {
         baseUrl,
         onStateChange: (state) => bridge.set(state),
@@ -207,8 +211,7 @@ export function createStudioEnvironment(
       mode,
       projects: staticBuild ? createMemoryProjectStore() : httpProjectStore(baseUrl),
       persistence,
-      ...(live ? { live } : {}),
-      ...(bridge ? { bridge } : {}),
+
       dispose() {
         disposed = true;
         bridgeConnection?.disconnect();
@@ -217,7 +220,12 @@ export function createStudioEnvironment(
     };
     // A static build has no server behind `/__pyric/workspace`, so it gets no
     // workspace port at all rather than one whose every read fails.
-    if (!staticBuild) environment.workspace = httpWorkspace(baseUrl);
+    const hasLivePlane = live !== null;
+    const hasBridge = bridge !== null;
+    if (hasLivePlane) environment.live = live;
+    if (hasBridge) environment.bridge = bridge;
+    const hasWorkspaceServer = !staticBuild;
+    if (hasWorkspaceServer) environment.workspace = httpWorkspace(baseUrl);
     return environment;
   }
 
