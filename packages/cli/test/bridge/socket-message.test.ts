@@ -22,9 +22,16 @@ import {
 } from '../../src/bridge/protocol.js';
 import type { SandboxEvent } from 'pyric/sandbox';
 
+/** A request that was never sent did not run, so its caller may retry. */
+const unsentRequestError = {
+  code: 'resource-exhausted',
+  message: 'Bridge output backlog exceeded; the request was not sent. Retry this operation.',
+};
+
+/** A response that was dropped belongs to an operation that already ran. */
 const backlogError = {
   code: 'resource-exhausted',
-  message: 'Bridge output backlog exceeded; retry this operation.',
+  message: 'Bridge output backlog exceeded; the response was not delivered. The operation may have completed.',
 };
 
 interface FakeSocket {
@@ -177,7 +184,7 @@ describe('sendBridgeMessage — output backlog', () => {
         id: 'op-7',
         clientSessionId: 'session-c',
         ok: false,
-        error: backlogError,
+        error: unsentRequestError,
       },
     ]);
   });
@@ -199,8 +206,38 @@ describe('sendBridgeMessage — output backlog', () => {
     expect(socket.closes).toEqual([]);
     expect(socket.sent).toEqual([]);
     expect(refusals).toEqual([
-      { type: 'tool-result', id: 'call-8', ok: false, error: backlogError },
+      { type: 'tool-result', id: 'call-8', ok: false, error: unsentRequestError },
     ]);
+  });
+
+  it('delivers a small response on a full socket instead of failing a finished operation', () => {
+    const socket = fakeSocket(MAX_QUEUED_OPERATION_BYTES);
+    const acknowledgment: BridgeMessage = {
+      type: 'worker-res',
+      id: 'add-doc-1',
+      clientSessionId: 'session-a',
+      ok: true,
+      value: { path: 'orders/abc' },
+    };
+    sendBridgeMessage(asWebSocket(socket), acknowledgment);
+
+    expect(socket.closes).toEqual([]);
+    expect(socket.sent).toEqual([acknowledgment]);
+  });
+
+  it('counts small responses delivered on a full socket toward the overshoot bound', () => {
+    const socket = fakeSocket(MAX_QUEUED_OPERATION_BYTES);
+    const started = socket.bufferedAmount;
+    let delivered = 0;
+    while (socket.closes.length === 0 && delivered < 1_000_000) {
+      sendBridgeMessage(asWebSocket(socket), {
+        type: 'worker-res', id: `ack-${delivered}`, clientSessionId: 'session-a', ok: true, value: 'x'.repeat(2048),
+      });
+      delivered += 1;
+    }
+
+    expect(socket.closes).toEqual([{ code: 1013, reason: expect.stringContaining('backlog') }]);
+    expect(socket.bufferedAmount - started).toBeLessThanOrEqual(MAX_PENDING_OPERATIONS * 4096);
   });
 
   it('closes an over-backlog pushed observation batch with 1013', () => {
