@@ -56,7 +56,7 @@ describe('httpPersistence', () => {
     const { baseUrl, seen } = stateServer(new Map());
     const persistence = httpPersistence(baseUrl);
 
-    await persistence.putRecords('firestore', [['notes/second', { title: 'Written' }]]);
+    await persistence.putRecords('firestore', new Map([['notes/second', { title: 'Written' }]]));
     await persistence.clear('auth');
 
     const writes = seen.filter((request) => request.method === 'POST');
