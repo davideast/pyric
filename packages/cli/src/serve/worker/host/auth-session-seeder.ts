@@ -10,6 +10,7 @@ import {
   type User,
 } from 'pyric/auth';
 import { serializeUser } from '../protocol.js';
+import { FirebaseError } from 'pyric/app';
 
 /** Payload describing an OAuth credential submitted for sign-in over the bridge. */
 export interface OAuthCredentialPayload {
@@ -52,6 +53,18 @@ export function makeNoUserError(api: string): Error & { code: string } {
 /** Ensure a port session is present or throw `auth/no-current-user`. */
 export function requirePortSession(session: MintedSession | null, api: string): MintedSession {
   if (!session) throw makeNoUserError(api);
+  return session;
+}
+
+/** A held user handle may not act on a connection that has switched identities. */
+export function requireMatchingPortSession(
+  current: MintedSession | null,
+  message: { method: string; uid: string; tenantId: string | null },
+): MintedSession {
+  const session = requirePortSession(current, message.method);
+  const sameUser = session.user.uid === message.uid && session.user.tenantId === message.tenantId;
+  const isStaleUser = !sameUser;
+  if (isStaleUser) throw new FirebaseError('auth/user-mismatch', 'The user no longer owns this connection’s session.');
   return session;
 }
 

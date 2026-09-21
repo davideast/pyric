@@ -10,11 +10,15 @@ export function installServeAuthResolver(next: AuthFlowResolver): void {
 export function resolveServeAuthFlow(
   request: AuthFlowRequest,
   kind: 'popup' | 'redirect',
+  perCall?: AuthFlowResolver,
 ): Promise<UserCredential> {
-  if (!resolver) {
+  const selected = perCall ?? resolver;
+  const isUnavailable = selected === null;
+  if (isUnavailable) {
     return Promise.reject(
       new Error('pyric sandbox provider helper is not initialized; load /__pyric/sdk/init.js first'),
     );
   }
-  return kind === 'popup' ? resolver.openPopup(request) : resolver.openRedirect(request);
+  const isPopup = kind === 'popup';
+  return isPopup ? selected.openPopup(request) : selected.openRedirect(request);
 }

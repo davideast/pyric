@@ -41,6 +41,7 @@ import {
 } from './host/auth-session-seeder.js';
 
 import { linkSessionProvider } from './host/auth-linking.js';
+import { reauthenticateSession } from './host/auth-reauthentication.js';
 
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
 
@@ -397,6 +398,18 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           ok(port, msg.id, serializeUser(freshSession.user));
         }
       } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.reauthenticateWithCredential':
+    case 'auth.reauthenticateWithProvider': {
+      try {
+        const original = portSession(ctx, port);
+        const { session, providerId } = await reauthenticateSession(original, msg);
+        const stillOwnsSession = portSession(ctx, port) === original;
+        if (stillOwnsSession) setPortSession(ctx, port, session);
+        ok(port, msg.id, { ...credReply(session, providerId), operationType: 'reauthenticate' });
+      } catch (error) { fail(port, msg.id, error); }
       break;
     }
 

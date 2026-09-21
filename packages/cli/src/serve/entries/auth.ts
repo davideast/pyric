@@ -281,4 +281,5 @@ export {
 } from 'pyric/auth';
 
 export { linkWithCredential, linkWithPopup, linkWithRedirect, unlink } from './auth-linking.js';
+export { reauthenticateWithCredential, reauthenticateWithPopup, reauthenticateWithRedirect } from './auth-reauthentication.js';
 export * from './unsupported/auth.js';

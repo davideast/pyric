@@ -58,6 +58,8 @@ export const operationPersistence = {
   'auth.signInWithCredential': true,
   'auth.linkWithCredential': true,
   'auth.unlink': true,
+  'auth.reauthenticateWithCredential': false,
+  'auth.reauthenticateWithProvider': false,
   'auth.restorePortSession': false,
   'auth.acceptIdentity': true,
   'auth.listUsers': false,

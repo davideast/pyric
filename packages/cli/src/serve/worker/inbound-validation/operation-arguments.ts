@@ -202,7 +202,8 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasPhotoURL, 'photoURL');
       return;
     }
-    case 'auth.linkWithCredential': {
+    case 'auth.linkWithCredential':
+    case 'auth.reauthenticateWithCredential': {
       requireString(message.uid, 'uid');
       const credential = message.credential;
       requireRecord(credential, 'credential');
@@ -219,6 +220,14 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireString(message.uid, 'uid');
       requireString(message.providerId, 'providerId');
       return;
+    case 'auth.reauthenticateWithProvider': {
+      requireString(message.uid, 'uid');
+      const identity = message.identity;
+      requireRecord(identity, 'identity');
+      requireString(identity.uid, 'identity.uid');
+      requireString(identity.providerId, 'identity.providerId');
+      return;
+    }
     case 'auth.signInWithCredential': {
       const credential = message.credential ?? message;
       requireRecord(credential, 'credential');

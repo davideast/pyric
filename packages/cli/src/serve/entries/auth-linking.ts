@@ -11,14 +11,7 @@ async function linkProvider(
   kind: 'popup' | 'redirect',
 ): Promise<inPage.UserCredential> {
   const request: inPage.AuthFlowRequest = { providerId: provider.providerId, authType: 'link' };
-  const hasResolver = resolver !== undefined;
-  const isPopup = kind === 'popup';
-  let result: inPage.UserCredential;
-  if (hasResolver) {
-    result = isPopup ? await resolver.openPopup(request) : await resolver.openRedirect(request);
-  } else {
-    result = await resolveServeAuthFlow(request, kind);
-  }
+  const result = await resolveServeAuthFlow(request, kind, resolver);
   const providerId = result.providerId ?? provider.providerId;
   const credential = new inPage.AuthCredential(providerId, providerId);
   return linkWithCredential(user, credential);

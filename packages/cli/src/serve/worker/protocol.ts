@@ -23,6 +23,7 @@ import type {
 } from './protocol/firestore.js';
 import type {
   AuthPersistenceMode,
+  SerializedAuthCredential,
   ResolvedIdentity,
   AuthSubMessage,
 } from './protocol/auth.js';
@@ -177,8 +178,12 @@ export type OpMessage = (
       tenantId?: string | null;
     }
   | { t: 'op'; id: string; method: 'auth.linkWithCredential'; uid: string; tenantId: string | null;
-      credential: { providerId: string; signInMethod: string; email?: string; password?: string } }
+      credential: SerializedAuthCredential }
   | { t: 'op'; id: string; method: 'auth.unlink'; uid: string; tenantId: string | null; providerId: string }
+  | { t: 'op'; id: string; method: 'auth.reauthenticateWithCredential'; uid: string; tenantId: string | null;
+      credential: SerializedAuthCredential }
+  | { t: 'op'; id: string; method: 'auth.reauthenticateWithProvider'; uid: string; tenantId: string | null;
+      identity: { uid: string; providerId: string } }
   | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.listUsers' }
