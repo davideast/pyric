@@ -93,6 +93,19 @@ export function registerOnSnapshotImpl(fn: OnSnapshotImpl): void {
  * Snapshots, batches, transactions, and the Firestore handle itself
  * carry neither, so the shim correctly skips them.
  */
+/**
+ * Marks a value built by `pyric/firestore`'s modular layer rather than by the
+ * compat impl. Such a value carries its routing in the modular layer's
+ * WeakMaps, so re-wrapping it in this proxy would substitute a fresh object
+ * for the key those maps hold. Registered globally so a src copy and a dist
+ * copy of either layer agree on the marker.
+ */
+const MODULAR_VALUE_SYMBOL = Symbol.for('pyric.firestore.modular-value');
+
+function isModularValue(value: object): boolean {
+  return MODULAR_VALUE_SYMBOL in value;
+}
+
 function isRefLike(obj: object): boolean {
   const o = obj as { path?: unknown; collectionPath?: unknown };
   return (typeof o.path === 'string' && o.path.length > 0)
@@ -256,12 +269,12 @@ export function wrapWithErrorTranslation<T extends object>(
         }
         if (result instanceof Promise) {
           return result
-            .then((v) => (v && typeof v === 'object'
+            .then((v) => (v && typeof v === 'object' && !isModularValue(v as object)
               ? wrapWithErrorTranslation(v as object, ctx, bypassRules)
               : v))
             .catch((e) => { throw toSandboxError(e, ctx); });
         }
-        if (result && typeof result === 'object') {
+        if (result && typeof result === 'object' && !isModularValue(result as object)) {
           return wrapWithErrorTranslation(result as object, ctx, bypassRules);
         }
         return result;

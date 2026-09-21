@@ -18,6 +18,8 @@ import { lastSegment } from './handles.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle } from './handles.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { encodeDocValue, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
+import { generateAutoId } from 'pyric/sandbox/internal';
+import type { FirestoreDataConverter, DocumentData } from 'pyric/firestore';
 
 // ─── Path factories (client-side only — no RPC) ──────────────────────────
 
@@ -34,6 +36,7 @@ export function doc(
 ): DocRefHandle {
   const port = parent.port;
   let path: string;
+  let converter: FirestoreDataConverter<unknown> | null = null;
 
   const isDatabase = parent.__kind === 'client-db';
   const hasPath = pathSegments.length > 0;
@@ -44,11 +47,14 @@ export function doc(
   } else {
     // parent is a CollRefHandle
     const collPath = parent.descriptor.path;
-    path = collPath;
+    converter = parent.converter;
+    // No segment means Firebase mints a client-side id for a document that
+    // does not exist yet; the collection path itself is not a document.
     if (hasPath) path = `${collPath}/${pathSegments.join('/')}`;
+    else path = `${collPath}/${generateAutoId()}`;
   }
 
-  return createDocumentReference(port, path);
+  return createDocumentReference(port, path, converter);
 }
 
 /**
@@ -69,6 +75,22 @@ export function collection(
     path = `${docPath}/${pathSegments.join('/')}`;
   }
 
+  // A parent document's converter describes that document, not the documents
+  // of a subcollection under it, so it is not inherited here.
+  return createCollectionReference(port, path, null);
+}
+
+/** Collection handles are rebuilt per view so each carries its own converter. */
+function createCollectionReference<T = DocumentData>(
+  port: ClientDb['port'],
+  path: string,
+  converter: FirestoreDataConverter<unknown> | null,
+): CollRefHandle<T> {
+  function withConverter<A, D extends DocumentData = DocumentData>(next: FirestoreDataConverter<A, D>): CollRefHandle<A>;
+  function withConverter(next: null): CollRefHandle;
+  function withConverter(next: FirestoreDataConverter<unknown> | null): CollRefHandle<unknown> {
+    return createCollectionReference(port, path, next);
+  }
   const descriptor: CollRef = { __ref: 'collection', path };
   return {
     __kind: 'coll-ref',
@@ -76,7 +98,23 @@ export function collection(
     port,
     id: lastSegment(path),
     path,
+    converter,
+    withConverter,
   };
+}
+
+/** Query handles are rebuilt per view so each carries its own converter. */
+function createQueryHandle<T = DocumentData>(
+  port: ClientDb['port'],
+  descriptor: QueryDescriptor,
+  converter: FirestoreDataConverter<unknown> | null,
+): QueryHandle<T> {
+  function withConverter<A, D extends DocumentData = DocumentData>(next: FirestoreDataConverter<A, D>): QueryHandle<A>;
+  function withConverter(next: null): QueryHandle;
+  function withConverter(next: FirestoreDataConverter<unknown> | null): QueryHandle<unknown> {
+    return createQueryHandle(port, descriptor, next);
+  }
+  return { __kind: 'query', descriptor, port, converter, withConverter };
 }
 
 /**
@@ -88,7 +126,7 @@ export function collectionGroup(db: ClientDb, collectionId: string): QueryHandle
     source: { __ref: 'group', collectionId },
     constraints: [],
   };
-  return { __kind: 'query', descriptor, port: db.port };
+  return createQueryHandle(db.port, descriptor, null);
 }
 
 // ─── Query constraint factories (client-side) ─────────────────────────────
@@ -198,7 +236,7 @@ export function query(
       ...constraints.map((c) => c._descriptor),
     ],
   };
-  return { __kind: 'query', descriptor, port: source.port };
+  return createQueryHandle(source.port, descriptor, source.converter);
 }
 
 // ─── Sentinel factories (client-side markers) ────────────────────────────

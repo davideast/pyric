@@ -80,19 +80,25 @@ export interface DocRefHandle<_T = DocumentData> {
 }
 
 /** Client-side collection reference. */
-export interface CollRefHandle {
+export interface CollRefHandle<_T = DocumentData> {
   readonly __kind: 'coll-ref';
   readonly descriptor: CollRef;
   readonly port: ClientPort;
   readonly id: string;
   readonly path: string;
+  readonly converter: FirestoreDataConverter<unknown> | null;
+  withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): CollRefHandle<T>;
+  withConverter(converter: null): CollRefHandle;
 }
 
 /** Client-side query. */
-export interface QueryHandle {
+export interface QueryHandle<_T = DocumentData> {
   readonly __kind: 'query';
   readonly descriptor: QueryDescriptor;
   readonly port: ClientPort;
+  readonly converter: FirestoreDataConverter<unknown> | null;
+  withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): QueryHandle<T>;
+  withConverter(converter: null): QueryHandle;
 }
 
 /** Union of all client handles. */

@@ -90,18 +90,32 @@ function isQueryResult(value: unknown): value is RawQueryResult {
 }
 
 /** Decode a listener delivery before invoking application code. */
-export function makeSnapshot(raw: unknown, port: ClientPort): ClientDocSnapshot | ClientQuerySnapshot {
+export function makeSnapshot(
+  raw: unknown,
+  port: ClientPort,
+  converter: FirestoreDataConverter<unknown> | null = null,
+): ClientDocSnapshot | ClientQuerySnapshot {
   const isQuery = isQueryResult(raw);
-  if (isQuery) return makeQuerySnapshot(raw, port);
+  if (isQuery) return makeQuerySnapshot(raw, port, converter);
   const isDocument = isDocumentResult(raw);
-  if (isDocument) return makeDocSnapshot(raw, port);
+  if (isDocument) {
+    return makeDocSnapshot(raw, port, createDocumentReference(port, raw.path ?? raw.id, converter));
+  }
   throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed Firestore snapshot.');
 }
 
-export function makeQuerySnapshot(raw: RawQueryResult, port: ClientPort): ClientQuerySnapshot {
+export function makeQuerySnapshot(
+  raw: RawQueryResult,
+  port: ClientPort,
+  converter: FirestoreDataConverter<unknown> | null = null,
+): ClientQuerySnapshot {
   const isMalformed = !isQueryResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed query result.');
-  const docs = raw.docs.map((doc) => makeDocSnapshot(doc, port));
+  const docs = raw.docs.map((doc) => makeDocSnapshot(
+    doc,
+    port,
+    createDocumentReference(port, doc.path ?? doc.id, converter),
+  ));
   return {
     size: docs.length,
     empty: docs.length === 0,

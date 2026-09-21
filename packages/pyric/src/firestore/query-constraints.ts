@@ -21,8 +21,8 @@ import {
   converterOf,
   parentRebuild,
   tagSandboxRef,
-  buildSandboxShell,
 } from './state.js';
+import { attachConverterMethod, convertedView } from './converter-method.js';
 import { FieldPath } from './field-values.js';
 import { toFirestoreFirebaseError } from './errors.js';
 import { captureQueryOperand } from './sandbox/query-operand-equality.js';
@@ -82,17 +82,13 @@ export function query<T = DocumentData>(
   } catch (error) {
     throw toFirestoreFirebaseError(error);
   }
-  const tagged = tagSandboxRef(
+  const tagged = attachConverterMethod(tagSandboxRef(
     q as unknown as Query<T>,
     target,
     (fresh) => buildAt(fresh) as unknown as object,
-  );
+  ));
   if (conv) {
-    return buildSandboxShell(
-      tagged as unknown as { id?: string; path?: string },
-      target,
-      conv,
-    ) as Query<T>;
+    return convertedView(tagged, conv) as Query<T>;
   }
   return tagged as Query<T>;
 }

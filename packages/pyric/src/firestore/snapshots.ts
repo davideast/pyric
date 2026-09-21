@@ -322,6 +322,57 @@ export function applyConverterToDocSnap<AppModel>(
 }
 
 /**
+ * Run a converter over a snapshot a listener is about to deliver, in place.
+ *
+ * The sandbox builds one snapshot object per document and hands that same
+ * object to both `docs` and `docChanges()`, so converting the object covers
+ * both views. `data()` is re-read through the converter and `ref` gains the
+ * converter, matching what the read path returns.
+ *
+ * Call after {@link wrapSandboxDocSnap}: the captured accessor already yields
+ * finalized values, which is what `fromFirestore` expects to receive.
+ */
+export function applyConverterToDeliveredSnap(
+  snapshot: object,
+  conv: FirestoreDataConverter<unknown>,
+  target: Target,
+  kind: 'document' | 'query-child',
+): void {
+  const s = snapshot as {
+    id: string;
+    ref?: { path?: string };
+    exists?: boolean | (() => boolean);
+    data: () => DocumentData | undefined;
+  };
+  const path = s.ref?.path ?? '';
+  const readRaw = s.data.bind(snapshot);
+  const rawReference = doc({ [TARGET_SYMBOL]: target }, path);
+  const converted = rawReference.withConverter(conv as FirestoreDataConverter<unknown, DocumentData>);
+  Object.defineProperty(s, 'ref', { value: converted, configurable: true, writable: true });
+  Object.defineProperty(s, 'data', {
+    value: () => {
+      const raw = readRaw();
+      const isMissing = raw === undefined;
+      if (isMissing) return undefined;
+      const queryDocSnap: QueryDocumentSnapshot = {
+        id: s.id,
+        ref: rawReference,
+        exists: () => true,
+        metadata: clientStateFor(target).snapshotMetadata(path),
+        data: () => raw,
+      };
+      return conv.fromFirestore(queryDocSnap);
+    },
+    configurable: true,
+    writable: true,
+  });
+  // Equality compares the stored representation, never the consumer model, so
+  // the recorded raw view keeps the pre-converter accessor.
+  const rawView = { ref: { path }, exists: s.exists, data: readRaw } as unknown as ChainDocSnap;
+  recordDocumentSnapshot(snapshot, rawView, target, conv, kind);
+}
+
+/**
  * Walk a snapshot and tag every ref-shaped field in `refToTarget`,
  * AND normalize `.exists` to method form so consumer code targeting
  * Firebase's modular SDK (`if (snap.exists())`) works uniformly.
