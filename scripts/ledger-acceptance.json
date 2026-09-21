@@ -7,7 +7,8 @@
   },
   "I21": {
     "phase": 2,
-    "tests": ["packages/cli/test/bridge/ledger/i21-take-mail.test.ts"]
+    "tests": ["packages/cli/test/bridge/ledger/i21-take-mail.test.ts"],
+    "browserTests": ["packages/cli/test/e2e/hosted/take-auth-mail.pw.ts"]
   },
   "I20": {
     "phase": 2,

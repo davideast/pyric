@@ -61,6 +61,7 @@ const SERVICE_METHODS: Readonly<Record<string, string[]>> = {
     'signInWithCustomToken',
     'signInWithEmailAndPassword',
     'signOut',
+    'takeAuthMail',
     'updateUser',
     'useAppSession',
     'whoami',
