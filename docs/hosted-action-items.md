@@ -4,7 +4,7 @@ The short list of what is actually open. The ledger (`docs/hosted-review-ledger.
 
 ## Needs the owner
 
-1. **Approve publishing the Studio hosted client (ledger C15).** `slice/studio-hosted` at `e094d121`, nine files, proven. On `main`, Studio against a `--hosted` server reconnects in a loop with an empty live feed; the slice fixes it and leaves SharedWorker mode unchanged.
+1. **Merge pull request 665, the Studio hosted client (ledger C15).** Approved and published on 2026-09-23 as `slice/studio-hosted` `9e95f23b` on `main` `4920d829`, nine files. On `main`, Studio against a `--hosted` server reconnects in a loop with an empty live feed; the slice fixes it and leaves SharedWorker mode unchanged.
 
 ## In progress
 
@@ -13,7 +13,7 @@ The short list of what is actually open. The ledger (`docs/hosted-review-ledger.
    - Fix, second part: forward the linking, reauthentication, and action-code functions the engine already implements, `linkWithPopup` first.
    - How it got imported: the agent that wrote the app asked `pyric_can_i_use`, which answered `available`. That is true of `pyric/auth`, the in-page engine, and the tool has no way to answer for the served `firebase/auth` entry: asked with that import path it matches nothing. Third part of the fix: the tool reports served availability.
 
-3. **Overview paints nothing until a render is observed while painting is on, and forgets it on reload (ledger C17).** Reported by the owner; reproduced in both modes. Overview's box is drawn around elements the Flow observer captured, and that observer runs only while the overlay is on, so everything that rendered before the chip was opened is invisible to it, and a reload empties what it had. Not hosted-specific. Needs the owner's choice between observing commits from page load, keeping it lazy and saying so in the panel, or a one-time replay on enable.
+3. **Overview paints nothing until a render is observed while painting is on, and forgets it on reload (ledger C17).** Reported by the owner; reproduced in both modes. Overview's box is drawn around elements the Flow observer captured, and that observer runs only while the overlay is on, so everything that rendered before the chip was opened is invisible to it, and a reload empties what it had. Not hosted-specific. Ruled by the owner on 2026-09-23: observe from the moment the mode exists, paint only while the overlay is on. Assigned to the implementing agent in channel message 0089, acceptance first: a unit test that records a delivery and a commit before the mode is enabled and expects boxes on enable, and a browser test that turns Overview on without touching the application, before and after a reload.
 
 4. **`@pyric/cli` refuses to install beside Vite 8 (ledger I19).** Its Vite peer range stops at 7 and a freshly scaffolded React project gets Vite 8. Unrelated to hosted mode; found while reproducing item 2.
 
