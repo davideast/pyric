@@ -202,6 +202,70 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasPhotoURL, 'photoURL');
       return;
     }
+    case 'auth.linkWithCredential':
+    case 'auth.reauthenticateWithCredential': {
+      requireString(message.uid, 'uid');
+      const credential = message.credential;
+      requireRecord(credential, 'credential');
+      requireString(credential.providerId, 'credential.providerId');
+      requireString(credential.signInMethod, 'credential.signInMethod');
+      const isEmailCredential = credential.providerId === 'password';
+      if (isEmailCredential) {
+        requireString(credential.email, 'credential.email');
+        requireString(credential.password, 'credential.password');
+      }
+      return;
+    }
+    case 'auth.unlink':
+      requireString(message.uid, 'uid');
+      requireString(message.providerId, 'providerId');
+      return;
+    case 'auth.reauthenticateWithProvider': {
+      requireString(message.uid, 'uid');
+      const identity = message.identity;
+      requireRecord(identity, 'identity');
+      requireString(identity.uid, 'identity.uid');
+      requireString(identity.providerId, 'identity.providerId');
+      return;
+    }
+    case 'auth.sendPasswordResetEmail':
+      requireString(message.email, 'email');
+      requireOptionalRecord(message.settings, 'settings');
+      return;
+    case 'auth.takeMail': {
+      const hasEmail = message.email !== undefined;
+      if (hasEmail) requireString(message.email, 'email');
+      return;
+    }
+    case 'auth.sendSignInLinkToEmail':
+      requireString(message.email, 'email');
+      requireRecord(message.settings, 'settings');
+      return;
+    case 'auth.signInWithEmailLink':
+      requireString(message.email, 'email');
+      requireString(message.link, 'link');
+      return;
+    case 'auth.signInWithCustomToken':
+      requireString(message.customToken, 'customToken');
+      return;
+    case 'auth.sendEmailVerification':
+      requireString(message.uid, 'uid');
+      requireOptionalRecord(message.settings, 'settings');
+      return;
+    case 'auth.verifyBeforeUpdateEmail':
+      requireString(message.uid, 'uid');
+      requireString(message.newEmail, 'newEmail');
+      requireOptionalRecord(message.settings, 'settings');
+      return;
+    case 'auth.applyActionCode':
+    case 'auth.checkActionCode':
+    case 'auth.verifyPasswordResetCode':
+      requireString(message.code, 'code');
+      return;
+    case 'auth.confirmPasswordReset':
+      requireString(message.code, 'code');
+      requireString(message.newPassword, 'newPassword');
+      return;
     case 'auth.signInWithCredential': {
       const credential = message.credential ?? message;
       requireRecord(credential, 'credential');

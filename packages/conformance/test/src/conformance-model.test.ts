@@ -291,14 +291,14 @@ describe('multi-axis conformance model', () => {
     }
   });
 
-  it('does not let a mapped type export hide a deferred runtime value', () => {
+  it('reports the implemented Storage error constants in both runtime and type namespaces', () => {
     const result = one('storage/StorageErrorCode');
     expect(result).toMatchObject({
-      feature: 'StorageErrorCode', surface: 'storage', availability: 'deferred',
+      feature: 'StorageErrorCode', surface: 'storage', availability: 'available',
       fidelity: 'not-applicable', assurance: 'not-applicable',
     });
     expect(result.claims).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'runtime-export', status: 'deferred' }),
+      expect.objectContaining({ kind: 'runtime-export', status: 'mapped' }),
       expect.objectContaining({ kind: 'type-export', status: 'mapped' }),
     ]));
   });

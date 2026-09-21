@@ -26,13 +26,13 @@ export type { CrossServiceIam, FirebaseStorage, StorageOptions, Target, SandboxT
 export { getStorage, connectStorageEmulator } from './instances.js';
 
 export { StorageError } from './errors.js';
-export type { StorageErrorCode } from './errors.js';
+export { StorageErrorCode } from './errors.js';
 
 export { ref } from './reference.js';
 export type { StorageReference } from './reference.js';
 
 export { uploadBytes, uploadString } from './observed.js';
-export type { StringFormat } from './upload.js';
+export { StringFormat } from './string-format.js';
 
 export { uploadBytesResumable } from './observed.js';
 export type { UploadTask, UploadTaskSnapshot, TaskState, TaskEvent } from './resumable.js';

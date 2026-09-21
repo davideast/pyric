@@ -56,9 +56,11 @@ test('auth observers use the selected worker backend', async () => {
   const realm = await runtimeRealm({ sharedWorker: true });
   try {
     realm.respond({ hosted: false });
+    const messageOffset = realm.messages.length;
     const release = realm.registerAuth();
-    const subscriptions = realm.messages.filter(message => message.t === 'sub' && message.target === 'authState');
-    expect(subscriptions).toHaveLength(2);
+    const subscriptions = realm.messages.slice(messageOffset).filter(message => message.t === 'sub');
+    // The internal current-user mirror follows token changes; the chip observes sign-ins.
+    expect(subscriptions.map(message => message.target)).toEqual(['idToken', 'authState']);
     release();
     expect(realm.messages.at(-1)).toMatchObject({ t: 'unsub' });
   } finally { realm.dispose(); }

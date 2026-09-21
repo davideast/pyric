@@ -27,6 +27,7 @@ import { getApp, type FirebaseApp } from 'pyric/app';
 import { registerAppCleanup } from 'pyric/app/internal';
 import { workerClientForApp } from './app-client.js';
 import { registerActiveAuth } from './active-auth.js';
+import { beforeAuthStateChanged as unavailableBeforeAuthStateChanged } from './unsupported/auth.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -37,14 +38,17 @@ const A = useWorker ? wc : ipAuth;
 export const onAuthStateChanged = A.onAuthStateChanged;
 export const onIdTokenChanged = A.onIdTokenChanged;
 export const getIdTokenResult = ipAuth.getIdTokenResult;
+export const getIdToken = ipAuth.getIdToken;
+export const getAdditionalUserInfo = ipAuth.getAdditionalUserInfo;
 /**
  * Worker mode: the gate can't run before a worker-committed transition
  * (see `worker/client.ts`'s `beforeAuthStateChanged` doc) — registering
  * throws immediately rather than silently accepting a no-op callback.
  * In-page mode: full block-and-abort semantics via `pyric/auth`.
  */
-export const beforeAuthStateChanged = A.beforeAuthStateChanged;
+export const beforeAuthStateChanged = (useWorker ? unavailableBeforeAuthStateChanged : ipAuth.beforeAuthStateChanged) as typeof ipAuth.beforeAuthStateChanged;
 export const signInAnonymously = A.signInAnonymously;
+export const signInWithCustomToken = A.signInWithCustomToken;
 export const signInWithEmailAndPassword = A.signInWithEmailAndPassword;
 export const createUserWithEmailAndPassword = A.createUserWithEmailAndPassword;
 export const signOut = A.signOut;
@@ -258,3 +262,31 @@ export const reload = (
 export const updateCurrentUser = (
   useWorker ? wc.updateCurrentUser : ipAuth.updateCurrentUser
 ) as typeof ipAuth.updateCurrentUser;
+
+export {
+  ActionCodeOperation,
+  ActionCodeURL,
+  AuthCredential,
+  AuthErrorCodes,
+  EmailAuthCredential,
+  FactorId,
+  OAuthCredential,
+  OperationType,
+  ProviderId,
+  SAMLAuthProvider,
+  SignInMethod,
+  TwitterAuthProvider,
+  browserCookiePersistence,
+  browserPopupRedirectResolver,
+  debugErrorMap,
+  indexedDBLocalPersistence,
+  parseActionCodeURL,
+  prodErrorMap,
+} from 'pyric/auth';
+
+export { linkWithCredential, linkWithPopup, linkWithRedirect, unlink } from './auth-linking.js';
+export { reauthenticateWithCredential, reauthenticateWithPopup, reauthenticateWithRedirect } from './auth-reauthentication.js';
+export { sendPasswordResetEmail, sendEmailVerification, verifyBeforeUpdateEmail, applyActionCode,
+  checkActionCode, verifyPasswordResetCode, confirmPasswordReset, sendSignInLinkToEmail,
+  signInWithEmailLink, isSignInWithEmailLink } from './auth-action-codes.js';
+export * from './unsupported/auth.js';

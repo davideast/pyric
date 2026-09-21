@@ -1,4 +1,31 @@
 {
+  "I20": {
+    "phase": 2,
+    "tests": [
+      "packages/cli/test/conformance/ledger/i20-clean-prebuild.test.ts",
+      "packages/cli/test/conformance/ledger/i20-served-availability.test.ts",
+      "packages/cli/test/serve/entries/ledger/i20-served-public-exports.test.ts",
+      "packages/cli/test/serve/entries/ledger/i20-unsupported-exports.test.ts",
+      "packages/cli/test/serve/worker/ledger/i20-account-linking.test.ts",
+      "packages/cli/test/serve/worker/ledger/i20-reauthentication.test.ts",
+      "packages/cli/test/serve/worker/ledger/i20-action-codes.test.ts",
+      "packages/cli/test/serve/worker/ledger/i20-custom-token.test.ts",
+      "packages/pyric/test/auth/ledger/i20-email-link-session.test.ts",
+      "packages/pyric/test/auth/ledger/i20-custom-token-session.test.ts",
+      "packages/pyric/test/storage/runtime-constants.test.ts",
+      "packages/pyric/test/auth/runtime-constants.test.ts",
+      "packages/pyric/test/ai/runtime-constants.test.ts"
+    ],
+    "browserTests": [
+      "packages/cli/test/e2e/served-export-completeness.pw.ts",
+      "packages/cli/test/e2e/served-auth-linking.pw.ts",
+      "packages/cli/test/e2e/served-auth-reauthentication.pw.ts",
+      "packages/cli/test/e2e/served-auth-email.pw.ts",
+      "packages/cli/test/e2e/served-auth-token.pw.ts",
+      "packages/cli/test/e2e/served-availability-refusals.pw.ts"
+    ],
+    "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
+  },
   "I19": {
     "phase": 2,
     "tests": ["packages/cli/test/e2e/vite-optimizer-compatibility.pw.ts", "packages/cli/test/e2e/vite-peer-install.pw.ts"],

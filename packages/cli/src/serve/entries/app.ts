@@ -9,3 +9,5 @@ import { sandbox } from './app-backend.js';
 bindAppRegistrySandbox(sandbox);
 
 export * from 'pyric/app';
+
+export * from './unsupported/app.js';

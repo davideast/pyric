@@ -5,6 +5,14 @@
 
 // ─── Serialized auth user (crosses the port) ──────────────────────────────
 
+/** AuthCredential.toJSON fields used by credential verification and linking. */
+export type SerializedAuthCredential = {
+  providerId: string;
+  signInMethod: string;
+  email?: string;
+  password?: string;
+};
+
 /**
  * Wire representation of a signed-in `User`. The real `pyric/auth` `User`
  * carries methods (`getIdToken`, `getIdTokenResult`) that don't survive

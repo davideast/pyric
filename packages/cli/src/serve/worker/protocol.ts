@@ -1,4 +1,5 @@
 import type { DeliveryStage } from 'pyric/messaging/internal';
+import type { ActionCodeSettings } from 'pyric/auth';
 import { getAiEvidence, type AiEvidence } from 'pyric/ai/internal';
 /**
  * SharedWorker protocol — message types + wire serialization.
@@ -23,6 +24,7 @@ import type {
 } from './protocol/firestore.js';
 import type {
   AuthPersistenceMode,
+  SerializedAuthCredential,
   ResolvedIdentity,
   AuthSubMessage,
 } from './protocol/auth.js';
@@ -176,6 +178,24 @@ export type OpMessage = (
       uid?: string | null;
       tenantId?: string | null;
     }
+  | { t: 'op'; id: string; method: 'auth.linkWithCredential'; uid: string; tenantId: string | null;
+      credential: SerializedAuthCredential }
+  | { t: 'op'; id: string; method: 'auth.unlink'; uid: string; tenantId: string | null; providerId: string }
+  | { t: 'op'; id: string; method: 'auth.reauthenticateWithCredential'; uid: string; tenantId: string | null;
+      credential: SerializedAuthCredential }
+  | { t: 'op'; id: string; method: 'auth.reauthenticateWithProvider'; uid: string; tenantId: string | null;
+      identity: { uid: string; providerId: string } }
+  | { t: 'op'; id: string; method: 'auth.sendPasswordResetEmail'; email: string; settings?: ActionCodeSettings }
+  | { t: 'op'; id: string; method: 'auth.takeMail'; email?: string }
+  | { t: 'op'; id: string; method: 'auth.sendSignInLinkToEmail'; email: string; settings: ActionCodeSettings }
+  | { t: 'op'; id: string; method: 'auth.signInWithEmailLink'; email: string; link: string; tenantId?: string | null }
+  | { t: 'op'; id: string; method: 'auth.signInWithCustomToken'; customToken: string; tenantId?: string | null }
+  | { t: 'op'; id: string; method: 'auth.sendEmailVerification'; uid: string; tenantId: string | null; settings?: ActionCodeSettings }
+  | { t: 'op'; id: string; method: 'auth.verifyBeforeUpdateEmail'; uid: string; tenantId: string | null; newEmail: string; settings?: ActionCodeSettings }
+  | { t: 'op'; id: string; method: 'auth.applyActionCode'; code: string }
+  | { t: 'op'; id: string; method: 'auth.checkActionCode'; code: string }
+  | { t: 'op'; id: string; method: 'auth.verifyPasswordResetCode'; code: string }
+  | { t: 'op'; id: string; method: 'auth.confirmPasswordReset'; code: string; newPassword: string }
   | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.listUsers' }
