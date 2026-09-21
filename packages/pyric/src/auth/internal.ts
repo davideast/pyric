@@ -21,3 +21,4 @@ export {
 } from './sandbox/default-avatar.js';
 export type { AvatarMint, AvatarMintInput } from './sandbox/default-avatar.js';
 export { isEmailSignInLink, resolveEmailLinkIdentity } from './email-link.js';
+export { resolveCustomTokenIdentity } from './tokens.js';

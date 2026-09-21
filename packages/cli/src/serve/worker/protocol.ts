@@ -189,6 +189,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.takeMail'; email?: string }
   | { t: 'op'; id: string; method: 'auth.sendSignInLinkToEmail'; email: string; settings: ActionCodeSettings }
   | { t: 'op'; id: string; method: 'auth.signInWithEmailLink'; email: string; link: string; tenantId?: string | null }
+  | { t: 'op'; id: string; method: 'auth.signInWithCustomToken'; customToken: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.sendEmailVerification'; uid: string; tenantId: string | null; settings?: ActionCodeSettings }
   | { t: 'op'; id: string; method: 'auth.verifyBeforeUpdateEmail'; uid: string; tenantId: string | null; newEmail: string; settings?: ActionCodeSettings }
   | { t: 'op'; id: string; method: 'auth.applyActionCode'; code: string }

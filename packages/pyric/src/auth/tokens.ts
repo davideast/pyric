@@ -7,7 +7,7 @@
 import { makeAuthError } from './auth-errors.js';
 import { requireSandboxTarget } from './action-codes.js';
 import { targetOf } from './target.js';
-import type { Auth, UserCredential } from './types.js';
+import type { Auth, User, UserCredential } from './types.js';
 
 // ─── signInWithCustomToken ────────────────────────────────────────────
 
@@ -45,10 +45,18 @@ export async function signInWithCustomToken(
   auth: Auth,
   customToken: string,
 ): Promise<UserCredential> {
-  const t = targetOf(auth);
-  const target = t;
+  const { user, isNewUser } = resolveCustomTokenIdentity(auth, customToken);
+  await targetOf(auth).backend.transitionCurrentUser(user, 'custom');
+  return { user, providerId: null, operationType: 'signIn',
+    _additionalUserInfo: { isNewUser, profile: {}, providerId: null } };
+}
+
+/** Resolve a custom-token account without changing the backend's global session. */
+export function resolveCustomTokenIdentity(auth: Auth, customToken: string): { user: User; isNewUser: boolean } {
+  const target = targetOf(auth);
   const payload = decodeCustomToken(customToken);
-  if (!payload) {
+  const invalidToken = payload === null;
+  if (invalidToken) {
     throw makeAuthError(
       'auth/invalid-custom-token',
       'The custom token format is incorrect. Please check the documentation.',
@@ -57,32 +65,29 @@ export async function signInWithCustomToken(
 
   const existing = target.backend.findByUid(payload.uid);
   const isNewUser = existing === undefined;
-  if (existing) {
+  const hasExistingUser = !isNewUser;
+  const hasClaims = payload.claims !== undefined;
+  if (hasExistingUser) {
     // A custom token re-asserts claims on every exchange — prod merges the
     // token's claims into the session, so a claims change on the backend
     // takes effect at the next sign-in without touching the user record.
-    if (payload.claims) {
+    if (hasClaims) {
       target.backend.updateUser(payload.uid, { customClaims: payload.claims });
     }
   } else {
     target.backend.createUser({
       uid: payload.uid,
-      ...(payload.claims ? { customClaims: payload.claims } : {}),
+      customClaims: payload.claims,
     });
   }
   const stored = target.backend.findByUid(payload.uid);
-  if (!stored) {
+  const missingIdentity = stored === undefined;
+  if (missingIdentity) {
     throw makeAuthError('auth/invalid-custom-token', 'signInWithCustomToken: could not materialize the identity.');
   }
   target.backend.assertSignInAllowed(stored.uid);
   const user = target.backend.buildUserFromStored(stored);
-  await target.backend.transitionCurrentUser(user, 'custom');
-  return {
-    user,
-    providerId: null,
-    operationType: 'signIn',
-    _additionalUserInfo: { isNewUser, profile: {}, providerId: null },
-  };
+  return { user, isNewUser };
 }
 
 /** Read `{uid, claims}` out of a custom token, or `null` if it carries

@@ -57,7 +57,7 @@ export interface ClientUserCredential {
   user: ClientUser;
   providerId: string | null;
   operationType: 'signIn' | 'reauthenticate' | 'link';
-  additionalUserInfo?: {
+  _additionalUserInfo?: {
     readonly isNewUser: boolean;
     readonly profile: Record<string, unknown>;
     readonly providerId: string | null;
@@ -223,6 +223,12 @@ export async function signInAnonymously(auth: ClientAuth): Promise<ClientUserCre
   return hydrateCred(auth, raw);
 }
 
+export async function signInWithCustomToken(auth: ClientAuth, customToken: string): Promise<ClientUserCredential> {
+  const raw = await rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.signInWithCustomToken',
+    customToken, tenantId: auth.tenantId }) as SerializedUserCredential;
+  return hydrateCred(auth, raw);
+}
+
 export async function signOut(auth: ClientAuth): Promise<void> {
   if (isDisconnectedPort(auth.port)) {
     auth.currentUser = null;
@@ -271,7 +277,7 @@ export function hydrateCred(auth: ClientAuth, raw: SerializedUserCredential): Cl
     user,
     providerId: raw.providerId,
     operationType: raw.operationType,
-    additionalUserInfo: raw.additionalUserInfo,
+    _additionalUserInfo: raw.additionalUserInfo,
   };
 }
 

@@ -48,6 +48,7 @@ import {
 } from '../host-events.js';
 import { isAiOp, handleAiOp, handleAiSub } from '../host-ai.js';
 import { isAuthActionCodeOp, handleAuthActionCodeOp } from './auth-action-codes.js';
+import { handleCustomTokenSignIn } from './auth-custom-token.js';
 import {
   isMessagingOp,
   handleMessagingOp,
@@ -309,11 +310,14 @@ async function dispatchMessage(
   const isTool = msg.t === 'tool';
   if (isOperation) {
     const isActionCode = isAuthActionCodeOp(msg);
+    const isCustomToken = msg.method === 'auth.signInWithCustomToken';
     const isAuth = isAuthOp(msg.method);
     const isAi = isAiOp(msg.method);
     const isMessaging = isMessagingOp(msg.method);
     if (isActionCode) {
       await handleAuthActionCodeOp(ctx, port, msg);
+    } else if (isCustomToken) {
+      await handleCustomTokenSignIn(ctx, port, msg);
     } else if (isAuth) {
       await handleAuthOp(ctx, port, msg);
     } else if (isAi) {

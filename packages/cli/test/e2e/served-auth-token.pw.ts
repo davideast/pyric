@@ -21,7 +21,8 @@ window.runTokenFlow = async () => {
   const first = await signInWithCustomToken(auth, JSON.stringify({ uid: 'custom-user', claims: { role: 'editor' } }));
   const firstInfo = getAdditionalUserInfo(first);
   const token = await getIdToken(first.user, true);
-  const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  const claims = (await first.user.getIdTokenResult()).claims;
+  const sameToken = token === await first.user.getIdToken();
   const owned = doc(getFirestore(), 'owned/custom-user');
   await setDoc(owned, { secret: 'owned' });
   const readable = (await getDoc(owned)).data();
@@ -33,7 +34,7 @@ window.runTokenFlow = async () => {
   const currentAfterInvalid = auth.currentUser.uid;
   const created = await createUserWithEmailAndPassword(auth, 'info@example.com', 'secret-password');
   const existing = await signInWithEmailAndPassword(auth, 'info@example.com', 'secret-password');
-  return { firstUid: first.user.uid, firstTenant: first.user.tenantId, claims, firstInfo,
+  return { firstUid: first.user.uid, firstTenant: first.user.tenantId, claims, firstInfo, sameToken, tokenLength: token.length,
     secondInfo: getAdditionalUserInfo(second), readable, denied, invalid, currentAfterInvalid,
     otherUid: otherAuth.currentUser.uid, originalOtherUid: other.user.uid,
     anonymousInfo: getAdditionalUserInfo(other), createdInfo: getAdditionalUserInfo(created), existingInfo: getAdditionalUserInfo(existing) };
@@ -67,13 +68,14 @@ for (const hosted of [false, true]) {
       await page.goto(url);
       await expect(page.locator('#status')).toHaveText('Ready');
       const result = await page.evaluate(() => Reflect.get(window, 'runTokenFlow')());
-      expect(result).toMatchObject({ firstUid: 'custom-user', firstTenant: 'red',
+      expect(result).toMatchObject({ firstUid: 'custom-user', firstTenant: 'red', sameToken: true,
         claims: { role: 'editor', firebase: { tenant: 'red', sign_in_provider: 'custom' } },
         firstInfo: { isNewUser: true, providerId: null }, secondInfo: { isNewUser: false, providerId: null },
         readable: { secret: 'owned' }, denied: 'permission-denied', invalid: 'auth/invalid-custom-token',
         currentAfterInvalid: 'custom-user', otherUid: result.originalOtherUid,
         anonymousInfo: { isNewUser: true }, createdInfo: { isNewUser: true }, existingInfo: { isNewUser: false },
       });
+      expect(result.tokenLength).toBeGreaterThan(0);
     } finally {
       await page.close();
       await server?.close();

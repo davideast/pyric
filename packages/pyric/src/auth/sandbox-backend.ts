@@ -1933,18 +1933,23 @@ export class SandboxBackend {
           tenantId,
         );
       case 'provider':
+      case 'custom':
       case 'uid': {
         const isProviderSignIn = request.kind === 'provider';
         if (isProviderSignIn) this.assertProviderEnabled(request.providerId);
         // restoreSession semantics minus the global set: an EXISTING
         // identity (per-tab session restore / provider-bridge accept).
         const stored = this.usersByUid.get(request.uid);
-        if (!stored) {
+        const missingUser = stored === undefined;
+        if (missingUser) {
           throw makeAuthError('auth/user-not-found', `mintSession: no identity with uid ${request.uid}.`);
         }
         this.assertUserEnabled(stored);
-        const restoredProvider = stored.isAnonymous ? 'anonymous' : (stored.providerUserInfo[0]?.providerId ?? 'password');
-        const providerId = isProviderSignIn ? request.providerId : restoredProvider;
+        const isAnonymous = stored.isAnonymous;
+        const restoredProvider = isAnonymous ? 'anonymous' : (stored.providerUserInfo[0]?.providerId ?? 'password');
+        let providerId = isProviderSignIn ? request.providerId : restoredProvider;
+        const isCustomSignIn = request.kind === 'custom';
+        if (isCustomSignIn) providerId = 'custom';
         return this.establishDetachedSession(this.buildUserFromStored(stored), providerId, tenantId);
       }
     }

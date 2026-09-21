@@ -707,6 +707,8 @@ All recorded resident-growth measurements are bytes:
 
 - Part 3 email group: the served action-code and email-link functions use the engine's single-use codes and mailbox. `takeAuthMail` consumes the sandbox-wide in-memory mailbox; any attached page can take mail, matching the in-page driver. Sending or consuming mail changes no persisted record and performs no flush. Redeeming account changes flushes before acknowledgment. Email-link identity resolution reuses the engine validation without changing global Auth; the host mints a detached connection session. No external email is sent.
 
+- Part 3 token group: `signInWithCustomToken` resolves the engine's existing token formats and mints a detached tenant session after persisting account changes. Custom-token sign-in remains independent of provider enablement and still rejects disabled users. The engine's documented lack of signature verification is unchanged. `getIdToken` delegates to the user's transport-bound accessor; `getAdditionalUserInfo` reads the canonical credential metadata populated from the host's new-user result. Browser acceptance covers both transports, custom claims through Security Rules, tenant and other-app isolation, invalid tokens, and new versus existing accounts.
+
 ### I21. inspect_auth_flow advertises take_mail and nothing implements it
 
 - Severity: should-fix. Slice: `core tools`. Status: open; owner decision required before wiring it under the served-entry work.

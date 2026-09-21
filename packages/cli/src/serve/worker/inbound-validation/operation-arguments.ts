@@ -245,6 +245,9 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireString(message.email, 'email');
       requireString(message.link, 'link');
       return;
+    case 'auth.signInWithCustomToken':
+      requireString(message.customToken, 'customToken');
+      return;
     case 'auth.sendEmailVerification':
       requireString(message.uid, 'uid');
       requireOptionalRecord(message.settings, 'settings');

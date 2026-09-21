@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
 import { initializeSandbox } from '../../../src/sandbox/index.js';
-import { getAuth, onAuthStateChanged, signInWithCustomToken, getAdditionalUserInfo } from '../../../src/auth/index.js';
+import { getAuth, onAuthStateChanged, signInWithCustomToken, getAdditionalUserInfo, sandbox } from '../../../src/auth/index.js';
 
 test('in-page custom-token sign-in transitions global Auth and preserves claim and newness behavior', async () => {
   const auth = getAuth(initializeSandbox());
+  sandbox.setAuthProviderConfig(auth, 'custom', false);
   const transitions: Array<string | null> = [];
   const stop = onAuthStateChanged(auth, user => transitions.push(user?.uid ?? null));
   try {

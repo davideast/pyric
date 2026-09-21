@@ -37,6 +37,8 @@ const A = useWorker ? wc : ipAuth;
 export const onAuthStateChanged = A.onAuthStateChanged;
 export const onIdTokenChanged = A.onIdTokenChanged;
 export const getIdTokenResult = ipAuth.getIdTokenResult;
+export const getIdToken = ipAuth.getIdToken;
+export const getAdditionalUserInfo = ipAuth.getAdditionalUserInfo;
 /**
  * Worker mode: the gate can't run before a worker-committed transition
  * (see `worker/client.ts`'s `beforeAuthStateChanged` doc) — registering
@@ -45,6 +47,7 @@ export const getIdTokenResult = ipAuth.getIdTokenResult;
  */
 export const beforeAuthStateChanged = A.beforeAuthStateChanged;
 export const signInAnonymously = A.signInAnonymously;
+export const signInWithCustomToken = A.signInWithCustomToken;
 export const signInWithEmailAndPassword = A.signInWithEmailAndPassword;
 export const createUserWithEmailAndPassword = A.createUserWithEmailAndPassword;
 export const signOut = A.signOut;

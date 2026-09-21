@@ -4,6 +4,7 @@ import { getFirestore } from 'pyric/firestore';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { handleMessage, cleanupPort, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
 import { portSession } from '../../../../src/serve/worker/host-auth.js';
+import { requiresHealthyPersistence } from '../../../../src/serve/hosted/persistence-admission.js';
 import type { InboundMessage, OutboundMessage, ResMessage } from '../../../../src/serve/worker/protocol.js';
 
 test('custom-token redemption persists claims and binds only the requesting connection', async () => {
@@ -20,9 +21,13 @@ test('custom-token redemption persists claims and binds only the requesting conn
     return messages.findLast((message): message is ResMessage => message.t === 'res');
   }
   try {
+    // Custom tokens are a backend assertion, independent of provider enablement.
+    authSandbox.setAuthProviderConfig(getAuth(sandbox), 'custom', false);
     await handleMessage(context, other, { t: 'op', id: 'other', method: 'auth.signInAnonymously', tenantId: 'blue' });
     const otherSession = portSession(context, other);
     const before = flushes;
+    expect(requiresHealthyPersistence({ t: 'op', id: 'admission', method: 'auth.signInWithCustomToken',
+      customToken: JSON.stringify({ uid: 'custom-user' }), tenantId: 'red' })).toBe(true);
     expect(await redeem(JSON.stringify({ uid: 'custom-user', claims: { role: 'editor' } })))
       .toMatchObject({ ok: true, value: { user: { uid: 'custom-user', tenantId: 'red' }, providerId: null,
         operationType: 'signIn', additionalUserInfo: { isNewUser: true } } });
