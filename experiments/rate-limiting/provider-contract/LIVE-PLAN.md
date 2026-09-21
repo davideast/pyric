@@ -1,4 +1,10 @@
-# Approval boundary and next live phase
+# Original live-phase plan
+
+The direct real-service phase below has now been implemented and run under separate
+user authorization. See [live results](./live/RESULTS.md) and [commands](./live/README.md).
+The Cloud Run phase still requires a new deployment approval. The rest of this
+document preserves the pre-run plan; its statements about unimplemented work
+describe that earlier checkpoint.
 
 No Cloud Run deployment or real inference occurred in this implementation. The CLI
 accepts only the controlled local provider. `config/live.example.json` is an operator

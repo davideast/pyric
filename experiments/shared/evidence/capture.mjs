@@ -53,7 +53,7 @@ export async function verifyCapture(directory) {
 
 /** Copy first, execute that copy, retain it beside evidence. No Git checkout required.
  * @param {string} output
- * @param {{sourceCapture?: string, definition?: {experiment: string, sourcePaths: string[], artifacts?: string[], recoverOnFailure?: boolean, scope?: string}, input?: unknown}} options
+ * @param {{sourceCapture?: string, definition?: {experiment: string, sourcePaths: string[], artifacts?: string[], recoverOnFailure?: boolean, scope?: string, replayAllowed?: boolean, executionTimeoutMs?: number}, input?: unknown}} options
  */
 export async function captureRun(output, { sourceCapture, definition, input } = {}) {
   let parent;
@@ -61,7 +61,10 @@ export async function captureRun(output, { sourceCapture, definition, input } = 
     const verification = await verifyCapture(sourceCapture);
     if (!verification.valid) throw new Error(`Snapshot verification failed: ${verification.issues.join(', ')}`);
     parent = JSON.parse(await readFile(join(sourceCapture, 'manifest.json'), 'utf8'));
+    if (parent.replayAllowed === false) throw new Error('Replay is disabled for this capture; inspect evidence without reissuing requests');
   }
+  const executionTimeoutMs = parent?.executionTimeoutMs ?? definition?.executionTimeoutMs ?? 60000;
+  if (!Number.isInteger(executionTimeoutMs) || executionTimeoutMs < 1000 || executionTimeoutMs > 300000) throw new Error('Invalid capture execution timeout');
   const selected = parent?.experiment ?? definition?.experiment ?? experiment;
   const artifacts = parent?.artifacts ?? definition?.artifacts ?? ['result.json', 'assessment.json', 'workload.json', 'firestore.rules', 'findings.md'];
   if (!validPath(selected) || !selected.startsWith('experiments/') || artifacts.some(path=>!validPath(path))) throw new Error('Invalid capture definition');
@@ -90,8 +93,8 @@ export async function captureRun(output, { sourceCapture, definition, input } = 
   let executionFailed = false;
   try {
     const child = spawnSync(process.execPath, [join(directory, 'source', selected, 'execute.mjs'), directory], {
-      cwd: directory, encoding: 'utf8', timeout: 60000,
-      env: { ...process.env, PYRIC_EXPERIMENT_REVISION: gitRevision, PYRIC_EXPERIMENT_RUN_ID: id },
+      cwd: directory, encoding: 'utf8', timeout: executionTimeoutMs,
+      env: { ...process.env, PYRIC_EXPERIMENT_REVISION: gitRevision, PYRIC_EXPERIMENT_RUN_ID: id, PYRIC_EXPERIMENT_REPLAY: parent ? '1' : '' },
     });
     /** @type {NodeJS.ErrnoException | undefined} */
     const executionError = child.error;
@@ -112,7 +115,7 @@ export async function captureRun(output, { sourceCapture, definition, input } = 
   }
   const result = JSON.parse(await readFile(join(directory, 'result.json'), 'utf8'));
   const manifest = {
-    formatVersion: 1, recoverOnFailure, executionFailed, experiment: selected, artifacts, hasInput: parent?.hasInput || input !== undefined, runId: id, execution: 'copied-source', gitRevision,
+    formatVersion: 1, replayAllowed: parent?.replayAllowed ?? definition?.replayAllowed ?? true, executionTimeoutMs, recoverOnFailure, executionFailed, experiment: selected, artifacts, hasInput: parent?.hasInput || input !== undefined, runId: id, execution: 'copied-source', gitRevision,
     parentRunId: parent?.runId ?? null,
     inputOverridden: !!parent && input !== undefined,
     sourceSnapshotHash: digest(JSON.stringify(files.filter(file => file.path.startsWith('source/')))),

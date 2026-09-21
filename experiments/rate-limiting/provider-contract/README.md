@@ -9,10 +9,10 @@ is Firebase AI Logic, with the exact provider, API, model and SDK pinned at run 
 Do not presume that a model endpoint has an operation-status, cancellation or
 idempotency API merely because another API from the same provider does.
 
-**Status: local implementation complete; live inference and deployment disabled.**
+**Status: local fixtures and the direct real-service phase are implemented. Cloud Run has not been deployed for this experiment.**
 The original investigation brief below remains the specification. See [local results](./RESULTS.md) and [live handoff](./LIVE-PLAN.md) for the implemented scope and remaining work.
 Follow the [shared build and evidence contract](../README.md#common-implementation-contract-for-all-four-briefs).
-No deployment or real inference is authorised by this brief.
+The original brief authorizes no deployment or inference by itself. The separately authorized real-service run and commands are documented in [live/README.md](./live/README.md).
 
 The hypothesis to test is conditional: **authoritative provider terminal evidence
 can justify releasing capacity; local transport termination alone cannot**. It is

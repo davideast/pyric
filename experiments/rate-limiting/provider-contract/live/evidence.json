@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "visibility": "private; authenticated Cloud Storage access required",
+  "archive": "gs://digame-mas-pyric-experiment-evidence/runs/provider-contract/c3e62ca0-1e25-4e42-be91-153a420deca8/evidence.tar.gz",
+  "sha256": "9b8b6048242bf8f58625f7493d0512603f7b004125387443975807ac517ecdf9",
+  "bytes": 71701,
+  "fileCount": 68,
+  "readbackVerified": true,
+  "successfulRunId": "c3e62ca0-1e25-4e42-be91-153a420deca8",
+  "failedPrerequisiteRunId": "e9235bb5-f004-465d-b95c-cfbb34178f2f",
+  "auditEntries": 26
+}
