@@ -238,6 +238,14 @@ Each is `declined` or `open` once you decide. Record the decision here.
 - Verified on the slice after a full build: against a hosted server Studio opens 2 sockets and holds them, lists the collection, and shows the write in the activity feed, matching the integration branch. Against a default SharedWorker server the probe's output is identical to `main`'s (2 sockets, the same network-idle timeout, the same 404s), so that mode is unchanged. Studio 549 tests and the UI suites pass; Studio, UI, and cli typecheck. The 401 responses in the hosted probe's console appear on the integration branch too and are not the cause.
 - Left on the integration branch, still phase 5: the traffic request inspector, `TrafficSurface`, `traffic.css`, `verdict.ts`, `studio-events.ts`, the two `packages/ui` traffic components, and the playground checkpoint script.
 
+### C16. The runtime chip's Overview and Flow highlights show nothing in real apps under the Node host
+
+- Severity: should-fix. Slice: `host` or `transport`, to be decided by the cause. Status: open, reproducing. Reported by the owner on 2026-09-23 after running hosted mode on three Vite and React applications installed from packed tarballs: the mode worked; the chip's Overview and Flow highlights did not, in any of them.
+- Known: `packages/cli/test/e2e/hosted/vite-highlights.pw.ts` passes in all four configurations on current code (Node and SharedWorker, React DevTools on and off), run by the reviewer the same day. The feature works in the repository fixture, which resolves Pyric from the workspace and renders with `React.createElement`.
+- Not yet known: whether the same installs show highlights in SharedWorker mode, which would separate a hosted defect from a packaging or bundling defect; which React versions are involved; whether the chip counts listeners and paints nothing, or counts none.
+- Hypothesis, untested: `worker/client/listener-owners.ts` derives the owner on the page from the call stack and skips frames under the client's own directory. Installed under `node_modules`, the client is pre-bundled by Vite into `.vite/deps`, which would defeat that filter.
+- Acceptance: a reproduction in an application installed the way a user installs it, a test that fails there before the fix, and highlights painting in both modes after it.
+
 ## D. Spec gaps and contract violations
 
 Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the combined live-mode contract is preserved on `live/parked`.
