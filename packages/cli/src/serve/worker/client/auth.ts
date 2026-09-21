@@ -167,14 +167,14 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     if (isSignedIn) await restorePortSession(auth, user.uid, request, user.tenantId);
   };
 
-  // Internal authState subscription keeps `auth.currentUser` live.
+  // ID-token updates also refresh same-UID changes such as provider linking.
   const subId = nextSubId();
   openSnapshotSubscription(port, subId, {
     port,
     next: (raw) => {
       auth.currentUser = toClientUser(port, raw as SerializedUser | null);
     },
-  }, { t: 'sub', subId, target: 'authState' } satisfies InboundMessage);
+  }, { t: 'sub', subId, target: 'idToken' } satisfies InboundMessage);
 
   return auth;
 }
@@ -343,9 +343,10 @@ export async function getIdTokenResult(
   return user.getIdTokenResult(forceRefresh);
 }
 
-function requireUserPort(user: ClientUser, api: string): ClientPort {
+export function requireUserPort(user: ClientUser, api: string): ClientPort {
   const port = (user as { [CLIENT_USER_PORT]?: ClientPort })[CLIENT_USER_PORT];
-  if (!port) {
+  const hasNoPort = port === undefined;
+  if (hasNoPort) {
     const err = new Error(
       `${api}: unrecognized user — was it produced by a worker-path sign-in?`,
     ) as Error & { code: string };

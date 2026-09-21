@@ -51,5 +51,6 @@ export * from './client/admin-firestore.js';
 export * from './client/studio.js';
 export * from './client/presence.js';
 export * from './client/auth.js';
+export { linkWithCredential, unlink } from './client/auth-linking.js';
 export * from './client/storage.js';
 export * from './client/ai.js';

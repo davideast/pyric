@@ -202,6 +202,23 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasPhotoURL, 'photoURL');
       return;
     }
+    case 'auth.linkWithCredential': {
+      requireString(message.uid, 'uid');
+      const credential = message.credential;
+      requireRecord(credential, 'credential');
+      requireString(credential.providerId, 'credential.providerId');
+      requireString(credential.signInMethod, 'credential.signInMethod');
+      const isEmailCredential = credential.providerId === 'password';
+      if (isEmailCredential) {
+        requireString(credential.email, 'credential.email');
+        requireString(credential.password, 'credential.password');
+      }
+      return;
+    }
+    case 'auth.unlink':
+      requireString(message.uid, 'uid');
+      requireString(message.providerId, 'providerId');
+      return;
     case 'auth.signInWithCredential': {
       const credential = message.credential ?? message;
       requireRecord(credential, 'credential');

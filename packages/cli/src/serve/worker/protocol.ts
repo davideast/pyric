@@ -176,6 +176,9 @@ export type OpMessage = (
       uid?: string | null;
       tenantId?: string | null;
     }
+  | { t: 'op'; id: string; method: 'auth.linkWithCredential'; uid: string; tenantId: string | null;
+      credential: { providerId: string; signInMethod: string; email?: string; password?: string } }
+  | { t: 'op'; id: string; method: 'auth.unlink'; uid: string; tenantId: string | null; providerId: string }
   | { t: 'op'; id: string; method: 'auth.restorePortSession'; uid: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.acceptIdentity'; identity: ResolvedIdentity; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.listUsers' }

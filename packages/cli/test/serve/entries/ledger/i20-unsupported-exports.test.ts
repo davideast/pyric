@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 const cases = [
   ['app', 'initializeServerApp'],
-  ['auth', 'linkWithPopup'],
+  ['auth', 'linkWithPhoneNumber'],
   ['firestore', 'loadBundle'],
   ['storage', 'getStream'],
   ['ai', 'getLiveGenerativeModel'],

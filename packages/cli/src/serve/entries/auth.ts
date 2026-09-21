@@ -280,4 +280,5 @@ export {
   prodErrorMap,
 } from 'pyric/auth';
 
+export { linkWithCredential, linkWithPopup, linkWithRedirect, unlink } from './auth-linking.js';
 export * from './unsupported/auth.js';
