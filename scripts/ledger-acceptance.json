@@ -1,4 +1,10 @@
 {
+  "I19": {
+    "phase": 2,
+    "tests": ["packages/cli/test/e2e/vite-optimizer-compatibility.pw.ts"],
+    "playwright": true,
+    "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
+  },
   "I20": {
     "phase": 2,
     "tests": [
