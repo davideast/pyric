@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Pyric Node Host"
+  short_description: "Install Pyric from a checkout and exercise Node host mode"
+  default_prompt: "Use $pyric-node-host to install Pyric from my local checkout, start this project's sandbox in Node host mode, verify it, and work through the hosted test checklist."

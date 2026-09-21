@@ -1,0 +1,4 @@
+interface:
+  display_name: "Migrate to Pyric Node Host"
+  short_description: "Move a SharedWorker Pyric app to Node host mode with its data"
+  default_prompt: "Use $pyric-migrate-to-node-host to move this project from Pyric's SharedWorker sandbox to Node host mode, carry its sandbox data across, verify it, and tell me how to go back."
