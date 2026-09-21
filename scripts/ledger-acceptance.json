@@ -7,7 +7,9 @@
       "packages/cli/test/serve/worker/ledger/i20-account-linking.test.ts",
       "packages/cli/test/serve/worker/ledger/i20-reauthentication.test.ts",
       "packages/cli/test/serve/worker/ledger/i20-action-codes.test.ts",
+      "packages/cli/test/serve/worker/ledger/i20-custom-token.test.ts",
       "packages/pyric/test/auth/ledger/i20-email-link-session.test.ts",
+      "packages/pyric/test/auth/ledger/i20-custom-token-session.test.ts",
       "packages/pyric/test/storage/runtime-constants.test.ts",
       "packages/pyric/test/auth/runtime-constants.test.ts",
       "packages/pyric/test/ai/runtime-constants.test.ts"
@@ -16,7 +18,8 @@
       "packages/cli/test/e2e/served-export-completeness.pw.ts",
       "packages/cli/test/e2e/served-auth-linking.pw.ts",
       "packages/cli/test/e2e/served-auth-reauthentication.pw.ts",
-      "packages/cli/test/e2e/served-auth-email.pw.ts"
+      "packages/cli/test/e2e/served-auth-email.pw.ts",
+      "packages/cli/test/e2e/served-auth-token.pw.ts"
     ],
     "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
   },
