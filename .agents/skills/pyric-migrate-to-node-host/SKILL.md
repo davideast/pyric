@@ -111,8 +111,8 @@ Add `.pyric/` to `.gitignore` if it is not there. The SQLite store is local stat
 
 1. Start the dev script under Node and keep it running.
 2. A seed loads only into an empty store, so it applies on this first start and not on later ones.
-   The launcher can print `--seed skipped` even when it loaded the fixture; trust the `restoredDocs`
-   and `restoredUsers` counts in the `--json` line and a read of one carried document.
+   The launcher prints `--seed applied` with the document and user counts; confirm them against
+   the snapshot's `docs` and `users`, and read one carried document.
 3. Expect `ExperimentalWarning: SQLite is an experimental feature` from Node on every start.
 
 ## 5. Verify

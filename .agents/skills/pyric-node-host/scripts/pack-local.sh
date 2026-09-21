@@ -20,7 +20,7 @@ if [ ! -f "$rewrite" ]; then
   exit 1
 fi
 if [ ! -f "$checkout/packages/cli/src/serve/hosted/runtime.ts" ]; then
-  echo "This checkout has no Node host (packages/cli/src/serve/hosted). Check out main or hosted-main-integration." >&2
+  echo "This checkout has no Node host (packages/cli/src/serve/hosted). Check out main and pull." >&2
   exit 1
 fi
 

@@ -33,11 +33,9 @@ is expected.
 
 ## Choose the checkout branch
 
-Node host mode is on `main`. Fixes that landed after it are on `hosted-main-integration` until
-their pull requests merge: restoring RTDB, presence, and event-stream subscriptions after a host
-restart, and bounding the engine's event log, without which a host under heavy writes retains
-every written document. Use `hosted-main-integration` unless you were told to test `main`. Say
-which branch and commit you tested in your report.
+Use `main`. It carries Node host mode and every fix from its review, including restoring RTDB,
+presence, and event-stream subscriptions after a host restart, and the bounded engine event log.
+Pull before you pack. Say which commit you tested in your report.
 
 ## Install from the checkout
 
@@ -116,10 +114,10 @@ Work through these and record the observed result for each. Each line states wha
    message and the first host is unaffected.
 7. **Fresh start.** `--fresh` (or `fresh: true` in the Vite options) archives the current store
    and starts empty. The archive is a directory, `.pyric/state/hosted.archive-<time>-<id>`. To go
-   back, stop the host and rename that directory to `.pyric/state/hosted`. The launcher's note
-   says to move it "over state.json"; that wording is for the SharedWorker store, ignore it here.
+   back, stop the host, move the current `.pyric/state/hosted` aside, and rename the archive to
+   `.pyric/state/hosted`. The launcher prints the same instruction.
 8. **Memory under sustained writes.** Watch the Node process's resident memory across several
-   minutes of writes. On `hosted-main-integration` it levels off. Growth that keeps climbing in
+   minutes of writes. It levels off. Growth that keeps climbing in
    step with the bytes written is a finding; report the branch, the write size, and the numbers.
 
 ## When something breaks
@@ -136,6 +134,6 @@ Work through these and record the observed result for each. Each line states wha
   report.
 - For any failure, capture `pyric serve diagnostics --json`, the host's stderr, the steps, and the
   `<pyric>` commit. Do not paste document contents that the owner would not want shared.
-- On a first start with `--seed`, the launcher can print `--seed skipped` even though the fixture
-  was loaded into the empty store. Trust `restoredDocs` and a read of a seeded document, not that
-  line.
+- A first start with `--seed` into an empty store prints `--seed applied` with its counts. A later
+  start prints the restored counts and skips the seed, because a seed loads only into an empty
+  store.
