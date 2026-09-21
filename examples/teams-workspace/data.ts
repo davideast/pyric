@@ -8,17 +8,8 @@ import {
   uploadBytes,
   getDownloadURL,
 } from "firebase/storage";
-const app = initializeApp({
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY ?? "demo",
-  authDomain:
-    import.meta.env.VITE_FIREBASE_AUTH_DOMAIN ?? "orbit-demo.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID ?? "orbit-demo",
-  databaseURL:
-    import.meta.env.VITE_FIREBASE_DATABASE_URL ??
-    "https://orbit-demo-default-rtdb.firebaseio.com",
-  storageBucket:
-    import.meta.env.VITE_FIREBASE_STORAGE_BUCKET ?? "orbit-demo.appspot.com",
-});
+import { firebaseConfig } from "./firebase-config";
+const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app),
   db = fs.getFirestore(app),
   rtdb = rt.getDatabase(app);
@@ -123,7 +114,14 @@ export async function send(
     reactions: 0,
     ...(attachment ? { attachment, fileName: file!.name } : {}),
   };
-  await fs.setDoc(fs.doc(db, `${path(channel)}/${crypto.randomUUID()}`), value);
+  const messageId = crypto.randomUUID();
+  await fs.setDoc(fs.doc(db, `${path(channel)}/${messageId}`), value);
+  // The message remains sent if a secondary notification request fails.
+  try {
+    await rt.set(rt.ref(rtdb, `mentionRequests/${author}/${messageId}`), channel);
+  } catch (error) {
+    console.warn("Message sent, but mention notification could not be queued.", error);
+  }
   await rt.set(
     rt.ref(rtdb, `receipts/${channel}/${author}`),
     new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),

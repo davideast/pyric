@@ -1146,3 +1146,37 @@ h1 span {
     min-height: 450px;
   }
 }
+
+.notification-settings {
+  padding: 12px 0 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.notification-settings p { margin: 0 0 12px; color: var(--muted); }
+.notification-settings p[role="status"] { color: #f0f1f2; }
+.notification-enable {
+  background: #353d41;
+  color: #f0f1f2;
+  padding: 9px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+.notification-enable:hover { background: #44515a; }
+.notification-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.notification-item:hover { background: #303638; }
+.notification-item strong { font-weight: 600; }
+.notification-item span { color: #d5dadc; }
+.notification-item small { color: var(--muted); font-size: 11px; }
