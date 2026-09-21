@@ -242,3 +242,47 @@ export function onSnapshotsInSync(
     cancelled = true;
   };
 }
+
+export {
+  AbstractUserDataWriter,
+  AggregateField,
+  AggregateQuerySnapshot,
+  CollectionReference,
+  DocumentReference,
+  DocumentSnapshot,
+  FieldPath,
+  FieldValue,
+  Firestore,
+  FirestoreError,
+  LoadBundleTask,
+  PersistentCacheIndexManager,
+  Query,
+  QueryCompositeFilterConstraint,
+  QueryConstraint,
+  QueryDocumentSnapshot,
+  QueryEndAtConstraint,
+  QueryFieldFilterConstraint,
+  QueryLimitConstraint,
+  QueryOrderByConstraint,
+  QuerySnapshot,
+  QueryStartAtConstraint,
+  SnapshotMetadata,
+  Transaction,
+  WriteBatch,
+  aggregateFieldEqual,
+  aggregateQuerySnapshotEqual,
+  average,
+  count,
+  documentId,
+  sum,
+} from 'pyric/firestore';
+
+export * from './unsupported/firestore.js';
+
+import { refEqual as workerRefEqual } from '../worker/client/firestore-reference-equality.js';
+export const refEqual = (useWorker ? workerRefEqual : ip.refEqual) as typeof ip.refEqual;
+
+/** The served sandbox already provides the local backend. */
+export function connectFirestoreEmulator(..._args: unknown[]): void {
+  console.info('[pyric sandbox] connectFirestoreEmulator is a no-op; the sandbox is already local.');
+}

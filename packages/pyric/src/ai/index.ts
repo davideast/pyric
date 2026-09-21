@@ -137,3 +137,12 @@ export type {
   AI,
   AIOptions,
 } from './types.js';
+
+export {
+  ImagenAspectRatio,
+  ImagenPersonFilterLevel,
+  ImagenSafetyFilterLevel,
+  InferenceMode,
+  InferenceSource,
+  LiveResponseType,
+} from './generation-enums.js';

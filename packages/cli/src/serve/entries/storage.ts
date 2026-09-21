@@ -100,3 +100,10 @@ export const uploadString = (useWorker ? observeStorageOperation('uploadString',
 export const updateMetadata: typeof ip.updateMetadata = useWorker
   ? observeStorageOperation('updateMetadata', (_ref: Parameters<typeof ip.updateMetadata>[0], ..._args: [Parameters<typeof ip.updateMetadata>[1]]) => unsupportedWorkerApi('updateMetadata'))
   : ip.updateMetadata;
+
+export {
+  StringFormat,
+  StorageErrorCode,
+} from 'pyric/storage';
+
+export * from './unsupported/storage.js';

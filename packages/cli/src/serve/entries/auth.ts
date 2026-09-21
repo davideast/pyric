@@ -258,3 +258,26 @@ export const reload = (
 export const updateCurrentUser = (
   useWorker ? wc.updateCurrentUser : ipAuth.updateCurrentUser
 ) as typeof ipAuth.updateCurrentUser;
+
+export {
+  ActionCodeOperation,
+  ActionCodeURL,
+  AuthCredential,
+  AuthErrorCodes,
+  EmailAuthCredential,
+  FactorId,
+  OAuthCredential,
+  OperationType,
+  ProviderId,
+  SAMLAuthProvider,
+  SignInMethod,
+  TwitterAuthProvider,
+  browserCookiePersistence,
+  browserPopupRedirectResolver,
+  debugErrorMap,
+  indexedDBLocalPersistence,
+  parseActionCodeURL,
+  prodErrorMap,
+} from 'pyric/auth';
+
+export * from './unsupported/auth.js';

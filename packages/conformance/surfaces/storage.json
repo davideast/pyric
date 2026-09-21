@@ -46,17 +46,6 @@
       "symbols": [
         "list"
       ]
-    },
-    {
-      "id": "storage.runtime-enum-values",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "StorageErrorCode and StringFormat are mirrored as TypeScript types but not as Firebase-compatible runtime enum objects, so value imports remain unavailable.",
-      "evidenceRefs": ["upstream:firebase/storage"],
-      "symbols": [
-        "StorageErrorCode",
-        "StringFormat"
-      ]
     }
   ]
 }

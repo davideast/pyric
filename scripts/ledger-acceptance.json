@@ -1,7 +1,17 @@
 {
   "I20": {
     "phase": 2,
-    "tests": ["packages/cli/test/serve/entries/ledger/i20-served-public-exports.test.ts"]
+    "tests": [
+      "packages/cli/test/serve/entries/ledger/i20-served-public-exports.test.ts",
+      "packages/cli/test/serve/entries/ledger/i20-unsupported-exports.test.ts",
+      "packages/pyric/test/storage/runtime-constants.test.ts",
+      "packages/pyric/test/auth/runtime-constants.test.ts",
+      "packages/pyric/test/ai/runtime-constants.test.ts"
+    ],
+    "browserTests": [
+      "packages/cli/test/e2e/served-export-completeness.pw.ts"
+    ],
+    "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
   },
   "C17": {
     "phase": 2,

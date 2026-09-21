@@ -36,7 +36,8 @@ import type { StorageReference } from './reference.js';
 const OCTET = 'application/octet-stream';
 
 /** `uploadString` format selector. */
-export type StringFormat = 'raw' | 'base64' | 'data_url';
+import type { StringFormat } from './string-format.js';
+export type { StringFormat } from './string-format.js';
 
 /**
  * Upload bytes to the reference's `fullPath`. Replaces any existing
