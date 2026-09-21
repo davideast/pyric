@@ -642,7 +642,7 @@ All recorded resident-growth measurements are bytes:
 
 ### I18. Two hosted launcher messages describe the SharedWorker store
 
-- Severity: nit, first-run. Slice: `host`. Status: open. Found by the reviewer on 2026-09-21 while running hosted mode from packed tarballs on `main` `40d1cd35`.
+- Severity: nit, first-run. Slice: `host`. Status: fixing (Codex, `work/integration`). Found by the reviewer on 2026-09-21 while running hosted mode from packed tarballs on `main` `40d1cd35`.
 - Location: the launcher's persistence summary line and its recovery-backup note in `packages/cli/src/cli/serve.ts` and the session code it calls.
 - Defect, first message: on a first start with `--seed` in a project that has no store, the fixture is loaded into the empty SQLite store and then read back, so the summary prints `1 doc(s), 0 user(s) restored; --seed skipped`. The seed was applied; the line says it was not.
 - Defect, second message: after `--hosted --fresh` the note reads `a recovery backup exists at .../.pyric/state/hosted.archive-<time>-<id> ... Restore: mv it back over state.json`. The archive is a directory and the restore is to stop the host and rename it to `.pyric/state/hosted`; following the printed instruction does nothing useful.

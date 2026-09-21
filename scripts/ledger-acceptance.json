@@ -219,5 +219,11 @@
     "filter": "offline snapshots",
     "node": true,
     "note": "Also run from packages/cli: bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts."
+  },
+  "I18": {
+    "phase": 3,
+    "tests": ["packages/cli/test/cli/ledger/i18-hosted-launcher-messages.test.ts"],
+    "node": true,
+    "note": "Hosted seed and fresh startup messages describe the applied seed and directory archive."
   }
 }
