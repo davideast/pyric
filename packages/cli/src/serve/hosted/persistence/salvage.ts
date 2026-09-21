@@ -7,12 +7,13 @@ import { decodeImportBundle, validatePersistenceEncoding, storedMetadataSchema, 
 import { claimProjectState } from '../project-ownership.js';
 import { openHostedDatabase, HOSTED_SCHEMA_VERSION } from './database.js';
 import { openNodeSqlite, sqlText } from './sqlite.js';
-import { validateHostedDatabase } from './validate.js';
+import { repairedStorageMetadata, validateHostedDatabase, type StorageMetadataRepair } from './validate.js';
 
 export interface RecoveryReport {
   recoveredDocuments: number;
   recoveredServices: number;
   recoveredObjects: number;
+  repairedObjects: StorageMetadataRepair[];
   excluded: Array<{ namespace: string; id: string; reason: string }>;
 }
 
@@ -56,7 +57,7 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
       if (unsupported) throw new Error(`Unsupported hosted database version ${String(version)}; recovery was not attempted.`);
       const corrupt = input.prepare('PRAGMA quick_check').all().some(row => row.quick_check !== 'ok');
       if (corrupt) throw new Error('Physical SQLite corruption prevents this recovery. The original directory is unchanged.');
-      const report: RecoveryReport = { recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, excluded: [] };
+      const report: RecoveryReport = { recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, repairedObjects: [], excluded: [] };
       const documents: Record<string, Record<string, unknown>> = {};
       const services: Record<string, unknown> = {};
       const duplicatePaths = new Set<string>();
@@ -141,8 +142,14 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
             if (invalidBytes) throw new Error('Invalid bytes');
             const mismatchedBucket = metadata.bucket !== row.bucket;
             if (mismatchedBucket) throw new Error('Invalid bucket');
-            await recovered.storage.put(sqlText(row, 'path'), new Blob([Uint8Array.from(bytes)], { type: sqlText(row, 'mime') }), metadata);
+            const content = Uint8Array.from(bytes);
+            // The bytes are the object; a size they disagree with is repaired
+            // rather than costing the object its place in the recovery.
+            const wrongSize = metadata.size !== content.byteLength;
+            const stored = wrongSize ? repairedStorageMetadata(metadata, content) : metadata;
+            await recovered.storage.put(sqlText(row, 'path'), new Blob([content], { type: sqlText(row, 'mime') }), stored);
             report.recoveredObjects++;
+            if (wrongSize) report.repairedObjects.push({ bucket: sqlText(row, 'bucket'), path: sqlText(row, 'path'), recordedSize: metadata.size, actualSize: content.byteLength });
           } catch { report.excluded.push({ namespace: 'storage', id, reason: 'Object validation failed' }); }
         }
         const emptyRecovery = report.recoveredDocuments + report.recoveredServices + report.recoveredObjects === 0;

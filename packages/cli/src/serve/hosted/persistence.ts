@@ -2,7 +2,7 @@ import { requireNodePersistence } from './persistence/sqlite.js';
 import { join } from 'node:path';
 import { openHostedDatabase } from './persistence/database.js';
 import { createHostedStateView } from './persistence/state-view.js';
-import { validateHostedDatabase } from './persistence/validate.js';
+import { validateHostedDatabase, type StorageMetadataRepair } from './persistence/validate.js';
 import { archiveHostedDirectory } from './persistence/archive.js';
 
 export const HOSTED_NAMESPACE = 'hosted';
@@ -17,13 +17,13 @@ export async function createHostedPersistence(projectDir: string, options: { fre
   if (startsFresh) archive = await archiveHostedDirectory(directory);
   const database = await openHostedDatabase(directory).catch(error => { throw restorationFailure(directory, error); });
   try {
-    validateHostedDatabase(database);
+    const repairedObjects = validateHostedDatabase(database);
     const state = createHostedStateView(projectDir, directory, database, HOSTED_NAMESPACE);
     const savedArchive = archive;
     const hasArchive = savedArchive !== undefined;
     if (hasArchive) state.backupPath = savedArchive;
     return {
-      backend: database.records, storage: database.storage, state, close: database.close,
+      backend: database.records, storage: database.storage, state, repairedObjects, close: database.close,
       status: database.status, onFailure: database.onFailure, markUnhealthy: database.markUnhealthy,
       seed: state.seed,
     };
@@ -43,6 +43,16 @@ export async function loadHostedSnapshot(projectDir: string) {
     validateHostedDatabase(database);
     return createHostedStateView(projectDir, directory, database, HOSTED_NAMESPACE).load();
   } finally { database.close(); }
+}
+
+/** Startup lines naming each Storage object the stored bytes corrected. */
+export function formatStorageRepairs(repairs: readonly StorageMetadataRepair[]): string[] {
+  const nothingRepaired = repairs.length === 0;
+  if (nothingRepaired) return [];
+  return [
+    '  ⚠ Repaired Storage metadata that disagreed with the stored bytes; the bytes are unchanged.',
+    ...repairs.map(repair => `    • ${repair.bucket}/${repair.path}: recorded size ${repair.recordedSize}, actual size ${repair.actualSize}`),
+  ];
 }
 
 function restorationFailure(directory: string, cause: unknown): Error {

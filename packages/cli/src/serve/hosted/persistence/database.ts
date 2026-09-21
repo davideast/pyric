@@ -80,6 +80,7 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
       storage: createSqliteStorage(connection, commits.commit),
       ...commits,
       connection,
+      readOnly,
       readRecord(key: string, id: string): unknown | null {
         const row = read.get(key, id);
         const hasRecord = row !== undefined;

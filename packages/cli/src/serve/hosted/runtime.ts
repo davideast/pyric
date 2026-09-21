@@ -24,7 +24,7 @@ import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
 import { drainPortRtdbDisconnects } from '../worker/host/rtdb.js';
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
-import { createHostedPersistence, HOSTED_NAMESPACE, type HostedPersistence } from './persistence.js';
+import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
 import { MAX_HOSTED_METHOD_OWNERS, type HostedMethodRequest } from './method-protocol.js';
 
@@ -58,6 +58,9 @@ export async function createHostedRuntime(
   const ownedProjectDir = realpathSync(projectDir);
   const ownsPersistence = ai.persistence === undefined;
   const persistence = ai.persistence ?? await createHostedPersistence(ownedProjectDir);
+  // The session prints the repairs it opened; this path prints its own.
+  const reportsRepairs = ai.persistence === undefined;
+  if (reportsRepairs) for (const line of formatStorageRepairs(persistence.repairedObjects)) ai.logger?.note(line);
   const closeOwnedPersistence = () => {
     if (ownsPersistence) persistence.close();
   };
