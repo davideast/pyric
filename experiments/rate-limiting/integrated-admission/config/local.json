@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "integrated-admission",
+  "variantId": "atomic-admission",
+  "profile": "local",
+  "backend": { "kind": "pyric" },
+  "execution": { "kind": "local-processes", "gatewayCount": 2 },
+  "provider": { "kind": "fixture", "profile": "observable" },
+  "clock": { "kind": "logical", "initialMs": 1000 },
+  "seed": 17,
+  "policyVersion": "integrated-v1",
+  "realInferenceEnabled": false,
+  "limits": {
+    "maxRequests": 200,
+    "maxCommands": 400,
+    "maxDurationMs": 60000,
+    "maxTransactionAttempts": 8
+  }
+}
