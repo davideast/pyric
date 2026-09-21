@@ -429,21 +429,30 @@ jobs:
         # Runs the canonical firebase/* swap through pyric dev, including named
         # apps, cross-tab Auth isolation, config locking, deletion teardown,
         # and the worker-owned AI boundary. These are blocking oracle claims.
-        run: bun run --cwd packages/cli test:app-conformance
+        run: bun run --cwd packages/cli test:app-conformance --output=test-results/app-conformance --trace=retain-on-failure
 
       - name: Runtime identity conformance
         # Pins authentic client Auth synchronization, direct user-to-user
         # transitions, user creation, and explicit sign-out through the chip.
-        run: bun run --cwd packages/cli test:identity-conformance
+        run: bun run --cwd packages/cli test:identity-conformance --output=test-results/identity-conformance --trace=retain-on-failure
 
       - name: Runtime Flow treatments
-        run: bun run --cwd packages/cli test:flow-treatments
+        run: bun run --cwd packages/cli test:flow-treatments --output=test-results/flow-treatments --trace=retain-on-failure
 
       - name: CLI-hosted Studio
-        run: bun run --cwd packages/cli test:site-cli
+        run: bun run --cwd packages/cli test:site-cli --output=test-results/site-cli --trace=retain-on-failure
 
       - name: Public Studio
-        run: bun run --cwd packages/cli test:site-static
+        run: bun run --cwd packages/cli test:site-static --output=test-results/site-static --trace=retain-on-failure
+
+      - name: Upload browser conformance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-conformance-results-${{ github.run_attempt }}
+          path: packages/cli/test-results/
+          if-no-files-found: warn
+          retention-days: 7
 
   release-contract:
     name: Release wrapper contract
