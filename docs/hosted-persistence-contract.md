@@ -61,11 +61,21 @@ a consistent read transaction, without stopping the host.
 
 ## Transport backlog and recovery
 
-Each WebSocket has one 24 MiB output backlog shared by all frames. The bridge
-closes that socket with code `1013` when sending the next encoded frame would
-exceed the limit. A stalled observation consumer therefore interrupts its own
-operations on that socket; healthy consumers on other sockets can continue.
-This bounds buffered socket output, not total host memory.
+Each WebSocket has one 24 MiB output backlog shared by all frames. When sending
+the next encoded frame would exceed the limit, the bridge fails the operation
+that frame belongs to and keeps the socket open. A request that was never sent
+is refused to its caller, who may retry it. A response larger than 4 KiB is
+replaced by a `resource-exhausted` error under the same correlation id, which
+says the response was not delivered and the operation may have completed. A
+response of 4 KiB or less is delivered.
+
+A frame with no operation behind it, such as a pushed snapshot or observation
+batch, has nothing to fail, so the bridge closes that socket with code `1013`.
+A stalled observation consumer therefore still interrupts its own socket;
+healthy consumers on other sockets can continue. Frames written past the limit
+are capped at 1 MiB per socket until the backlog has room again, after which
+the socket closes with `1013`. This bounds buffered socket output, not total
+host memory.
 
 Mutations already sent may have completed even if their acknowledgments are
 lost. Reconnect restores observations, including Firestore, RTDB, presence and
