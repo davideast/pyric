@@ -20,6 +20,7 @@
  */
 import type { PersistenceBackend } from '../ports.js';
 import { bundleRecords, parseBundle } from 'pyric/sandbox';
+import { resolveSessionToken } from './http-workspace.js';
 
 function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/$/, '')}${path}`;
@@ -34,7 +35,19 @@ export function httpPersistence(baseUrl: string): PersistenceBackend {
   // A stable writer id per backend instance, so this client claims/holds the
   // single-writer lock the server enforces on /__pyric/state writes.
   const writerId = `studio-${Math.random().toString(36).slice(2)}`;
-  const headers = { 'content-type': 'application/json', 'x-pyric-writer': writerId };
+
+  // The state route holds account records, so the server refuses any request
+  // that does not present the session token, reads included.
+  const sessionHeaders = async (): Promise<Record<string, string>> => {
+    const token = await resolveSessionToken(base);
+    const hasToken = token !== null;
+    return hasToken ? { 'x-pyric-session-token': token } : {};
+  };
+  const writeHeaders = async (): Promise<Record<string, string>> => ({
+    'content-type': 'application/json',
+    'x-pyric-writer': writerId,
+    ...(await sessionHeaders()),
+  });
 
   // Per-section cache of the parsed v3 bundle, so a restore (list + per-record
   // get) costs one fetch per section, not one fetch per record.
@@ -46,7 +59,7 @@ export function httpPersistence(baseUrl: string): PersistenceBackend {
     const section = sectionFor(key);
     const cached = cache.get(section);
     if (cached) return cached;
-    const res = await fetch(sectionUrl(key));
+    const res = await fetch(sectionUrl(key), { headers: await sessionHeaders() });
     let map = new Map<string, unknown>();
     if (res.ok) {
       const value = await res.text();
@@ -61,7 +74,7 @@ export function httpPersistence(baseUrl: string): PersistenceBackend {
   const save = async (key: string, map: Map<string, unknown>): Promise<void> => {
     const res = await fetch(sectionUrl(key), {
       method: 'POST',
-      headers,
+      headers: await writeHeaders(),
       body: bundleRecords(map),
     });
     if (res.status === 423) {
@@ -93,7 +106,7 @@ export function httpPersistence(baseUrl: string): PersistenceBackend {
       cache.set(sectionFor(key), new Map());
       const res = await fetch(sectionUrl(key), {
         method: 'POST',
-        headers,
+        headers: await writeHeaders(),
         body: 'null',
       });
       if (!res.ok && res.status !== 423) {
