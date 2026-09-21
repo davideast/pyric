@@ -129,7 +129,7 @@
     "test": "bun test",
     "eval": "bun eval/run.ts",
     "eval:report": "bun eval/report.ts",
-    "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts --config test/e2e/playwright.config.ts",
+    "test:app-conformance": "playwright test app-deletion.pw.ts app-multi-app.pw.ts ai-worker-boundary.pw.ts messaging-app-boundary.pw.ts served-firestore-converters.pw.ts --config test/e2e/playwright.config.ts",
     "test:identity-conformance": "playwright test identity-switch.pw.ts auth-popup.pw.ts auth-avatars.pw.ts auth-avatars-disabled.pw.ts auth-take-mail-hosted.pw.ts --config test/e2e/playwright.config.ts",
     "test:flow-treatments": "playwright test flow-treatment.pw.ts overview-initial-render.pw.ts --config test/e2e/playwright.config.ts",
     "test:site-cli": "playwright test --config test/e2e/site-cli/playwright.config.ts",
