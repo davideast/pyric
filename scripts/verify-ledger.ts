@@ -20,6 +20,8 @@ interface Entry {
   filter?: string;
   node?: boolean;
   playwright?: boolean;
+  browserTests?: string[];
+  playwrightConfig?: string;
   note?: string;
 }
 
@@ -45,22 +47,33 @@ let failed = unknown.length > 0;
 for (const id of unknown) console.log(`${id}\tNO MAP ENTRY`);
 
 for (const [id, entry] of selected) {
-  const command = entry.playwright
-    ? ['node_modules/@playwright/test/cli.js', 'test', '--config=packages/cli/test/e2e/hosted/playwright.config.ts', ...entry.tests]
-    : ['test', ...entry.tests];
-  if (entry.filter) command.push(entry.playwright ? '--grep' : '-t', entry.filter);
-  const env = { ...process.env };
-  if (entry.node) env.PYRIC_TEST_NODE = env.PYRIC_TEST_NODE ?? 'node';
-  const result = spawnSync(entry.playwright ? 'node' : 'bun', command, { encoding: 'utf8', env, timeout: 300_000 });
-  const output = `${result.stdout}\n${result.stderr}`;
-  const passMatch = output.match(/(\d+) pass/);
-  const failMatch = output.match(/(\d+) fail/);
-  const passes = passMatch ? Number(passMatch[1]) : 0;
-  const failures = failMatch ? Number(failMatch[1]) : 0;
-  const ok = result.status === 0 && failures === 0 && passes > 0;
+  const config = entry.playwrightConfig ?? 'packages/cli/test/e2e/hosted/playwright.config.ts';
+  const groups = [{ tests: entry.tests, playwright: entry.playwright ?? false }];
+  if (entry.browserTests) groups.push({ tests: entry.browserTests, playwright: true });
+  let output = '';
+  let passes = 0;
+  let failures = 0;
+  let ok = true;
+  for (const group of groups) {
+    const command = group.playwright
+      ? ['node_modules/@playwright/test/cli.js', 'test', `--config=${config}`, ...group.tests]
+      : ['test', ...group.tests];
+    if (entry.filter) command.push(group.playwright ? '--grep' : '-t', entry.filter);
+    const env = { ...process.env };
+    if (entry.node) env.PYRIC_TEST_NODE = env.PYRIC_TEST_NODE ?? 'node';
+    const result = spawnSync(group.playwright ? 'node' : 'bun', command, { encoding: 'utf8', env, timeout: 300_000 });
+    const groupOutput = `${result.stdout}\n${result.stderr}`;
+    output += groupOutput;
+    const groupPasses = Number(groupOutput.match(/(\d+) pass/)?.[1] ?? 0);
+    const groupFailures = Number(groupOutput.match(/(\d+) fail/)?.[1] ?? 0);
+    passes += groupPasses;
+    failures += groupFailures;
+    const groupPassed = result.status === 0 && groupFailures === 0 && groupPasses > 0;
+    ok &&= groupPassed;
+  }
   if (!ok) failed = true;
   const summary = ok ? 'PASS' : 'FAIL';
-  console.log(`${id}\t${summary}\t${passes} pass, ${failures} fail\t${commit}${dirty ? ' (dirty tree)' : ''}\t${entry.tests.join(' ')}${entry.filter ? ` -t "${entry.filter}"` : ''}`);
+  console.log(`${id}\t${summary}\t${passes} pass, ${failures} fail\t${commit}${dirty ? ' (dirty tree)' : ''}\t${[...entry.tests, ...(entry.browserTests ?? [])].join(' ')}${entry.filter ? ` -t "${entry.filter}"` : ''}`);
   if (!ok) {
     const tail = output.trim().split('\n').slice(-25).join('\n');
     console.log(tail.replace(/^/gm, '    '));
