@@ -155,12 +155,21 @@ describe('Overview observes before enabling paint', () => {
 
 
 describe('Overview observes before the chip mounts', () => {
-  for (const kind of ['operation', 'subscription'] as const) {
-    it(`adopts an initial ${kind} delivery and commit made before createListenerMode`, () => {
+  for (const { kind, renderCount } of [
+    { kind: 'operation', renderCount: 1 },
+    { kind: 'subscription', renderCount: 1 },
+    { kind: 'subscription', renderCount: 125 },
+  ] as const) {
+    it(`adopts ${renderCount} pre-chip ${kind} renders within the 100-render bound`, () => {
       const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
       const document = dom.window.document;
       const commits = new Set<() => void>();
       let chipOptions: PyricRuntimeChipOptions | undefined;
+      let collectors = 0;
+      const NativeObserver = dom.window.MutationObserver;
+      dom.window.MutationObserver = class extends NativeObserver {
+        constructor(callback: MutationCallback) { super(callback); collectors++; }
+      };
       const installed = installPyricRuntimeChip({
         document, runtime: createPyricRuntimeStatus({ studioUrl: '/__pyric/ui/studio', worker: { url: '/__pyric/sdk/worker.js', name: 'startup', servedEpoch: null } }),
         listenerEvents: () => () => {},
@@ -172,32 +181,54 @@ describe('Overview observes before the chip mounts', () => {
         // Capture the public mount seam without constructing its listener mode.
         mount(options) { chipOptions = options; return { element: document.createElement('div'), dispose() {} }; },
       });
+      let fiberReads = 0;
+      const idleNode = document.createElement('div');
+      Object.defineProperty(idleNode, '__reactFiber$idle', { get() { fiberReads++; return null; } });
+      document.body.append(idleNode);
+      const idleStart = performance.now();
+      for (const i of Array.from({ length: 200 }).keys()) {
+        idleNode.textContent = String(i);
+        for (const commit of commits) commit();
+      }
+      console.log(`Pre-chip idle cost: 200 commits=${(performance.now() - idleStart).toFixed(3)}ms`);
+      expect(fiberReads).toBe(0);
+      idleNode.remove();
+      const isOperation = kind === 'operation';
       const record = sdkActivity.begin({ app: {}, kind,
-        method: kind === 'operation' ? 'getDocs' : 'onSnapshot',
+        method: isOperation ? 'getDocs' : 'onSnapshot',
         source: { service: 'firestore', target: 'startup', key: `startup-${kind}` },
         owners: [{ kind: 'frame', file: '/data.ts', line: 5, function: 'loadData' }],
       });
       let mode: ReturnType<NonNullable<PyricRuntimeChipOptions['listeners']>> | undefined;
       try {
-        record.delivered();
-        if (kind === 'operation') record.complete();
         const node = document.createElement('div');
         node.textContent = 'Initial data';
         Reflect.set(node, '__reactFiber$fixture', { tag: 5, type: 'div', stateNode: node, return: null, child: null });
         node.getBoundingClientRect = () => new dom.window.DOMRect(12, 34, 80, 20);
         document.body.append(node);
-        for (const commit of commits) commit();
+        for (const render of Array.from({ length: renderCount }).keys()) {
+          record.delivered();
+          node.textContent = `Initial data ${render}`;
+          for (const commit of commits) commit();
+        }
+        if (isOperation) record.complete();
         expect(document.querySelector('[data-pyric-listener-overlay]')).toBeNull();
 
-        mode = chipOptions!.listeners!(() => {});
+        const buildMode = chipOptions?.listeners;
+        const missingMode = buildMode === undefined;
+        if (missingMode) throw new Error('Chip did not supply the listener mode');
+        mode = buildMode(() => {});
+        expect(collectors).toBe(1);
         mode.setEnabled(true);
         const box = document.querySelector<HTMLElement>(`[data-pyric-listener-box][data-listener-id="${record.id}"]`);
         expect(box).not.toBeNull();
         expect(box?.style.left).toBe('12px');
         expect(box?.style.width).toBe('80px');
-        expect(mode.history?.counts().commits).toBe(1);
+        expect(mode.history?.counts().commits).toBe(Math.min(renderCount, 100));
       } finally {
-        mode?.dispose(); installed?.dispose(); record.complete(); dom.window.close();
+        mode?.dispose(); installed?.dispose(); record.complete();
+        expect(commits.size).toBe(0);
+        dom.window.close();
       }
     });
   }

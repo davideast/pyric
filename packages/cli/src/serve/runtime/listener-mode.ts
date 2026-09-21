@@ -30,7 +30,8 @@ import { sdkActivity, sdkMethodCoverage, observationService, type SdkActivityRec
 import { createListenerOverlay, type ListenerOverlay } from './listener-overlay.js';
 import { createListenerIncidents } from './listener-incidents.js';
 import { studioSectionUrl } from './studio-links.js';
-import { createFlowMode } from './listener-flow-mode.js';
+import { createFlowMode, type FlowModeOptions } from './listener-flow-mode.js';
+import type { ListenerObservation } from './listener-observation.js';
 
 import {
   installReactCommitSource,
@@ -88,6 +89,8 @@ export interface ListenerModeOptions {
    * script.
    */
   commits?: ReactCommitSource;
+  /** Observation installed before the chip; its collector is adopted, not duplicated. */
+  observation?: ListenerObservation;
   /** Where the painting mode is remembered. Defaults to the page's storage. */
   paintStorage?: PaintModeStorage | null;
   /**
@@ -282,7 +285,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   // than a mode that is on and paints nothing.
   const flowAvailable = (): boolean => commits.available();
 
-  const flow = createFlowMode({
+  const flowOptions: FlowModeOptions = {
     document: documentLike,
     onTreatmentPaint: (paint) => treatments.record(paint),
     commits,
@@ -290,18 +293,23 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     // the outline knows both ids.
     outlineFor: (listenerId) => {
       const outline = current.find((outline) => outline.listenerId === listenerId || outline.clientListenerId === listenerId);
-      return outline ? displayOutline(outline) : null;
+      const hasOutline = outline !== undefined;
+      return hasOutline ? displayOutline(outline) : null;
     },
     isVisible: (listenerId) => paintMode === 'flow' && !hidden.has(listenerId) && current.some(outline => outline.listenerId === listenerId && canPaintLive(outline)),
     // The switch into Flow replays what the fold already recorded, so the
     // developer sees the latest flow rather than waiting for the next
     // delivery on a page that may be idle.
-    recentDeliveries: () => visibleOutlines()
-      .filter((outline) => outline.lastDeliveryAt !== undefined && (!outline.activity || outline.observedRender))
-      .map((outline) => ({ listenerId: outline.listenerId, at: outline.lastDeliveryAt! })),
+    recentDeliveries: () => visibleOutlines().flatMap(outline => {
+      const at = outline.lastDeliveryAt;
+      const canReplay = at !== undefined && (!outline.activity || outline.observedRender === true);
+      if (canReplay) return [{ listenerId: outline.listenerId, at }];
+      return [];
+    }),
     onObserved: (paint, commitId) => {
       const record = current.find(outline => outline.listenerId === paint.listenerId)?.activity;
-      if (!record) return;
+      const hasNoRecord = record === undefined;
+      if (hasNoRecord) return;
       const entry = history.rendered(record, commitId, options.flow?.windowMs);
       const { subtree, ...metadata } = paint;
       regions.set(entry.sequence, { paint: { ...metadata, target: activityDisplayTarget(metadata.target) }, nodes: subtree.components.slice(0, 100).map(node => ({
@@ -318,8 +326,9 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       // only rebuilds when the mode says something changed.
       recompute();
     },
-    ...(options.flow ?? {}),
-  });
+    ...options.flow,
+  };
+  const flow = options.observation?.flow ?? createFlowMode(flowOptions);
   const startFlow = (): void => {
     const activeOverlay = overlay;
     const canStartPainting = activeOverlay !== null && flowAvailable();
@@ -361,6 +370,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   const isNodeTimer = typeof historyClock === 'object' && 'unref' in historyClock;
   if (isNodeTimer) historyClock.unref();
   recompute();
+  options.observation?.attach(flowOptions);
 
   const hidePainting = (): void => {
     stopFlow();
@@ -532,7 +542,10 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       documentLike.removeEventListener('click', inspectRegion, true);
       view?.removeEventListener('storage', onStorage);
       hidePainting();
-      flow.dispose();
+      const earlyObservation = options.observation;
+      const usesEarlyObservation = earlyObservation !== undefined;
+      if (usesEarlyObservation) earlyObservation.dispose();
+      else flow.dispose();
       unsubscribe?.();
       stopActivity();
       unsubscribe = null;

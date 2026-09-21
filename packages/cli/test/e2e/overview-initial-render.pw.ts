@@ -38,9 +38,11 @@ function holdChipMount(): Plugin {
   return {
     name: 'hold-overview-chip-mount', enforce: 'post',
     transform(code, id) {
-      if (!id.endsWith('/runtime/chip-install.js')) return;
+      const isOtherModule = !id.endsWith('/runtime/chip-install.js');
+      if (isOtherModule) return;
       const mount = 'const mount = options.mount ?? mountPyricRuntimeChip;';
-      if (!code.includes(mount)) throw new Error('Chip mount seam was not found');
+      const missingMountSeam = !code.includes(mount);
+      if (missingMountSeam) throw new Error('Chip mount seam was not found');
       return code.replace(mount, `const mount = options.mount ?? (chipOptions => {
         let chip;
         globalThis.__chipMountReady = new Promise(resolve => {
@@ -73,9 +75,13 @@ for (const hosted of [false, true]) {
         server: { host: '127.0.0.1', port: 0 },
       });
       await server.listen();
-      await page.goto(server.resolvedUrls!.local[0]!);
-      for (let visit = 0; visit < 2; visit++) {
-        if (visit > 0) await page.reload();
+      const url = server.resolvedUrls?.local[0];
+      const missingUrl = url === undefined;
+      if (missingUrl) throw new Error('Vite did not expose a local URL');
+      await page.goto(url);
+      for (const visit of [0, 1]) {
+        const isReload = visit > 0;
+        if (isReload) await page.reload();
         await expect(page.locator('#read')).toHaveText('Read ready');
         await expect(page.locator('#live')).toHaveText('Listener ready');
         // Both initial commits must precede the chip and createListenerMode.

@@ -115,10 +115,12 @@ function isChipOwned(node: unknown, container: HTMLElement | null): boolean {
 /** A `MutationObserver` over the page body, drained rather than subscribed to. */
 function observePageChanges(documentLike: Document, container: () => HTMLElement | null): ChangedNodeSource {
   const view = documentLike.defaultView as { MutationObserver?: typeof MutationObserver } | null;
+  const hasGlobalObserver = typeof MutationObserver === 'function';
   const Observer = view?.MutationObserver
-    ?? (typeof MutationObserver === 'function' ? MutationObserver : undefined);
-  const body = documentLike.body;
-  if (Observer === undefined || body === null) {
+    ?? (hasGlobalObserver ? MutationObserver : undefined);
+  const body = documentLike.body ?? documentLike.documentElement;
+  const cannotObserve = Observer === undefined || body === null;
+  if (cannotObserve) {
     return { drain: () => [], discard: () => {}, stop: () => {} };
   }
   // The callback does nothing: the mode drains on the commit, so what the
