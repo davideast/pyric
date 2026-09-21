@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { DepOptimizationOptions, ResolvedConfig, UserConfig } from 'vite';
+import { version as viteVersion } from 'vite';
 import {
   SDK_MODULES,
   defaultSdkEntries,
@@ -74,31 +75,55 @@ export function createViteModuleSwap(
   const shimFor = (specifier: string): string =>
     NODE_BUILTIN_SHIMS[specifier.replace(/^node:/, '')];
 
+  function resolveId(source: string, importer: string | undefined): string | null {
+    const isShadowBridgeImporter = importer !== undefined &&
+      (importer.includes('app-ai-passthrough') || importer.includes('app-bridge'));
+    const isFirebaseAppSpecifier = source === 'firebase/app';
+    const isBypassedBridgeImport = isShadowBridgeImporter && isFirebaseAppSpecifier;
+    if (isBypassedBridgeImport) return null;
+
+    const firebaseMatch = FIREBASE_SPECIFIER.exec(source);
+    const isFirebaseSpecifier = firebaseMatch !== null;
+    if (isFirebaseSpecifier) {
+      const subpath = firebaseMatch[1] ?? '';
+      const isServedSubpath = SERVED_FIREBASE_SUBPATHS.has(subpath);
+      return isServedSubpath ? entries[entryKey(subpath)] ?? null : null;
+    }
+
+    const nodeMatch = NODE_BUILTIN_RE.exec(source);
+    const isNodeBuiltin = nodeMatch !== null && nodeMatch[2] !== undefined;
+    const isOwnedImporter = isOurCode(importer);
+    const shouldShimNodeBuiltin = isNodeBuiltin && isOwnedImporter;
+    return shouldShimNodeBuiltin ? NODE_SHIM_PREFIX + nodeMatch[2] : null;
+  }
+
+  function load(id: string): string | null {
+    const isForeignId = !id.startsWith(NODE_SHIM_PREFIX);
+    if (isForeignId) return null;
+    return shimFor(id.slice(NODE_SHIM_PREFIX.length));
+  }
+
+  // Keep Firebase specifiers external so Vite resolves them through the same
+  // hook as direct application imports, including the same module URL.
+  const rolldownMirror = {
+    name: 'pyric-sandbox-optimizer',
+    resolveId(source: string, importer: string | undefined) {
+      const id = resolveId(source, importer);
+      const isUnchanged = id === null;
+      if (isUnchanged) return null;
+      const isNodeShim = id.startsWith(NODE_SHIM_PREFIX);
+      return isNodeShim ? id : { id: source, external: true };
+    },
+    load,
+  };
+
   const optimizerMirror: OptimizerPlugin = {
     name: 'pyric-sandbox-optimizer',
     setup(build) {
       build.onResolve({ filter: FIREBASE_SPECIFIER }, (args) => {
-        const isShadowBridgeImporter = args.importer !== undefined && args.importer !== '' &&
-          (args.importer.includes('app-ai-passthrough') || args.importer.includes('app-bridge'));
-        const isFirebaseAppSpecifier = args.path === 'firebase/app';
-        const isBypassedBridgeImport = isShadowBridgeImporter && isFirebaseAppSpecifier;
-        if (isBypassedBridgeImport) {
-          return null;
-        }
-
-        const match = FIREBASE_SPECIFIER.exec(args.path);
-        const subpath = match?.[1] ?? '';
-
-        const isServedSubpath = SERVED_FIREBASE_SUBPATHS.has(subpath);
-        if (isServedSubpath) {
-          const key = entryKey(subpath);
-          const entryPath = entries[key];
-          const hasEntry = entryPath !== undefined;
-          if (hasEntry) {
-            return { path: entryPath };
-          }
-        }
-        return null;
+        const id = resolveId(args.path, args.importer);
+        const isUnchanged = id === null;
+        return isUnchanged ? null : { path: args.path, external: true };
       });
       build.onResolve({ filter: NODE_BUILTIN_RE }, (args) => {
         const isForeignImporter = !isOurCode(args.importer);
@@ -129,11 +154,15 @@ export function createViteModuleSwap(
         '@firebase/util',
         '@firebase/logger',
       ];
+      const usesRolldown = Number(viteVersion.split('.')[0]) >= 8;
+      const optimizer = usesRolldown
+        ? { rolldownOptions: { plugins: [rolldownMirror] } }
+        : { esbuildOptions: { plugins: [optimizerMirror] } };
       return {
         optimizeDeps: {
           exclude: excludedModules,
           include: ['js-md5', 'js-sha256'],
-          esbuildOptions: { plugins: [optimizerMirror] },
+          ...optimizer,
         },
       };
     },
@@ -150,47 +179,7 @@ export function createViteModuleSwap(
         }
       }
     },
-    resolveId(source, importer) {
-      const isShadowBridgeImporter = importer !== undefined &&
-        (importer.includes('app-ai-passthrough') || importer.includes('app-bridge'));
-      const isFirebaseAppSpecifier = source === 'firebase/app';
-      const isBypassedBridgeImport = isShadowBridgeImporter && isFirebaseAppSpecifier;
-      if (isBypassedBridgeImport) {
-        return null;
-      }
-
-      const firebaseMatch = FIREBASE_SPECIFIER.exec(source);
-      const isFirebaseSpecifier = firebaseMatch !== null;
-      if (isFirebaseSpecifier) {
-        const subpath = firebaseMatch[1] ?? '';
-        const isServedSubpath = SERVED_FIREBASE_SUBPATHS.has(subpath);
-        if (isServedSubpath) {
-          const key = entryKey(subpath);
-          const entryPath = entries[key];
-          const hasEntry = entryPath !== undefined;
-          if (hasEntry) {
-            return entryPath;
-          }
-        }
-        return null;
-      }
-
-      const nodeMatch = NODE_BUILTIN_RE.exec(source);
-      const isNodeBuiltin = nodeMatch !== null && nodeMatch[2] !== undefined;
-      const isOwnedImporter = isOurCode(importer);
-      const shouldShimNodeBuiltin = isNodeBuiltin && isOwnedImporter;
-      if (shouldShimNodeBuiltin) {
-        return NODE_SHIM_PREFIX + nodeMatch[2];
-      }
-      return null;
-    },
-    load(id) {
-      const isForeignId = !id.startsWith(NODE_SHIM_PREFIX);
-      if (isForeignId) {
-        return null;
-      }
-      const specifier = id.slice(NODE_SHIM_PREFIX.length);
-      return shimFor(specifier);
-    },
+    resolveId,
+    load,
   };
 }

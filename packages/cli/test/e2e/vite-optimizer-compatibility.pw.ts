@@ -5,9 +5,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
+import { SDK_MODULES } from '../../dist/serve/bundler.js';
 
 const cliRoot = fileURLToPath(new URL('../../', import.meta.url));
 const manifest = JSON.parse(readFileSync(join(cliRoot, 'package.json'), 'utf8'));
+const sdkImports = SDK_MODULES.map((name, index) => `import * as sdk${index} from ${JSON.stringify(name)};`).join('\n');
+const sdkNamespaces = `[${SDK_MODULES.map((_, index) => `sdk${index}`).join(',')}]`;
 const serverSource = `
 import { createServer } from 'vite';
 import { pyric } from '@pyric/cli/vite';
@@ -48,7 +51,10 @@ for (const version of ['7.3.6', '8.3.0']) {
       mkdirSync(reader);
       writeFileSync(join(reader, 'package.json'), JSON.stringify({ name: 'sandbox-reader', type: 'module', exports: './index.js' }));
       writeFileSync(join(reader, 'index.js'), `
+        ${sdkImports}
         import { getFirestore, doc, getDoc } from 'firebase/firestore';
+        export { getApp } from 'firebase/app';
+        export const modules = ${sdkNamespaces};
         export async function readSandboxDocument() {
           return (await getDoc(doc(getFirestore(), 'proof/document'))).data()?.value;
         }
@@ -59,9 +65,14 @@ for (const version of ['7.3.6', '8.3.0']) {
       }`);
       writeFileSync(join(root, 'index.html'), '<output id="result">Starting</output><script type="module" src="/main.js"></script>');
       writeFileSync(join(root, 'main.js'), `
+        ${sdkImports}
         import { initializeApp } from 'firebase/app';
-        import { readSandboxDocument } from 'sandbox-reader';
-        initializeApp({ projectId: 'optimizer-proof' });
+        import { readSandboxDocument, getApp, modules } from 'sandbox-reader';
+        const app = initializeApp({ projectId: 'optimizer-proof' });
+        window.moduleIdentity = {
+          app: getApp() === app,
+          entries: Object.fromEntries(${JSON.stringify(SDK_MODULES)}.map((name, index) => [name, ${sdkNamespaces}[index] === modules[index]])),
+        };
         document.querySelector('#result').textContent = await readSandboxDocument();
       `);
       writeFileSync(join(root, 'server.mjs'), serverSource);
@@ -92,6 +103,10 @@ for (const version of ['7.3.6', '8.3.0']) {
           expect(typeof url, logs).toBe('string');
           await page.goto(url);
           await expect(page.locator('#result')).toHaveText(`sandbox-only-${version}`);
+          expect(await page.evaluate(() => Reflect.get(window, 'moduleIdentity'))).toEqual({
+            app: true,
+            entries: Object.fromEntries(SDK_MODULES.map(name => [name, true])),
+          });
           expect(optimizedRequests).not.toHaveLength(0);
           expect(productionRequests).toEqual([]);
           console.info(`Vite ${version} ${mode}: prebundled reader returned sandbox-only seed; no production Firestore requests`);
