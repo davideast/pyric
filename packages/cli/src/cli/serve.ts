@@ -657,17 +657,20 @@ async function startServeRuntime(opts: {
     const users = persistence.restoredUsers;
     persistSummary = { restoredDocs: fsDocs, restoredUsers: users };
     const restoredState = persistence.restored;
-    if (restoredState) {
+    const appliedHostedSeed = usesHostedSandbox && persistence.seedApplied;
+    if (appliedHostedSeed) {
+      logger.info(`✔ persist  ${persistence.path} (${fsDocs} doc(s), ${users} user(s); --seed applied)`);
+    } else if (restoredState) {
       logger.info(`✔ persist  ${persistence.path} (${fsDocs} doc(s), ${users} user(s) restored; --seed skipped)`);
     } else {
       logger.info(`✔ persist  new state file at ${persistence.path} (first run — seed applies)`);
     }
     const hasRecoveryBackup = existsSync(persistence.backupPath);
     if (hasRecoveryBackup) {
-      logger.note(
-        `  ⓘ a recovery backup exists at ${persistence.backupPath} (prior non-empty state was ` +
-          'replaced by an empty one — e.g. a reset). Restore: mv it back over state.json.',
-      );
+      const recoveryInstructions = usesHostedSandbox
+        ? 'Restore: stop the host, move the current .pyric/state/hosted directory aside, then rename this archive to .pyric/state/hosted.'
+        : '(prior non-empty state was replaced by an empty one — e.g. a reset). Restore: mv it back over state.json.';
+      logger.note(`  ⓘ a recovery backup exists at ${persistence.backupPath} ${recoveryInstructions}`);
     }
   } else if (usesHostedSandbox) {
     logger.note('  ⓘ persist  data is held in Node memory and is lost when this process stops.');
@@ -839,6 +842,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
 
   const json = Boolean(parsed.flags.get('json'));
   const usesHumanOutput = !json;
+  const usesHostedSandbox = Boolean(parsed.flags.get('hosted'));
+  const needsBrowserConnectionNotice = usesHumanOutput && !usesHostedSandbox;
 
   const explicitUi = Boolean(parsed.flags.get('ui'));
   const uiOn = !parsed.flags.get('no-ui');
@@ -919,7 +924,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       logger,
       noCache: Boolean(parsed.flags.get('no-cache')),
       bridge: bridgeOn,
-      hosted: Boolean(parsed.flags.get('hosted')),
+      hosted: usesHostedSandbox,
       seed,
       watch,
       persist: Boolean(parsed.flags.get('persist')),
@@ -1116,7 +1121,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
           `  ⚠ no browser tab connected after 30s — starting your command anyway; sandbox ops will fail until ${runtime.handle.url} is open.\n`,
         );
       }
-    } else if (usesHumanOutput) {
+    } else if (needsBrowserConnectionNotice) {
       info.write(
         `  ⓘ Auto-open is disabled (--no-open/CI). The pyric sandbox is browser-resident: ` +
           `open ${runtime.handle.url} to connect if your command performs Firebase operations.\n`,
