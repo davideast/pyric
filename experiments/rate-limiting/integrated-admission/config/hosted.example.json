@@ -1,0 +1,38 @@
+{
+  "_comment": "Hosted config for Cloud Run + real Firestore. Requires explicit deployment approval. realInferenceEnabled must remain false.",
+  "schemaVersion": 1,
+  "experimentId": "integrated-admission",
+  "variantId": "atomic-admission",
+  "profile": "hosted",
+  "backend": {
+    "kind": "hosted",
+    "project": "digame-mas",
+    "database": "allowance-experiments",
+    "region": "us-east4"
+  },
+  "execution": {
+    "kind": "cloud-run",
+    "serviceUrl": "<FILL_IN_AFTER_DEPLOYMENT>",
+    "gatewayCount": 1
+  },
+  "provider": { "kind": "fixture", "profile": "observable" },
+  "clock": { "kind": "wall" },
+  "seed": 17,
+  "policyVersion": "integrated-v1",
+  "realInferenceEnabled": false,
+  "cases": [
+    "normal-chat", "normal-agent",
+    "capacity-busy", "quota-exhausted",
+    "duplicate-same-payload",
+    "ack-lost",
+    "pre-dispatch-cancel",
+    "crash-after-dispatch", "provider-unknown",
+    "settlement-ack-lost"
+  ],
+  "limits": {
+    "maxRequests": 200,
+    "maxCommands": 400,
+    "maxDurationMs": 120000,
+    "maxTransactionAttempts": 8
+  }
+}
