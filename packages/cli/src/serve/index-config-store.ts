@@ -10,30 +10,65 @@ async function readOptional(path: string): Promise<string | null> {
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
 }
 
+export type ConfiguredIndexRecord = {
+  status: 'configured';
+  service: 'firestore' | 'rtdb';
+  path: string;
+  config: ServiceIndexConfig;
+  revision: string;
+};
+
+export type UnconfiguredIndexRecord = {
+  status: 'unconfigured';
+  service: 'firestore' | 'rtdb';
+  path: null;
+  config: null;
+  revision: string;
+};
+
+export type IndexConfigRecord = ConfiguredIndexRecord | UnconfiguredIndexRecord;
+
 /** The existing Firebase config selects the only writable file. No path comes from the browser. */
 export function createIndexConfigStore(projectDir: string) {
   const root = resolve(projectDir);
   let queue = Promise.resolve();
-  async function read(service: 'firestore' | 'rtdb' = 'firestore') {
+  async function read(service?: 'firestore' | 'rtdb'): Promise<IndexConfigRecord> {
     const firebase = await readOptional(resolveWorkspacePath(root, 'firebase.json'));
-    if (firebase === null) throw new Error('Add an indexes path to firebase.json to connect local index configuration.');
+    if (firebase === null) {
+      return { status: 'unconfigured', service: service ?? 'firestore', path: null, config: null, revision: '' };
+    }
     const setup = JSON.parse(firebase);
-    const section = service === 'rtdb' ? setup.database : setup.firestore;
+    const targetService: 'firestore' | 'rtdb' = service ?? (
+      setup.firestore?.indexes ? 'firestore' :
+      setup.database?.rules ? 'rtdb' :
+      'firestore'
+    );
+    const section = targetService === 'rtdb' ? setup.database : setup.firestore;
     if (Array.isArray(section)) throw new Error('Select a single database configuration before editing indexes here.');
-    const key = service === 'rtdb' ? 'database.rules' : 'firestore.indexes';
-    const path: unknown = service === 'rtdb' ? section?.rules : section?.indexes;
+    if (section === undefined || section === null) {
+      return { status: 'unconfigured', service: targetService, path: null, config: null, revision: '' };
+    }
+    const key = targetService === 'rtdb' ? 'database.rules' : 'firestore.indexes';
+    const path: unknown = targetService === 'rtdb' ? section.rules : section.indexes;
+    if (path === undefined || path === null) {
+      return { status: 'unconfigured', service: targetService, path: null, config: null, revision: '' };
+    }
     if (typeof path !== 'string' || !path || isAbsolute(path)) throw new Error(`Set ${key} in firebase.json to a project-relative file.`);
     const absolute = resolveWorkspacePath(root, path);
     const contents = await readOptional(absolute);
-    if (service === 'rtdb' && contents === null) throw new Error('The configured database rules file does not exist.');
+    if (targetService === 'rtdb' && contents === null) throw new Error('The configured database rules file does not exist.');
     let config: ServiceIndexConfig;
-    if (service === 'rtdb') config = readDatabaseIndexConfig(contents!);
+    if (targetService === 'rtdb') config = readDatabaseIndexConfig(contents!);
     else config = readIndexConfig(contents === null ? { indexes: [], fieldOverrides: [] } : JSON.parse(contents));
     const revision = createHash('sha256').update(JSON.stringify([firebase, contents])).digest('hex');
-    return { path, config, revision };
+    return { status: 'configured', service: targetService, path, config, revision };
   }
   async function preview(query: ServiceIndexQuery) {
     const current = await read(indexService(query));
+    if (current.status === 'unconfigured' || !current.path || !current.config) {
+      const key = indexService(query) === 'rtdb' ? 'database.rules' : 'firestore.indexes';
+      throw new Error(`Set ${key} in firebase.json to a project-relative file.`);
+    }
     const finding = analyzeServiceIndex(query, current.config);
     if (finding.status !== 'missing' || finding.editBlocked) return { ...current, finding, addition: null };
     return { ...current, finding, addition: finding.index };

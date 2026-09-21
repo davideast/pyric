@@ -98,7 +98,7 @@ export function createChatData(sandbox: ReturnType<typeof initializeSandbox>, se
     }, start, stop,
     async rules() {
       const config = await indexes.read('rtdb');
-      if (!('rules' in config.config)) throw new Error('Database rules are unavailable.');
+      if (!config || !('rules' in config.config)) throw new Error('Database rules are unavailable.');
       database.sandbox.setRules(rtdb, config.config);
     },
     async write(message: Message) {

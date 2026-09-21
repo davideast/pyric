@@ -74,3 +74,34 @@ test('save failure preserves the proposal for retry and reports saving separatel
   expect(inspector.state().error).toBe('File is read-only.');
   inspector.dispose();
 });
+
+test('unconfigured service responses resolve to null and keep inspector findings unavailable without error', async () => {
+  const fetcher = async (input: string | URL | Request) => {
+    const url = String(input);
+    if (url.includes('/__pyric/init.json')) {
+      return new Response(JSON.stringify({ sessionToken: 'valid-token' }), { headers: { 'content-type': 'application/json' } });
+    }
+    if (url.includes('service=rtdb')) {
+      return new Response(JSON.stringify({ status: 'configured', service: 'rtdb', path: 'database.rules.json', config: { rules: { projects: { '.indexOn': 'budget' } } }, revision: 'r1' }), { headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ status: 'unconfigured', service: 'firestore', path: null, config: null, revision: '' }), { headers: { 'content-type': 'application/json' } });
+  };
+  const { createIndexConfigClient } = await import('../../../src/serve/runtime/index-config-client.js');
+  const client = createIndexConfigClient(fetcher as typeof fetch);
+
+  const firestoreConfig = await client.read('firestore');
+  expect(firestoreConfig).toBeNull();
+
+  const rtdbConfig = await client.read('rtdb');
+  expect(rtdbConfig).not.toBeNull();
+  expect(rtdbConfig?.service).toBe('rtdb');
+
+  const inspector = createIndexInspector(client, () => {});
+  await inspector.refresh();
+  expect(inspector.finding(query).status).toBe('unavailable');
+  expect(inspector.finding(query).reason).toBe('No local index configuration is connected.');
+  expect(inspector.state().error).toBeNull();
+  expect(inspector.state().config).toBeNull();
+  inspector.dispose();
+});
+
