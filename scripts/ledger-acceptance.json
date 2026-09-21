@@ -20,7 +20,8 @@
       "packages/cli/test/e2e/served-auth-linking.pw.ts",
       "packages/cli/test/e2e/served-auth-reauthentication.pw.ts",
       "packages/cli/test/e2e/served-auth-email.pw.ts",
-      "packages/cli/test/e2e/served-auth-token.pw.ts"
+      "packages/cli/test/e2e/served-auth-token.pw.ts",
+      "packages/cli/test/e2e/served-availability-refusals.pw.ts"
     ],
     "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
   },

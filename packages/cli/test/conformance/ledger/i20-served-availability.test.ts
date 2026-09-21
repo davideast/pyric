@@ -3,6 +3,35 @@ import { canIUse } from '../../../src/conformance/can-i-use.js';
 import { canIUse as browserCanIUse } from '../../../src/conformance/browser.js';
 import { createConformanceTools } from '../../../src/conformance/tools.js';
 import { CONFORMANCE_SUPPORTS } from '../../../src/conformance/.generated/can-i-use.js';
+import { SERVED_MODULES } from '../../../src/conformance/.generated/served-availability.js';
+import { classifyServedExport } from '../../../src/conformance/served-query.js';
+import { deriveServedModules, servedServices } from '../../../scripts/generate-served-availability.ts';
+
+test('served availability is generated from all seven real entry exports and their refusal modules', async () => {
+  expect(servedServices).toEqual(['app', 'auth', 'firestore', 'database', 'storage', 'messaging', 'ai']);
+  expect(SERVED_MODULES).toEqual(await deriveServedModules());
+  for (const module of Object.values(SERVED_MODULES)) {
+    for (const feature of module.expected) expect(classifyServedExport(module, feature)).not.toBe('missing');
+    for (const feature of module.importsOnly) expect(module.exports).toContain(feature);
+  }
+});
+
+test('runtime classifications have a reviewable snapshot', () => {
+  const classifications = Object.fromEntries(Object.entries(SERVED_MODULES).map(([service, module]) => {
+    const names = [...new Set([...module.expected, ...module.exports])].sort();
+    const statuses = Object.fromEntries(names.map(name => [name, classifyServedExport(module, name)]));
+    return [service, statuses];
+  }));
+  expect(classifications).toMatchSnapshot();
+});
+
+test('a missing export cannot borrow support from an unused refusal declaration', () => {
+  const module = { surface: 'auth', expected: ['linkWithPopup'], exports: [], importsOnly: ['linkWithPopup'] };
+  expect(classifyServedExport(module, 'linkWithPopup')).toBe('missing');
+  const exported = { ...module, exports: ['linkWithPopup'] };
+  expect(classifyServedExport(exported, 'linkWithPopup')).toBe('imports-only');
+  expect(classifyServedExport({ ...exported, importsOnly: [] }, 'linkWithPopup')).toBe('supported');
+});
 
 test('the agent query reports linkWithPopup as supported with and without firebase/auth', async () => {
   const tool = createConformanceTools().find(tool => tool.name === 'pyric_can_i_use');

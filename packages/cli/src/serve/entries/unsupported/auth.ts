@@ -1,5 +1,7 @@
 import { unsupportedServedApi } from './call.js';
 
+export const beforeAuthStateChanged = unsupportedServedApi('auth', 'beforeAuthStateChanged');
+
 export const PhoneAuthCredential = unsupportedServedApi('auth', 'PhoneAuthCredential');
 export const PhoneAuthProvider = unsupportedServedApi('auth', 'PhoneAuthProvider');
 export const PhoneMultiFactorGenerator = unsupportedServedApi('auth', 'PhoneMultiFactorGenerator');

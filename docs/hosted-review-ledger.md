@@ -710,6 +710,8 @@ All recorded resident-growth measurements are bytes:
 
 - Part 3 token group: `signInWithCustomToken` resolves the engine's existing token formats and mints a detached tenant session after persisting account changes. Custom-token sign-in remains independent of provider enablement and still rejects disabled users. The engine's documented lack of signature verification is unchanged. `getIdToken` delegates to the user's transport-bound accessor; `getAdditionalUserInfo` reads the canonical credential metadata populated from the host's new-user result. Browser acceptance covers both transports, custom claims through Security Rules, tenant and other-app isolation, invalid tokens, and new versus existing accounts.
 
+- Part 4 tool reporting: `pyric_can_i_use` and the Node/browser query facades report `served: supported | imports-only | missing` for runtime exports, separately from canonical engine availability, fidelity, and assurance. The generated projection uses the same bundled export comparison as the completeness guard and the actual refusal modules; stale projections fail acceptance. All seven `firebase/*` module paths resolve using the canonical import-to-surface map. Erased TypeScript interfaces keep their existing evidence without a runtime classification. Imports-only results warn that the function throws when called in served mode.
+
 ### I21. inspect_auth_flow advertises take_mail and nothing implements it
 
 - Severity: should-fix. Slice: `core tools`. Status: open; owner decision required before wiring it under the served-entry work.

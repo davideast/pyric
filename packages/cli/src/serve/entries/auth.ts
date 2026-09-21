@@ -27,6 +27,7 @@ import { getApp, type FirebaseApp } from 'pyric/app';
 import { registerAppCleanup } from 'pyric/app/internal';
 import { workerClientForApp } from './app-client.js';
 import { registerActiveAuth } from './active-auth.js';
+import { beforeAuthStateChanged as unavailableBeforeAuthStateChanged } from './unsupported/auth.js';
 
 // Worker-client auth, cast to the canonical pyric/auth surface for the picked
 // bindings (same names + shapes). Provider-bridge specifics are explicit below.
@@ -45,7 +46,7 @@ export const getAdditionalUserInfo = ipAuth.getAdditionalUserInfo;
  * throws immediately rather than silently accepting a no-op callback.
  * In-page mode: full block-and-abort semantics via `pyric/auth`.
  */
-export const beforeAuthStateChanged = A.beforeAuthStateChanged;
+export const beforeAuthStateChanged = (useWorker ? unavailableBeforeAuthStateChanged : ipAuth.beforeAuthStateChanged) as typeof ipAuth.beforeAuthStateChanged;
 export const signInAnonymously = A.signInAnonymously;
 export const signInWithCustomToken = A.signInWithCustomToken;
 export const signInWithEmailAndPassword = A.signInWithEmailAndPassword;

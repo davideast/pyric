@@ -75,10 +75,8 @@ export function resolveCustomTokenIdentity(auth: Auth, customToken: string): { u
       target.backend.updateUser(payload.uid, { customClaims: payload.claims });
     }
   } else {
-    target.backend.createUser({
-      uid: payload.uid,
-      customClaims: payload.claims,
-    });
+    const identity = hasClaims ? { uid: payload.uid, customClaims: payload.claims } : { uid: payload.uid };
+    target.backend.createUser(identity);
   }
   const stored = target.backend.findByUid(payload.uid);
   const missingIdentity = stored === undefined;
