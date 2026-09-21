@@ -1,0 +1,104 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHostedPersistence, hostedStateDirectory } from '../../../src/serve/hosted/persistence.js';
+import { openHostedDatabase } from '../../../src/serve/hosted/persistence/database.js';
+import { salvageHostedState } from '../../../src/serve/hosted/persistence/salvage.js';
+
+const root = process.argv[2];
+const path = 'notes/timings.json';
+const body = '{"chunk":1}';
+const bucket = 'pyric-default';
+const hashedPath = 'notes/hashed.json';
+const metadata = (size: number, fullPath = path) => ({
+  bucket, fullPath, name: fullPath.slice(fullPath.lastIndexOf('/') + 1), size, generation: '7', metageneration: '3',
+  timeCreated: '2026-01-01T00:00:00Z', updated: '2026-01-02T00:00:00Z', contentType: 'application/json',
+});
+const hashedMetadata = (size: number, md5Hash: string) => ({ ...metadata(size, hashedPath), md5Hash });
+const records = new Map<string, unknown>([
+  ['meta', { version: 3, savedAt: 0, services: { auth: { users: [], providers: {} } } }],
+  ['00', { docs: { 'notes/kept': { answer: 42 } } }],
+]);
+
+function rewriteMetadata(database: Awaited<ReturnType<typeof openHostedDatabase>>, target: string, value: unknown): void {
+  const changed = database.connection.prepare('UPDATE storage_objects SET metadata=? WHERE bucket=? AND path=?')
+    .run(JSON.stringify(value), bucket, target) as { changes: number | bigint };
+  assert.equal(Number(changed.changes), 1);
+}
+
+// A recorded size that disagrees with the stored bytes is repaired at startup.
+const project = join(root, 'project');
+const created = await createHostedPersistence(project);
+await created.backend.putRecords('hosted', records);
+await created.storage.put(path, new Blob([body], { type: 'application/json' }), metadata(body.length));
+await created.storage.put(hashedPath, new Blob([body], { type: 'application/json' }), hashedMetadata(body.length, 'stale'));
+created.close();
+
+const directory = hostedStateDirectory(project);
+const damage = await openHostedDatabase(directory);
+rewriteMetadata(damage, path, metadata(body.length + 7));
+rewriteMetadata(damage, hashedPath, hashedMetadata(body.length - 4, 'stale'));
+damage.close();
+
+const restored = await createHostedPersistence(project);
+try {
+  assert.deepEqual([...restored.repairedObjects].sort((left, right) => left.path.localeCompare(right.path)), [
+    { bucket, path: hashedPath, recordedSize: body.length - 4, actualSize: body.length },
+    { bucket, path, recordedSize: body.length + 7, actualSize: body.length },
+  ]);
+  const hashed = await restored.storage.getMetadata(hashedPath, bucket);
+  assert.equal(hashed?.size, body.length);
+  assert.equal(hashed?.md5Hash, createHash('md5').update(body).digest('base64'));
+  assert.equal((await restored.storage.getMetadata(path, bucket))?.size, body.length);
+  assert.equal(await (await restored.storage.getBlob(path, bucket))?.text(), body);
+  assert.deepEqual(await restored.backend.getRecord('hosted', '00'), { docs: { 'notes/kept': { answer: 42 } } });
+  assert.equal(restored.status().state, 'healthy');
+} finally { restored.close(); }
+
+// The repair survives the process that made it, and leaves the versions alone.
+const inspect = await openHostedDatabase(directory);
+try {
+  const row = inspect.connection.prepare('SELECT metadata, length(bytes) AS size FROM storage_objects WHERE bucket=? AND path=?').get(bucket, path);
+  assert.ok(row);
+  assert.equal(row.size, body.length);
+  assert.deepEqual(JSON.parse(String(row.metadata)), metadata(body.length));
+} finally { inspect.close(); }
+
+const reopened = await createHostedPersistence(project);
+try {
+  assert.deepEqual(reopened.repairedObjects, []);
+  assert.equal((await reopened.storage.getMetadata(path, bucket))?.size, body.length);
+} finally { reopened.close(); }
+
+// Salvage recovers the object with repaired metadata and names it in the report.
+const damaged = join(root, 'damaged');
+const source = await openHostedDatabase(damaged);
+await source.records.putRecords('hosted', records);
+await source.storage.put(path, new Blob([body], { type: 'application/json' }), metadata(body.length));
+rewriteMetadata(source, path, metadata(body.length + 3));
+source.close();
+
+const output = join(root, 'recovered');
+const report = await salvageHostedState(damaged, output);
+assert.deepEqual(report.excluded, []);
+assert.equal(report.recoveredObjects, 1);
+assert.deepEqual(report.repairedObjects, [{ bucket, path, recordedSize: body.length + 3, actualSize: body.length }]);
+assert.deepEqual(JSON.parse(readFileSync(join(output, 'recovery-report.json'), 'utf8')).repairedObjects, report.repairedObjects);
+const recovered = await openHostedDatabase(output);
+try {
+  assert.equal((await recovered.storage.getMetadata(path, bucket))?.size, body.length);
+  assert.equal(await (await recovered.storage.getBlob(path, bucket))?.text(), body);
+} finally { recovered.close(); }
+
+// Metadata naming a different object is still fatal.
+const identity = join(root, 'identity');
+const mislabelled = await createHostedPersistence(identity);
+await mislabelled.storage.put(path, new Blob([body], { type: 'application/json' }), metadata(body.length));
+mislabelled.close();
+const relabel = await openHostedDatabase(hostedStateDirectory(identity));
+rewriteMetadata(relabel, path, metadata(body.length, 'notes/other.json'));
+relabel.close();
+await assert.rejects(createHostedPersistence(identity), /Hosted state could not be restored/);
+
+console.log('Storage size repair passed');

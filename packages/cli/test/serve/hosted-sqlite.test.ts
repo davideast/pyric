@@ -130,3 +130,20 @@ test('hosted start rejects when its mount closes during startup', async () => {
 test('Storage seeds await earlier uploads through fixture and section writes', async () => {
   expect(await runNodeFixture('seed-order')).toBe('Seed ordering passed');
 });
+
+test('a Storage size that disagrees with the stored bytes is repaired instead of refusing the store', async () => {
+  expect(await runNodeFixture('storage-size-repair')).toBe('Storage size repair passed');
+});
+
+test('racing uploads to one path leave the recorded size equal to the stored bytes', async () => {
+  expect(await runNodeFixture('storage-upload-race')).toBe('Storage upload race passed');
+});
+
+test('hosted startup names every Storage object repaired from its stored bytes', async () => {
+  const { formatStorageRepairs } = await import('../../src/serve/hosted/persistence.js');
+  expect(formatStorageRepairs([])).toEqual([]);
+  expect(formatStorageRepairs([{ bucket: 'pyric-default', path: 'notes/timings.json', recordedSize: 18, actualSize: 11 }])).toEqual([
+    '  ⚠ Repaired Storage metadata that disagreed with the stored bytes; the bytes are unchanged.',
+    '    • pyric-default/notes/timings.json: recorded size 18, actual size 11',
+  ]);
+});
