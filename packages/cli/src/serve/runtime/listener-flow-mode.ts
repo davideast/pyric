@@ -30,6 +30,8 @@ import { onListenerDelivery } from '../worker/client/listener-delivery.js';
 export interface ChangedNodeSource {
   /** Every node changed since the last drain. */
   drain(): readonly unknown[];
+  /** Drop synchronous diagnostic writes without resolving them as app changes. */
+  discard(): void;
   stop(): void;
 }
 
@@ -40,8 +42,6 @@ export interface FlowModeOptions {
   onObserved?: (paint: FlowPaint, commitId: number) => void;
   onTreatmentPaint?: (paint: FlowPaint) => void;
   document: Document;
-  /** The overlay's container. Flow draws into the layer Overview owns. */
-  container: HTMLElement;
   /** React's commits, already installed on the page. */
   commits: ReactCommitSource;
   /** The listener's outline record, for the badge words. */
@@ -51,7 +51,7 @@ export interface FlowModeOptions {
   /** Deliveries. Defaults to the worker client's own hook. */
   subscribeDeliveries?: (listener: (listenerId: string) => void) => () => void;
   /** Changed nodes. Defaults to a `MutationObserver` over the page body. */
-  changedNodes?: (documentLike: Document, container: HTMLElement) => ChangedNodeSource;
+  changedNodes?: (documentLike: Document) => ChangedNodeSource;
   /** How long a delivery waits for a commit. */
   windowMs?: number;
   /** How long a delivery's boxes stay at full strength. */
@@ -84,6 +84,10 @@ export interface RecentDelivery {
 }
 
 export interface FlowMode {
+  /** Attach painting to an overlay; observation continues independently. */
+  startPainting(container: HTMLElement): void;
+  /** Release all painted state without discarding observed deliveries. */
+  stopPainting(): void;
   highlight(paint: FlowPaint): void;
   /** Take every box away without stopping the mode. */
   clear(): void;
@@ -95,10 +99,10 @@ export interface FlowMode {
 }
 
 /** The chip's own chrome, which is never part of an application's render. */
-function isChipOwned(node: unknown, container: HTMLElement): boolean {
+function isChipOwned(node: unknown, container: HTMLElement | null): boolean {
   const element = node as Node | null;
   if (element === null || element === undefined) return true;
-  if (container.contains(element)) return true;
+  if (container?.contains(element)) return true;
   const owner = (element.nodeType === 1 ? element : element.parentNode) as Element | null;
   if (owner === null) return false;
   try {
@@ -109,13 +113,13 @@ function isChipOwned(node: unknown, container: HTMLElement): boolean {
 }
 
 /** A `MutationObserver` over the page body, drained rather than subscribed to. */
-function observePageChanges(documentLike: Document, container: HTMLElement): ChangedNodeSource {
+function observePageChanges(documentLike: Document, container: () => HTMLElement | null): ChangedNodeSource {
   const view = documentLike.defaultView as { MutationObserver?: typeof MutationObserver } | null;
   const Observer = view?.MutationObserver
     ?? (typeof MutationObserver === 'function' ? MutationObserver : undefined);
   const body = documentLike.body;
   if (Observer === undefined || body === null) {
-    return { drain: () => [], stop: () => {} };
+    return { drain: () => [], discard: () => {}, stop: () => {} };
   }
   // The callback does nothing: the mode drains on the commit, so what the
   // observer holds between commits is exactly the window's evidence.
@@ -128,20 +132,21 @@ function observePageChanges(documentLike: Document, container: HTMLElement): Cha
       attributes: true,
     });
   } catch {
-    return { drain: () => [], stop: () => {} };
+    return { drain: () => [], discard: () => {}, stop: () => {} };
   }
   return {
     drain() {
       const nodes: unknown[] = [];
       for (const record of observer.takeRecords()) {
         if (record.type === 'attributes' && record.attributeName?.startsWith('data-pyric-')) continue;
-        if (!isChipOwned(record.target, container)) nodes.push(record.target);
+        if (!isChipOwned(record.target, container())) nodes.push(record.target);
         for (const added of record.addedNodes) {
-          if (!isChipOwned(added, container)) nodes.push(added);
+          if (!isChipOwned(added, container())) nodes.push(added);
         }
       }
       return nodes;
     },
+    discard() { observer.takeRecords(); },
     stop() {
       observer.disconnect();
     },
@@ -164,35 +169,34 @@ function regionElement(documentLike: Document, outline: ListenerOutline): Elemen
 /** How old a recorded delivery may be and still be replayed, in milliseconds. */
 const DEFAULT_REPLAY_WINDOW_MS = 5000;
 
-/** Start painting flows. The caller owns the overlay container. */
-export function startFlowMode(options: FlowModeOptions): FlowMode {
-  const painter: FlowPainter = createFlowPainter({
-    document: options.document,
-    container: options.container,
-    ...(options.fadeMs === undefined ? {} : { fadeMs: options.fadeMs }),
-  });
+/** Observe renders immediately; the caller controls the painting lifetime. */
+export function createFlowMode(options: FlowModeOptions): FlowMode {
+  let painter: FlowPainter | null = null;
+  let container: HTMLElement | null = null;
+  let paintingCorrelation: DeliveryCorrelation | null = null;
+  const commitPaints = new Map<string, FlowPaint | null>();
 
   const readRegion = options.regionFor
     ?? ((outline: ListenerOutline) => regionElement(options.document, outline));
 
   /**
-   * Draw one listener's flow. The paint is keyed by the id the outline
+   * Resolve one listener's flow. The paint is keyed by the id the outline
    * carries rather than by the id the delivery arrived under, because that is
    * the id the panel's toggles and the mode's clears use; a page-side delivery
    * names the listener by the client's own subscription id.
    */
   let currentCommit = 0;
-  const paintFlow = (listenerId: string, nodes: Iterable<unknown> | null): void => {
+  const resolveFlow = (listenerId: string, nodes: Iterable<unknown> | null): FlowPaint | null => {
     const outline = options.outlineFor(listenerId);
-    if (outline === null) return;
+    if (outline === null) return null;
     const region = readRegion(outline);
     const ownerName = outline.labelIsOwner ? outline.label : null;
     // A replay has no changed nodes to read, so it draws the region alone.
     const subtree = nodes === null
       ? (region === null ? null : regionSubtree(region, ownerName))
       : flowSubtree(nodes, { regionElement: region, ownerName });
-    if (subtree === null || subtree.components.length === 0) return;
-    const paint: FlowPaint = {
+    if (subtree === null || subtree.components.length === 0) return null;
+    return {
       listenerId: outline.listenerId,
       colorKey: outline.activity?.sourceId,
       label: outline.label,
@@ -200,20 +204,25 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
       deliveryCount: outline.deliveryCount,
       subtree,
     };
-    if (nodes !== null) options.onObserved?.(paint, currentCommit);
-    if (!options.isVisible(outline.listenerId)) return;
-    painter.paint(paint);
+  };
+  const resolveCommitFlow = (listenerId: string, nodes: Iterable<unknown>): FlowPaint | null => {
+    if (!commitPaints.has(listenerId)) commitPaints.set(listenerId, resolveFlow(listenerId, nodes));
+    return commitPaints.get(listenerId) ?? null;
+  };
+  const paintFlow = (paint: FlowPaint): void => {
+    const activePainter = painter;
+    const canPaint = activePainter !== null && options.isVisible(paint.listenerId);
+    if (!canPaint) return;
+    activePainter.paint(paint);
     options.onTreatmentPaint?.(paint);
-    options.onPaint?.(outline.listenerId);
-    // Discard synchronous diagnostic writes (including temporary positioning
-    // and treatment metadata) before the next application commit.
-    changes.drain();
+    options.onPaint?.(paint.listenerId);
   };
 
   const correlation: DeliveryCorrelation = createDeliveryCorrelation({
     ...(options.windowMs === undefined ? {} : { windowMs: options.windowMs }),
     onFlow: (flow) => {
-      paintFlow(flow.listenerId, flow.nodes);
+      const paint = resolveCommitFlow(flow.listenerId, flow.nodes);
+      if (paint) options.onObserved?.(paint, currentCommit);
     },
   });
 
@@ -227,41 +236,87 @@ export function startFlowMode(options: FlowModeOptions): FlowMode {
     const windowMs = options.replayWindowMs ?? DEFAULT_REPLAY_WINDOW_MS;
     for (const delivery of recent) {
       if (now - delivery.at > windowMs) continue;
-      paintFlow(delivery.listenerId, null);
+      const paint = resolveFlow(delivery.listenerId, null);
+      if (paint) paintFlow(paint);
     }
   };
 
-  const changes = (options.changedNodes ?? observePageChanges)(options.document, options.container);
+  const changes = options.changedNodes?.(options.document)
+    ?? observePageChanges(options.document, () => container);
   const subscribeDeliveries = options.subscribeDeliveries ?? onListenerDelivery;
 
   const stopDeliveries = subscribeDeliveries((listenerId) => {
     correlation.delivered(listenerId);
+    paintingCorrelation?.delivered(listenerId);
   });
   const stopCommits = options.commits.subscribe(() => {
+    const nodes = changes.drain();
+    if (!options.commits.available()) return;
+    const observationPending = correlation.pending().length > 0;
+    const paintingPending = (paintingCorrelation?.pending().length ?? 0) > 0;
+    const hasPendingDelivery = observationPending || paintingPending;
+    if (!hasPendingDelivery) return;
     currentCommit = ++commitSerial;
-    correlation.changed(changes.drain());
-    correlation.committed();
+    try {
+      // Both windows see the same application changes and resolve each subtree once.
+      correlation.changed(nodes);
+      paintingCorrelation?.changed(nodes);
+      correlation.committed();
+      paintingCorrelation?.committed();
+    } finally {
+      commitPaints.clear();
+      changes.discard();
+    }
   });
 
-  replay();
+  const stopPainting = (): void => {
+    paintingCorrelation?.dispose();
+    paintingCorrelation = null;
+    painter?.dispose();
+    painter = null;
+    container = null;
+  };
 
   return {
-    highlight(paint) { painter.paint(paint); options.onTreatmentPaint?.(paint); },
+    startPainting(layer) {
+      stopPainting();
+      container = layer;
+      painter = createFlowPainter({
+        document: options.document, container: layer,
+        ...(options.fadeMs === undefined ? {} : { fadeMs: options.fadeMs }),
+      });
+      // Painting receives only deliveries made during this overlay lifetime.
+      paintingCorrelation = createDeliveryCorrelation({
+        ...(options.windowMs === undefined ? {} : { windowMs: options.windowMs }),
+        onFlow(flow) {
+          const paint = resolveCommitFlow(flow.listenerId, flow.nodes);
+          if (paint) paintFlow(paint);
+        },
+      });
+      replay();
+      changes.discard();
+    },
+    stopPainting,
+    highlight(paint) {
+      if (!painter) return;
+      painter.paint(paint);
+      options.onTreatmentPaint?.(paint);
+    },
     clear() {
-      painter.clear();
+      painter?.clear();
     },
     clearListener(listenerId) {
-      painter.clearListener(listenerId);
+      painter?.clearListener(listenerId);
     },
     reposition() {
-      painter.reposition();
+      painter?.reposition();
     },
     dispose() {
       stopDeliveries();
       stopCommits();
       changes.stop();
       correlation.dispose();
-      painter.dispose();
+      stopPainting();
     },
   };
 }

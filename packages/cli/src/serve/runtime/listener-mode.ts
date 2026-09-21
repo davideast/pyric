@@ -16,8 +16,8 @@ import type { FlowTreatmentManifest, FlowTreatmentState } from './flow-treatment
  *
  * The mode observes from the moment it exists, so the chip's count and summary
  * read the fold whether or not anything is painted. It holds an overlay only
- * while it is on, so a page that never turns the painting on pays only for the
- * fold.
+ * while it is on. Delivery and render observation keep region evidence current
+ * even when the page never turns painting on.
  *
  * Listener attribution is a development diagnostic. When the production switch
  * has it off there are no owners to place, so the mode refuses to turn on and
@@ -30,7 +30,7 @@ import { sdkActivity, sdkMethodCoverage, observationService, type SdkActivityRec
 import { createListenerOverlay, type ListenerOverlay } from './listener-overlay.js';
 import { createListenerIncidents } from './listener-incidents.js';
 import { studioSectionUrl } from './studio-links.js';
-import { startFlowMode, type FlowMode } from './listener-flow-mode.js';
+import { createFlowMode } from './listener-flow-mode.js';
 
 import {
   installReactCommitSource,
@@ -98,7 +98,7 @@ export interface ListenerModeOptions {
   /** Where the page's overrides are kept. Defaults to the page's storage. */
   themeStorage?: OverlayThemeStorage | null;
   /** How the Flow mode watches the page. Passed through for tests. */
-  flow?: Partial<Pick<Parameters<typeof startFlowMode>[0], 'changedNodes' | 'subscribeDeliveries' | 'windowMs' | 'fadeMs'>>;
+  flow?: Partial<Pick<Parameters<typeof createFlowMode>[0], 'changedNodes' | 'subscribeDeliveries' | 'windowMs' | 'fadeMs'>>;
 }
 
 export interface ListenerMode {
@@ -199,7 +199,6 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   const activity = options.activity ?? sdkActivity;
   let current: readonly ListenerOutline[] = [];
   let overlay: ListenerOverlay | null = null;
-  let flow: FlowMode | null = null;
   let stopFollowing: (() => void) | null = null;
   let unsubscribe: (() => void) | null = null;
   let paintMode: ListenerPaintMode = readListenerPaintMode(paintStorage);
@@ -214,7 +213,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   let inspectionVersion = 0;
   let highlightedHistory: { sequence: number; listenerId: string } | null = null;
   const clearHistoryHighlight = () => {
-    if (highlightedHistory) flow?.clearListener(highlightedHistory.listenerId);
+    if (highlightedHistory) flow.clearListener(highlightedHistory.listenerId);
     highlightedHistory = null;
   };
   const pruneRegions = () => {
@@ -266,11 +265,11 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       const remainsVisible = next !== undefined;
       if (remainsVisible) {
         const stoppedPainting = canPaintLive(outline) && !canPaintLive(next);
-        if (stoppedPainting) flow?.clearListener(outline.listenerId);
+        if (stoppedPainting) flow.clearListener(outline.listenerId);
         continue;
       }
       const clearsHistoryHighlight = highlightedHistory?.listenerId !== outline.listenerId;
-      if (clearsHistoryHighlight) flow?.clearListener(outline.listenerId);
+      if (clearsHistoryHighlight) flow.clearListener(outline.listenerId);
       observed.delete(outline.listenerId);
       hidden.delete(outline.listenerId);
     }
@@ -283,53 +282,53 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
   // than a mode that is on and paints nothing.
   const flowAvailable = (): boolean => commits.available();
 
+  const flow = createFlowMode({
+    document: documentLike,
+    onTreatmentPaint: (paint) => treatments.record(paint),
+    commits,
+    // A delivery observed on the page carries the client's subscription id;
+    // the outline knows both ids.
+    outlineFor: (listenerId) => {
+      const outline = current.find((outline) => outline.listenerId === listenerId || outline.clientListenerId === listenerId);
+      return outline ? displayOutline(outline) : null;
+    },
+    isVisible: (listenerId) => paintMode === 'flow' && !hidden.has(listenerId) && current.some(outline => outline.listenerId === listenerId && canPaintLive(outline)),
+    // The switch into Flow replays what the fold already recorded, so the
+    // developer sees the latest flow rather than waiting for the next
+    // delivery on a page that may be idle.
+    recentDeliveries: () => visibleOutlines()
+      .filter((outline) => outline.lastDeliveryAt !== undefined && (!outline.activity || outline.observedRender))
+      .map((outline) => ({ listenerId: outline.listenerId, at: outline.lastDeliveryAt! })),
+    onObserved: (paint, commitId) => {
+      const record = current.find(outline => outline.listenerId === paint.listenerId)?.activity;
+      if (!record) return;
+      const entry = history.rendered(record, commitId, options.flow?.windowMs);
+      const { subtree, ...metadata } = paint;
+      regions.set(entry.sequence, { paint: { ...metadata, target: activityDisplayTarget(metadata.target) }, nodes: subtree.components.slice(0, 100).map(node => ({
+        element: new WeakRef(node.element), name: node.name, depth: node.depth, kind: node.kind,
+      })) });
+      observed.add(paint.listenerId);
+      pruneRegions();
+      recompute();
+    },
+    onPaint: (id) => {
+      observed.add(id);
+      flowPainted = true;
+      // The panel's waiting hint is gone as of this paint, and the panel
+      // only rebuilds when the mode says something changed.
+      recompute();
+    },
+    ...(options.flow ?? {}),
+  });
   const startFlow = (): void => {
-    if (flow !== null || overlay === null) return;
-    if (!flowAvailable()) return;
+    const activeOverlay = overlay;
+    const canStartPainting = activeOverlay !== null && flowAvailable();
+    if (!canStartPainting) return;
     flowPainted = false;
-    if (paintMode === 'flow') void treatments.attach(overlay.container());
-    flow = startFlowMode({
-      document: documentLike,
-      container: overlay.container(),
-      onTreatmentPaint: (paint) => treatments.record(paint),
-      commits,
-      // A delivery observed on the page carries the client's subscription id;
-      // the outline knows both ids.
-      outlineFor: (listenerId) => {
-        const outline = current.find((outline) => outline.listenerId === listenerId || outline.clientListenerId === listenerId);
-        return outline ? displayOutline(outline) : null;
-      },
-      isVisible: (listenerId) => paintMode === 'flow' && !hidden.has(listenerId) && current.some(outline => outline.listenerId === listenerId && canPaintLive(outline)),
-      // The switch into Flow replays what the fold already recorded, so the
-      // developer sees the latest flow rather than waiting for the next
-      // delivery on a page that may be idle.
-      recentDeliveries: () => visibleOutlines()
-        .filter((outline) => outline.lastDeliveryAt !== undefined && (!outline.activity || outline.observedRender))
-        .map((outline) => ({ listenerId: outline.listenerId, at: outline.lastDeliveryAt! })),
-      onObserved: (paint, commitId) => {
-        const record = current.find(outline => outline.listenerId === paint.listenerId)?.activity;
-        if (!record) return;
-        const entry = history.rendered(record, commitId, options.flow?.windowMs);
-        const { subtree, ...metadata } = paint;
-        regions.set(entry.sequence, { paint: { ...metadata, target: activityDisplayTarget(metadata.target) }, nodes: subtree.components.slice(0, 100).map(node => ({
-          element: new WeakRef(node.element), name: node.name, depth: node.depth, kind: node.kind,
-        })) });
-        observed.add(paint.listenerId);
-        pruneRegions();
-        recompute();
-      },
-      onPaint: (id) => {
-        observed.add(id);
-        flowPainted = true;
-        // The panel's waiting hint is gone as of this paint, and the panel
-        // only rebuilds when the mode says something changed.
-        recompute();
-      },
-      ...(options.flow ?? {}),
-    });
-    const followFlow = flow;
-    stopFollowing = overlay.onReposition(() => {
-      followFlow.reposition();
+    if (paintMode === 'flow') void treatments.attach(activeOverlay.container());
+    flow.startPainting(activeOverlay.container());
+    stopFollowing = activeOverlay.onReposition(() => {
+      flow.reposition();
       treatments.reposition();
     });
   };
@@ -338,8 +337,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
     treatments.detach();
     stopFollowing?.();
     stopFollowing = null;
-    flow?.dispose();
-    flow = null;
+    flow.stopPainting();
   };
 
   // The mode observes from the moment it exists: the chip's count and summary
@@ -435,7 +433,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
         paintMode = 'flow'; overlay!.setMode('flow'); stopFlow(); paint(); startFlow();
       }
       highlightedHistory = { sequence, listenerId: retained.paint.listenerId };
-      flow?.highlight({ ...retained.paint, pinned: true, subtree: { components, root: components[0], leaves: components } });
+      flow.highlight({ ...retained.paint, pinned: true, subtree: { components, root: components[0], leaves: components } });
       return true;
     },
     relatedRegion(service, path) {
@@ -497,7 +495,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       return reactRendered(documentLike) ? LATE_HOOK_REASON : NO_REACT_REASON;
     },
     flowWaiting() {
-      return paintMode === 'flow' && flow !== null && !flowPainted;
+      return paintMode === 'flow' && overlay !== null && flowAvailable() && !flowPainted;
     },
     outlines() {
       return current;
@@ -516,7 +514,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       // suppressing the next one: Flow holds its last subtree on the page, so
       // leaving it there would leave a box no row is checked for. Switching
       // back on leaves the page empty until the next delivery.
-      if (!visible) flow?.clearListener(listenerId);
+      if (!visible) flow.clearListener(listenerId);
       treatments.reposition();
     },
     overlayTheme() {
@@ -534,6 +532,7 @@ export function createListenerMode(options: ListenerModeOptions): ListenerMode {
       documentLike.removeEventListener('click', inspectRegion, true);
       view?.removeEventListener('storage', onStorage);
       hidePainting();
+      flow.dispose();
       unsubscribe?.();
       stopActivity();
       unsubscribe = null;

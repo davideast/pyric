@@ -151,6 +151,7 @@ function setup(options: {
             changedNodes = [];
             return drained;
           },
+          discard() { changedNodes = []; },
           stop: () => {},
         }),
       },

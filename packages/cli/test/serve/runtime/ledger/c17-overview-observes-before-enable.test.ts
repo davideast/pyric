@@ -30,6 +30,7 @@ function pageFixture(react = true) {
       },
       changedNodes: () => ({
         drain() { const nodes = changed; changed = []; return nodes; },
+        discard() { changed = []; },
         stop() { stopped.changes++; },
       }),
     },
@@ -53,6 +54,8 @@ function pageFixture(react = true) {
         owners: [{ kind: 'frame', file: '/data.ts', line: 5, function: 'loadData' }],
       });
     },
+    queueDelivery(id: string) { deliver?.(id); },
+    commitNodes(nodes: Element[]) { changed = nodes; commit?.(); },
     commit(id: string, nodes: Element[]) { deliver?.(id); changed = nodes; commit?.(); },
     boxes() { return [...document.querySelectorAll<HTMLElement>('[data-pyric-listener-box]')]; },
     close() { mode.dispose(); activity.dispose(); dom.window.close(); },
@@ -103,6 +106,35 @@ describe('Overview observes before enabling paint', () => {
     } finally { page.close(); }
   });
 
+  it("preserves Flow's pre-enable delivery exclusion", () => {
+    const page = pageFixture();
+    try {
+      const record = page.begin('subscription');
+      record.delivered();
+      page.queueDelivery(record.id);
+      page.mode.setMode('flow');
+      page.mode.setEnabled(true);
+      page.commitNodes(page.nodes());
+      expect(page.document.querySelectorAll('[data-pyric-flow]')).toHaveLength(0);
+    } finally { page.close(); }
+  });
+
+  it('does no render attribution during 200 commits without a delivery', () => {
+    const page = pageFixture();
+    try {
+      const nodes = page.nodes(50);
+      // A fiber read would mean the commit entered attribution without data.
+      for (const node of nodes) Object.defineProperty(node, '__reactFiber$fixture', {
+        get() { throw new Error('Unrelated render entered the fiber walk'); },
+      });
+      const before = performance.now();
+      for (let i = 0; i < 200; i++) page.commitNodes(nodes);
+      console.log(`Overview idle cost: 200 commits x 50 nodes=${(performance.now() - before).toFixed(3)}ms`);
+      expect(page.mode.history?.counts().commits).toBe(0);
+      expect(page.document.querySelector('[data-pyric-listener-overlay]')).toBeNull();
+    } finally { page.close(); }
+  });
+
   it('keeps painting off during 200 commits with 50 changed nodes each', () => {
     const page = pageFixture();
     try {
@@ -113,7 +145,7 @@ describe('Overview observes before enabling paint', () => {
       const commitsMs = performance.now() - before;
       console.log(`Overview cost: createListenerMode=${page.creationMs.toFixed(3)}ms; 200 commits x 50 nodes=${commitsMs.toFixed(3)}ms`);
       expect(page.document.querySelector('[data-pyric-listener-overlay]')).toBeNull();
-      expect(page.document.querySelector('[data-pyric-flow]')).toBeNull();
+      expect(page.document.querySelectorAll('[data-pyric-flow]')).toHaveLength(0);
     } finally { page.close(); }
   });
 });

@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
 import { installReactCommitSource } from '../../../src/serve/runtime/react-commit-source.js';
-import { startFlowMode } from '../../../src/serve/runtime/listener-flow-mode.js';
+import { createFlowMode } from '../../../src/serve/runtime/listener-flow-mode.js';
 import type { ListenerOutline } from '../../../src/serve/runtime/listener-outline-model.js';
 
 const reactDir = fileURLToPath(new URL('../../../../ui/node_modules/react/', import.meta.url));
@@ -112,9 +112,8 @@ describe.if(reactInstalled)('the Flow path against a real React', () => {
     const container = doc.createElement('div');
     doc.body.append(container);
     let deliver: ((listenerId: string) => void) | null = null;
-    const flow = startFlowMode({
+    const flow = createFlowMode({
       document: doc,
-      container,
       commits,
       outlineFor: () => outline,
       isVisible: () => true,
@@ -123,6 +122,8 @@ describe.if(reactInstalled)('the Flow path against a real React', () => {
         return () => {};
       },
     });
+
+    flow.startPainting(container);
 
     // The delivery the worker client would report, then the render it caused.
     deliver!('sub-1');
