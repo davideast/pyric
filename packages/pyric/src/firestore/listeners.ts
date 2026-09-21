@@ -24,11 +24,12 @@ import {
   sandboxDb,
   sandboxLiveRebuild,
   underlyingOf,
+  converterOf,
   type Target,
   type SandboxTarget,
   type SandboxLiveTarget,
 } from './state.js';
-import { wrapSandboxDocSnap, tagSnapshotRefs, recordQuerySnapshot } from './snapshots.js';
+import { wrapSandboxDocSnap, tagSnapshotRefs, recordQuerySnapshot, applyConverterToDeliveredSnap } from './snapshots.js';
 import type {
   DocumentReference,
   Query,
@@ -263,11 +264,17 @@ function finalizeSandboxSnapshot(snap: unknown, target: Target, source: object):
     data?: () => DocumentData | undefined;
     docs?: Array<object>;
   };
+  const conv = converterOf(source) ?? null;
+  const hasConverter = conv !== null;
   if (typeof s.data === 'function') {
     wrapSandboxDocSnap(snap as object, target);
+    if (hasConverter) applyConverterToDeliveredSnap(snap as object, conv, target, 'document');
   }
   if (Array.isArray(s.docs)) {
-    for (const d of s.docs) wrapSandboxDocSnap(d as object, target);
+    for (const d of s.docs) {
+      wrapSandboxDocSnap(d as object, target);
+      if (hasConverter) applyConverterToDeliveredSnap(d as object, conv, target, 'query-child');
+    }
     recordQuerySnapshot(snap as object, snap as object, target, source, 'listener');
   }
   return snap;

@@ -244,6 +244,9 @@ function resolveTarget(refOrDb: object): Target {
   return target;
 }
 
+/** Shared with the admin error-translation proxy; see `buildSandboxShell`. */
+const MODULAR_VALUE_SYMBOL = Symbol.for('pyric.firestore.modular-value');
+
 export const refToConverter = new WeakMap<object, FirestoreDataConverter<unknown> | null>();
 export const refToUnderlying = new WeakMap<object, object>();
 
@@ -275,6 +278,11 @@ export function buildSandboxShell(
     id: underlying.id ?? '',
     path: underlying.path ?? '',
   };
+  // A shell handed back from a method call on a chainable ref (a collection's
+  // `withConverter`) passes through the admin error-translation proxy on its
+  // way out. The marker tells that proxy to return the shell itself rather
+  // than a fresh wrapper, which would not be the key these WeakMaps hold.
+  Object.defineProperty(shell, MODULAR_VALUE_SYMBOL, { value: true });
   refToConverter.set(shell, converter);
   refToUnderlying.set(shell, underlying);
   refToTarget.set(shell, target);

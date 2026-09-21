@@ -84,10 +84,14 @@ export interface DocumentReference<_T = DocumentData> {
 export interface CollectionReference<_T = DocumentData> extends Query<_T> {
   readonly id: string;
   readonly path: string;
+  withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): CollectionReference<T>;
+  withConverter(converter: null): CollectionReference<DocumentData>;
 }
 /** A Firestore query (a collection ref or one with where/orderBy/limit applied). */
 export interface Query<_T = DocumentData> {
   readonly _isQuery?: true;
+  withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): Query<T>;
+  withConverter(converter: null): Query<DocumentData>;
 }
 export interface SnapshotMetadata {
   readonly fromCache: boolean;

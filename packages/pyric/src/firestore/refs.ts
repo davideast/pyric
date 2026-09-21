@@ -34,6 +34,7 @@ import {
   registerReferenceQueryValue,
   copyQueryValueRegistration,
 } from './sandbox/query-value-registry.js';
+import { attachConverterMethod, convertedView } from './converter-method.js';
 
 function registerDocumentValue<T extends { id: string; path: string }>(
   ref: T,
@@ -112,7 +113,7 @@ export function doc<T = DocumentData>(
  */
 export function collectionGroup(db: Firestore, collectionId: string): Query {
   const target = targetOf(db);
-  const q = sandboxDb(target).collectionGroup(collectionId);
+  const q = attachConverterMethod(sandboxDb(target).collectionGroup(collectionId));
   return tagSandboxRef(
     q as unknown as Query,
     target,
@@ -132,19 +133,19 @@ export function collection(parent: Firestore | DocumentReference, ...pathSegment
   // A parent doc's T describes its own data, not its subcollections'.
   if (isHandle) {
     const path = pathSegments.join('/');
-    const built = sandboxDb(target).collection(path);
+    const built = attachConverterMethod(sandboxDb(target).collection(path));
     return tagSandboxRef(
-      built as CollectionReference,
+      built as unknown as CollectionReference,
       target,
       (fresh) => fresh.collection(path) as unknown as object,
     );
   }
   const docRef = asChainDoc(underlyingOf(parent));
   const subPath = pathSegments.join('/');
-  const built = docRef.collection(subPath);
+  const built = attachConverterMethod(docRef.collection(subPath));
   const absPath = (built as { path: string }).path;
   return tagSandboxRef(
-    built as CollectionReference,
+    built as unknown as CollectionReference,
     target,
     (fresh) => fresh.collection(absPath) as unknown as object,
   );
@@ -215,11 +216,5 @@ export function withConverter(
   if (isDocument) {
     return registerDocumentValue(underlying, underlying.path, target, converter);
   }
-  const removesConverter = converter === null;
-  if (removesConverter) {
-    return underlying;
-  }
-  const shell = buildSandboxShell(underlying, target, converter);
-  copyQueryValueRegistration(underlying, shell);
-  return shell;
+  return convertedView(source, converter);
 }

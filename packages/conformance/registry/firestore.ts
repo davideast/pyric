@@ -786,6 +786,20 @@ export const firestoreRegistry = {
           evidence: "(documented constraint; matches JS SDK)",
           automation: "unverified",
         }),
+        row9({
+          rowRef: "53a",
+          behavior: "`CollectionReference.withConverter(c)` is an instance method on `collection()` and `collectionGroup()` values; the converter reaches `doc(typedColl, id)`, `doc(typedColl)`, `query()`, `addDoc`, `getDocs`, and `onSnapshot`",
+          evidence: "`unit:collection-converter-method.test.ts`",
+          automation: "unit-backed",
+          conformanceTests: ["packages/pyric/test/firestore/collection-converter-method.test.ts"],
+        }),
+        row9({
+          rowRef: "53b",
+          behavior: "`Query.withConverter(c)` is an instance method on `query()` values; `withConverter(null)` on a collection or query removes the converter, and `collection(typedDocRef, id)` stays untyped",
+          evidence: "`unit:collection-converter-method.test.ts`",
+          automation: "unit-backed",
+          conformanceTests: ["packages/pyric/test/firestore/collection-converter-method.test.ts"],
+        }),
       ],
     },
     {
