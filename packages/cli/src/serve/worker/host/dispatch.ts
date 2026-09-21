@@ -47,6 +47,8 @@ import {
   handleEventUnsub,
 } from '../host-events.js';
 import { isAiOp, handleAiOp, handleAiSub } from '../host-ai.js';
+import { isAuthActionCodeOp, handleAuthActionCodeOp } from './auth-action-codes.js';
+import { handleCustomTokenSignIn } from './auth-custom-token.js';
 import {
   isMessagingOp,
   handleMessagingOp,
@@ -300,55 +302,76 @@ async function dispatchMessage(
   port: PortLike,
   msg: InboundMessage,
 ): Promise<void> {
-  if (msg.t === 'op') {
-    if (isAuthOp(msg.method)) {
+  const isOperation = msg.t === 'op';
+  const isSubscription = msg.t === 'sub';
+  const isUnsubscribe = msg.t === 'unsub';
+  const isDisconnect = msg.t === 'disconnect';
+  const isClockSubscription = msg.t === 'clock-subscribe';
+  const isTool = msg.t === 'tool';
+  if (isOperation) {
+    const isActionCode = isAuthActionCodeOp(msg);
+    const isCustomToken = msg.method === 'auth.signInWithCustomToken';
+    const isAuth = isAuthOp(msg.method);
+    const isAi = isAiOp(msg.method);
+    const isMessaging = isMessagingOp(msg.method);
+    if (isActionCode) {
+      await handleAuthActionCodeOp(ctx, port, msg);
+    } else if (isCustomToken) {
+      await handleCustomTokenSignIn(ctx, port, msg);
+    } else if (isAuth) {
       await handleAuthOp(ctx, port, msg);
-    } else if (isAiOp(msg.method)) {
+    } else if (isAi) {
       await handleAiOp(ctx, port, msg);
-    } else if (isMessagingOp(msg.method)) {
+    } else if (isMessaging) {
       await handleMessagingOp(ctx, port, msg);
     } else {
       await handleOp(ctx, port, msg);
     }
-  } else if (msg.t === 'sub') {
-    if (isAuthSub(msg)) {
+  } else if (isSubscription) {
+    const isAuth = isAuthSub(msg);
+    const isEvent = isEventSub(msg);
+    const isRtdb = isRtdbSub(msg);
+    const isAi = isAiSub(msg);
+    const isMessaging = isMessagingSub(msg);
+    const isPresence = isPresenceSub(msg);
+    if (isAuth) {
       handleAuthSub(ctx, port, msg);
-    } else if (isEventSub(msg)) {
+    } else if (isEvent) {
       handleEventSub(ctx, port, msg);
-    } else if (isRtdbSub(msg)) {
+    } else if (isRtdb) {
       handleRtdbSub(ctx, port, msg);
-    } else if (isAiSub(msg)) {
+    } else if (isAi) {
       // AI streams are FINITE subs registered in ctx.subs (so `unsub` cancels
       // them); they auto-unsub on the terminal done/error snap. host-ai.ts.
       handleAiSub(ctx, port, msg);
-    } else if (isMessagingSub(msg)) {
+    } else if (isMessaging) {
       handleMessagingSub(ctx, port, msg);
-    } else if (isPresenceSub(msg)) {
+    } else if (isPresence) {
       handlePresenceSub(ctx, port, msg);
     } else {
       handleSub(ctx, port, msg);
     }
-  } else if (msg.t === 'unsub') {
+  } else if (isUnsubscribe) {
     // An unsub may target an auth sub, an event-stream sub, a presence sub, or
     // a Firestore listener — try the cheap routing registries first, then fall
     // through to the Firestore listener teardown.
-    if (
+    const needsFirestoreUnsubscribe =
       !handleAuthUnsub(ctx, port, msg.subId) &&
       !handleEventUnsub(ctx, port, msg.subId) &&
-      !handlePresenceUnsub(ctx, port, msg.subId)
-    ) {
+      !handlePresenceUnsub(ctx, port, msg.subId);
+    if (needsFirestoreUnsubscribe) {
       handleUnsub(ctx, port, msg);
     }
-  } else if (msg.t === 'disconnect') {
+  } else if (isDisconnect) {
     try {
       await cleanupPortWithDisconnect(ctx, port);
       ok(port, msg.id, undefined);
     } catch (error) {
       fail(port, msg.id, error);
     }
-  } else if (msg.t === 'clock-subscribe') {
+  } else if (isClockSubscription) {
     subscribeClock(ctx, port);
-  } else if (msg.t === 'tool') {
+  } else if (isTool) {
     await handleTool(ctx, port, msg);
   }
 }

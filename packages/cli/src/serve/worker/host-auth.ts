@@ -40,6 +40,9 @@ import {
   type OAuthCredentialPayload,
 } from './host/auth-session-seeder.js';
 
+import { linkSessionProvider } from './host/auth-linking.js';
+import { reauthenticateSession } from './host/auth-reauthentication.js';
+
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
 
 /**
@@ -146,6 +149,8 @@ function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | n
     }
   }
 }
+
+export { setPortSession };
 
 /** Apply a forced ID-token refresh to this port's data authorization state. */
 function refreshPortAuthorization(
@@ -395,6 +400,38 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           ok(port, msg.id, serializeUser(freshSession.user));
         }
       } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.reauthenticateWithCredential':
+    case 'auth.reauthenticateWithProvider': {
+      try {
+        const original = portSession(ctx, port);
+        const { session, providerId } = await reauthenticateSession(original, msg);
+        const stillOwnsSession = portSession(ctx, port) === original;
+        if (stillOwnsSession) setPortSession(ctx, port, session);
+        ok(port, msg.id, { ...credReply(session, providerId), operationType: 'reauthenticate' });
+      } catch (error) { fail(port, msg.id, error); }
+      break;
+    }
+
+    case 'auth.linkWithCredential':
+    case 'auth.unlink': {
+      try {
+        const original = portSession(ctx, port);
+        const session = await linkSessionProvider(auth, original, msg);
+        await bestEffortFlush(ctx, msg.method);
+        const stillOwnsSession = portSession(ctx, port) === original;
+        if (stillOwnsSession) setPortSession(ctx, port, session);
+        const isLink = msg.method === 'auth.linkWithCredential';
+        if (isLink) {
+          const isPassword = msg.credential.providerId === 'password';
+          const providerId = isPassword ? null : msg.credential.providerId;
+          ok(port, msg.id, { ...credReply(session, providerId), operationType: 'link' });
+        } else {
+          ok(port, msg.id, serializeUser(session.user));
+        }
+      } catch (error) { fail(port, msg.id, error); }
       break;
     }
 

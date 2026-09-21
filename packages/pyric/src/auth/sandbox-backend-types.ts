@@ -31,6 +31,7 @@ export type { SeedUser } from './seed-user.js';
  * Request for {@link SandboxBackend.mintDetachedSession} — one variant
  * per client sign-in shape, plus `uid` for session restoration and
  * `provider` for a provider sign-in to an existing linked identity.
+ * `custom` binds an identity already resolved from a custom token.
  */
 export type MintSessionRequest = TenantScope & (
   | { kind: 'anonymous' }
@@ -38,6 +39,7 @@ export type MintSessionRequest = TenantScope & (
   | { kind: 'createPassword'; email: string; password: string }
   | { kind: 'uid'; uid: string }
   | { kind: 'provider'; uid: string; providerId: string }
+  | { kind: 'custom'; uid: string }
 );
 
 /** The tenant a minted session authenticates under. Carried on every

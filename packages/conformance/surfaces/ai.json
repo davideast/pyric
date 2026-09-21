@@ -27,10 +27,7 @@
       "symbols": [
         "getImagenModel",
         "ImagenModel",
-        "ImagenImageFormat",
-        "ImagenAspectRatio",
-        "ImagenPersonFilterLevel",
-        "ImagenSafetyFilterLevel"
+        "ImagenImageFormat"
       ]
     },
     {
@@ -53,8 +50,7 @@
       "symbols": [
         "getLiveGenerativeModel",
         "LiveGenerativeModel",
-        "LiveSession",
-        "LiveResponseType"
+        "LiveSession"
       ]
     },
     {
@@ -76,26 +72,6 @@
       "symbols": [
         "getTemplateGenerativeModel",
         "TemplateGenerativeModel"
-      ]
-    },
-    {
-      "id": "ai.hybrid-inference",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "Hybrid/on-device inference is deferred, not out of scope — the sandbox runs in the browser and can model the on-device path through the answer-engine seam; the mode has not been wired yet.",
-      "evidenceRefs": ["upstream:firebase/ai"],
-      "symbols": [
-        "InferenceMode"
-      ]
-    },
-    {
-      "id": "ai.inference-source",
-      "availability": "deferred",
-      "reasonCode": "implementation-deferred",
-      "summary": "Deferred with hybrid/on-device inference — the source marker is meaningful once the hybrid mode lands.",
-      "evidenceRefs": ["disposition:ai.hybrid-inference"],
-      "symbols": [
-        "InferenceSource"
       ]
     }
   ]

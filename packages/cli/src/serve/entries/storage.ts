@@ -29,6 +29,7 @@ import {
 import { useWorker } from './worker-runtime.js';
 import { getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
+import { updateMetadata as unavailableUpdateMetadata } from './unsupported/storage.js';
 
 const workerStorageByApp = new WeakMap<FirebaseApp, FirebaseStorage>();
 
@@ -72,13 +73,6 @@ export function connectStorageEmulator(
   if (!useWorker) ip.connectStorageEmulator(storage as FirebaseStorage, _host, _port, _options as never);
 }
 
-function unsupportedWorkerApi(name: string): never {
-  throw new Error(
-    `firebase/storage ${name}() is not supported over the pyric SharedWorker yet. ` +
-      'Use the in-page fallback for this operation.',
-  );
-}
-
 // Byte ops use the worker protocol (base64 `storage.putBytes` /
 // `storage.getBytes` / `storage.deleteObject`) and the initiating app port's
 // authenticated session. All app ports reach the same object store and
@@ -98,5 +92,12 @@ export const deleteObject = (useWorker ? observeStorageOperation('deleteObject',
 
 export const uploadString = (useWorker ? observeStorageOperation('uploadString', workerUploadString) : ip.uploadString) as typeof ip.uploadString;
 export const updateMetadata: typeof ip.updateMetadata = useWorker
-  ? observeStorageOperation('updateMetadata', (_ref: Parameters<typeof ip.updateMetadata>[0], ..._args: [Parameters<typeof ip.updateMetadata>[1]]) => unsupportedWorkerApi('updateMetadata'))
+  ? observeStorageOperation('updateMetadata', (_ref: Parameters<typeof ip.updateMetadata>[0], ..._args: [Parameters<typeof ip.updateMetadata>[1]]) => unavailableUpdateMetadata())
   : ip.updateMetadata;
+
+export {
+  StringFormat,
+  StorageErrorCode,
+} from 'pyric/storage';
+
+export * from './unsupported/storage.js';

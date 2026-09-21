@@ -21,7 +21,7 @@ describe('machine-readable surface contracts', () => {
     expect(surfaceContracts.every(({ record }) => !('order' in record))).toBe(true);
     expect(surfaceDescriptors).toHaveLength(22);
     expect(loadCensusPairs()).toHaveLength(8);
-    expect(loadSurfaceDispositions()).toHaveLength(37);
+    expect(loadSurfaceDispositions()).toHaveLength(28);
   });
 
   it('models the service-worker census-only surface as a contract, not code', () => {

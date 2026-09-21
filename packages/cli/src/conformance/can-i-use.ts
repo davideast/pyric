@@ -3,14 +3,12 @@ import {
   CONFORMANCE_SUPPORTS,
   resolveCanIUse,
   resolveImportEvidence,
-  type CanIUseOptions,
   type FeatureSupport,
 } from './.generated/can-i-use.js';
+import { createServedQuery } from './served-query.js';
 
 /** Query the generated, build-time conformance support projection. */
-export function canIUse(query: string, options?: CanIUseOptions) {
-  return resolveCanIUse<FeatureSupport>(CONFORMANCE_SUPPORTS, query, options);
-}
+export const canIUse = createServedQuery(CONFORMANCE_SUPPORTS, resolveCanIUse<FeatureSupport>);
 
 /** Find the generated compatibility-page evidence for a published import. */
 export function canIUseImport(importPath: string) {

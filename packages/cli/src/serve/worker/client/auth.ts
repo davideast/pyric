@@ -57,7 +57,7 @@ export interface ClientUserCredential {
   user: ClientUser;
   providerId: string | null;
   operationType: 'signIn' | 'reauthenticate' | 'link';
-  additionalUserInfo?: {
+  _additionalUserInfo?: {
     readonly isNewUser: boolean;
     readonly profile: Record<string, unknown>;
     readonly providerId: string | null;
@@ -167,14 +167,14 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     if (isSignedIn) await restorePortSession(auth, user.uid, request, user.tenantId);
   };
 
-  // Internal authState subscription keeps `auth.currentUser` live.
+  // ID-token updates also refresh same-UID changes such as provider linking.
   const subId = nextSubId();
   openSnapshotSubscription(port, subId, {
     port,
     next: (raw) => {
       auth.currentUser = toClientUser(port, raw as SerializedUser | null);
     },
-  }, { t: 'sub', subId, target: 'authState' } satisfies InboundMessage);
+  }, { t: 'sub', subId, target: 'idToken' } satisfies InboundMessage);
 
   return auth;
 }
@@ -223,6 +223,12 @@ export async function signInAnonymously(auth: ClientAuth): Promise<ClientUserCre
   return hydrateCred(auth, raw);
 }
 
+export async function signInWithCustomToken(auth: ClientAuth, customToken: string): Promise<ClientUserCredential> {
+  const raw = await rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.signInWithCustomToken',
+    customToken, tenantId: auth.tenantId }) as SerializedUserCredential;
+  return hydrateCred(auth, raw);
+}
+
 export async function signOut(auth: ClientAuth): Promise<void> {
   if (isDisconnectedPort(auth.port)) {
     auth.currentUser = null;
@@ -264,14 +270,14 @@ export async function restorePortSession(
   return user;
 }
 
-function hydrateCred(auth: ClientAuth, raw: SerializedUserCredential): ClientUserCredential {
+export function hydrateCred(auth: ClientAuth, raw: SerializedUserCredential): ClientUserCredential {
   const user = makeClientUser(auth.port, raw.user);
   auth.currentUser = user;
   return {
     user,
     providerId: raw.providerId,
     operationType: raw.operationType,
-    additionalUserInfo: raw.additionalUserInfo,
+    _additionalUserInfo: raw.additionalUserInfo,
   };
 }
 
@@ -343,9 +349,10 @@ export async function getIdTokenResult(
   return user.getIdTokenResult(forceRefresh);
 }
 
-function requireUserPort(user: ClientUser, api: string): ClientPort {
+export function requireUserPort(user: ClientUser, api: string): ClientPort {
   const port = (user as { [CLIENT_USER_PORT]?: ClientPort })[CLIENT_USER_PORT];
-  if (!port) {
+  const hasNoPort = port === undefined;
+  if (hasNoPort) {
     const err = new Error(
       `${api}: unrecognized user — was it produced by a worker-path sign-in?`,
     ) as Error & { code: string };

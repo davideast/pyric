@@ -316,3 +316,14 @@ export const getAI = (
           : mirrorGetAI(app, withProxyDefault(options));
       }
 ) as typeof pyricGetAI;
+
+export {
+  ImagenAspectRatio,
+  ImagenPersonFilterLevel,
+  ImagenSafetyFilterLevel,
+  InferenceMode,
+  InferenceSource,
+  LiveResponseType,
+} from 'pyric/ai';
+
+export * from './unsupported/ai.js';
