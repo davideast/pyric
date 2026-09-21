@@ -5,6 +5,10 @@
     "playwright": true,
     "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
   },
+  "I21": {
+    "phase": 2,
+    "tests": ["packages/cli/test/bridge/ledger/i21-take-mail.test.ts"]
+  },
   "I20": {
     "phase": 2,
     "tests": [
