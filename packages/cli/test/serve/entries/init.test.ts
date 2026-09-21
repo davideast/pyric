@@ -12,4 +12,13 @@ describe('init entry dependency boundary', () => {
     expect(source).toContain("from './active-auth.js'");
     expect(source).not.toContain("from './auth.js'");
   });
+
+  it('does not import from runtime.js to keep Service Worker module graphs free of top-level await', () => {
+    const source = readFileSync(
+      join(import.meta.dir, '../../../src/serve/entries/init.ts'),
+      'utf8',
+    );
+
+    expect(source).not.toContain("from './runtime.js'");
+  });
 });

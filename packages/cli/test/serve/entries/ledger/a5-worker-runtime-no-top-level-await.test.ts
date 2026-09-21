@@ -10,13 +10,27 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
-const ENTRY = new URL('../../../../src/serve/entries/worker-runtime.ts', import.meta.url);
+const WORKER_RUNTIME = new URL('../../../../src/serve/entries/worker-runtime.ts', import.meta.url);
+const AUTH_ENTRY = new URL('../../../../src/serve/entries/auth.ts', import.meta.url);
+const INIT_ENTRY = new URL('../../../../src/serve/entries/init.ts', import.meta.url);
 
-describe('ledger A5: worker runtime entry has no top-level await', () => {
-  it('no column-zero statement awaits', () => {
-    const source = readFileSync(ENTRY, 'utf8');
-    const offenders = source.split('\n').filter((line) =>
-      /^(?:export\s+)?(?:const|let|var)\s+[^=]+=\s*await\b/.test(line) || /^await\b/.test(line));
-    expect(offenders).toEqual([]);
+function assertNoColumnZeroAwait(url: URL): void {
+  const source = readFileSync(url, 'utf8');
+  const offenders = source.split('\n').filter((line) =>
+    /^(?:export\s+)?(?:const|let|var)\s+[^=]+=\s*await\b/.test(line) || /^await\b/.test(line));
+  expect(offenders).toEqual([]);
+}
+
+describe('ledger A5: worker-reachable entries have no top-level await', () => {
+  it('worker runtime: no column-zero statement awaits', () => {
+    assertNoColumnZeroAwait(WORKER_RUNTIME);
+  });
+
+  it('firebase/auth entry: no column-zero statement awaits', () => {
+    assertNoColumnZeroAwait(AUTH_ENTRY);
+  });
+
+  it('init entry: no column-zero statement awaits', () => {
+    assertNoColumnZeroAwait(INIT_ENTRY);
   });
 });
