@@ -13,6 +13,8 @@
  * in or seeds a user. Email/password + anonymous also go straight to the
  * worker. The COMPLETE surface is exported on both paths (import-time parity).
  */
+// Pull in page-level dev UI (sign-in helper and runtime chip). Decoupled from
+// runtime.js so evaluating firebase/auth in a Service Worker has no top-level await.
 import './init.js';
 import * as ipAuth from 'pyric/auth';
 import { getAuth as pyricGetAuth, setPersistence as pyricSetPersistence } from 'pyric/auth';
