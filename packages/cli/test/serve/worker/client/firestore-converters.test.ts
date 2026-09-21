@@ -7,7 +7,8 @@
  * real host over a fake port pair so the wire form is exercised too.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import 'fake-indexeddb/auto';
+import { initializeSandbox, createMemoryBackend } from 'pyric/sandbox';
 import { getFirestore as ipGetFirestore } from 'pyric/firestore';
 import type { HostCtx } from '../../../../src/serve/worker/host.js';
 import * as client from '../../../../src/serve/worker/client.js';
@@ -45,6 +46,10 @@ async function makeCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
   const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
   getAdminFirestore(sandbox.withAuth(null)).setRules(PERMISSIVE_RULES);
+  await sandbox.enablePersistence({
+    key: `converters-${Math.random()}`,
+    injectedBackend: createMemoryBackend(),
+  });
   return {
     db: ipGetFirestore(sandbox),
     sandbox,

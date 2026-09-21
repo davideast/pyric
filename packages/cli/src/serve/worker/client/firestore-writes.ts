@@ -12,7 +12,7 @@ import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
 import { makeDocSnapshot } from './snapshots.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
-import type { DocumentData } from 'pyric/firestore';
+import type { DocumentData, FirestoreDataConverter } from 'pyric/firestore';
 
 interface ClientSetOptions {
   merge?: boolean;
@@ -26,7 +26,10 @@ function captureSetOptions(options: ClientSetOptions | undefined): ClientSetOpti
 }
 
 /** Convert models before encoding; update payloads bypass model converters. */
-function convertSetData(ref: DocRefHandle, data: unknown): DocumentData {
+function convertSetData(
+  ref: { converter: FirestoreDataConverter<unknown> | null },
+  data: unknown,
+): DocumentData {
   const converter = ref.converter;
   const hasConverter = converter !== null;
   let payload = data;
@@ -85,16 +88,17 @@ export async function addDoc(
   data: Record<string, unknown>,
 ): Promise<DocRefHandle> {
   return runSdkWrite(beginWorkerFirestoreActivity(coll, 'addDoc', 'operation'), async () => {
+    const payload = convertSetData(coll, data);
     const result = await dataRpc(coll.port, {
       t: 'op',
       id: nextId(),
       method: 'addDoc',
       collectionPath: coll.descriptor.path,
-      data: encodeDocValue(data),
+      data: encodeDocValue(payload),
       valueEncoding: DOC_VALUE_ENCODING,
     }) as { id: string; path: string };
 
-    return createDocumentReference(coll.port, result.path);
+    return createDocumentReference(coll.port, result.path, coll.converter);
   });
 }
 

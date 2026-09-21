@@ -3,9 +3,7 @@ import type { CollRefHandle, DocRefHandle } from './handles.js';
 type Reference = DocRefHandle | CollRefHandle;
 
 function converterOf(reference: Reference): unknown {
-  const isDocument = reference.__kind === 'doc-ref';
-  if (isDocument) return reference.converter;
-  return null;
+  return reference.converter;
 }
 
 /** Served reference identity belongs to one app's port, path, and converter. */

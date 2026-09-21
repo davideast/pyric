@@ -53,7 +53,7 @@ export async function readQueryAs(source: CollRefHandle | QueryHandle, method: s
         ? (source as CollRefHandle).descriptor
         : (source as QueryHandle).descriptor,
     }) as RawQueryResult;
-    return finishSdkRead(activity, makeQuerySnapshot(result, source.port));
+    return finishSdkRead(activity, makeQuerySnapshot(result, source.port, source.converter));
   } catch (error) { activity.fail(); throw error; }
 }
 
@@ -197,7 +197,7 @@ export function onSnapshot(
     next: (raw: unknown) => {
       let snapshot: ClientDocSnapshot | ClientQuerySnapshot;
       try {
-        snapshot = makeSnapshot(raw, port);
+        snapshot = makeSnapshot(raw, port, target.converter);
       } catch (error) {
         stop();
         const hasErrorCallback = errorCallback !== undefined;
