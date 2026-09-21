@@ -8,8 +8,9 @@ import type { InboundMessage, OutboundMessage, ResMessage } from '../../../../sr
 
 function fixture() {
   const sandbox = initializeSandbox();
+  let flushes = 0;
   const context: HostCtx = { sandbox, db: getFirestore(sandbox), instanceId: 'action-code-test', subs: new Map(),
-    flushPersistence: async () => {},
+    flushPersistence: async () => { flushes++; },
   };
   const messages: OutboundMessage[] = [];
   const port: PortLike = { postMessage: message => messages.push(message) };
@@ -32,8 +33,53 @@ function fixture() {
     if (missingMessage) throw new Error(`No mail for ${email}`);
     return message;
   }
-  return { context, port, send, createUser, mail, close: () => cleanupPort(context, port) };
+  return { context, port, send, createUser, mail, flushes: () => flushes, close: () => cleanupPort(context, port) };
 }
+
+test('served Auth mailbox consumes sandbox-wide mail without flushing persisted state', async () => {
+  const f = fixture();
+  const otherPort: PortLike = { postMessage: () => {} };
+  try {
+    await f.createUser();
+    await f.send('auth.sendPasswordResetEmail', { email: 'owner@example.com' });
+    const before = f.flushes();
+    expect(await f.send('auth.takeMail', { email: 'absent@example.com' })).toMatchObject({ ok: true, value: null });
+    const messages: OutboundMessage[] = [];
+    otherPort.postMessage = message => messages.push(message);
+    await handleMessage(f.context, otherPort, { t: 'op', id: 'other-mail', method: 'auth.takeMail' } as InboundMessage);
+    expect(messages).toContainEqual(expect.objectContaining({ t: 'res', ok: true,
+      value: expect.objectContaining({ email: 'owner@example.com', operation: 'PASSWORD_RESET' }),
+    }));
+    expect(await f.send('auth.takeMail')).toMatchObject({ ok: true, value: null });
+    expect(f.flushes()).toBe(before);
+    expect(getAuth(f.context.sandbox).currentUser).toBeNull();
+  } finally { await cleanupPort(f.context, otherPort); await f.close(); }
+});
+
+test('served email-link redemption creates a verified per-port identity without changing another session', async () => {
+  const f = fixture();
+  const otherPort: PortLike = { postMessage: () => {} };
+  try {
+    const owner = await f.createUser();
+    await handleMessage(f.context, otherPort, { t: 'op', id: 'other', method: 'auth.signInAnonymously', tenantId: 'blue' });
+    const other = portSession(f.context, otherPort);
+    expect(await f.send('auth.sendSignInLinkToEmail', { email: 'link@example.com', settings: {
+      url: 'https://example.com/continue', handleCodeInApp: true,
+    } })).toMatchObject({ ok: true });
+    const { link } = f.mail('link@example.com');
+    expect(await f.send('auth.signInWithEmailLink', { email: 'wrong@example.com', link, tenantId: 'red' }))
+      .toMatchObject({ ok: false, error: { code: 'auth/invalid-email' } });
+    expect(portSession(f.context, f.port)?.user.uid).toBe(owner);
+    expect(await f.send('auth.signInWithEmailLink', { email: 'link@example.com', link, tenantId: 'red' }))
+      .toMatchObject({ ok: true, value: { user: { email: 'link@example.com', emailVerified: true, tenantId: 'red' },
+        operationType: 'signIn', additionalUserInfo: { isNewUser: true } } });
+    expect(portSession(f.context, f.port)?.user.uid).not.toBe(owner);
+    expect(portSession(f.context, otherPort)).toBe(other);
+    expect(getAuth(f.context.sandbox).currentUser).toBeNull();
+    expect(await f.send('auth.signInWithEmailLink', { email: 'link@example.com', link, tenantId: 'red' }))
+      .toMatchObject({ ok: false, error: { code: 'auth/invalid-action-code' } });
+  } finally { await cleanupPort(f.context, otherPort); await f.close(); }
+});
 
 test('served password reset sends a real code, rejects weak passwords without consuming it, and changes the password', async () => {
   const f = fixture();
