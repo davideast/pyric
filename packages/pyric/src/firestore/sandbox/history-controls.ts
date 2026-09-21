@@ -86,7 +86,7 @@ export class HistoryControls {
     };
   }
 
-  /** Get all events. */
+  /** Get retained events in their original order. */
   getEvents(): AgentEvent[] {
     return this.eventLog.getEvents();
   }

@@ -1,25 +1,11 @@
+import { encodedBytes, type EventHistoryLimits } from './history-retention.js';
+export type { EventHistoryLimits } from './history-retention.js';
 import { RulesEvidenceRetention } from './rules-evidence-retention.js';
 import type { SandboxEvent, SandboxObservationGapEvent } from '../types/events.js';
-
-export interface EventHistoryLimits {
-  maxEvents: number;
-  maxBytes: number;
-}
 
 interface HistoryEntry {
   event: SandboxEvent;
   bytes: number;
-}
-
-const utf8 = new TextEncoder();
-
-function encodedBytes(value: unknown): number {
-  try {
-    const json = JSON.stringify(value);
-    const hasBuffer = typeof Buffer === 'function';
-    return hasBuffer ? Buffer.byteLength(json) : utf8.encode(json).byteLength;
-  }
-  catch { return Infinity; }
 }
 
 /** One observation history owner; adapters may bound retention without truncating undo state. */

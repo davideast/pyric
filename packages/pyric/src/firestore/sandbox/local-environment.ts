@@ -583,9 +583,14 @@ export class LocalEnvironment {
 
   // ═══ Event log access ═══
 
-  /** Get all events. */
+  /** Get retained events in their original order. */
   getEvents(): AgentEvent[] {
     return this.history.getEvents();
+  }
+
+  /** Retention accounting, including undone events and budget omissions. */
+  getEventRetention() {
+    return this.eventLog.getRetention();
   }
 
   /** Get event count. */

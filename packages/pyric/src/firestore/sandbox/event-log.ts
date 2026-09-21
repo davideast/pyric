@@ -1,10 +1,12 @@
 /**
- * Event Log — append-only audit trail for the local environment.
+ * Event Log — bounded audit and undo history for the local environment.
  *
- * Every operation (allowed or denied) is recorded. Undo is implemented
+ * Operations (allowed or denied) are retained within count and byte limits. Undo is implemented
  * via state snapshots — no need to replay events.
  */
 import type { DocumentData } from './local-state.js';
+import { encodedBytes, type EventHistoryLimits } from '../../sandbox/internal/history-retention.js';
+import { OBSERVATION_HISTORY_LIMITS } from '../../sandbox/internal/observation-history.js';
 import { SandboxClock } from '../../sandbox/clock.js';
 
 export interface AgentEvent {
@@ -61,13 +63,25 @@ export interface AgentEvent {
   debugMessages: string[];
 }
 
+export interface EventLogRetention {
+  retainedEvents: number;
+  retainedBytes: number;
+  omittedCount: number;
+}
+
 export class EventLog {
   private events: AgentEvent[] = [];
   private nextId = 1;
   private undoneEvents: AgentEvent[] = [];
+  private readonly eventBytes = new Map<number, number>();
+  private retainedBytes = 0;
+  private omittedCount = 0;
 
   /** @param clock The sandbox clock every appended entry is stamped from. */
-  constructor(private readonly clock: SandboxClock = new SandboxClock()) {}
+  constructor(
+    private readonly clock: SandboxClock = new SandboxClock(),
+    private readonly limits: EventHistoryLimits = OBSERVATION_HISTORY_LIMITS,
+  ) {}
 
   /** Append an event. Clears redo stack unless preserveRedo is true. */
   append(event: Omit<AgentEvent, 'id' | 'timestamp'>, preserveRedo = false): AgentEvent {
@@ -76,12 +90,19 @@ export class EventLog {
       id: this.nextId++,
       timestamp: new Date(this.clock.now()).toISOString(),
     };
+    if (!preserveRedo) {
+      for (const undone of this.undoneEvents) this.release(undone);
+      this.undoneEvents = [];
+    }
     this.events.push(full);
-    if (!preserveRedo) this.undoneEvents = [];
+    const bytes = encodedBytes(full) + 1;
+    this.eventBytes.set(full.id, bytes);
+    this.retainedBytes += bytes;
+    this.prune();
     return full;
   }
 
-  /** Get all events. */
+  /** Get retained events in their original order. */
   getEvents(): AgentEvent[] {
     return [...this.events];
   }
@@ -121,10 +142,47 @@ export class EventLog {
 
   /** Get the last undone event (for redo). */
   popLastUndo(): AgentEvent | null {
-    return this.undoneEvents.pop() ?? null;
+    const event = this.undoneEvents.pop();
+    if (!event) return null;
+    this.release(event);
+    return event;
   }
 
-  /** Total event count. */
+  /** Shared accounting for the visible log and redo stack. */
+  getRetention(): EventLogRetention {
+    return {
+      retainedEvents: this.eventBytes.size,
+      retainedBytes: this.retainedBytes,
+      omittedCount: this.omittedCount,
+    };
+  }
+
+  private release(event: AgentEvent): void {
+    this.retainedBytes -= this.eventBytes.get(event.id) ?? 0;
+    this.eventBytes.delete(event.id);
+    // An unserializable event has infinite estimated size; removing the final
+    // retained entry must reset accounting rather than leave Infinity - Infinity.
+    const isEmpty = this.eventBytes.size === 0;
+    if (isEmpty) this.retainedBytes = 0;
+  }
+
+  private prune(): void {
+    const exceedsBudget = () => this.eventBytes.size > this.limits.maxEvents
+      || this.retainedBytes > this.limits.maxBytes;
+    while (exceedsBudget()) {
+      // Accounting preserves append order even when undo/redo reorders stacks.
+      const oldestId = this.eventBytes.keys().next().value;
+      const oldestIsUndone = this.events[0]?.id !== oldestId;
+      const entries = oldestIsUndone ? this.undoneEvents : this.events;
+      const index = oldestIsUndone ? entries.findIndex(event => event.id === oldestId) : 0;
+      const [omitted] = entries.splice(index, 1);
+      if (!omitted) break;
+      this.release(omitted);
+      this.omittedCount++;
+    }
+  }
+
+  /** Visible event count; undone events remain accounted in getRetention(). */
   size(): number {
     return this.events.length;
   }
@@ -134,5 +192,8 @@ export class EventLog {
     this.events = [];
     this.undoneEvents = [];
     this.nextId = 1;
+    this.eventBytes.clear();
+    this.retainedBytes = 0;
+    this.omittedCount = 0;
   }
 }
