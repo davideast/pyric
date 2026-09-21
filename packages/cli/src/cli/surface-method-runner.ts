@@ -129,7 +129,7 @@ export async function runSurfaceMethod(
   }
   stderr.write(`pyric: in-process sandbox, ${IN_PROCESS_STATE_RELATIVE}\n`);
 
-  const owner = await claimProjectState(cwd);
+  const owner = await claimProjectState(cwd, 'in-process');
   try {
     const sandbox = initializeSandbox();
     const storage = openPersistedServices(sandbox, cwd);

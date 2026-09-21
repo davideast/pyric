@@ -40,9 +40,9 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
     const unsafeEntry = !regular;
     if (unsafeEntry) throw new Error('Recovery source must contain regular files, not symlinks or directories.');
   }
-  // Standard active/archived directories share their project's ownership file.
+  // Standard active/archived directories hold the Node host's state files.
   const inProjectState = basename(dirname(source)) === 'state' && basename(dirname(dirname(source))) === '.pyric';
-  const owner = inProjectState ? await claimProjectState(dirname(dirname(dirname(source)))) : undefined;
+  const owner = inProjectState ? await claimProjectState(dirname(dirname(dirname(source))), 'host') : undefined;
   let scratch: string | undefined;
   let outputCreated = false;
   try {

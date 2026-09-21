@@ -139,7 +139,10 @@ export async function startServe(opts: Parameters<typeof startServeRuntime>[0]):
   const ownsPersistedState = usesHostedSandbox || usesBrowserPersistence;
   if (ownsPersistedState) {
     const { claimProjectState } = await import('../serve/hosted/project-ownership.js');
-    const owner = await claimProjectState(opts.cwd);
+    // A hosted run keeps its state in `.pyric/state/hosted` and writes no
+    // `state.json`, so the sandbox it runs decides which files are at stake.
+    const scope = usesHostedSandbox ? 'host' : 'browser-state';
+    const owner = await claimProjectState(opts.cwd, scope);
     try {
       return await startServeRuntime(opts, owner.close);
     } catch (error) {
