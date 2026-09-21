@@ -29,6 +29,7 @@ An operation is one thing an agent can do to the sandbox. Every surface variant 
 | `signin_auth_credential` | signin | auth | credential | `credential` (`providerId`, `email`, `idToken?`, `accessToken?`) | `providerId` is one of the federated providers the sandbox resolves. |
 | `signout_auth_session` | signout | auth | session | none | Clears the app session. The caller identity is unchanged. |
 | `list_auth_sessions` | list | auth | sessions | none | The sessions the sandbox holds: the caller identity and the app session. |
+| `take_auth_mail` | take | auth | mail | `email` optional | Reads and removes the oldest outbound Auth message, for one recipient when `email` is given. Returns `mail: null` when none matches. |
 | `get_firestore_document` | get | firestore | document | `path` | |
 | `list_firestore_documents` | list | firestore | documents | `path` (collection), `limit?` | |
 | `write_firestore_document` | write | firestore | document | `path`, `data` (object), `merge?` | Set semantics. |

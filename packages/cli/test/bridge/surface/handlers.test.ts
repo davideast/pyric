@@ -11,7 +11,12 @@
 import { afterAll, expect, it } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getAuth, sandbox as authSandbox, signInWithEmailAndPassword } from 'pyric/auth';
+import {
+  getAuth,
+  sandbox as authSandbox,
+  sendSignInLinkToEmail,
+  signInWithEmailAndPassword,
+} from 'pyric/auth';
 import { initializeSandbox } from 'pyric/sandbox';
 
 import { renderSurface } from '../../../src/bridge/surface/index.js';
@@ -698,6 +703,24 @@ it('signs the app session out and leaves the agent able to administer users', as
   expect(both.appSession).toBe(null);
   expect(both.agent.mode).toBe('admin');
   expect((await run('auth.listUsers', { maxResults: 50 })).ok).toBe(true);
+});
+
+it('takes the oldest Auth message and leaves the outbox without it', async () => {
+  const auth = getAuth(sandbox);
+  await sendSignInLinkToEmail(auth, 'alice@example.com', {
+    url: 'https://app.example.com/finish',
+    handleCodeInApp: true,
+  });
+
+  const taken = await run('auth.takeAuthMail', { email: 'alice@example.com' });
+  expect(taken.ok).toBe(true);
+  const mail = (taken.data as { mail: { operation: string; email: string; code: string } | null }).mail;
+  expect(mail).toMatchObject({ operation: 'EMAIL_SIGNIN', email: 'alice@example.com' });
+  expect(authSandbox.listAuthMail(auth)).toEqual([]);
+
+  const empty = await run('auth.takeAuthMail', { email: 'alice@example.com' });
+  expect(empty.ok).toBe(true);
+  expect((empty.data as { mail: unknown }).mail).toBe(null);
 });
 
 it('signs in anonymously and shows the minted user in the pool', async () => {

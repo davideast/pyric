@@ -173,6 +173,17 @@ const AUTH_ROUTES: DiscriminatorRoute[] = [
     translate: () => ({}),
   },
   {
+    tool: 'inspect_auth_flow',
+    action: 'take_mail',
+    selects: on('action', 'take_mail'),
+    operation: 'take_auth_mail',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'email', text(args, 'email'));
+      return translated;
+    },
+  },
+  {
     tool: 'switch_auth_identity',
     action: null,
     selects: () => true,

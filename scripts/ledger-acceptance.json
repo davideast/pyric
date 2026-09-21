@@ -1,4 +1,10 @@
 {
+  "I21": {
+    "phase": 2,
+    "tests": ["packages/cli/test/bridge/ledger/i21-take-mail.test.ts"],
+    "browserTests": ["packages/cli/test/e2e/auth-take-mail-hosted.pw.ts"],
+    "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
+  },
   "I20": {
     "phase": 2,
     "tests": [

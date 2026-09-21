@@ -213,6 +213,7 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   signin_auth_credential: { key: 'auth.signInWithCredential' },
   signout_auth_session: { key: 'auth.signOut' },
   list_auth_sessions: { key: 'auth.sessions' },
+  take_auth_mail: { key: 'auth.takeAuthMail' },
   update_auth_user: { key: 'auth.updateUser' },
   delete_auth_user: { key: 'auth.deleteUser' },
   get_auth_identity: { key: 'auth.whoami' },

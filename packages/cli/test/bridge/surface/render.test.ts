@@ -174,9 +174,9 @@ describe('the discriminator variant', () => {
   });
 
   it('resolves a discriminator value with no canonical counterpart to no operation', () => {
-    const call = surface.resolve('inspect_auth_flow', { action: 'take_mail' });
+    const call = surface.resolve('inspect_auth_flow', { action: 'stage_oauth_mock' });
     expect(call.operation).toBeNull();
-    expect(call.action).toBe('take_mail');
+    expect(call.action).toBe('stage_oauth_mock');
   });
 
   it('keeps every rendered schema within two object levels', () => {
