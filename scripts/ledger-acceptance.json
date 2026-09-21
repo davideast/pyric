@@ -1,4 +1,14 @@
 {
+  "C17": {
+    "phase": 2,
+    "tests": [
+      "packages/cli/test/serve/runtime/ledger/c17-overview-observes-before-enable.test.ts"
+    ],
+    "browserTests": [
+      "packages/cli/test/e2e/overview-initial-render.pw.ts"
+    ],
+    "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
+  },
   "C8": {
     "phase": 2,
     "tests": ["packages/cli/test/bridge/ledger/c8-malformed-peer-isolation.test.ts"]
