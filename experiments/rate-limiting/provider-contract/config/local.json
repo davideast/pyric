@@ -1,0 +1,4 @@
+{
+  "provider": { "kind": "controlled" },
+  "limits": { "maxCommands": 20000 }
+}
