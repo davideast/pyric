@@ -1,6 +1,6 @@
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'bun:test';
-import { startFlowMode, type RecentDelivery } from '../../../src/serve/runtime/listener-flow-mode.js';
+import { createFlowMode, type RecentDelivery } from '../../../src/serve/runtime/listener-flow-mode.js';
 import type { ReactCommitSource } from '../../../src/serve/runtime/react-commit-source.js';
 import type { ListenerOutline } from '../../../src/serve/runtime/listener-outline-model.js';
 
@@ -103,9 +103,8 @@ function setup(options: SetupOptions = {}) {
     ['sub-1', outline('sub-1', 'ChatPage', 'conversations/c1/messages')],
   ]);
 
-  const mode = startFlowMode({
+  const mode = createFlowMode({
     document: page.doc,
-    container,
     commits,
     outlineFor: (listenerId) => outlines.get(listenerId) ?? null,
     isVisible: options.visible ?? (() => true),
@@ -121,6 +120,7 @@ function setup(options: SetupOptions = {}) {
         changed = [];
         return drained;
       },
+      discard() { changed = []; },
       stop: () => {},
     }),
     ...(options.recentDeliveries === undefined ? {} : { recentDeliveries: options.recentDeliveries }),
@@ -129,6 +129,7 @@ function setup(options: SetupOptions = {}) {
     ...(options.onPaint === undefined ? {} : { onPaint: options.onPaint }),
   });
 
+  mode.startPainting(container);
   return {
     ...page,
     container,
@@ -293,9 +294,8 @@ describe('the Flow painting mode', () => {
     page.doc.body.append(container);
     let commit: (() => void) | null = null;
     let deliver: ((listenerId: string) => void) | null = null;
-    const mode = startFlowMode({
+    const mode = createFlowMode({
       document: page.doc,
-      container,
       commits: {
         available: () => true,
         reason: () => null,
@@ -313,6 +313,7 @@ describe('the Flow painting mode', () => {
       },
     });
 
+    mode.startPainting(container);
     deliver!('sub-1');
     page.bubbleEl.textContent = 'two';
     commit!();
@@ -327,9 +328,8 @@ describe('the Flow painting mode', () => {
     page.doc.body.append(container);
     let commit: (() => void) | null = null;
     let deliver: ((listenerId: string) => void) | null = null;
-    const mode = startFlowMode({
+    const mode = createFlowMode({
       document: page.doc,
-      container,
       commits: {
         available: () => true,
         reason: () => null,
@@ -347,6 +347,7 @@ describe('the Flow painting mode', () => {
       },
     });
 
+    mode.startPainting(container);
     deliver!('sub-1');
     const chipHost = page.doc.createElement('div');
     chipHost.setAttribute('data-pyric-runtime-chip-host', '');

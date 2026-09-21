@@ -10,6 +10,7 @@ import { listenerAttributionEnabled } from 'pyric/sandbox/internal';
 import { createListenerMode } from './listener-mode.js';
 import type { SandboxEventSource } from './listener-event-source.js';
 import { installReactCommitSource, type ReactCommitSource } from './react-commit-source.js';
+import { createListenerObservation, pageListenerObservation, type ListenerObservation } from './listener-observation.js';
 import type { OverlayTheme } from './overlay-theme.js';
 
 export interface InstallPyricRuntimeChipOptions {
@@ -41,35 +42,48 @@ export function installPyricRuntimeChip(
 ): PyricRuntimeChip | null {
   const config = readPyricRuntimeChipConfig(options.document);
   const existing = options.document.querySelector('[data-pyric-runtime-chip-host], pyric-runtime-chip');
-  if (!config || existing) return null;
+  const skipsMount = config === null || existing !== null;
+  if (skipsMount) return null;
   const chipOptions: PyricRuntimeChipOptions = {
     runtime: options.runtime,
     document: options.document,
     initiallyOpen: config.initiallyOpen,
     identity: options.identity,
   };
-  if (!config.studioEnabled) chipOptions.studioUrl = null;
+  const studioEnabled = config.studioEnabled;
+  const hidesStudio = !studioEnabled;
+  if (hidesStudio) chipOptions.studioUrl = null;
+  let observation: ListenerObservation | null = null;
   const events = options.listenerEvents;
-  if (events !== null && events !== undefined) {
+  const hasEvents = events !== null && events !== undefined;
+  if (hasEvents) {
     // Traffic folds the same stream the Listeners mode does, from its own
     // subscription, so neither fold has to know the other exists.
     chipOptions.sandboxEvents = events;
-    const studioUrl = config.studioEnabled
+    const studioUrl = studioEnabled
       ? options.runtime.getSnapshot().manifest.studioUrl
       : null;
-    // Installed here rather than inside the mode, which the chip builds only
-    // when a developer first opens the Listeners panel, long after React.
-    const commits = options.commits ?? installReactCommitSource(options.document.defaultView);
+    // SDK initialization normally starts observation first. Direct chip users
+    // start it here, before mounting or constructing the listener mode.
+    const injectedCommits = options.commits;
+    const hasInjectedCommits = injectedCommits !== undefined;
+    if (hasInjectedCommits) observation = createListenerObservation(options.document, injectedCommits);
+    else observation = pageListenerObservation(options.document);
+    const commits = observation?.commits ?? installReactCommitSource(options.document.defaultView);
     chipOptions.listeners = (onChange) => createListenerMode({
       document: options.document,
       subscribeEvents: events,
       attributionEnabled: listenerAttributionEnabled,
       studioUrl,
       commits,
+      observation: observation ?? undefined,
       overlayTheme: options.overlayTheme ?? null,
       onChange,
     });
   }
   const mount = options.mount ?? mountPyricRuntimeChip;
-  return mount(chipOptions);
+  const chip = mount(chipOptions);
+  const dispose = chip.dispose.bind(chip);
+  chip.dispose = () => { dispose(); observation?.dispose(); };
+  return chip;
 }

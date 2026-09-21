@@ -1,7 +1,9 @@
 import { recordDiagnostic } from '../runtime/diagnostics-client.js';
+import { pageListenerObservation } from '../runtime/listener-observation.js';
 import type { InitPayload } from '../init-payload.js';
 
 const hasDocument = typeof document !== 'undefined';
+if (hasDocument) pageListenerObservation(document);
 const documentLike = hasDocument ? document : undefined;
 const hostedDeclaration = documentLike?.querySelector('meta[name="pyric-sandbox-host"]');
 const requiresHostedSandbox = hostedDeclaration?.getAttribute('content') === 'node';
