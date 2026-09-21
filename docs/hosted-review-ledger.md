@@ -1,5 +1,9 @@
 # Hosted sandbox and live mode: review ledger
 
+> This ledger is closed. It records the review of the Node host work before it landed on `main`, and it is kept as history.
+> Every ruled item in it is merged. What still has to be true before the Node host ships under the npm `latest` tag is tracked in the
+> [Node host: npm latest](https://github.com/davideast/pyric/milestone/3) milestone. New Node host defects go to GitHub issues with the `node-host` label, not here.
+
 Review baseline: `origin/main` at `f7e90081` against `origin/hosted-live-mode` at `470ba3d4` (123 commits, 678 files), reviewed 2026-09-16. Delta review of `470ba3d4..26a6ae0d` (18 commits) on 2026-09-17; statuses below reflect the later tip. Section I holds the delta findings.
 
 This ledger is the acceptance record for the branch. Each item stays open until its acceptance evidence runs green on the current branch tip. A fix without the named evidence does not close the item.
