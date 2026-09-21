@@ -44,6 +44,13 @@ test('completion, interruption, unsupported lookup and both stop races have sepa
     expect(byId['abort-before-dispatch'].snapshots.final.reservation.dispatches).toBe(0);
     expect(byId['abort-before-dispatch'].snapshots.final.oracle.attempts).toBe(0);
     expect(byId['normal-stream'].observations.some(o => o.status === 'chunk')).toBe(true);
+    expect(byId['abort-after-chunk'].observations.some(o => o.status === 'client-disconnected')).toBe(true);
+    expect(result.events.some(e => e.kind === 'client-chunk-acknowledged')).toBe(true);
+    expect(result.cases.every(c => Array.isArray(c.attempts))).toBe(true);
+    const dispatch = result.events.find(e => e.caseId === 'normal-stream' && e.kind === 'dispatch-intent');
+    const completed = result.events.find(e => e.caseId === 'normal-stream' && e.kind === 'provider-observation' && e.status === 'completed');
+    expect(dispatch.attemptId).toBe(completed.attemptId);
+    expect(dispatch.instanceId).toBe(completed.instanceId);
     expect(byId['duplicate-key'].snapshots.final.oracle.jobs).toHaveLength(1);
     expect(byId['duplicate-key'].snapshots.final.oracle.attempts).toBe(2);
     expect(byId['missing-lookup'].snapshots.final.reservation.active).toBe(1);

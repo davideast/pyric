@@ -9,7 +9,7 @@ export function aiLogicContract({ projectId, model, appId, apiKey, credentials, 
     if (loopbackFixture && !/^http:\/\/127\.0\.0\.1:\d+$/.test(loopbackFixture)) throw new Error('Fixture must be loopback');
     if (!loopbackFixture && !allowRealInference) throw new Error('Real inference is not enabled');
     const base = loopbackFixture ?? 'https://firebasevertexai.googleapis.com';
-    const observe = async value => { const result = { providerOperationId: null, observedAt: new Date().toISOString(), scope: 'one-provider-operation', usage: null, ...value }; await emit(result); return result; };
+    const observe = async value => { const result = { providerOperationIdOrigin: 'unavailable', evidenceClass: value.source, providerOperationId: null, observedAt: new Date().toISOString(), scope: 'one-provider-operation', usage: null, ...value }; await emit(result); return result; };
     const unsupported = () => observe({ status: 'unsupported', source: 'gateway-observation', strength: 'none', reason: 'not-exposed-by-pinned-generation-api' });
     return { requestStop: unsupported, observe: unsupported,
         async start({ prompt, streaming = false, signal }) {

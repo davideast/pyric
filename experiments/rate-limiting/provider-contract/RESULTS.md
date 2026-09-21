@@ -22,8 +22,9 @@ result. No real AI calls, Firestore service calls or Cloud Run deployment occurr
 Across the run there were 17 synthetic dispatch attempts and 17 dispatch charges,
 3 stop acknowledgments, 3 cancellation observations, 11 completion observations
 and 4 unsupported observations. Observation counts include repeated status queries;
-they are **not distinct job totals**. Four reservations remained occupied at case
-end, including the unsafe control's second job. Each local fixture was then killed
+they are **not distinct job totals**. Three safe reservations remained occupied at case
+end. After local output draining, the unsafe control held zero slots while its
+two provider jobs still ran. Each local fixture was then killed
 as explicit test cleanup; that is not a permissible way to clear a real reservation.
 
 The prepared AI Logic HTTP adapter also passed loopback tests for complete JSON,
@@ -57,11 +58,12 @@ measure what actually happens without silently choosing that risk.
 
 The normalized capture contains `result.json`, `assessment.json`, `summary.json`,
 `events.ndjson`, `provider-observations.ndjson`, `capabilities.json`,
-`contract-profile.json`, `environment.json`, workload/rules, and exact source beside
+`contract-profile.json`, `environment.json`, `attempts.ndjson`, `snapshots.json`,
+workload/rules, and exact source beside
 a SHA-256 manifest. The local run and replay IDs are:
 
-- Run: `ac237005-59a4-466a-900e-e10b83ec9cfd`
-- Replay: `182a0d8b-7ec1-4062-b459-5dd6a96f4ef8`
+- Run: `1e4c8218-2eca-41c4-b743-08e916b06571`
+- Replay: `2ad51c55-ed20-4432-acac-dd6669a73606`
 
 Captures are retained outside Git under `/private/tmp/provider-contract-evidence`
 and `/private/tmp/provider-contract-replays` on the execution machine. These are
@@ -70,7 +72,9 @@ performed. Public findings contain synthetic aggregates only. Dependencies are n
 bundled; capture verification includes hashes/provenance and replay needs the
 compatible workspace dependencies and built Pyric package.
 
-Gateway/controller ingress uses IPC, provider traffic uses loopback HTTP, and
+Gateway control ingress uses IPC; the first-chunk disconnect case uses a real
+downstream HTTP stream and records client receipt and gateway awareness. Provider
+traffic uses loopback HTTP, and
 Pyric Admin transactions run in the controller. The oracle lives in a different
 process and its control channel is never supplied to the gateway. The gateway's
 owner identity is a synthetic fixture input, not verified Firebase Authentication.

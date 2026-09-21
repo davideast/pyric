@@ -20,3 +20,7 @@ export const scenarios = {
     'unresolvable-budget': { profile: 'unobservable', run: unresolved, expected: { unsupportedStop: true, capacityBoundRespected: true } },
     'unsafe-transport-release': { profile: 'unobservable', unsafe: true, run: unresolved, expected: { capacityBoundRespected: false } },
 };
+
+// At most five polling barriers (50 inspections each), setup/control/drain and
+// gateway callbacks fit in 512 IPC commands. Native retries are bounded separately.
+for (const scenario of Object.values(scenarios)) Object.assign(scenario, { maxCommands: 512, maxTransactionAttempts: 8 });

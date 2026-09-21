@@ -18,6 +18,7 @@ test('captures and replays exact source while missing checks and interrupted exe
         const rerun = JSON.parse(await readFile(join(replay.directory, 'result.json'), 'utf8'));
         expect(compare(original, rerun).compatible).toBe(true);
         expect(assess({ ...original, assertions: [] }).successfulExperiment).toBe(false);
+        expect(assess({ ...original, cases: original.cases.map(c => ({ ...c, snapshots: undefined })) }).successfulExperiment).toBe(false);
         expect(assess({ ...original, run: { ...original.run, interrupted: true } }).successfulExperiment).toBe(false);
         const changed = { ...rerun, run: { ...rerun.run, workloadHash: 'different' } };
         expect(compare(original, changed).compatible).toBe(false);
@@ -30,6 +31,7 @@ test('preflight rejects unknown cases and insufficient budgets without enabling 
     expect(preflight({ cases: ['unknown'] }).ready).toBe(false);
     expect(preflight({ cases: ['normal-response', 'normal-response'] }).ready).toBe(false);
     expect(preflight({ limits: { maxCommands: 1 } }).ready).toBe(false);
+    expect(preflight({ limits: { maxCommands: 8191 } }).ready).toBe(false);
     expect(preflight({ provider: { kind: 'ai-logic' } }).ready).toBe(false);
     expect(preflight({ apiKey: 'must-not-be-captured' }).ready).toBe(false);
 });

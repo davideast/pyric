@@ -1,7 +1,17 @@
 export async function abortAfter(session, { chunk = false, deadline = false } = {}) {
     const started = await session.gateway.call('start', deadline ? { deadlineMs: 25 } : {});
-    if (chunk) { await session.provider.call('control', { operation: 'chunk' }); await session.wait(() => session.observations.some(o => o.status === 'chunk')); }
-    if (!deadline) await session.gateway.call('abort');
+    if (chunk) {
+        const client = new AbortController();
+        const response = await fetch(session.gateway.clientUrl + '/output/request-one', { signal: client.signal });
+        const reader = response.body.getReader();
+        await session.provider.call('control', { operation: 'chunk' });
+        const received = await reader.read();
+        if (received.done) throw new Error('client-received-no-chunk');
+        session.record('client-chunk-acknowledged', { source: 'client-observation', bytes: received.value.length });
+        client.abort();
+        await session.wait(() => session.observations.some(o => o.status === 'client-disconnected'));
+    }
+    if (!deadline && !chunk) await session.gateway.call('abort');
     const afterFault = await session.wait(s => s.reservation.requests[0].state === 'unknown');
     await session.provider.call('control', { operation: 'terminal', state: 'completed' });
     await session.gateway.call('observe', { providerOperationId: started.providerOperationId });

@@ -1,7 +1,7 @@
 export function scripted({ url, emit }) {
     if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(url)) throw new Error('Fixture endpoint must be loopback');
     const json = async (route, options = {}) => { const r = await fetch(url + route, options); if (!r.ok) throw new Error('provider-http-error'); return r.json(); };
-    const observation = async value => { const observed = { providerOperationId: null, observedAt: new Date().toISOString(), scope: 'one-provider-operation', usage: null, ...value }; await emit(observed); return observed; };
+    const observation = async value => { const observed = { source: 'provider-response', strength: 'informational', providerOperationIdOrigin: value.providerOperationId ? 'provider' : 'unavailable', evidenceClass: value.source ?? 'provider-response', providerOperationId: null, observedAt: new Date().toISOString(), scope: 'one-provider-operation', usage: null, ...value }; await emit(observed); return observed; };
     return {
         async start({ key, signal }) {
             const info = await json('/start', { method: 'POST', signal, body: JSON.stringify({ key }) });

@@ -169,6 +169,14 @@ bun experiments/rate-limiting/provider-contract/run.mjs preflight --config exper
 # The disabled live example intentionally fails preflight; no CLI can deploy or call a model.
 ```
 
+The local runner declares a conservative 512-command bound per case (including
+up to five 50-poll barriers, controls, recovery, callbacks and final inspections).
+Preflight requires the sum of those bounds: 8,192 commands for all 16 cases, within
+the default 20,000-command cap. Native transactions allow at most eight callback
+attempts separately. A 50-second controller deadline can still make a slow run
+incomplete; command headroom is not a timing guarantee. Draining aborts and settles
+local output promises before final snapshots, retaining unknown remote work.
+
 Use synthetic prompts with no family/user data. The first live plan must state a
 maximum of 12 total provider dispatches, at most two concurrently, a maximum of
 64 output tokens per call unless the selected API/model needs an explicitly approved
