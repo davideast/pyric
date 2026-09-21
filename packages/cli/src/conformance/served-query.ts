@@ -39,8 +39,8 @@ function describeServedSupport<T extends FeatureSupport>(support: T): ServedSupp
   const caveats = [...support.caveats];
   const isImportsOnly = served === 'imports-only';
   const isMissing = served === 'missing';
-  if (isImportsOnly) caveats.push(`In Pyric served mode, ${support.feature} is safe to import but throws when called. Do not call it from a served application.`);
-  if (isMissing) caveats.push(`Pyric served mode does not export ${support.feature} from firebase/${service}; importing it prevents the application from loading.`);
+  if (isImportsOnly) caveats.unshift(`In Pyric served mode, ${support.feature} is safe to import but throws when called. Do not call it from a served application.`);
+  if (isMissing) caveats.unshift(`Pyric served mode does not export ${support.feature} from firebase/${service}; importing it prevents the application from loading.`);
   return { ...support, served, caveats, summary: `${support.summary} Served mode: ${served}.` };
 }
 
