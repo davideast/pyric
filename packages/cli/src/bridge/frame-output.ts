@@ -9,15 +9,25 @@ export const BROWSER_FRAME_LIMIT_CLOSE_CODE = 4009;
 export const BRIDGE_BACKLOG_CLOSE_MESSAGE =
   `Client output backlog exceeds ${MAX_QUEUED_OPERATION_BYTES / (1024 * 1024)} MiB; reconnect to resume.`;
 
-/** Error for the one operation whose frame does not fit the remaining backlog. */
-export const BRIDGE_BACKLOG_ERROR = {
+/** Error for a request that was never sent: it did not run, so its caller may retry. */
+export const BRIDGE_BACKLOG_UNSENT_ERROR = {
   code: 'resource-exhausted',
-  message: 'Bridge output backlog exceeded; retry this operation.',
+  message: 'Bridge output backlog exceeded; the request was not sent. Retry this operation.',
 };
 
 /**
- * Ceiling for a refusal written to a socket already at its backlog limit. The
- * correlation ids a refusal echoes come off the wire, so the bound cannot rest
+ * Error that replaces a response too large for the remaining backlog. The
+ * operation already ran, so the text does not invite a retry of a write.
+ */
+export const BRIDGE_BACKLOG_UNDELIVERED_ERROR = {
+  code: 'resource-exhausted',
+  message: 'Bridge output backlog exceeded; the response was not delivered. The operation may have completed.',
+};
+
+/**
+ * Ceiling for one frame written to a socket already at its backlog limit: a
+ * replacement error, or a response small enough to cost no more than one. The
+ * correlation ids an error echoes come off the wire, so the bound cannot rest
  * on their being short.
  */
 export const MAX_BACKLOG_REFUSAL_BYTES = 4 * 1024;
