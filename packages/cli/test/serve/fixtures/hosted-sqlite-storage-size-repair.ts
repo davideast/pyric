@@ -101,4 +101,14 @@ rewriteMetadata(relabel, path, metadata(body.length, 'notes/other.json'));
 relabel.close();
 await assert.rejects(createHostedPersistence(identity), /Hosted state could not be restored/);
 
+// The size limit judges the bytes a row holds, whatever size it records.
+const oversize = join(root, 'oversize');
+const small = await createHostedPersistence(oversize);
+await small.storage.put(path, new Blob([body], { type: 'application/json' }), metadata(body.length));
+small.close();
+const enlarge = await openHostedDatabase(hostedStateDirectory(oversize));
+enlarge.connection.prepare('UPDATE storage_objects SET bytes=? WHERE bucket=? AND path=?').run(new Uint8Array(8 * 1024 * 1024 + 1), bucket, path);
+enlarge.close();
+await assert.rejects(createHostedPersistence(oversize), /Hosted state could not be restored/);
+
 console.log('Storage size repair passed');

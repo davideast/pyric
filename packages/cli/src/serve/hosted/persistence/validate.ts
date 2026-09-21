@@ -1,6 +1,7 @@
 import { bundleRecords } from 'pyric/sandbox';
 import { decodeImportBundle, storedMetadataSchema, validatePersistedService } from 'pyric/sandbox/internal';
-import { md5HashOfBytes, type StoredMetadata } from 'pyric/storage/internal';
+import { createHash } from 'node:crypto';
+import type { StoredMetadata } from 'pyric/storage/internal';
 import type { openHostedDatabase } from './database.js';
 import { sqlText } from './sqlite.js';
 import { MAX_STORAGE_OP_BYTES } from '../../worker/protocol/storage.js';
@@ -17,7 +18,8 @@ export interface StorageMetadataRepair {
 export function repairedStorageMetadata(metadata: StoredMetadata, bytes: Uint8Array): StoredMetadata {
   const repaired: StoredMetadata = { ...metadata, size: bytes.byteLength };
   const hashed = typeof metadata.md5Hash === 'string';
-  if (hashed) repaired.md5Hash = md5HashOfBytes(bytes);
+  // Base64 MD5, the encoding `FullMetadata.md5Hash` carries. This store runs only under Node.
+  if (hashed) repaired.md5Hash = createHash('md5').update(bytes).digest('base64');
   return repaired;
 }
 
@@ -37,11 +39,12 @@ export function validateHostedDatabase(database: Awaited<ReturnType<typeof openH
   for (const row of rows) {
     const metadata = storedMetadataSchema.parse(JSON.parse(sqlText(row, 'metadata')));
     const wrongIdentity = metadata.bucket !== row.bucket || metadata.fullPath !== row.path;
-    const oversize = metadata.size > MAX_STORAGE_OP_BYTES;
+    // The limit applies to the bytes the row holds, not to the size it records.
+    const storedSize = Number(row.size);
+    const oversize = storedSize > MAX_STORAGE_OP_BYTES;
     const invalid = wrongIdentity || oversize;
     if (invalid) throw new Error('Persisted Storage object does not match its metadata.');
     sqlText(row, 'mime');
-    const storedSize = Number(row.size);
     const recordsTheBytes = metadata.size === storedSize;
     if (recordsTheBytes) continue;
     repairs.push({ bucket: sqlText(row, 'bucket'), path: sqlText(row, 'path'), recordedSize: metadata.size, actualSize: storedSize });
