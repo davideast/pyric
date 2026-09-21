@@ -243,7 +243,9 @@ Each is `declined` or `open` once you decide. Record the decision here.
 - Severity: should-fix. Slice: `host` or `transport`, to be decided by the cause. Status: open, reproducing. Reported by the owner on 2026-09-23 after running hosted mode on three Vite and React applications installed from packed tarballs: the mode worked; the chip's Overview and Flow highlights did not, in any of them.
 - Known: `packages/cli/test/e2e/hosted/vite-highlights.pw.ts` passes in all four configurations on current code (Node and SharedWorker, React DevTools on and off), run by the reviewer the same day. The feature works in the repository fixture, which resolves Pyric from the workspace and renders with `React.createElement`.
 - Not yet known: whether the same installs show highlights in SharedWorker mode, which would separate a hosted defect from a packaging or bundling defect; which React versions are involved; whether the chip counts listeners and paints nothing, or counts none.
-- Hypothesis, untested: `worker/client/listener-owners.ts` derives the owner on the page from the call stack and skips frames under the client's own directory. Installed under `node_modules`, the client is pre-bundled by Vite into `.vite/deps`, which would defeat that filter.
+- Hypothesis refuted, 2026-09-23: that the client's frames move into `.vite/deps` under a real install and defeat the owner filter in `worker/client/listener-owners.ts`. The reviewer built an application the way a user does (tarballs from `pack-local.sh` at `main` `4c13df35` installed under `node_modules`, Vite 7.3.6, React 19.3.0, Firebase 12.19.0, JSX through `@vitejs/plugin-react`, `StrictMode`, one `onSnapshot` in a `useEffect`) and drove the chip as the spec does. In Node host mode and in SharedWorker mode alike: Overview painted one `[data-pyric-listener-box]`, Flow painted `[data-pyric-flow]`. Not reproduced.
+- Candidates that remain, each needing the owner's applications to check: two copies of `pyric` in one install (an application that already depended on a published `pyric` or `@pyric/cli`, with the tarballs nested beside it), which would give the SDK and the chip separate activity journals so the chip folds nothing; listeners attached outside a React component, in a store or at module scope, where there is no component to paint; a React DevTools or other extension in the owner's real browser; a Vite or React major different from the ones tried.
+- Both probe runs logged two `400 Bad Request` responses in the page console, in both modes. Unexplained and not yet traced; not the cause of this item, since highlights painted.
 - Acceptance: a reproduction in an application installed the way a user installs it, a test that fails there before the fix, and highlights painting in both modes after it.
 
 ## D. Spec gaps and contract violations
@@ -666,6 +668,13 @@ All recorded resident-growth measurements are bytes:
 - Defect, second message: after `--hosted --fresh` the note reads `a recovery backup exists at .../.pyric/state/hosted.archive-<time>-<id> ... Restore: mv it back over state.json`. The archive is a directory and the restore is to stop the host and rename it to `.pyric/state/hosted`; following the printed instruction does nothing useful.
 - Defect, third message: with `--hosted --no-open` and a child command, the launcher says the sandbox is browser-resident and asks the user to open a page to connect. The Node sandbox is already running, so that instruction is unnecessary and false.
 - Acceptance: `bun scripts/verify-ledger.ts I18`. A hosted first start with a seed reports the seed as applied, with its counts; the hosted `--fresh` note names the directory rename. Both pinned by a CLI test on the hosted path, including a restart that reports existing state rather than re-applying the seed. The child-command browser-connection notice is absent in hosted mode, which already reports that the sandbox executes in this Node process; the same notice stays unchanged in browser mode. The SharedWorker wording stays as it is for that mode.
+
+### I19. `@pyric/cli`'s Vite peer range excludes the current Vite major
+
+- Severity: should-fix. Slice: `core` packaging, unrelated to hosted mode. Status: open. Found by the reviewer on 2026-09-23 while scaffolding a fresh React application for C16.
+- Location: `packages/cli/package.json`, `peerDependencies.vite` is `^5.0.0 || ^6.0.0 || ^7.0.0`.
+- Defect: `npm install` of a project on Vite 8 with `@pyric/cli` fails with `ERESOLVE`, because `@vitejs/plugin-react` 6 requires Vite 8 and the peer range stops at 7. A new project scaffolded today gets Vite 8 by default.
+- Acceptance: the plugin is exercised against Vite 8 and the range admits it, or the incompatibility is stated where a user will see it before installing.
 
 ## E. Evidence owed
 
