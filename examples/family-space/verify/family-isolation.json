@@ -1,0 +1,666 @@
+{
+  "schema": "pyric.verify.fixture.v1",
+  "description": "Family members can read chat; signed-out users and another family cannot read or write it.",
+  "createdAt": "2026-09-21T03:36:25.311Z",
+  "events": [
+    {
+      "kind": "request",
+      "id": "req-1-5rs7a",
+      "at": 1789961785091,
+      "evalMs": 0.05587499999998613,
+      "method": "set",
+      "path": "families/parkers/members/emma",
+      "auth": null,
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "name": "Emma",
+          "role": "parent"
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "name": "Emma",
+          "role": "parent"
+        },
+        "exists": true
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "write",
+      "id": "wr-2-bflsx",
+      "at": 1789961785092,
+      "method": "set",
+      "path": "families/parkers/members/emma",
+      "auth": null,
+      "priorState": null,
+      "nextState": {
+        "name": "Emma",
+        "role": "parent"
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 90000000
+      },
+      "data": {
+        "name": "Emma",
+        "role": "parent"
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-3-k2eya",
+      "at": 1789961785092,
+      "evalMs": 0.002125000000006594,
+      "method": "set",
+      "path": "families/parkers/members/sam",
+      "auth": null,
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "name": "Sam",
+          "role": "kid"
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "name": "Sam",
+          "role": "kid"
+        },
+        "exists": true
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "write",
+      "id": "wr-4-umrf5",
+      "at": 1789961785092,
+      "method": "set",
+      "path": "families/parkers/members/sam",
+      "auth": null,
+      "priorState": null,
+      "nextState": {
+        "name": "Sam",
+        "role": "kid"
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 92000000
+      },
+      "data": {
+        "name": "Sam",
+        "role": "kid"
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-5-nvjag",
+      "at": 1789961785092,
+      "evalMs": 0.001125000000001819,
+      "method": "set",
+      "path": "families/parkers/members/zoe",
+      "auth": null,
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "name": "Zoe",
+          "role": "kid"
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "name": "Zoe",
+          "role": "kid"
+        },
+        "exists": true
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "write",
+      "id": "wr-6-t9iis",
+      "at": 1789961785092,
+      "method": "set",
+      "path": "families/parkers/members/zoe",
+      "auth": null,
+      "priorState": null,
+      "nextState": {
+        "name": "Zoe",
+        "role": "kid"
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 92000000
+      },
+      "data": {
+        "name": "Zoe",
+        "role": "kid"
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-7-ycwdl",
+      "at": 1789961785092,
+      "evalMs": 0.0008330000000000837,
+      "method": "set",
+      "path": "families/other/members/alex",
+      "auth": null,
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "name": "Alex",
+          "role": "parent"
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "name": "Alex",
+          "role": "parent"
+        },
+        "exists": true
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "write",
+      "id": "wr-8-282ec",
+      "at": 1789961785092,
+      "method": "set",
+      "path": "families/other/members/alex",
+      "auth": null,
+      "priorState": null,
+      "nextState": {
+        "name": "Alex",
+        "role": "parent"
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 92000000
+      },
+      "data": {
+        "name": "Alex",
+        "role": "parent"
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-9-85prq",
+      "at": 1789961785092,
+      "evalMs": 0.0010000000000047748,
+      "method": "set",
+      "path": "families/parkers/chat/picnic",
+      "auth": null,
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "authorId": "sam",
+          "text": "Picnic on Saturday?",
+          "createdAt": 1,
+          "mediaPath": "",
+          "mediaType": ""
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "authorId": "sam",
+          "text": "Picnic on Saturday?",
+          "createdAt": 1,
+          "mediaPath": "",
+          "mediaType": ""
+        },
+        "exists": true
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "write",
+      "id": "wr-a-owll8",
+      "at": 1789961785092,
+      "method": "set",
+      "path": "families/parkers/chat/picnic",
+      "auth": null,
+      "priorState": null,
+      "nextState": {
+        "authorId": "sam",
+        "text": "Picnic on Saturday?",
+        "createdAt": 1,
+        "mediaPath": "",
+        "mediaType": ""
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 92000000
+      },
+      "data": {
+        "authorId": "sam",
+        "text": "Picnic on Saturday?",
+        "createdAt": 1,
+        "mediaPath": "",
+        "mediaType": ""
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-b-jc3ql",
+      "at": 1789961785092,
+      "evalMs": 45.478291999999996,
+      "method": "get",
+      "path": "families/parkers/chat/picnic",
+      "auth": {
+        "uid": "emma"
+      },
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "resourceBefore": {
+        "data": {
+          "authorId": "sam",
+          "text": "Picnic on Saturday?",
+          "createdAt": 1,
+          "mediaPath": "",
+          "mediaType": ""
+        },
+        "exists": true
+      },
+      "matchedRule": {
+        "ruleIndex": 0,
+        "operations": [
+          "read"
+        ]
+      },
+      "service": "firestore",
+      "detail": {
+        "functionMocks": [
+          {
+            "function": "exists",
+            "path": "families/parkers/members/emma",
+            "result": true
+          },
+          {
+            "function": "get",
+            "path": "families/parkers/members/emma",
+            "result": {
+              "name": "Emma",
+              "role": "parent"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "request",
+      "id": "req-c-s87jg",
+      "at": 1789961785138,
+      "evalMs": 38.377792,
+      "method": "get",
+      "path": "families/parkers/chat/picnic",
+      "auth": null,
+      "result": "deny",
+      "reasons": [
+        "Expected deny"
+      ],
+      "origin": "user",
+      "resourceBefore": {
+        "data": {
+          "authorId": "sam",
+          "text": "Picnic on Saturday?",
+          "createdAt": 1,
+          "mediaPath": "",
+          "mediaType": ""
+        },
+        "exists": true
+      },
+      "matchedRule": {
+        "ruleIndex": 0,
+        "operations": [
+          "read"
+        ]
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-d-pvk83",
+      "at": 1789961785177,
+      "evalMs": 36.61987500000001,
+      "method": "get",
+      "path": "families/parkers/chat/picnic",
+      "auth": {
+        "uid": "alex"
+      },
+      "result": "deny",
+      "reasons": [
+        "Expected deny"
+      ],
+      "origin": "user",
+      "resourceBefore": {
+        "data": {
+          "authorId": "sam",
+          "text": "Picnic on Saturday?",
+          "createdAt": 1,
+          "mediaPath": "",
+          "mediaType": ""
+        },
+        "exists": true
+      },
+      "matchedRule": {
+        "ruleIndex": 0,
+        "operations": [
+          "read"
+        ]
+      },
+      "service": "firestore",
+      "detail": {
+        "functionMocks": [
+          {
+            "function": "exists",
+            "path": "families/parkers/members/alex",
+            "result": false
+          },
+          {
+            "function": "get",
+            "path": "families/parkers/members/alex",
+            "result": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "request",
+      "id": "req-e-5hrx4",
+      "at": 1789961785214,
+      "evalMs": 31.021457999999996,
+      "method": "set",
+      "path": "families/parkers/chat/reply",
+      "auth": {
+        "uid": "sam"
+      },
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "authorId": "sam",
+          "text": "I will bring one.",
+          "createdAt": 1,
+          "mediaPath": "",
+          "mediaType": ""
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "authorId": "sam",
+          "text": "I will bring one.",
+          "createdAt": 1,
+          "mediaPath": "",
+          "mediaType": ""
+        },
+        "exists": true
+      },
+      "matchedRule": {
+        "ruleIndex": 1,
+        "operations": [
+          "create"
+        ]
+      },
+      "service": "firestore",
+      "detail": {
+        "functionMocks": [
+          {
+            "function": "exists",
+            "path": "families/parkers/members/sam",
+            "result": true
+          },
+          {
+            "function": "get",
+            "path": "families/parkers/members/sam",
+            "result": {
+              "name": "Sam",
+              "role": "kid"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "write",
+      "id": "wr-f-fj3n1",
+      "at": 1789961785245,
+      "method": "set",
+      "path": "families/parkers/chat/reply",
+      "auth": {
+        "uid": "sam"
+      },
+      "priorState": null,
+      "nextState": {
+        "authorId": "sam",
+        "text": "I will bring one.",
+        "createdAt": 1,
+        "mediaPath": "",
+        "mediaType": ""
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 214000000
+      },
+      "data": {
+        "authorId": "sam",
+        "text": "I will bring one.",
+        "createdAt": 1,
+        "mediaPath": "",
+        "mediaType": ""
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-g-4o65d",
+      "at": 1789961785245,
+      "evalMs": 31.77237500000001,
+      "method": "set",
+      "path": "families/parkers/chat/outsider",
+      "auth": {
+        "uid": "alex"
+      },
+      "result": "deny",
+      "reasons": [
+        "Expected deny"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "authorId": "alex",
+          "text": "Picnic on Saturday?",
+          "createdAt": 1,
+          "mediaPath": "",
+          "mediaType": ""
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "matchedRule": {
+        "ruleIndex": 1,
+        "operations": [
+          "create"
+        ]
+      },
+      "service": "firestore",
+      "detail": {
+        "functionMocks": [
+          {
+            "function": "exists",
+            "path": "families/parkers/members/alex",
+            "result": false
+          },
+          {
+            "function": "get",
+            "path": "families/parkers/members/alex",
+            "result": null
+          }
+        ]
+      }
+    },
+    {
+      "kind": "request",
+      "id": "req-h-ji9cr",
+      "at": 1789961785277,
+      "evalMs": 33.13179199999996,
+      "method": "set",
+      "path": "families/parkers/chat/signed-out",
+      "auth": null,
+      "result": "deny",
+      "reasons": [
+        "Expected deny"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "authorId": "sam",
+          "text": "Picnic on Saturday?",
+          "createdAt": 1,
+          "mediaPath": "",
+          "mediaType": ""
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "matchedRule": {
+        "ruleIndex": 1,
+        "operations": [
+          "create"
+        ]
+      },
+      "service": "firestore"
+    }
+  ],
+  "services": {
+    "firestore": {
+      "rules": {
+        "format": "firestore.rules",
+        "source": "rules_version = '2';\nservice cloud.firestore {\n match /databases/{database}/documents {\n  function member(family) { return request.auth != null && exists(/databases/$(database)/documents/families/$(family)/members/$(request.auth.uid)); }\n  function parent(family) { return member(family) && get(/databases/$(database)/documents/families/$(family)/members/$(request.auth.uid)).data.role == 'parent'; }\n  function visible(family, post) { return member(family) && (parent(family) || post.authorId == request.auth.uid || (post.status == 'published' && ('family' in post.audience || request.auth.uid in post.audience))); }\n  function postVisible(family, id) { return visible(family, get(/databases/$(database)/documents/families/$(family)/posts/$(id)).data); }\n  function validPost(data) {\n    return data.keys().hasOnly(['authorId','title','body','kind','status','audience','createdAt','mediaPath','cover','url','eventAt','location'])\n      && data.authorId is string && data.title is string && data.title.size() > 0 && data.title.size() <= 140\n      && data.body is string && data.body.size() <= 12000\n      && data.kind in ['image','video','article','event'] && data.status in ['pending','published','rejected']\n      && data.audience is list && data.audience.size() > 0 && data.audience.size() <= 20\n      && data.createdAt is number && data.mediaPath is string && data.cover is string && data.url is string && data.eventAt is string && data.location is string;\n  }\n  match /families/{family} {\n    allow read: if member(family);\n    allow write: if parent(family);\n    match /members/{uid} {\n      allow read: if member(family);\n      allow create, delete: if parent(family);\n      allow update: if parent(family) || (member(family) && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']));\n    }\n    match /posts/{id} {\n      allow read: if member(family) && (parent(family) || resource.data.authorId == request.auth.uid || (resource.data.status == 'published' && ('family' in resource.data.audience || request.auth.uid in resource.data.audience)));\n      allow create: if member(family) && validPost(request.resource.data) && request.resource.data.authorId == request.auth.uid\n        && (parent(family) || (request.resource.data.status == 'pending' && request.resource.data.audience == ['family']));\n      allow update: if member(family) && validPost(request.resource.data)\n        && request.resource.data.authorId == resource.data.authorId && request.resource.data.createdAt == resource.data.createdAt\n        && (parent(family) || (resource.data.authorId == request.auth.uid && request.resource.data.status == 'pending' && request.resource.data.audience == resource.data.audience));\n      allow delete: if parent(family) || (member(family) && resource.data.authorId == request.auth.uid);\n      match /comments/{comment} {\n        allow read: if postVisible(family, id);\n        allow create: if postVisible(family, id) && request.resource.data.keys().hasOnly(['authorId','text','createdAt'])\n          && request.resource.data.authorId == request.auth.uid && request.resource.data.text is string\n          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000 && request.resource.data.createdAt is number;\n        allow update: if postVisible(family, id) && (parent(family) || resource.data.authorId == request.auth.uid)\n          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) && request.resource.data.text is string\n          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000;\n        allow delete: if postVisible(family, id) && (parent(family) || resource.data.authorId == request.auth.uid);\n      }\n      match /views/{uid} {\n        allow get: if parent(family) || (member(family) && request.auth.uid == uid && postVisible(family, id));\n        allow list: if parent(family);\n        allow create, update: if member(family) && !parent(family) && request.auth.uid == uid && postVisible(family, id)\n          && get(/databases/$(database)/documents/families/$(family)/posts/$(id)).data.status == 'published'\n          && request.resource.data.keys().hasOnly(['viewedAt']) && request.resource.data.viewedAt == request.time;\n        allow delete: if false;\n      }\n    }\n    match /uiKits/{kitId}/entries/{entryId} {\n      allow read: if parent(family);\n      // Immutable, versioned examples. Future revisions use a new kit ID.\n      allow create: if parent(family) && request.resource.data.id == entryId\n        && request.resource.data.version is int && request.resource.data.version > 0\n        && request.resource.data.source is string && request.resource.data.source.size() <= 20000;\n      allow update, delete: if false;\n    }\n    match /appTemplates/{templateId} {\n      allow read: if member(family);\n      allow create: if parent(family)\n        && request.resource.data.keys().hasOnly(['title','description','tone','prompt','source','version'])\n        && request.resource.data.title is string && request.resource.data.title.size() <= 100\n        && request.resource.data.description is string && request.resource.data.description.size() <= 300\n        && request.resource.data.tone in ['practical','fun']\n        && request.resource.data.prompt is string && request.resource.data.prompt.size() <= 3000\n        && request.resource.data.source is string && request.resource.data.source.size() <= 60000\n        && request.resource.data.version is int && request.resource.data.version >= 1;\n      allow update, delete: if false;\n    }\n    match /apps/{appId} {\n      allow get: if parent(family) && !exists(/databases/$(database)/documents/families/$(family)/apps/$(appId));\n      function appOwner() { return parent(family) && get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.ownerId == request.auth.uid; }\n      function appLive() { let a = get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data; return !('deletedAt' in a) || a.deletedAt == null; }\n      match /versions/{versionId} {\n        allow read: if appOwner();\n        allow create: if appOwner() && appLive() && request.resource.data.number is int && request.resource.data.number > 0;\n        allow update: if false;\n        allow delete: if appOwner() && get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.deletedAt != null;\n        match /artifacts/{artifactId} {\n          allow read: if appOwner();\n          allow create: if appOwner() && appLive();\n          allow update: if false;\n          allow delete: if appOwner() && get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.deletedAt != null;\n        }\n      }\n      match /builds/{buildId} {\n        match /checkpoints/{checkpointId} {\n          allow read, delete: if appOwner();\n          allow create: if appOwner() && appLive();\n          allow update: if false;\n          match /artifacts/{artifactId} {\n            allow read, delete: if appOwner();\n            allow create: if appOwner() && appLive();\n            allow update: if false;\n          }\n        }\n        allow read, delete: if appOwner();\n        allow create, update: if appOwner() && appLive();\n        match /events/{eventId} { allow read, delete: if appOwner();\n        allow create, update: if appOwner() && appLive(); }\n      }\n      match /drafts/{draftId} {\n        allow read: if parent(family) && (!exists(/databases/$(database)/documents/families/$(family)/apps/$(appId)) || get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.ownerId == request.auth.uid);\n        allow write: if parent(family) && getAfter(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.ownerId == request.auth.uid;\n      }\n      allow read: if member(family) && (resource.data.ownerId == request.auth.uid || (resource.data.published == true && request.auth.uid in resource.data.audience));\n      allow create: if parent(family) && request.resource.data.ownerId == request.auth.uid\n        && request.resource.data.keys().hasOnly(['ownerId','title','prompt','source','context','audience','createdAt','published','activeVersionId','deletedAt','policy','policyRequired'])\n        && request.resource.data.title is string && request.resource.data.title.size() <= 100\n        && request.resource.data.source is string && request.resource.data.source.size() <= 60000\n        && request.resource.data.context is string && request.resource.data.context.size() <= 100000\n        && request.resource.data.prompt is string && request.resource.data.prompt.size() <= 3000\n        && request.resource.data.audience is list && request.resource.data.audience.size() <= 20\n        && request.resource.data.createdAt is number && request.resource.data.published == false;\n      allow update: if parent(family) && resource.data.ownerId == request.auth.uid\n        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['published','source','title','prompt','context','audience','activeVersionId','deletedAt','versionCount','updatedAt','policy','policyRequired'])\n        && request.resource.data.published is bool\n        && (!('deletedAt' in request.resource.data) || request.resource.data.deletedAt == null || request.resource.data.published == false)\n        && (request.resource.data.audience == resource.data.audience || request.resource.data.published == false)\n        && request.resource.data.source is string && request.resource.data.source.size() <= 60000;\n      allow delete: if parent(family) && resource.data.ownerId == request.auth.uid;\n      match /records/{recordId} {\n        allow read, write: if member(family);\n      }\n    }\n    match /chat/{id} {\n      allow read: if member(family);\n      allow create: if member(family) && request.resource.data.keys().hasOnly(['authorId','text','createdAt','mediaPath','mediaType'])\n        && request.resource.data.authorId == request.auth.uid && request.resource.data.text is string && request.resource.data.text.size() <= 2000\n        && request.resource.data.createdAt is number && request.resource.data.mediaPath is string\n        && request.resource.data.mediaType in ['','image','video','audio']\n        && (request.resource.data.text.size() > 0 || request.resource.data.mediaPath.size() > 0);\n      allow update: if member(family) && (parent(family) || resource.data.authorId == request.auth.uid)\n        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) && request.resource.data.text is string && request.resource.data.text.size() <= 2000;\n      allow delete: if parent(family) || (member(family) && resource.data.authorId == request.auth.uid);\n    }\n  }\n }\n}\n"
+      },
+      "state": {
+        "documents": {
+          "families/parkers/members/emma": {
+            "name": "Emma",
+            "role": "parent"
+          },
+          "families/parkers/members/sam": {
+            "name": "Sam",
+            "role": "kid"
+          },
+          "families/parkers/members/zoe": {
+            "name": "Zoe",
+            "role": "kid"
+          },
+          "families/other/members/alex": {
+            "name": "Alex",
+            "role": "parent"
+          },
+          "families/parkers/chat/picnic": {
+            "authorId": "sam",
+            "text": "Picnic on Saturday?",
+            "createdAt": 1,
+            "mediaPath": "",
+            "mediaType": ""
+          },
+          "families/parkers/chat/reply": {
+            "authorId": "sam",
+            "text": "I will bring one.",
+            "createdAt": 1,
+            "mediaPath": "",
+            "mediaType": ""
+          }
+        }
+      }
+    }
+  }
+}

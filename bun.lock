@@ -63,7 +63,6 @@
         "@types/react": "^19.0.0",
         "@types/react-dom": "^19.0.0",
         "esbuild": "0.25.12",
-        "fake-indexeddb": "^6.0.0",
         "playwright": "^1.62.0",
         "pyric": "workspace:*",
         "typescript": "^5.7.0",

@@ -8,19 +8,38 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "esModuleInterop": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["bun-types", "vite/client"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "bun-types",
+      "vite/client"
+    ],
     "paths": {
-      "react": ["../../packages/studio/node_modules/@types/react"],
-      "react-dom": ["../../packages/studio/node_modules/@types/react-dom"],
+      "react": [
+        "../../packages/studio/node_modules/@types/react"
+      ],
+      "react-dom": [
+        "../../packages/studio/node_modules/@types/react-dom"
+      ],
       "react-dom/client": [
         "../../packages/studio/node_modules/@types/react-dom/client.d.ts"
       ],
-      "esbuild": ["../../packages/cli/node_modules/esbuild"],
-      "react/*": ["../../packages/studio/node_modules/@types/react/*"]
+      "esbuild": [
+        "../../packages/cli/node_modules/esbuild"
+      ],
+      "react/*": [
+        "../../packages/studio/node_modules/@types/react/*"
+      ]
     },
     "jsx": "react-jsx"
   },
-  "include": ["*.ts", "*.tsx"],
-  "exclude": ["data.test.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vite.config.ts",
+    "scripts/*.ts"
+  ]
 }

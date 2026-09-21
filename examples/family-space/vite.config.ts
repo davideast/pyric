@@ -1,4 +1,4 @@
-import { diagnosticServer } from "./diagnostic-server";
+import { diagnosticServer } from "./scripts/diagnostic-server";
 import { defineConfig } from "vite";
 import { pyric } from "@pyric/cli/vite";
 import { buildSync } from "esbuild";
@@ -15,11 +15,11 @@ export default defineConfig({
       load(id) {
         if (id === "\0virtual:kin-preview-runtime") {
           this.addWatchFile(
-            fileURLToPath(new URL("./preview-runtime.tsx", import.meta.url)),
+            fileURLToPath(new URL("./src/apps/runtime/preview-runtime.tsx", import.meta.url)),
           );
           const result = buildSync({
             entryPoints: [
-              fileURLToPath(new URL("./preview-runtime.tsx", import.meta.url)),
+              fileURLToPath(new URL("./src/apps/runtime/preview-runtime.tsx", import.meta.url)),
             ],
             bundle: true,
             write: false,

@@ -14,7 +14,7 @@ try {
   try{await readFile(new URL(`templates/generated/${item.id}.tsx`,root));console.log('EXISTS',item.id);continue;}catch{}
   console.log('GENERATING',item.id);
   const result=await page.evaluate(async({item,kit,context})=>{
-   const {generationClient,generationControl}=await import('/durable-generation.ts');
+   const {generationClient,generationControl}=await import('/src/apps/generation/durable-generation.ts');
    await generationControl('active','');const client=generationClient();
    const {searchUi,checkUiPlan,readUi}=await import('/ui-kit.ts');
    const needs=['persistent records','layout','form fields','loading and errors'];

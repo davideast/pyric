@@ -1,0 +1,816 @@
+{
+  "schema": "pyric.verify.fixture.v1",
+  "description": "A kid submits a post, a parent publishes it, and editing as the kid requires returning it to review.",
+  "createdAt": "2026-09-21T03:36:25.503Z",
+  "events": [
+    {
+      "kind": "request",
+      "id": "req-i-ok6rb",
+      "at": 1789961785343,
+      "evalMs": 0.0021250000000350155,
+      "method": "set",
+      "path": "families/parkers/members/emma",
+      "auth": null,
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "name": "Emma",
+          "role": "parent"
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "name": "Emma",
+          "role": "parent"
+        },
+        "exists": true
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "write",
+      "id": "wr-j-frmrb",
+      "at": 1789961785343,
+      "method": "set",
+      "path": "families/parkers/members/emma",
+      "auth": null,
+      "priorState": null,
+      "nextState": {
+        "name": "Emma",
+        "role": "parent"
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 343000000
+      },
+      "data": {
+        "name": "Emma",
+        "role": "parent"
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-k-jd1s7",
+      "at": 1789961785343,
+      "evalMs": 0.0010839999999916472,
+      "method": "set",
+      "path": "families/parkers/members/sam",
+      "auth": null,
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "name": "Sam",
+          "role": "kid"
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "name": "Sam",
+          "role": "kid"
+        },
+        "exists": true
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "write",
+      "id": "wr-l-4sech",
+      "at": 1789961785343,
+      "method": "set",
+      "path": "families/parkers/members/sam",
+      "auth": null,
+      "priorState": null,
+      "nextState": {
+        "name": "Sam",
+        "role": "kid"
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 343000000
+      },
+      "data": {
+        "name": "Sam",
+        "role": "kid"
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-m-qwcjc",
+      "at": 1789961785343,
+      "evalMs": 0.0007500000000391083,
+      "method": "set",
+      "path": "families/parkers/members/zoe",
+      "auth": null,
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "name": "Zoe",
+          "role": "kid"
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "name": "Zoe",
+          "role": "kid"
+        },
+        "exists": true
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "write",
+      "id": "wr-n-91etp",
+      "at": 1789961785343,
+      "method": "set",
+      "path": "families/parkers/members/zoe",
+      "auth": null,
+      "priorState": null,
+      "nextState": {
+        "name": "Zoe",
+        "role": "kid"
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 343000000
+      },
+      "data": {
+        "name": "Zoe",
+        "role": "kid"
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-o-4wufd",
+      "at": 1789961785343,
+      "evalMs": 0.0007499999999822649,
+      "method": "set",
+      "path": "families/other/members/alex",
+      "auth": null,
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "name": "Alex",
+          "role": "parent"
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "name": "Alex",
+          "role": "parent"
+        },
+        "exists": true
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "write",
+      "id": "wr-p-o1uga",
+      "at": 1789961785343,
+      "method": "set",
+      "path": "families/other/members/alex",
+      "auth": null,
+      "priorState": null,
+      "nextState": {
+        "name": "Alex",
+        "role": "parent"
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 343000000
+      },
+      "data": {
+        "name": "Alex",
+        "role": "parent"
+      },
+      "detail": {
+        "admin": true
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-q-fas58",
+      "at": 1789961785343,
+      "evalMs": 31.50012499999997,
+      "method": "set",
+      "path": "families/parkers/posts/picnic",
+      "auth": {
+        "uid": "sam"
+      },
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "authorId": "sam",
+          "title": "Our picnic",
+          "body": "Bring a blanket.",
+          "kind": "article",
+          "status": "pending",
+          "audience": [
+            "family"
+          ],
+          "createdAt": 1,
+          "mediaPath": "",
+          "cover": "",
+          "url": "",
+          "eventAt": "",
+          "location": ""
+        }
+      },
+      "resourceBefore": {
+        "data": null,
+        "exists": false
+      },
+      "resourceAfter": {
+        "data": {
+          "authorId": "sam",
+          "title": "Our picnic",
+          "body": "Bring a blanket.",
+          "kind": "article",
+          "status": "pending",
+          "audience": [
+            "family"
+          ],
+          "createdAt": 1,
+          "mediaPath": "",
+          "cover": "",
+          "url": "",
+          "eventAt": "",
+          "location": ""
+        },
+        "exists": true
+      },
+      "matchedRule": {
+        "ruleIndex": 1,
+        "operations": [
+          "create"
+        ]
+      },
+      "service": "firestore",
+      "detail": {
+        "functionMocks": [
+          {
+            "function": "exists",
+            "path": "families/parkers/members/sam",
+            "result": true
+          },
+          {
+            "function": "get",
+            "path": "families/parkers/members/sam",
+            "result": {
+              "name": "Sam",
+              "role": "kid"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "write",
+      "id": "wr-r-1rjpw",
+      "at": 1789961785375,
+      "method": "set",
+      "path": "families/parkers/posts/picnic",
+      "auth": {
+        "uid": "sam"
+      },
+      "priorState": null,
+      "nextState": {
+        "authorId": "sam",
+        "title": "Our picnic",
+        "body": "Bring a blanket.",
+        "kind": "article",
+        "status": "pending",
+        "audience": [
+          "family"
+        ],
+        "createdAt": 1,
+        "mediaPath": "",
+        "cover": "",
+        "url": "",
+        "eventAt": "",
+        "location": ""
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 343000000
+      },
+      "data": {
+        "authorId": "sam",
+        "title": "Our picnic",
+        "body": "Bring a blanket.",
+        "kind": "article",
+        "status": "pending",
+        "audience": [
+          "family"
+        ],
+        "createdAt": 1,
+        "mediaPath": "",
+        "cover": "",
+        "url": "",
+        "eventAt": "",
+        "location": ""
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-s-187bh",
+      "at": 1789961785375,
+      "evalMs": 32.47287499999999,
+      "method": "update",
+      "path": "families/parkers/posts/picnic",
+      "auth": {
+        "uid": "sam"
+      },
+      "result": "deny",
+      "reasons": [
+        "Expected deny"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "status": "published"
+        }
+      },
+      "resourceBefore": {
+        "data": {
+          "authorId": "sam",
+          "title": "Our picnic",
+          "body": "Bring a blanket.",
+          "kind": "article",
+          "status": "pending",
+          "audience": [
+            "family"
+          ],
+          "createdAt": 1,
+          "mediaPath": "",
+          "cover": "",
+          "url": "",
+          "eventAt": "",
+          "location": ""
+        },
+        "exists": true
+      },
+      "matchedRule": {
+        "ruleIndex": 2,
+        "operations": [
+          "update"
+        ]
+      },
+      "service": "firestore",
+      "detail": {
+        "functionMocks": [
+          {
+            "function": "exists",
+            "path": "families/parkers/members/sam",
+            "result": true
+          },
+          {
+            "function": "get",
+            "path": "families/parkers/members/sam",
+            "result": {
+              "name": "Sam",
+              "role": "kid"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "request",
+      "id": "req-t-uv89j",
+      "at": 1789961785408,
+      "evalMs": 29.254917000000034,
+      "method": "update",
+      "path": "families/parkers/posts/picnic",
+      "auth": {
+        "uid": "emma"
+      },
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "status": "published"
+        }
+      },
+      "resourceBefore": {
+        "data": {
+          "authorId": "sam",
+          "title": "Our picnic",
+          "body": "Bring a blanket.",
+          "kind": "article",
+          "status": "pending",
+          "audience": [
+            "family"
+          ],
+          "createdAt": 1,
+          "mediaPath": "",
+          "cover": "",
+          "url": "",
+          "eventAt": "",
+          "location": ""
+        },
+        "exists": true
+      },
+      "resourceAfter": {
+        "data": {
+          "authorId": "sam",
+          "title": "Our picnic",
+          "body": "Bring a blanket.",
+          "kind": "article",
+          "status": "published",
+          "audience": [
+            "family"
+          ],
+          "createdAt": 1,
+          "mediaPath": "",
+          "cover": "",
+          "url": "",
+          "eventAt": "",
+          "location": ""
+        },
+        "exists": true
+      },
+      "matchedRule": {
+        "ruleIndex": 2,
+        "operations": [
+          "update"
+        ]
+      },
+      "service": "firestore",
+      "detail": {
+        "functionMocks": [
+          {
+            "function": "exists",
+            "path": "families/parkers/members/emma",
+            "result": true
+          },
+          {
+            "function": "get",
+            "path": "families/parkers/members/emma",
+            "result": {
+              "name": "Emma",
+              "role": "parent"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "write",
+      "id": "wr-u-8jtci",
+      "at": 1789961785437,
+      "method": "update",
+      "path": "families/parkers/posts/picnic",
+      "auth": {
+        "uid": "emma"
+      },
+      "priorState": {
+        "authorId": "sam",
+        "title": "Our picnic",
+        "body": "Bring a blanket.",
+        "kind": "article",
+        "status": "pending",
+        "audience": [
+          "family"
+        ],
+        "createdAt": 1,
+        "mediaPath": "",
+        "cover": "",
+        "url": "",
+        "eventAt": "",
+        "location": ""
+      },
+      "nextState": {
+        "authorId": "sam",
+        "title": "Our picnic",
+        "body": "Bring a blanket.",
+        "kind": "article",
+        "status": "published",
+        "audience": [
+          "family"
+        ],
+        "createdAt": 1,
+        "mediaPath": "",
+        "cover": "",
+        "url": "",
+        "eventAt": "",
+        "location": ""
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 408000000
+      },
+      "data": {
+        "status": "published"
+      },
+      "service": "firestore"
+    },
+    {
+      "kind": "request",
+      "id": "req-v-pbciy",
+      "at": 1789961785437,
+      "evalMs": 29.960417000000007,
+      "method": "update",
+      "path": "families/parkers/posts/picnic",
+      "auth": {
+        "uid": "sam"
+      },
+      "result": "deny",
+      "reasons": [
+        "Expected deny"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "body": "New plan."
+        }
+      },
+      "resourceBefore": {
+        "data": {
+          "authorId": "sam",
+          "title": "Our picnic",
+          "body": "Bring a blanket.",
+          "kind": "article",
+          "status": "published",
+          "audience": [
+            "family"
+          ],
+          "createdAt": 1,
+          "mediaPath": "",
+          "cover": "",
+          "url": "",
+          "eventAt": "",
+          "location": ""
+        },
+        "exists": true
+      },
+      "matchedRule": {
+        "ruleIndex": 2,
+        "operations": [
+          "update"
+        ]
+      },
+      "service": "firestore",
+      "detail": {
+        "functionMocks": [
+          {
+            "function": "exists",
+            "path": "families/parkers/members/sam",
+            "result": true
+          },
+          {
+            "function": "get",
+            "path": "families/parkers/members/sam",
+            "result": {
+              "name": "Sam",
+              "role": "kid"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "request",
+      "id": "req-w-mbl2k",
+      "at": 1789961785468,
+      "evalMs": 35.639542000000006,
+      "method": "update",
+      "path": "families/parkers/posts/picnic",
+      "auth": {
+        "uid": "sam"
+      },
+      "result": "allow",
+      "reasons": [
+        "Expected allow"
+      ],
+      "origin": "user",
+      "request": {
+        "resourceData": {
+          "body": "New plan.",
+          "status": "pending"
+        }
+      },
+      "resourceBefore": {
+        "data": {
+          "authorId": "sam",
+          "title": "Our picnic",
+          "body": "Bring a blanket.",
+          "kind": "article",
+          "status": "published",
+          "audience": [
+            "family"
+          ],
+          "createdAt": 1,
+          "mediaPath": "",
+          "cover": "",
+          "url": "",
+          "eventAt": "",
+          "location": ""
+        },
+        "exists": true
+      },
+      "resourceAfter": {
+        "data": {
+          "authorId": "sam",
+          "title": "Our picnic",
+          "body": "New plan.",
+          "kind": "article",
+          "status": "pending",
+          "audience": [
+            "family"
+          ],
+          "createdAt": 1,
+          "mediaPath": "",
+          "cover": "",
+          "url": "",
+          "eventAt": "",
+          "location": ""
+        },
+        "exists": true
+      },
+      "matchedRule": {
+        "ruleIndex": 2,
+        "operations": [
+          "update"
+        ]
+      },
+      "service": "firestore",
+      "detail": {
+        "functionMocks": [
+          {
+            "function": "exists",
+            "path": "families/parkers/members/sam",
+            "result": true
+          },
+          {
+            "function": "get",
+            "path": "families/parkers/members/sam",
+            "result": {
+              "name": "Sam",
+              "role": "kid"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "kind": "write",
+      "id": "wr-x-x4ock",
+      "at": 1789961785503,
+      "method": "update",
+      "path": "families/parkers/posts/picnic",
+      "auth": {
+        "uid": "sam"
+      },
+      "priorState": {
+        "authorId": "sam",
+        "title": "Our picnic",
+        "body": "Bring a blanket.",
+        "kind": "article",
+        "status": "published",
+        "audience": [
+          "family"
+        ],
+        "createdAt": 1,
+        "mediaPath": "",
+        "cover": "",
+        "url": "",
+        "eventAt": "",
+        "location": ""
+      },
+      "nextState": {
+        "authorId": "sam",
+        "title": "Our picnic",
+        "body": "New plan.",
+        "kind": "article",
+        "status": "pending",
+        "audience": [
+          "family"
+        ],
+        "createdAt": 1,
+        "mediaPath": "",
+        "cover": "",
+        "url": "",
+        "eventAt": "",
+        "location": ""
+      },
+      "requestTime": {
+        "seconds": 1789961785,
+        "nanoseconds": 468000000
+      },
+      "data": {
+        "body": "New plan.",
+        "status": "pending"
+      },
+      "service": "firestore"
+    }
+  ],
+  "services": {
+    "firestore": {
+      "rules": {
+        "format": "firestore.rules",
+        "source": "rules_version = '2';\nservice cloud.firestore {\n match /databases/{database}/documents {\n  function member(family) { return request.auth != null && exists(/databases/$(database)/documents/families/$(family)/members/$(request.auth.uid)); }\n  function parent(family) { return member(family) && get(/databases/$(database)/documents/families/$(family)/members/$(request.auth.uid)).data.role == 'parent'; }\n  function visible(family, post) { return member(family) && (parent(family) || post.authorId == request.auth.uid || (post.status == 'published' && ('family' in post.audience || request.auth.uid in post.audience))); }\n  function postVisible(family, id) { return visible(family, get(/databases/$(database)/documents/families/$(family)/posts/$(id)).data); }\n  function validPost(data) {\n    return data.keys().hasOnly(['authorId','title','body','kind','status','audience','createdAt','mediaPath','cover','url','eventAt','location'])\n      && data.authorId is string && data.title is string && data.title.size() > 0 && data.title.size() <= 140\n      && data.body is string && data.body.size() <= 12000\n      && data.kind in ['image','video','article','event'] && data.status in ['pending','published','rejected']\n      && data.audience is list && data.audience.size() > 0 && data.audience.size() <= 20\n      && data.createdAt is number && data.mediaPath is string && data.cover is string && data.url is string && data.eventAt is string && data.location is string;\n  }\n  match /families/{family} {\n    allow read: if member(family);\n    allow write: if parent(family);\n    match /members/{uid} {\n      allow read: if member(family);\n      allow create, delete: if parent(family);\n      allow update: if parent(family) || (member(family) && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']));\n    }\n    match /posts/{id} {\n      allow read: if member(family) && (parent(family) || resource.data.authorId == request.auth.uid || (resource.data.status == 'published' && ('family' in resource.data.audience || request.auth.uid in resource.data.audience)));\n      allow create: if member(family) && validPost(request.resource.data) && request.resource.data.authorId == request.auth.uid\n        && (parent(family) || (request.resource.data.status == 'pending' && request.resource.data.audience == ['family']));\n      allow update: if member(family) && validPost(request.resource.data)\n        && request.resource.data.authorId == resource.data.authorId && request.resource.data.createdAt == resource.data.createdAt\n        && (parent(family) || (resource.data.authorId == request.auth.uid && request.resource.data.status == 'pending' && request.resource.data.audience == resource.data.audience));\n      allow delete: if parent(family) || (member(family) && resource.data.authorId == request.auth.uid);\n      match /comments/{comment} {\n        allow read: if postVisible(family, id);\n        allow create: if postVisible(family, id) && request.resource.data.keys().hasOnly(['authorId','text','createdAt'])\n          && request.resource.data.authorId == request.auth.uid && request.resource.data.text is string\n          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000 && request.resource.data.createdAt is number;\n        allow update: if postVisible(family, id) && (parent(family) || resource.data.authorId == request.auth.uid)\n          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) && request.resource.data.text is string\n          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000;\n        allow delete: if postVisible(family, id) && (parent(family) || resource.data.authorId == request.auth.uid);\n      }\n      match /views/{uid} {\n        allow get: if parent(family) || (member(family) && request.auth.uid == uid && postVisible(family, id));\n        allow list: if parent(family);\n        allow create, update: if member(family) && !parent(family) && request.auth.uid == uid && postVisible(family, id)\n          && get(/databases/$(database)/documents/families/$(family)/posts/$(id)).data.status == 'published'\n          && request.resource.data.keys().hasOnly(['viewedAt']) && request.resource.data.viewedAt == request.time;\n        allow delete: if false;\n      }\n    }\n    match /uiKits/{kitId}/entries/{entryId} {\n      allow read: if parent(family);\n      // Immutable, versioned examples. Future revisions use a new kit ID.\n      allow create: if parent(family) && request.resource.data.id == entryId\n        && request.resource.data.version is int && request.resource.data.version > 0\n        && request.resource.data.source is string && request.resource.data.source.size() <= 20000;\n      allow update, delete: if false;\n    }\n    match /appTemplates/{templateId} {\n      allow read: if member(family);\n      allow create: if parent(family)\n        && request.resource.data.keys().hasOnly(['title','description','tone','prompt','source','version'])\n        && request.resource.data.title is string && request.resource.data.title.size() <= 100\n        && request.resource.data.description is string && request.resource.data.description.size() <= 300\n        && request.resource.data.tone in ['practical','fun']\n        && request.resource.data.prompt is string && request.resource.data.prompt.size() <= 3000\n        && request.resource.data.source is string && request.resource.data.source.size() <= 60000\n        && request.resource.data.version is int && request.resource.data.version >= 1;\n      allow update, delete: if false;\n    }\n    match /apps/{appId} {\n      allow get: if parent(family) && !exists(/databases/$(database)/documents/families/$(family)/apps/$(appId));\n      function appOwner() { return parent(family) && get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.ownerId == request.auth.uid; }\n      function appLive() { let a = get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data; return !('deletedAt' in a) || a.deletedAt == null; }\n      match /versions/{versionId} {\n        allow read: if appOwner();\n        allow create: if appOwner() && appLive() && request.resource.data.number is int && request.resource.data.number > 0;\n        allow update: if false;\n        allow delete: if appOwner() && get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.deletedAt != null;\n        match /artifacts/{artifactId} {\n          allow read: if appOwner();\n          allow create: if appOwner() && appLive();\n          allow update: if false;\n          allow delete: if appOwner() && get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.deletedAt != null;\n        }\n      }\n      match /builds/{buildId} {\n        match /checkpoints/{checkpointId} {\n          allow read, delete: if appOwner();\n          allow create: if appOwner() && appLive();\n          allow update: if false;\n          match /artifacts/{artifactId} {\n            allow read, delete: if appOwner();\n            allow create: if appOwner() && appLive();\n            allow update: if false;\n          }\n        }\n        allow read, delete: if appOwner();\n        allow create, update: if appOwner() && appLive();\n        match /events/{eventId} { allow read, delete: if appOwner();\n        allow create, update: if appOwner() && appLive(); }\n      }\n      match /drafts/{draftId} {\n        allow read: if parent(family) && (!exists(/databases/$(database)/documents/families/$(family)/apps/$(appId)) || get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.ownerId == request.auth.uid);\n        allow write: if parent(family) && getAfter(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.ownerId == request.auth.uid;\n      }\n      allow read: if member(family) && (resource.data.ownerId == request.auth.uid || (resource.data.published == true && request.auth.uid in resource.data.audience));\n      allow create: if parent(family) && request.resource.data.ownerId == request.auth.uid\n        && request.resource.data.keys().hasOnly(['ownerId','title','prompt','source','context','audience','createdAt','published','activeVersionId','deletedAt','policy','policyRequired'])\n        && request.resource.data.title is string && request.resource.data.title.size() <= 100\n        && request.resource.data.source is string && request.resource.data.source.size() <= 60000\n        && request.resource.data.context is string && request.resource.data.context.size() <= 100000\n        && request.resource.data.prompt is string && request.resource.data.prompt.size() <= 3000\n        && request.resource.data.audience is list && request.resource.data.audience.size() <= 20\n        && request.resource.data.createdAt is number && request.resource.data.published == false;\n      allow update: if parent(family) && resource.data.ownerId == request.auth.uid\n        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['published','source','title','prompt','context','audience','activeVersionId','deletedAt','versionCount','updatedAt','policy','policyRequired'])\n        && request.resource.data.published is bool\n        && (!('deletedAt' in request.resource.data) || request.resource.data.deletedAt == null || request.resource.data.published == false)\n        && (request.resource.data.audience == resource.data.audience || request.resource.data.published == false)\n        && request.resource.data.source is string && request.resource.data.source.size() <= 60000;\n      allow delete: if parent(family) && resource.data.ownerId == request.auth.uid;\n      match /records/{recordId} {\n        allow read, write: if member(family);\n      }\n    }\n    match /chat/{id} {\n      allow read: if member(family);\n      allow create: if member(family) && request.resource.data.keys().hasOnly(['authorId','text','createdAt','mediaPath','mediaType'])\n        && request.resource.data.authorId == request.auth.uid && request.resource.data.text is string && request.resource.data.text.size() <= 2000\n        && request.resource.data.createdAt is number && request.resource.data.mediaPath is string\n        && request.resource.data.mediaType in ['','image','video','audio']\n        && (request.resource.data.text.size() > 0 || request.resource.data.mediaPath.size() > 0);\n      allow update: if member(family) && (parent(family) || resource.data.authorId == request.auth.uid)\n        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) && request.resource.data.text is string && request.resource.data.text.size() <= 2000;\n      allow delete: if parent(family) || (member(family) && resource.data.authorId == request.auth.uid);\n    }\n  }\n }\n}\n"
+      },
+      "state": {
+        "documents": {
+          "families/parkers/members/emma": {
+            "name": "Emma",
+            "role": "parent"
+          },
+          "families/parkers/members/sam": {
+            "name": "Sam",
+            "role": "kid"
+          },
+          "families/parkers/members/zoe": {
+            "name": "Zoe",
+            "role": "kid"
+          },
+          "families/other/members/alex": {
+            "name": "Alex",
+            "role": "parent"
+          },
+          "families/parkers/posts/picnic": {
+            "authorId": "sam",
+            "title": "Our picnic",
+            "body": "New plan.",
+            "kind": "article",
+            "status": "pending",
+            "audience": [
+              "family"
+            ],
+            "createdAt": 1,
+            "mediaPath": "",
+            "cover": "",
+            "url": "",
+            "eventAt": "",
+            "location": ""
+          }
+        }
+      }
+    }
+  }
+}
