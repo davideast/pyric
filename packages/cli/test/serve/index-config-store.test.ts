@@ -54,3 +54,44 @@ test('accepts a project directory from a directory URL with a trailing slash', (
   await store.apply(query, preview.revision);
   expect((await store.preview(query)).finding.status).toBe('covered');
 }));
+
+test('resolves RTDB indexes and returns unconfigured for firestore when firebase.json only configures database', () => fixture(async root => {
+  await writeFile(join(root, 'firebase.json'), JSON.stringify({ database: { rules: 'database.rules.json' } }));
+  await writeFile(join(root, 'database.rules.json'), JSON.stringify({ rules: { projects: { '.indexOn': 'budget' } } }));
+  const store = createIndexConfigStore(root);
+  const defaultRead = await store.read();
+  expect(defaultRead.status).toBe('configured');
+  expect(defaultRead.service).toBe('rtdb');
+  expect(defaultRead.path).toBe('database.rules.json');
+
+  const firestoreRead = await store.read('firestore');
+  expect(firestoreRead.status).toBe('unconfigured');
+  expect(firestoreRead.service).toBe('firestore');
+  expect(firestoreRead.path).toBeNull();
+  expect(firestoreRead.config).toBeNull();
+
+  const rtdbRead = await store.read('rtdb');
+  expect(rtdbRead.status).toBe('configured');
+  expect(rtdbRead.service).toBe('rtdb');
+  expect(rtdbRead.path).toBe('database.rules.json');
+
+  await expect(store.preview(query)).rejects.toThrow('Set firestore.indexes in firebase.json');
+}));
+
+test('returns unconfigured without throwing when firebase.json lacks index configuration or is missing', () => fixture(async root => {
+  await writeFile(join(root, 'firebase.json'), JSON.stringify({ storage: { rules: 'storage.rules' } }));
+  const store = createIndexConfigStore(root);
+  const firestoreRead = await store.read('firestore');
+  expect(firestoreRead.status).toBe('unconfigured');
+  expect(firestoreRead.path).toBeNull();
+
+  const rtdbRead = await store.read('rtdb');
+  expect(rtdbRead.status).toBe('unconfigured');
+  expect(rtdbRead.path).toBeNull();
+
+  await rm(join(root, 'firebase.json'));
+  const missingRead = await store.read();
+  expect(missingRead.status).toBe('unconfigured');
+  await expect(store.preview(query)).rejects.toThrow('Set firestore.indexes in firebase.json');
+}));
+

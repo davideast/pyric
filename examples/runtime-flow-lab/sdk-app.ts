@@ -49,7 +49,7 @@ if (kind === 'worker') {
   const projects = { ref: database.rtdbRef(database.rtdbGetDatabase(db), 'projects'), _spec: { orderBy: { kind: 'child' as const, path: 'budget' }, bounds: [], limit: null } };
   const prepareDatabaseProjects = async () => {
     const config = await localIndexes.read('rtdb');
-    await rulesClient.setDatabaseRules(db, config.config);
+    if (config) await rulesClient.setDatabaseRules(db, config.config);
     await writes.rtdbSet(projects.ref, { small: { budget: 10 }, large: { budget: 40 } });
   };
   readDatabaseProjects = async () => { await prepareDatabaseProjects(); return (await reads.rtdbGet(projects)).val(); };
@@ -83,7 +83,7 @@ if (kind === 'worker') {
   const projects = database.query(database.ref(rtdb, 'projects'), database.orderByChild('budget'));
   const prepareDatabaseProjects = async () => {
     const config = await localIndexes.read('rtdb');
-    if (!('rules' in config.config)) throw new Error('Database rules are unavailable.');
+    if (!config || !('rules' in config.config)) throw new Error('Database rules are unavailable.');
     database.sandbox.setRules(rtdb, config.config);
     database.sandbox.setData(rtdb, { projects: { small: { budget: 10 }, large: { budget: 40 } } });
   };

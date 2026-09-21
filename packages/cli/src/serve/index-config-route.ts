@@ -19,7 +19,13 @@ export async function handleIndexConfig(store: IndexConfigStore, req: IncomingMe
   res.setHeader('Content-Type', 'application/json');
   res.setHeader('Cache-Control', 'no-store');
   try {
-    if (req.method === 'GET') { res.end(JSON.stringify(await store.read(new URL(req.url ?? '/', 'http://localhost').searchParams.get('service') === 'rtdb' ? 'rtdb' : 'firestore'))); return true; }
+    if (req.method === 'GET') {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      const serviceParam = url.searchParams.get('service');
+      const service = serviceParam === 'rtdb' ? 'rtdb' : serviceParam === 'firestore' ? 'firestore' : undefined;
+      res.end(JSON.stringify(await store.read(service)));
+      return true;
+    }
     if (req.method !== 'POST' && req.method !== 'PUT') { res.statusCode = 405; res.end(JSON.stringify({ error: 'Method not allowed' })); return true; }
     if (!req.headers['content-type']?.startsWith('application/json')) throw new Error('Send a JSON index request.');
     const input = z.object({ query: querySchema, revision: z.string().length(64).optional() }).parse(await collectBody(req, 64 * 1024));
