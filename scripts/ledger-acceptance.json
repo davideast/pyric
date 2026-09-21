@@ -1,7 +1,7 @@
 {
   "I19": {
     "phase": 2,
-    "tests": ["packages/cli/test/e2e/vite-optimizer-compatibility.pw.ts"],
+    "tests": ["packages/cli/test/e2e/vite-optimizer-compatibility.pw.ts", "packages/cli/test/e2e/vite-peer-install.pw.ts"],
     "playwright": true,
     "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
   },
