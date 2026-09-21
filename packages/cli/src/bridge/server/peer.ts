@@ -14,6 +14,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { FirebaseError } from 'pyric/app';
+import { serializeError } from '../../serve/worker/protocol.js';
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
 import { createBridge, type Bridge } from './bridge.js';
@@ -341,13 +342,31 @@ export function createConsumerSession(
         if (usesLegacyRelay) return;
         const deletesApp = msg.message.t === 'disconnect';
         if (deletesApp) workerSession?.retire();
-        bridge.forwardWorkerMessage(msg.message, clientSessionId);
+        try {
+          bridge.forwardWorkerMessage(msg.message, clientSessionId);
+        } catch (cause) {
+          const error = serializeError(cause);
+          const request = msg.message;
+          const isSubscription = request.t === 'sub';
+          const hasRequestId = 'id' in request;
+          if (isSubscription) {
+            send({
+              type: 'worker-message-result', clientSessionId,
+              message: { t: 'snap', subId: request.subId, value: { __error: error } },
+            });
+          } else if (hasRequestId) {
+            send({
+              type: 'worker-message-result', clientSessionId,
+              message: { t: 'res', id: request.id, ok: false, error },
+            });
+          }
+        }
         return;
       }
       case 'worker-sub': {
         const isAlreadySubscribed = subs.has(msg.subId);
         if (isAlreadySubscribed) return;
-        const subSessionId = msg.clientSessionId ?? clientSessionId;
+        const subSessionId = clientSessionId;
         const subPayload = {
           ...msg.sub,
           resumeSession: true,

@@ -150,18 +150,19 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C1. Resume after host restart drops RTDB, presence, and event-stream subscriptions
 
-- Severity: should-fix. Slice: `host`. Status: open.
+- Severity: should-fix. Slice: `host`. Status: closed at f2eb1830 (verified 2026-09-20). After a reconnect the client reissues every live observation it owns (Firestore, RTDB, presence, and the event stream) and does not replay operations or AI requests. Acceptance is a Chromium page against a real Node host that is killed and restarted on its port. Reviewer probe: with restoration reduced to Firestore only, the RTDB and presence cases fail.
 - Location: `packages/cli/src/serve/worker/client/websocket-connection.ts:224`; `restoreFirestoreSubscriptions` filters on `service === 'firestore'`; `client/rtdb-listeners.ts` subscriptions carry no service tag.
 - Failure: host restart or retention expiry. Pending calls are rejected, but `onValue` listeners silently stop delivering with no error callback.
 - Seam: application SDK over the hosted transport.
 - Acceptance: browser scenario in `packages/cli/test/e2e/hosted` where an `onValue` listener receives an update after a host restart. Same for presence and the event stream.
 
-### C2. Consumer isolation is half fixed
+### C2. A consumer can subscribe under another consumer's session
 
-- Severity: should-fix. Slice: `transport`. Status: open.
-- Location: `packages/cli/src/bridge/server/peer.ts:350` (`worker-sub` honors `msg.clientSessionId`), `peer.ts:300` (`remote-set-lens` applies `frame.clientSessionId` unchecked). `worker-op` at line 315 is already pinned to the attached identity.
-- Failure: consumer A sends a subscription naming consumer B's session and receives B-scoped snapshots. Any consumer can rewrite another consumer's lens, and the registry pushes the change to the victim.
-- Acceptance: bridge consumer tests asserting both frames are refused or rewritten to the attached identity.
+- Severity: should-fix. Slice: `transport`. Status: closed at 9a34796f (verified 2026-09-20). Subscriptions are pinned to the attached identity. Reviewer probe: with the caller-supplied session honored again, the forged-session acceptance fails.
+- Location: `packages/cli/src/bridge/server/peer.ts` (`worker-sub` honors `msg.clientSessionId`). `worker-op` is already pinned to the attached identity.
+- Failure: consumer A sends a subscription naming consumer B's session and receives B-scoped snapshots.
+- Acceptance: bridge consumer test asserting a subscription naming another consumer's session is refused or rewritten to the attached identity, and cannot read the other consumer's rules-protected document.
+- Declined 2026-09-20: remote-set-lens targeting another consumer is the Studio remote-control feature, present on main; consumers share one trust level. A consumer privilege model for the bridge is a separate design question outside this release.
 
 ### C3. Live capture grows without bound and re-posts everything
 
@@ -172,7 +173,7 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C4. Subscription error close ignores the logical session
 
-- Severity: should-fix. Slice: `transport`. Status: open.
+- Severity: should-fix. Slice: `transport`. Status: closed at 26d446d6 (verified 2026-09-20). An errored relayed subscription is closed under its logical session; the acceptance inspects host output, so a leaked host listener cannot hide behind a dropped client callback. Reviewer probe: without the session argument the acceptance fails.
 - Location: `packages/cli/src/serve/worker/client/core.ts:353`; host side `host/subscriptions.ts:273`.
 - Defect: on a `snap` error the client closes the subscription without its `clientSessionId`. For bridge-relayed subscriptions the `unsub` reaches the worker on the physical port, finds nothing, and the remote port's listener and retained intent stay alive until the remote disconnects. A later auth transition re-registers it.
 - Acceptance: test that a relayed subscription which errors is fully removed from the host.
@@ -193,17 +194,18 @@ Stale pinned lists. Each is a one-line fix but must be verified by run.
 
 ### C7. Unwrapped throw in the worker-message path
 
-- Severity: should-fix, low. Slice: `transport`. Status: open.
+- Severity: should-fix, low. Slice: `transport`. Status: closed at 6afbdda2 (verified 2026-09-20). A synchronous forwarding failure becomes a failed result or an error snapshot addressed to the request, under the attached consumer's session. Nine cases: three request types against peer disappearance, replacement without worker-port support, and a throwing transport. Reviewer probe: with the catch rethrowing, all nine fail.
 - Location: `packages/cli/src/bridge/server/bridge.ts:776`, `peer.ts:344`.
 - Defect: `forwardWorkerMessage` throws when the peer is null or lacks a worker port, and the socket message listener does not catch it. Under `pyric serve` the process guard logs it; under other mounts it is uncaught. The client's request is stranded until its own timeout.
 - Acceptance: the client receives a refusal response; test with a consumer attaching during a host restart.
 
 ### C8. One malformed peer reply fails every pending call
 
-- Severity: nit. Slice: `transport`. Status: open.
+- Severity: nit. Slice: `transport`. Status: closed at 9c5bf75e (verified 2026-09-20). Decision: a reply or snapshot without a usable id is discarded alone, with one payload-free diagnostic through the bridge logger; every other pending call and subscription is untouched and the affected call meets its existing deadline. Reviewer probes: restoring the global failure breaks five of seven cases; silencing the diagnostic breaks the case that asserts it.
 - Location: `packages/cli/src/bridge/server/bridge.ts:612`.
 - Defect: a `tool-result` or `worker-res` frame with a non-string id calls `failAllPending` across all consumers.
-- Acceptance: decide whether global failure is intended. If it is, document it as a peer-integrity rule. If not, refuse the frame alone.
+- Decision 2026-09-20: discard only uncorrelatable operation, tool and subscription replies. Emit one payload-free bridge diagnostic for each discarded frame. Keep valid-id malformed results scoped to their owner, existing call deadlines, and peer disconnect/replacement behavior.
+- Acceptance: simultaneous callers and two live subscriptions remain unaffected by a reply with an unusable id; each discarded frame emits one diagnostic. An unanswered call retains its existing deadline, with no automatic write replay. Pin this rule in the hosted persistence contract.
 
 ### C9. Hosted runtime disposes before draining in-flight work
 
@@ -249,10 +251,11 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 ### D3. Observation backpressure closes the socket instead of reporting drops
 
-- Slice: `transport`. Status: open.
-- Contract: per-consumer queue of 1,000 events or 16 MiB, report the dropped sequence range, keep operation and control traffic independent.
-- State: `packages/cli/src/bridge/server/socket-message.ts:25` hard-codes a 24 MiB backlog and closes with 1013. The contract text notes this is unresolved.
-- Acceptance: implement the per-consumer queue with drop reporting, or amend the contract table and every doc that cites it.
+- Slice: `transport`. Status: closed by contract amendment (2026-09-20); shared socket cutoff retained under the release ruling. The independently mapped memory budget remains open as I16. Verified 2026-09-20 by the reviewer at 9228d3cf: the policy test passes; every assertion of the original scenario survives the split with its threshold unchanged.
+- Decision 2026-09-20: retain the existing shared 24 MiB socket backlog for this release; defer independent observation queues and drop reporting to D7.
+- Contract: `docs/hosted-persistence-contract.md`, Transport backlog and recovery. All frames share one socket backlog; close with 1013 when the next frame would exceed 24 MiB. A stalled observation consumer interrupts its own operations; sent mutations may have completed. Reconnect restores observations without replaying writes.
+- State: `packages/cli/src/bridge/server/socket-message.ts` implements this cutoff. No product change is required for the amendment.
+- Acceptance: `bun scripts/verify-ledger.ts D3` selects the stalled-observation policy test: 1013 and reason, p95 below 1,000 ms, maximum below 2,000 ms, and a successful write afterward across both cycles. C1 separately proves restored observations. The original memory failures are preserved under I16, with the unchanged threshold and a separate acceptance map entry.
 
 ### D4. Capture flush deadline does not exist
 
@@ -272,6 +275,14 @@ Contract: `docs/hosted-release-plan.md` and `docs/hosted-support.json`; the comb
 
 - Slice: `core`. Status: open. Same fix as A4.
 - Contract bounds history by count and bytes. The implementation adds 30 minutes.
+
+### D7. Per-consumer observation queue with drop reporting
+
+- Severity: nit. Slice: `post-release`. Status: open.
+- Location: bridge output scheduling and consumer lifecycle.
+- Scope: bound pending observations per consumer at 1,000 events or 16 MiB of serialized data. Drop observation batches under pressure and report omitted count and range, preserving ordering around the gap. Keep operation and control scheduling independent; do not replay writes or classify data-subscription results as disposable history. Keep an overall transport safety bound.
+- Wire decision 2026-09-20: reuse the existing `observation_gap` envelope with first and last event ids for the dropped range; do not add a numeric sequence protocol.
+- Acceptance: count and byte boundaries; a stalled observation consumer receives a gap while its operation completes; another consumer remains healthy; drain and disconnect release all queued memory and timers. No cross-consumer queue sharing or write replay. Include a real slow-consumer browser case and lifecycle tests.
 
 ## E. Scope to peel into separate pull requests
 
@@ -453,7 +464,7 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 
 ### C12. Served worker does not re-deploy RTDB rules after a reset
 
-- Severity: should-fix. Slice: `transport`. Status: open. Pre-existing on `main`; surfaced by the A2 verification.
+- Severity: should-fix. Slice: `transport`. Status: closed at 7cedc51b (verified 2026-09-20). Reset re-deploys the active or last-known-good RTDB rules before acknowledging, matching Firestore; the acceptance pins allowed and denied access on both sides of the reset. Reviewer probe: without the re-deploy the acceptance fails. Pre-existing on `main`; surfaced by the A2 verification.
 - Location: `packages/cli/src/serve/worker/host/studio.ts:52`; the RTDB rules source is retained at `ctx.activeRules.database` by `serve-init.ts:103`.
 - Defect: after `resetAll`, the worker re-deploys only the Firestore rules. Its comment assumes RTDB rules survive the reset. On `main` the backend reset already cleared them, and after A2 the session boundary clears them too, so a Studio reset in served mode leaves RTDB under the default deny policy until the rules file next changes.
 - Failure: served app with `database.rules.json` granting reads; Studio reset; every RTDB read is refused until the developer edits the rules file.
@@ -503,6 +514,123 @@ Unless noted, earlier items A1, A2, A4, A5, A6, A7, C1, C2, C3, D1, D2, D3, F1, 
 - Location: `packages/cli/test/serve/fixtures/hosted-sqlite-snapshot.ts:7`.
 - Defect: the fixture joins `process.cwd()` with `packages/cli/dist/cli/snapshot.js`. It passes from the repository root but duplicates `packages/cli` when CI runs `bun test --cwd packages/cli`, causing `ERR_MODULE_NOT_FOUND` before snapshot assertions execute.
 - Acceptance: statically import `../../../src/cli/snapshot.js`, like the persistence import, so `runNodeFixture` resolves the built module through its source-to-dist rewrite. The case passes both from the repository root and under `bun test --cwd packages/cli test/serve/hosted-sqlite.test.ts`. The I15 map selects `offline snapshots`; package-directory invocation is also required.
+
+### I16. The Firestore engine's event log retains every written document without bound
+
+- Severity: blocker for announcing hosted mode (phase 4 exit), not for the flag-gated host pull request. Slice: `core`. Status: closed at acc7401e (verified 2026-09-21; host acceptance promoted at cf8f8909). Reviewer verification: the engine-only probe under `node --expose-gc` holds 14.4 to 14.5 MiB across four cycles where it climbed to 203.2 MiB; the six-cycle collected-heap acceptance passes on a second machine; with pruning removed from the built engine that acceptance fails with 202,380,112 bytes of retained growth, and the seven engine cases fail with pruning removed in source. Eviction is oldest-first in append order, so the omitted events are always a prefix of the log and undo cannot restore across an omitted write. The resident-memory ceiling is tracked separately as I17. Reproduced by the reviewer at 9228d3cf on a second machine, two runs: growth of 282,820,608 then 342,654,976 bytes, and 281,542,656 then 319,455,232 bytes. The second cycle added 38 to 60 MiB there against 108 MiB on the implementing agent's machine, which is consistent with growth that is slowing but does not establish it; the six-cycle diagnostic with forced collection decides.
+- Location: `packages/pyric/src/firestore/sandbox/event-log.ts`. Host acceptance: `packages/cli/test/e2e/hosted/i16-collected-heap.pw.ts`.
+- Defect: the existing scenario exceeds its 201,326,592-byte ceiling. Earlier runs measured 202,080,256 and 215,810,048 bytes after the first cycle. The split test preserves that ceiling and uses soft assertions so both cycles are measured.
+- Evidence: one split memory run on 9c5bf75e with the test split measured 223,821,824 bytes after cycle 0 and 332,480,512 bytes after cycle 1: another 108,658,688 bytes in the second cycle. Growth continues across cycles rather than plateauing after the first. This is a possible leak signal, not evidence sufficient to attribute a leak to a particular allocation. A bounded six-cycle diagnostic with two forced collections after each cycle is authorized to distinguish retained objects, uncollected garbage/allocator effects, and bounded buffers filling toward their caps; no retainer hunt is authorized.
+- Acceptance: `bun scripts/verify-ledger.ts I16-core I16`. After two forced collections per cycle, host heapUsed at cycle 5 minus cycle 1 must be under 16 MiB. The pre-fix diagnostic difference was 202,351,896 bytes. The original resident-memory test and 192 MiB ceiling are preserved unchanged under I17. The engine fix at acc7401e is independently verified; the reviewer must verify the promoted host acceptance before I16 closes.
+
+
+Bounded diagnostic (Node 22.15.0, 2026-09-20, six cycles, 192 replacements of
+256 KiB per cycle): both `gc()` calls and `process.memoryUsage()` execute inside
+the host through its loopback Node inspector. Each stalled consumer closes with
+1013 and the contracted reason; the page writes successfully afterward. Values
+below are bytes after collection, not growth from the baseline.
+
+| Cycle | rss | heapUsed | external | arrayBuffers | Retained history count / bytes |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 0 | 245,956,608 | 119,882,688 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 1 | 301,580,288 | 170,563,704 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 2 | 354,074,624 | 221,189,344 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 3 | 351,764,480 | 271,781,272 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 4 | 407,797,760 | 322,412,040 | 3,669,674 | 94,690 | Not reachable through inspector import |
+| 5 | 436,207,616 | 372,915,600 | 3,669,675 | 94,691 | Not reachable through inspector import |
+
+Before the fix, heap after collection does **not** plateau by cycle 5 (the sixth cycle): it rises
+from 119,882,688 to 372,915,600 bytes, with about 50.6 MB added per later cycle.
+The pre-burst collected baseline was 71,075,504 bytes of heap and 211,959,808 bytes
+RSS. External memory and array buffers remain effectively flat. Thus delayed
+collection/allocator fragmentation alone does not explain the measured heap
+growth; the retaining owner is not identified by this diagnostic.
+
+After the fix at acc7401e, one run of the promoted acceptance (same Node
+22.15.0 fixture and six cycles) produced these collected measurements, in bytes:
+
+| Cycle | rss | heapUsed | external | arrayBuffers |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 224,280,576 | 73,673,944 | 3,669,674 | 94,690 |
+| 1 | 196,870,144 | 73,823,304 | 3,669,674 | 94,690 |
+| 2 | 195,166,208 | 73,964,616 | 3,669,674 | 94,690 |
+| 3 | 195,706,880 | 74,048,832 | 3,669,674 | 94,690 |
+| 4 | 193,282,048 | 74,159,832 | 3,669,674 | 94,690 |
+| 5 | 199,311,360 | 74,209,240 | 3,669,675 | 94,691 |
+
+Collected heap plateaus by cycle 1 for this acceptance: cycle 5 minus cycle 1
+is 385,936 bytes, below the 16,777,216-byte limit, versus 202,351,896 bytes
+before the fix. All six stalled consumers closed with 1013 and the expected
+reason; every healthy follow-up write succeeded. History introspection remains
+unavailable for the previously recorded inspector-import reason. This host run
+passed once (43.7 s); the original uncollected RSS test was not rerun or changed.
+
+Configured history limits remain 10,000 events / 8,388,608 bytes, including a
+live-state reservation of at most half that budget. Measured history count and
+bytes are unavailable: the diagnostic attempted the existing `SandboxImpl.history()`
+API via inspector object discovery, but inspector evaluation refused the module
+import with `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`. No product instrumentation
+was added and no alternate retainer investigation was attempted. The diagnostic
+releases its inspector object group after every sample and closes its browser,
+sockets, and host in `finally`.
+
+Reproduce only when another run is authorized:
+`node node_modules/@playwright/test/cli.js test --config=scripts/diagnostics/i16-memory.config.ts`.
+This originally isolated diagnostic is now promoted to the normal hosted acceptance
+as i16-collected-heap.pw.ts. It does not change the uncollected 192 MiB test,
+which remains independently mapped as I17.
+
+Reviewer isolation probe: a bare built `LocalEnvironment` with materialized
+256 KiB strings and 192 writes per cycle retained 9.4 MiB baseline, then 58.5,
+106.8, 155.0 and 203.2 MiB of collected heap (768 events). Clearing its engine
+`eventLog` reduced heap to 11.0 MiB. The engine event log holds every event's
+data and prior documents without eviction; this predates hosted mode. Bound
+both retained and undone events under one count/byte budget while preserving
+undo/redo within the retained window and exposing omitted count to the events
+tool. Proposed defaults: 10,000 events and 8 MiB, matching observation history
+and bounding repeated large replacements. Reuse the history limit shape and
+byte estimator through a dependency-free sandbox leaf module.
+
+Implementation evidence: the engine log now uses a single 10,000-event / 8 MiB
+serialized-byte budget across visible and undone events, sharing the dependency-free
+limit shape and byte estimator with observation history. Oldest-first eviction
+follows append order even after undo/redo reorders stacks. Undo stops at the retained
+boundary, redo works within it, and the simulator events tool reports omitted count.
+The core acceptance has seven cases, including a separately reproduced undo/redo
+ordering edge case. The original hosted memory acceptance passed in one run without
+changing its 192 MiB ceiling: cycle 0 growth 69,189,632 bytes, cycle 1 growth
+90,046,464 bytes (previously 223,821,824 and 332,480,512). The browser run preceded
+the subsequent undo-stack ordering correction; its workload does not use undo/redo.
+The subsequent six-cycle acceptance promotion is recorded above. Independent
+reviewer verification of that acceptance remains required before closing I16.
+
+Reviewer verification of acc7401e: the isolated engine probe plateaued at 14.4,
+14.4, 14.5 and 14.5 MiB after collection across four cycles, retaining 15 events.
+Removing prune() fails all seven core cases. The unchanged resident-memory test
+is not reproducible across machines; its measurements and baseline requirement
+are now tracked by I17. The collected-heap limit was set by the reviewer before
+running the promoted acceptance, with no product changes.
+
+### I17. The slow-consumer resident-memory ceiling predates persistence and is not reproducible across machines
+
+- Severity: should-fix. Slice: `evidence`. Status: open.
+- Location: `packages/cli/test/e2e/hosted/section-five-slow-client.pw.ts`, resident-growth test; the file and its 192 MiB (201,326,592-byte) ceiling remain unchanged.
+- Defect: uncollected RSS immediately after a 48 MiB write burst varies with garbage collection and allocator behavior across machines. The engine leak is independently verified fixed, but this metric continues to cross the old ceiling without a consistent growth trend.
+- Acceptance: `bun scripts/verify-ledger.ts I17`. Under I6, re-derive the ceiling from a frozen baseline on the CI runner, with collection forced before sampling or a stated tolerance, and pass the test in the phase 4 CI job. The existing test remains independently mapped and may fail until then; I16's collected-heap acceptance does not replace or weaken it.
+
+All recorded resident-growth measurements are bytes:
+
+| Machine | Engine state / run | Cycle 0 | Cycle 1 |
+| --- | --- | ---: | ---: |
+| Codex | Before fix, combined test 1 | 202,080,256 | Not reached |
+| Codex | Before fix, combined test 2 | 215,810,048 | Not reached |
+| Codex | Before fix, split test | 223,821,824 | 332,480,512 |
+| Reviewer | Before fix, run 1 | 282,820,608 | 342,654,976 |
+| Reviewer | Before fix, run 2 | 281,542,656 | 319,455,232 |
+| Codex | After fix | 69,189,632 | 90,046,464 |
+| Reviewer | After fix, run 1 | 242,810,880 | 178,864,128 |
+| Reviewer | After fix, run 2 | 190,119,936 | 223,133,696 |
+| Reviewer | After fix, run 3 | 228,884,480 | 160,940,032 |
 
 ## E. Evidence owed
 

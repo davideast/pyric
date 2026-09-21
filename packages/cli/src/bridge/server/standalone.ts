@@ -100,6 +100,7 @@ export async function startServer(
   if (recordsAudit) auditWriter = opts.auditWriter ?? createAuditWriter(project);
 
   const bridge = createBridge({
+    logger,
     project,
     version: BRIDGE_VERSION,
     onToolEvent: (event: BridgeToolEvent) => {

@@ -127,6 +127,30 @@ describe('worker resetAll op', () => {
     if (!write.ok) expect(write.error.code).toBe('permission-denied');
   });
 
+  it('re-deploys active RTDB rules after reset and keeps ungranted paths denied', async () => {
+    const sandbox = initializeSandbox();
+    const ctx: HostCtx = { db: getFirestore(sandbox), sandbox, instanceId: 'reset-rtdb-rules', subs: new Map() };
+    try {
+      await opOk(ctx, {
+        method: 'setDatabaseRules',
+        source: { rules: { public: { '.read': true }, private: { '.read': false } } },
+      });
+      const before = await op(ctx, { method: 'rtdb.get', path: 'public/value' });
+      expect(before.ok).toBe(true);
+      const deniedBefore = await op(ctx, { method: 'rtdb.get', path: 'private/value' });
+      expect(deniedBefore).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+
+      await opOk(ctx, { method: 'resetAll' });
+
+      const allowed = await op(ctx, { method: 'rtdb.get', path: 'public/value' });
+      expect(allowed.ok).toBe(true);
+      const denied = await op(ctx, { method: 'rtdb.get', path: 'private/value' });
+      expect(denied).toMatchObject({ ok: false, error: { code: 'PERMISSION_DENIED' } });
+    } finally {
+      ctx.sandbox.dispose();
+    }
+  });
+
   it('empties the event history — a post-reset event subscription reads an empty backlog', async () => {
     // "This is a total reset": Studio's Traffic feed sources the worker's
     // `sandbox.history()` as the initial event-sub batch. After resetAll the

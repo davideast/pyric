@@ -180,6 +180,44 @@ describe('remote session isolation across bridge relay (M1)', () => {
     expect(opFrame2).toBeDefined();
   });
 
+  it('pins a subscription with a forged session id to its attached consumer', async () => {
+    const bridge = createBridge({ version: 'test' });
+    const ctx = await makeWorkerCtx();
+    const tab = connectTab(bridge, ctx);
+    authSandbox.seedUsers(getAuth(ctx.sandbox), [
+      { uid: 'alice', email: 'alice@example.com', password: 'password123' },
+      { uid: 'bob', email: 'bob@example.com', password: 'password123' },
+    ]);
+    ctx.sandbox.admin.setDocument('notes/bob', { text: 'Bob private note' });
+    const alice = await connectConsumer(bridge);
+    const bob = await connectConsumer(bridge);
+    try {
+      expect((await alice.op({ method: 'auth.signInEmail', email: 'alice@example.com', password: 'password123' })).ok).toBe(true);
+      expect((await bob.op({ method: 'auth.signInEmail', email: 'bob@example.com', password: 'password123' })).ok).toBe(true);
+      const target = { __ref: 'doc', path: 'notes/bob' } as const;
+      bob.sub('bob-own-note', { target });
+      alice.session.handleMessage({
+        type: 'worker-sub', subId: 'forged-note', clientSessionId: bob.clientSessionId, sub: { target },
+      });
+      await tick(20);
+
+      const forged = alice.snaps.find(snapshot => snapshot.subId === 'forged-note');
+      expect(forged).toMatchObject({
+        clientSessionId: alice.clientSessionId,
+        value: { __error: { code: 'permission-denied' } },
+      });
+      expect(bob.snaps.find(snapshot => snapshot.subId === 'bob-own-note')).toMatchObject({
+        clientSessionId: bob.clientSessionId,
+        value: { exists: true, data: { json: '{"text":"Bob private note"}', valueEncoding: 'pyric/firestore-values/1' } },
+      });
+    } finally {
+      alice.session.dispose();
+      bob.session.dispose();
+      tab.disconnect();
+      ctx.sandbox.dispose();
+    }
+  });
+
   it('supports session resumption with existing clientSessionId', async () => {
     const bridge = createBridge({ version: 'test' });
     const c3 = await connectConsumer(bridge, 'resumed-session-123');

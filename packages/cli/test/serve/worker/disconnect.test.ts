@@ -143,7 +143,7 @@ describe('explicit SharedWorker app-port disconnect', () => {
     const pending = rawRpc(port, { t: 'op', id: 'disconnect-pending', method: 'getVersion' });
     _snapSubs.set('disconnect-snap', { port, next() {} });
     _snapSubs.set('other-snap', { port: otherPort, next() {} });
-    _eventSubs.set('disconnect-event', { port, next() {} });
+    _eventSubs.set('disconnect-event', { port, next() {}, message: { t: 'sub', subId: 'disconnect-event', target: 'events' } });
 
     await disconnectClient(db);
 
