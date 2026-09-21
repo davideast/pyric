@@ -1,0 +1,140 @@
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function member(family) { return request.auth != null && exists(/databases/$(database)/documents/families/$(family)/members/$(request.auth.uid)); }
+  function parent(family) { return member(family) && get(/databases/$(database)/documents/families/$(family)/members/$(request.auth.uid)).data.role == 'parent'; }
+  function visible(family, post) { return member(family) && (parent(family) || post.authorId == request.auth.uid || (post.status == 'published' && ('family' in post.audience || request.auth.uid in post.audience))); }
+  function postVisible(family, id) { return visible(family, get(/databases/$(database)/documents/families/$(family)/posts/$(id)).data); }
+  function validPost(data) {
+    return data.keys().hasOnly(['authorId','title','body','kind','status','audience','createdAt','mediaPath','cover','url','eventAt','location'])
+      && data.authorId is string && data.title is string && data.title.size() > 0 && data.title.size() <= 140
+      && data.body is string && data.body.size() <= 12000
+      && data.kind in ['image','video','article','event'] && data.status in ['pending','published','rejected']
+      && data.audience is list && data.audience.size() > 0 && data.audience.size() <= 20
+      && data.createdAt is number && data.mediaPath is string && data.cover is string && data.url is string && data.eventAt is string && data.location is string;
+  }
+  match /families/{family} {
+    allow read: if member(family);
+    allow write: if parent(family);
+    match /members/{uid} {
+      allow read: if member(family);
+      allow create, delete: if parent(family);
+      allow update: if parent(family) || (member(family) && request.auth.uid == uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']));
+    }
+    match /posts/{id} {
+      allow read: if member(family) && (parent(family) || resource.data.authorId == request.auth.uid || (resource.data.status == 'published' && ('family' in resource.data.audience || request.auth.uid in resource.data.audience)));
+      allow create: if member(family) && validPost(request.resource.data) && request.resource.data.authorId == request.auth.uid
+        && (parent(family) || (request.resource.data.status == 'pending' && request.resource.data.audience == ['family']));
+      allow update: if member(family) && validPost(request.resource.data)
+        && request.resource.data.authorId == resource.data.authorId && request.resource.data.createdAt == resource.data.createdAt
+        && (parent(family) || (resource.data.authorId == request.auth.uid && request.resource.data.status == 'pending' && request.resource.data.audience == resource.data.audience));
+      allow delete: if parent(family) || (member(family) && resource.data.authorId == request.auth.uid);
+      match /comments/{comment} {
+        allow read: if postVisible(family, id);
+        allow create: if postVisible(family, id) && request.resource.data.keys().hasOnly(['authorId','text','createdAt'])
+          && request.resource.data.authorId == request.auth.uid && request.resource.data.text is string
+          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000 && request.resource.data.createdAt is number;
+        allow update: if postVisible(family, id) && (parent(family) || resource.data.authorId == request.auth.uid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) && request.resource.data.text is string
+          && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 2000;
+        allow delete: if postVisible(family, id) && (parent(family) || resource.data.authorId == request.auth.uid);
+      }
+      match /views/{uid} {
+        allow get: if parent(family) || (member(family) && request.auth.uid == uid && postVisible(family, id));
+        allow list: if parent(family);
+        allow create, update: if member(family) && !parent(family) && request.auth.uid == uid && postVisible(family, id)
+          && get(/databases/$(database)/documents/families/$(family)/posts/$(id)).data.status == 'published'
+          && request.resource.data.keys().hasOnly(['viewedAt']) && request.resource.data.viewedAt == request.time;
+        allow delete: if false;
+      }
+    }
+    match /uiKits/{kitId}/entries/{entryId} {
+      allow read: if parent(family);
+      // Immutable, versioned examples. Future revisions use a new kit ID.
+      allow create: if parent(family) && request.resource.data.id == entryId
+        && request.resource.data.version is int && request.resource.data.version > 0
+        && request.resource.data.source is string && request.resource.data.source.size() <= 20000;
+      allow update, delete: if false;
+    }
+    match /appTemplates/{templateId} {
+      allow read: if member(family);
+      allow create: if parent(family)
+        && request.resource.data.keys().hasOnly(['title','description','tone','prompt','source','version'])
+        && request.resource.data.title is string && request.resource.data.title.size() <= 100
+        && request.resource.data.description is string && request.resource.data.description.size() <= 300
+        && request.resource.data.tone in ['practical','fun']
+        && request.resource.data.prompt is string && request.resource.data.prompt.size() <= 3000
+        && request.resource.data.source is string && request.resource.data.source.size() <= 60000
+        && request.resource.data.version is int && request.resource.data.version >= 1;
+      allow update, delete: if false;
+    }
+    match /apps/{appId} {
+      allow get: if parent(family) && !exists(/databases/$(database)/documents/families/$(family)/apps/$(appId));
+      function appOwner() { return parent(family) && get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.ownerId == request.auth.uid; }
+      function appLive() { let a = get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data; return !('deletedAt' in a) || a.deletedAt == null; }
+      match /versions/{versionId} {
+        allow read: if appOwner();
+        allow create: if appOwner() && appLive() && request.resource.data.number is int && request.resource.data.number > 0;
+        allow update: if false;
+        allow delete: if appOwner() && get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.deletedAt != null;
+        match /artifacts/{artifactId} {
+          allow read: if appOwner();
+          allow create: if appOwner() && appLive();
+          allow update: if false;
+          allow delete: if appOwner() && get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.deletedAt != null;
+        }
+      }
+      match /builds/{buildId} {
+        match /checkpoints/{checkpointId} {
+          allow read, delete: if appOwner();
+          allow create: if appOwner() && appLive();
+          allow update: if false;
+          match /artifacts/{artifactId} {
+            allow read, delete: if appOwner();
+            allow create: if appOwner() && appLive();
+            allow update: if false;
+          }
+        }
+        allow read, delete: if appOwner();
+        allow create, update: if appOwner() && appLive();
+        match /events/{eventId} { allow read, delete: if appOwner();
+        allow create, update: if appOwner() && appLive(); }
+      }
+      match /drafts/{draftId} {
+        allow read: if parent(family) && (!exists(/databases/$(database)/documents/families/$(family)/apps/$(appId)) || get(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.ownerId == request.auth.uid);
+        allow write: if parent(family) && getAfter(/databases/$(database)/documents/families/$(family)/apps/$(appId)).data.ownerId == request.auth.uid;
+      }
+      allow read: if member(family) && (resource.data.ownerId == request.auth.uid || (resource.data.published == true && request.auth.uid in resource.data.audience));
+      allow create: if parent(family) && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.keys().hasOnly(['ownerId','title','prompt','source','context','audience','createdAt','published','activeVersionId','deletedAt','policy','policyRequired'])
+        && request.resource.data.title is string && request.resource.data.title.size() <= 100
+        && request.resource.data.source is string && request.resource.data.source.size() <= 60000
+        && request.resource.data.context is string && request.resource.data.context.size() <= 100000
+        && request.resource.data.prompt is string && request.resource.data.prompt.size() <= 3000
+        && request.resource.data.audience is list && request.resource.data.audience.size() <= 20
+        && request.resource.data.createdAt is number && request.resource.data.published == false;
+      allow update: if parent(family) && resource.data.ownerId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['published','source','title','prompt','context','audience','activeVersionId','deletedAt','versionCount','updatedAt','policy','policyRequired'])
+        && request.resource.data.published is bool
+        && (!('deletedAt' in request.resource.data) || request.resource.data.deletedAt == null || request.resource.data.published == false)
+        && (request.resource.data.audience == resource.data.audience || request.resource.data.published == false)
+        && request.resource.data.source is string && request.resource.data.source.size() <= 60000;
+      allow delete: if parent(family) && resource.data.ownerId == request.auth.uid;
+      match /records/{recordId} {
+        allow read, write: if member(family);
+      }
+    }
+    match /chat/{id} {
+      allow read: if member(family);
+      allow create: if member(family) && request.resource.data.keys().hasOnly(['authorId','text','createdAt','mediaPath','mediaType'])
+        && request.resource.data.authorId == request.auth.uid && request.resource.data.text is string && request.resource.data.text.size() <= 2000
+        && request.resource.data.createdAt is number && request.resource.data.mediaPath is string
+        && request.resource.data.mediaType in ['','image','video','audio']
+        && (request.resource.data.text.size() > 0 || request.resource.data.mediaPath.size() > 0);
+      allow update: if member(family) && (parent(family) || resource.data.authorId == request.auth.uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text']) && request.resource.data.text is string && request.resource.data.text.size() <= 2000;
+      allow delete: if parent(family) || (member(family) && resource.data.authorId == request.auth.uid);
+    }
+  }
+ }
+}

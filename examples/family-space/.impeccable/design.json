@@ -1,0 +1,329 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-15T23:21:08.976844+00:00",
+  "title": "Design System: Kin family space",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Primary",
+        "tonalRamp": [
+          "oklch(15.00% 0.25252 262.49)",
+          "oklch(26.43% 0.25252 262.49)",
+          "oklch(37.86% 0.25252 262.49)",
+          "oklch(49.29% 0.25252 262.49)",
+          "oklch(60.71% 0.25252 262.49)",
+          "oklch(72.14% 0.25252 262.49)",
+          "oklch(83.57% 0.25252 262.49)",
+          "oklch(95.00% 0.25252 262.49)"
+        ]
+      },
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "Primary Hover",
+        "tonalRamp": [
+          "oklch(15.00% 0.22635 262.46)",
+          "oklch(26.43% 0.22635 262.46)",
+          "oklch(37.86% 0.22635 262.46)",
+          "oklch(49.29% 0.22635 262.46)",
+          "oklch(60.71% 0.22635 262.46)",
+          "oklch(72.14% 0.22635 262.46)",
+          "oklch(83.57% 0.22635 262.46)",
+          "oklch(95.00% 0.22635 262.46)"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "tonalRamp": [
+          "oklch(15.00% 0.00287 264.54)",
+          "oklch(26.43% 0.00287 264.54)",
+          "oklch(37.86% 0.00287 264.54)",
+          "oklch(49.29% 0.00287 264.54)",
+          "oklch(60.71% 0.00287 264.54)",
+          "oklch(72.14% 0.00287 264.54)",
+          "oklch(83.57% 0.00287 264.54)",
+          "oklch(95.00% 0.00287 264.54)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "oklch(15.00% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95.00% 0.00000 89.88)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.00243 247.93)",
+          "oklch(26.43% 0.00243 247.93)",
+          "oklch(37.86% 0.00243 247.93)",
+          "oklch(49.29% 0.00243 247.93)",
+          "oklch(60.71% 0.00243 247.93)",
+          "oklch(72.14% 0.00243 247.93)",
+          "oklch(83.57% 0.00243 247.93)",
+          "oklch(95.00% 0.00243 247.93)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "oklch(15.00% 0.02165 255.60)",
+          "oklch(26.43% 0.02165 255.60)",
+          "oklch(37.86% 0.02165 255.60)",
+          "oklch(49.29% 0.02165 255.60)",
+          "oklch(60.71% 0.02165 255.60)",
+          "oklch(72.14% 0.02165 255.60)",
+          "oklch(83.57% 0.02165 255.60)",
+          "oklch(95.00% 0.02165 255.60)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Line",
+        "tonalRamp": [
+          "oklch(15.00% 0.00629 255.48)",
+          "oklch(26.43% 0.00629 255.48)",
+          "oklch(37.86% 0.00629 255.48)",
+          "oklch(49.29% 0.00629 255.48)",
+          "oklch(60.71% 0.00629 255.48)",
+          "oklch(72.14% 0.00629 255.48)",
+          "oklch(83.57% 0.00629 255.48)",
+          "oklch(95.00% 0.00629 255.48)"
+        ]
+      },
+      "selected": {
+        "role": "primary",
+        "displayName": "Selected",
+        "tonalRamp": [
+          "oklch(15.00% 0.02154 265.76)",
+          "oklch(26.43% 0.02154 265.76)",
+          "oklch(37.86% 0.02154 265.76)",
+          "oklch(49.29% 0.02154 265.76)",
+          "oklch(60.71% 0.02154 265.76)",
+          "oklch(72.14% 0.02154 265.76)",
+          "oklch(83.57% 0.02154 265.76)",
+          "oklch(95.00% 0.02154 265.76)"
+        ]
+      },
+      "secondary": {
+        "role": "neutral",
+        "displayName": "Secondary",
+        "tonalRamp": [
+          "oklch(15.00% 0.00797 253.85)",
+          "oklch(26.43% 0.00797 253.85)",
+          "oklch(37.86% 0.00797 253.85)",
+          "oklch(49.29% 0.00797 253.85)",
+          "oklch(60.71% 0.00797 253.85)",
+          "oklch(72.14% 0.00797 253.85)",
+          "oklch(83.57% 0.00797 253.85)",
+          "oklch(95.00% 0.00797 253.85)"
+        ]
+      },
+      "secondary-ink": {
+        "role": "neutral",
+        "displayName": "Secondary Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.03559 256.59)",
+          "oklch(26.43% 0.03559 256.59)",
+          "oklch(37.86% 0.03559 256.59)",
+          "oklch(49.29% 0.03559 256.59)",
+          "oklch(60.71% 0.03559 256.59)",
+          "oklch(72.14% 0.03559 256.59)",
+          "oklch(83.57% 0.03559 256.59)",
+          "oklch(95.00% 0.03559 256.59)"
+        ]
+      },
+      "chat-header": {
+        "role": "neutral",
+        "displayName": "Chat Header",
+        "tonalRamp": [
+          "oklch(15.00% 0.01024 260.70)",
+          "oklch(26.43% 0.01024 260.70)",
+          "oklch(37.86% 0.01024 260.70)",
+          "oklch(49.29% 0.01024 260.70)",
+          "oklch(60.71% 0.01024 260.70)",
+          "oklch(72.14% 0.01024 260.70)",
+          "oklch(83.57% 0.01024 260.70)",
+          "oklch(95.00% 0.01024 260.70)"
+        ]
+      },
+      "chat-bubble": {
+        "role": "neutral",
+        "displayName": "Chat Bubble",
+        "tonalRamp": [
+          "oklch(15.00% 0.00454 258.32)",
+          "oklch(26.43% 0.00454 258.32)",
+          "oklch(37.86% 0.00454 258.32)",
+          "oklch(49.29% 0.00454 258.32)",
+          "oklch(60.71% 0.00454 258.32)",
+          "oklch(72.14% 0.00454 258.32)",
+          "oklch(83.57% 0.00454 258.32)",
+          "oklch(95.00% 0.00454 258.32)"
+        ]
+      },
+      "pending": {
+        "role": "semantic",
+        "displayName": "Pending",
+        "tonalRamp": [
+          "oklch(15.00% 0.03660 80.63)",
+          "oklch(26.43% 0.03660 80.63)",
+          "oklch(37.86% 0.03660 80.63)",
+          "oklch(49.29% 0.03660 80.63)",
+          "oklch(60.71% 0.03660 80.63)",
+          "oklch(72.14% 0.03660 80.63)",
+          "oklch(83.57% 0.03660 80.63)",
+          "oklch(95.00% 0.03660 80.63)"
+        ]
+      },
+      "pending-ink": {
+        "role": "semantic",
+        "displayName": "Pending Ink",
+        "tonalRamp": [
+          "oklch(15.00% 0.09046 77.54)",
+          "oklch(26.43% 0.09046 77.54)",
+          "oklch(37.86% 0.09046 77.54)",
+          "oklch(49.29% 0.09046 77.54)",
+          "oklch(60.71% 0.09046 77.54)",
+          "oklch(72.14% 0.09046 77.54)",
+          "oklch(83.57% 0.09046 77.54)",
+          "oklch(95.00% 0.09046 77.54)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Page headline",
+        "purpose": "Primary page title; responsive reductions are documented in DESIGN.md."
+      },
+      "body": {
+        "displayName": "System body",
+        "purpose": "Default interface text."
+      }
+    },
+    "shadows": [
+      {
+        "name": "selected-segment",
+        "value": "0 1px 4px #2233440b",
+        "purpose": "Selected calendar segment."
+      },
+      {
+        "name": "mobile-navigation",
+        "value": "0 -8px 30px #0648cb12",
+        "purpose": "Fixed mobile navigation."
+      },
+      {
+        "name": "mobile-drawer",
+        "value": "5px 0 40px #12254230",
+        "purpose": "Open navigation drawer."
+      }
+    ],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "mobile-max",
+        "value": "680px"
+      },
+      {
+        "name": "single-column-max",
+        "value": "950px"
+      },
+      {
+        "name": "compact-desktop-max",
+        "value": "1150px"
+      },
+      {
+        "name": "wide-desktop-min",
+        "value": "1450px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "description": "Shared action primitive.",
+      "html": "<button class=\"ds-button-primary\">Save changes</button>",
+      "css": ".ds-button-primary{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:15px;font-weight:600;min-height:44px;padding:11px 19px;border:0;border-radius:11px;background:var(--blue,#0659fd);color:#fff;cursor:pointer}.ds-button-primary:hover{background:#034bda}.ds-button-primary:focus-visible{outline:2px solid var(--blue,#0659fd);outline-offset:4px;}.ds-button-primary:disabled{opacity:.5;cursor:wait}",
+      "refersTo": "button-primary"
+    },
+    {
+      "name": "Secondary button",
+      "kind": "button",
+      "description": "Shared action primitive.",
+      "html": "<button class=\"ds-button-secondary\">Save changes</button>",
+      "css": ".ds-button-secondary{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:15px;font-weight:600;min-height:44px;padding:11px 19px;border:0;border-radius:11px;background:#edf1f6;color:#334052;cursor:pointer}.ds-button-secondary:hover{background:#e2e9f2}.ds-button-secondary:focus-visible{outline:2px solid var(--blue,#0659fd);outline-offset:4px;}.ds-button-secondary:disabled{opacity:.5;cursor:wait}",
+      "refersTo": "button-secondary"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "description": "Labeled composer field.",
+      "html": "<label class=\"ds-label\">Title<input class=\"ds-field\" placeholder=\"A family moment\"></label>",
+      "css": ".ds-label{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:600;color:#1e1f20}.ds-field{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;font-size:15px;border:1px solid #dce1e7;background:#fafbfd;padding:13px 15px;border-radius:10px;color:#1e1f20;min-width:0}.ds-field:focus-visible{outline:2px solid var(--blue,#0659fd);outline-offset:4px;}"
+    },
+    {
+      "name": "Selected navigation",
+      "kind": "nav",
+      "description": "Desktop navigation rows.",
+      "html": "<nav class=\"ds-nav\"><a href=\"#feed\" aria-current=\"page\">Family feed</a><a href=\"#calendar\">Calendar</a></nav>",
+      "css": ".ds-nav{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;display:grid;gap:7px}.ds-nav a{padding:13px 12px;border-radius:12px;color:#647080;font-size:14px;font-weight:500;text-decoration:none}.ds-nav a[aria-current]{background:#e9f0ff;color:var(--blue,#0659fd)}.ds-nav a:hover{background:#eef1f5}.ds-nav a:focus-visible{outline:2px solid var(--blue,#0659fd);outline-offset:4px;}",
+      "refersTo": "navigation-selected"
+    },
+    {
+      "name": "Pending approval",
+      "kind": "chip",
+      "description": "Textual moderation state.",
+      "html": "<span class=\"ds-pending\">Pending approval</span>",
+      "css": ".ds-pending{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;display:inline-block;font-size:10px;background:#fff0d7;color:#846022;padding:5px 9px;border-radius:6px;white-space:nowrap}",
+      "refersTo": "tag-pending"
+    },
+    {
+      "name": "Content card",
+      "kind": "card",
+      "description": "Card copy and action treatment; photographs remain documented in ASSETS.md.",
+      "html": "<article class=\"ds-card\"><h2>A little time together</h2><p>Family moments, kept close.</p><a href=\"#post\">Open post \u2192</a></article>",
+      "css": ".ds-card{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#fff;border:1px solid #eef0f3;border-radius:18px;padding:20px 22px 22px;color:#1e1f20}.ds-card h2{font-size:22px;line-height:1.3;letter-spacing:-.5px;margin:0}.ds-card p{font-size:14px;line-height:1.7;color:#6b7684;margin:10px 0 0}.ds-card a{display:block;border-top:1px solid var(--line,#e7eaee);padding-top:15px;margin-top:18px;font-size:12px;color:var(--blue,#0659fd);text-decoration:none}.ds-card a:focus-visible{outline:2px solid var(--blue,#0659fd);outline-offset:4px;}",
+      "refersTo": "card"
+    },
+    {
+      "name": "Chat bubble",
+      "kind": "custom",
+      "description": "Received message bubble.",
+      "html": "<div class=\"ds-bubble\"><strong>Alex</strong><p>See you at the park!</p></div>",
+      "css": ".ds-bubble{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;background:#f2f4f7;color:#1e1f20;padding:14px 17px;border-radius:0 15px 15px;max-width:280px}.ds-bubble strong{font-size:13px}.ds-bubble p{font-size:14px;line-height:1.7;margin:7px 0 0}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Private family space",
+    "overview": "Kin adapts the supplied mobile social dashboard into a private family space. White cards sit on a pale canvas; vivid blue carries navigation and actions, while real photographs provide warmth. Compact system typography keeps names, dates, and supporting context close to the content.\n\nThe charcoal chat header and overlapping white conversation sheet give messaging its own recognizable setting within the same system. Desktop adds a quiet navigation rail and family context; mobile retains the reference\u2019s rounded blue bottom navigation.",
+    "keyCharacteristics": [
+      "White cards and inset rounded media on a pale canvas.",
+      "Vivid blue actions and navigation, with restrained supporting neutrals.",
+      "Compact system typography and real exported Figma photography.",
+      "A charcoal header above the white chat sheet."
+    ],
+    "rules": [],
+    "dos": [
+      "Do preserve the supplied Figma palette, rounded media, compact typography, and charcoal chat header.",
+      "Do show pending approval with a textual status as well as the warm status tint.",
+      "Do keep keyboard focus visible and preserve space for fixed mobile navigation.",
+      "Do use the supplied asset provenance in ASSETS.md when extending imagery."
+    ],
+    "donts": [
+      "Don\u2019t replace family photographs with decorative generated artwork.",
+      "Don\u2019t add heavy shadows to ordinary feed cards.",
+      "Don\u2019t use the pending tint as a general brand accent."
+    ]
+  }
+}

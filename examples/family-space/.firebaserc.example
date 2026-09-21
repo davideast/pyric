@@ -1,0 +1,19 @@
+{
+  "projects": {
+    "default": "YOUR_PROJECT_ID"
+  },
+  "targets": {
+    "YOUR_PROJECT_ID": {
+      "storage": {
+        "kin": [
+          "kin-bucket"
+        ]
+      },
+      "database": {
+        "kin": [
+          "kin-rtdb"
+        ]
+      }
+    }
+  }
+}

@@ -1,3 +1,4 @@
+import { parseActionCodeURL, ActionCodeOperation } from 'pyric/auth';
 /**
  * Worker-client Auth surface — mirrors `pyric/auth` / `firebase/auth` over the
  * port. Per-port sessions (#754): each port owns its own session; the client
@@ -457,3 +458,14 @@ export function beforeAuthStateChanged(): never {
   err.code = 'auth/operation-not-supported-in-this-environment';
   throw err;
 }
+
+/** Development mail transport; the served SDK entry displays the returned message. */
+export async function sendEmailLinkMail(auth: ClientAuth, email: string, settings: import('pyric/auth').ActionCodeSettings): Promise<import('pyric/auth').OutboundAuthMail | null> {
+  return await rpc(auth.port, {t: 'op', id: nextId(), method: 'auth.sendEmailLink', email, settings, tenantId: auth.tenantId}) as import('pyric/auth').OutboundAuthMail | null;
+}
+export async function signInWithEmailLink(auth: ClientAuth, email: string, emailLink: string): Promise<ClientUserCredential> {
+  const raw = await rpc(auth.port, {t: 'op', id: nextId(), method: 'auth.signInEmailLink', email, link: emailLink, tenantId: auth.tenantId}) as SerializedUserCredential;
+  return hydrateCred(auth, raw);
+}
+
+export function isSignInWithEmailLink(_auth: ClientAuth, link: string): boolean { return parseActionCodeURL(link)?.operation === ActionCodeOperation.EMAIL_SIGNIN; }

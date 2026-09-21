@@ -264,6 +264,14 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireShape(hasValidVisibility, 'visibility');
       return;
     }
+    case 'auth.sendEmailLink':
+      requireString(message.email, 'email');
+      requireRecord(message.settings, 'settings');
+      return;
+    case 'auth.signInEmailLink':
+      requireString(message.email, 'email');
+      requireString(message.link, 'link');
+      return;
     case 'getDoc':
     case 'getDocs':
     case 'deleteDoc':

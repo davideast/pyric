@@ -1,0 +1,30 @@
+{
+  "firestore": [
+    {
+      "database": "kin-db",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    }
+  ],
+  "storage": [
+    {
+      "target": "kin",
+      "rules": "storage.rules"
+    }
+  ],
+  "hosting": {
+    "site": "YOUR_HOSTING_SITE",
+    "public": "dist",
+    "ignore": [
+      "firebase*.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

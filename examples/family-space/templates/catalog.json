@@ -1,0 +1,74 @@
+[
+  {
+    "id": "dinner-spinner",
+    "title": "Dinner Spinner",
+    "tone": "practical",
+    "description": "Keep your dinner shortlist, spin a fair choice, and save tonight\u2019s pick.",
+    "prompt": "A Dinner Spinner. Editable dinner options, enable/disable options, spin selects uniformly from enabled options and persists the result. Use a clear numbered list and a delightful spinning geometric wheel whose final pointer matches the chosen option that starts fast, decelerates over several seconds, then bursts confetti on the winning dinner. Empty state has an explicit Add sample dinners button with generic home meals, no invented restaurants. Preserve existing records: read opt-* records with {name,active}, option-* records with {name,enabled}, and restaurant_options if present with an options array; never overwrite/delete existing records except an explicit edit/delete action. Treat zero enabled options and deleting the final option correctly, no automatic reseeding. Capture the selected result as its own new record. No alert(). Label the option input Dinner option and primary action Spin dinner. Keep editing and outcome visually separate.",
+    "version": 2
+  },
+  {
+    "id": "chore-quest",
+    "title": "Chore Quest",
+    "tone": "practical",
+    "description": "Turn the household list into small quests everyone can finish.",
+    "prompt": "Chore Quest: choose a family member, add a named chore assigned to that person, mark individual chores completed, filter open/all, show completed/total. Store each chore as its own uniquely keyed record; never rewrite the whole collection. No competitive pressure or rewards with money. Explicit Add sample chores button. Task input label Chore; button Add chore. Each task checkbox has the task text as accessible name. Show a playful quest trail, 10 stars per currently completed chore, team contributions, and a reduced-motion-aware star burst only after a successful completion save. Use grid/flex gap for all layout spacing, no margins except zero resets, and padding only inside cards and controls. Ellipsize single-line task names beside aligned checkboxes.",
+    "version": 3
+  },
+  {
+    "id": "weekend-picker",
+    "title": "Weekend Picker",
+    "tone": "practical",
+    "description": "Collect ideas and let everyone vote on the next little adventure.",
+    "prompt": "Weekend Picker: family members add activities and vote once per activity (toggle vote); member selector explicitly says whose vote is being recorded, not authentication. Each activity and each member vote is a separate record, never whole-list overwrite. Show ranked results and upcoming family schedule as read-only inspiration if available. No invented live weather or venues. Label idea input Activity idea and button Add idea. Explicit Add sample ideas button. Good empty and tied-vote states."
+  },
+  {
+    "id": "pack-and-go",
+    "title": "Pack & Go",
+    "tone": "practical",
+    "description": "Build a trip checklist and share the satisfying last checkmark.",
+    "prompt": "Pack & Go: create packing items with an optional family member responsible, toggle packed, filter remaining/all, show progress. Each item separate record with stable key; reset only via explicit Unpack all confirmation, no automatic initialization. A lightweight trip title saved in a separate record. Explicit Add sample items button. Label item input Packing item, button Add item. Use a practical spacious checklist."
+  },
+  {
+    "id": "kindness-jar",
+    "title": "Kindness Jar",
+    "tone": "practical",
+    "description": "Save the small kind things that deserve a family thank-you.",
+    "prompt": "Kindness Jar: choose a family member, add a short thank-you/kind act, store individual notes with timestamps, newest first. Show note count and a gently filling geometric jar illustration from count, no grading or leaderboards. Label textarea Kindness note and button Add kindness. No auto seed writes. Let each note be deleted explicitly and handle empty state warmly. Member picker is attribution not auth."
+  },
+  {
+    "id": "reading-trail",
+    "title": "Reading Trail",
+    "tone": "practical",
+    "description": "Keep a shared reading shelf and celebrate every finished story.",
+    "prompt": "Reading Trail: select reader, add book title, toggle reading/finished per book, show reader filter and friendly completion total. One record per book with owner member id and timestamp. No external book API/covers or invented reading history. Label input Book title and action Add book. Empty state offers Add sample books with generic clearly sample titles. Render readable shelf/list, not excessive nested cards."
+  },
+  {
+    "id": "time-capsule",
+    "title": "Family Time Capsule",
+    "tone": "practical",
+    "description": "Save a memory now and revisit it on a date you choose.",
+    "prompt": "Family Time Capsule: add a short memory with a future reveal date and member attribution, show sealed vs ready entries based on real current date, open ready entries, optional reveal now confirmation. State explicitly that sealed text is a playful UI reveal, not privacy/security encryption; all family app records are shared. One record per memory. Label textarea Memory, date input Open on, submit Save memory. Validate date and empty input, make saved notes persist, show clear empty state."
+  },
+  {
+    "id": "story-relay",
+    "title": "Story Relay",
+    "tone": "fun",
+    "description": "Take turns adding one sentence to a story nobody could plan.",
+    "prompt": "Story Relay, asynchronous multiplayer creative game. Pick a member and add one sentence; each sentence an append-only uniquely keyed record ordered by createdAt then id. Show whose turn is suggested by family member order, allow a clearly labeled pass-the-device member picker; this is honor-system family play. Separate story rounds via an explicit New story button using unique round ids, old stories remain browsable. Label input Your sentence and action Add sentence. Show all updates live through records. No whole-story overwrite. Initial empty state with Start a story action, no automatic writes."
+  },
+  {
+    "id": "connect-four",
+    "title": "Connect Four",
+    "tone": "fun",
+    "description": "A family head-to-head game, one thoughtful move at a time.",
+    "prompt": "Connect Four, turn-based two-player game. 7 columns x 6 rows, real four-in-a-row horizontal/vertical/diagonal win detection and draw, alternating amber/blue pieces with symbols or labels for color independence. Each move separate record keyed roundId-moveIndex; records provide board derived each render. This is family honor-system pass-and-play/live observers, NOT secure competitive multiplayer: API has no current user or atomic compare-and-set. Explicitly say one player should move at a time. Enforce legal full-column/game-over moves in UI; pending lock; choose participant names; New game creates new round preserving history. Seven accessible buttons Drop in column 1 etc. Responsive board fits 320px. No timers needed."
+  },
+  {
+    "id": "family-trivia",
+    "title": "Family Trivia",
+    "tone": "fun",
+    "description": "Pass the quiz around and compare answers to a short, cheerful round.",
+    "prompt": "Family Trivia: a turn-based pass-and-play trivia game with 5 fixed, family-friendly fact questions (simple math, animals, space) and explicit correct answers verified by common knowledge; not invented facts about family. Pick participant, answer each question once, persist each member answer as separate key per round/question/member. Show question feedback after answer, next question, final score per participant, New round starts unique round id. Member picker honor-system not auth, updates live. Start quiz button; multiple choice buttons; clearly marked finished state. Avoid stale reset writes and do not store all players in one mutable record."
+  }
+]

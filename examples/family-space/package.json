@@ -1,0 +1,48 @@
+{
+  "name": "kin-family-space",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test test",
+    "test:browser": "node test/browser.mjs",
+    "test:email-link": "node test/email-link.mjs",
+    "test:navigation": "node test/navigation.mjs",
+    "test:highlights": "node test/highlights.mjs",
+    "test:apps": "node test/apps.mjs",
+    "test:apps-live": "node test/apps-live.mjs",
+    "test:ui-kit": "node test/ui-kit-browser.mjs",
+    "test:recovery": "node test/recovery.mjs",
+    "test:generation": "node test/workflow-recovery.mjs",
+    "test:templates": "node test/templates.mjs",
+    "test:lifecycle": "node test/app-lifecycle.mjs",
+    "test:draft-conflicts": "node test/app-draft-conflict.mjs",
+    "test:policies": "bun test test/app-policy.test.ts && node test/policy-browser.mjs",
+    "test:generated-policies": "bun test test/generation-policy-tools.test.ts test/generation-producer.test.ts && node test/generated-policy-browser.mjs",
+    "test:generated-policies-live": "node test/generated-policy-live.mjs",
+    "test:authored-policies": "bun test test/authored-policy.test.ts && node test/authored-policy-browser.mjs",
+    "test:authored-policies-live": "KIN_AUTHORED_POLICY=1 node test/generated-policy-live.mjs"
+  },
+  "dependencies": {
+    "@inbrowser/resumable": "^0.4.2",
+    "@inbrowser/workspace": "^0.4.2",
+    "@phosphor-icons/react": "^2.1.10",
+    "esbuild-wasm": "0.25.12",
+    "firebase": "^12.12.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@pyric/cli": "workspace:*",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "esbuild": "0.25.12",
+    "fake-indexeddb": "^6.0.0",
+    "playwright": "^1.62.0",
+    "pyric": "workspace:*",
+    "typescript": "^5.7.0",
+    "vite": "^5.4.21"
+  }
+}

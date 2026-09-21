@@ -1,0 +1,9 @@
+.pyric/
+
+.env*
+!.env.example
+
+# Developer Firebase target mappings and diagnostic captures.
+.firebaserc
+*.log
+*.jsonl

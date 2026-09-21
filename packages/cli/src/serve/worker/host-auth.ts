@@ -21,6 +21,9 @@
 import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from './host-context.js';
 import {
   getAuth,
+  sendSignInLinkToEmail,
+  signInWithEmailLink,
+  getAdditionalUserInfo,
   sandbox as authSandboxOps,
   type Auth,
   type MintedSession,
@@ -225,6 +228,27 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         setPortSession(ctx, port, session);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, credReply(session, null, true));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'auth.sendEmailLink': {
+      try {
+        if (msg.tenantId) throw Object.assign(new Error('Tenant email links are not supported by the worker yet.'), { code: 'auth/operation-not-supported-in-this-environment' });
+        await sendSignInLinkToEmail(auth, msg.email, msg.settings);
+        const mail = authSandboxOps.takeAuthMail(auth, msg.email);
+        ok(port, msg.id, mail);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+    case 'auth.signInEmailLink': {
+      try {
+        if (msg.tenantId) throw Object.assign(new Error('Tenant email links are not supported by the worker yet.'), { code: 'auth/operation-not-supported-in-this-environment' });
+        const credential = await signInWithEmailLink(auth, msg.email, msg.link);
+        const session = authSandboxOps.mintSession(auth, { kind: 'uid', uid: credential.user.uid });
+        setPortSession(ctx, port, session);
+        await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, credReply(session, null, getAdditionalUserInfo(credential)?.isNewUser ?? false));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

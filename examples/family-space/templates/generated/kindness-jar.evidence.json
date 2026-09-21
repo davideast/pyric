@@ -1,0 +1,52 @@
+{
+  "events": [
+    {
+      "kind": "context",
+      "title": "Family context captured"
+    },
+    {
+      "kind": "tool",
+      "title": "Selecting UI patterns"
+    },
+    {
+      "kind": "tool",
+      "title": "search_ui"
+    },
+    {
+      "kind": "tool",
+      "title": "search_ui"
+    },
+    {
+      "kind": "tool",
+      "title": "check_ui_plan"
+    },
+    {
+      "kind": "tool",
+      "title": "read_ui"
+    },
+    {
+      "kind": "response",
+      "title": "Writing the React app"
+    },
+    {
+      "kind": "tool",
+      "title": "Checking React compilation"
+    },
+    {
+      "kind": "result",
+      "title": "React compilation passed"
+    },
+    {
+      "kind": "tool",
+      "title": "Saving your private app"
+    }
+  ],
+  "selection": [
+    "section-actions",
+    "button",
+    "field",
+    "card-list",
+    "feedback",
+    "persistent-records"
+  ]
+}

@@ -1,0 +1,168 @@
+{
+  "version": "kin-v1",
+  "entries": [
+    {
+      "id": "section-actions",
+      "version": 1,
+      "purpose": "Aligned heading, description and actions",
+      "useWhen": "Page or section heading with optional actions",
+      "avoidWhen": "Nested application navigation",
+      "tags": [
+        "heading",
+        "toolbar",
+        "header",
+        "layout",
+        "spacing"
+      ],
+      "capabilities": [
+        "layout",
+        "heading",
+        "actions"
+      ],
+      "dependencies": [],
+      "source": "function Section({title,description,actions,children}) {\n return <section style={{display:'grid',gap:24,minWidth:0}}><header style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,flexWrap:'wrap'}}><div style={{display:'grid',gap:8,minWidth:0}}><h2 style={{margin:0}}>{title}</h2>{description && <p style={{margin:0,color:'#69727e',maxWidth:'65ch'}}>{description}</p>}</div>{actions && <div style={{display:'flex',gap:12,flexWrap:'wrap',alignItems:'center'}}>{actions}</div>}</header>{children}</section>;\n}",
+      "example": "<Section title=\"Weekend plans\" description=\"Choose something together.\"><p>No plans yet.</p></Section>"
+    },
+    {
+      "id": "button",
+      "version": 1,
+      "purpose": "Consistent primary and secondary actions",
+      "useWhen": "Submit, retry, add or remove actions",
+      "avoidWhen": "Navigation to external sites",
+      "tags": [
+        "button",
+        "action",
+        "submit",
+        "save",
+        "retry"
+      ],
+      "capabilities": [
+        "actions"
+      ],
+      "dependencies": [],
+      "source": "function Button({children,variant='primary',busy=false,disabled=false,type='button',...props}) {\n return <button {...props} type={type} className={variant === 'primary' ? 'primary' : 'secondary'} disabled={disabled || busy} aria-busy={busy} style={{minHeight:44,padding:'11px 19px'}}>{children}</button>;\n}",
+      "example": "<Button>Choose dinner</Button>"
+    },
+    {
+      "id": "field",
+      "version": 1,
+      "purpose": "Labeled controlled text input",
+      "useWhen": "Names, titles and editable text with optional help or errors",
+      "avoidWhen": "Checkboxes, radio groups or unlabeled icon inputs",
+      "tags": [
+        "form",
+        "input",
+        "field",
+        "label",
+        "text",
+        "edit"
+      ],
+      "capabilities": [
+        "form",
+        "input"
+      ],
+      "dependencies": [],
+      "source": "function Field({id,label,value,onChange,hint,error,...props}) {\n return <div style={{display:'grid',gap:8,minWidth:0}}><label htmlFor={id}>{label}</label><input {...props} id={id} value={value} onChange={onChange} aria-invalid={!!error} aria-describedby={error || hint ? id+'-help' : undefined} style={{width:'100%',minWidth:0,padding:12,border:'1px solid #e7eaee',borderRadius:10}}/>{(error || hint) && <p id={id+'-help'} role={error ? 'alert' : undefined} style={{margin:0,color:error ? '#9e302b' : '#69727e'}}>{error || hint}</p>}</div>;\n}",
+      "example": "<Field id=\"name\" label=\"Name\" value=\"\" onChange={()=>{}} hint=\"Give your plan a name.\"/>"
+    },
+    {
+      "id": "card-list",
+      "version": 1,
+      "purpose": "Padded content with consistently spaced list rows",
+      "useWhen": "Collections of choices, chores, plans or records",
+      "avoidWhen": "Wrapping every heading in another nested card",
+      "tags": [
+        "card",
+        "list",
+        "options",
+        "choices",
+        "chores",
+        "plans",
+        "records"
+      ],
+      "capabilities": [
+        "list",
+        "surface"
+      ],
+      "dependencies": [],
+      "source": "function CardList({items,renderItem,empty='Nothing here yet.'}) {\n return <div className=\"surface\" style={{padding:20,minWidth:0}}>{items.length ? <ul style={{listStyle:'none',padding:0,margin:0,display:'grid',gap:16}}>{items.map(item=><li key={item.id} style={{minWidth:0}}>{renderItem(item)}</li>)}</ul> : <p style={{margin:0,color:'#69727e'}}>{empty}</p>}</div>;\n}",
+      "example": "<CardList items={[{id:\"one\",title:\"Picnic\"}]} renderItem={item=><span>{item.title}</span>}/>"
+    },
+    {
+      "id": "feedback",
+      "version": 1,
+      "purpose": "Loading, empty and error feedback with recovery actions",
+      "useWhen": "Explain loading, no records, validation or failed saves",
+      "avoidWhen": "Permanent success banners for every action",
+      "tags": [
+        "loading",
+        "empty",
+        "error",
+        "notice",
+        "retry",
+        "recovery",
+        "status"
+      ],
+      "capabilities": [
+        "feedback",
+        "loading",
+        "error",
+        "empty"
+      ],
+      "dependencies": [],
+      "source": "function Feedback({kind='empty',title,children,actions}) {\n return <div role={kind === 'error' ? 'alert' : 'status'} style={{display:'grid',gap:12,padding:'20px 0',borderTop:'1px solid #e7eaee',minWidth:0}}><strong>{title}</strong>{children && <div style={{color:'#69727e',lineHeight:1.6}}>{children}</div>}{actions && <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>{actions}</div>}</div>;\n}",
+      "example": "<Feedback kind=\"empty\" title=\"Add your first idea\">Everyone can help choose.</Feedback>"
+    },
+    {
+      "id": "disclosure",
+      "version": 1,
+      "purpose": "Expandable supporting information",
+      "useWhen": "Optional details, instructions or error reports",
+      "avoidWhen": "Hiding the primary task or essential recovery action",
+      "tags": [
+        "details",
+        "disclosure",
+        "expand",
+        "help",
+        "error"
+      ],
+      "capabilities": [
+        "disclosure"
+      ],
+      "dependencies": [],
+      "source": "function Disclosure({title,children}) {\n return <details style={{borderTop:'1px solid #e7eaee',paddingTop:16,minWidth:0}}><summary style={{cursor:'pointer',color:'#69727e'}}>{title}</summary><div style={{marginTop:12,overflowWrap:'anywhere'}}>{children}</div></details>;\n}",
+      "example": "<Disclosure title=\"How this works\"><p>Your family chooses together.</p></Disclosure>"
+    },
+    {
+      "id": "persistent-records",
+      "version": 1,
+      "purpose": "Live saved list with explicit add, loading and failed write handling",
+      "useWhen": "Apps that save records and share them across family members",
+      "avoidWhen": "Atomic counters, transactions or per-user permissions",
+      "tags": [
+        "save",
+        "persist",
+        "records",
+        "database",
+        "list",
+        "add",
+        "form"
+      ],
+      "capabilities": [
+        "persistence",
+        "list",
+        "form",
+        "feedback"
+      ],
+      "dependencies": [
+        "section-actions",
+        "button",
+        "field",
+        "card-list",
+        "feedback"
+      ],
+      "source": "// Include these imports once in the final module.\nimport {useState} from 'react';\nimport {useAppData} from '@kin/app';\nfunction SavedIdeas() {\n const {records,loading,error,setRecord}=useAppData();\n const [title,setTitle]=useState(''),[saving,setSaving]=useState(false),[failure,setFailure]=useState('');\n async function add(event) {event.preventDefault();if(!title.trim() || loading || saving)return;setSaving(true);setFailure('');try{await setRecord(crypto.randomUUID(),{title:title.trim()});setTitle('');}catch(e){setFailure(e instanceof Error ? e.message : String(e));}finally{setSaving(false);}}\n return <Section title=\"Family ideas\">{error || failure ? <Feedback kind=\"error\" title=\"Could not save or load ideas\">{error || failure}</Feedback> : null}<form onSubmit={add} style={{display:'grid',gap:16}}><Field id=\"idea\" label=\"Your idea\" value={title} onChange={e=>setTitle(e.target.value)}/><div><Button type=\"submit\" busy={saving} disabled={loading || !!error || !title.trim()}>{saving ? 'Saving\u2026' : 'Add idea'}</Button></div></form>{loading ? <Feedback kind=\"loading\" title=\"Loading ideas\u2026\"/> : <CardList items={records} renderItem={item=><span>{String(item.title ?? '')}</span>} empty=\"Add your first idea.\"/>}</Section>;\n}",
+      "example": "<SavedIdeas/>"
+    }
+  ]
+}

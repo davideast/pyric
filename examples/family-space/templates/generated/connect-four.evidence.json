@@ -1,0 +1,147 @@
+{
+  "events": [
+    {
+      "kind": "context",
+      "title": "Family context captured"
+    },
+    {
+      "kind": "response",
+      "title": "Writing the React app"
+    },
+    {
+      "kind": "tool",
+      "title": "Checking React compilation"
+    },
+    {
+      "kind": "result",
+      "title": "React compilation passed"
+    },
+    {
+      "kind": "tool",
+      "title": "Saving your private app"
+    }
+  ],
+  "selection": [
+    "section-actions",
+    "button",
+    "field",
+    "card-list",
+    "feedback",
+    "persistent-records"
+  ],
+  "tools": {
+    "search": [
+      {
+        "need": "persistent records",
+        "matches": [
+          {
+            "id": "persistent-records",
+            "score": 2,
+            "reason": "Matches: persistent, records"
+          },
+          {
+            "id": "card-list",
+            "score": 1,
+            "reason": "Matches: records"
+          },
+          {
+            "id": "feedback",
+            "score": 1,
+            "reason": "Matches: records"
+          }
+        ]
+      },
+      {
+        "need": "layout",
+        "matches": [
+          {
+            "id": "section-actions",
+            "score": 1,
+            "reason": "Matches: layout"
+          }
+        ]
+      },
+      {
+        "need": "form fields",
+        "matches": [
+          {
+            "id": "disclosure",
+            "score": 1,
+            "reason": "Matches: form"
+          },
+          {
+            "id": "field",
+            "score": 1,
+            "reason": "Matches: form"
+          },
+          {
+            "id": "persistent-records",
+            "score": 1,
+            "reason": "Matches: form"
+          }
+        ]
+      },
+      {
+        "need": "loading and errors",
+        "matches": [
+          {
+            "id": "feedback",
+            "score": 2,
+            "reason": "Matches: loading, and"
+          },
+          {
+            "id": "field",
+            "score": 2,
+            "reason": "Matches: and, errors"
+          },
+          {
+            "id": "persistent-records",
+            "score": 2,
+            "reason": "Matches: loading, and"
+          }
+        ]
+      }
+    ],
+    "coverage": [
+      {
+        "need": "persistent records",
+        "coveredBy": [
+          "persistent-records",
+          "card-list",
+          "feedback"
+        ],
+        "suggestions": [],
+        "noMatch": false
+      },
+      {
+        "need": "layout",
+        "coveredBy": [
+          "section-actions"
+        ],
+        "suggestions": [],
+        "noMatch": false
+      },
+      {
+        "need": "form fields",
+        "coveredBy": [
+          "field",
+          "persistent-records"
+        ],
+        "suggestions": [
+          "disclosure"
+        ],
+        "noMatch": false
+      },
+      {
+        "need": "loading and errors",
+        "coveredBy": [
+          "feedback",
+          "field",
+          "persistent-records"
+        ],
+        "suggestions": [],
+        "noMatch": false
+      }
+    ]
+  }
+}

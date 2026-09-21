@@ -258,3 +258,16 @@ export const reload = (
 export const updateCurrentUser = (
   useWorker ? wc.updateCurrentUser : ipAuth.updateCurrentUser
 ) as typeof ipAuth.updateCurrentUser;
+
+// Standard Firebase email-link APIs. Only the development mail presentation is Pyric-specific.
+export const isSignInWithEmailLink = (useWorker ? wc.isSignInWithEmailLink : ipAuth.isSignInWithEmailLink) as typeof ipAuth.isSignInWithEmailLink;
+export const signInWithEmailLink: typeof ipAuth.signInWithEmailLink = (auth, email, link = location.href) => (useWorker ? wc.signInWithEmailLink : ipAuth.signInWithEmailLink)(auth, email, link);
+export const sendSignInLinkToEmail: typeof ipAuth.sendSignInLinkToEmail = async (auth, email, settings) => {
+  const mail = useWorker
+    ? await wcRaw.sendEmailLinkMail(auth as unknown as Parameters<typeof wcRaw.sendEmailLinkMail>[0], email, settings)
+    : await (async () => { await ipAuth.sendSignInLinkToEmail(auth, email, settings); return ipAuth.sandbox.takeAuthMail(auth, email); })();
+  if (mail) {
+    const { showEmailLinkPreview } = await import('./email-link-preview.js');
+    showEmailLinkPreview(mail, useWorker ? undefined : () => ipAuth.signInWithEmailLink(auth, email, mail.link));
+  }
+};

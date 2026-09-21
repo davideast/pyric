@@ -21,7 +21,9 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   const rootMatch = ast.service.match;
 
   // Collect all function names and calls
+  const outerFunctions = [...(ast.functions ?? []), ...(ast.service.functions ?? [])];
   const allFunctions = collectAllFunctions(rootMatch);
+  for (const fn of outerFunctions) allFunctions.add(fn.name);
   const allCalls = collectAllCallsInRules(rootMatch);
 
   // SEC-4: Check for default deny
@@ -38,7 +40,7 @@ export function validateFirestoreRules(ast: FirestoreRules): ValidationFinding[]
   checkOverlappingPaths(rootMatch.children, findings);
 
   // Walk all match blocks
-  walkMatch(rootMatch, findings, allFunctions, rootMatch.functions);
+  walkMatch(rootMatch, findings, allFunctions, outerFunctions);
 
   return findings;
 }

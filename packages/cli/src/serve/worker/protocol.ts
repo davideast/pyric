@@ -139,6 +139,8 @@ export type OpMessage = (
   // ports can hold the same identity under different tenants.
   | { t: 'op'; id: string; method: 'auth.createUser'; email: string; password: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.signInEmail'; email: string; password: string; tenantId?: string | null }
+  | { t: 'op'; id: string; method: 'auth.sendEmailLink'; email: string; settings: import('pyric/auth').ActionCodeSettings; tenantId?: string | null }
+  | { t: 'op'; id: string; method: 'auth.signInEmailLink'; email: string; link: string; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.signInAnonymously'; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.signOut' }
   | { t: 'op'; id: string; method: 'auth.getIdToken'; forceRefresh?: boolean }

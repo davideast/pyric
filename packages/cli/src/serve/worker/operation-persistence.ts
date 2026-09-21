@@ -42,6 +42,8 @@ export const operationPersistence = {
   'listSubcollections': false,
   'auth.createUser': true,
   'auth.signInEmail': false,
+  'auth.sendEmailLink': false,
+  'auth.signInEmailLink': true,
   'auth.signInAnonymously': true,
   'auth.signOut': false,
   'auth.getIdToken': false,

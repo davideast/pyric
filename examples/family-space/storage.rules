@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+ match /b/{bucket}/o {
+  function member(family) { return request.auth != null && firestore.exists(/databases/(default)/documents/families/$(family)/members/$(request.auth.uid)); }
+  function parent(family) { return member(family) && firestore.get(/databases/(default)/documents/families/$(family)/members/$(request.auth.uid)).data.role == 'parent'; }
+  function post(family, id) { return firestore.get(/databases/(default)/documents/families/$(family)/posts/$(id)).data; }
+  function validUpload() { return request.resource.size < 25 * 1024 * 1024 && request.resource.contentType.matches('(image|video|audio)/.*'); }
+  match /families/{family}/posts/{id}/{file} {
+   allow read: if member(family) && (parent(family) || post(family,id).authorId == request.auth.uid || (post(family,id).status == 'published' && ('family' in post(family,id).audience || request.auth.uid in post(family,id).audience)));
+   allow create, update: if member(family) && validUpload() && (parent(family) || (post(family,id).authorId == request.auth.uid && post(family,id).status == 'pending'));
+   allow delete: if parent(family) || (member(family) && post(family,id).authorId == request.auth.uid && post(family,id).status == 'pending');
+  }
+  match /families/{family}/chat/{uid}/{file} {
+   allow read: if member(family);
+   allow create, update: if member(family) && request.auth.uid == uid && validUpload();
+   allow delete: if parent(family) || (member(family) && request.auth.uid == uid);
+  }
+ }
+}

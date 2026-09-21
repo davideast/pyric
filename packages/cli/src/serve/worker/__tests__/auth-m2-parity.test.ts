@@ -27,6 +27,10 @@ import type {
 } from '../protocol.js';
 import { wirePort } from '../client/core.js';
 import {
+  sendEmailLinkMail,
+  isSignInWithEmailLink,
+  signInWithEmailLink,
+  getDoc,
   switchAuthLens,
   getAuthLens,
   getAuth as getClientAuth,
@@ -675,3 +679,31 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
 });
 
 
+
+describe('worker email links', () => {
+  it('redeems a single-use link into the calling port and preserves seeded identity and rules access', async () => {
+    const {ctx,sandbox,clientAuth,clientDb,hostPort} = await createTestHarness();
+    const auth = getAuth(sandbox);
+    authSandboxOps.seedUsers(auth,[{uid:'emma',email:'emma@kin.example',displayName:'Emma Parker',password:'fixture-only'}]);
+    const {getFirestore: adminFirestore}=await import('pyric/sandbox/admin-firestore');
+    const admin=adminFirestore(sandbox.withAuth(null));
+    admin.setRules(`service cloud.firestore {match /databases/{db}/documents {match /private/{uid} {allow read: if request.auth.uid == uid;}}}`);
+    const {seedDocuments}=await import('pyric/sandbox/firestore');
+    seedDocuments(sandbox,{'private/emma':{message:'Family data'}});
+    const mail=await sendEmailLinkMail(clientAuth,'emma@kin.example',{url:'http://localhost:5227/',handleCodeInApp:true});
+    expect(clientAuth.currentUser).toBeNull();
+    expect(mail?.email).toBe('emma@kin.example');
+    expect(isSignInWithEmailLink(clientAuth,mail!.link)).toBe(true);
+    expect(isSignInWithEmailLink(clientAuth,'http://localhost/')).toBe(false);
+    await expect(signInWithEmailLink(clientAuth,'wrong@kin.example',mail!.link)).rejects.toMatchObject({code:'auth/invalid-email'});
+    const otherPort: PortLike={postMessage(){}};
+    const credential=await signInWithEmailLink(clientAuth,'emma@kin.example',mail!.link);
+    expect(credential.user.uid).toBe('emma');
+    expect(credential.user.displayName).toBe('Emma Parker');
+    expect(credential.user.emailVerified).toBe(true);
+    expect(portSession(ctx,hostPort)?.user.uid).toBe('emma');
+    expect(portSession(ctx,otherPort)).toBeNull();
+    expect((await getDoc(doc(clientDb,'private/emma'))).data()).toEqual({message:'Family data'});
+    await expect(signInWithEmailLink(clientAuth,'emma@kin.example',mail!.link)).rejects.toMatchObject({code:'auth/invalid-action-code'});
+  });
+});

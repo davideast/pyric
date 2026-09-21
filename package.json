@@ -9,7 +9,8 @@
     "packages/create-pyric/templates/chat",
     "packages/create-pyric/templates/chat/functions",
     "examples/inpage-todo-app",
-    "examples/teams-workspace"
+    "examples/teams-workspace",
+    "examples/family-space"
   ],
   "overrides": {
     "firebase": "$firebase"
