@@ -9,7 +9,8 @@
       "packages/pyric/test/ai/runtime-constants.test.ts"
     ],
     "browserTests": [
-      "packages/cli/test/e2e/served-export-completeness.pw.ts"
+      "packages/cli/test/e2e/served-export-completeness.pw.ts",
+      "packages/cli/test/e2e/served-auth-linking.pw.ts"
     ],
     "playwrightConfig": "packages/cli/test/e2e/playwright.config.ts"
   },
