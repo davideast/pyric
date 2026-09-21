@@ -640,13 +640,14 @@ All recorded resident-growth measurements are bytes:
 | Reviewer | After fix, run 2 | 190,119,936 | 223,133,696 |
 | Reviewer | After fix, run 3 | 228,884,480 | 160,940,032 |
 
-### I18. Two hosted launcher messages describe the SharedWorker store
+### I18. Three hosted launcher messages describe browser-owned state
 
 - Severity: nit, first-run. Slice: `host`. Status: verify (Codex, `work/integration`). Found by the reviewer on 2026-09-21 while running hosted mode from packed tarballs on `main` `40d1cd35`.
-- Location: the launcher's persistence summary line and its recovery-backup note in `packages/cli/src/cli/serve.ts` and the session code it calls.
+- Location: the launcher's persistence summary line, recovery-backup note, and child-command browser-connection notice in `packages/cli/src/cli/serve.ts` and the session code it calls.
 - Defect, first message: on a first start with `--seed` in a project that has no store, the fixture is loaded into the empty SQLite store and then read back, so the summary prints `1 doc(s), 0 user(s) restored; --seed skipped`. The seed was applied; the line says it was not.
 - Defect, second message: after `--hosted --fresh` the note reads `a recovery backup exists at .../.pyric/state/hosted.archive-<time>-<id> ... Restore: mv it back over state.json`. The archive is a directory and the restore is to stop the host and rename it to `.pyric/state/hosted`; following the printed instruction does nothing useful.
-- Acceptance: `bun scripts/verify-ledger.ts I18`. A hosted first start with a seed reports the seed as applied, with its counts; the hosted `--fresh` note names the directory rename. Both pinned by a CLI test on the hosted path, including a restart that reports existing state rather than re-applying the seed. The SharedWorker wording stays as it is for that mode.
+- Defect, third message: with `--hosted --no-open` and a child command, the launcher says the sandbox is browser-resident and asks the user to open a page to connect. The Node sandbox is already running, so that instruction is unnecessary and false.
+- Acceptance: `bun scripts/verify-ledger.ts I18`. A hosted first start with a seed reports the seed as applied, with its counts; the hosted `--fresh` note names the directory rename. Both pinned by a CLI test on the hosted path, including a restart that reports existing state rather than re-applying the seed. The child-command browser-connection notice is absent in hosted mode, which already reports that the sandbox executes in this Node process; the same notice stays unchanged in browser mode. The SharedWorker wording stays as it is for that mode.
 
 ## E. Evidence owed
 

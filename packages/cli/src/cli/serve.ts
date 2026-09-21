@@ -842,6 +842,8 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
 
   const json = Boolean(parsed.flags.get('json'));
   const usesHumanOutput = !json;
+  const usesHostedSandbox = Boolean(parsed.flags.get('hosted'));
+  const needsBrowserConnectionNotice = usesHumanOutput && !usesHostedSandbox;
 
   const explicitUi = Boolean(parsed.flags.get('ui'));
   const uiOn = !parsed.flags.get('no-ui');
@@ -922,7 +924,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
       logger,
       noCache: Boolean(parsed.flags.get('no-cache')),
       bridge: bridgeOn,
-      hosted: Boolean(parsed.flags.get('hosted')),
+      hosted: usesHostedSandbox,
       seed,
       watch,
       persist: Boolean(parsed.flags.get('persist')),
@@ -1119,7 +1121,7 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
           `  ⚠ no browser tab connected after 30s — starting your command anyway; sandbox ops will fail until ${runtime.handle.url} is open.\n`,
         );
       }
-    } else if (usesHumanOutput) {
+    } else if (needsBrowserConnectionNotice) {
       info.write(
         `  ⓘ Auto-open is disabled (--no-open/CI). The pyric sandbox is browser-resident: ` +
           `open ${runtime.handle.url} to connect if your command performs Firebase operations.\n`,
