@@ -77,6 +77,7 @@ export interface SandboxSessionSummary {
     restoredDocs: number;
     restoredUsers: number;
     restored: boolean;
+    seedApplied: boolean;
   };
   capturePath: string | null;
   seedLabel: string | null;
@@ -217,6 +218,7 @@ export async function createSandboxSession(
     let seedState: unknown | null = null;
     let seedUsers: Record<string, unknown>[] | null = null;
     let seedLabel: string | null = null;
+    let seedApplied = false;
     const seedFile = options.seedFile;
     const hasSeedFile = !!seedFile;
     if (hasSeedFile) {
@@ -257,6 +259,7 @@ export async function createSandboxSession(
             const hasStorageState = fixture.storage !== undefined;
             if (hasStorageState) await state.writeSection('storage', fixture.storage);
           }
+          seedApplied = true;
           persisted = state.load();
         } else {
           const hasNoStateStore = !hasStateStore;
@@ -314,6 +317,7 @@ export async function createSandboxSession(
             backupPath: state.backupPath,
             ...restoredCounts,
             restored: persisted !== null,
+            seedApplied,
           }
         : null,
       capturePath: capture?.path ?? null,
