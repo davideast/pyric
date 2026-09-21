@@ -4,7 +4,7 @@ The short list of what is actually open. The ledger (`docs/hosted-review-ledger.
 
 ## Needs the owner
 
-1. **Merge pull request 665, the Studio hosted client (ledger C15).** Approved and published on 2026-09-23 as `slice/studio-hosted` `9e95f23b` on `main` `4920d829`, nine files. On `main`, Studio against a `--hosted` server reconnects in a loop with an empty live feed; the slice fixes it and leaves SharedWorker mode unchanged.
+None. Pull request 665, the Studio hosted client (ledger C15), merged as `main` `4b5fe6ae` on 2026-09-23.
 
 ## In progress
 
