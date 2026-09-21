@@ -255,3 +255,4 @@ export type {
 
 export { getHostedFirestore } from './client/websocket-connection.js';
 export { readHostedTarget } from '../runtime/hosted-target.js';
+export { takeAuthMail } from './client/auth-action-codes.js';

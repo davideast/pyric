@@ -52,7 +52,7 @@ import {
   type ActionCodeSettings,
 } from './action-codes.js';
 import { targetOf } from './target.js';
-import type { Auth, UserCredential } from './types.js';
+import type { Auth, User, UserCredential } from './types.js';
 
 /**
  * `sendSignInLinkToEmail(auth, email, settings)` — mirror of
@@ -108,8 +108,14 @@ export async function sendSignInLinkToEmail(
  */
 export function isSignInWithEmailLink(auth: Auth, link: string): boolean {
   targetOf(auth);
+  return isEmailSignInLink(link);
+}
+
+/** Shared link predicate for page handles that do not own an Auth backend. */
+export function isEmailSignInLink(link: string): boolean {
   const parsed = ActionCodeURL.parseLink(link);
-  return parsed !== null && parsed.operation === ActionCodeOperation.EMAIL_SIGNIN;
+  const isSignIn = parsed !== null && parsed.operation === ActionCodeOperation.EMAIL_SIGNIN;
+  return isSignIn;
 }
 
 /**
@@ -133,11 +139,25 @@ export async function signInWithEmailLink(
   email: string,
   link: string,
 ): Promise<UserCredential> {
+  const { user, isNewUser } = resolveEmailLinkIdentity(auth, email, link);
+  await targetOf(auth).backend.transitionCurrentUser(user, 'password');
+  return {
+    user,
+    // Email/password credentials have a null providerId, including email links.
+    providerId: null,
+    operationType: 'signIn',
+    _additionalUserInfo: { isNewUser, profile: {}, providerId: null },
+  };
+}
+
+/** Redeem and resolve the account without changing the backend's global session. */
+export function resolveEmailLinkIdentity(auth: Auth, email: string, link: string): { user: User; isNewUser: boolean } {
   const t = targetOf(auth);
   const target = t;
   target.backend.assertProviderEnabled('password');
   const parsed = ActionCodeURL.parseLink(link);
-  if (!parsed) {
+  const missingLink = parsed === null;
+  if (missingLink) {
     // Oracle: a `mode=signIn` link with no oobCode throws
     // `auth/argument-error` client-side, NOT invalid-action-code — the
     // SDK never gets far enough to ask the server about a code it cannot
@@ -147,7 +167,8 @@ export async function signInWithEmailLink(
       'signInWithEmailLink: the link is not a valid email sign-in link (no oobCode).',
     );
   }
-  if (parsed.operation !== ActionCodeOperation.EMAIL_SIGNIN) {
+  const wrongOperation = parsed.operation !== ActionCodeOperation.EMAIL_SIGNIN;
+  if (wrongOperation) {
     throw makeAuthError(
       'auth/argument-error',
       `signInWithEmailLink: the link authorizes ${parsed.operation}, not an email sign-in.`,
@@ -156,20 +177,23 @@ export async function signInWithEmailLink(
   assertEmail(email, 'signInWithEmailLink');
 
   const spec = target.backend.peekActionCode(parsed.code);
-  if (!spec) {
+  const missingCode = spec === undefined;
+  if (missingCode) {
     throw makeAuthError(
       'auth/invalid-action-code',
       'signInWithEmailLink: the action code is invalid. This can happen if the code is malformed, expired, or has already been used.',
     );
   }
-  if (spec.expired) {
+  const expired = spec.expired === true;
+  if (expired) {
     throw makeAuthError('auth/expired-action-code', 'signInWithEmailLink: the action code has expired.');
   }
   // The address the caller passed must be the one the link was issued
   // for. This is the check that makes the flow safe against a link
   // pasted into the wrong session — upstream requires the caller to
   // supply the email precisely so it can be compared.
-  if (spec.email.toLowerCase() !== email.toLowerCase()) {
+  const wrongEmail = spec.email.toLowerCase() !== email.toLowerCase();
+  if (wrongEmail) {
     throw makeAuthError(
       'auth/invalid-email',
       'signInWithEmailLink: the email provided does not match the address this sign-in link was issued for.',
@@ -180,20 +204,7 @@ export async function signInWithEmailLink(
   const { stored, isNewUser } = target.backend.upsertEmailLinkUser(spec.email);
   target.backend.assertSignInAllowed(stored.uid);
   const user = target.backend.buildUserFromStored(stored);
-  await target.backend.transitionCurrentUser(user, 'password');
-  return {
-    user,
-    // Email/password sign-ins carry `providerId: null` on the credential
-    // — the same oracle-pinned rule `signInWithEmailAndPassword` follows
-    // (observations/auth/auth-createUser-operationType.json).
-    providerId: null,
-    operationType: 'signIn',
-    _additionalUserInfo: {
-      isNewUser,
-      profile: {},
-      providerId: null,
-    },
-  };
+  return { user, isNewUser };
 }
 
 /** The email-link sign-in method id, for symmetry with

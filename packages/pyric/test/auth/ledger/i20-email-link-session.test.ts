@@ -13,7 +13,9 @@ test('in-page email-link redemption transitions global Auth and reports newness'
       await sendSignInLinkToEmail(auth, 'owner@example.com', { url: 'https://example.com', handleCodeInApp: true });
       const mail = sandbox.takeAuthMail(auth);
       expect(mail).not.toBeNull();
-      const credential = await signInWithEmailLink(auth, 'owner@example.com', mail!.link);
+      const missingMail = mail === null;
+      if (missingMail) throw new Error('Expected a sign-in link');
+      const credential = await signInWithEmailLink(auth, 'owner@example.com', mail.link);
       expect(auth.currentUser).toBe(credential.user);
       expect(credential.user.emailVerified).toBe(true);
       expect(credential.providerId).toBeNull();

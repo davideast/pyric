@@ -264,7 +264,7 @@ export async function restorePortSession(
   return user;
 }
 
-function hydrateCred(auth: ClientAuth, raw: SerializedUserCredential): ClientUserCredential {
+export function hydrateCred(auth: ClientAuth, raw: SerializedUserCredential): ClientUserCredential {
   const user = makeClientUser(auth.port, raw.user);
   auth.currentUser = user;
   return {

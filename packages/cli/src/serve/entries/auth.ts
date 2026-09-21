@@ -282,4 +282,7 @@ export {
 
 export { linkWithCredential, linkWithPopup, linkWithRedirect, unlink } from './auth-linking.js';
 export { reauthenticateWithCredential, reauthenticateWithPopup, reauthenticateWithRedirect } from './auth-reauthentication.js';
+export { sendPasswordResetEmail, sendEmailVerification, verifyBeforeUpdateEmail, applyActionCode,
+  checkActionCode, verifyPasswordResetCode, confirmPasswordReset, sendSignInLinkToEmail,
+  signInWithEmailLink, isSignInWithEmailLink } from './auth-action-codes.js';
 export * from './unsupported/auth.js';

@@ -150,6 +150,8 @@ function setPortSession(ctx: HostCtx, port: PortLike, session: MintedSession | n
   }
 }
 
+export { setPortSession };
+
 /** Apply a forced ID-token refresh to this port's data authorization state. */
 function refreshPortAuthorization(
   ctx: HostCtx,

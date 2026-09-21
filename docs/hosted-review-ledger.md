@@ -704,6 +704,16 @@ All recorded resident-growth measurements are bytes:
 - Part 3 linking group: `linkWithPopup`, `linkWithRedirect`, `linkWithCredential`, and `unlink` forward to the authoritative host and reuse the engine's account-linking policy. The new operations require healthy persistence and acknowledge after flushing. Browser acceptance covers both served modes, UID/tenant preservation, current-user provider state, credential sign-in, errors, and stale-user refusal. Host acceptance also covers port isolation and a sign-out during persistence. Remaining forwarding groups and served-availability reporting stay open.
 - Part 3 reauthentication group: credential, popup, and redirect reauthentication reuse engine verification and refresh the existing connection's token and authorization claims while preserving UID/tenant. The two wire operations change session state only; acceptance asserts persisted account records stay identical and no persistence flush occurs. Browser cases in both modes cover token freshness, wrong-password/wrong-user refusal, another app's session isolation, owned-data access, and resolver identity checks. The engine's documented absence of recent-login enforcement remains unchanged.
 
+- Part 3 email group: the served action-code and email-link functions use the engine's single-use codes and mailbox. `takeAuthMail` consumes the sandbox-wide in-memory mailbox; any attached page can take mail, matching the in-page driver. Sending or consuming mail changes no persisted record and performs no flush. Redeeming account changes flushes before acknowledgment. Email-link identity resolution reuses the engine validation without changing global Auth; the host mints a detached connection session. No external email is sent.
+
+### I21. inspect_auth_flow advertises take_mail and nothing implements it
+
+- Severity: should-fix. Slice: `core tools`. Status: open; owner decision required before wiring it under the served-entry work.
+- Location: `packages/cli/src/bridge/surface/render/discriminator-schemas.ts` advertises `take_mail`; `packages/cli/src/bridge/surface/render/discriminator-routes.ts` has no corresponding `AUTH_ROUTES` entry or handler.
+- Defect: the rendered tool advertises a mailbox action that cannot dispatch. The engine has a consuming, in-memory Auth outbox and the served worker now forwards `auth.takeMail`; the rendered tool still does not reach it.
+- Scope: connecting the existing operation may be a small route/handler change, but the tool dispatch and schema must be tested together. It is separate from served SDK forwarding and awaits the owner's call.
+- Acceptance: invoking the advertised action through the real tool dispatcher returns and consumes an issued Auth mail, preserves sandbox-wide reach, and returns an empty result after consumption without changing persisted records.
+
 ## E. Evidence owed
 
 ### E1. Conformance evidence for the foundation slice's engine changes

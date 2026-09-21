@@ -102,6 +102,25 @@ test('served password reset sends a real code, rejects weak passwords without co
   } finally { await f.close(); }
 });
 
+test('served account-code redemption acknowledges only after its persistence flush', async () => {
+  const f = fixture();
+  try {
+    const uid = await f.createUser();
+    await f.send('auth.sendEmailVerification', { uid, tenantId: 'red' });
+    const { code } = f.mail('owner@example.com');
+    const flushEntered = Promise.withResolvers<void>();
+    const releaseFlush = Promise.withResolvers<void>();
+    f.context.flushPersistence = async () => { flushEntered.resolve(); await releaseFlush.promise; };
+    let acknowledged = false;
+    const response = f.send('auth.applyActionCode', { code }).then(value => { acknowledged = true; return value; });
+    await flushEntered.promise;
+    expect(acknowledged).toBe(false);
+    releaseFlush.resolve();
+    expect(await response).toMatchObject({ ok: true });
+    expect(acknowledged).toBe(true);
+  } finally { await f.close(); }
+});
+
 test('served email verification applies only when its issued code is redeemed and cannot be replayed', async () => {
   const f = fixture();
   try {

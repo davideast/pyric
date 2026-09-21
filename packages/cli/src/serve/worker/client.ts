@@ -53,5 +53,6 @@ export * from './client/presence.js';
 export * from './client/auth.js';
 export { linkWithCredential, unlink } from './client/auth-linking.js';
 export { reauthenticateWithCredential } from './client/auth-reauthentication.js';
+export * from './client/auth-action-codes.js';
 export * from './client/storage.js';
 export * from './client/ai.js';

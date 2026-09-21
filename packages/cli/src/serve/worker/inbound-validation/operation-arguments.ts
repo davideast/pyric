@@ -228,6 +228,41 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireString(identity.providerId, 'identity.providerId');
       return;
     }
+    case 'auth.sendPasswordResetEmail':
+      requireString(message.email, 'email');
+      requireOptionalRecord(message.settings, 'settings');
+      return;
+    case 'auth.takeMail': {
+      const hasEmail = message.email !== undefined;
+      if (hasEmail) requireString(message.email, 'email');
+      return;
+    }
+    case 'auth.sendSignInLinkToEmail':
+      requireString(message.email, 'email');
+      requireRecord(message.settings, 'settings');
+      return;
+    case 'auth.signInWithEmailLink':
+      requireString(message.email, 'email');
+      requireString(message.link, 'link');
+      return;
+    case 'auth.sendEmailVerification':
+      requireString(message.uid, 'uid');
+      requireOptionalRecord(message.settings, 'settings');
+      return;
+    case 'auth.verifyBeforeUpdateEmail':
+      requireString(message.uid, 'uid');
+      requireString(message.newEmail, 'newEmail');
+      requireOptionalRecord(message.settings, 'settings');
+      return;
+    case 'auth.applyActionCode':
+    case 'auth.checkActionCode':
+    case 'auth.verifyPasswordResetCode':
+      requireString(message.code, 'code');
+      return;
+    case 'auth.confirmPasswordReset':
+      requireString(message.code, 'code');
+      requireString(message.newPassword, 'newPassword');
+      return;
     case 'auth.signInWithCredential': {
       const credential = message.credential ?? message;
       requireRecord(credential, 'credential');
