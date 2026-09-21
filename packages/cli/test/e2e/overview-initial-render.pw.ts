@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { createServer, type ViteDevServer } from 'vite';
+import { createServer, type ViteDevServer, type Plugin } from 'vite';
 import { pyric } from '../../dist/vite.js';
 
 const studioRequire = createRequire(new URL('../../../studio/package.json', import.meta.url));
@@ -32,6 +32,26 @@ function App() {
 createRoot(document.getElementById('app')).render(React.createElement(App));
 `;
 
+// Delay only the chip mount through its existing mount seam. SDK setup and
+// React's hook keep running; the test releases the chip after both data commits.
+function holdChipMount(): Plugin {
+  return {
+    name: 'hold-overview-chip-mount', enforce: 'post',
+    transform(code, id) {
+      if (!id.endsWith('/runtime/chip-install.js')) return;
+      const mount = 'const mount = options.mount ?? mountPyricRuntimeChip;';
+      if (!code.includes(mount)) throw new Error('Chip mount seam was not found');
+      return code.replace(mount, `const mount = options.mount ?? (chipOptions => {
+        let chip;
+        globalThis.__chipMountReady = new Promise(resolve => {
+          globalThis.__releaseChipMount = () => { chip = mountPyricRuntimeChip(chipOptions); resolve(); };
+        });
+        return { element: options.document.createElement('div'), dispose() { chip?.dispose(); } };
+      });`);
+    },
+  };
+}
+
 for (const hosted of [false, true]) {
   test(`Overview highlights initial module reads before any interaction, including after reload (${hosted ? 'Node' : 'SharedWorker'})`, async ({ page }) => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-overview-')));
@@ -49,7 +69,7 @@ for (const hosted of [false, true]) {
         'reads/one': { value: 'Read ready' }, 'subscriptions/one': { value: 'Listener ready' },
       } } }));
       server = await createServer({ root, configFile: false, logLevel: 'silent',
-        plugins: [pyric({ hosted, capture: false, ui: false, seed: 'seed.json' })],
+        plugins: [pyric({ hosted, capture: false, ui: false, seed: 'seed.json' }), holdChipMount()],
         server: { host: '127.0.0.1', port: 0 },
       });
       await server.listen();
@@ -58,7 +78,14 @@ for (const hosted of [false, true]) {
         if (visit > 0) await page.reload();
         await expect(page.locator('#read')).toHaveText('Read ready');
         await expect(page.locator('#live')).toHaveText('Listener ready');
-        // Let startup settle. No application click, write, or render follows enable.
+        // Both initial commits must precede the chip and createListenerMode.
+        await expect(page.locator('pyric-runtime-chip, [data-pyric-runtime-chip-host]')).toHaveCount(0);
+        await page.evaluate(async () => {
+          const gate = globalThis as typeof globalThis & { __releaseChipMount: () => void; __chipMountReady: Promise<void> };
+          gate.__releaseChipMount();
+          await gate.__chipMountReady;
+        });
+        // No application click, write, or render follows enable.
         await page.waitForTimeout(1000);
         await page.getByRole('button', { name: 'Open pyric', exact: true }).click();
         await page.getByRole('tab', { name: 'Data', exact: true }).click();
