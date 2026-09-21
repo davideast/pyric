@@ -144,7 +144,9 @@ export async function createViteSandboxGeneration(
       throw new Error('@pyric/cli/vite: hosted requires Vite’s HTTP server; middleware mode is unsupported.');
     }
     const persistsState = options.persist === true || usesHostedSandbox;
-    if (persistsState) stateOwner = await claimProjectState(cwd);
+    // A hosted generation keeps its state in `.pyric/state/hosted`; a persisting
+    // browser generation writes `state.json`. Each holds only its own files.
+    if (persistsState) stateOwner = await claimProjectState(cwd, usesHostedSandbox ? 'host' : 'browser-state');
     let firebaseConfig: FirebaseJson | null = null;
     try {
       firebaseConfig = await dependencies.readFirebaseJson(cwd);

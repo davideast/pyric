@@ -319,7 +319,7 @@ export async function runInProcessMcp(
 ): Promise<number> {
   const projectDir = resolve(cwd, options.projectDir ?? '.');
   mkdirSync(projectDir, { recursive: true });
-  const owner = await claimProjectState(projectDir);
+  const owner = await claimProjectState(projectDir, 'in-process');
   try {
     return await runInProcessSession(projectDir, options);
   } finally {

@@ -37,7 +37,8 @@
  *
  * `--in-process` opts out of all of this: it forces the in-process sandbox and
  * never looks for a running bridge. The selected project must still have no
- * other persistence owner. `--surface <id>` (or `PYRIC_TOOL_SURFACE`, with the flag
+ * other in-process sandbox; a running sandbox host owns different state files
+ * and does not conflict. `--surface <id>` (or `PYRIC_TOOL_SURFACE`, with the flag
  * winning) selects the tool surface the in-process server renders, and
  * `--project-dir <dir>` (or `PYRIC_PROJECT_DIR`, same precedence) names the
  * directory that in-process server reads its rules files and `.pyric/state` from.
@@ -236,7 +237,7 @@ export async function runMcpProxy(
         `${SCAN_PORTS.join(', ')}); starting an in-process sandbox (zero-setup).\n` +
         '  Data persists to .pyric/state/in-process.json. For a shared-live Studio\n' +
         '  session, start `pyric sandbox --bridge` before connecting the agent (a sandbox host\n' +
-        '  started mid-session does not yet adopt this in-process data).',
+        '  started mid-session keeps its own state; this session stays on the in-process file).',
     );
     return await runInProcess(cwd, selection);
   }
