@@ -1,3 +1,4 @@
+import { Notifications, useNotifications } from "./notifications";
 import { Assistant } from "./assistant";
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -578,12 +579,16 @@ function Search({
 }
 function Workspace({ session }: { session: User }) {
   const user = session.uid;
+  const notifications = useNotifications(user);
   useEffect(() => connectPresence(user), [user]);
   const [assistant, setAssistant] = useState(false);
-  const [channel, setChannel] = useState("design"),
+  const [channel, setChannel] = useState(() => {
+      const linked = new URLSearchParams(location.search).get("channel");
+      return channels.find(item => item.id === linked)?.id ?? "design";
+    }),
     [messages, setMessages] = useState<Message[]>([]),
     [error, setError] = useState(""),
-    [rail, setRail] = useState<"team" | "scenarios" | "thread" | "files">(
+    [rail, setRail] = useState<"team" | "scenarios" | "thread" | "files" | "notifications">(
       "team",
     ),
     [thread, setThread] = useState<Message>(),
@@ -681,6 +686,14 @@ function Workspace({ session }: { session: User }) {
             <Icon name="chat" />
             AI assistant
           </button>
+          <button aria-label="Notifications" onClick={() => {
+            setAssistant(false);
+            openRail("notifications");
+            setNav(false);
+          }}>
+            <Icon name="bell" />Notifications
+            {notifications.mentions.length > 0 && <span className="nav-count">{notifications.mentions.length}</span>}
+          </button>
           <button onClick={() => setSearch(true)}>
             <Icon name="search" />
             Search<kbd>⌘ K</kbd>
@@ -741,7 +754,9 @@ function Workspace({ session }: { session: User }) {
               className="sign-out"
               onClick={() => {
                 void presence(user, "offline").catch(() => {});
-                void signOut(auth);
+                void notifications.disconnect().then(() => signOut(auth)).catch(error => {
+                  setError(error instanceof Error ? error.message : "Could not sign out. Try again.");
+                });
               }}
             >
               Sign out
@@ -836,7 +851,12 @@ function Workspace({ session }: { session: User }) {
             onClick={() => setMobileRail(false)}
           />
         </div>
-        {rail === "scenarios" ? (
+        {rail === "notifications" ? (
+          <Notifications state={notifications} onOpen={next => {
+            setChannel(next);
+            setMobileRail(false);
+          }} />
+        ) : rail === "scenarios" ? (
           <ScenarioPanel channel={channel} user={user} />
         ) : rail === "thread" && thread ? (
           <>

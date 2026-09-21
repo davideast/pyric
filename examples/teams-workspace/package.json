@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:notifications": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
     "firebase": "^12.12.0",

@@ -1,1 +1,8 @@
 .pyric/
+
+# Local Firebase configuration and downloaded Admin SDK credentials.
+.env*
+!.env.example
+!.env.*.example
+*firebase-adminsdk*.json
+service-account*.json
