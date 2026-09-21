@@ -15,7 +15,7 @@ None. Pull request 665, the Studio hosted client (ledger C15), merged as `main` 
 
 3. **Overview paints nothing until a render is observed while painting is on, and forgets it on reload (ledger C17).** Reported by the owner; reproduced in both modes. Overview's box is drawn around elements the Flow observer captured, and that observer runs only while the overlay is on, so everything that rendered before the chip was opened is invisible to it, and a reload empties what it had. Not hosted-specific. Ruled by the owner on 2026-09-23: observe from the moment the mode exists, paint only while the overlay is on. Assigned to the implementing agent in channel message 0089, acceptance first: a unit test that records a delivery and a commit before the mode is enabled and expects boxes on enable, and a browser test that turns Overview on without touching the application, before and after a reload.
 
-4. **`@pyric/cli` refuses to install beside Vite 8 (ledger I19).** Its Vite peer range stops at 7 and a freshly scaffolded React project gets Vite 8. Unrelated to hosted mode; found while reproducing item 2.
+4. **`@pyric/cli` refuses to install beside Vite 8 (ledger I19).** Its Vite peer range stops at 7 and a freshly scaffolded React project gets Vite 8. Unrelated to hosted mode. Ruled by the owner on 2026-09-24: prove the third-party dependency redirect under Vite 7 and Vite 8 first, feature-detect `rolldownOptions`, then widen the range. Assigned in channel message 0096, after C17.
 
 ## Watching
 
