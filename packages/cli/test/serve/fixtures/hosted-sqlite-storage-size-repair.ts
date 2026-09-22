@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createHostedPersistence, hostedStateDirectory } from '../../../src/serve/hosted/persistence.js';
 import { openHostedDatabase } from '../../../src/serve/hosted/persistence/database.js';
 import { salvageHostedState } from '../../../src/serve/hosted/persistence/salvage.js';
+import { MAX_STORAGE_OBJECT_BYTES } from '../../../src/serve/worker/protocol/storage.js';
 
 const root = process.argv[2];
 const path = 'notes/timings.json';
@@ -101,13 +102,81 @@ rewriteMetadata(relabel, path, metadata(body.length, 'notes/other.json'));
 relabel.close();
 await assert.rejects(createHostedPersistence(identity), /Hosted state could not be restored/);
 
-// The size limit judges the bytes a row holds, whatever size it records.
+// Storage objects larger than 8 MiB but within MAX_STORAGE_OBJECT_BYTES are retained across restart and salvage.
+const largeProject = join(root, 'large-project');
+const largePersistence = await createHostedPersistence(largeProject);
+const largePath = 'media/narration.wav';
+const largeBytes = new Uint8Array(16 * 1024 * 1024);
+largeBytes[0] = 1;
+largeBytes[largeBytes.length - 1] = 2;
+await largePersistence.storage.put(largePath, new Blob([largeBytes], { type: 'audio/wav' }), metadata(largeBytes.byteLength, largePath));
+
+const oversizeBytes = new Uint8Array(MAX_STORAGE_OBJECT_BYTES + 1);
+
+// Direct storage.put rejects objects exceeding MAX_STORAGE_OBJECT_BYTES with quota-exceeded.
+await assert.rejects(
+  largePersistence.storage.put('too-big.bin', new Blob([oversizeBytes]), metadata(oversizeBytes.byteLength, 'too-big.bin')),
+  (err: unknown) => {
+    const error = err as { code?: string; message?: string };
+    return error.code === 'storage/quota-exceeded' && typeof error.message === 'string' && error.message.includes('MAX_STORAGE_OBJECT_BYTES');
+  },
+);
+largePersistence.close();
+
+const largeRestored = await createHostedPersistence(largeProject);
+try {
+  assert.equal(largeRestored.status().state, 'healthy');
+  const stored = await largeRestored.storage.getMetadata(largePath, bucket);
+  assert.equal(stored?.size, largeBytes.byteLength);
+  const blob = await largeRestored.storage.getBlob(largePath, bucket);
+  assert.equal(blob?.size, largeBytes.byteLength);
+} finally {
+  largeRestored.close();
+}
+
+const largeDamaged = join(root, 'large-damaged');
+const largeSource = await openHostedDatabase(largeDamaged);
+await largeSource.records.putRecords('hosted', records);
+await largeSource.storage.put(largePath, new Blob([largeBytes], { type: 'audio/wav' }), metadata(largeBytes.byteLength, largePath));
+largeSource.close();
+
+const largeOutput = join(root, 'large-recovered');
+const largeReport = await salvageHostedState(largeDamaged, largeOutput);
+assert.deepEqual(largeReport.excluded, []);
+assert.equal(largeReport.recoveredObjects, 1);
+const largeRecovered = await openHostedDatabase(largeOutput);
+try {
+  assert.equal((await largeRecovered.storage.getMetadata(largePath, bucket))?.size, largeBytes.byteLength);
+} finally {
+  largeRecovered.close();
+}
+
+// Salvage excludes objects exceeding MAX_STORAGE_OBJECT_BYTES.
+const oversizeDamaged = join(root, 'oversize-damaged');
+const oversizeSource = await openHostedDatabase(oversizeDamaged);
+await oversizeSource.records.putRecords('hosted', records);
+oversizeSource.connection.prepare('INSERT INTO storage_objects VALUES (?, ?, ?, ?, ?)').run(
+  bucket,
+  'too-big.bin',
+  JSON.stringify(metadata(oversizeBytes.byteLength, 'too-big.bin')),
+  'application/octet-stream',
+  oversizeBytes,
+);
+oversizeSource.close();
+
+const oversizeOutput = join(root, 'oversize-recovered');
+const oversizeReport = await salvageHostedState(oversizeDamaged, oversizeOutput);
+assert.deepEqual(oversizeReport.excluded, [
+  { namespace: 'storage', id: `${bucket}/too-big.bin`, reason: 'Object validation failed' },
+]);
+
+// The size limit judges the bytes a row holds, whatever size it records, against MAX_STORAGE_OBJECT_BYTES.
 const oversize = join(root, 'oversize');
 const small = await createHostedPersistence(oversize);
 await small.storage.put(path, new Blob([body], { type: 'application/json' }), metadata(body.length));
 small.close();
 const enlarge = await openHostedDatabase(hostedStateDirectory(oversize));
-enlarge.connection.prepare('UPDATE storage_objects SET bytes=? WHERE bucket=? AND path=?').run(new Uint8Array(8 * 1024 * 1024 + 1), bucket, path);
+enlarge.connection.prepare('UPDATE storage_objects SET bytes=? WHERE bucket=? AND path=?').run(oversizeBytes, bucket, path);
 enlarge.close();
 await assert.rejects(createHostedPersistence(oversize), /Hosted state could not be restored/);
 
