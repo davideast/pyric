@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "experimentId": "automatic-recovery",
+  "variantId": "autonomous-fenced-reconciler",
+  "profile": "local",
+  "backend": { "kind": "pyric" },
+  "execution": { "kind": "local-processes", "gatewayCount": 2, "recoveryWorkerCount": 2 },
+  "provider": { "kind": "fixture", "profile": "observable" },
+  "clock": { "kind": "logical", "initialMs": 1000 },
+  "seed": 18,
+  "policyVersion": "integrated-v1",
+  "realInferenceEnabled": false,
+  "limits": {
+    "maxRequests": 200,
+    "maxCommands": 400,
+    "maxDurationMs": 60000,
+    "maxTransactionAttempts": 8
+  }
+}
