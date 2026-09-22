@@ -44,4 +44,4 @@ Pyric was built by working those parts until they gave, and what was learned is 
 
 ## Where to go next
 
-Start with [the quickstart](./get-started/start-building.md). If you came here for an agent, go to [connect an agent](./agent/set-up-your-agent.md). If you came here for rules, go straight to [prove your rules protect the app](./secure/secure-it-with-rules.md).
+Start with [the quickstart](./get-started/start-building.md). If you came here for an agent, go to [connect an agent](./agent/set-up-your-agent.md). If you came here for rules, go straight to [prove your rules protect the app](./secure/secure-it-with-rules.md). To run the sandbox in a shared, durable Node process, see [Node host mode](./get-started/node-host.md).
