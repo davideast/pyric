@@ -59,8 +59,15 @@ git status --short                    # must print nothing
 bash scripts/prepare-release.sh "$RELEASE_VERSION"
 ```
 
-Review the pull request and let its required checks finish. The release diff
-should contain only the intended lockstep version changes and lockfile refresh.
+Review the pull request and verify that all required CI release gates are green before merging:
+- **`packaging`**: packs tarballs and verifies installation, runtime asset paths, and subpath exports in a clean consumer;
+- **`install-matrix`**: proves real tarball resolution across package managers (`npm`, `pnpm`, and `bun`);
+- **`standalone`**: verifies standalone binary compilation and vendor smoke;
+- **`release-contract`**: verifies safety contracts in release scripts (`scripts/publish-alpha.test.ts`);
+- **Full test suite**: package build, sharded CLI test suite, library/UI tests, and conformance gates.
+
+The `ci-packaging` label is automatically applied by `scripts/prepare-release.sh` to trigger these packaging and release gates on the release pull request. Pushes to `main` also unconditionally run the packaging gate. All required checks must be green on the exact release commit before publishing.
+
 Merge the pull request; do not publish from the release branch.
 
 If the script refuses a dirty working tree, preserve or finish that work before

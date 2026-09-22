@@ -10,7 +10,7 @@ afterEach(() => {
   for (const directory of workDirs.splice(0)) rmSync(directory, { recursive: true, force: true });
 });
 
-function runPublish(options: { skip?: boolean; dryRun?: boolean; failBunCommand?: string } = {}) {
+function runPublish(options: { skip?: boolean; dryRun?: boolean; failBunCommand?: string; publishTag?: string } = {}) {
   const work = mkdtempSync(join(tmpdir(), 'pyric-publish-contract-'));
   workDirs.push(work);
   const bin = join(work, 'bin');
@@ -40,6 +40,7 @@ if [ -n "\${FAIL_BUN_COMMAND:-}" ] && [ "$name $*" = "bun $FAIL_BUN_COMMAND" ]; 
       COMMAND_LOG: log,
       FAIL_BUN_COMMAND: options.failBunCommand ?? '',
       PYRIC_PUBLISH_SKIP_GATES: options.skip ? '1' : '0',
+      PYRIC_PUBLISH_TAG: options.publishTag ?? '',
     },
   });
   return { result, commands: readFileSync(log, 'utf8').trim().split('\n') };
@@ -97,5 +98,21 @@ describe('alpha publish safety contract', () => {
     expect(preflight).toBeGreaterThanOrEqual(0);
     expect(preflight).toBeLessThan(publish);
     expect(checklist).not.toContain('OTP-capable');
+  });
+
+  test('prepare-release opens the release PR with the ci-packaging label', () => {
+    const script = readFileSync(join(root, 'scripts/prepare-release.sh'), 'utf8');
+    expect(script).toContain('gh pr create');
+    expect(script).toContain('--label ci-packaging');
+  });
+
+  test('supports publishing under the next tag without moving latest or alpha (#689)', () => {
+    const { result, commands } = runPublish({ skip: true, publishTag: 'next' });
+    expect(result.status).toBe(0);
+    expect(commands.filter((c) => c.startsWith('npm publish ')).every((c) => c.includes('--tag next'))).toBe(true);
+    const distTagAdds = commands.filter((c) => c.startsWith('npm dist-tag add '));
+    expect(distTagAdds.every((c) => !c.endsWith(' latest'))).toBe(true);
+    expect(distTagAdds.every((c) => !c.endsWith(' alpha'))).toBe(true);
+    expect(distTagAdds.some((c) => c.endsWith(' next'))).toBe(true);
   });
 });
