@@ -1,0 +1,19 @@
+{
+  "backend": "firestore-admin",
+  "projectId": "digame-mas",
+  "databaseId": "allowance-experiments",
+  "region": "us-east4",
+  "service": "fair-allocation",
+  "variants": ["immediate", "fifo", "round-robin"],
+  "limits": {
+    "global": 3,
+    "perUser": 2,
+    "leaseMs": 10000
+  },
+  "queueLimits": {
+    "global": 24,
+    "perUser": 8,
+    "ttlMs": 30000
+  },
+  "realInference": false
+}
