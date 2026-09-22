@@ -30,7 +30,17 @@ import {
 import {
   bindStorageOperationContext,
   getAdminStorageSandbox,
+  getStorageService,
+  storageAuth,
+  storageOperationProvenance,
+  targetOf,
+  enforceRules,
+  requestResourceFor,
+  resourceFromStored,
+  toFullMetadata,
 } from 'pyric/storage/internal';
+import { FirebaseError } from 'pyric/app';
+import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { AuthLens } from 'pyric/sandbox';
 import { bindOperationContext } from 'pyric/sandbox/internal';
 
@@ -39,8 +49,13 @@ import {
   bytesToBase64,
   base64ToBytes,
   storagePayloadTooLarge,
+  storagePartTooLarge,
+  storageQuotaExceeded,
   MAX_STORAGE_OP_BYTES,
   MAX_STORAGE_OP_B64_LENGTH,
+  MAX_STORAGE_PART_BYTES,
+  MAX_STORAGE_PART_B64_LENGTH,
+  MAX_STORAGE_OBJECT_BYTES,
 } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { authStateForLens, lensCacheKey, opProvenance, sessionCacheKey } from './core.js';
@@ -160,6 +175,10 @@ const STORAGE_METHODS = new Set<string>([
   'storage.getBlob',
   'storage.putBytes',
   'storage.getBytes',
+  'storage.beginUpload',
+  'storage.putPart',
+  'storage.finishUpload',
+  'storage.abortUpload',
   'storage.deleteObject',
 ]);
 
@@ -262,6 +281,139 @@ export async function handleStorageOp(
       break;
     }
 
+    case 'storage.beginUpload': {
+      try {
+        if (!msg.path || msg.path.trim() === '') {
+          throw new FirebaseError('storage/invalid-root-operation', 'storage.beginUpload cannot operate on root reference.');
+        }
+        if (msg.size < 0) {
+          throw new FirebaseError('storage/invalid-argument', `Invalid upload size: ${msg.size}`);
+        }
+        if (msg.size > MAX_STORAGE_OBJECT_BYTES) {
+          throw storageQuotaExceeded(msg.size, `storage.beginUpload for '${msg.path}'`);
+        }
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs, port),
+          opProvenance(msg),
+        );
+        const r = storageRef(storage, msg.path);
+        const target = targetOf(r.storage);
+        const service = await getStorageService(r.storage);
+        const existing = await service.backend.getMetadata(r.fullPath);
+        const operationProvenance = storageOperationProvenance(target, opProvenance(msg));
+        const settable = toSettableMetadata(msg);
+        enforceRules(service, {
+          request: {
+            auth: storageAuth(target),
+            method: existing ? 'update' : 'create',
+            path: r.fullPath,
+            resource: requestResourceFor({
+              size: msg.size,
+              contentType: settable.contentType ?? msg.contentType ?? 'application/octet-stream',
+              customMetadata: settable.customMetadata,
+            }),
+          },
+          resource: resourceFromStored(existing),
+        }, target, operationProvenance);
+        if (!service.backend.beginUpload) {
+          throw new FirebaseError('storage/unsupported', 'Current storage backend does not support chunked uploads.');
+        }
+        const uploadId = await service.backend.beginUpload(
+          target.bucket,
+          r.fullPath,
+          msg.size,
+          settable.contentType ?? msg.contentType ?? 'application/octet-stream',
+          settable.customMetadata,
+        );
+        ok(port, msg.id, { uploadId });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.putPart': {
+      try {
+        if (!msg.uploadId) {
+          throw new FirebaseError('storage/invalid-argument', 'storage.putPart requires uploadId.');
+        }
+        if (msg.dataB64.length > MAX_STORAGE_PART_B64_LENGTH) {
+          throw storagePartTooLarge(
+            Math.floor(msg.dataB64.length * 0.75),
+            msg.uploadId,
+            msg.partIndex,
+          );
+        }
+        const bytes = base64ToBytes(msg.dataB64);
+        if (bytes.byteLength > MAX_STORAGE_PART_BYTES) {
+          throw storagePartTooLarge(bytes.byteLength, msg.uploadId, msg.partIndex);
+        }
+        const storage = ensureStorage(ctx);
+        const service = await getStorageService(storage);
+        if (!service.backend.putPart) {
+          throw new FirebaseError('storage/unsupported', 'Current storage backend does not support chunked uploads.');
+        }
+        await service.backend.putPart(msg.uploadId, msg.partIndex, bytes);
+        ok(port, msg.id, { bytesTransferred: bytes.byteLength });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.finishUpload': {
+      try {
+        if (!msg.uploadId) {
+          throw new FirebaseError('storage/invalid-argument', 'storage.finishUpload requires uploadId.');
+        }
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs, port),
+          opProvenance(msg),
+        );
+        const target = targetOf(storage);
+        const service = await getStorageService(storage);
+        if (!service.backend.finishUpload) {
+          throw new FirebaseError('storage/unsupported', 'Current storage backend does not support chunked uploads.');
+        }
+        const stored = await service.backend.finishUpload(msg.uploadId);
+        await bestEffortFlush(ctx, msg.method);
+        try {
+          emitSandboxEvent(
+            target.sandbox,
+            makeServiceMutationEvent({
+              at: getClock(target.sandbox).now(),
+              service: 'storage',
+              op: 'object_put',
+              path: stored.fullPath,
+              auth: storageAuth(target),
+              after: stored,
+              detail: {
+                bucket: stored.bucket,
+                size: stored.size,
+                contentType: stored.contentType,
+              },
+            }),
+            storageOperationProvenance(target, opProvenance(msg)),
+          );
+        } catch {
+          // Observational
+        }
+        ok(port, msg.id, toFullMetadata(stored));
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.abortUpload': {
+      try {
+        if (!msg.uploadId) {
+          throw new FirebaseError('storage/invalid-argument', 'storage.abortUpload requires uploadId.');
+        }
+        const storage = ensureStorage(ctx);
+        const service = await getStorageService(storage);
+        if (service.backend.abortUpload) {
+          await service.backend.abortUpload(msg.uploadId);
+        }
+        ok(port, msg.id, null);
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
     case 'storage.getBytes': {
       // JSON-safe byte download (remote sandbox, slice 2): base64 in the
       // result. Encode-end size cap so a big browser-side object can't blow
@@ -275,20 +427,54 @@ export async function handleStorageOp(
         );
         const r = storageRef(storage, msg.path);
         const meta = await storageGetMetadata(r);
-        const exceedsStoredLimit = meta.size > MAX_STORAGE_OP_BYTES;
-        if (exceedsStoredLimit) {
-          throw storagePayloadTooLarge(meta.size, `object '${msg.path}'`);
+        const isRange = msg.offset !== undefined || msg.length !== undefined;
+        if (isRange) {
+          if (msg.expectedGeneration !== undefined && meta.generation !== msg.expectedGeneration) {
+            throw new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
+          }
+          const offset = msg.offset ?? 0;
+          const length = msg.length ?? (meta.size - offset);
+          if (length > MAX_STORAGE_OP_BYTES) {
+            throw storagePayloadTooLarge(length, `range read for '${msg.path}'`);
+          }
+          const target = targetOf(r.storage);
+          const service = await getStorageService(r.storage);
+          let slice: Uint8Array | undefined;
+          if (service.backend.readRange) {
+            slice = await service.backend.readRange(target.bucket, r.fullPath, offset, length, msg.expectedGeneration);
+          } else {
+            const blob = await service.backend.getBlob(r.fullPath, target.bucket);
+            if (blob) {
+              const subBlob = blob.slice(offset, offset + length);
+              slice = new Uint8Array(await subBlob.arrayBuffer());
+            }
+          }
+          if (!slice) {
+            throw new FirebaseError('storage/object-not-found', `object '${msg.path}' not found.`);
+          }
+          ok(port, msg.id, {
+            dataB64: bytesToBase64(slice),
+            contentType: meta.contentType,
+            size: slice.byteLength,
+            generation: meta.generation,
+          });
+        } else {
+          const exceedsStoredLimit = meta.size > MAX_STORAGE_OP_BYTES;
+          if (exceedsStoredLimit) {
+            throw storagePayloadTooLarge(meta.size, `object '${msg.path}'`);
+          }
+          const buf = await storageGetBytes(r);
+          const exceedsReadLimit = buf.byteLength > MAX_STORAGE_OP_BYTES;
+          if (exceedsReadLimit) {
+            throw storagePayloadTooLarge(buf.byteLength, `object '${msg.path}'`);
+          }
+          ok(port, msg.id, {
+            dataB64: bytesToBase64(new Uint8Array(buf)),
+            contentType: meta.contentType,
+            size: buf.byteLength,
+            generation: meta.generation,
+          });
         }
-        const buf = await storageGetBytes(r);
-        const exceedsReadLimit = buf.byteLength > MAX_STORAGE_OP_BYTES;
-        if (exceedsReadLimit) {
-          throw storagePayloadTooLarge(buf.byteLength, `object '${msg.path}'`);
-        }
-        ok(port, msg.id, {
-          dataB64: bytesToBase64(new Uint8Array(buf)),
-          contentType: meta.contentType,
-          size: buf.byteLength,
-        });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

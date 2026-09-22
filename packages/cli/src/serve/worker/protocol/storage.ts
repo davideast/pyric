@@ -19,6 +19,21 @@ export const MAX_STORAGE_OP_BYTES = 8 * 1024 * 1024;
  *  materializing its bytes first. */
 export const MAX_STORAGE_OP_B64_LENGTH = Math.ceil(MAX_STORAGE_OP_BYTES / 3) * 4;
 
+/**
+ * Maximum RAW byte size a single chunked part may carry (`storage.putPart`).
+ * 4 MiB raw ≈ 5.4 MiB base64 — well within the 12 MiB frame budget.
+ */
+export const MAX_STORAGE_PART_BYTES = 4 * 1024 * 1024;
+
+/** Base64 length ceiling for a single part payload within {@link MAX_STORAGE_PART_BYTES}. */
+export const MAX_STORAGE_PART_B64_LENGTH = Math.ceil(MAX_STORAGE_PART_BYTES / 3) * 4;
+
+/**
+ * Maximum total RAW byte size for a storage object transferred via chunked upload (ADR 0015).
+ * 512 MiB default object limit, enforced at `beginUpload`.
+ */
+export const MAX_STORAGE_OBJECT_BYTES = 512 * 1024 * 1024;
+
 /** Build the canonical over-cap error (`code: 'payload-too-large'`). */
 export function storagePayloadTooLarge(
   sizeBytes: number,
@@ -30,6 +45,33 @@ export function storagePayloadTooLarge(
       'supported on the sandbox backend; split the object or keep it under the cap.',
   ) as Error & { code: string };
   err.code = 'payload-too-large';
+  return err;
+}
+
+/** Build the canonical part over-cap error (`code: 'payload-too-large'`). */
+export function storagePartTooLarge(
+  sizeBytes: number,
+  uploadId: string,
+  partIndex: number,
+): Error & { code: string } {
+  const err = new Error(
+    `Part ${partIndex} of upload '${uploadId}' is ${sizeBytes} bytes — over the ` +
+      `${MAX_STORAGE_PART_BYTES / (1024 * 1024)} MiB part cap (MAX_STORAGE_PART_BYTES).`,
+  ) as Error & { code: string };
+  err.code = 'payload-too-large';
+  return err;
+}
+
+/** Build the quota exceeded error (`code: 'storage/quota-exceeded'`). */
+export function storageQuotaExceeded(
+  sizeBytes: number,
+  what: string,
+): Error & { code: string } {
+  const err = new Error(
+    `${what} is ${sizeBytes} bytes — over the ${MAX_STORAGE_OBJECT_BYTES / (1024 * 1024)} MiB ` +
+      'maximum storage object cap (MAX_STORAGE_OBJECT_BYTES).',
+  ) as Error & { code: string };
+  err.code = 'storage/quota-exceeded';
   return err;
 }
 

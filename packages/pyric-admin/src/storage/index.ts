@@ -406,6 +406,12 @@ const STORAGE_REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
  */
 const MAX_REMOTE_STORAGE_OP_BYTES = 8 * 1024 * 1024;
 
+/** Maximum part size for chunked transfers (4 MiB). Matches MAX_STORAGE_PART_BYTES in CLI protocol. */
+const MAX_STORAGE_PART_BYTES = 4 * 1024 * 1024;
+
+/** Maximum whole-object size supported by the sandbox backend (512 MiB). Matches MAX_STORAGE_OBJECT_BYTES. */
+const MAX_STORAGE_OBJECT_BYTES = 512 * 1024 * 1024;
+
 /** One remote `Storage` per remote handle (handles only — never data). */
 const remoteStorageBySandbox = new WeakMap<Sandbox, Storage>();
 
@@ -471,28 +477,79 @@ class RemoteFile implements File {
         'not implemented in pyric-admin/storage remote sandbox backend: resumable uploads',
       );
     }
-    const bytes = toBytes(data);
-    if (bytes.byteLength > MAX_REMOTE_STORAGE_OP_BYTES) {
-      throw payloadTooLarge(bytes.byteLength, `save() payload for '${this.name}'`);
+    const rawLength = typeof data === 'string' ? Buffer.byteLength(data, 'utf8') : data.byteLength;
+    if (rawLength > MAX_STORAGE_OBJECT_BYTES) {
+      throw quotaExceeded(rawLength, `save() payload for '${this.name}'`);
     }
-    await this.channel.op({
-      method: 'storage.putBytes',
+
+    const bytes = toBytes(data);
+    if (bytes.byteLength <= MAX_STORAGE_PART_BYTES) {
+      await this.channel.op({
+        method: 'storage.putBytes',
+        path: this.name,
+        dataB64: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64'),
+        ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
+        ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
+        actAs: STORAGE_REMOTE_ADMIN_LENS,
+      });
+      return;
+    }
+
+    // Chunked upload for objects > 4 MiB (ADR 0015)
+    const beginRes = (await this.channel.op({
+      method: 'storage.beginUpload',
       path: this.name,
-      dataB64: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64'),
+      size: bytes.byteLength,
       ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
       ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
       actAs: STORAGE_REMOTE_ADMIN_LENS,
-    });
+    })) as { uploadId: string };
+
+    const uploadId = beginRes.uploadId;
+    try {
+      let index = 0;
+      let offset = 0;
+      while (offset < bytes.byteLength) {
+        const nextOffset = Math.min(offset + MAX_STORAGE_PART_BYTES, bytes.byteLength);
+        const partSlice = bytes.subarray(offset, nextOffset);
+        const partB64 = Buffer.from(partSlice.buffer, partSlice.byteOffset, partSlice.byteLength).toString('base64');
+        await this.channel.op({
+          method: 'storage.putPart',
+          uploadId,
+          partIndex: index,
+          dataB64: partB64,
+          actAs: STORAGE_REMOTE_ADMIN_LENS,
+        });
+        index++;
+        offset = nextOffset;
+      }
+      await this.channel.op({
+        method: 'storage.finishUpload',
+        uploadId,
+        actAs: STORAGE_REMOTE_ADMIN_LENS,
+      });
+    } catch (err) {
+      try {
+        await this.channel.op({
+          method: 'storage.abortUpload',
+          uploadId,
+          actAs: STORAGE_REMOTE_ADMIN_LENS,
+        });
+      } catch {
+        // secondary abort best effort
+      }
+      throw err;
+    }
   }
 
   async download(_options: DownloadOptions = {}): Promise<[Buffer]> {
-    let wire: RemoteGetBytesResult;
+    let meta: { size: number; generation: number; contentType?: string };
     try {
-      wire = (await this.channel.op({
-        method: 'storage.getBytes',
+      meta = (await this.channel.op({
+        method: 'storage.getMetadata',
         path: this.name,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
-      })) as RemoteGetBytesResult;
+      })) as { size: number; generation: number; contentType?: string };
     } catch (err) {
       if (isObjectNotFound(err)) {
         // Mirror the gcs/firebase-admin (and local arm) message shape so
@@ -502,7 +559,49 @@ class RemoteFile implements File {
       }
       throw err;
     }
-    return [Buffer.from(wire.dataB64, 'base64')];
+
+    if (meta.size <= MAX_STORAGE_PART_BYTES) {
+      let wire: RemoteGetBytesResult;
+      try {
+        wire = (await this.channel.op({
+          method: 'storage.getBytes',
+          path: this.name,
+          actAs: STORAGE_REMOTE_ADMIN_LENS,
+        })) as RemoteGetBytesResult;
+      } catch (err) {
+        if (isObjectNotFound(err)) {
+          throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
+        }
+        throw err;
+      }
+      return [Buffer.from(wire.dataB64, 'base64')];
+    }
+
+    // Chunked download for objects > 4 MiB (ADR 0015)
+    const chunks: Buffer[] = [];
+    let offset = 0;
+    while (offset < meta.size) {
+      const length = Math.min(MAX_STORAGE_PART_BYTES, meta.size - offset);
+      let wire: RemoteGetBytesResult;
+      try {
+        wire = (await this.channel.op({
+          method: 'storage.getBytes',
+          path: this.name,
+          offset,
+          length,
+          expectedGeneration: meta.generation,
+          actAs: STORAGE_REMOTE_ADMIN_LENS,
+        })) as RemoteGetBytesResult;
+      } catch (err) {
+        if (isObjectNotFound(err)) {
+          throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
+        }
+        throw err;
+      }
+      chunks.push(Buffer.from(wire.dataB64, 'base64'));
+      offset += length;
+    }
+    return [Buffer.concat(chunks)];
   }
 
   async delete(): Promise<void> {
@@ -546,14 +645,14 @@ class RemoteFile implements File {
   createWriteStream(): never {
     throw new Error(
       'not implemented in pyric-admin/storage remote sandbox backend: createWriteStream — ' +
-        'streams cannot span the bridge relay; use file.save(buffer) (≤ 8 MiB) instead.',
+        'streams cannot span the bridge relay; use file.save(buffer) (≤ 512 MiB) instead.',
     );
   }
 
   createReadStream(): never {
     throw new Error(
       'not implemented in pyric-admin/storage remote sandbox backend: createReadStream — ' +
-        'streams cannot span the bridge relay; use file.download() (≤ 8 MiB) instead.',
+        'streams cannot span the bridge relay; use file.download() (≤ 512 MiB) instead.',
     );
   }
 }
@@ -563,16 +662,13 @@ function isObjectNotFound(err: unknown): boolean {
   return (err as { code?: unknown })?.code === 'storage/object-not-found';
 }
 
-/** Over-cap rejection (code `payload-too-large`) — mirrors the worker host's
- *  message shape and names the streaming gap. */
-function payloadTooLarge(sizeBytes: number, what: string): Error & { code: string } {
+/** Over-cap rejection (code `storage/quota-exceeded`) — mirrors the worker host's message shape. */
+function quotaExceeded(sizeBytes: number, what: string): Error & { code: string } {
   const err = new Error(
     `pyric-admin/storage: ${what} is ${sizeBytes} bytes — over the ` +
-      `${MAX_REMOTE_STORAGE_OP_BYTES / (1024 * 1024)} MiB remote storage op cap. ` +
-      'Streaming/resumable transfers are not supported on the sandbox backend; ' +
-      'split the object or keep it under the cap.',
+      `${MAX_STORAGE_OBJECT_BYTES / (1024 * 1024)} MiB maximum storage object cap (MAX_STORAGE_OBJECT_BYTES).`,
   ) as Error & { code: string };
-  err.code = 'payload-too-large';
+  err.code = 'storage/quota-exceeded';
   return err;
 }
 

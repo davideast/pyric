@@ -54,6 +54,7 @@ import type {
 import {
   bytesToBase64,
   MAX_STORAGE_OP_BYTES,
+  MAX_STORAGE_OBJECT_BYTES,
 } from '../../../cli/src/serve/worker/protocol.js';
 
 import { initializeApp, deleteApp, getApps } from '../../src/app/index.js';
@@ -326,21 +327,25 @@ describe('pyric-admin remote dispatch — Storage remediating throws', () => {
     expect(storage.bucket('pyric-default').name).toBe('pyric-default');
   });
 
-  it('rejects an over-cap save CLIENT-SIDE (before anything hits the wire)', async () => {
+  it('rejects an over-cap save CLIENT-SIDE if exceeding MAX_STORAGE_OBJECT_BYTES (512 MiB)', async () => {
     const { app } = makeStack();
     const file = getStorage(app).bucket().file('big/blob');
-    const oversized = Buffer.alloc(MAX_STORAGE_OP_BYTES + 1);
+    const fakeOversized = {
+      buffer: new ArrayBuffer(0),
+      byteOffset: 0,
+      byteLength: MAX_STORAGE_OBJECT_BYTES + 1,
+    } as unknown as Buffer;
     try {
-      await file.save(oversized);
+      await file.save(fakeOversized);
       throw new Error('expected rejection');
     } catch (err) {
-      expect((err as { code?: string }).code).toBe('payload-too-large');
-      expect((err as Error).message).toContain('8 MiB');
+      expect((err as { code?: string }).code).toBe('storage/quota-exceeded');
+      expect((err as Error).message).toContain('512 MiB');
     }
     expect(await file.exists()).toEqual([false]);
   });
 
-  it('rejects an over-cap download HOST-SIDE (a big browser object cannot blow up the relay)', async () => {
+  it('rejects an over-cap un-ranged download HOST-SIDE, while file.download() chunks safely', async () => {
     const { ctx, app } = makeStack();
     // Plant an over-cap object directly in the worker's store (the page's
     // own in-worker surface has no cap).
@@ -348,14 +353,15 @@ describe('pyric-admin remote dispatch — Storage remediating throws', () => {
     const storage = getStorageSandbox(ctx.sandbox);
     await uploadBytes(ref(storage, 'big/native'), new Uint8Array(MAX_STORAGE_OP_BYTES + 1));
 
+    // Direct un-ranged storage.getBytes over the wire still rejects on the host
+    await expect(
+      workerOp(ctx, { method: 'storage.getBytes', path: 'big/native' }),
+    ).rejects.toThrow(/8 MiB/);
+
+    // But file.download() downloads in 4 MiB ranges safely (ADR 0015)
     const file = getStorage(app).bucket().file('big/native');
-    try {
-      await file.download();
-      throw new Error('expected rejection');
-    } catch (err) {
-      expect((err as { code?: string }).code).toBe('payload-too-large');
-      expect((err as Error).message).toContain('8 MiB');
-    }
+    const [back] = await file.download();
+    expect(back.byteLength).toBe(MAX_STORAGE_OP_BYTES + 1);
   });
 
   it('resumable saves and streams throw with remote-flavored remediation', async () => {

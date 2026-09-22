@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { FirebaseError } from 'pyric/app';
 import type { StorageBackend, StoredMetadata } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
@@ -11,6 +12,11 @@ export interface ScopedStorageBackend extends StorageBackend {
   scoped(bucket: string): ScopedStorageBackend;
   /** Run a synchronous seed transaction after earlier Storage mutations. */
   mutate<T>(work: (putBytes: PutStorageBytes) => T): Promise<T>;
+  beginUpload(bucket: string, path: string, size: number, mime?: string, customMetadata?: Record<string, string>, connectionId?: string): Promise<string>;
+  putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }>;
+  finishUpload(uploadId: string): Promise<StoredMetadata>;
+  abortUpload(uploadId: string): Promise<void>;
+  readRange(bucket: string, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined>;
 }
 
 function metadataOf(row: SqlRow): StoredMetadata {
@@ -26,6 +32,15 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
   const remove = connection.prepare('DELETE FROM storage_objects WHERE bucket=? AND path=?');
   const list = connection.prepare('SELECT metadata FROM storage_objects WHERE bucket=? AND substr(path, 1, length(?))=? ORDER BY path');
   const clearBucket = connection.prepare('DELETE FROM storage_objects WHERE bucket=?');
+
+  // ADR 0015 Chunked storage staging and ranged reads
+  const beginUploadStmt = connection.prepare('INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, -1, ?, ?)');
+  const readHeaderStmt = connection.prepare('SELECT * FROM storage_uploads WHERE upload_id=? AND part_index=-1');
+  const insertPartStmt = connection.prepare('INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(upload_id, part_index) DO UPDATE SET bytes=excluded.bytes');
+  const readPartsStmt = connection.prepare('SELECT bytes FROM storage_uploads WHERE upload_id=? AND part_index >= 0 ORDER BY part_index');
+  const sumPartsStmt = connection.prepare('SELECT COALESCE(SUM(length(bytes)), 0) AS bytesReceived FROM storage_uploads WHERE upload_id=? AND part_index >= 0');
+  const deleteUploadStmt = connection.prepare('DELETE FROM storage_uploads WHERE upload_id=?');
+  const readRangeStmt = connection.prepare('SELECT substr(bytes, ? + 1, ?) AS slice, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
   // Reserve order before binary conversion yields. Reset and later uploads must
   // not overtake a pending upload and then be undone when its bytes arrive.
@@ -104,6 +119,109 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
           if (allBuckets) connection.exec('DELETE FROM storage_objects');
           else clearBucket.run(bucket);
         }));
+      },
+      async beginUpload(bucket = defaultBucket, path: string, size: number, mime?: string, customMetadata?: Record<string, string>, connectionId?: string): Promise<string> {
+        return enqueue(() => {
+          const uploadId = randomUUID();
+          const contentType = mime ?? 'application/octet-stream';
+          const metaJson = customMetadata ? JSON.stringify(customMetadata) : null;
+          commit(() => {
+            beginUploadStmt.run(uploadId, connectionId ?? null, bucket, path, size, contentType, metaJson, new Uint8Array(0), Date.now());
+          });
+          return uploadId;
+        });
+      },
+      async putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }> {
+        return enqueue(() => {
+          const header = readHeaderStmt.get(uploadId);
+          if (header === undefined) throw new Error(`Upload '${uploadId}' not found or already completed.`);
+          commit(() => {
+            insertPartStmt.run(
+              uploadId,
+              header.connection_id,
+              header.bucket,
+              header.path,
+              header.size,
+              header.content_type,
+              header.custom_metadata,
+              index,
+              part,
+              Date.now(),
+            );
+          });
+          const sumRow = sumPartsStmt.get(uploadId);
+          const bytesReceived = Number(sumRow?.bytesReceived ?? 0);
+          return { bytesReceived };
+        });
+      },
+      async finishUpload(uploadId: string): Promise<StoredMetadata> {
+        return enqueue(() => {
+          const header = readHeaderStmt.get(uploadId);
+          if (header === undefined) throw new Error(`Upload '${uploadId}' not found or already completed.`);
+          const bucket = sqlText(header, 'bucket');
+          const path = sqlText(header, 'path');
+          const declaredSize = Number(header.size);
+          const parts = readPartsStmt.all(uploadId);
+          const totalLength = parts.reduce((sum, p) => sum + (p.bytes instanceof Uint8Array ? p.bytes.byteLength : 0), 0);
+          if (totalLength !== declaredSize) {
+            throw new Error(`Staged bytes (${totalLength}) do not match declared size (${declaredSize}).`);
+          }
+          const fullBytes = new Uint8Array(declaredSize);
+          let offset = 0;
+          for (const partRow of parts) {
+            if (partRow.bytes instanceof Uint8Array) {
+              fullBytes.set(partRow.bytes, offset);
+              offset += partRow.bytes.byteLength;
+            }
+          }
+          const previous = metadata.get(bucket, path);
+          const hasPrevious = previous !== undefined;
+          const current = hasPrevious ? metadataOf(previous) : null;
+          const generation = current !== null ? String(Number(current.generation) + 1) : String(Date.now());
+          const timeCreated = current !== null ? current.timeCreated : new Date().toISOString();
+          const updated = new Date().toISOString();
+          const contentType = sqlText(header, 'content_type');
+          const customMetaRaw = header.custom_metadata ? sqlText(header, 'custom_metadata') : null;
+          const customMetadata = customMetaRaw ? JSON.parse(customMetaRaw) : undefined;
+          const name = path.split('/').pop() ?? path;
+          const stored: StoredMetadata = {
+            bucket,
+            fullPath: path,
+            name,
+            size: declaredSize,
+            generation,
+            metageneration: '1',
+            timeCreated,
+            updated,
+            contentType,
+            customMetadata,
+          };
+          const validated = storedMetadataSchema.parse(stored);
+          commit(() => {
+            put.run(bucket, path, JSON.stringify(validated), contentType, fullBytes);
+            deleteUploadStmt.run(uploadId);
+          });
+          return validated;
+        });
+      },
+      async abortUpload(uploadId: string): Promise<void> {
+        return enqueue(() => {
+          commit(() => {
+            deleteUploadStmt.run(uploadId);
+          });
+        });
+      },
+      async readRange(bucket = defaultBucket, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined> {
+        await mutations;
+        const row = readRangeStmt.get(offset, length, bucket, path);
+        if (row === undefined) return undefined;
+        const meta = metadataOf(row);
+        if (expectedGeneration !== undefined && meta.generation !== expectedGeneration) {
+          throw new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
+        }
+        const slice = row.slice;
+        if (!(slice instanceof Uint8Array)) throw new Error('Invalid ranged slice bytes.');
+        return Uint8Array.from(slice);
       },
       // The owning hosted database closes the shared connection after draining.
       close() {},
