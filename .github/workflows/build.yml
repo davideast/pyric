@@ -396,7 +396,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: plan
-    if: needs.plan.outputs.predicted-check-set == 'release-only'
+    if: needs.plan.outputs.predicted-check-set == 'release-only' || contains(github.event.pull_request.labels.*.name, 'ci-packaging')
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -526,7 +526,7 @@ jobs:
     timeout-minutes: 60
     needs: [plan, packaging]
     # Cost: same as `packaging`, and gated on the same signal.
-    if: needs.plan.outputs.check-set == 'full' && needs.plan.outputs.packaging == 'true'
+    if: needs.plan.outputs.check-set == 'full' && (contains(github.event.pull_request.labels.*.name, 'ci-packaging') || (needs.plan.outputs.packaging == 'true' && github.event_name == 'pull_request'))
     # Package managers resolve exports / scoped names / local tarballs differently;
     # a lib that installs under npm can fail under pnpm or bun. Each leg installs
     # the REAL tarballs, imports every advertised subpath, and executes a small

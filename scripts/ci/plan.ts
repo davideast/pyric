@@ -46,6 +46,14 @@ function labels(): string[] {
   return parsed;
 }
 
+export function determinePackaging(input: {
+  event: CheckSetInput['event'];
+  labels: string[];
+  paths: ChangedPath[];
+}): boolean {
+  return input.event === 'push' || input.labels.includes('ci-packaging') || requiresPackagingProof(input.paths);
+}
+
 function main(): void {
   const event = env('CI_EVENT_NAME') as CheckSetInput['event'];
   const paths = event === 'pull_request'
@@ -59,10 +67,9 @@ function main(): void {
   const mode = process.env.CI_SELECTION_MODE === 'enforce' ? 'enforce' : 'shadow';
   const effectiveCheckSet = mode === 'shadow' ? 'full' : checkSet;
   // The packaging gate answers a question about published artifacts, which is
-  // orthogonal to how much of the suite runs. It is forced by the label or by a
-  // diff that invalidates what it proves; a non-PR event carries no diff to
-  // read, so the label is the only lever there.
-  const packaging = prLabels.includes('ci-packaging') || requiresPackagingProof(paths);
+  // orthogonal to how much of the suite runs. It is forced by a push to main,
+  // by the ci-packaging label, or by a diff that invalidates what it proves.
+  const packaging = determinePackaging({ event, labels: prLabels, paths });
   const summary = JSON.stringify(
     { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, packaging, paths },
     null,

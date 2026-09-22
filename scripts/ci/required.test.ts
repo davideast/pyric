@@ -70,6 +70,6 @@ describe('required CI result', () => {
       checkSet: 'full',
       requirePackaging: true,
       results: success,
-    })).toEqual(['packaging: skipped', 'install-matrix: skipped', 'standalone: skipped']);
+    })).toEqual(['packaging: skipped', 'install-matrix: skipped', 'standalone: skipped', 'release-contract: skipped']);
   });
 });
