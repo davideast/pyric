@@ -586,9 +586,9 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
   if (isMissingView) throw new Error('Pyric chip markup is incomplete.');
   const clipboard = options.clipboard ?? documentLike.defaultView?.navigator.clipboard;
   const hasStudioOverride = 'studioUrl' in options;
-  const studioUrl = hasStudioOverride
+  const getStudioUrl = (): string | null | undefined => (hasStudioOverride
     ? options.studioUrl
-    : options.runtime.getSnapshot().manifest.studioUrl;
+    : options.runtime.getSnapshot().manifest.studioUrl);
   let snapshot = options.runtime.getSnapshot();
 
   const getLensFn = options.getLens ?? defaultGetLens;
@@ -1157,7 +1157,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
       return {
         body: `<div class="history-context"><nav class="data-breadcrumbs" aria-label="Breadcrumb"><button type="button" data-clear-traffic-source>Traffic</button>${iconHtml('chevron')}<button type="button" class="breadcrumb-target" data-request-back title="${escapeAttribute(target)}">${escapeAttribute(target)}</button>${iconHtml('chevron')}<span aria-current="page">${escapeAttribute(method)}</span></nav></div>`
           + `<div class="history-context"><section class="request-detail" data-traffic-detail data-request-row="${escapeAttribute(request.id)}"><div class="history-summary"><strong>${escapeAttribute(service)}</strong>${copy}</div><dl class="request-facts">${fact('Method', method, 'c1')}${request.aiRequest ? fact('Requested', target, 'c2') + fact('Routed to', request.aiRequest.detail.routedModel ?? (request.aiRequest.detail.engine === 'scripted' ? 'Scripted — no model invoked' : 'Unknown'), 'c2') + fact('Reported by backend', request.aiRequest.detail.reportedModel ?? 'Not reported', 'c2') : fact('Path', target, 'c2')}${fact('Time', new Date(request.at).toISOString(), 's1')}${fact('Outcome', outcome, 'slot')}${identityFact}${reasonFact}</dl>${evidenceDetails}</section></div>`,
-        bar: barHtml([indexActionHtml(request.indexQuery, request.id, indexInspector, escapeAttribute), studioUrl ? `<a class="btn" href="${escapeAttribute(studioSectionUrl(studioUrl, 'traffic', 'inspect=' + encodeURIComponent(request.id) + '&service=' + encodeURIComponent(request.service ?? '')))}" target="_blank" rel="noopener">Inspect in Studio</a>` : '']),
+        bar: barHtml([indexActionHtml(request.indexQuery, request.id, indexInspector, escapeAttribute), getStudioUrl() ? `<a class="btn" href="${escapeAttribute(studioSectionUrl(getStudioUrl()!, 'traffic', 'inspect=' + encodeURIComponent(request.id) + '&service=' + encodeURIComponent(request.service ?? '')))}" target="_blank" rel="noopener">Inspect in Studio</a>` : '']),
       };
     }
     const retained = trafficRows();
@@ -1373,6 +1373,7 @@ export function mountPyricRuntimeChip(options: PyricRuntimeChipOptions): PyricRu
         : tab === 'traffic'
           ? { section: 'traffic', query: undefined }
           : { section: 'settings', query: undefined };
+    const studioUrl = getStudioUrl();
     const studioHref = studioUrl === null || studioUrl === undefined
       ? null
       : studioSectionUrl(studioUrl, studioSection.section, studioSection.query);
