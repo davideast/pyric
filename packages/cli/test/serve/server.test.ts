@@ -82,6 +82,57 @@ describe('static server', () => {
     expect((await fetch(off.url + '/some/route')).status).toBe(404);
   });
 
+  it('redirects root GET and HEAD to /__pyric/ui/studio when no index.html exists and namespaceHandler is active', async () => {
+    const emptyDir = mkdtempSync(join(tmpdir(), 'pyric-empty-site-'));
+    const h = await start({
+      publicDir: emptyDir,
+      namespaceHandler: () => false,
+    });
+    const getRes = await fetch(h.url + '/', { redirect: 'manual' });
+    expect(getRes.status).toBe(302);
+    expect(getRes.headers.get('location')).toBe('/__pyric/ui/studio');
+
+    const headRes = await fetch(h.url + '/', { method: 'HEAD', redirect: 'manual' });
+    expect(headRes.status).toBe(302);
+    expect(headRes.headers.get('location')).toBe('/__pyric/ui/studio');
+
+    const queryRes = await fetch(h.url + '/?tab=traffic', { redirect: 'manual' });
+    expect(queryRes.status).toBe(302);
+    expect(queryRes.headers.get('location')).toBe('/__pyric/ui/studio?tab=traffic');
+
+    const missRes = await fetch(h.url + '/missing', { redirect: 'manual' });
+    expect(missRes.status).toBe(404);
+  });
+
+  it('serves static index.html at root when present, ignoring redirect', async () => {
+    const h = await start({
+      publicDir: fixtureSite(),
+      namespaceHandler: () => false,
+    });
+    const res = await fetch(h.url + '/', { redirect: 'manual' });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('home');
+  });
+
+  it('honors redirectRootToStudio override when explicitly set', async () => {
+    const emptyDir = mkdtempSync(join(tmpdir(), 'pyric-empty-site-'));
+    const disabled = await start({
+      publicDir: emptyDir,
+      namespaceHandler: () => false,
+      redirectRootToStudio: false,
+    });
+    const disabledRes = await fetch(disabled.url + '/', { redirect: 'manual' });
+    expect(disabledRes.status).toBe(404);
+
+    const explicit = await start({
+      publicDir: emptyDir,
+      redirectRootToStudio: true,
+    });
+    const explicitRes = await fetch(explicit.url + '/', { redirect: 'manual' });
+    expect(explicitRes.status).toBe(302);
+    expect(explicitRes.headers.get('location')).toBe('/__pyric/ui/studio');
+  });
+
   it('transformHtml applies to served HTML only', async () => {
     const h = await start({
       publicDir: fixtureSite(),
