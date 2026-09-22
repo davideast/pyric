@@ -4,6 +4,7 @@ import { getFirestore, type ClientDb } from '../worker/client.js';
 import { getHostedFirestore } from '../worker/client/websocket-connection.js';
 import { getServiceWorkerFirestore } from '../worker/client/service-worker-connection.js';
 import { ownClientUntilPagehide } from '../worker/client/pagehide.js';
+import { disconnectClient } from '../worker/client/disconnect.js';
 import { isServiceWorkerRealm } from '../worker/service-worker-channel.js';
 import { PYRIC_WORKER_URL } from '../runtime/manifest.js';
 import { workerNameForEpoch } from '../runtime/worker-generation.js';
@@ -38,11 +39,17 @@ export async function messagingSwClient(app: FirebaseApp): Promise<ClientDb | nu
     } else {
       return null;
     }
-    const lifecycle = ownClientUntilPagehide(client);
-    registerAppCleanup(app, async () => {
-      lifecycle.dispose();
-      await lifecycle.disconnect();
-    });
+    if (isServiceWorkerRealm()) {
+      registerAppCleanup(app, async () => {
+        await disconnectClient(client);
+      });
+    } else {
+      const lifecycle = ownClientUntilPagehide(client);
+      registerAppCleanup(app, async () => {
+        lifecycle.dispose();
+        await lifecycle.disconnect();
+      });
+    }
     client.port.postMessage({ t: 'appConfig', options: { ...app.options } });
     return client;
   } finally { release(); }

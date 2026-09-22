@@ -41,4 +41,39 @@ describe('SharedWorker page lifecycle', () => {
     lifecycle.dispose();
     expect(harness.listenerCount()).toBe(0);
   });
+
+  it('safely no-ops in environments without addEventListener without throwing', async () => {
+    const client = {} as ClientDb;
+    let disconnects = 0;
+    const dummyScope = {};
+
+    const lifecycle = ownClientUntilPagehide(client, dummyScope as any, async () => {
+      disconnects += 1;
+    });
+
+    lifecycle.dispose();
+    await lifecycle.disconnect();
+    expect(disconnects).toBe(1);
+  });
+
+  it('skips event listener attachment on service worker scopes even if window is simulated', async () => {
+    const client = {} as ClientDb;
+    let listenersAdded = 0;
+    const swScope = {
+      registration: {},
+      clients: {},
+      addEventListener() {
+        listenersAdded += 1;
+        throw new Error("Event handler of 'pagehide' event must be added on the initial evaluation of worker script.");
+      },
+      removeEventListener() {},
+    };
+
+    expect(() => {
+      const lifecycle = ownClientUntilPagehide(client, swScope as any);
+      lifecycle.dispose();
+    }).not.toThrow();
+    expect(listenersAdded).toBe(0);
+  });
 });
+
