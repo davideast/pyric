@@ -67,3 +67,19 @@ export default defineConfig({
 ```
 
 A string names a pre-built avatar set directory; an object with a `source` function generates images in the dev server; `false` turns avatars off entirely. See [Assign default avatars to sandbox users](../build/default-avatars.md) for the set format, the source callback, and the `PYRIC_AVATARS` environment variable `pyric sandbox` reads instead.
+
+## Enable Node host mode
+
+To run the sandbox in a durable, shared Node process backed by SQLite instead of the browser's SharedWorker, pass `hosted: true`:
+
+```ts
+export default defineConfig({
+  plugins: [
+    pyric({
+      hosted: true,
+    }),
+  ],
+});
+```
+
+See [Node host mode](./node-host.md) for complete details on persistence, ports, and multi-client sharing.
