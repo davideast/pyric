@@ -32,6 +32,9 @@ export async function callMethod(
 ): Promise<OperationResult> {
   const rejection = validateArguments(method, args, allowProduction);
   if (rejection !== null) return rejection;
+  if (ctx.targetRouter) {
+    return ctx.targetRouter.dispatch(method, args, ctx, allowProduction);
+  }
   // A refusal by Security Rules is marked here rather than in each service's
   // handlers, because every service reports one and every renderer arrives
   // through this one entry. The services report a refusal by throwing, so the

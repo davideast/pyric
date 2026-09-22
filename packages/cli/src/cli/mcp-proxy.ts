@@ -108,6 +108,8 @@ export interface InProcessSelection {
   projectDir?: string;
   /** Mount `production` methods (ADR-0014 Decision 5). Defaults to false. */
   allowProduction?: boolean;
+  /** Suppress following a live Node host (--in-process flag). */
+  inProcessOnly?: boolean;
 }
 
 /** Environment variable naming the tool surface when `--surface` is absent. */
@@ -179,18 +181,18 @@ export async function runMcpProxy(
     process.stderr.write(`[pyric mcp-proxy] ${m}\n`);
   };
 
+  const forcesInProcess = forcesInProcessSandbox(parsed);
   const env = deps.env ?? process.env;
   const selection: InProcessSelection = {
     surface: selectToolSurface(parsed, env),
     projectDir: selectProjectDir(parsed, env),
     allowProduction: selectAllowProduction(parsed, env),
+    inProcessOnly: forcesInProcess,
   };
   const runInProcess =
     deps.inProcess ??
     ((c: string, o: InProcessSelection) =>
       import('../bridge/server/in-process.js').then((m) => m.runInProcessMcp(c, o)));
-
-  const forcesInProcess = forcesInProcessSandbox(parsed);
   const hasConflictingHosts = forcesInProcess && requiresRunningServe(parsed);
   if (hasConflictingHosts) {
     log('--attach and --in-process name different hosts for the sandbox; pass one of them.');
