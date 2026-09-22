@@ -51,6 +51,9 @@ export interface StaticServerOptions {
   host?: string;
   /** SPA fallback: unmatched extension-less GETs serve /index.html. */
   spaRewrite?: boolean;
+  /** Redirect root `/` to `/__pyric/ui/studio` when no static `index.html` exists.
+   *  Defaults to true when `namespaceHandler` is present. */
+  redirectRootToStudio?: boolean;
   /** Handles reserved routes (the `/__pyric/` namespace). Return true when
    *  the request was handled. */
   namespaceHandler?: (req: IncomingMessage, res: ServerResponse, url: URL) => boolean | Promise<boolean>;
@@ -353,6 +356,12 @@ async function handleRequest(
         ? undefined
         : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" fill="#e8e8ee"/></svg>',
     );
+    return;
+  }
+  if (!file && url.pathname === '/' && (opts.redirectRootToStudio ?? Boolean(opts.namespaceHandler))) {
+    const target = `/__pyric/ui/studio${url.search}`;
+    logger.note(`  • 302 ${req.method} ${url.pathname} → ${target}`);
+    res.writeHead(302, { location: target }).end();
     return;
   }
   if (!file) {
