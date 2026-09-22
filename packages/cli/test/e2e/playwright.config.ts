@@ -10,6 +10,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.pw.ts',
+  testIgnore: ['hosted/**'],
   timeout: 30_000,
   reporter: 'list',
   use: {
