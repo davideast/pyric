@@ -31,6 +31,7 @@ import type { RemoteConsumerRecord } from '@pyric/cli/bridge/client';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { RemoteClientsPopover } from '../../src/shell/RemoteClientsPopover.js';
+import { isMobileConsumer } from '../../src/shell/bridge-presence.js';
 
 afterEach(() => cleanup());
 
@@ -224,5 +225,23 @@ describe('RemoteClientsPopover', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onCloseMock).toHaveBeenCalled();
+  });
+
+  describe('isMobileConsumer', () => {
+    it('admits mobile platforms case-insensitively', () => {
+      expect(isMobileConsumer({ platform: 'flutter' } as RemoteConsumerRecord)).toBe(true);
+      expect(isMobileConsumer({ platform: 'Flutter' } as RemoteConsumerRecord)).toBe(true);
+      expect(isMobileConsumer({ platform: 'swift' } as RemoteConsumerRecord)).toBe(true);
+      expect(isMobileConsumer({ platform: 'iOS' } as RemoteConsumerRecord)).toBe(true);
+      expect(isMobileConsumer({ platform: 'kotlin' } as RemoteConsumerRecord)).toBe(true);
+      expect(isMobileConsumer({ platform: 'Android' } as RemoteConsumerRecord)).toBe(true);
+    });
+
+    it('rejects web browser, node host, and studio sessions', () => {
+      expect(isMobileConsumer({ platform: 'browser' } as RemoteConsumerRecord)).toBe(false);
+      expect(isMobileConsumer({ platform: 'node' } as RemoteConsumerRecord)).toBe(false);
+      expect(isMobileConsumer({ platform: 'studio' } as RemoteConsumerRecord)).toBe(false);
+      expect(isMobileConsumer({ platform: '' } as RemoteConsumerRecord)).toBe(false);
+    });
   });
 });

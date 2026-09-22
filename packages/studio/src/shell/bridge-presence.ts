@@ -23,6 +23,13 @@ export interface BridgeRemoteConsumersState {
   setLens: (clientSessionId: string, lens: AuthLens) => Promise<boolean>;
 }
 
+const MOBILE_PLATFORMS = new Set(['flutter', 'swift', 'ios', 'kotlin', 'android']);
+
+export function isMobileConsumer(c: RemoteConsumerRecord): boolean {
+  const p = (c.platform || '').toLowerCase();
+  return MOBILE_PLATFORMS.has(p);
+}
+
 export function useBridgeRemoteConsumers(): BridgeRemoteConsumersState {
   const serve = useServeInit();
   const [consumers, setConsumers] = useState<RemoteConsumerRecord[]>([]);
@@ -77,9 +84,7 @@ export function useBridgeRemoteConsumers(): BridgeRemoteConsumersState {
             const msg = JSON.parse(event.data) as BridgeMessage;
             if (msg.type === 'consumer-presence') {
               const frame = msg as ConsumerPresenceFrame;
-              const mobileClients = (frame.consumers || []).filter(
-                (c: RemoteConsumerRecord) => c.platform !== 'studio',
-              );
+              const mobileClients = (frame.consumers || []).filter(isMobileConsumer);
               setConsumers(mobileClients);
             } else if (msg.type === 'remote-set-lens-ack') {
               const ack = msg as { id?: string; ok: boolean };
