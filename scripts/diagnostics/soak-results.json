@@ -1,0 +1,618 @@
+{
+  "summary": {
+    "durationMinutes": 30,
+    "totalSamples": 60,
+    "initialRssMb": 359.3,
+    "initialHeapMb": 46.9,
+    "peakRssMb": 359.3,
+    "peakHeapMb": 64.4,
+    "finalRssMb": 324.2,
+    "finalHeapMb": 59.1,
+    "secondHalfHeapVariationMb": 5.8,
+    "totalWrites": 28940,
+    "totalStorageMb": 10416,
+    "totalAuthOps": 40
+  },
+  "samples": [
+    {
+      "timestamp": 1790046800505,
+      "uptimeSeconds": 30,
+      "rssMb": 359.3,
+      "heapUsedMb": 46.9,
+      "heapTotalMb": 88.5,
+      "writesTotal": 478,
+      "storageMbTotal": 180,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790046830533,
+      "uptimeSeconds": 60,
+      "rssMb": 332.5,
+      "heapUsedMb": 48.5,
+      "heapTotalMb": 70,
+      "writesTotal": 961,
+      "storageMbTotal": 348,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790046860546,
+      "uptimeSeconds": 90,
+      "rssMb": 334.6,
+      "heapUsedMb": 49.7,
+      "heapTotalMb": 65.8,
+      "writesTotal": 1442,
+      "storageMbTotal": 528,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790046890560,
+      "uptimeSeconds": 120,
+      "rssMb": 286.9,
+      "heapUsedMb": 51,
+      "heapTotalMb": 66.4,
+      "writesTotal": 1923,
+      "storageMbTotal": 696,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790046920580,
+      "uptimeSeconds": 150,
+      "rssMb": 305,
+      "heapUsedMb": 52.3,
+      "heapTotalMb": 68.7,
+      "writesTotal": 2405,
+      "storageMbTotal": 876,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790046950597,
+      "uptimeSeconds": 180,
+      "rssMb": 332.5,
+      "heapUsedMb": 52.8,
+      "heapTotalMb": 69.4,
+      "writesTotal": 2888,
+      "storageMbTotal": 1044,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790046980614,
+      "uptimeSeconds": 210,
+      "rssMb": 321.5,
+      "heapUsedMb": 53.3,
+      "heapTotalMb": 69.2,
+      "writesTotal": 3370,
+      "storageMbTotal": 1224,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047010627,
+      "uptimeSeconds": 240,
+      "rssMb": 306,
+      "heapUsedMb": 53.9,
+      "heapTotalMb": 71.1,
+      "writesTotal": 3854,
+      "storageMbTotal": 1392,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047040664,
+      "uptimeSeconds": 270,
+      "rssMb": 313.3,
+      "heapUsedMb": 54.5,
+      "heapTotalMb": 71.1,
+      "writesTotal": 4337,
+      "storageMbTotal": 1560,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047070677,
+      "uptimeSeconds": 300,
+      "rssMb": 325.2,
+      "heapUsedMb": 55,
+      "heapTotalMb": 71.8,
+      "writesTotal": 4820,
+      "storageMbTotal": 1740,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047100691,
+      "uptimeSeconds": 330,
+      "rssMb": 323.1,
+      "heapUsedMb": 55.4,
+      "heapTotalMb": 73.6,
+      "writesTotal": 5302,
+      "storageMbTotal": 1908,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047130709,
+      "uptimeSeconds": 360,
+      "rssMb": 326.5,
+      "heapUsedMb": 55.9,
+      "heapTotalMb": 72.6,
+      "writesTotal": 5786,
+      "storageMbTotal": 2088,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047160722,
+      "uptimeSeconds": 390,
+      "rssMb": 322.8,
+      "heapUsedMb": 56.3,
+      "heapTotalMb": 73.3,
+      "writesTotal": 6271,
+      "storageMbTotal": 2256,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047190736,
+      "uptimeSeconds": 420,
+      "rssMb": 326.2,
+      "heapUsedMb": 56.8,
+      "heapTotalMb": 74.1,
+      "writesTotal": 6755,
+      "storageMbTotal": 2436,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047220750,
+      "uptimeSeconds": 450,
+      "rssMb": 330.7,
+      "heapUsedMb": 57.3,
+      "heapTotalMb": 76.8,
+      "writesTotal": 7235,
+      "storageMbTotal": 2604,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047250769,
+      "uptimeSeconds": 480,
+      "rssMb": 324.1,
+      "heapUsedMb": 57.7,
+      "heapTotalMb": 75.3,
+      "writesTotal": 7717,
+      "storageMbTotal": 2784,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047280784,
+      "uptimeSeconds": 510,
+      "rssMb": 320.9,
+      "heapUsedMb": 58.4,
+      "heapTotalMb": 75,
+      "writesTotal": 8198,
+      "storageMbTotal": 2952,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047310797,
+      "uptimeSeconds": 540,
+      "rssMb": 331.6,
+      "heapUsedMb": 58.5,
+      "heapTotalMb": 76.3,
+      "writesTotal": 8678,
+      "storageMbTotal": 3132,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047340812,
+      "uptimeSeconds": 570,
+      "rssMb": 323.1,
+      "heapUsedMb": 58.4,
+      "heapTotalMb": 75.8,
+      "writesTotal": 9161,
+      "storageMbTotal": 3300,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047370826,
+      "uptimeSeconds": 600,
+      "rssMb": 312.5,
+      "heapUsedMb": 58.5,
+      "heapTotalMb": 77,
+      "writesTotal": 9642,
+      "storageMbTotal": 3480,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047400849,
+      "uptimeSeconds": 630,
+      "rssMb": 318.8,
+      "heapUsedMb": 58.5,
+      "heapTotalMb": 76.5,
+      "writesTotal": 10125,
+      "storageMbTotal": 3648,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047430867,
+      "uptimeSeconds": 660,
+      "rssMb": 308.7,
+      "heapUsedMb": 58.4,
+      "heapTotalMb": 76.5,
+      "writesTotal": 10610,
+      "storageMbTotal": 3816,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047460885,
+      "uptimeSeconds": 690,
+      "rssMb": 285.3,
+      "heapUsedMb": 58.5,
+      "heapTotalMb": 77.8,
+      "writesTotal": 11091,
+      "storageMbTotal": 3996,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047490905,
+      "uptimeSeconds": 720,
+      "rssMb": 300.8,
+      "heapUsedMb": 58.5,
+      "heapTotalMb": 75.8,
+      "writesTotal": 11573,
+      "storageMbTotal": 4164,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047520920,
+      "uptimeSeconds": 750,
+      "rssMb": 253.4,
+      "heapUsedMb": 58.5,
+      "heapTotalMb": 78.3,
+      "writesTotal": 12055,
+      "storageMbTotal": 4344,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047550933,
+      "uptimeSeconds": 780,
+      "rssMb": 273.2,
+      "heapUsedMb": 58.6,
+      "heapTotalMb": 78.5,
+      "writesTotal": 12538,
+      "storageMbTotal": 4512,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047580950,
+      "uptimeSeconds": 810,
+      "rssMb": 267.4,
+      "heapUsedMb": 58.6,
+      "heapTotalMb": 77,
+      "writesTotal": 13022,
+      "storageMbTotal": 4680,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047610971,
+      "uptimeSeconds": 840,
+      "rssMb": 306.7,
+      "heapUsedMb": 58.5,
+      "heapTotalMb": 80.8,
+      "writesTotal": 13500,
+      "storageMbTotal": 4860,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047640993,
+      "uptimeSeconds": 871,
+      "rssMb": 307.5,
+      "heapUsedMb": 58.5,
+      "heapTotalMb": 82.5,
+      "writesTotal": 13983,
+      "storageMbTotal": 5028,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047671008,
+      "uptimeSeconds": 901,
+      "rssMb": 320.3,
+      "heapUsedMb": 58.6,
+      "heapTotalMb": 80.3,
+      "writesTotal": 14464,
+      "storageMbTotal": 5208,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047701024,
+      "uptimeSeconds": 931,
+      "rssMb": 315.9,
+      "heapUsedMb": 58.6,
+      "heapTotalMb": 80,
+      "writesTotal": 14947,
+      "storageMbTotal": 5376,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047731042,
+      "uptimeSeconds": 961,
+      "rssMb": 317.2,
+      "heapUsedMb": 58.6,
+      "heapTotalMb": 79.8,
+      "writesTotal": 15429,
+      "storageMbTotal": 5556,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047761060,
+      "uptimeSeconds": 991,
+      "rssMb": 307,
+      "heapUsedMb": 58.6,
+      "heapTotalMb": 80,
+      "writesTotal": 15912,
+      "storageMbTotal": 5724,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047791072,
+      "uptimeSeconds": 1021,
+      "rssMb": 308.5,
+      "heapUsedMb": 59,
+      "heapTotalMb": 80.5,
+      "writesTotal": 16393,
+      "storageMbTotal": 5904,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047821089,
+      "uptimeSeconds": 1051,
+      "rssMb": 307.6,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 82.7,
+      "writesTotal": 16874,
+      "storageMbTotal": 6072,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047851104,
+      "uptimeSeconds": 1081,
+      "rssMb": 303.8,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 79.2,
+      "writesTotal": 17356,
+      "storageMbTotal": 6240,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047881119,
+      "uptimeSeconds": 1111,
+      "rssMb": 307.9,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 83.2,
+      "writesTotal": 17838,
+      "storageMbTotal": 6420,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047911133,
+      "uptimeSeconds": 1141,
+      "rssMb": 329.9,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 82.5,
+      "writesTotal": 18320,
+      "storageMbTotal": 6588,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047941151,
+      "uptimeSeconds": 1171,
+      "rssMb": 323.6,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 82.7,
+      "writesTotal": 18802,
+      "storageMbTotal": 6768,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790047971163,
+      "uptimeSeconds": 1201,
+      "rssMb": 323.4,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 82.5,
+      "writesTotal": 19285,
+      "storageMbTotal": 6936,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048001179,
+      "uptimeSeconds": 1231,
+      "rssMb": 325.2,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 84.7,
+      "writesTotal": 19768,
+      "storageMbTotal": 7116,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048031195,
+      "uptimeSeconds": 1261,
+      "rssMb": 320.7,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 81,
+      "writesTotal": 20250,
+      "storageMbTotal": 7284,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048061213,
+      "uptimeSeconds": 1291,
+      "rssMb": 339.8,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 87.2,
+      "writesTotal": 20733,
+      "storageMbTotal": 7464,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048091226,
+      "uptimeSeconds": 1321,
+      "rssMb": 339.3,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 85.5,
+      "writesTotal": 21214,
+      "storageMbTotal": 7632,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048121255,
+      "uptimeSeconds": 1351,
+      "rssMb": 335.7,
+      "heapUsedMb": 64.4,
+      "heapTotalMb": 89.3,
+      "writesTotal": 21697,
+      "storageMbTotal": 7800,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048151271,
+      "uptimeSeconds": 1381,
+      "rssMb": 337.2,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 85.5,
+      "writesTotal": 22179,
+      "storageMbTotal": 7980,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048181285,
+      "uptimeSeconds": 1411,
+      "rssMb": 338,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 83.7,
+      "writesTotal": 22662,
+      "storageMbTotal": 8148,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048211299,
+      "uptimeSeconds": 1441,
+      "rssMb": 333,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 82,
+      "writesTotal": 23145,
+      "storageMbTotal": 8328,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048241312,
+      "uptimeSeconds": 1471,
+      "rssMb": 340.4,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 85.7,
+      "writesTotal": 23627,
+      "storageMbTotal": 8496,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048271329,
+      "uptimeSeconds": 1501,
+      "rssMb": 339.3,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 83.7,
+      "writesTotal": 24111,
+      "storageMbTotal": 8676,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048301342,
+      "uptimeSeconds": 1531,
+      "rssMb": 341.4,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 86,
+      "writesTotal": 24593,
+      "storageMbTotal": 8844,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048331360,
+      "uptimeSeconds": 1561,
+      "rssMb": 341.9,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 86.2,
+      "writesTotal": 25076,
+      "storageMbTotal": 9024,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048361377,
+      "uptimeSeconds": 1591,
+      "rssMb": 342.1,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 86.5,
+      "writesTotal": 25560,
+      "storageMbTotal": 9192,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048391394,
+      "uptimeSeconds": 1621,
+      "rssMb": 342.6,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 86,
+      "writesTotal": 26043,
+      "storageMbTotal": 9372,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048421409,
+      "uptimeSeconds": 1651,
+      "rssMb": 334.4,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 86.5,
+      "writesTotal": 26527,
+      "storageMbTotal": 9540,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048451426,
+      "uptimeSeconds": 1681,
+      "rssMb": 329.1,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 86,
+      "writesTotal": 27010,
+      "storageMbTotal": 9720,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048481442,
+      "uptimeSeconds": 1711,
+      "rssMb": 330.4,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 85.5,
+      "writesTotal": 27493,
+      "storageMbTotal": 9888,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048511458,
+      "uptimeSeconds": 1741,
+      "rssMb": 315.7,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 83.2,
+      "writesTotal": 27976,
+      "storageMbTotal": 10068,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048541473,
+      "uptimeSeconds": 1771,
+      "rssMb": 328.5,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 83.2,
+      "writesTotal": 28457,
+      "storageMbTotal": 10236,
+      "authTotal": 40
+    },
+    {
+      "timestamp": 1790048571495,
+      "uptimeSeconds": 1801,
+      "rssMb": 324.2,
+      "heapUsedMb": 59.1,
+      "heapTotalMb": 85,
+      "writesTotal": 28940,
+      "storageMbTotal": 10416,
+      "authTotal": 40
+    }
+  ]
+}
