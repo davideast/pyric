@@ -53,6 +53,9 @@ import {
 import type { BridgeToolEvent } from './bridge.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { claimProjectState } from '../../serve/hosted/project-ownership.js';
+import { TargetRouter } from './target-router.js';
+import type { discoverServe } from '../../serve/discovery.js';
+import type { callHostedMethod } from '../../cli/hosted-method.js';
 
 /** The stdio transport is a late import: the SDK is heavy and only needed here. */
 async function openStdioTransport(): Promise<Transport> {
@@ -83,6 +86,16 @@ export interface InProcessMcpServerOptions extends LocalBridgeOptions {
    * schema rejection is still recorded. Absent leaves the server as it was.
    */
   onCallRejected?: (event: BridgeToolEvent) => void;
+  /** Suppress following a live Node host (--in-process flag). */
+  inProcessOnly?: boolean;
+  /** Pre-configured target router, if any. */
+  targetRouter?: TargetRouter;
+  /** Cache TTL in ms for the pointer check (default 1000ms). */
+  cacheTtlMs?: number;
+  /** Injected discovery function for testing. */
+  discover?: typeof discoverServe;
+  /** Injected hosted method caller for testing. */
+  callHosted?: typeof callHostedMethod;
 }
 
 /**
@@ -118,7 +131,18 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
   // rather than measuring the wrong surface.
   const rendered = renderSurface(opts?.surface, { allowProduction: opts?.allowProduction });
   const server = new McpServer({ name: 'pyric', version: bridge.version });
-  const surfaceContext = createSurfaceContext(sandbox, opts?.projectDir ?? process.cwd());
+  const projectDir = opts?.projectDir ?? process.cwd();
+  const targetRouter =
+    opts?.targetRouter ??
+    new TargetRouter({
+      projectDir,
+      inProcessOnly: opts?.inProcessOnly,
+      allowProduction: opts?.allowProduction,
+      cacheTtlMs: opts?.cacheTtlMs,
+      discover: opts?.discover,
+      callHosted: opts?.callHosted,
+    });
+  const surfaceContext = createSurfaceContext(sandbox, projectDir, targetRouter);
   return registerRenderedSurface(server, bridge, rendered, surfaceContext, {
     onCallRejected: onCallRejected ? rejectionEvent : undefined,
     onAfterCall: opts?.onAfterDispatch,
@@ -270,6 +294,8 @@ export interface InProcessRunOptions {
    * close the session and observe the final flush.
    */
   transport?: Transport;
+  /** Suppress following a live Node host (--in-process flag). */
+  inProcessOnly?: boolean;
 }
 
 /**
@@ -407,6 +433,7 @@ async function runInProcessSession(
     surface: options.surface,
     allowProduction: options.allowProduction,
     projectDir,
+    inProcessOnly: options.inProcessOnly,
   };
   // A surface id no renderer claims is a start-up failure, not a per-call one:
   // serving the wrong surface would silently mislabel a whole run.

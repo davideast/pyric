@@ -42,12 +42,14 @@ function buildSurfaceDispatch(sandbox: LocalSandbox): SandboxDispatch {
 export function createSurfaceContext(
   sandbox: LocalSandbox,
   projectDir: string = process.cwd(),
+  targetRouter?: import('./types.js').SurfaceTargetRouter,
 ): SurfaceContext {
   return {
     sandbox,
     dispatch: buildSurfaceDispatch(sandbox),
     identity: new SurfaceIdentity(),
     projectDir,
+    targetRouter,
   };
 }
 

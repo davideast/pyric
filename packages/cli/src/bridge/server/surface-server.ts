@@ -202,7 +202,8 @@ function registerTool(
         action: resolved.action,
       });
       options.onAfterCall?.();
-      return toMcpResult(result, bridge.project);
+      const target = ctx.targetRouter?.getCurrentTarget() ?? 'in-process';
+      return toMcpResult(result, bridge.project, target);
     },
   );
 }
@@ -240,7 +241,8 @@ function registerResource(
         action: resolved.action,
       });
       options.onAfterCall?.();
-      const body = { ...result, _pyric: { mode: 'sandbox', project: bridge.project } };
+      const target = ctx.targetRouter?.getCurrentTarget() ?? 'in-process';
+      const body = { ...result, _pyric: { mode: 'sandbox', project: bridge.project, target } };
       return {
         contents: [
           { uri: requested, mimeType: RESOURCE_MIME_TYPE, text: JSON.stringify(body, null, 2) },

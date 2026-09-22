@@ -18,6 +18,16 @@ export interface OperationResult {
   data?: unknown;
 }
 
+export interface SurfaceTargetRouter {
+  getCurrentTarget(): 'host' | 'in-process';
+  dispatch(
+    method: import('./method-types.js').Method,
+    args: import('./method-types.js').Args,
+    ctx: SurfaceContext,
+    allowProduction: boolean,
+  ): Promise<OperationResult>;
+}
+
 /** Everything a handler is given: the sandbox, the shared dispatcher, and the caller identity. */
 export interface SurfaceContext {
   sandbox: LocalSandbox;
@@ -31,6 +41,8 @@ export interface SurfaceContext {
    * project directory that is not where the process was started.
    */
   projectDir: string;
+  /** Dynamic target router for hosted following (ADR 0016). */
+  targetRouter?: SurfaceTargetRouter;
 }
 
 /** One tool as an MCP client sees it. */

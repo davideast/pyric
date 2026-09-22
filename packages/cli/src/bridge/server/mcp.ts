@@ -106,13 +106,17 @@ export function observeRejectedCalls(
   return handlerRan;
 }
 
-export function toMcpResult(result: BridgeToolResult, project: string) {
+export function toMcpResult(
+  result: BridgeToolResult,
+  project: string,
+  target: 'host' | 'in-process' = 'in-process',
+) {
   // Wrap the bridge's tool result in MCP's content envelope. Include
-  // sandbox provenance + project label in a metadata block so the calling
+  // sandbox provenance + project label + target in a metadata block so the calling
   // agent can always tell which target the tool hit.
   const body = {
     ...result,
-    _pyric: { mode: 'sandbox', project },
+    _pyric: { mode: 'sandbox', project, target },
   };
   return {
     content: [
