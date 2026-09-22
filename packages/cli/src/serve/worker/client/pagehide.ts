@@ -8,6 +8,18 @@ interface PagehideEvents {
 
 type Disconnect = (client: ClientDb) => Promise<void>;
 
+function isServiceWorkerScope(events: unknown): boolean {
+  if (typeof events !== 'object' || events === null) return false;
+  const scope = events as { registration?: unknown; clients?: unknown };
+  return scope.registration !== undefined && scope.clients !== undefined;
+}
+
+function canListenToPagehide(events: PagehideEvents): boolean {
+  if (typeof events.addEventListener !== 'function') return false;
+  if (isServiceWorkerScope(events)) return false;
+  return true;
+}
+
 /** Own a worker port until its page permanently leaves. */
 export function ownClientUntilPagehide(
   client: ClientDb,
@@ -23,9 +35,21 @@ export function ownClientUntilPagehide(
     void disconnect().catch(() => undefined);
   };
 
-  events.addEventListener?.('pagehide', onPageHide);
+  // Only attach in environments that actually represent a page/window.
+  // In Service Workers or non-browser environments, `addEventListener('pagehide')` is invalid and
+  // attaching on a ServiceWorkerGlobalScope after initial evaluation throws.
+  const canListen = canListenToPagehide(events);
+  if (canListen) {
+    events.addEventListener?.('pagehide', onPageHide);
+  }
   return {
     disconnect,
-    dispose: () => events.removeEventListener?.('pagehide', onPageHide),
+    dispose: () => {
+      if (canListen) {
+        events.removeEventListener?.('pagehide', onPageHide);
+      }
+    },
   };
 }
+
+
