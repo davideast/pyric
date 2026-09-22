@@ -93,13 +93,20 @@ if [ "$DRY_RUN" -eq 1 ]; then
 
   echo ""
   echo "Preflight complete. No packages or dist-tags were published or changed."
-  echo "A real release would move alpha and latest to ${V}, and ${FB_TAG} on compatible packages."
+  if [ "${PUBLISH_TAG}" = "next" ]; then
+    echo "A real release would move next to ${V}, and ${FB_TAG} on compatible packages."
+  else
+    echo "A real release would move alpha and latest to ${V}, and ${FB_TAG} on compatible packages."
+  fi
   exit 0
 fi
 
 for p in pyric pyric-admin create-pyric @pyric/cli @pyric/ui; do
-  npm dist-tag add "${p}@${V}" latest
-  npm dist-tag add "${p}@${V}" alpha
+  npm dist-tag add "${p}@${V}" "${PUBLISH_TAG}"
+  if [ "${PUBLISH_TAG}" != "next" ]; then
+    npm dist-tag add "${p}@${V}" latest
+    npm dist-tag add "${p}@${V}" alpha
+  fi
 done
 
 # ─── fb<major>.<minor> compatibility certificate ───────────────────────

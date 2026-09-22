@@ -79,7 +79,7 @@ BODY_FILE="$(mktemp)"
 } > "$BODY_FILE"
 
 git push -u origin "$BRANCH"
-gh pr create --base main --head "$BRANCH" --title "release: v${V}" --body-file "$BODY_FILE"
+gh pr create --base main --head "$BRANCH" --title "release: v${V}" --body-file "$BODY_FILE" --label ci-packaging
 rm -f "$BODY_FILE"
 
 echo ""
