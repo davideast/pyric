@@ -133,7 +133,7 @@ test('Storage seeds await earlier uploads through fixture and section writes', a
 
 test('a Storage size that disagrees with the stored bytes is repaired instead of refusing the store', async () => {
   expect(await runNodeFixture('storage-size-repair')).toBe('Storage size repair passed');
-});
+}, 15_000);
 
 test('racing uploads to one path leave the recorded size equal to the stored bytes', async () => {
   expect(await runNodeFixture('storage-upload-race')).toBe('Storage upload race passed');

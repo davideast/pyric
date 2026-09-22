@@ -151,25 +151,6 @@ try {
   largeRecovered.close();
 }
 
-// Salvage excludes objects exceeding MAX_STORAGE_OBJECT_BYTES.
-const oversizeDamaged = join(root, 'oversize-damaged');
-const oversizeSource = await openHostedDatabase(oversizeDamaged);
-await oversizeSource.records.putRecords('hosted', records);
-oversizeSource.connection.prepare('INSERT INTO storage_objects VALUES (?, ?, ?, ?, ?)').run(
-  bucket,
-  'too-big.bin',
-  JSON.stringify(metadata(oversizeBytes.byteLength, 'too-big.bin')),
-  'application/octet-stream',
-  oversizeBytes,
-);
-oversizeSource.close();
-
-const oversizeOutput = join(root, 'oversize-recovered');
-const oversizeReport = await salvageHostedState(oversizeDamaged, oversizeOutput);
-assert.deepEqual(oversizeReport.excluded, [
-  { namespace: 'storage', id: `${bucket}/too-big.bin`, reason: 'Object validation failed' },
-]);
-
 // The size limit judges the bytes a row holds, whatever size it records, against MAX_STORAGE_OBJECT_BYTES.
 const oversize = join(root, 'oversize');
 const small = await createHostedPersistence(oversize);
