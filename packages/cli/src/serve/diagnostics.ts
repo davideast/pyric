@@ -57,9 +57,26 @@ export function createDiagnostics(mode: () => 'hosted' | 'browser', persistence?
     res.setHeader('cache-control', 'no-store');
     const readsReport = req.method === 'GET';
     if (readsReport) {
+      const url = req.url ? new URL(req.url, 'http://localhost') : null;
+      if (url?.searchParams.get('gc') === '1' && typeof (globalThis as unknown as { gc?: () => void }).gc === 'function') {
+        (globalThis as unknown as { gc: () => void }).gc();
+      }
+      const mem = process.memoryUsage();
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
         version: 1,
-        server: { http: 'responding', mode: mode(), startedAt, uptimeMs: Date.now() - startedAt, persistence: persistence?.() },
+        server: {
+          http: 'responding',
+          mode: mode(),
+          startedAt,
+          uptimeMs: Date.now() - startedAt,
+          persistence: persistence?.(),
+          memory: {
+            rss: mem.rss,
+            heapUsed: mem.heapUsed,
+            heapTotal: mem.heapTotal,
+            external: mem.external,
+          },
+        },
         retention: { clientLimit: CLIENT_LIMIT, eventsPerClient: DIAGNOSTIC_EVENT_LIMIT, ttlMs: RETENTION_MS },
         clients: [...clients.values()].map(({ report, receivedAt }) => ({
           ...report, receivedAt, source: 'browser-reported', findings: findings(report),
