@@ -5,42 +5,29 @@ limits concurrent inference, and recovers unfinished work without double dispatc
 or premature capacity release. These are extracted architecture experiments, not
 changes to Kin and not a production deployment plan.
 
-## What already exists
+## Completed experiments ([full 9-experiment synthesis](PROGRESSION.md))
 
-| Existing experiment | Read first | Established boundary |
+| Experiment | Read first | Established boundary |
 | --- | --- | --- |
 | Allowance accounting | [Inference allowance](inference-allowance/README.md), [first Firestore comparison](inference-allowance/comparisons/first-hosted/README.md) | Native transactional token buckets and request receipts; response deadlines can precede native transaction settlement. |
 | Gateway admission and execution protection | [Progression](inference-allowance/EXPERIMENT-PROGRESSION.md), [hosted execution comparison](inference-allowance/comparisons/hosted-execution/README.md) | Local and hosted HTTP workloads; Cloud Run did not propagate the tested client disconnects to the container. |
 | Provider lifecycle accounting | [Lifecycle guide](inference-allowance/PROVIDER-LIFECYCLE.md), [local findings](inference-allowance/comparisons/provider-lifecycle/README.md) | Separates output transport from provider termination, using a scripted provider; unknown outcomes retain slots. |
 | Distributed capacity | [Local harness](distributed-capacity/README.md), [hosted findings](distributed-capacity/hosted/RESULTS.md) | Transactions, leases, fences and explicit reconciliation; nine hosted/adapted cases matched 46 checks against Pyric across three gateway process identities. |
+| Real-provider contract validation | [Local + live results](provider-contract/RESULTS.md), [live AI Logic run](provider-contract/live/RESULTS.md) | 16 local fixture cases (35 checks) and 4 live Firebase AI Logic (`gemini-3.5-flash-lite`) cases; normal completions provide authoritative evidence (`finishReason`, `usageMetadata`), while interrupted streams leave remote state unobservable and require slot retention. |
+| Integrated admission and accounting | [Local harness](integrated-admission/README.md), [hosted findings](integrated-admission/hosted/RESULTS.md) | Atomic allowance debit + capacity reservation in a single Firestore transaction with pre-dispatch refund vs. post-dispatch retention; 18 local multi-process cases (44 assertions) and 12 hosted Cloud Run + Native Firestore cases (38/38 assertions matching Pyric). |
+| Autonomous recovery and reconciliation | [Local harness](automatic-recovery/README.md), [hosted findings](automatic-recovery/hosted/RESULTS.md) | Cursor-paginated `(nextCheckAt ASC, requestId ASC)` lease sweeps, fenced `claimExpired()` takeover, and an 8-row `reconcile()` decision engine with explicit quarantine (`provider-unobservable`); 14 local cases (33 assertions) and 13 hosted Cloud Run + Native Firestore cases (31/31 assertions matching Pyric). |
+| Fair allocation under contention | [Local harness](fair-allocation/README.md), [hosted findings](fair-allocation/hosted/RESULTS.md) | Bounded queue residency (`QUEUE_LIMITS`: 24 global, 8 per-user) decoupled from active execution slot reservation (`LIMITS`: 3 global, 2 per-user), comparing `immediate`, `fifo`, and transactional `round-robin` cursor rotation; 11 local cases (27 assertions) and 10 hosted Cloud Run + Native Firestore cases (18/18 assertions matching Pyric). |
 
-The original distributed suite has 14 local cases and actual local process kills.
-The hosted nine-case suite is not an exact replay of all 14. It uses logical time
-and an operator-controlled durable provider fixture. It did not kill Cloud Run
-processes, establish a real provider contract, or implement an automatic reaper.
-
-## New build briefs — documentation only
-
-Only the directories and READMEs below have been created. Their file trees, APIs,
-configuration and commands are implementation requirements, not existing tools.
-Do not interpret this documentation request as permission to deploy or run paid AI.
+## Experiment dependency sequence
 
 1. [Real-provider cancellation and reconciliation](provider-contract/README.md):
-   find out what actual provider evidence is available after interruption.
+   establishes what actual provider evidence is available after interruption.
 2. [Integrated admission and accounting under failure](integrated-admission/README.md):
-   join allowance, execution capacity and dispatch into a recoverable state machine.
+   joins allowance, execution capacity and dispatch into a recoverable state machine.
 3. [Automatic recovery under competing owners](automatic-recovery/README.md):
-   make recovery run automatically without guessing that unknown work has stopped.
-4. [Fair allocation under contention](fair-allocation/README.md): compare allocation
-   policies, starvation, useful throughput and shared-ledger contention.
-
-Start the provider fixture/contract work first. Integrated accounting can then run
-with declared provider capability fixtures while live capability discovery is
-pending. Automatic recovery consumes those findings and the integrated state
-machine. Fair allocation begins only after a stable integrated baseline exists;
-it can proceed independently of live-provider recovery, using controlled jobs.
-Unsupported real-provider capabilities are valid findings, not reasons to invent
-an API or make the entire local sequence wait indefinitely.
+   runs recovery automatically without guessing that unknown work has stopped.
+4. [Fair allocation under contention](fair-allocation/README.md): compares allocation
+   policies (`immediate`, `fifo`, `round-robin`), noisy-neighbor fairness, and shared-ledger contention.
 
 ## Common implementation contract for all four briefs
 

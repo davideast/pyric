@@ -18,12 +18,13 @@ experiments/
 │   ├── evidence/                    # Capture, verification and comparison
 │   └── backends/pyric.mjs            # Isolated sandbox setup and build provenance
 ├── rate-limiting/
-│   ├── inference-allowance/          # Per-user quotas, gateway and evidence
+│   ├── PROGRESSION.md               # 9-experiment synthesis and findings
+│   ├── inference-allowance/         # Per-user quotas, gateway and evidence
 │   ├── distributed-capacity/        # Shared execution slots and gateway recovery
-│   ├── provider-contract/           # Build brief: real provider evidence
-│   ├── integrated-admission/        # Build brief: atomic admission/accounting
-│   ├── automatic-recovery/          # Build brief: autonomous reconciliation
-│   └── fair-allocation/             # Build brief: fairness and contention
+│   ├── provider-contract/           # Real provider evidence & live AI Logic verification
+│   ├── integrated-admission/        # Atomic admission/accounting & Cloud Run parity
+│   ├── automatic-recovery/          # Autonomous reconciliation & cursor pagination
+│   └── fair-allocation/             # Bounded queueing, FIFO vs. round-robin fairness
 └── multiplayer/
     └── pixel-together/
         ├── architecture/            # Pixel/claim algorithms and Rules
@@ -101,10 +102,12 @@ completed nine supported/adapted scenarios against native Firestore; the remaini
 original fault-injection cases are not yet hosted. Every Cloud Run deployment
 requires explicit approval.
 
-## Next experiment build briefs
+## Completed rate-limiting progression
 
-The [rate-limiting experiment index](rate-limiting/README.md) describes the sequence,
-shared evidence schema, source-capture rules and comparison requirements for four
-new experiments: provider contract, integrated admission, automatic recovery and
-fair allocation. Their directories currently contain README build briefs only.
-The proposed CLI commands in those briefs are not implemented yet.
+The [rate-limiting progression summary](rate-limiting/PROGRESSION.md) and
+[experiment index](rate-limiting/README.md) document all nine completed experiments—covering
+transactional allowance accounting, admission/execution concurrency, provider lifecycle,
+distributed capacity, real-provider contract validation ([live findings](rate-limiting/provider-contract/live/RESULTS.md)),
+integrated admission ([hosted findings](rate-limiting/integrated-admission/hosted/RESULTS.md)),
+autonomous recovery ([hosted findings](rate-limiting/automatic-recovery/hosted/RESULTS.md)),
+and fair allocation under contention ([hosted findings](rate-limiting/fair-allocation/hosted/RESULTS.md)).
