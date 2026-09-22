@@ -134,6 +134,7 @@
     "test:flow-treatments": "playwright test flow-treatment.pw.ts overview-initial-render.pw.ts --config test/e2e/playwright.config.ts",
     "test:site-cli": "playwright test --config test/e2e/site-cli/playwright.config.ts",
     "test:site-static": "playwright test --config test/e2e/site-static/playwright.config.ts",
+    "test:hosted-smoke": "playwright test --config test/e2e/hosted/playwright.config.ts",
     "test:soak": "playwright test --config test/e2e/soak/playwright.config.ts",
     "pretypecheck": "bash ../../scripts/build.sh --packages-only",
     "typecheck": "bun x tsc -p tsconfig.json --noEmit",
