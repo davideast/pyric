@@ -111,8 +111,9 @@ This policy is pinned by
 
 ## Limits and verification
 
-Storage operations retain the 8 MiB decoded limit. AI/Traffic history, delivery
-queues and browser identity sessions acquire no additional durability guarantee.
+Storage bridge operations retain the 8 MiB decoded frame limit, while whole-object
+persistence supports chunked transfers up to 512 MiB (`MAX_STORAGE_OBJECT_BYTES`, ADR 0015).
+AI/Traffic history, delivery queues and browser identity sessions acquire no additional durability guarantee.
 WAL requires supported local storage. Known synced-directory warnings are
 heuristics, not filesystem safety certification.
 

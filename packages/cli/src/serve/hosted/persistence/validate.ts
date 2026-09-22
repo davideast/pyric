@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import type { StoredMetadata } from 'pyric/storage/internal';
 import type { openHostedDatabase } from './database.js';
 import { sqlText } from './sqlite.js';
-import { MAX_STORAGE_OP_BYTES } from '../../worker/protocol/storage.js';
+import { MAX_STORAGE_OBJECT_BYTES } from '../../worker/protocol/storage.js';
 
 /** One Storage object whose recorded size disagreed with its stored bytes. */
 export interface StorageMetadataRepair {
@@ -41,7 +41,7 @@ export function validateHostedDatabase(database: Awaited<ReturnType<typeof openH
     const wrongIdentity = metadata.bucket !== row.bucket || metadata.fullPath !== row.path;
     // The limit applies to the bytes the row holds, not to the size it records.
     const storedSize = Number(row.size);
-    const oversize = storedSize > MAX_STORAGE_OP_BYTES;
+    const oversize = storedSize > MAX_STORAGE_OBJECT_BYTES;
     const invalid = wrongIdentity || oversize;
     if (invalid) throw new Error('Persisted Storage object does not match its metadata.');
     sqlText(row, 'mime');

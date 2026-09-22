@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { FirebaseError } from 'pyric/app';
 import type { StorageBackend, StoredMetadata } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
-import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../../worker/protocol/storage.js';
+import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
 import type { Commit } from './commits.js';
 import { sqlText, type SqlConnection, type SqlRow } from './sqlite.js';
 
@@ -52,8 +52,8 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
   }
 
   function putBytes(path: string, bytes: Uint8Array, mime: string, value: StoredMetadata): void {
-    const tooLarge = bytes.byteLength > MAX_STORAGE_OP_BYTES;
-    if (tooLarge) throw storagePayloadTooLarge(bytes.byteLength, 'Storage object');
+    const tooLarge = bytes.byteLength > MAX_STORAGE_OBJECT_BYTES;
+    if (tooLarge) throw storageQuotaExceeded(bytes.byteLength, 'Storage object');
     const metadata = storedMetadataSchema.parse(value);
     const mismatchedObject = metadata.fullPath !== path || metadata.size !== bytes.byteLength;
     if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
@@ -64,8 +64,8 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
     const defaultBucket = scope ?? 'pyric-default';
     return {
       async put(path, blob, value) {
-        const tooLarge = blob.size > MAX_STORAGE_OP_BYTES;
-        if (tooLarge) throw storagePayloadTooLarge(blob.size, 'Storage object');
+        const tooLarge = blob.size > MAX_STORAGE_OBJECT_BYTES;
+        if (tooLarge) throw storageQuotaExceeded(blob.size, 'Storage object');
         await enqueue(async () => {
           const bytes = new Uint8Array(await blob.arrayBuffer());
           putBytes(path, bytes, blob.type, value);
