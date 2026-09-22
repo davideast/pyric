@@ -210,7 +210,11 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'storage.getMetadata'; path: string }
   | { t: 'op'; id: string; method: 'storage.getBlob'; path: string }
   | { t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown> }
-  | { t: 'op'; id: string; method: 'storage.getBytes'; path: string }
+  | { t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string }
+  | { t: 'op'; id: string; method: 'storage.beginUpload'; path: string; size: number; contentType?: string; metadata?: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'storage.putPart'; uploadId: string; partIndex: number; dataB64: string }
+  | { t: 'op'; id: string; method: 'storage.finishUpload'; uploadId: string }
+  | { t: 'op'; id: string; method: 'storage.abortUpload'; uploadId: string }
   | { t: 'op'; id: string; method: 'storage.deleteObject'; path: string }
   // AI ops
   | { t: 'op'; id: string; method: 'ai.generateContent'; model: string; request: Record<string, unknown>; engine?: AiEngineConfigWire }

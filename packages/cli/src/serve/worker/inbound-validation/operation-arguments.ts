@@ -4,7 +4,7 @@ import { DELIVERY_STAGES } from 'pyric/messaging/internal';
 import { requireDocumentData } from 'pyric/firestore/internal/value-codec';
 import { requireFirestorePath } from '../protocol/firestore-validation.js';
 import { isMessageRecord, requireShape, requireRecord, requireString, requireOptionalString,
-  requireOptionalBoolean, requireOptionalRecord } from './fields.js';
+  requireOptionalBoolean, requireOptionalRecord, requireNumber, requireOptionalNumber } from './fields.js';
 import { assertRtdbQuery } from './rtdb-query.js';
 export { isMessageRecord } from './fields.js';
 
@@ -19,6 +19,7 @@ function assertRequiredPath(message: Record<string, unknown>): void {
     case 'rtdb.onDisconnectSet': case 'rtdb.onDisconnectUpdate': case 'rtdb.onDisconnectRemove': case 'rtdb.onDisconnectCancel':
     case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob':
     case 'storage.getBytes': case 'storage.deleteObject': case 'storage.putBytes':
+    case 'storage.beginUpload':
       requireString(message.path, 'path');
       return;
   }
@@ -122,6 +123,25 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'storage.putBytes':
       requireOptionalRecord(message.metadata, 'metadata');
       requireOptionalString(message.contentType, 'contentType');
+      return;
+    case 'storage.beginUpload':
+      requireNumber(message.size, 'size');
+      requireOptionalRecord(message.metadata, 'metadata');
+      requireOptionalString(message.contentType, 'contentType');
+      return;
+    case 'storage.putPart':
+      requireString(message.uploadId, 'uploadId');
+      requireNumber(message.partIndex, 'partIndex');
+      requireString(message.dataB64, 'dataB64');
+      return;
+    case 'storage.finishUpload':
+    case 'storage.abortUpload':
+      requireString(message.uploadId, 'uploadId');
+      return;
+    case 'storage.getBytes':
+      requireOptionalNumber(message.offset, 'offset');
+      requireOptionalNumber(message.length, 'length');
+      requireOptionalString(message.expectedGeneration, 'expectedGeneration');
       return;
     case 'ai.generateContent':
     case 'ai.countTokens':
@@ -369,6 +389,10 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'storage.getMetadata':
     case 'storage.getBlob':
     case 'storage.getBytes':
+    case 'storage.beginUpload':
+    case 'storage.putPart':
+    case 'storage.finishUpload':
+    case 'storage.abortUpload':
     case 'storage.deleteObject':
     case 'getRuntimeEpoch':
     case 'retireRuntime':

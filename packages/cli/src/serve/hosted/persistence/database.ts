@@ -49,9 +49,39 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
             bytes BLOB NOT NULL,
             PRIMARY KEY (bucket, path)
           ) STRICT;
+          CREATE TABLE IF NOT EXISTS storage_uploads (
+            upload_id TEXT NOT NULL,
+            connection_id TEXT,
+            bucket TEXT NOT NULL,
+            path TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            content_type TEXT,
+            custom_metadata TEXT,
+            part_index INTEGER NOT NULL,
+            bytes BLOB NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (upload_id, part_index)
+          ) STRICT;
           PRAGMA user_version=1;
         `);
       });
+    } else {
+      connection.exec(`
+        CREATE TABLE IF NOT EXISTS storage_uploads (
+          upload_id TEXT PRIMARY KEY,
+          connection_id TEXT,
+          bucket TEXT NOT NULL,
+          path TEXT NOT NULL,
+          size INTEGER NOT NULL,
+          content_type TEXT,
+          custom_metadata TEXT,
+          bytes BLOB NOT NULL,
+          created_at INTEGER NOT NULL
+        ) STRICT;
+      `);
+    }
+    if (!readOnly) {
+      connection.prepare('DELETE FROM storage_uploads WHERE created_at < ?').run(Date.now() - 3600_000);
     }
     const commits = createCommitController(connection);
     const read = connection.prepare('SELECT payload FROM records WHERE namespace=? AND id=?');

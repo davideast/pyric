@@ -18,13 +18,19 @@
 export {
   bindStorageOperationContext,
   getAdminStorageSandbox,
+  getStorageService,
+  storageAuth,
+  storageOperationProvenance,
+  targetOf,
   installStorageBackend,
   getStorageCrossServiceIam,
   getStorageRulesResolution,
   replaceCrossServiceIam,
   replaceStorageRules,
 } from './service.js';
-export { storageFirestoreLookup } from './enforce.js';
+export { enforceRules, storageFirestoreLookup } from './enforce.js';
+export { requestResourceFor, resourceFromStored } from './sandbox/rules-resources.js';
+export { toFullMetadata } from './metadata.js';
 export {
   decodeString,
   defaultRawContentType,

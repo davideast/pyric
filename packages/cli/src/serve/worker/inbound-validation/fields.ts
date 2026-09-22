@@ -33,3 +33,13 @@ export function requireOptionalRecord(value: unknown, field: string): void {
   const hasValidShape = value === undefined || isMessageRecord(value);
   requireShape(hasValidShape, field);
 }
+
+export function requireNumber(value: unknown, field: string): void {
+  const isNumber = typeof value === 'number' && Number.isFinite(value);
+  requireShape(isNumber, field);
+}
+
+export function requireOptionalNumber(value: unknown, field: string): void {
+  const hasValidShape = value === undefined || (typeof value === 'number' && Number.isFinite(value));
+  requireShape(hasValidShape, field);
+}

@@ -4,7 +4,15 @@
  * byte ops (`uploadBytes`/`getBytes`/`deleteObject`) over the worker port.
  */
 
-import { bytesToBase64, base64ToBytes, storagePayloadTooLarge, MAX_STORAGE_OP_BYTES } from '../protocol.js';
+import {
+  bytesToBase64,
+  base64ToBytes,
+  storagePayloadTooLarge,
+  storageQuotaExceeded,
+  MAX_STORAGE_OP_BYTES,
+  MAX_STORAGE_PART_BYTES,
+  MAX_STORAGE_OBJECT_BYTES,
+} from '../protocol.js';
 import type { FullMetadata, StringFormat } from 'pyric/storage';
 import { arrayBufferToBase64, decodeString, defaultRawContentType } from 'pyric/storage/internal';
 import { dataRpc, nextId, wirePort } from './core.js';
@@ -151,10 +159,59 @@ export async function getMetadata(reference: ClientStorageReference): Promise<Fu
 
 /** Reconstruct binary data locally so reads work over MessagePort and JSON WebSocket. */
 export async function getBlob(reference: ClientStorageReference): Promise<Blob> {
-  const result = await readStorageBytes(reference);
-  const bytes = base64ToBytes(result.dataB64);
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const result = await readStorageBytesInternal(reference);
+  const buffer = result.bytes.buffer.slice(result.bytes.byteOffset, result.bytes.byteOffset + result.bytes.byteLength) as ArrayBuffer;
   return new Blob([buffer], { type: result.contentType ?? 'application/octet-stream' });
+}
+
+async function readStorageBytesInternal(
+  reference: ClientStorageReference,
+): Promise<{ bytes: Uint8Array; contentType?: string; size: number }> {
+  try {
+    const res = (await dataRpc(reference.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'storage.getBytes',
+      path: reference.fullPath,
+    })) as { dataB64: string; contentType?: string; size: number };
+    return {
+      bytes: base64ToBytes(res.dataB64),
+      contentType: res.contentType,
+      size: res.size,
+    };
+  } catch (err: unknown) {
+    if ((err as { code?: string })?.code === 'payload-too-large') {
+      const meta = await getMetadata(reference);
+      const byteParts: Uint8Array[] = [];
+      let offset = 0;
+      while (offset < meta.size) {
+        const length = Math.min(MAX_STORAGE_PART_BYTES, meta.size - offset);
+        const chunkRes = (await dataRpc(reference.port, {
+          t: 'op',
+          id: nextId(),
+          method: 'storage.getBytes',
+          path: reference.fullPath,
+          offset,
+          length,
+          expectedGeneration: meta.generation,
+        })) as { dataB64: string; contentType?: string; size: number };
+        byteParts.push(base64ToBytes(chunkRes.dataB64));
+        offset += length;
+      }
+      const combined = new Uint8Array(meta.size);
+      let pos = 0;
+      for (const p of byteParts) {
+        combined.set(p, pos);
+        pos += p.byteLength;
+      }
+      return {
+        bytes: combined,
+        contentType: meta.contentType,
+        size: meta.size,
+      };
+    }
+    throw err;
+  }
 }
 
 function readStorageBytes(reference: ClientStorageReference): Promise<{
@@ -216,22 +273,75 @@ export async function uploadBytes(
       : data instanceof ArrayBuffer
         ? new Uint8Array(data)
         : data;
-  if (bytes.byteLength > MAX_STORAGE_OP_BYTES) {
-    throw storagePayloadTooLarge(bytes.byteLength, `uploadBytes payload for '${reference.fullPath}'`);
+  if (bytes.byteLength > MAX_STORAGE_OBJECT_BYTES) {
+    throw storageQuotaExceeded(bytes.byteLength, `uploadBytes payload for '${reference.fullPath}'`);
   }
   // contentType precedence mirrors pyric/storage: caller metadata → Blob.type.
   const contentType =
     metadata?.contentType ?? (data instanceof Blob && data.type ? data.type : undefined);
-  const stored = (await dataRpc(reference.port, {
+
+  if (bytes.byteLength <= MAX_STORAGE_PART_BYTES) {
+    const stored = (await dataRpc(reference.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'storage.putBytes',
+      path: reference.fullPath,
+      dataB64: bytesToBase64(bytes),
+      ...(contentType !== undefined ? { contentType } : {}),
+      ...(metadata !== undefined ? { metadata: metadata as Record<string, unknown> } : {}),
+    })) as FullMetadata;
+    return { ref: reference, metadata: stored };
+  }
+
+  // Chunked upload for objects > 4 MiB (ADR 0015)
+  const beginRes = (await dataRpc(reference.port, {
     t: 'op',
     id: nextId(),
-    method: 'storage.putBytes',
+    method: 'storage.beginUpload',
     path: reference.fullPath,
-    dataB64: bytesToBase64(bytes),
+    size: bytes.byteLength,
     ...(contentType !== undefined ? { contentType } : {}),
     ...(metadata !== undefined ? { metadata: metadata as Record<string, unknown> } : {}),
-  })) as FullMetadata;
-  return { ref: reference, metadata: stored };
+  })) as { uploadId: string };
+
+  const uploadId = beginRes.uploadId;
+  try {
+    let offset = 0;
+    let partIndex = 0;
+    while (offset < bytes.byteLength) {
+      const nextOffset = Math.min(offset + MAX_STORAGE_PART_BYTES, bytes.byteLength);
+      const partSlice = bytes.subarray(offset, nextOffset);
+      await dataRpc(reference.port, {
+        t: 'op',
+        id: nextId(),
+        method: 'storage.putPart',
+        uploadId,
+        partIndex,
+        dataB64: bytesToBase64(partSlice),
+      });
+      offset = nextOffset;
+      partIndex++;
+    }
+    const stored = (await dataRpc(reference.port, {
+      t: 'op',
+      id: nextId(),
+      method: 'storage.finishUpload',
+      uploadId,
+    })) as FullMetadata;
+    return { ref: reference, metadata: stored };
+  } catch (err) {
+    try {
+      await dataRpc(reference.port, {
+        t: 'op',
+        id: nextId(),
+        method: 'storage.abortUpload',
+        uploadId,
+      });
+    } catch {
+      // Secondary abort best effort
+    }
+    throw err;
+  }
 }
 
 /** Upload string payload at the reference's path.
@@ -256,7 +366,7 @@ export async function getBytes(
   reference: ClientStorageReference,
   maxDownloadSizeBytes?: number,
 ): Promise<ArrayBuffer> {
-  const res = await readStorageBytes(reference);
+  const res = await readStorageBytesInternal(reference);
   if (typeof maxDownloadSizeBytes === 'number' && res.size > maxDownloadSizeBytes) {
     const err = new Error(
       `storage/quota-exceeded: object at '${reference.fullPath}' is ${res.size} bytes — ` +
@@ -265,8 +375,7 @@ export async function getBytes(
     err.code = 'storage/quota-exceeded';
     throw err;
   }
-  const bytes = base64ToBytes(res.dataB64);
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return res.bytes.buffer.slice(res.bytes.byteOffset, res.bytes.byteOffset + res.bytes.byteLength) as ArrayBuffer;
 }
 
 /** Delete the object at the reference's path (idempotent — missing = no-op,
