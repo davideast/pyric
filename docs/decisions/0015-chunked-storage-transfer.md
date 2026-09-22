@@ -50,7 +50,16 @@ client first reads metadata for the size and generation, then requests 4 MiB
 ranges and passes the generation it expects with each one. The host refuses a
 range whose object generation differs with `storage/object-changed`, so a
 download never splices two versions of an object. SQLite reads a range with
-`substr(bytes, offset, length)` without materializing the whole blob.
+`substr(bytes, offset, length)`.
+
+> **Correction (2026-09-22).** This section originally claimed `substr` reads a
+> range "without materializing the whole blob." That is not true under
+> `node:sqlite`, which exposes no incremental blob I/O (`sqlite3_blob_open`), so
+> `substr` builds the full BLOB value before slicing. A ranged read therefore
+> costs O(total object size), and a chunked download costs one full
+> materialization per part. Measured with a fixed 4 MiB read: 1.95 ms against a
+> 10 MiB object, 7.25 ms against 50 MiB, 28.47 ms against 200 MiB. See #715, and
+> ADR 0017 for the storage layout that makes ranged reads O(range).
 
 **Staging.** Staged parts live in a `storage_uploads` table in the host's SQLite
 file, keyed by `uploadId`, with the owning connection, the declared size, and a
