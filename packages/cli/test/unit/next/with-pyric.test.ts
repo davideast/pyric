@@ -191,4 +191,16 @@ describe('withPyric Next.js configuration wrapper', () => {
     const resOpen = withPyric({}, { runtimeChip: { initiallyOpen: true } }) as Record<string, any>;
     expect(resOpen.env?.NEXT_PUBLIC_PYRIC_RUNTIME_CHIP).toBe('expanded');
   });
+
+  it('configures NEXT_PUBLIC_PYRIC_STUDIO_URL matching the resolved sandbox target URL', () => {
+    const resDefault = withPyric({}) as Record<string, any>;
+    expect(resDefault.env?.NEXT_PUBLIC_PYRIC_STUDIO_URL).toBe('http://127.0.0.1:4000/__pyric/ui/studio');
+    expect(resDefault.env?.PYRIC_STUDIO_URL).toBe('http://127.0.0.1:4000/__pyric/ui/studio');
+
+    const resPort = withPyric({}, { port: 3473 }) as Record<string, any>;
+    expect(resPort.env?.NEXT_PUBLIC_PYRIC_STUDIO_URL).toBe('http://127.0.0.1:3473/__pyric/ui/studio');
+
+    const resUrl = withPyric({}, { url: 'http://localhost:3473' }) as Record<string, any>;
+    expect(resUrl.env?.NEXT_PUBLIC_PYRIC_STUDIO_URL).toBe('http://localhost:3473/__pyric/ui/studio');
+  });
 });

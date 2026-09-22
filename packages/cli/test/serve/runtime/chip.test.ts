@@ -41,9 +41,10 @@ function setup(options: {
   withSandboxEvents?: boolean;
   clipboard?: Pick<Clipboard, 'writeText'>;
   useRealClient?: boolean;
+  manifest?: PyricRuntimeManifest;
 } = {}) {
   const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/' });
-  const runtime = createPyricRuntimeStatus(manifest);
+  const runtime = createPyricRuntimeStatus(options.manifest ?? manifest);
 
   let currentLens: AuthLens | undefined = options.initialLens;
   let currentUser: RuntimeIdentity | null = options.initialUser ?? null;
@@ -201,6 +202,19 @@ describe('the panel shell', () => {
     expect(root.querySelector('[data-open-studio]')!.getAttribute('href')).toContain('/auth');
     showTab('traffic');
     expect(root.querySelector('[data-open-studio]')!.getAttribute('href')).toContain('/traffic');
+  });
+
+  it('points the Studio button at absolute studioUrl from runtime manifest', () => {
+    const customManifest: PyricRuntimeManifest = {
+      studioUrl: 'http://localhost:3473/__pyric/ui/studio',
+      worker: { url: '/__pyric/sdk/worker.js', name: 'pyric-shared-worker', servedEpoch: 'bbbbbbbbbbbbbbbb' },
+    };
+    const { root, showTab } = setup({ initiallyOpen: true, manifest: customManifest });
+    expect(root.querySelector('[data-open-studio]')!.getAttribute('href'))
+      .toBe('http://localhost:3473/__pyric/ui/auth/');
+    showTab('traffic');
+    expect(root.querySelector('[data-open-studio]')!.getAttribute('href'))
+      .toBe('http://localhost:3473/__pyric/ui/traffic/');
   });
 
   it('keeps a disabled Studio button in place when Studio is unavailable', () => {
