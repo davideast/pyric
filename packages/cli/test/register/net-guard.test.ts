@@ -38,10 +38,10 @@ import {
 // ─── mode + allowlist parsing ───────────────────────────────────────────────
 
 describe('parseGuardMode', () => {
-  it('defaults to warn when unset or empty', () => {
-    expect(parseGuardMode(undefined)).toBe('warn');
-    expect(parseGuardMode('')).toBe('warn');
-    expect(parseGuardMode('   ')).toBe('warn');
+  it('defaults to block (fail-closed) when unset or empty', () => {
+    expect(parseGuardMode(undefined)).toBe('block');
+    expect(parseGuardMode('')).toBe('block');
+    expect(parseGuardMode('   ')).toBe('block');
   });
 
   it('accepts the three knob values case/space-insensitively', () => {
@@ -52,9 +52,9 @@ describe('parseGuardMode', () => {
     expect(parseGuardMode('warn')).toBe('warn');
   });
 
-  it('falls back to the safe default on an unknown value', () => {
-    expect(parseGuardMode('nope')).toBe('warn');
-    expect(parseGuardMode('true')).toBe('warn');
+  it('falls back to the safe default (block) on an unknown value', () => {
+    expect(parseGuardMode('nope')).toBe('block');
+    expect(parseGuardMode('true')).toBe('block');
   });
 });
 
@@ -354,7 +354,7 @@ describe('installNetGuard', () => {
     const log = collector();
     const guard = installNetGuard({
       scope,
-      env: { PYRIC_SANDBOX: '1' },
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'warn' },
       write: log.write,
       net: noNet,
       tls: noTls,
@@ -376,7 +376,7 @@ describe('installNetGuard', () => {
     const log = collector();
     const guard = installNetGuard({
       scope,
-      env: { PYRIC_SANDBOX: '1' },
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'warn' },
       write: log.write,
       net: noNet,
       tls: noTls,
@@ -501,6 +501,43 @@ describe('installNetGuard', () => {
       }),
     ).toEqual({ sock: true });
     expect(netCalls).toHaveLength(1);
+  });
+
+  it('guards Socket.prototype.connect so direct new Socket().connect() calls are intercepted', () => {
+    const scope = fakeScope(mockDispatcher());
+    const log = collector();
+    const connectCalls: unknown[][] = [];
+    const realConnect = (...args: unknown[]): unknown => {
+      connectCalls.push(args);
+      return { connected: true };
+    };
+    const socketPrototype = { connect: realConnect };
+
+    installNetGuard({
+      scope,
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
+      write: log.write,
+      net: noNet,
+      tls: noTls,
+      agentPrototypes: [],
+      socketPrototypes: [socketPrototype],
+    });
+
+    expect(() =>
+      (socketPrototype.connect as (o: unknown) => unknown)({
+        host: 'firestore.googleapis.com',
+        port: 443,
+      }),
+    ).toThrow(/firestore\.googleapis\.com/);
+    expect(connectCalls).toHaveLength(0);
+
+    expect(
+      (socketPrototype.connect as (o: unknown) => unknown)({
+        host: '127.0.0.1',
+        port: 5000,
+      }),
+    ).toEqual({ connected: true });
+    expect(connectCalls).toHaveLength(1);
   });
 });
 

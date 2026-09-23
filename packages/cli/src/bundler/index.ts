@@ -16,6 +16,11 @@
 export {
   pyricRollupExternals,
   pyricEsbuildExternals,
+  PYRIC_EXTERNAL_PACKAGES,
   isPyricExternal,
+  pyricWebpackExternals,
+  createPyricBundlerPlugin,
   pyricExternals,
+  type PyricBundlerPlugin,
 } from './externals.js';
+

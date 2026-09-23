@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  PYRIC_EXTERNAL_PACKAGES,
+  createPyricBundlerPlugin,
   isPyricExternal,
   pyricEsbuildExternals,
   pyricExternals,
   pyricRollupExternals,
+  pyricWebpackExternals,
 } from '../../src/bundler/externals.js';
 
 describe('bundler externalization presets and predicate', () => {
@@ -40,9 +43,16 @@ describe('bundler externalization presets and predicate', () => {
       expect(isPyricExternal('lodash')).toBe(false);
     });
 
-    test('returns false for unrelated google cloud libraries', () => {
-      expect(isPyricExternal('@google-cloud/storage')).toBe(false);
-      expect(isPyricExternal('@google-cloud/firestore')).toBe(false);
+    test('returns true for transitive google cloud backend-SDK dependencies and subpaths', () => {
+      expect(isPyricExternal('@google-cloud/storage')).toBe(true);
+      expect(isPyricExternal('@google-cloud/storage/build/cjs/src/bucket')).toBe(true);
+      expect(isPyricExternal('@google-cloud/firestore')).toBe(true);
+      expect(isPyricExternal('@google-cloud/firestore/build/src/index')).toBe(true);
+      expect(isPyricExternal('google-auth-library')).toBe(true);
+      expect(isPyricExternal('google-auth-library/build/src/auth/googleauth')).toBe(true);
+    });
+
+    test('returns false for unrelated google libraries', () => {
       expect(isPyricExternal('@google/genai')).toBe(false);
     });
 
@@ -60,7 +70,7 @@ describe('bundler externalization presets and predicate', () => {
   });
 
   describe('pyricRollupExternals', () => {
-    test('matches firebase-admin, firebase, and @firebase packages', () => {
+    test('matches firebase-admin, firebase, @firebase, and transitive Google Cloud packages', () => {
       const matchesAny = (id: string): boolean =>
         pyricRollupExternals.some((regex) => regex.test(id));
 
@@ -69,6 +79,9 @@ describe('bundler externalization presets and predicate', () => {
       expect(matchesAny('firebase')).toBe(true);
       expect(matchesAny('firebase/app')).toBe(true);
       expect(matchesAny('@firebase/app')).toBe(true);
+      expect(matchesAny('@google-cloud/firestore')).toBe(true);
+      expect(matchesAny('@google-cloud/storage')).toBe(true);
+      expect(matchesAny('google-auth-library')).toBe(true);
     });
 
     test('rejects unrelated packages and partial overlaps', () => {
@@ -77,7 +90,7 @@ describe('bundler externalization presets and predicate', () => {
 
       expect(matchesAny('express')).toBe(false);
       expect(matchesAny('firebase-tools')).toBe(false);
-      expect(matchesAny('@google-cloud/storage')).toBe(false);
+      expect(matchesAny('@google/genai')).toBe(false);
     });
   });
 
@@ -88,6 +101,64 @@ describe('bundler externalization presets and predicate', () => {
       expect(pyricEsbuildExternals).toContain('firebase');
       expect(pyricEsbuildExternals).toContain('firebase/*');
       expect(pyricEsbuildExternals).toContain('@firebase/*');
+      expect(pyricEsbuildExternals).toContain('google-auth-library');
+      expect(pyricEsbuildExternals).toContain('google-auth-library/*');
+      expect(pyricEsbuildExternals).toContain('@google-cloud/*');
+    });
+  });
+
+  describe('PYRIC_EXTERNAL_PACKAGES and bundler interlock plugins', () => {
+    test('PYRIC_EXTERNAL_PACKAGES includes Firebase and transitive Google Cloud packages', () => {
+      expect(PYRIC_EXTERNAL_PACKAGES).toContain('firebase-admin');
+      expect(PYRIC_EXTERNAL_PACKAGES).toContain('firebase');
+      expect(PYRIC_EXTERNAL_PACKAGES).toContain('google-auth-library');
+      expect(PYRIC_EXTERNAL_PACKAGES).toContain('@google-cloud/firestore');
+      expect(PYRIC_EXTERNAL_PACKAGES).toContain('@google-cloud/storage');
+    });
+
+    test('createPyricBundlerPlugin implements Rollup/Vite resolveId, Vite ssr.external, and esbuild setup', () => {
+      const plugin = createPyricBundlerPlugin();
+      expect(plugin.name).toBe('pyric-bundler-interlock');
+
+      expect(plugin.resolveId('firebase-admin/firestore')).toEqual({
+        id: 'firebase-admin/firestore',
+        external: true,
+      });
+      expect(plugin.resolveId('@google-cloud/firestore')).toEqual({
+        id: '@google-cloud/firestore',
+        external: true,
+      });
+      expect(plugin.resolveId('express')).toBeNull();
+
+      const viteConfig = plugin.config();
+      expect(viteConfig.ssr.external).toContain('firebase-admin');
+      expect(viteConfig.ssr.external).toContain('@google-cloud/firestore');
+      expect(viteConfig.ssr.external).toContain('google-auth-library');
+
+      let registeredCallback: ((args: { path: string }) => { path: string; external: true } | undefined) | undefined;
+      plugin.setup({
+        onResolve(_opts, cb) {
+          registeredCallback = cb;
+        },
+      });
+      expect(registeredCallback).toBeDefined();
+      expect(registeredCallback!({ path: 'google-auth-library/build/src/index' })).toEqual({
+        path: 'google-auth-library/build/src/index',
+        external: true,
+      });
+      expect(registeredCallback!({ path: 'lodash' })).toBeUndefined();
+    });
+
+    test('pyricWebpackExternals marks Pyric-intercepted specifiers as commonjs externals', () => {
+      const results: Array<{ err?: Error | null; result?: string }> = [];
+      pyricWebpackExternals({}, '@google-cloud/firestore', (err, result) => {
+        results.push({ err, result });
+      });
+      pyricWebpackExternals({}, 'express', (err, result) => {
+        results.push({ err, result });
+      });
+      expect(results[0]).toEqual({ err: null, result: 'commonjs @google-cloud/firestore' });
+      expect(results[1]).toEqual({ err: undefined, result: undefined });
     });
   });
 
@@ -102,3 +173,4 @@ describe('bundler externalization presets and predicate', () => {
     });
   });
 });
+

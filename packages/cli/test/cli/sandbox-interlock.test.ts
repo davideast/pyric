@@ -34,13 +34,13 @@ describe('describeInterlock', () => {
     });
   });
 
-  it('defaults the guard to warn and survives a user NODE_OPTIONS prefix', () => {
+  it('defaults the guard to block (fail-closed) and survives a user NODE_OPTIONS prefix', () => {
     const env = buildChildEnv(
       { NODE_OPTIONS: '--max-old-space-size=4096' } as NodeJS.ProcessEnv,
       { serveUrl: 'http://localhost:3473', registerUrl: REGISTER_URL, beaconToken: 't' },
     );
     const status = describeInterlock(env, REGISTER_URL);
-    expect(status.guard).toBe('warn');
+    expect(status.guard).toBe('block');
     expect(status.registerImported).toBe(true);
   });
 

@@ -52,9 +52,9 @@
  *
  * Policy
  * ------
- * One knob, `PYRIC_GUARD=warn|block|off`, default `warn`:
+ * One knob, `PYRIC_GUARD=warn|block|off`, default `block`:
+ *   block  report and fail the request (the safe default)
  *   warn   report the egress, let it through
- *   block  report it and fail the request
  *   off    no hooks at all, one notice line at install time
  * The GCE metadata IP (`169.254.169.254`, `alwaysBlock` in the catalog) is
  * refused in warn mode and cannot be allowlisted, since its only use from a
@@ -132,12 +132,13 @@ export interface EgressVerdict {
 }
 
 /** `PYRIC_GUARD` → mode. Unset, empty or unrecognised all mean the safe
- *  default: report, do not break the developer's app. */
+ *  default: fail-closed, refuse live production egress. Set `warn` explicitly
+ *  to report-and-permit during migration. */
 export function parseGuardMode(raw: string | undefined): GuardMode {
   const value = (raw ?? '').trim().toLowerCase();
-  if (value === 'block') return 'block';
+  if (value === 'warn') return 'warn';
   if (value === 'off') return 'off';
-  return 'warn';
+  return 'block';
 }
 
 /** `PYRIC_GUARD_ALLOW` → hostnames. Accepts bare hosts and full URLs, because
@@ -378,6 +379,10 @@ type ConnectFn = (...args: unknown[]) => unknown;
  *  prototype in production, a stand-in under test. */
 type AgentPrototype = { createConnection?: unknown };
 
+/** A `connect`-bearing object: `net.Socket.prototype` in production, a
+ *  stand-in under test. Patching closes the `new Socket().connect()` bypass. */
+type SocketPrototype = { connect?: unknown };
+
 export interface NetGuardHooks {
   /** Object carrying the undici dispatcher symbol. Defaults to `globalThis`. */
   scope?: Record<symbol, unknown>;
@@ -389,6 +394,10 @@ export interface NetGuardHooks {
   /** Prototypes whose `createConnection` is patched. Defaults to the
    *  `http.Agent` and `https.Agent` prototypes. */
   agentPrototypes?: readonly AgentPrototype[];
+  /** Prototypes whose `connect` is patched. Defaults to the
+   *  `net.Socket` prototype. Closes the bypass where
+   *  `new Socket().connect({ host })` escapes the `net.connect` patch. */
+  socketPrototypes?: readonly SocketPrototype[];
 }
 
 export interface NetGuard {
@@ -450,6 +459,26 @@ function nodeAgentPrototypes(): AgentPrototype[] {
 }
 
 /**
+ * The `net.Socket` prototype, or an empty list on a runtime without it.
+ * `new net.Socket().connect(opts)` is the bypass: it calls the INSTANCE method
+ * on the prototype, not `net.connect`, so patching `net` alone leaves it
+ * unguarded.
+ */
+function nodeSocketPrototypes(): SocketPrototype[] {
+  const require = createRequire(import.meta.url);
+  try {
+    const net = require('node:net') as { Socket?: { prototype?: unknown } };
+    const prototype = net.Socket?.prototype;
+    if (typeof prototype === 'object' && prototype !== null) {
+      return [prototype as SocketPrototype];
+    }
+  } catch {
+    // Runtime without `node:net`: the other seams still apply.
+  }
+  return [];
+}
+
+/**
  * Install the guard. Gated on `PYRIC_SANDBOX` exactly like the rest of the
  * register module: without the activator this is a no-op, so the module stays
  * safe to import anywhere. Returns `null` when nothing was installed.
@@ -507,6 +536,12 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   // dedupe keeps that from printing twice.
   for (const prototype of hooks.agentPrototypes ?? nodeAgentPrototypes()) {
     guardConnect(prototype as { [k: string]: unknown }, 'createConnection');
+  }
+  // And the Socket prototypes, so `new Socket().connect(opts)` cannot escape
+  // the guard. `net.connect` constructs a Socket and calls `.connect()`, so
+  // the dedup collapses the double report.
+  for (const prototype of hooks.socketPrototypes ?? nodeSocketPrototypes()) {
+    guardConnect(prototype as { [k: string]: unknown }, 'connect');
   }
 
   let installed: unknown;
