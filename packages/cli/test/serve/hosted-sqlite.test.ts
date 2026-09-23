@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-async function runNodeFixture(name: string): Promise<string> {
+async function runNodeFixture(name: string, timeoutMs = 15_000): Promise<string> {
   const directory = mkdtempSync(join(tmpdir(), 'pyric-node-sqlite-test-'));
   try {
     symlinkSync(new URL('../../../../node_modules', import.meta.url).pathname, join(directory, 'node_modules'), 'dir');
@@ -22,7 +22,7 @@ async function runNodeFixture(name: string): Promise<string> {
     });
     expect(build.success).toBe(true);
     const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [join(directory, 'scenario.mjs'), directory], {
-      encoding: 'utf8', timeout: 15_000,
+      encoding: 'utf8', timeout: timeoutMs,
     });
     const failed = result.status !== 0;
     if (failed) throw new Error(`Node fixture failed (${result.status}): ${result.stderr}`);
@@ -52,9 +52,11 @@ test('a database written by the previous release opens, upgrades in place, and k
   expect(await runNodeFixture('schema-upgrade')).toBe('Schema upgrade passed');
 });
 
+// Writes about 360 MiB of zeroblob rows to reach the real limit, so on a slow
+// disk it runs well past the default test timeout.
 test('a Storage export past the inline limit is refused by name before any object is read', async () => {
-  expect(await runNodeFixture('export-ceiling')).toBe('Export ceiling passed');
-});
+  expect(await runNodeFixture('export-ceiling', 90_000)).toBe('Export ceiling passed');
+}, 120_000);
 
 test('the Node host recovers acknowledged writes without modifying existing JSON', async () => {
   expect(await runNodeFixture('runtime')).toBe('Hosted restart passed');
