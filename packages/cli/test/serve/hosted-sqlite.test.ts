@@ -65,9 +65,9 @@ test('a chunked upload stages in one file, finishes by moving it, and keeps host
   expect(await runNodeFixture('upload-staging', 90_000)).toBe('Upload staging passed');
 }, 120_000);
 
-// Reaches the real limit with about 360 MiB of sparse object files.
-test('a Storage export past the inline limit is refused by name before any object is read', async () => {
-  expect(await runNodeFixture('export-ceiling', 90_000)).toBe('Export ceiling passed');
+// Exports 400 MiB of sparse object files by reference.
+test('a state export refers to Storage bytes by hash, and snapshots and seeds carry them as files', async () => {
+  expect(await runNodeFixture('state-references', 90_000)).toBe('State references passed');
 }, 120_000);
 
 test('the Node host recovers acknowledged writes without modifying existing JSON', async () => {
