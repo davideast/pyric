@@ -27,6 +27,8 @@
  * in Slice 8 inside `errors.ts`. Keep this layer mechanical.
  */
 
+import type { StorageReferenceRecord } from './sandbox/persistence-state.js';
+
 /**
  * Legacy shared database name — used only when NO project identity is
  * available (bare library use, tests that don't pass a name).
@@ -225,6 +227,19 @@ export interface StorageBackend {
    * Abort an active upload session and purge staged parts.
    */
   abortUpload?(uploadId: string): Promise<void>;
+
+  /**
+   * Every object in `bucket`, naming its bytes by SHA-256 instead of carrying
+   * them. Only a backend that keeps each object's bytes in a content-addressed
+   * file has this; a capture by reference needs it.
+   */
+  references?(bucket?: string): Promise<StorageReferenceRecord[]>;
+
+  /**
+   * Store an object whose bytes this backend already holds under
+   * `reference.sha256`, writing only its metadata.
+   */
+  putReference?(path: string, reference: { sha256: string; size: number }, mime: string, metadata: StoredMetadata): Promise<void>;
 
   /**
    * Read a slice of an object's bytes without loading the entire payload into memory.
@@ -698,6 +713,17 @@ export class ScopedStorageBackend implements StorageBackend {
   put(path: string, blob: Blob, metadata: StoredMetadata): Promise<void> {
     const meta = metadata.bucket ? metadata : { ...metadata, bucket: this.bucket };
     return this.underlying.put(path, blob, meta);
+  }
+
+  references(bucket?: string): Promise<StorageReferenceRecord[]> {
+    if (this.underlying.references) return this.underlying.references(bucket ?? this.bucket);
+    throw new Error('The underlying storage backend keeps no object files to refer to.');
+  }
+
+  putReference(path: string, reference: { sha256: string; size: number }, mime: string, metadata: StoredMetadata): Promise<void> {
+    const meta = metadata.bucket ? metadata : { ...metadata, bucket: this.bucket };
+    if (this.underlying.putReference) return this.underlying.putReference(path, reference, mime, meta);
+    throw new Error('The underlying storage backend keeps no object files to refer to.');
   }
 
   getBlob(path: string, bucket?: string): Promise<Blob | undefined> {

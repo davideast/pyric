@@ -1,5 +1,6 @@
 import { requireNodePersistence } from './persistence/sqlite.js';
 import { join } from 'node:path';
+import { CHECKPOINT_STORE_RELATIVE } from 'pyric/sandbox/checkpoints/directory';
 import { openHostedDatabase } from './persistence/database.js';
 import { createHostedStateView } from './persistence/state-view.js';
 import { validateHostedDatabase, type StorageMetadataRepair } from './persistence/validate.js';
@@ -19,14 +20,15 @@ export async function createHostedPersistence(projectDir: string, options: { fre
   const database = await openHostedDatabase(directory).catch(error => { throw restorationFailure(directory, error); });
   try {
     const repairedObjects = validateHostedDatabase(database);
-    database.activate();
+    // Checkpoints an earlier release kept as files are imported once, on the upgrade that adds their tables.
+    database.activate({ checkpointFiles: join(projectDir, CHECKPOINT_STORE_RELATIVE) });
     const state = createHostedStateView(projectDir, directory, database, HOSTED_NAMESPACE);
     const savedArchive = archive;
     const hasArchive = savedArchive !== undefined;
     if (hasArchive) state.backupPath = savedArchive;
     const signal: SweepSignal = { cancelled: false };
     return {
-      backend: database.records, storage: database.storage, state, repairedObjects,
+      backend: database.records, storage: database.storage, checkpoints: database.checkpoints, state, repairedObjects,
       /** Removal of object files no row names, begun after startup; closing stops it. */
       sweep: sweepInBackground(database, signal),
       close(): void {

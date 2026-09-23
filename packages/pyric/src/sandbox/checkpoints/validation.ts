@@ -10,13 +10,26 @@ import { SandboxError } from '../types/errors.js';
 
 const storageFields = {
   path: z.string().min(1).refine(path => normalizePath(path) === path, 'Expected a canonical object path'),
-  contentBase64: z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
-    'Expected standard padded base64'),
   contentType: z.string().optional(),
   customMetadata: z.record(z.string()),
   metadata: storedMetadataSchema.omit({ fullPath: true, contentType: true, customMetadata: true }).optional(),
   blobType: z.string().optional(),
 } satisfies Record<keyof StorageObjectState, z.ZodType<unknown>>;
+
+/** A Storage entry carries its bytes inline, or names them by SHA-256 with its metadata. */
+const storageObjectSchema = z.union([
+  z.object({
+    ...storageFields,
+    contentBase64: z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/,
+      'Expected standard padded base64'),
+  }),
+  z.object({
+    ...storageFields,
+    sha256: z.string().regex(/^[0-9a-f]{64}$/, 'Expected a SHA-256 hex digest'),
+    size: z.number().int().nonnegative(),
+    metadata: storageFields.metadata.unwrap(),
+  }),
+]);
 
 const databaseEnvelopeSchema = z.object({
   '.pyricRtdbPersistence': z.literal(1),
@@ -39,7 +52,7 @@ const stateFields = {
   firestore: z.record(z.record(z.unknown())),
   firestoreEncoding: z.literal(DOC_VALUE_ENCODING).optional(),
   database: z.unknown().refine(hasSupportedDatabaseEnvelope, 'Invalid RTDB persistence envelope'),
-  storage: z.array(z.object(storageFields)),
+  storage: z.array(storageObjectSchema),
   auth: z.object({ users: z.array(seedUserSchema), providers: z.record(z.boolean()) }),
   rules: z.object({
     firestore: z.string(),
@@ -71,7 +84,8 @@ export function assertCheckpointState(state: unknown): void {
     const declaredSize = object.metadata?.size;
     const isLegacyObject = declaredSize === undefined;
     if (isLegacyObject) continue;
-    const hasWrongSize = base64ToBytes(object.contentBase64).byteLength !== declaredSize;
+    const actualSize = 'contentBase64' in object ? base64ToBytes(object.contentBase64).byteLength : object.size;
+    const hasWrongSize = actualSize !== declaredSize;
     if (hasWrongSize) {
       throw new SandboxError('invalid-argument', `Invalid checkpoint Storage size for '${object.path}'.`);
     }

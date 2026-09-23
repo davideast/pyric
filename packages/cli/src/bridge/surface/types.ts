@@ -42,6 +42,8 @@ export interface SurfaceContext {
    */
   projectDir: string;
   /** Dynamic target router for hosted following (ADR 0016). */
+  /** Where the host keeps checkpoints, when not the project's directory. */
+  checkpoints?: import('pyric/sandbox/checkpoints').CheckpointBackend;
   targetRouter?: SurfaceTargetRouter;
 }
 

@@ -76,6 +76,12 @@ export interface CheckpointListing {
  * mistake rather than a missing checkpoint.
  */
 export interface CheckpointBackend {
+  /**
+   * How checkpoints kept here record Storage bytes. `reference` names each
+   * object by hash and suits a backend that keeps those bytes itself, so a
+   * checkpoint copies none of them. Absent means inline.
+   */
+  readonly storage?: 'inline' | 'reference';
   /** Write one checkpoint under `name`, replacing whatever that name held. */
   write(name: string, checkpoint: Checkpoint): Promise<void>;
   /** The checkpoint stored under `name`, or null when the backend holds none. */

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { openAsBlob } from 'node:fs';
 import { FirebaseError } from 'pyric/app';
-import type { StorageBackend, StoredMetadata } from 'pyric/storage/internal';
+import type { StorageBackend, StorageReferenceRecord, StoredMetadata } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
 import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
 import type { BlobStore, StagedFile, StoredBytes } from './blob-store.js';
@@ -28,6 +28,8 @@ export interface ScopedStorageBackend extends StorageBackend {
   readUpload(uploadId: string): Promise<Blob>;
   abortUpload(uploadId: string): Promise<void>;
   readRange(bucket: string, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined>;
+  references(bucket?: string): Promise<StorageReferenceRecord[]>;
+  putReference(path: string, reference: StoredBytes, mime: string, metadata: StoredMetadata): Promise<void>;
 }
 
 /** A statement prepared on first use; a read-only open of an older schema never needs it. */
@@ -126,6 +128,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
   }
 
   const writes: StorageWrites = { bytes: putBytes, file: putFile };
+  const referencesStmt = lazyStatement(connection, 'SELECT sha256, size, mime, metadata FROM storage_objects WHERE bucket=? ORDER BY path');
 
   function view(scope?: string): ScopedStorageBackend {
     const defaultBucket = scope ?? 'pyric-default';
@@ -239,6 +242,22 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           throw new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
         }
         return objects.readRange(storedBytesOf(row), offset, length);
+      },
+      async references(bucket = defaultBucket) {
+        await mutations;
+        return referencesStmt().all(bucket).map(row => ({ ...storedBytesOf(row), blobType: sqlText(row, 'mime'), metadata: metadataOf(row) }));
+      },
+      async putReference(path, reference, mime, value) {
+        await enqueue(() => {
+          const metadata = storedMetadataSchema.parse(value);
+          const mismatchedObject = metadata.fullPath !== path || metadata.size !== reference.size;
+          if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
+          // Only a row is written; its file must already hold the bytes.
+          const held = objects.size(reference.sha256) === reference.size;
+          const missing = !held;
+          if (missing) throw new Error(`Storage object '${path}' names bytes this store does not hold.`);
+          commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, reference.sha256, reference.size); });
+        });
       },
       // The owning hosted database closes the shared connection after draining.
       close() {},
