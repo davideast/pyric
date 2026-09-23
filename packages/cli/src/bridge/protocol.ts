@@ -173,6 +173,12 @@ export interface ToolCallResponse {
 /** Peer capability flag: "I can relay worker-op / worker-sub frames". */
 export const WORKER_RELAY_CAPABILITY = 'worker-relay';
 
+/**
+ * Peer capability flag: "Storage bytes travel over the HTTP byte route at
+ * `/__pyric/storage/v0/b/`". Only the Node host has one.
+ */
+export const STORAGE_BYTE_ROUTE_CAPABILITY = 'storage-byte-route';
+
 /** Full port traffic, including app configuration, clock updates, and teardown. */
 export const WORKER_PORT_CAPABILITY = 'worker-port';
 

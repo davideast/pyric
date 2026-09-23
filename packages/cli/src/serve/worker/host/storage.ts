@@ -54,6 +54,8 @@ import {
   MAX_STORAGE_PART_BYTES,
   MAX_STORAGE_PART_B64_LENGTH,
   MAX_STORAGE_OBJECT_BYTES,
+  mintCapabilityToken,
+  storageUploadPath,
 } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { authStateForLens, lensCacheKey, opProvenance, sessionCacheKey } from './core.js';
@@ -63,6 +65,8 @@ import { portSession } from '../host-auth.js';
 interface PendingUpload {
   path: string;
   settable: SettableMetadata;
+  /** Authorizes sending this upload's bytes over the byte route, and nothing else. */
+  token: string;
 }
 
 /**
@@ -80,6 +84,11 @@ function pendingUploads(ctx: HostCtx): Map<string, PendingUpload> {
     pendingUploadsByHost.set(ctx, uploads);
   }
   return uploads!;
+}
+
+/** The token bound to one pending upload, or undefined once it finished or was aborted. */
+export function uploadTokenOf(ctx: HostCtx, uploadId: string): string | undefined {
+  return pendingUploads(ctx).get(uploadId)?.token;
 }
 
 /** The shared Storage handle, lazily created (Pyric Studio data browse): one per
@@ -346,8 +355,10 @@ export async function handleStorageOp(
           settable.contentType ?? msg.contentType ?? 'application/octet-stream',
           settable.customMetadata,
         );
-        pendingUploads(ctx).set(uploadId, { path: r.fullPath, settable });
-        ok(port, msg.id, { uploadId });
+        const token = mintCapabilityToken();
+        pendingUploads(ctx).set(uploadId, { path: r.fullPath, settable, token });
+        // A host with a byte route takes the bytes at this URL; others ignore it.
+        ok(port, msg.id, { uploadId, uploadUrl: storageUploadPath(target.bucket, r.fullPath, uploadId, token) });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

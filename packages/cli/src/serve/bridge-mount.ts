@@ -29,8 +29,9 @@ import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { attachPeer, collectBody, BODY_TOO_LARGE_CODE } from '../bridge/server/peer.js';
 import { pyricVersion } from './standalone-assets.js';
-import { isAllowedLoopbackRequest, isAllowedUpgrade } from './server.js';
-import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
+import { getHeader, isAllowedHost, isAllowedLoopbackRequest, isAllowedOrigin, isAllowedUpgrade } from './server.js';
+import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
+import { STORAGE_ROUTE_PREFIX } from './worker/protocol/storage.js';
 import type { InitPayload } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
 import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, hostedMethodRequest } from './hosted/method-protocol.js';
@@ -260,7 +261,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
           hostedRuntime.receive,
           [...hostedRuntime.toolNames],
           hostedRuntime.instanceId,
-          [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY],
+          [WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY, STORAGE_BYTE_ROUTE_CAPABILITY],
         );
       })();
       hostedStartup = starting;
@@ -277,7 +278,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const isHealthRequest = url.pathname === HEALTH_PATH;
       const isMcpRequest = url.pathname === MCP_PATH;
       const isHostedMethod = url.pathname === HOSTED_METHOD_PATH;
-      const rejectsClosedRequest = closed && (isHealthRequest || isMcpRequest || isHostedMethod);
+      const isStorageBytes = url.pathname.startsWith(STORAGE_ROUTE_PREFIX);
+      const rejectsClosedRequest = closed && (isHealthRequest || isMcpRequest || isHostedMethod || isStorageBytes);
       if (rejectsClosedRequest) {
         res.writeHead(503, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'pyric bridge: mount is closed' }));
@@ -303,6 +305,31 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
             return true;
           }
         }
+      }
+      if (isStorageBytes) {
+        // Only a page this server serves, or a process with no Origin, reaches object bytes.
+        const guard = opts.upgradeGuard;
+        const checksHosts = guard?.allowedHosts !== true;
+        if (checksHosts) {
+          const boundHost = guard?.boundHost ?? 'localhost';
+          const allowedHosts = guard?.allowedHosts;
+          const extra = Array.isArray(allowedHosts) ? allowedHosts : [];
+          const hostHeader = getHeader(req, 'host');
+          const originHeader = getHeader(req, 'origin');
+          const allowed = isAllowedHost(hostHeader, boundHost, extra)
+            && isAllowedOrigin(originHeader, boundHost, extra, req.socket.localPort);
+          if (!allowed) {
+            res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
+            return true;
+          }
+        }
+        const runtime = hostedRuntime;
+        const hasNoHostedRuntime = runtime === undefined;
+        if (hasNoHostedRuntime) {
+          res.writeHead(404).end();
+          return true;
+        }
+        return runtime.storageHttp(req, res, url);
       }
       if (isHostedMethod) {
         const runtime = hostedRuntime;

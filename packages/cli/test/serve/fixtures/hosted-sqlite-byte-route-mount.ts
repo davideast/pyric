@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { realpathSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createBridgeMount } from '../../../src/serve/bridge-mount.js';
 
-const directory = process.argv[2];
+// The host compares project directories by their real path.
+const directory = realpathSync(process.argv[2]);
 const SESSION = 'session-token-for-the-mount';
 const mount = createBridgeMount({ hosted: true, projectKey: directory, disableAuditLog: true });
 const server = createServer((request, response) => {
@@ -27,9 +29,10 @@ try {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ instanceId: mount.instanceId, projectDir: directory, key: 'storage.uploadBytes',
-      args: { path: 'notes/note.txt', contentBase64: Buffer.from('a short note').toString('base64'), contentType: 'text/plain' } }),
+      args: { path: 'notes/note.txt', contentBase64: Buffer.from('a short note').toString('base64'), metadata: { contentType: 'text/plain' } } }),
   });
-  assert.equal(stored.status, 200, await stored.clone().text());
+  assert.equal(stored.status, 200);
+  assert.equal((await stored.json()).ok, true);
 
   // The hosted host serves its objects on the byte route, to the session.
   const url = `${base}/__pyric/storage/v0/b/pyric-default/o/${encodeURIComponent('notes/note.txt')}?alt=media`;

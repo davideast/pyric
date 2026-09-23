@@ -36,6 +36,7 @@ const storageMetadataFields = {
   contentEncoding: z.string().optional(),
   contentLanguage: z.string().optional(),
   customMetadata: z.record(z.string()).optional(),
+  downloadTokens: z.string().optional(),
   md5Hash: z.string().optional(),
 } satisfies Record<keyof StoredMetadata, z.ZodType<unknown>>;
 

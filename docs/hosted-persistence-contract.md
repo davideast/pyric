@@ -106,6 +106,25 @@ does not hash to its name refuses the seed before anything is written. A store
 an earlier release wrote, exported read-only before its first upgrade, still
 exports its bytes inline. Host startup never reads object bytes.
 
+## The byte route
+
+The Node host serves object bytes over HTTP at
+`/__pyric/storage/v0/b/<bucket>/o/<path>?alt=media` and advertises the
+`storage-byte-route` capability in `attach-ack`. A `GET` or `HEAD` answers with
+the object's content type and honours one `Range` (206 with `content-range`, or
+416 past the end), streaming from the object's file. It is authorized by the
+session token, in the `x-pyric-session-token` header or the `token` query
+parameter, or by a `token` listed in the object's `downloadTokens`. Only a page
+this server serves, or a process that sends no `Origin`, reaches it.
+
+`storage.beginUpload` returns an `uploadUrl` carrying a token bound to that one
+upload. A `PUT` to it appends at the offset the host holds, given as
+`Content-Range: bytes a-b/total`; `bytes */total` asks for that offset. The host
+answers `308` with `Range: bytes=0-<last>` until the upload is complete, `409`
+when the bytes start elsewhere, and `200` when every byte has arrived. The
+session token does not authorize a `PUT`. Finishing still commits over the RPC,
+through the engine's upload.
+
 ## Transport backlog and recovery
 
 Each WebSocket has one 24 MiB output backlog shared by all frames. When sending

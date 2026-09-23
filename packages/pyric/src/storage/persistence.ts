@@ -15,9 +15,7 @@
  *   Slice 5 builds `getStorage` / `ref` / `uploadBytes` / `getBytes` on
  *   top of this layer.
  * - The `StoredMetadata` shape mirrors Firebase's `FullMetadata`
- *   minus the `ref` field (computed at consumption time) and
- *   `downloadTokens` (sandbox `getDownloadURL` encodes the blob into a `data:`
- *   URI instead of minting Firebase download tokens).
+ *   minus the `ref` field (computed at consumption time).
  * - Database name is overridable so tests can isolate state per
  *   case via fake-indexeddb without colliding on the production
  *   default `pyric-storage`.
@@ -123,6 +121,11 @@ export interface StoredMetadata {
   contentLanguage?: string;
   /** Free-form key/value annotations the client attached at upload. */
   customMetadata?: Record<string, string>;
+  /**
+   * Comma-separated download tokens, as Firebase keeps them. A download URL
+   * carries one; removing it from this list revokes that URL.
+   */
+  downloadTokens?: string;
   /** Hex-encoded MD5 hash of the content. Populated when computable. */
   md5Hash?: string;
 }

@@ -8,13 +8,13 @@
  *
  * The shapes mirror `firebase/storage`'s `FullMetadata` and
  * `SettableMetadata` (survey Section 5) so consumer code typechecks
- * against either implementation. Two intentional differences:
+ * against either implementation. One intentional difference, and one field
+ * that depends on the host:
  *
  * - `ref` is omitted from `FullMetadata`. The JS SDK populates it
  *   lazily; we don't need that machinery for the v1 scope.
- * - `downloadTokens` is omitted. Sandbox `getDownloadURL` returns a `data:`
- *   URI carrying the object's own bytes, so it has no Firebase download token
- *   to expose.
+ * - `downloadTokens` is kept when a host that serves bytes over HTTP mints
+ *   one; elsewhere `getDownloadURL` returns a `data:` URI and none exists.
  */
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
