@@ -53,10 +53,18 @@ const VERSION_2_STAGING = `CREATE TABLE storage_uploads (
   PRIMARY KEY (upload_id, part_index)
 ) STRICT`;
 
-type EarlierSchema = 'version-1' | 'version-1-nine-column-staging' | 'version-2';
-const EARLIER_SCHEMAS: readonly EarlierSchema[] = ['version-1', 'version-1-nine-column-staging', 'version-2'];
+/** Version 3 kept bytes in files and staged uploads as rows. */
+const FILE_OBJECTS_TABLE = `CREATE TABLE storage_objects (
+  bucket TEXT NOT NULL, path TEXT NOT NULL, metadata TEXT NOT NULL, mime TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL,
+  PRIMARY KEY (bucket, path)
+) STRICT`;
 
-/** A project whose hosted state an earlier release wrote, with bytes inline in SQLite. */
+type EarlierSchema = 'version-1' | 'version-1-nine-column-staging' | 'version-2' | 'version-3';
+const EARLIER_SCHEMAS: readonly EarlierSchema[] = ['version-1', 'version-1-nine-column-staging', 'version-2', 'version-3'];
+const holdsInlineBytes = (schema: EarlierSchema): boolean => schema !== 'version-3';
+const versionOf = (schema: EarlierSchema): number => ({ 'version-1': 1, 'version-1-nine-column-staging': 1, 'version-2': 2, 'version-3': 3 })[schema];
+
+/** A project whose hosted state an earlier release wrote. */
 function earlierRelease(name: string, schema: EarlierSchema): string {
   const project = mkdtempSync(join(root, `${name}-`));
   const directory = hostedStateDirectory(project);
@@ -64,16 +72,27 @@ function earlierRelease(name: string, schema: EarlierSchema): string {
   const database = new DatabaseSync(join(directory, 'state.sqlite'));
   database.exec('PRAGMA journal_mode=WAL');
   database.exec(RECORDS_TABLE);
-  database.exec(INLINE_OBJECTS_TABLE);
+  database.exec(holdsInlineBytes(schema) ? INLINE_OBJECTS_TABLE : FILE_OBJECTS_TABLE);
   if (schema === 'version-1-nine-column-staging') database.exec(NINE_COLUMN_STAGING);
-  if (schema === 'version-2') database.exec(VERSION_2_STAGING);
+  if (schema === 'version-2' || schema === 'version-3') database.exec(VERSION_2_STAGING);
   const insertRecord = database.prepare('INSERT INTO records VALUES (?, ?, ?)');
   for (const [id, payload] of records) insertRecord.run('hosted', id, JSON.stringify(payload));
-  const insertObject = database.prepare('INSERT INTO storage_objects VALUES (?, ?, ?, ?, ?)');
   for (const object of objects) {
-    insertObject.run(bucket, object.path, JSON.stringify(metadata(object.path, object.bytes.byteLength, object.mime)), object.mime, object.bytes);
+    const described = JSON.stringify(metadata(object.path, object.bytes.byteLength, object.mime));
+    if (holdsInlineBytes(schema)) {
+      database.prepare('INSERT INTO storage_objects VALUES (?, ?, ?, ?, ?)').run(bucket, object.path, described, object.mime, object.bytes);
+      continue;
+    }
+    const hash = sha256(object.bytes);
+    mkdirSync(join(directory, 'objects', hash.slice(0, 2)), { recursive: true });
+    writeFileSync(join(directory, 'objects', hash.slice(0, 2), hash), object.bytes);
+    database.prepare('INSERT INTO storage_objects VALUES (?, ?, ?, ?, ?, ?)').run(bucket, object.path, described, object.mime, hash, object.bytes.byteLength);
   }
-  database.exec(`PRAGMA user_version=${schema === 'version-2' ? 2 : 1}`);
+  // A version-3 upload that its host never finished.
+  if (schema === 'version-3') {
+    database.prepare('INSERT INTO storage_uploads VALUES (?, NULL, ?, ?, ?, ?, NULL, 0, ?, ?)').run('abandoned', bucket, 'media/abandoned.bin', 4, 'application/octet-stream', new Uint8Array(4), Date.now());
+  }
+  database.exec(`PRAGMA user_version=${versionOf(schema)}`);
   database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   database.close();
   return project;
@@ -110,7 +129,7 @@ async function chunkedRoundTrip(project: string): Promise<void> {
     const bytes = new TextEncoder().encode('staged after the upgrade');
     const uploadId = await persistence.storage.beginUpload(bucket, 'notes/after.txt', bytes.byteLength, 'text/plain');
     await persistence.storage.putPart(uploadId, 0, bytes);
-    assert.deepEqual(await persistence.storage.readUpload(uploadId), bytes);
+    assert.deepEqual(new Uint8Array(await (await persistence.storage.readUpload(uploadId)).arrayBuffer()), bytes);
     await persistence.storage.abortUpload(uploadId);
     await assertObjectsReadable(persistence.storage);
   } finally { persistence.close(); }
@@ -122,19 +141,20 @@ async function chunkedRoundTrip(project: string): Promise<void> {
   (await createHostedPersistence(project)).close();
   const state = inspect(project);
   assert.equal(state.version, HOSTED_SCHEMA_VERSION);
-  assert.ok(state.staging.includes('part_index'));
+  // Uploads in progress stage in files, not in SQLite.
+  assert.deepEqual(state.staging, []);
   assert.equal(state.columns.includes('bytes'), false);
 }
 
-// Every earlier schema opens, moves its bytes to files, drops the column, and keeps its data.
+// Every earlier schema opens, keeps its bytes in files, drops the staging table, and keeps its data.
 for (const schema of EARLIER_SCHEMAS) {
   const project = earlierRelease(schema, schema);
   const before = inspect(project);
-  assert.ok(before.columns.includes('bytes'), `${schema}: bytes inline before the upgrade`);
+  assert.equal(before.columns.includes('bytes'), holdsInlineBytes(schema), `${schema}: where bytes are before the upgrade`);
   await chunkedRoundTrip(project);
   const after = inspect(project);
   assert.equal(after.version, HOSTED_SCHEMA_VERSION, `${schema}: version after upgrade`);
-  assert.ok(after.staging.includes('part_index'), `${schema}: staging shape after upgrade`);
+  assert.deepEqual(after.staging, [], `${schema}: no staging table after upgrade`);
   assert.deepEqual(after.columns, ['bucket', 'path', 'metadata', 'mime', 'sha256', 'size'], `${schema}: object columns after upgrade`);
   assert.equal(after.records, before.records);
   for (const object of objects) assertSameBytes(readFileSync(objectFile(project, object.bytes)), object.bytes, `${schema}: ${object.path} file`);
@@ -157,8 +177,9 @@ for (const schema of EARLIER_SCHEMAS) {
   const bytesBefore = readFileSync(path);
   await assert.rejects(createHostedPersistence(project), /Hosted state could not be restored/);
   assertSameBytes(readFileSync(path), bytesBefore, `${schema}: database unchanged`);
-  assert.equal(existsSync(objectsDirectory(project)), false, `${schema}: no object files written`);
-  assert.ok(inspect(project).columns.includes('bytes'));
+  const inline = holdsInlineBytes(schema);
+  if (inline) assert.equal(existsSync(objectsDirectory(project)), false, `${schema}: no object files written`);
+  assert.equal(inspect(project).version, versionOf(schema));
 }
 
 // A migration that cannot write its files leaves an intact version-2 store, which the next start migrates.
@@ -175,7 +196,7 @@ for (const schema of EARLIER_SCHEMAS) {
   assert.equal(inspect(project).version, HOSTED_SCHEMA_VERSION);
 }
 
-// A read-only export of an earlier store reads its inline bytes without changing anything.
+// A read-only export of an earlier store reads its bytes without changing anything.
 for (const schema of EARLIER_SCHEMAS) {
   const project = earlierRelease(`read-only-${schema}`, schema);
   const path = join(hostedStateDirectory(project), 'state.sqlite');
@@ -185,8 +206,9 @@ for (const schema of EARLIER_SCHEMAS) {
   const exported = snapshot!.storage!.find(object => object.metadata.fullPath === 'notes/before.txt');
   assertSameBytes(Buffer.from(exported!.dataBase64, 'base64'), body, `${schema}: exported object`);
   assertSameBytes(readFileSync(path), bytesBefore, `${schema}: database unchanged by export`);
-  assert.equal(inspect(project).version, schema === 'version-2' ? 2 : 1);
-  assert.equal(existsSync(objectsDirectory(project)), false);
+  assert.equal(inspect(project).version, versionOf(schema));
+  const inline = holdsInlineBytes(schema);
+  if (inline) assert.equal(existsSync(objectsDirectory(project)), false);
 }
 
 // A read-only export of a current store reads the object files.
