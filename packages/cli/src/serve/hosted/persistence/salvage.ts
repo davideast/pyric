@@ -1,4 +1,5 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { z } from 'zod';
@@ -17,7 +18,11 @@ export interface RecoveryReport {
   recoveredObjects: number;
   repairedObjects: StorageMetadataRepair[];
   excluded: Array<{ namespace: string; id: string; reason: string }>;
+  /** Object files whose content does not match their hash, copied to `file` in the output. */
+  quarantined: Array<{ bucket: string; path: string; sha256: string; file: string }>;
 }
+
+const QUARANTINE_REASON = 'Object bytes do not match their hash; the file was copied to quarantine';
 
 const metadataShape = z.object({ version: z.literal(3), services: z.record(z.unknown()) });
 const bucketShape = z.object({ docs: z.record(z.unknown()), encoding: z.string().optional(), checksum: z.number().optional() });
@@ -78,7 +83,7 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
       if (unsupported) throw new Error(`Unsupported hosted database version ${String(version)}; recovery was not attempted.`);
       const corrupt = input.prepare('PRAGMA quick_check').all().some(row => row.quick_check !== 'ok');
       if (corrupt) throw new Error('Physical SQLite corruption prevents this recovery. The original directory is unchanged.');
-      const report: RecoveryReport = { recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, repairedObjects: [], excluded: [] };
+      const report: RecoveryReport = { recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, repairedObjects: [], excluded: [], quarantined: [] };
       const documents: Record<string, Record<string, unknown>> = {};
       const services: Record<string, unknown> = {};
       const duplicatePaths = new Set<string>();
@@ -152,14 +157,33 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
       outputCreated = true;
       const recovered = await openHostedDatabase(output);
       try {
-        const objects = storedObjects(input, createBlobStore(objectsDirectory), Number(version));
+        const sourceObjects = createBlobStore(objectsDirectory);
+        const objects = storedObjects(input, sourceObjects, Number(version));
         for (const row of objects.rows()) {
           const id = `${row.bucket}/${row.path}`;
           try {
             const metadata = storedMetadataSchema.parse(JSON.parse(row.metadata));
             const mismatchedBucket = metadata.bucket !== row.bucket;
             if (mismatchedBucket) throw new Error('Invalid bucket');
-            const content = objects.bytes(row);
+            const sha256 = row.sha256;
+            const inFile = sha256 !== undefined;
+            let content: Uint8Array<ArrayBuffer>;
+            if (inFile) {
+              // A file is read whole whatever size its row records, and trusted
+              // only if it still hashes to its name.
+              const file = sourceObjects.path(sha256);
+              content = readFileSync(file) as Uint8Array<ArrayBuffer>;
+              const rotted = createHash('sha256').update(content).digest('hex') !== sha256;
+              if (rotted) {
+                mkdirSync(join(output, 'quarantine'), { recursive: true });
+                copyFileSync(file, join(output, 'quarantine', sha256));
+                report.quarantined.push({ bucket: row.bucket, path: row.path, sha256, file: `quarantine/${sha256}` });
+                report.excluded.push({ namespace: 'storage', id, reason: QUARANTINE_REASON });
+                continue;
+              }
+            } else {
+              content = objects.bytes(row);
+            }
             // The bytes are the object; a size they disagree with is repaired
             // rather than costing the object its place in the recovery.
             const wrongSize = metadata.size !== content.byteLength;

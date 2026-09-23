@@ -1,8 +1,26 @@
 import { createHash, randomUUID, type Hash } from 'node:crypto';
-import { closeSync, fstatSync, fsyncSync, mkdirSync, openSync, readdirSync, readSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, rmSync, statSync, utimesSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+const SHARD = /^[0-9a-f]{2}$/;
+
+/**
+ * How long before a sweep begins a file must have been modified to be a
+ * candidate. It covers file systems that record modification times to the second.
+ */
+const SWEEP_MARGIN_MS = 2_000;
+
+/** What one sweep removed. */
+export interface SweepReport {
+  removed: number;
+  bytesRemoved: number;
+}
+
+/** Set `cancelled` to stop a sweep between files. */
+export interface SweepSignal {
+  cancelled: boolean;
+}
 
 /** A stored object's bytes, as its row records them. */
 export interface StoredBytes {
@@ -32,6 +50,14 @@ export interface BlobStore {
   readRange(stored: StoredBytes, offset: number, length: number): Uint8Array<ArrayBuffer>;
   /** The file's size, or undefined when it is missing. */
   size(sha256: string): number | undefined;
+  /** Where the file named by `sha256` is, whether or not it exists. */
+  path(sha256: string): string;
+  /**
+   * Remove object files whose hash is not in `keep` and that were last modified
+   * before `startedAt`, less a margin. Staged files are never candidates. It
+   * yields between shard directories so a host keeps serving while it runs.
+   */
+  sweep(keep: ReadonlySet<string>, startedAt: number, signal?: SweepSignal): Promise<SweepReport>;
   /** Start a staged file named `objects/.staging/<name>`. */
   stage(name: string): StagedFile;
   /** Make a sealed staged file durable and rename it to its hash; its bytes are not read. */
@@ -167,9 +193,49 @@ export function createBlobStore(directory: string): BlobStore {
     stage,
     adopt(file) {
       const stored = file.seal();
+      // A sweep judges a file by when it was modified. Parts written long ago
+      // must not make a file about to be named by a row look abandoned.
+      const now = new Date();
+      utimesSync(file.path, now, now);
       fsyncFile(file.path);
       publish(file.path, stored.sha256);
       return stored;
+    },
+    path: pathOf,
+    async sweep(keep, startedAt, signal = { cancelled: false }) {
+      const report: SweepReport = { removed: 0, bytesRemoved: 0 };
+      const cutoff = startedAt - SWEEP_MARGIN_MS;
+      let shards: string[] = [];
+      try { shards = readdirSync(directory).filter(name => SHARD.test(name)); }
+      catch (error) {
+        if (hasCode(error, 'ENOENT', 'ENOTDIR')) return report;
+        throw error;
+      }
+      for (const shard of shards) {
+        const stopped = signal.cancelled;
+        if (stopped) return report;
+        for (const name of readdirSync(join(directory, shard))) {
+          const candidate = SHA256_HEX.test(name) && name.startsWith(shard) && !keep.has(name);
+          if (!candidate) continue;
+          const file = join(directory, shard, name);
+          try {
+            const entry = lstatSync(file);
+            const recent = entry.mtimeMs >= cutoff;
+            const regular = entry.isFile();
+            const removable = regular && !recent;
+            if (!removable) continue;
+            rmSync(file);
+            report.removed++;
+            report.bytesRemoved += entry.size;
+          } catch (error) {
+            // Another writer replaced or removed it first.
+            if (hasCode(error, 'ENOENT')) continue;
+            throw error;
+          }
+        }
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      return report;
     },
     clearStaging() {
       let names: string[] = [];

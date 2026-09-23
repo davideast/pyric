@@ -112,25 +112,49 @@ const project = join(root, 'project');
   } finally { persistence.close(); }
 }
 
-// The sweep walks object shards only: a staged upload is never a candidate.
+// The sweep removes only files it named: a staged upload, a file in a shard
+// that is not named by a hash, and entries beside the shards are never candidates.
 {
-  const directory = join(root, 'staging-only');
+  const directory = join(root, 'strays');
   const store = createBlobStore(directory);
-  const file = store.stage('in-progress');
-  file.append(bytesOf('part'));
+  const staged = store.stage('in-progress');
+  staged.append(bytesOf('part'));
+  const orphan = bytesOf('orphan');
+  store.write(orphan);
+  const orphanFile = store.path(sha256(orphan));
+  const stray = join(directory, sha256(orphan).slice(0, 2), 'notes.txt');
+  writeFileSync(stray, 'not an object');
+  // Finder writes this beside the shards; it is a file, not a shard directory.
+  writeFileSync(join(directory, '.DS_Store'), '');
   const past = new Date(Date.now() - HOUR);
-  utimesSync(file.path, past, past);
+  for (const file of [staged.path, orphanFile, stray]) utimesSync(file, past, past);
   const report = await store.sweep(new Set(), Date.now());
-  assert.equal(report.removed, 0);
-  assert.ok(existsSync(file.path));
+  assert.equal(report.removed, 1);
+  assert.equal(existsSync(orphanFile), false);
+  for (const file of [staged.path, stray, join(directory, '.DS_Store')]) assert.ok(existsSync(file), file);
 }
 
-// Closing the host stops a sweep without failing it.
+// Closing the host stops a sweep between shard directories, without failing it.
 {
-  const persistence = await createHostedPersistence(project);
+  const stopping = join(root, 'stopping');
+  (await createHostedPersistence(stopping)).close();
+  const orphans = Array.from({ length: 16 }, (_, index) => bytesOf(`orphan ${index}`));
+  const shards = new Set(orphans.map(bytes => sha256(bytes).slice(0, 2)));
+  assert.equal(shards.size, orphans.length, 'each orphan is in its own shard');
+  for (const bytes of orphans) {
+    const file = objectFile(stopping, bytes);
+    mkdirSync(join(file, '..'), { recursive: true });
+    writeFileSync(file, bytes);
+  }
+  age(stopping);
+  const persistence = await createHostedPersistence(stopping);
+  // The sweep starts on the next turn and yields after its first shard; close then.
+  await new Promise(resolve => setImmediate(resolve));
   persistence.close();
   const report = await persistence.sweep;
-  assert.ok(report.removed >= 0);
+  const remaining = orphans.filter(bytes => existsSync(objectFile(stopping, bytes))).length;
+  assert.ok(report.removed < orphans.length, `the sweep stopped early (removed ${report.removed})`);
+  assert.equal(remaining, orphans.length - report.removed);
 }
 
 // Salvage leaves out an object whose file does not match its hash, copies the

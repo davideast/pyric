@@ -34,7 +34,11 @@ One Storage operation writes its bytes to a temporary file, `fsync`s it, renames
 it to its hash, `fsync`s the directory, and only then commits the row that names
 it, so no committed row names bytes that are missing. An interruption leaves at
 most an unreferenced file. A deleted or replaced object's file stays on disk
-until a sweep removes files no row names.
+until the next start: once the store validates, a sweep runs in the background
+and removes object files that no row names and that were modified more than two
+seconds before it began, so it never races a write whose row has yet to commit.
+It never waits on the database and never delays a request; closing the host
+stops it between shard directories.
 
 A chunked upload appends its parts, in order, to one file under
 `objects/.staging/` and hashes them as they arrive. Finishing it is the engine's
@@ -70,7 +74,9 @@ recorded size, without reading it. Full validation has a measured startup cost.
 
 `pyric sandbox salvage --source <hosted-directory> --out <new-directory>` is an
 offline, explicit recovery operation. It works on a copy of the database, reads
-object files in place, never changes the original, reports excluded records, and validates its output with normal startup
+object files in place, never changes the original, reports excluded records,
+copies an object file whose content does not hash to its name to `quarantine/`
+in the output and names it in the report, and validates its output with normal startup
 rules. It refuses existing output directories and unsupported formats. It never
 automatically activates a repaired database. The user must review the report;
 recovered data may be incomplete. It cannot promise recovery from arbitrary
