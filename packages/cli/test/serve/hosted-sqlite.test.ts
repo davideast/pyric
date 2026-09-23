@@ -52,6 +52,10 @@ test('a database written by the previous release opens, upgrades in place, and k
   expect(await runNodeFixture('schema-upgrade')).toBe('Schema upgrade passed');
 });
 
+test('a Storage export past the inline limit is refused by name before any object is read', async () => {
+  expect(await runNodeFixture('export-ceiling')).toBe('Export ceiling passed');
+});
+
 test('the Node host recovers acknowledged writes without modifying existing JSON', async () => {
   expect(await runNodeFixture('runtime')).toBe('Hosted restart passed');
 });
