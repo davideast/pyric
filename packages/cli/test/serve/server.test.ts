@@ -233,6 +233,19 @@ describe('isAllowedOrigin (WS cross-origin hijack guard)', () => {
     expect(isAllowedOrigin(undefined, 'localhost')).toBe(true); // non-browser peer
   });
 
+  it('compares the port when the bound port is known', () => {
+    // Another local app on another port is a different origin.
+    expect(isAllowedOrigin('http://localhost:3000', 'localhost', [], 5173)).toBe(false);
+    expect(isAllowedOrigin('http://127.0.0.1:3000', 'localhost:5173')).toBe(false);
+    expect(isAllowedOrigin('http://localhost:5173', 'localhost', [], 5173)).toBe(true);
+    expect(isAllowedOrigin('http://127.0.0.1:5173', 'localhost:5173')).toBe(true);
+    // An Origin with no port has its scheme's default.
+    expect(isAllowedOrigin('http://localhost', 'localhost', [], 80)).toBe(true);
+    expect(isAllowedOrigin('http://localhost', 'localhost', [], 5173)).toBe(false);
+    // A host the user allowed by name (a tunnel, say) reaches the server on a different public port.
+    expect(isAllowedOrigin('https://box.example.dev', 'localhost', ['box.example.dev'], 5173)).toBe(true);
+  });
+
   it('rejects a cross-origin or malformed Origin', () => {
     expect(isAllowedOrigin('http://attacker.com', 'localhost')).toBe(false);
     expect(isAllowedOrigin('https://attacker.com:5000', 'localhost')).toBe(false);
