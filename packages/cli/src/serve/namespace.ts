@@ -1,4 +1,5 @@
 import { createDiagnostics } from './diagnostics.js';
+import { StateExportTooLargeError } from './hosted/persistence/export-limit.js';
 import { DIAGNOSTICS_PATH } from './runtime/diagnostics-report.js';
 import { handleRateCaptures } from './rate-capture-route.js';
 import { handleThresholdConfig } from './threshold-config-route.js';
@@ -229,6 +230,11 @@ async function handleState(
     }
     res.writeHead(405, { allow: 'GET, POST, DELETE' }).end('method not allowed');
   } catch (e) {
+    const exportTooLarge = e instanceof StateExportTooLargeError;
+    if (exportTooLarge) {
+      res.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' }).end(e.message);
+      return;
+    }
     // StateFileError (corrupt/version) or bad body — surface, don't clobber.
     res.writeHead(e instanceof StateFileError ? 409 : 400, { 'content-type': 'text/plain' });
     res.end(e instanceof Error ? e.message : String(e));

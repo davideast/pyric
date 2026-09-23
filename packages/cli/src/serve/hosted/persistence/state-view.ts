@@ -1,4 +1,5 @@
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../../worker/protocol/storage.js';
+import { MAX_INLINE_EXPORT_STORAGE_BYTES, StateExportTooLargeError } from './export-limit.js';
 import { bundleRecords, parseBundle, serializeToBuckets } from 'pyric/sandbox';
 import { decodeImportBundle, seedUserSchema, storedMetadataSchema } from 'pyric/sandbox/internal';
 import { z } from 'zod';
@@ -30,6 +31,10 @@ export function createHostedStateView(projectDir: string, directory: string, dat
     return null;
   }
   function storage() {
+    // length() comes from the row header, so this total reads no object bytes.
+    const total = Number(connection.prepare('SELECT COALESCE(SUM(length(bytes)), 0) AS total FROM storage_objects').get()?.total ?? 0);
+    const exceedsExport = total > MAX_INLINE_EXPORT_STORAGE_BYTES;
+    if (exceedsExport) throw new StateExportTooLargeError(total);
     return connection.prepare('SELECT metadata, mime, bytes FROM storage_objects ORDER BY bucket, path').all().map(row => {
       const bytes = row.bytes;
       const binary = bytes instanceof Uint8Array;

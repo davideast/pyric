@@ -62,6 +62,13 @@ databases checkpoint first; damaged ones remain archivable without checkpointing
 Never copy only the main file while a host is writing. Logical JSON exports use
 a consistent read transaction, without stopping the host.
 
+A logical export carries every Storage object inline as base64 in one JSON
+document, and V8 caps a string near 512 MiB, so an export holds at most about
+360 MiB of object bytes (`MAX_INLINE_EXPORT_STORAGE_BYTES`). Past that the
+export is refused by name, with a 413 from `GET /__pyric/state` and a message
+from `pyric snapshot`, before any object is read. The host keeps running and
+its data is unaffected. Host startup never reads object bytes.
+
 ## Transport backlog and recovery
 
 Each WebSocket has one 24 MiB output backlog shared by all frames. When sending

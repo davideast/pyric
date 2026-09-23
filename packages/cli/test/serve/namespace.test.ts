@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { createPyricNamespace, createEventHub } from '../../src/serve/namespace.js';
 import { injectServeTags } from '../../src/serve/html-injection.js';
 import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
-import { createStateStore } from '../../src/serve/state-store.js';
+import { createStateStore, type StateStore } from '../../src/serve/state-store.js';
+import { StateExportTooLargeError } from '../../src/serve/hosted/persistence/export-limit.js';
 import { diskWorkspace } from '../../src/serve/studio/index.js';
 
 function fixture() {
@@ -398,5 +399,38 @@ describe('namespace over the real server', () => {
     });
     expect(authedCapture.status).toBe(200);
     expect(await authedCapture.text()).toBe('sensitive-capture');
+  });
+
+  it('answers a state export too large to serialize with 413 and the named limit', async () => {
+    const { site, sdk } = fixture();
+    const tooLarge = () => { throw new StateExportTooLargeError(900 * 1024 * 1024); };
+    const state: StateStore = {
+      projectDir: site,
+      path: join(site, 'state.sqlite'),
+      backupPath: join(site, 'state.archive'),
+      exists: () => true,
+      load: tooLarge,
+      readSection: (section) => (section === 'storage' ? tooLarge() : null),
+      writeSection: () => {},
+    };
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      state,
+      sessionToken: 'export-token',
+      boundHost: '127.0.0.1',
+    });
+    const h = await startStaticServer({
+      publicDir: site, port: 0, host: '127.0.0.1', logger: silentServeLogger(), namespaceHandler: ns,
+    });
+    handles.push(h);
+    const headers = { 'x-pyric-session-token': 'export-token' };
+    for (const query of ['', '?section=storage']) {
+      const response = await fetch(`${h.url}/__pyric/state${query}`, { headers });
+      expect(response.status).toBe(413);
+      const text = await response.text();
+      expect(text).toContain('Storage objects total 900.0 MiB');
+      expect(text).toContain('state export');
+    }
   });
 });

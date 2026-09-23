@@ -30,7 +30,7 @@ import {
   createStateStore,
   type StateStore,
 } from './state-store.js';
-import { restoredStateCounts } from './state-summary.js';
+import { restoredStateCounts, stateForSummary } from './state-summary.js';
 import { parseStateFile } from './state-file.js';
 import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
 
@@ -216,7 +216,7 @@ export async function createSandboxSession(
         if (hasFile) rmSync(file);
       }
     }
-    let persisted = state?.load() ?? null;
+    let persisted = stateForSummary(state, { hosted: options.hosted === true });
     let seed: Record<string, Record<string, unknown>> | null = null;
     let seedState: unknown | null = null;
     let seedUsers: Record<string, unknown>[] | null = null;
@@ -263,7 +263,7 @@ export async function createSandboxSession(
             if (hasStorageState) await state.writeSection('storage', fixture.storage);
           }
           seedApplied = true;
-          persisted = state.load();
+          persisted = stateForSummary(state, { hosted: options.hosted === true });
         } else {
           const hasNoStateStore = !hasStateStore;
           if (hasNoStateStore) {
