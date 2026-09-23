@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHostedPersistence, hostedStateDirectory, loadHostedSnapshot } from '../../../src/serve/hosted/persistence.js';
 import { MAX_INLINE_EXPORT_STORAGE_BYTES, StateExportTooLargeError } from '../../../src/serve/hosted/persistence/export-limit.js';
+import { createSandboxSession } from '../../../src/serve/sandbox-session.js';
+import { mkdirSync } from 'node:fs';
 
 const MiB = 1024 * 1024;
 const project = mkdtempSync(join(process.argv[2], 'export-'));
@@ -39,5 +41,16 @@ try {
   assert.doesNotThrow(() => persistence.state.readSection('auth'));
   assert.throws(() => persistence.state.readSection('storage'), StateExportTooLargeError);
 } finally { persistence.close(); }
+
+// A hosted session starts on the same store: startup counts documents and users
+// and never reads the objects the export refuses.
+mkdirSync(join(project, 'sdk'), { recursive: true });
+const sessionRssBefore = process.memoryUsage().rss;
+const session = await createSandboxSession({ projectDir: project, firebaseConfig: null, sdk: { dir: join(project, 'sdk') }, hosted: true, capture: false });
+try {
+  assert.equal(session.summary.persistence?.restored, true);
+} finally { await session.close(); }
+const sessionRssGrowth = process.memoryUsage().rss - sessionRssBefore;
+assert.ok(sessionRssGrowth < 64 * MiB, `session start read no object bytes (rss grew ${(sessionRssGrowth / MiB).toFixed(1)} MiB)`);
 
 console.log('Export ceiling passed');

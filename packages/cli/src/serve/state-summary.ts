@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { PyricStateFile } from './state-file.js';
+import { STATE_FILE_VERSION, type PyricStateFile } from './state-file.js';
+import type { StateStore } from './state-store.js';
 
 const servicesSchema = z.object({
   auth: z.object({ users: z.array(z.unknown()) }).optional(),
@@ -45,4 +46,23 @@ export function restoredStateCounts(state: PyricStateFile | null) {
   const hasControllerUsers = users !== undefined;
   if (hasControllerUsers) return { restoredDocs: controller.documents, restoredUsers: users };
   return { restoredDocs: controller.documents, restoredUsers: state?.auth?.users.length ?? 0 };
+}
+
+/**
+ * The state the startup summary counts. A hosted store is read by section, so
+ * its Storage objects, which the summary does not report, are never loaded.
+ */
+export function stateForSummary(
+  state: StateStore | undefined,
+  options: { hosted: boolean },
+): PyricStateFile | null {
+  const hasNoState = state === undefined || !state.exists();
+  if (hasNoState) return null;
+  const readsWholeFile = !options.hosted;
+  if (readsWholeFile) return state.load();
+  return {
+    version: STATE_FILE_VERSION,
+    firestore: state.readSection('firestore'),
+    auth: state.readSection('auth') as PyricStateFile['auth'],
+  };
 }

@@ -18,6 +18,7 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { hostedStateDirectory, loadHostedSnapshot } from '../serve/hosted/persistence.js';
+import { StateExportTooLargeError } from '../serve/hosted/persistence/export-limit.js';
 import { firestoreDocCount } from '../serve/state-summary.js';
 import type { ParsedArgs } from './parse-args.js';
 import { createStateStore, type PyricStateFile } from '../serve/state-store.js';
@@ -36,7 +37,12 @@ interface LiveState {
   projectDir: string | null;
 }
 
-async function fetchLive(port: number): Promise<LiveState | null> {
+/** A live host that answered and refused the export, with its reason. */
+interface RefusedExport {
+  refused: string;
+}
+
+async function fetchLive(port: number): Promise<LiveState | RefusedExport | null> {
   try {
     let headers: Record<string, string> | undefined;
     try {
@@ -57,6 +63,8 @@ async function fetchLive(port: number): Promise<LiveState | null> {
       headers: requestHeaders,
       signal: AbortSignal.timeout(750),
     });
+    const exportRefused = res.status === 413;
+    if (exportRefused) return { refused: await res.text() };
     if (res.status !== 200) return null;
     const body = (await res.json()) as PyricStateFile;
     if (!body || typeof body !== 'object' || !('version' in body)) return null;
@@ -109,6 +117,11 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
     const found = await live(port);
     const absent = found === null;
     if (absent) continue;
+    const refused = 'refused' in found;
+    if (refused) {
+      err.write(`pyric snapshot: ${found.refused}\n`);
+      return 2;
+    }
     // Wrong-project guard (pre-mortem #4): the port scan can hit a NEIGHBOR
     // project's serve (yours down, theirs on 3473). Refuse unless --port was
     // explicit AND warn either way.
@@ -133,7 +146,14 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
   const hostedPath = join(hostedStateDirectory(cwd), 'state.sqlite');
   const hasOfflineHostedState = envelope === null && existsSync(hostedPath);
   if (hasOfflineHostedState) {
-    envelope = await loadHostedSnapshot(cwd);
+    try {
+      envelope = await loadHostedSnapshot(cwd);
+    } catch (error) {
+      const exportTooLarge = error instanceof StateExportTooLargeError;
+      if (!exportTooLarge) throw error;
+      err.write(`pyric snapshot: ${error.message}\n`);
+      return 2;
+    }
     source = hostedPath;
   }
   const useBrowserStore = envelope === null && !hasOfflineHostedState;
