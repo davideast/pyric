@@ -1,0 +1,186 @@
+# 0018: Storage object bytes travel and rest by reference
+
+Status: Proposed
+
+Date: 2026-09-23
+
+## Context
+
+Pyric carries a Storage object's bytes inline wherever they appear. They sit in a
+`BLOB` column in the Node host's SQLite store. They are base64 inside every
+state document: `/__pyric/state`, `pyric snapshot`, checkpoints, branches, the
+in-process `storage.json`, and a browser `--persist` state file. They are base64
+inside every RPC frame that moves them. And they are one whole buffer in memory
+whenever an upload finishes or a download URL is made.
+
+Each representation assumed an object was small. ADR 0015 raised the per-object
+limit from 8 MiB to 512 MiB by splitting transfers into parts, and changed none
+of them. Each now fails at its own threshold, and each failure was reported as
+a separate defect:
+
+| Representation | What breaks | Evidence |
+| --- | --- | --- |
+| `BLOB` column, read by `substr` | A ranged read costs the whole object, because `node:sqlite` has no incremental blob I/O. A download in parts reads the object once per part. | A 4 MiB read: 1.85 ms from a 10 MiB object, 45.52 ms from a 200 MiB one. |
+| `BLOB` column, finished by assembling parts | Host memory scales with the object. | A 200 MiB object: 836 MiB resident on upload, 1,124 MiB on read. |
+| `BLOB` column, deleted or replaced | Freed pages stay in the file. The database never shrinks without `VACUUM`, which locks the host and needs twice the space. | One 200 MiB upload left 200 MiB of free pages in a 420 MiB file. |
+| Base64 in one JSON document | The whole project's Storage is capped by V8's string length. | About 384 MiB in total, now refused by name at `MAX_INLINE_EXPORT_STORAGE_BYTES`. Checkpoints and branches hit the same wall with the raw error. |
+| Base64 in RPC frames | A third more bytes on the wire, a slow encoder in the browser, and serial round trips. | Base64 writes 3 bytes as 4: a 29 MiB object crosses as 38.7 MiB. |
+| A `data:` URI from `getDownloadURL` | The page holds the whole object as a string. `<audio>` cannot stream or seek it. | A 29 MiB file becomes a 39 MiB string. |
+
+The in-browser store is the exception at rest: IndexedDB stores each object as
+a native `Blob`, which is already a reference. Its exports still inline.
+
+Raising a limit or streaming one serializer would move one threshold and leave
+the rest. The common fix is to stop carrying bytes inline.
+
+## Decision
+
+An object's bytes are never embedded in a row, a document, or a frame that is
+not a byte stream. Everything else refers to them by content hash. Four parts
+follow from that.
+
+**1. At rest: a content-addressed file store for the Node host.** Metadata
+stays in SQLite. Bytes move beside it:
+
+```
+.pyric/state/hosted/
+  state.sqlite
+  objects/
+    3f/3fa1c8…e7        one immutable file per distinct SHA-256
+    .staging/<uploadId>  parts of uploads in progress
+```
+
+`storage_objects` replaces `bytes` with `sha256` and `size`. A write is
+committed only after its bytes are durable, in this order: write a temporary
+file, `fsync` it, `rename` it into `objects/<ab>/<sha256>`, `fsync` the
+directory, then commit the row. Every interruption leaves either nothing or an
+unreferenced file; no ordering produces a row naming bytes that are not there.
+Content addressing makes the rename idempotent and deduplicates identical
+objects.
+
+A chunked upload appends its parts to one staging file and hashes it as it
+goes, so finishing an upload is a rename, not an assembly in memory. A ranged
+read is a positional read of the file.
+
+Unreferenced files are removed by a sweep. The sweep keeps every hash named by
+a live row, a checkpoint, a branch, or an upload in progress, and skips any file
+modified after the sweep began, so it cannot delete a file whose row is about
+to commit. It takes no lock on the database and needs no free space.
+
+The schema moves to version 3. The first writable open migrates version 2 by
+writing each row's bytes to its file, one row per transaction, and then drops
+the column. As with every hosted migration, it runs only after the store
+validates, and a test opens a database from every earlier version.
+
+**2. In documents: references, not payloads.** A state document's Storage
+entry becomes `{ path, sha256, size, metadata }`. The bytes live in an
+`objects/` directory beside the document, laid out as the store's.
+
+- `pyric snapshot` writes a directory holding `state.json` and `objects/`.
+- `GET /__pyric/state` returns references; bytes are fetched by hash.
+- Checkpoints and branches on the Node host record hashes and pin those files
+  in the same store, so capturing one copies no bytes, and restoring one is a
+  metadata write.
+- Seeds accept both forms: the current inline form for small fixtures, and the
+  directory form.
+
+This removes the aggregate export ceiling and makes a checkpoint as cheap as
+its metadata.
+
+**3. On the wire: an HTTP byte route on the Node host.** Rules and identity
+stay on the existing RPC; only bytes move to HTTP.
+
+- `storage.beginUpload` returns, besides its upload id, a URL carrying a
+  capability token bound to that upload. The client streams the object to it
+  with `PUT`. `storage.finishUpload` commits over RPC as it does now.
+- `getDownloadURL` evaluates read rules over RPC and returns an HTTP URL with a
+  token bound to that object's generation and an expiry, as production returns
+  a token-signed URL. `GET` on it supports `Range`, so media streams and seeks.
+- The route is advertised in the session handshake. A SharedWorker sandbox has
+  no HTTP host and keeps the current protocol. MCP keeps JSON, and moves large
+  objects as project file paths, as `uploadBytes` already does with
+  `sourcePath`.
+
+**4. One write path.** Every upload, whether one frame, parts, or the byte
+route, is committed by the engine's `uploadBytes` from a staged blob reference:
+the engine builds the metadata from the sandbox clock, evaluates rules when the
+object is created, and emits the one mutation event. The backend's part is to
+stage bytes and adopt a finished blob. A chunked upload already commits this
+way; the byte route must too.
+
+**Limits.** `MAX_STORAGE_OBJECT_BYTES` becomes a policy number about disk, no
+longer tied to SQLite's value length or to one buffer. Host memory per transfer
+is bounded by the stream buffer, and a test asserts it for an object many times
+that size. The in-browser store keeps its export limit and names it.
+
+## Consequences
+
+Reads cost the range they ask for. Host memory no longer grows with object
+size. Deleting an object gives its space back at the next sweep. A project's
+total Storage is bounded by disk, not by a string. Media streams from a real
+URL. A 29 MiB upload crosses the wire as 29 MiB.
+
+Hosted state becomes a directory with two parts. Copying `state.sqlite` alone
+gives metadata without bytes. Archive, `--fresh`, and salvage already treat the
+`hosted/` directory as the unit, which keeps that from happening by accident.
+Salvage gains a case, a row whose file is missing or does not hash to its name,
+and loses one: a damaged database page can no longer take an object's bytes
+with it.
+
+`pyric snapshot` output changes from one file to a directory. Tools that read
+the Storage section of a state file must follow references. Pyric is in alpha,
+so the old form is not kept alongside.
+
+Every object costs an inode and an `fsync`. Under roughly 100 KiB, SQLite is
+faster than a file.
+
+## Alternatives considered
+
+**Keep the column, add incremental blob I/O through `better-sqlite3`.** Fixes
+ranged reads and keeps a single file. It needs a native module that falls back
+to compiling when no prebuilt binary matches the running Node, and it leaves
+stranded space, `VACUUM`, write amplification through the WAL, and every inline
+document as they are.
+
+**Store each object as rows of 4 MiB chunks in SQLite.** Fixes ranged reads and
+finishing without assembly, and keeps one file and one transaction. Deleted
+space still strands in the file, the WAL still carries every byte twice, and
+documents and frames are unchanged. This is the strongest alternative for the
+at-rest part alone.
+
+**Stream the JSON export.** Removes the V8 limit for the HTTP endpoint only.
+Clients still parse a document the size of the project, and checkpoints are
+unchanged.
+
+**Raise the limits, or `VACUUM` on a schedule.** Moves thresholds and makes the
+stranded-space and ranged-read costs grow with them.
+
+## Open questions
+
+1. Is `pyric snapshot` output a directory, or one archive file such as a tar
+   holding the same layout?
+2. When does the sweep run: at startup after validation, which delays the first
+   request of a large project, or when the host is idle, which needs a
+   definition of idle?
+3. Does salvage quarantine a file that does not hash to its name, keeping a
+   partly readable object, or exclude it, keeping the result provably
+   consistent?
+4. Should objects under a size threshold stay inline in SQLite? That buys small
+   objects speed at the cost of two read and two write paths.
+5. Are the byte route's tokens bound to one operation, as proposed, or does the
+   route take the session token plus the caller's lens on each request?
+6. Do checkpoints and branches keep their manifests in SQLite, which makes the
+   sweep's roots one query, or as files, as checkpoints are today?
+7. Do the in-process MCP `storage.json` and the browser `--persist` state file
+   move to the same by-reference form, or keep their inline form under a named
+   limit?
+8. Should parts 1 and 2 land together? They depend on each other: a hash in a
+   checkpoint is only a reference if the store is content-addressed.
+
+## Order of work
+
+| Phase | Work |
+| --- | --- |
+| 1 | Schema version 3, the blob store, its migration, the sweep, and documents by reference, together. |
+| 2 | The byte route and HTTP download URLs. |
+| 3 | The in-process and browser stores, per question 7. |
