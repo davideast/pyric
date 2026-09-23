@@ -60,6 +60,10 @@ test('a background sweep removes object files no row names, and salvage quaranti
   expect(await runNodeFixture('object-sweep', 60_000)).toBe('Object sweep passed');
 }, 90_000);
 
+test('a hosted checkpoint records its objects by hash in SQLite, and the sweep keeps what it names', async () => {
+  expect(await runNodeFixture('checkpoints', 60_000)).toBe('Checkpoints passed');
+}, 90_000);
+
 // Stages and finishes a 256 MiB upload.
 test('a chunked upload stages in one file, finishes by moving it, and keeps host memory flat', async () => {
   expect(await runNodeFixture('upload-staging', 90_000)).toBe('Upload staging passed');

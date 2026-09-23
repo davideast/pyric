@@ -67,10 +67,10 @@ const FILE_OBJECTS_TABLE = `CREATE TABLE storage_objects (
   PRIMARY KEY (bucket, path)
 ) STRICT`;
 
-type EarlierSchema = 'version-1' | 'version-1-nine-column-staging' | 'version-2' | 'version-3';
-const EARLIER_SCHEMAS: readonly EarlierSchema[] = ['version-1', 'version-1-nine-column-staging', 'version-2', 'version-3'];
-const holdsInlineBytes = (schema: EarlierSchema): boolean => schema !== 'version-3';
-const versionOf = (schema: EarlierSchema): number => ({ 'version-1': 1, 'version-1-nine-column-staging': 1, 'version-2': 2, 'version-3': 3 })[schema];
+type EarlierSchema = 'version-1' | 'version-1-nine-column-staging' | 'version-2' | 'version-3' | 'version-4';
+const EARLIER_SCHEMAS: readonly EarlierSchema[] = ['version-1', 'version-1-nine-column-staging', 'version-2', 'version-3', 'version-4'];
+const holdsInlineBytes = (schema: EarlierSchema): boolean => schema !== 'version-3' && schema !== 'version-4';
+const versionOf = (schema: EarlierSchema): number => ({ 'version-1': 1, 'version-1-nine-column-staging': 1, 'version-2': 2, 'version-3': 3, 'version-4': 4 })[schema];
 
 /** A project whose hosted state an earlier release wrote. */
 function earlierRelease(name: string, schema: EarlierSchema): string {
@@ -113,7 +113,8 @@ function inspect(project: string) {
     const staging = database.prepare('PRAGMA table_info(storage_uploads)').all().map(row => String(row.name));
     const columns = database.prepare('PRAGMA table_info(storage_objects)').all().map(row => String(row.name));
     const records = Number(database.prepare('SELECT count(*) AS n FROM records').get()?.n);
-    return { version, staging, columns, records };
+    const tables = database.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(row => String(row.name));
+    return { version, staging, columns, records, tables };
   } finally { database.close(); }
 }
 
@@ -163,6 +164,7 @@ for (const schema of EARLIER_SCHEMAS) {
   const after = inspect(project);
   assert.equal(after.version, HOSTED_SCHEMA_VERSION, `${schema}: version after upgrade`);
   assert.deepEqual(after.staging, [], `${schema}: no staging table after upgrade`);
+  assert.deepEqual(after.tables, ['checkpoint_objects', 'checkpoints', 'records', 'storage_objects'], `${schema}: tables after upgrade`);
   assert.deepEqual(after.columns, ['bucket', 'path', 'metadata', 'mime', 'sha256', 'size'], `${schema}: object columns after upgrade`);
   assert.equal(after.records, before.records);
   for (const object of objects) assertSameBytes(readFileSync(objectFile(project, object.bytes)), object.bytes, `${schema}: ${object.path} file`);
