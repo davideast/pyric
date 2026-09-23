@@ -50,7 +50,21 @@ client first reads metadata for the size and generation, then requests 4 MiB
 ranges and passes the generation it expects with each one. The host refuses a
 range whose object generation differs with `storage/object-changed`, so a
 download never splices two versions of an object. SQLite reads a range with
-`substr(bytes, offset, length)` without materializing the whole blob.
+`substr(bytes, offset, length)`.
+
+> **Correction (2026-09-23).** This section originally said `substr` reads a
+> range "without materializing the whole blob." Under `node:sqlite` it does not.
+> `node:sqlite` exposes no incremental blob I/O (`sqlite3_blob_open`), so
+> `substr` builds the whole BLOB value and then slices it. A ranged read costs
+> the size of the object, not the size of the range, and a download in parts
+> reads the whole object once per part. The same 4 MiB read, measured on Node
+> 22.18:
+>
+> | Object | 4 MiB `substr` read |
+> | --- | --- |
+> | 10 MiB | 1.85 ms |
+> | 50 MiB | 11.05 ms |
+> | 200 MiB | 45.52 ms |
 
 **Staging.** Staged parts live in a `storage_uploads` table in the host's SQLite
 file, keyed by `uploadId`, with the owning connection, the declared size, and a
@@ -64,6 +78,12 @@ object. The host enforces one new limit, `MAX_STORAGE_OBJECT_BYTES`, at
 `storage.maxObjectBytes`. It is a disk and SQLite limit, not a memory limit:
 host memory per transfer is one part.
 
+> **Correction (2026-09-23).** Host memory per transfer is not one part. Besides
+> the ranged-read cost above, finishing an upload assembles the whole object
+> before it is written. Measured host peaks with objects in the `storage_objects`
+> BLOB column: a 200 MiB upload reached 836 MiB resident, and reading it back
+> reached 1,124 MiB. Host memory scales with the object, as it did before parts.
+
 **Callers that change.** `pyric-admin`'s `file.save` and `file.download`, the
 served client's `uploadBytes`, `uploadString`, `getBytes`, and `getBlob`, and the
 Node conveniences in `packages/cli/src/remote`. Each picks the single-part or
@@ -72,8 +92,9 @@ the same parts.
 
 ## Consequences
 
-Host memory per transfer is bounded by the part size, about 4 MiB raw and 5.4 MiB
-encoded, whatever the object size. The 12 MiB frame limit and the 24 MiB backlog
+Parts bound what one frame carries, about 4 MiB raw and 5.4 MiB encoded,
+whatever the object size. They do not bound host memory; see the corrections
+above. The 12 MiB frame limit and the 24 MiB backlog
 stay as they are, and the per-operation refusal added for a full backlog now
 costs a caller one part to retry, not a whole object.
 
