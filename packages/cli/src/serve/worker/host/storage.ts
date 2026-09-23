@@ -37,10 +37,8 @@ import {
   enforceRules,
   requestResourceFor,
   resourceFromStored,
-  toFullMetadata,
 } from 'pyric/storage/internal';
 import { FirebaseError } from 'pyric/app';
-import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { AuthLens } from 'pyric/sandbox';
 import { bindOperationContext } from 'pyric/sandbox/internal';
 
@@ -60,6 +58,29 @@ import {
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { authStateForLens, lensCacheKey, opProvenance, sessionCacheKey } from './core.js';
 import { portSession } from '../host-auth.js';
+
+/** An upload between `storage.beginUpload` and `storage.finishUpload`. */
+interface PendingUpload {
+  path: string;
+  settable: SettableMetadata;
+}
+
+/**
+ * Where each staged upload will land and with which settable metadata. The
+ * backend keeps the bytes; the object itself is written by the engine's
+ * upload, exactly as a single-frame `storage.putBytes` is.
+ */
+const pendingUploadsByHost = new WeakMap<HostCtx, Map<string, PendingUpload>>();
+
+function pendingUploads(ctx: HostCtx): Map<string, PendingUpload> {
+  let uploads = pendingUploadsByHost.get(ctx);
+  const firstUpload = uploads === undefined;
+  if (firstUpload) {
+    uploads = new Map();
+    pendingUploadsByHost.set(ctx, uploads);
+  }
+  return uploads!;
+}
 
 /** The shared Storage handle, lazily created (Pyric Studio data browse): one per
  *  worker, directly over the shared sandbox. The high-level
@@ -325,6 +346,7 @@ export async function handleStorageOp(
           settable.contentType ?? msg.contentType ?? 'application/octet-stream',
           settable.customMetadata,
         );
+        pendingUploads(ctx).set(uploadId, { path: r.fullPath, settable });
         ok(port, msg.id, { uploadId });
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -358,43 +380,32 @@ export async function handleStorageOp(
     }
 
     case 'storage.finishUpload': {
+      // The object is created by the engine's upload, as a single-frame
+      // upload is: its metadata, the sandbox clock, the rules in force now,
+      // and one mutation event. Beginning the upload only checked the rules early.
       try {
         if (!msg.uploadId) {
           throw new FirebaseError('storage/invalid-argument', 'storage.finishUpload requires uploadId.');
+        }
+        const pending = pendingUploads(ctx).get(msg.uploadId);
+        const unknownUpload = pending === undefined;
+        if (unknownUpload) {
+          throw new FirebaseError('storage/object-not-found', `Upload '${msg.uploadId}' not found or already completed.`);
         }
         const storage = bindStorageOperationContext(
           lensStorage(ctx, msg.actAs, port),
           opProvenance(msg),
         );
-        const target = targetOf(storage);
         const service = await getStorageService(storage);
-        if (!service.backend.finishUpload) {
+        if (!service.backend.readUpload) {
           throw new FirebaseError('storage/unsupported', 'Current storage backend does not support chunked uploads.');
         }
-        const stored = await service.backend.finishUpload(msg.uploadId);
+        const staged = await service.backend.readUpload(msg.uploadId);
+        const result = await storageUploadBytes(storageRef(storage, pending!.path), staged, pending!.settable);
+        pendingUploads(ctx).delete(msg.uploadId);
+        await service.backend.abortUpload?.(msg.uploadId);
         await bestEffortFlush(ctx, msg.method);
-        try {
-          emitSandboxEvent(
-            target.sandbox,
-            makeServiceMutationEvent({
-              at: getClock(target.sandbox).now(),
-              service: 'storage',
-              op: 'object_put',
-              path: stored.fullPath,
-              auth: storageAuth(target),
-              after: stored,
-              detail: {
-                bucket: stored.bucket,
-                size: stored.size,
-                contentType: stored.contentType,
-              },
-            }),
-            storageOperationProvenance(target, opProvenance(msg)),
-          );
-        } catch {
-          // Observational
-        }
-        ok(port, msg.id, toFullMetadata(stored));
+        ok(port, msg.id, result.metadata);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -406,6 +417,7 @@ export async function handleStorageOp(
         }
         const storage = ensureStorage(ctx);
         const service = await getStorageService(storage);
+        pendingUploads(ctx).delete(msg.uploadId);
         if (service.backend.abortUpload) {
           await service.backend.abortUpload(msg.uploadId);
         }

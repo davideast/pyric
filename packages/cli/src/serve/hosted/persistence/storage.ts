@@ -14,7 +14,7 @@ export interface ScopedStorageBackend extends StorageBackend {
   mutate<T>(work: (putBytes: PutStorageBytes) => T): Promise<T>;
   beginUpload(bucket: string, path: string, size: number, mime?: string, customMetadata?: Record<string, string>, connectionId?: string): Promise<string>;
   putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }>;
-  finishUpload(uploadId: string): Promise<StoredMetadata>;
+  readUpload(uploadId: string): Promise<Uint8Array>;
   abortUpload(uploadId: string): Promise<void>;
   readRange(bucket: string, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined>;
 }
@@ -164,54 +164,24 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
           return { bytesReceived };
         });
       },
-      async finishUpload(uploadId: string): Promise<StoredMetadata> {
+      async readUpload(uploadId: string): Promise<Uint8Array> {
         return enqueue(() => {
           const header = readHeaderStmt().get(uploadId);
           if (header === undefined) throw new Error(`Upload '${uploadId}' not found or already completed.`);
-          const bucket = sqlText(header, 'bucket');
-          const path = sqlText(header, 'path');
           const declaredSize = Number(header.size);
           const parts = readPartsStmt().all(uploadId);
-          const totalLength = parts.reduce((sum, p) => sum + (p.bytes instanceof Uint8Array ? p.bytes.byteLength : 0), 0);
-          if (totalLength !== declaredSize) {
-            throw new Error(`Staged bytes (${totalLength}) do not match declared size (${declaredSize}).`);
-          }
-          const fullBytes = new Uint8Array(declaredSize);
+          const totalLength = parts.reduce((sum, part) => sum + (part.bytes instanceof Uint8Array ? part.bytes.byteLength : 0), 0);
+          const incomplete = totalLength !== declaredSize;
+          if (incomplete) throw new Error(`Staged bytes (${totalLength}) do not match declared size (${declaredSize}).`);
+          const bytes = new Uint8Array(declaredSize);
           let offset = 0;
-          for (const partRow of parts) {
-            if (partRow.bytes instanceof Uint8Array) {
-              fullBytes.set(partRow.bytes, offset);
-              offset += partRow.bytes.byteLength;
-            }
+          for (const part of parts) {
+            const hasBytes = part.bytes instanceof Uint8Array;
+            if (!hasBytes) continue;
+            bytes.set(part.bytes as Uint8Array, offset);
+            offset += (part.bytes as Uint8Array).byteLength;
           }
-          const previous = metadata.get(bucket, path);
-          const hasPrevious = previous !== undefined;
-          const current = hasPrevious ? metadataOf(previous) : null;
-          const generation = current !== null ? String(Number(current.generation) + 1) : String(Date.now());
-          const timeCreated = current !== null ? current.timeCreated : new Date().toISOString();
-          const updated = new Date().toISOString();
-          const contentType = sqlText(header, 'content_type');
-          const customMetaRaw = header.custom_metadata ? sqlText(header, 'custom_metadata') : null;
-          const customMetadata = customMetaRaw ? JSON.parse(customMetaRaw) : undefined;
-          const name = path.split('/').pop() ?? path;
-          const stored: StoredMetadata = {
-            bucket,
-            fullPath: path,
-            name,
-            size: declaredSize,
-            generation,
-            metageneration: '1',
-            timeCreated,
-            updated,
-            contentType,
-            customMetadata,
-          };
-          const validated = storedMetadataSchema.parse(stored);
-          commit(() => {
-            put.run(bucket, path, JSON.stringify(validated), contentType, fullBytes);
-            deleteUploadStmt().run(uploadId);
-          });
-          return validated;
+          return bytes;
         });
       },
       async abortUpload(uploadId: string): Promise<void> {

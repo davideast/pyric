@@ -55,8 +55,8 @@ async function chunkedRoundTrip(project: string): Promise<void> {
     const bytes = new TextEncoder().encode('staged after the upgrade');
     const uploadId = await persistence.storage.beginUpload('pyric-default', 'notes/after.txt', bytes.byteLength, 'text/plain');
     await persistence.storage.putPart(uploadId, 0, bytes);
-    const stored = await persistence.storage.finishUpload(uploadId);
-    assert.equal(stored.size, bytes.byteLength);
+    assert.deepEqual(await persistence.storage.readUpload(uploadId), bytes);
+    await persistence.storage.abortUpload(uploadId);
     assert.equal(await (await persistence.storage.getBlob('notes/before.txt', 'pyric-default'))?.text(), body);
   } finally { persistence.close(); }
 }
