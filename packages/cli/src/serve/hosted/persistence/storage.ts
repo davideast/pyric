@@ -3,6 +3,7 @@ import { FirebaseError } from 'pyric/app';
 import type { StorageBackend, StoredMetadata } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
 import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
+import type { BlobStore, StoredBytes } from './blob-store.js';
 import type { Commit } from './commits.js';
 import { sqlText, type SqlConnection, type SqlRow } from './sqlite.js';
 
@@ -33,11 +34,19 @@ function metadataOf(row: SqlRow): StoredMetadata {
   return storedMetadataSchema.parse(JSON.parse(sqlText(row, 'metadata')));
 }
 
-/** Bytes and metadata share a row and a transaction, including replacements. */
-export function createSqliteStorage(connection: SqlConnection, commit: Commit): ScopedStorageBackend {
-  const read = connection.prepare('SELECT bytes, mime FROM storage_objects WHERE bucket=? AND path=?');
+function storedBytesOf(row: SqlRow): StoredBytes {
+  return { sha256: sqlText(row, 'sha256'), size: Number(row.size) };
+}
+
+/**
+ * Metadata lives in a row that names the object's bytes by hash. The bytes are
+ * durable in their file before the row that names them commits.
+ */
+export function createSqliteStorage(connection: SqlConnection, commit: Commit, objects: BlobStore): ScopedStorageBackend {
+  const read = lazyStatement(connection, 'SELECT sha256, size, mime FROM storage_objects WHERE bucket=? AND path=?');
   const metadata = connection.prepare('SELECT metadata FROM storage_objects WHERE bucket=? AND path=?');
-  const put = connection.prepare('INSERT INTO storage_objects VALUES (?, ?, ?, ?, ?) ON CONFLICT(bucket, path) DO UPDATE SET metadata=excluded.metadata, mime=excluded.mime, bytes=excluded.bytes');
+  const put = lazyStatement(connection, `INSERT INTO storage_objects (bucket, path, metadata, mime, sha256, size) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(bucket, path) DO UPDATE SET metadata=excluded.metadata, mime=excluded.mime, sha256=excluded.sha256, size=excluded.size`);
   const update = connection.prepare('UPDATE storage_objects SET metadata=? WHERE bucket=? AND path=?');
   const remove = connection.prepare('DELETE FROM storage_objects WHERE bucket=? AND path=?');
   const list = connection.prepare('SELECT metadata FROM storage_objects WHERE bucket=? AND substr(path, 1, length(?))=? ORDER BY path');
@@ -50,7 +59,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
   const readPartsStmt = lazyStatement(connection, 'SELECT bytes FROM storage_uploads WHERE upload_id=? AND part_index >= 0 ORDER BY part_index');
   const sumPartsStmt = lazyStatement(connection, 'SELECT COALESCE(SUM(length(bytes)), 0) AS bytesReceived FROM storage_uploads WHERE upload_id=? AND part_index >= 0');
   const deleteUploadStmt = lazyStatement(connection, 'DELETE FROM storage_uploads WHERE upload_id=?');
-  const readRangeStmt = connection.prepare('SELECT substr(bytes, ? + 1, ?) AS slice, metadata FROM storage_objects WHERE bucket=? AND path=?');
+  const readRangeStmt = lazyStatement(connection, 'SELECT sha256, size, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
   // Reserve order before binary conversion yields. Reset and later uploads must
   // not overtake a pending upload and then be undone when its bytes arrive.
@@ -67,7 +76,8 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
     const metadata = storedMetadataSchema.parse(value);
     const mismatchedObject = metadata.fullPath !== path || metadata.size !== bytes.byteLength;
     if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
-    commit(() => { put.run(metadata.bucket, path, JSON.stringify(metadata), mime, bytes); });
+    const stored = objects.write(bytes);
+    commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
   }
 
   function view(scope?: string): ScopedStorageBackend {
@@ -84,14 +94,10 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
       mutate: work => enqueue(() => commit(() => work(putBytes))),
       async getBlob(path, bucket = defaultBucket) {
         await mutations;
-        const row = read.get(bucket, path);
+        const row = read().get(bucket, path);
         const missingObject = row === undefined;
         if (missingObject) return undefined;
-        const bytes = row.bytes;
-        const isBinary = bytes instanceof Uint8Array;
-        const invalidBytes = !isBinary;
-        if (invalidBytes) throw new Error('Invalid persisted Storage bytes.');
-        return new Blob([Uint8Array.from(bytes)], { type: sqlText(row, 'mime') });
+        return new Blob([objects.read(storedBytesOf(row))], { type: sqlText(row, 'mime') });
       },
       async getMetadata(path, bucket = defaultBucket) {
         await mutations;
@@ -193,15 +199,13 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
       },
       async readRange(bucket = defaultBucket, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined> {
         await mutations;
-        const row = readRangeStmt.get(offset, length, bucket, path);
+        const row = readRangeStmt().get(bucket, path);
         if (row === undefined) return undefined;
         const meta = metadataOf(row);
         if (expectedGeneration !== undefined && meta.generation !== expectedGeneration) {
           throw new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
         }
-        const slice = row.slice;
-        if (!(slice instanceof Uint8Array)) throw new Error('Invalid ranged slice bytes.');
-        return Uint8Array.from(slice);
+        return objects.readRange(storedBytesOf(row), offset, length);
       },
       // The owning hosted database closes the shared connection after draining.
       close() {},

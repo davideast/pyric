@@ -40,12 +40,16 @@ export async function archiveHostedDirectory(directory: string): Promise<string 
   throw new Error('Could not archive hosted state.');
 }
 
-/** Opening SQLite can alter sidecars even on an error: inspect a copy first. */
+/**
+ * Opening SQLite can alter sidecars even on an error: inspect a copy first. The
+ * copy holds the database only; object files play no part in the check.
+ */
 async function canCheckpointCopy(directory: string): Promise<boolean> {
   const scratch = mkdtempSync(join(tmpdir(), 'pyric-archive-check-'));
   try {
     const copy = join(scratch, 'state');
-    cpSync(directory, copy, { recursive: true });
+    const objects = join(directory, 'objects');
+    cpSync(directory, copy, { recursive: true, filter: path => path !== objects });
     const connection = await openNodeSqlite(join(copy, 'state.sqlite'), true);
     try {
       return connection.prepare('PRAGMA quick_check').all().every(row => row.quick_check === 'ok');

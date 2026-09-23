@@ -3,7 +3,7 @@ import { decodeImportBundle, storedMetadataSchema, validatePersistedService } fr
 import { createHash } from 'node:crypto';
 import type { StoredMetadata } from 'pyric/storage/internal';
 import type { openHostedDatabase } from './database.js';
-import { sqlText } from './sqlite.js';
+import { storedObjects, type StoredObjectRow, type StoredObjects } from './stored-objects.js';
 import { MAX_STORAGE_OBJECT_BYTES } from '../../worker/protocol/storage.js';
 
 /** One Storage object whose recorded size disagreed with its stored bytes. */
@@ -35,40 +35,40 @@ export function validateHostedDatabase(database: Awaited<ReturnType<typeof openH
     for (const [name, value] of Object.entries(snapshot.services)) validatePersistedService(name, value);
   }
   const repairs: StorageMetadataRepair[] = [];
-  const rows = database.connection.prepare('SELECT bucket, path, metadata, mime, length(bytes) AS size FROM storage_objects').all();
-  for (const row of rows) {
-    const metadata = storedMetadataSchema.parse(JSON.parse(sqlText(row, 'metadata')));
+  const repairedRows: StoredObjectRow[] = [];
+  const stored = storedObjects(database.connection, database.objects, database.schemaVersion());
+  for (const row of stored.rows()) {
+    const metadata = storedMetadataSchema.parse(JSON.parse(row.metadata));
     const wrongIdentity = metadata.bucket !== row.bucket || metadata.fullPath !== row.path;
     // The limit applies to the bytes the row holds, not to the size it records.
-    const storedSize = Number(row.size);
-    const oversize = storedSize > MAX_STORAGE_OBJECT_BYTES;
+    const oversize = row.size > MAX_STORAGE_OBJECT_BYTES;
     const invalid = wrongIdentity || oversize;
     if (invalid) throw new Error('Persisted Storage object does not match its metadata.');
-    sqlText(row, 'mime');
-    const recordsTheBytes = metadata.size === storedSize;
+    const sha256 = row.sha256;
+    const inFile = sha256 !== undefined;
+    if (inFile) {
+      // A missing file has no size, so it fails the same check as a truncated one.
+      const fileSize = database.objects.size(sha256);
+      const mismatchedFile = fileSize !== row.size;
+      if (mismatchedFile) throw new Error(`Persisted Storage object '${row.bucket}/${row.path}' ${fileSize === undefined ? 'has no file' : 'has a file of the wrong size'}.`);
+    }
+    const recordsTheBytes = metadata.size === row.size;
     if (recordsTheBytes) continue;
-    repairs.push({ bucket: sqlText(row, 'bucket'), path: sqlText(row, 'path'), recordedSize: metadata.size, actualSize: storedSize });
+    repairs.push({ bucket: row.bucket, path: row.path, recordedSize: metadata.size, actualSize: row.size });
+    repairedRows.push(row);
   }
   // A read-only export reports the repair its next writable startup performs.
   const writesRepairs = repairs.length > 0 && !database.readOnly;
-  if (writesRepairs) writeRepairs(database, repairs);
+  if (writesRepairs) writeRepairs(database, stored, repairedRows);
   return repairs;
 }
 
-function writeRepairs(database: Awaited<ReturnType<typeof openHostedDatabase>>, repairs: readonly StorageMetadataRepair[]): void {
-  const read = database.connection.prepare('SELECT metadata, bytes FROM storage_objects WHERE bucket=? AND path=?');
+function writeRepairs(database: Awaited<ReturnType<typeof openHostedDatabase>>, stored: StoredObjects, rows: readonly StoredObjectRow[]): void {
   const update = database.connection.prepare('UPDATE storage_objects SET metadata=? WHERE bucket=? AND path=?');
   database.commit(() => {
-    for (const repair of repairs) {
-      const row = read.get(repair.bucket, repair.path);
-      const missingObject = row === undefined;
-      if (missingObject) throw new Error('Persisted Storage object disappeared during validation.');
-      const bytes = row.bytes;
-      const binary = bytes instanceof Uint8Array;
-      const invalidBytes = !binary;
-      if (invalidBytes) throw new Error('Invalid persisted Storage bytes.');
-      const metadata = storedMetadataSchema.parse(JSON.parse(sqlText(row, 'metadata')));
-      update.run(JSON.stringify(repairedStorageMetadata(metadata, bytes)), repair.bucket, repair.path);
+    for (const row of rows) {
+      const metadata = storedMetadataSchema.parse(JSON.parse(row.metadata));
+      update.run(JSON.stringify(repairedStorageMetadata(metadata, stored.bytes(row))), row.bucket, row.path);
     }
   });
 }

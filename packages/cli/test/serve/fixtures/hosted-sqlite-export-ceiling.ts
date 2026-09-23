@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHostedPersistence, hostedStateDirectory, loadHostedSnapshot } from '../../../src/serve/hosted/persistence.js';
@@ -11,18 +11,22 @@ const MiB = 1024 * 1024;
 const project = mkdtempSync(join(process.argv[2], 'export-'));
 (await createHostedPersistence(project)).close();
 
-// Two objects that together pass the limit. zeroblob writes them without this
-// process ever holding their bytes.
+// Two objects that together pass the limit. Their files are sparse, so they are
+// written without this process ever holding their bytes.
 const each = Math.ceil((MAX_INLINE_EXPORT_STORAGE_BYTES + MiB) / 2);
 const database = new DatabaseSync(join(hostedStateDirectory(project), 'state.sqlite'));
-const insert = database.prepare('INSERT INTO storage_objects VALUES (?, ?, ?, ?, zeroblob(?))');
-for (const name of ['a.wav', 'b.wav']) {
+const insert = database.prepare('INSERT INTO storage_objects (bucket, path, metadata, mime, sha256, size) VALUES (?, ?, ?, ?, ?, ?)');
+for (const [name, sha256] of [['a.wav', 'a'.repeat(64)], ['b.wav', 'b'.repeat(64)]]) {
   const path = `narrations/${name}`;
+  const shard = join(hostedStateDirectory(project), 'objects', sha256.slice(0, 2));
+  mkdirSync(shard, { recursive: true });
+  writeFileSync(join(shard, sha256), '');
+  truncateSync(join(shard, sha256), each);
   const metadata = {
     bucket: 'pyric-default', fullPath: path, name, size: each, generation: '1', metageneration: '1',
     timeCreated: '2026-01-01T00:00:00Z', updated: '2026-01-01T00:00:00Z', contentType: 'audio/wav',
   };
-  insert.run('pyric-default', path, JSON.stringify(metadata), 'audio/wav', each);
+  insert.run('pyric-default', path, JSON.stringify(metadata), 'audio/wav', sha256, each);
 }
 database.close();
 
