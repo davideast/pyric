@@ -441,4 +441,3 @@ describe('namespace over the real server', () => {
     expect((await fetch(`${h.url}/__pyric/state/objects/..%2Fstate.sqlite`, { headers })).status).toBe(400);
   });
 });
-});

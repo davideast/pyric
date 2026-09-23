@@ -10,10 +10,19 @@ import { sqlText, type SqlConnection, type SqlRow } from './sqlite.js';
 
 export type PutStorageBytes = (path: string, bytes: Uint8Array, mime: string, metadata: StoredMetadata) => void;
 
+/** Store an object whose bytes are the file `source`, which must hash to `stored.sha256`. */
+export type PutStorageFile = (path: string, source: string, stored: StoredBytes, mime: string, metadata: StoredMetadata) => void;
+
+/** The writes a seed transaction can make. */
+export interface StorageWrites {
+  bytes: PutStorageBytes;
+  file: PutStorageFile;
+}
+
 export interface ScopedStorageBackend extends StorageBackend {
   scoped(bucket: string): ScopedStorageBackend;
   /** Run a synchronous seed transaction after earlier Storage mutations. */
-  mutate<T>(work: (putBytes: PutStorageBytes) => T): Promise<T>;
+  mutate<T>(work: (writes: StorageWrites) => T): Promise<T>;
   beginUpload(bucket: string, path: string, size: number, mime?: string): Promise<string>;
   putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }>;
   readUpload(uploadId: string): Promise<Blob>;
@@ -106,6 +115,18 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
     commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
   }
 
+  function putFile(path: string, source: string, stored: StoredBytes, mime: string, value: StoredMetadata): void {
+    const tooLarge = stored.size > MAX_STORAGE_OBJECT_BYTES;
+    if (tooLarge) throw storageQuotaExceeded(stored.size, 'Storage object');
+    const metadata = storedMetadataSchema.parse(value);
+    const mismatchedObject = metadata.fullPath !== path || metadata.size !== stored.size;
+    if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
+    objects.importFile(source, stored);
+    commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
+  }
+
+  const writes: StorageWrites = { bytes: putBytes, file: putFile };
+
   function view(scope?: string): ScopedStorageBackend {
     const defaultBucket = scope ?? 'pyric-default';
     return {
@@ -123,7 +144,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           putBytes(path, bytes, blob.type, value);
         });
       },
-      mutate: work => enqueue(() => commit(() => work(putBytes))),
+      mutate: work => enqueue(() => commit(() => work(writes))),
       async getBlob(path, bucket = defaultBucket) {
         await mutations;
         const row = read().get(bucket, path);

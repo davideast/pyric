@@ -1,22 +1,32 @@
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../../worker/protocol/storage.js';
-import { MAX_INLINE_EXPORT_STORAGE_BYTES, StateExportTooLargeError } from './export-limit.js';
 import { bundleRecords, parseBundle, serializeToBuckets } from 'pyric/sandbox';
 import { decodeImportBundle, seedUserSchema, storedMetadataSchema } from 'pyric/sandbox/internal';
 import { z } from 'zod';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { isStorageReference, objectFileIn, parseStateFile, StateFileError, type StorageStateEntry } from '../../state-file.js';
 import type { StateStore, PyricStateFile, StateSection } from '../../state-store.js';
 import type { openHostedDatabase } from './database.js';
 import { inTransaction } from './sqlite.js';
-import type { PutStorageBytes } from './storage.js';
-import { storedObjects } from './stored-objects.js';
+import type { StorageWrites } from './storage.js';
+import { FILE_BYTES_SCHEMA_VERSION, storedObjects } from './stored-objects.js';
 import { validateHostedDatabase } from './validate.js';
 
 type Database = Awaited<ReturnType<typeof openHostedDatabase>>;
 const authSection = z.object({ users: z.array(seedUserSchema) });
-const objectRecords = z.array(z.object({ dataBase64: z.string(), blobType: z.string(), metadata: storedMetadataSchema }));
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
-/** Portable JSON is an explicit view of SQLite, never a second working store. */
-export function createHostedStateView(projectDir: string, directory: string, database: Database, namespace: string): StateStore & { seed(fixture: PyricStateFile): Promise<void> } {
+/** The Storage entries a document carries, validated as a seed's are. */
+function storageEntries(value: unknown): StorageStateEntry[] {
+  return parseStateFile({ version: 1, storage: value }, 'Storage section').storage ?? [];
+}
+
+/**
+ * Portable JSON is an explicit view of SQLite, never a second working store.
+ * Its Storage entries refer to object files by hash; `objectFile` says where
+ * each one is.
+ */
+export function createHostedStateView(projectDir: string, directory: string, database: Database, namespace: string): StateStore & { seed(fixture: PyricStateFile, objectsFrom?: string): Promise<void> } {
   const connection = database.connection;
   function firestore() {
     const records = database.readRecords(namespace);
@@ -31,24 +41,23 @@ export function createHostedStateView(projectDir: string, directory: string, dat
     if (validAuth) return parsed.data.services.auth ?? null;
     return null;
   }
-  function storage() {
+  function storage(): StorageStateEntry[] {
     const stored = storedObjects(connection, database.objects, database.schemaVersion());
-    // The total reads no object bytes.
-    const total = stored.totalSize();
-    const exceedsExport = total > MAX_INLINE_EXPORT_STORAGE_BYTES;
-    if (exceedsExport) throw new StateExportTooLargeError(total);
-    return stored.rows().map(row => ({
-      metadata: storedMetadataSchema.parse(JSON.parse(row.metadata)),
-      blobType: row.mime,
-      dataBase64: Buffer.from(stored.bytes(row)).toString('base64'),
-    }));
+    return stored.rows().map((row): StorageStateEntry => {
+      const metadata = storedMetadataSchema.parse(JSON.parse(row.metadata));
+      const sha256 = row.sha256;
+      const inFile = sha256 !== undefined;
+      if (inFile) return { path: row.path, sha256, size: row.size, blobType: row.mime, metadata };
+      // A store an earlier release wrote, read without upgrading it, still holds its bytes inline.
+      return { dataBase64: Buffer.from(stored.bytes(row)).toString('base64'), blobType: row.mime, metadata };
+    });
   }
   function exists() {
     const hasRecords = database.hasRecords(namespace);
     const hasObjects = connection.prepare('SELECT 1 AS present FROM storage_objects LIMIT 1').get() !== undefined;
     return hasRecords || hasObjects;
   }
-  function writeSection(section: StateSection, value: unknown, putBytes: PutStorageBytes): void {
+  function writeSection(section: StateSection, value: unknown, writes: StorageWrites, objectsFrom?: string): void {
     const isFirestore = section === 'firestore';
     if (isFirestore) {
       let records = new Map<string, unknown>();
@@ -78,9 +87,21 @@ export function createHostedStateView(projectDir: string, directory: string, dat
       database.commitChanges(namespace, next, []);
       return;
     }
-    const objects = objectRecords.parse(value);
+    const objects = storageEntries(value);
     database.commit(() => {
       for (const object of objects) {
+        const referenced = isStorageReference(object);
+        if (referenced) {
+          const from = objectsFrom;
+          const unresolvable = from === undefined;
+          if (unresolvable) throw new StateFileError(`Storage object '${object.path}' is a reference, and no directory holds its bytes.`);
+          const file = objectFileIn(from, object.sha256);
+          const missing = !existsSync(file);
+          if (missing) throw new StateFileError(`Storage object '${object.path}' refers to ${file}, which does not exist.`);
+          // The copy is checked against the hash before its row is written.
+          writes.file(object.path, file, { sha256: object.sha256, size: object.size }, object.blobType, object.metadata);
+          continue;
+        }
         const tooLarge = object.metadata.size > MAX_STORAGE_OP_BYTES;
         if (tooLarge) throw storagePayloadTooLarge(object.metadata.size, 'Seed Storage object');
         const bytes = Buffer.from(object.dataBase64, 'base64');
@@ -88,7 +109,7 @@ export function createHostedStateView(projectDir: string, directory: string, dat
         if (invalidBase64) throw new Error('Seed Storage bytes are not canonical base64.');
         const wrongSize = bytes.length !== object.metadata.size;
         if (wrongSize) throw new Error('Seed Storage bytes do not match metadata size.');
-        putBytes(object.metadata.fullPath, bytes, object.blobType, object.metadata);
+        writes.bytes(object.metadata.fullPath, bytes, object.blobType, object.metadata);
       }
     });
   }
@@ -111,16 +132,23 @@ export function createHostedStateView(projectDir: string, directory: string, dat
       return storage();
     },
     writeSection(section, value) {
-      return database.storage.mutate(putBytes => writeSection(section, value, putBytes));
+      return database.storage.mutate(writes => writeSection(section, value, writes));
     },
-    seed(fixture) {
-      return database.storage.mutate(putBytes => {
+    objectFile(sha256) {
+      const inFiles = database.schemaVersion() >= FILE_BYTES_SCHEMA_VERSION && SHA256_HEX.test(sha256);
+      const unavailable = !inFiles || database.objects.size(sha256) === undefined;
+      if (unavailable) return undefined;
+      return database.objects.path(sha256);
+    },
+    /** Seed from a document; its references resolve against `objectsFrom`. */
+    seed(fixture, objectsFrom) {
+      return database.storage.mutate(writes => {
         const hasFirestore = fixture.firestore != null;
-        if (hasFirestore) writeSection('firestore', fixture.firestore, putBytes);
+        if (hasFirestore) writeSection('firestore', fixture.firestore, writes);
         const hasAuth = fixture.auth != null;
-        if (hasAuth) writeSection('auth', fixture.auth, putBytes);
+        if (hasAuth) writeSection('auth', fixture.auth, writes);
         const hasStorage = fixture.storage !== undefined;
-        if (hasStorage) writeSection('storage', fixture.storage, putBytes);
+        if (hasStorage) writeSection('storage', fixture.storage, writes, objectsFrom);
         validateHostedDatabase(database);
       });
     },

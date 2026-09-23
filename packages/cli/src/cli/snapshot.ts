@@ -3,7 +3,7 @@
  * (flow doc section 3c: seed.json is intent, `.pyric/state/` is runtime, promote
  * bridges them).
  *
- *   pyric snapshot [--out FILE] [--port N] [--force] [--json]
+ *   pyric snapshot [--out DIR] [--port N] [--force] [--json]
  *
  * Source preference:
  *   1. Live state from a running `pyric sandbox --persist`
@@ -11,14 +11,18 @@
  *   2. else hosted SQLite when present, otherwise the browser/MCP JSON store,
  *   3. else exit 2 with a clear message.
  *
- * The output is a `PyricStateFile` envelope — directly re-servable:
- * `pyric sandbox --seed <out>` (the state-file shape is detected by its
- * `version` key and seeds docs + users).
+ * The output is a directory: `state.json`, a `PyricStateFile` whose Storage
+ * entries refer to objects by SHA-256, and `objects/<ab>/<sha256>` holding their
+ * bytes. It is directly re-servable: `pyric sandbox --seed <out>`.
  */
-import { existsSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { copyFileSync, createWriteStream, existsSync, mkdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
+import { Readable } from 'node:stream';
+import { dirname, join, resolve } from 'node:path';
+import { hashFile } from '../serve/hosted/persistence/blob-store.js';
 import { hostedStateDirectory, loadHostedSnapshot } from '../serve/hosted/persistence.js';
-import { StateExportTooLargeError } from '../serve/hosted/persistence/export-limit.js';
+import { isStorageReference, objectFileIn, type StorageObjectReference, type StorageStateEntry } from '../serve/state-file.js';
 import { firestoreDocCount } from '../serve/state-summary.js';
 import type { ParsedArgs } from './parse-args.js';
 import { createStateStore, type PyricStateFile } from '../serve/state-store.js';
@@ -31,18 +35,21 @@ const SCAN_PORTS = [3473, 3474, 3475, 3476, 3477];
  *  locally to avoid depending on a pyric internal export. */
 const REDACTED_PASSWORD = '__pyric_no_password__';
 
+/** The bytes of one referenced object: in memory, streamed, or a local file. */
+type ObjectBytes = Uint8Array | AsyncIterable<Uint8Array> | { file: string };
+
 interface LiveState {
   envelope: PyricStateFile;
   /** The project dir the live serve reported (pre-mortem #4 guard). */
   projectDir: string | null;
+  /** The bytes the document names by `sha256`, from the same host. */
+  readObject(sha256: string): Promise<ObjectBytes>;
 }
 
-/** A live host that answered and refused the export, with its reason. */
-interface RefusedExport {
-  refused: string;
-}
+/** An object whose bytes could not be written as the document names them. */
+class SnapshotObjectError extends Error {}
 
-async function fetchLive(port: number): Promise<LiveState | RefusedExport | null> {
+async function fetchLive(port: number): Promise<LiveState | null> {
   try {
     let headers: Record<string, string> | undefined;
     try {
@@ -63,12 +70,17 @@ async function fetchLive(port: number): Promise<LiveState | RefusedExport | null
       headers: requestHeaders,
       signal: AbortSignal.timeout(750),
     });
-    const exportRefused = res.status === 413;
-    if (exportRefused) return { refused: await res.text() };
     if (res.status !== 200) return null;
     const body = (await res.json()) as PyricStateFile;
     if (!body || typeof body !== 'object' || !('version' in body)) return null;
-    return { envelope: body, projectDir: res.headers.get('x-pyric-project-dir') };
+    const readObject = async (sha256: string): Promise<ObjectBytes> => {
+      const object = await fetch(`http://localhost:${port}/__pyric/state/objects/${sha256}`, { headers: requestHeaders });
+      const served = object.status === 200 && object.body !== null;
+      if (!served) throw new SnapshotObjectError(`The host on port ${port} did not serve object ${sha256} (HTTP ${object.status}).`);
+      // Node's fetch body is a web stream, which is async-iterable in Node.
+      return object.body as unknown as AsyncIterable<Uint8Array>;
+    };
+    return { envelope: body, projectDir: res.headers.get('x-pyric-project-dir'), readObject };
   } catch {
     return null; // No Pyric sandbox is listening. Fall through.
   }
@@ -93,7 +105,7 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
 
   const outFlag = parsed.flags.get('out');
   const hasOutputPath = typeof outFlag === 'string';
-  const outputName = hasOutputPath ? outFlag : 'pyric-state.json';
+  const outputName = hasOutputPath ? outFlag : 'pyric-state';
   const outPath = resolve(cwd, outputName);
   const refusesOverwrite = existsSync(outPath) && !force;
   if (refusesOverwrite) {
@@ -113,15 +125,11 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
 
   let envelope: PyricStateFile | null = null;
   let source = '';
+  let readObject = (sha256: string): Promise<ObjectBytes> => Promise.reject(new SnapshotObjectError(`No source holds object ${sha256}.`));
   for (const port of ports) {
     const found = await live(port);
     const absent = found === null;
     if (absent) continue;
-    const refused = 'refused' in found;
-    if (refused) {
-      err.write(`pyric snapshot: ${found.refused}\n`);
-      return 2;
-    }
     // Wrong-project guard (pre-mortem #4): the port scan can hit a NEIGHBOR
     // project's serve (yours down, theirs on 3473). Refuse unless --port was
     // explicit AND warn either way.
@@ -140,20 +148,15 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
       err.write('  --port was explicit — promoting it as asked.\n');
     }
     envelope = found.envelope;
+    readObject = found.readObject;
     source = `live serve on port ${port}`;
     break;
   }
   const hostedPath = join(hostedStateDirectory(cwd), 'state.sqlite');
   const hasOfflineHostedState = envelope === null && existsSync(hostedPath);
   if (hasOfflineHostedState) {
-    try {
-      envelope = await loadHostedSnapshot(cwd);
-    } catch (error) {
-      const exportTooLarge = error instanceof StateExportTooLargeError;
-      if (!exportTooLarge) throw error;
-      err.write(`pyric snapshot: ${error.message}\n`);
-      return 2;
-    }
+    envelope = await loadHostedSnapshot(cwd);
+    readObject = async sha256 => ({ file: objectFileIn(hostedStateDirectory(cwd), sha256) });
     source = hostedPath;
   }
   const useBrowserStore = envelope === null && !hasOfflineHostedState;
@@ -213,19 +216,100 @@ export async function runSnapshot(parsed: ParsedArgs, deps: SnapshotDeps = {}): 
     promoted = { ...promoted, firestore: rest };
   }
 
-  writeFileSync(outPath, JSON.stringify(promoted, null, 2) + '\n', 'utf8');
+  const outputIsFile = existsSync(outPath) && !statSync(outPath).isDirectory();
+  if (outputIsFile) {
+    err.write(`pyric snapshot: ${outPath} is a file; a snapshot is a directory holding state.json and objects/.\n`);
+    return 2;
+  }
+  const createsOutput = !existsSync(outPath);
+  mkdirSync(outPath, { recursive: true });
+  let objects = 0;
+  try {
+    const storage = promoted.storage;
+    const hasStorage = storage !== undefined;
+    if (hasStorage) {
+      const references = await writeObjects(storage, outPath, readObject);
+      objects = new Set(references.map(reference => reference.sha256)).size;
+      promoted = { ...promoted, storage: references };
+    }
+  } catch (error) {
+    const unwritableObject = error instanceof SnapshotObjectError;
+    if (!unwritableObject) throw error;
+    if (createsOutput) rmSync(outPath, { recursive: true, force: true });
+    err.write(`pyric snapshot: ${error.message}\n`);
+    return 2;
+  }
+  // The document is written last, so a directory with state.json is complete.
+  const document = join(outPath, 'state.json');
+  const partialDocument = `${document}.${randomUUID()}.tmp`;
+  writeFileSync(partialDocument, JSON.stringify(promoted, null, 2) + '\n', 'utf8');
+  renameSync(partialDocument, document);
 
   const docs = firestoreDocCount(promoted.firestore);
   const users = promoted.auth?.users?.length ?? 0;
-  report.write(`pyric snapshot: ${docs} doc(s) + ${users} user(s) from ${source}\n`);
+  report.write(`pyric snapshot: ${docs} doc(s) + ${users} user(s) + ${objects} object file(s) from ${source}\n`);
   report.write(`  → ${outPath}\n`);
   const redactedPasswords = redactedCount > 0;
   if (redactedPasswords) {
     report.write(`  ⓘ redacted ${redactedCount} password(s) — re-run with --include-passwords to keep them\n`);
   }
   report.write(`  Re-serve it: pyric sandbox --seed ${outputName}\n`);
-  if (json) out.write(JSON.stringify({ out: outPath, docs, users, source, redactedPasswords: redactedCount }) + '\n');
+  if (json) out.write(JSON.stringify({ out: outPath, docs, users, objects, source, redactedPasswords: redactedCount }) + '\n');
   return 0;
+}
+
+/**
+ * Write every object's bytes to `objects/<ab>/<sha256>` in the snapshot
+ * directory and return the document's Storage as references. Inline bytes are
+ * written out; referenced bytes are read from their source and checked
+ * against their hash.
+ */
+async function writeObjects(
+  entries: readonly StorageStateEntry[],
+  directory: string,
+  readObject: (sha256: string) => Promise<ObjectBytes>,
+): Promise<StorageObjectReference[]> {
+  const written = new Set<string>();
+  const references: StorageObjectReference[] = [];
+  for (const entry of entries) {
+    const referenced = isStorageReference(entry);
+    const reference: StorageObjectReference = referenced ? entry : {
+      path: entry.metadata.fullPath,
+      sha256: createHash('sha256').update(Buffer.from(entry.dataBase64, 'base64')).digest('hex'),
+      size: entry.metadata.size,
+      blobType: entry.blobType,
+      metadata: entry.metadata,
+    };
+    references.push(reference);
+    const alreadyWritten = written.has(reference.sha256);
+    if (alreadyWritten) continue;
+    const bytes: ObjectBytes = referenced ? await readObject(entry.sha256) : Buffer.from(entry.dataBase64, 'base64');
+    await writeObject(reference, directory, bytes);
+    written.add(reference.sha256);
+  }
+  return references;
+}
+
+async function writeObject(reference: StorageObjectReference, directory: string, bytes: ObjectBytes): Promise<void> {
+  const target = objectFileIn(directory, reference.sha256);
+  mkdirSync(dirname(target), { recursive: true });
+  const partial = `${target}.${randomUUID()}.tmp`;
+  try {
+    const isFile = 'file' in bytes;
+    const isBuffer = bytes instanceof Uint8Array;
+    if (isFile) copyFileSync(bytes.file, partial);
+    else if (isBuffer) writeFileSync(partial, bytes);
+    else await pipeline(Readable.from(bytes), createWriteStream(partial));
+    const intact = statSync(partial).size === reference.size && hashFile(partial) === reference.sha256;
+    const mismatched = !intact;
+    if (mismatched) throw new SnapshotObjectError(`Storage object '${reference.path}' did not arrive as the bytes its hash ${reference.sha256} names.`);
+    renameSync(partial, target);
+  } catch (error) {
+    rmSync(partial, { force: true });
+    const missingFile = error instanceof Error && 'code' in error && error.code === 'ENOENT';
+    if (missingFile) throw new SnapshotObjectError(`Storage object '${reference.path}' has no file for hash ${reference.sha256}.`);
+    throw error;
+  }
 }
 
 /** Auth also lives inside controller exports; redact only those known paths. */

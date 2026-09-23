@@ -9,6 +9,14 @@ import { salvageHostedState } from '../../../src/serve/hosted/persistence/salvag
 
 const root = process.argv[2];
 
+/** The bytes an exported Storage entry carries inline, or names by hash in the store's objects/. */
+function exportedBytes(project: string, entry: Record<string, unknown>): Uint8Array {
+  const inline = typeof entry.dataBase64 === 'string';
+  if (inline) return Buffer.from(entry.dataBase64 as string, 'base64');
+  const hash = String(entry.sha256);
+  return readFileSync(join(hostedStateDirectory(project), 'objects', hash.slice(0, 2), hash));
+}
+
 /** Compares bytes without asking assert to render a diff of megabytes on failure. */
 function assertSameBytes(actual: Uint8Array | undefined, expected: Uint8Array, message: string): void {
   const same = actual !== undefined && Buffer.from(actual.buffer, actual.byteOffset, actual.byteLength).equals(Buffer.from(expected.buffer, expected.byteOffset, expected.byteLength));
@@ -204,20 +212,23 @@ for (const schema of EARLIER_SCHEMAS) {
   const snapshot = await loadHostedSnapshot(project);
   assert.equal(snapshot?.storage?.length, objects.length);
   const exported = snapshot!.storage!.find(object => object.metadata.fullPath === 'notes/before.txt');
-  assertSameBytes(Buffer.from(exported!.dataBase64, 'base64'), body, `${schema}: exported object`);
+  // An earlier store holding bytes inline exports them inline; one keeping files exports references.
+  assert.equal('dataBase64' in exported!, holdsInlineBytes(schema), `${schema}: export form`);
+  assertSameBytes(exportedBytes(project, exported as unknown as Record<string, unknown>), body, `${schema}: exported object`);
   assertSameBytes(readFileSync(path), bytesBefore, `${schema}: database unchanged by export`);
   assert.equal(inspect(project).version, versionOf(schema));
   const inline = holdsInlineBytes(schema);
   if (inline) assert.equal(existsSync(objectsDirectory(project)), false);
 }
 
-// A read-only export of a current store reads the object files.
+// A read-only export of a current store refers to its object files.
 {
   const project = earlierRelease('export-current', 'version-2');
   (await createHostedPersistence(project)).close();
   const snapshot = await loadHostedSnapshot(project);
   const exported = snapshot!.storage!.find(object => object.metadata.fullPath === 'media/large.bin');
-  assertSameBytes(Buffer.from(exported!.dataBase64, 'base64'), large, 'exported object');
+  assert.equal((exported as unknown as { sha256: string }).sha256, sha256(large));
+  assertSameBytes(exportedBytes(project, exported as unknown as Record<string, unknown>), large, 'exported object');
 }
 
 // Salvage accepts a source from every schema and writes a current-version output with its objects.
