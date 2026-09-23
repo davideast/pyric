@@ -6,13 +6,14 @@ import { inTransaction, openNodeSqlite, requireNodePersistence, sqlText, type Sq
 import { createSqliteStorage } from './storage.js';
 import { FILE_BYTES_SCHEMA_VERSION, storedObjects } from './stored-objects.js';
 
-export const HOSTED_SCHEMA_VERSION = FILE_BYTES_SCHEMA_VERSION;
+/** Version 4 stages uploads in files and has no staging table. */
+export const HOSTED_SCHEMA_VERSION = 4;
 
 /**
  * Every schema version this build can read. A writable open upgrades an older
  * one in place; a read-only open reads it as it is.
  */
-export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, 2, HOSTED_SCHEMA_VERSION]);
+export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, 2, FILE_BYTES_SCHEMA_VERSION, HOSTED_SCHEMA_VERSION]);
 
 /** Object metadata; the bytes are the file `objects/<ab>/<sha256>`. */
 const storageObjectsTable = (name: string): string => `
@@ -27,47 +28,14 @@ const storageObjectsTable = (name: string): string => `
   ) STRICT;
 `;
 
-/** Chunked-upload staging: one header row (`part_index` -1) and one row per part. */
-const STORAGE_UPLOADS_TABLE = `
-  CREATE TABLE storage_uploads (
-    upload_id TEXT NOT NULL,
-    connection_id TEXT,
-    bucket TEXT NOT NULL,
-    path TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    content_type TEXT,
-    custom_metadata TEXT,
-    part_index INTEGER NOT NULL,
-    bytes BLOB NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (upload_id, part_index)
-  ) STRICT;
-`;
-
 /**
- * Version 1 had no staging table. A version-1 database opened by a build that
- * created the table without `part_index` holds that shape instead, and no
- * staged upload in it can be finished, so it is replaced.
+ * Versions 1 and 2 kept each object's bytes in a column. Every object's bytes
+ * are written to its file first, one object in memory at a time; one
+ * transaction then replaces the table. An interruption before that commit
+ * leaves the store as it was and some unreferenced files.
  */
-function upgradeFromVersion1(connection: SqlConnection): void {
-  const columns = connection.prepare('PRAGMA table_info(storage_uploads)').all().map(row => sqlText(row, 'name'));
-  const hasStagingTable = columns.length > 0;
-  const hasPartIndex = columns.includes('part_index');
-  const hasUnusableStaging = hasStagingTable && !hasPartIndex;
-  if (hasUnusableStaging) connection.exec('DROP TABLE storage_uploads');
-  const needsStagingTable = !hasStagingTable || hasUnusableStaging;
-  if (needsStagingTable) connection.exec(STORAGE_UPLOADS_TABLE);
-  connection.exec('PRAGMA user_version=2');
-}
-
-/**
- * Version 2 kept each object's bytes in a column. Every object's bytes are
- * written to its file first, one object in memory at a time; one transaction
- * then replaces the table. An interruption before that commit leaves an intact
- * version-2 store and some unreferenced files.
- */
-function upgradeFromVersion2(connection: SqlConnection, objects: BlobStore): void {
-  const inline = storedObjects(connection, objects, 2);
+function moveBytesToFiles(connection: SqlConnection, objects: BlobStore, version: number): void {
+  const inline = storedObjects(connection, objects, version);
   const rows = inline.rows();
   const files = rows.map((row): StoredBytes => objects.write(inline.bytes(row)));
   inTransaction(connection, () => {
@@ -81,13 +49,17 @@ function upgradeFromVersion2(connection: SqlConnection, objects: BlobStore): voi
     connection.exec(`
       DROP TABLE storage_objects;
       ALTER TABLE storage_objects_by_hash RENAME TO storage_objects;
-      PRAGMA user_version=3;
+      DROP TABLE IF EXISTS storage_uploads;
+      PRAGMA user_version=${HOSTED_SCHEMA_VERSION};
     `);
   });
-  // Without the bytes the live data is small, so rebuilding the file to give
-  // their pages back is quick and needs little space.
-  connection.exec('VACUUM');
-  connection.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+}
+
+/** Version 3 staged uploads as rows. No host that staged them is running, so they are dropped. */
+function dropStagingTable(connection: SqlConnection): void {
+  inTransaction(connection, () => {
+    connection.exec(`DROP TABLE IF EXISTS storage_uploads; PRAGMA user_version=${HOSTED_SCHEMA_VERSION};`);
+  });
 }
 
 /** One database per hosted directory; callers own its lifetime. */
@@ -126,7 +98,6 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
             PRIMARY KEY (namespace, id)
           ) STRICT;
           ${storageObjectsTable('storage_objects')}
-          ${STORAGE_UPLOADS_TABLE}
           PRAGMA user_version=${HOSTED_SCHEMA_VERSION};
         `);
       });
@@ -135,28 +106,24 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
     const objects = createBlobStore(join(directory, 'objects'));
     // An older schema is upgraded only after its contents validate, so a store
     // that is refused is left exactly as it was found.
-    let upgradePending = !readOnly && schemaVersion < HOSTED_SCHEMA_VERSION;
-    const clearStaleUploads = (): void => {
-      // Staged parts older than an hour belong to uploads no client will finish.
-      connection.prepare('DELETE FROM storage_uploads WHERE created_at < ?').run(Date.now() - 3600_000);
-    };
-    const clearsStaleUploadsNow = !readOnly && !upgradePending;
-    if (clearsStaleUploadsNow) clearStaleUploads();
-    const upgradeSchema = (): void => {
-      const upToDate = !upgradePending;
-      if (upToDate) return;
-      const lacksStaging = schemaVersion === 1;
-      if (lacksStaging) {
-        inTransaction(connection, () => upgradeFromVersion1(connection));
-        schemaVersion = 2;
+    const upgradePending = schemaVersion < HOSTED_SCHEMA_VERSION;
+    let activated = false;
+    const activate = (): void => {
+      const skip = readOnly || activated;
+      if (skip) return;
+      activated = true;
+      if (upgradePending) {
+        const holdsInlineBytes = schemaVersion < FILE_BYTES_SCHEMA_VERSION;
+        if (holdsInlineBytes) moveBytesToFiles(connection, objects, schemaVersion);
+        else dropStagingTable(connection);
+        schemaVersion = HOSTED_SCHEMA_VERSION;
+        // Without the bytes and the staged parts the live data is small, so
+        // rebuilding the file to give their pages back is quick.
+        connection.exec('VACUUM');
+        connection.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       }
-      const holdsInlineBytes = schemaVersion === 2;
-      if (holdsInlineBytes) {
-        upgradeFromVersion2(connection, objects);
-        schemaVersion = 3;
-      }
-      upgradePending = false;
-      clearStaleUploads();
+      // No upload survives the host that began it.
+      objects.clearStaging();
     };
     const commits = createCommitController(connection);
     const read = connection.prepare('SELECT payload FROM records WHERE namespace=? AND id=?');
@@ -186,8 +153,12 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
       objects,
       /** The version of the schema as it is now; an upgrade changes it. */
       schemaVersion: (): number => schemaVersion,
-      /** Bring an older writable schema up to date; call after its contents validate. */
-      upgradeSchema,
+      /**
+       * Bring an older writable schema up to date and discard uploads a stopped
+       * host left staged. Call once, after the store's contents validate, so a
+       * store that is refused is left exactly as it was found.
+       */
+      activate,
       ...commits,
       connection,
       readOnly,

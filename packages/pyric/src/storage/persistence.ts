@@ -212,11 +212,14 @@ export interface StorageBackend {
   putPart?(uploadId: string, partIndex: number, bytes: Uint8Array): Promise<{ bytesReceived: number } | void>;
 
   /**
-   * Return an upload's staged bytes in part order, verifying they add up to the
-   * declared size. The upload stays staged: the caller writes the object through
-   * the engine and then discards the staging with {@link abortUpload}.
+   * Return an upload's staged bytes in part order as a Blob typed with the
+   * upload's content type, verifying they add up to the declared size. The
+   * upload stays staged: the caller writes the object through the engine, which
+   * passes this Blob to {@link put} unchanged when the content type agrees, and
+   * then discards the staging with {@link abortUpload}. A backend may recognize
+   * the Blob in `put` and keep the staged bytes rather than copying them.
    */
-  readUpload?(uploadId: string): Promise<Uint8Array>;
+  readUpload?(uploadId: string): Promise<Blob>;
 
   /**
    * Abort an active upload session and purge staged parts.
@@ -309,7 +312,7 @@ class InMemoryUploadStaging {
     return { bytesReceived };
   }
 
-  readUpload(uploadId: string): Uint8Array {
+  readUpload(uploadId: string): Blob {
     const upload = this.uploads.get(uploadId);
     if (!upload) {
       const err = new Error(`storage/object-not-found: Upload '${uploadId}' not found.`) as Error & { code: string };
@@ -326,14 +329,7 @@ class InMemoryUploadStaging {
       err.code = 'storage/invalid-argument';
       throw err;
     }
-    const fullBytes = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const idx of sortedIndices) {
-      const part = upload.parts.get(idx)!;
-      fullBytes.set(part, offset);
-      offset += part.byteLength;
-    }
-    return fullBytes;
+    return new Blob(sortedIndices.map((idx) => upload.parts.get(idx)! as Uint8Array<ArrayBuffer>), { type: upload.contentType });
   }
 
   abortUpload(uploadId: string): void {
@@ -465,7 +461,7 @@ export class InMemoryStorageBackend implements StorageBackend {
     return this.staging.putPart(uploadId, partIndex, bytes);
   }
 
-  async readUpload(uploadId: string): Promise<Uint8Array> {
+  async readUpload(uploadId: string): Promise<Blob> {
     return this.staging.readUpload(uploadId);
   }
 
@@ -654,7 +650,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
     return this.staging.putPart(uploadId, partIndex, bytes);
   }
 
-  async readUpload(uploadId: string): Promise<Uint8Array> {
+  async readUpload(uploadId: string): Promise<Blob> {
     return this.staging.readUpload(uploadId);
   }
 
@@ -746,7 +742,7 @@ export class ScopedStorageBackend implements StorageBackend {
     throw new Error('Chunked upload not supported by underlying storage backend');
   }
 
-  readUpload(uploadId: string): Promise<Uint8Array> {
+  readUpload(uploadId: string): Promise<Blob> {
     if (this.underlying.readUpload) return this.underlying.readUpload(uploadId);
     throw new Error('Chunked upload not supported by underlying storage backend');
   }

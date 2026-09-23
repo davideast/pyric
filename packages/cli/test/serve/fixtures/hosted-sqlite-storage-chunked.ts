@@ -32,13 +32,13 @@ try {
   // 3. The staged bytes come back whole and in part order; reading them does
   //    not create the object, which the engine writes with its own metadata.
   const staged = await storage.readUpload(uploadId);
-  assert.deepEqual(staged, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]));
+  assert.deepEqual(new Uint8Array(await staged.arrayBuffer()), new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]));
   assert.equal(await storage.getBlob(path), undefined);
   const metadata = {
     bucket: 'test-bucket', fullPath: path, name: 'audio.wav', size: totalSize, generation: '1', metageneration: '1',
     timeCreated: '2026-01-01T00:00:00Z', updated: '2026-01-01T00:00:00Z', contentType: 'audio/wav',
   };
-  await storage.put(path, new Blob([staged], { type: 'audio/wav' }), metadata);
+  await storage.put(path, staged, metadata);
   await storage.abortUpload(uploadId);
   await assert.rejects(storage.readUpload(uploadId), /not found/);
 

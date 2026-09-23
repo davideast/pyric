@@ -56,6 +56,11 @@ test('Storage bytes live in files named by their hash, written before their row 
   expect(await runNodeFixture('blob-store', 60_000)).toBe('Blob store passed');
 }, 90_000);
 
+// Stages and finishes a 256 MiB upload.
+test('a chunked upload stages in one file, finishes by moving it, and keeps host memory flat', async () => {
+  expect(await runNodeFixture('upload-staging', 90_000)).toBe('Upload staging passed');
+}, 120_000);
+
 // Reaches the real limit with about 360 MiB of sparse object files.
 test('a Storage export past the inline limit is refused by name before any object is read', async () => {
   expect(await runNodeFixture('export-ceiling', 90_000)).toBe('Export ceiling passed');
