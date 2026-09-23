@@ -62,6 +62,27 @@ describe('createStudioRoutes guards and operations', () => {
     expect(body).toContain('Forbidden: origin mismatch');
   });
 
+  it('rejects a request from another local port, as a different origin', async () => {
+    const routes = createStudioRoutes({ workspace: diskWorkspace(dir), sessionToken, writerLock: createWriterLock(), boundHost, allowedHosts });
+    let statusCode = 200;
+    let body = '';
+    const mockRes = {
+      writeHead(code: number) { statusCode = code; return mockRes; },
+      end(chunk?: string) { if (chunk) body += chunk; return mockRes; },
+      headersSent: false,
+    } as any;
+    // The Studio is served by this server on 5173; the page asking is on 3000.
+    const req = {
+      method: 'GET',
+      headers: { host: 'localhost:5173', origin: 'http://localhost:3000', 'x-pyric-session-token': sessionToken },
+      socket: { localPort: 5173 },
+    };
+    const handled = await routes(req as any, mockRes, new URL('http://localhost:5173/__pyric/workspace?path=test.txt'));
+    expect(handled).toBe(true);
+    expect(statusCode).toBe(403);
+    expect(body).toContain('Forbidden: origin mismatch');
+  });
+
   it('rejects requests with unapproved host header with 403 Forbidden', async () => {
     const ws = diskWorkspace(dir);
     const writerLock = createWriterLock();

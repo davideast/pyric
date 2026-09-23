@@ -100,10 +100,12 @@ export function isAllowedHost(
  * that connects to our loopback server sends ITS OWN cross-origin Origin,
  * which we reject.
  *
- * Enforces that the Origin's hostname is an allowed host, and when a bound host
- * port is specified (in `boundPort` or as `:port` on `boundHost`), enforces that
- * the Origin's port matches the server's bound port (unless default scheme port matches
- * or extra allowed origins match).
+ * Enforces that the Origin's hostname is an allowed host, and when the bound
+ * port is known (from `boundPort`, or as `:port` on `boundHost`), that the
+ * Origin's port, or its scheme's default, is that port: another app on another
+ * local port is a different origin. A hostname allowed only through `extra`
+ * (a tunnel, say) reaches the server on a public port of its own, so its port
+ * is not compared.
  *
  * A missing `Origin` is allowed: non-browser clients (curl, CLI peers, tests)
  * are not the cross-origin hijack vector.
@@ -112,6 +114,7 @@ export function isAllowedOrigin(
   originHeader: string | undefined,
   boundHost: string,
   extra: string[] = [],
+  boundPort?: number,
 ): boolean {
   if (!originHeader) return true; // no Origin → non-browser client, not a hijack
   let originUrl: URL;
@@ -121,7 +124,17 @@ export function isAllowedOrigin(
     return false; // malformed Origin → reject
   }
   const hostname = originUrl.hostname; // may be `[::1]` — isAllowedHost strips brackets
-  return isAllowedHost(hostname, boundHost, extra);
+  const allowedHost = isAllowedHost(hostname, boundHost, extra);
+  if (!allowedHost) return false;
+  const allowedByName = !isAllowedHost(hostname, boundHost) && isAllowedHost(hostname, boundHost, extra);
+  if (allowedByName) return true;
+  const portOnHost = /:(\d+)$/.exec(boundHost)?.[1];
+  const expectedPort = boundPort ?? (portOnHost === undefined ? undefined : Number(portOnHost));
+  const portUnknown = expectedPort === undefined;
+  if (portUnknown) return true;
+  const defaultPort = originUrl.protocol === 'https:' ? 443 : 80;
+  const originPort = originUrl.port === '' ? defaultPort : Number(originUrl.port);
+  return originPort === expectedPort;
 }
 
 /**

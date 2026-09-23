@@ -255,7 +255,7 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
           return true;
         }
-        if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts)) {
+        if (originHeader && !isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, req.socket?.localPort)) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
           return true;
         }
