@@ -46,6 +46,15 @@ afterAll(async () => {
 });
 
 describe('pyric snapshot', () => {
+  it('stops with the host\'s reason when a live export is refused as too large', async () => {
+    const cwd = project();
+    const c = capture();
+    const refused = async () => ({ refused: 'Storage objects total 900.0 MiB. A state export carries every object inline.' });
+    expect(await runSnapshot(args(), { ...c.io(cwd), fetchLive: refused })).toBe(2);
+    expect(c.err()).toContain('Storage objects total 900.0 MiB');
+    expect(existsSync(join(cwd, 'pyric-state.json'))).toBe(false);
+  });
+
   it('promotes the on-disk state file; --json contract; --force gate', async () => {
     const cwd = project();
     const store = createStateStore(cwd);
