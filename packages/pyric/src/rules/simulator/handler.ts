@@ -28,6 +28,7 @@ import { LookupBudget } from './lookup-budget.js';
 import { ResourceLimitError } from './eval-error.js';
 import { projectAfterState } from './project-after-state.js';
 import { DOCUMENT_PATH_FORM, documentRelativePath } from './request-path.js';
+import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
 import {
   requestQuery,
   resolveServerTimestamps,
@@ -359,10 +360,18 @@ function buildContext(
   // shape (`{}` when tc.data is absent) for backwards-compat — the parity
   // scenarios that exercise this surface explicitly set tc.data.
   const reqResourceData = projectedAfter ?? {};
+  const normAuth = tc.auth ? normalizeAuthState(tc.auth) : null;
 
   return {
     request: {
-      auth: tc.auth ? { uid: tc.auth.uid, token: tc.auth.token ?? {} } : null,
+      auth: normAuth
+        ? {
+            uid: normAuth.uid,
+            ...(normAuth.tenant !== undefined ? { tenant: normAuth.tenant } : {}),
+            ...(tc.auth?.provider !== undefined ? { provider: tc.auth.provider } : {}),
+            token: normAuth.token ?? {},
+          }
+        : null,
       resource: { data: reqResourceData },
       method: tc.method,
       path: fullPath,        // Item 6: Path wrapper, full /databases/.../documents/... form

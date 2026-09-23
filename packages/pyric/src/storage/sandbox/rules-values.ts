@@ -1,4 +1,6 @@
+import { RulesValue } from '../../rules/simulator/wrappers/base.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
 
 /** Error value that propagates through an expression and denies at the allow boundary. */
 export class RuleError {
@@ -25,6 +27,8 @@ export function isRulesMap(value: unknown): value is Record<string, unknown> {
 export function rulesEquals(left: unknown, right: unknown): boolean {
   if (left === right) return true;
   if (left == null || right == null) return left == null && right == null;
+  if (left instanceof RulesValue && right instanceof RulesValue) return left.equals(right);
+  if (left instanceof FirestoreSet && right instanceof FirestoreSet) return left.equals(right);
   const leftNumber = numericValue(left);
   const rightNumber = numericValue(right);
   if (leftNumber !== undefined && rightNumber !== undefined) return leftNumber === rightNumber;
@@ -47,5 +51,7 @@ export function describeRulesType(value: unknown): string {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
   if (value instanceof RulesFloat) return 'float';
+  if (value instanceof FirestoreSet) return 'set';
+  if (value instanceof RulesValue) return value.typeName;
   return typeof value;
 }

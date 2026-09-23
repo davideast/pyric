@@ -1,4 +1,5 @@
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
 import {
   expandVerb,
   type EvaluationInput,
@@ -302,6 +303,7 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // live-pinned by rules-firestore-prototype-chain-keys), so JS `in`
       // (which walks the prototype chain) would false-ALLOW here.
       if (Array.isArray(coll)) return coll.some((v) => rulesEquals(v, el));
+      if (coll instanceof FirestoreSet) return coll.hasAll([el]);
       if (isRulesMap(coll)) return typeof el === 'string' && Object.prototype.hasOwnProperty.call(coll, el);
       return new RuleError(`'in' applied to ${describeType(coll)} (expected a list or map).`);
     }

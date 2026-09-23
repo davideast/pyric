@@ -40,9 +40,24 @@ export function normalizeAuthState(auth: AuthState): AuthState {
     if (auth.token === undefined) {
       return { uid: auth.uid };
     }
+    const clonedToken = structuredClone(auth.token);
+    const fb = clonedToken.firebase;
+    if (
+      typeof fb === 'object' &&
+      fb !== null &&
+      !Array.isArray(fb) &&
+      typeof (fb as Record<string, unknown>).tenant === 'string' &&
+      ((fb as Record<string, unknown>).tenant as string).length > 0
+    ) {
+      return {
+        uid: auth.uid,
+        tenant: (fb as Record<string, unknown>).tenant as string,
+        token: clonedToken,
+      };
+    }
     return {
       uid: auth.uid,
-      token: structuredClone(auth.token),
+      token: clonedToken,
     };
   }
 

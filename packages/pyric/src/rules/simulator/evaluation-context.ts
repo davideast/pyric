@@ -6,6 +6,8 @@ import { Timestamp } from './wrappers/timestamp.js';
 
 export interface SimAuth {
   uid: string;
+  tenant?: string;
+  provider?: string;
   token: Record<string, unknown>;
 }
 export interface SimRequest {

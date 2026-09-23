@@ -1,4 +1,12 @@
+import { NO_OP } from '../../rules/simulator/wrappers/base.js';
+import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
+import { Duration } from '../../rules/simulator/wrappers/duration.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
+import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
+import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
+import { evaluateHashingMethod } from '../../rules/simulator/hashing-builtins.js';
+import { MapDiff } from '../../rules/simulator/mapdiff.js';
+import { UnsupportedError } from '../../rules/simulator/unsupported-error.js';
 import type { Expr } from './rules.js';
 import { evalExpr, type EvalCtx } from './rules-evaluator.js';
 import {
@@ -43,8 +51,8 @@ export function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx:
     return evalTimestampBuiltin(expr, ctx);
   }
 
-  // Duration namespace: `duration.value(n, unit)`. Detected on the bare
-  // `duration` identifier so a user value named `duration` can't hijack it.
+  // Duration namespace: `duration.value(n, unit)` / `duration.time(...)` / `duration.abs(...)`.
+  // Detected on the bare `duration` identifier so a user value named `duration` can't hijack it.
   if (
     expr.target.kind === 'ident' &&
     expr.target.name === 'duration' &&
@@ -52,6 +60,26 @@ export function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx:
     !(expr.target.name in ctx.params)
   ) {
     return evalDurationBuiltin(expr, ctx);
+  }
+
+  // Hashing namespace: `hashing.md5(...)` / `hashing.sha256(...)` / `hashing.crc32(...)` / `hashing.crc32c(...)`.
+  if (
+    expr.target.kind === 'ident' &&
+    expr.target.name === 'hashing' &&
+    !(expr.target.name in ctx.locals) &&
+    !(expr.target.name in ctx.params)
+  ) {
+    const args = expr.args.map((a) => evalExpr(a, ctx));
+    const errArg = args.find(isErr);
+    if (errArg) return errArg;
+    try {
+      return evaluateHashingMethod(expr.method, args);
+    } catch (err) {
+      if (err instanceof UnsupportedError) {
+        throw new RuleUnsupportedError(err.message);
+      }
+      throw new RuleEvalError((err as Error).message);
+    }
   }
 
   // Firestore namespace: `firestore.get(path)` / `firestore.exists(path)`.
@@ -88,6 +116,161 @@ export function evalMethodCall(expr: Extract<Expr, { kind: 'methodcall' }>, ctx:
 
   if (expr.method === 'get') {
     return evalMapGet(expr, ctx);
+  }
+
+  const targetVal = evalExpr(expr.target, ctx);
+  if (isErr(targetVal)) return targetVal;
+  const argVals = expr.args.map((a) => evalExpr(a, ctx));
+  const errArg = argVals.find(isErr);
+  if (errArg) return errArg;
+
+  // Shared CEL wrapper dispatch (Bytes, Timestamp, Duration)
+  if (
+    targetVal instanceof Bytes ||
+    targetVal instanceof Timestamp ||
+    targetVal instanceof Duration
+  ) {
+    try {
+      const res = targetVal.callMethod(expr.method, argVals);
+      if (res !== NO_OP) return res;
+    } catch (err) {
+      if (err instanceof UnsupportedError) {
+        throw new RuleUnsupportedError(err.message);
+      }
+      throw new RuleEvalError((err as Error).message);
+    }
+  }
+
+  if (targetVal instanceof MapDiff) {
+    if (argVals.length !== 0) {
+      throw new RuleEvalError(`${expr.method}() expects no arguments`);
+    }
+    switch (expr.method) {
+      case 'addedKeys':
+        return targetVal.addedKeys();
+      case 'removedKeys':
+        return targetVal.removedKeys();
+      case 'changedKeys':
+        return targetVal.changedKeys();
+      case 'affectedKeys':
+        return targetVal.affectedKeys();
+      case 'unchangedKeys':
+        return targetVal.unchangedKeys();
+      default:
+        throw new RuleUnsupportedError(`unsupported MapDiff method .${expr.method}()`);
+    }
+  }
+
+  if (targetVal instanceof FirestoreSet) {
+    switch (expr.method) {
+      case 'hasOnly':
+      case 'hasAll':
+      case 'hasAny':
+        if (argVals.length !== 1 || (!Array.isArray(argVals[0]) && !(argVals[0] instanceof FirestoreSet))) {
+          throw new RuleEvalError(`${expr.method}() expects a list or set argument`);
+        }
+        return targetVal[expr.method](argVals[0]);
+      case 'difference':
+      case 'union':
+      case 'intersection':
+        if (argVals.length !== 1 || !(argVals[0] instanceof FirestoreSet)) {
+          throw new RuleEvalError(`${expr.method}() expects a set argument`);
+        }
+        return targetVal[expr.method](argVals[0]);
+      default:
+        throw new RuleUnsupportedError(`unsupported Set method .${expr.method}()`);
+    }
+  }
+
+  if (Array.isArray(targetVal) && expr.method === 'toSet') {
+    if (argVals.length !== 0) throw new RuleEvalError(`toSet() expects no arguments`);
+    return new FirestoreSet(targetVal);
+  }
+
+  // Storage models timestamps (`request.time`, `resource.timeCreated`, `timestamp.date(...)`)
+  // and durations (`duration.value(...)`, `duration.time(...)`) as millisecond numbers.
+  // Delegate Timestamp / Duration instance methods on numeric targets to the shared CEL wrappers.
+  if (typeof targetVal === 'number') {
+    if (
+      expr.method === 'year' ||
+      expr.method === 'month' ||
+      expr.method === 'day' ||
+      expr.method === 'hours' ||
+      expr.method === 'minutes' ||
+      expr.method === 'toMillis' ||
+      expr.method === 'dayOfWeek' ||
+      expr.method === 'dayOfYear'
+    ) {
+      if (argVals.length !== 0) {
+        throw new RuleEvalError(`${expr.method}() expects no arguments`);
+      }
+      return Timestamp.fromMillis(targetVal).callMethod(expr.method, []);
+    }
+    if (expr.method === 'date') {
+      if (argVals.length !== 0) {
+        throw new RuleEvalError(`date() expects no arguments`);
+      }
+      const ts = Timestamp.fromMillis(targetVal).callMethod('date', []) as Timestamp;
+      return ts.toMillis();
+    }
+    if (expr.method === 'time') {
+      if (argVals.length !== 0) {
+        throw new RuleEvalError(`time() expects no arguments`);
+      }
+      const dur = Timestamp.fromMillis(targetVal).callMethod('time', []) as Duration;
+      return dur.valueOf();
+    }
+    if (expr.method === 'seconds') {
+      if (argVals.length !== 0) {
+        throw new RuleEvalError(`seconds() expects no arguments`);
+      }
+      return Math.trunc(targetVal / 1000);
+    }
+    if (expr.method === 'nanos') {
+      if (argVals.length !== 0) {
+        throw new RuleEvalError(`nanos() expects no arguments`);
+      }
+      return Math.round((targetVal % 1000) * 1e6);
+    }
+    if (expr.method === 'abs') {
+      if (argVals.length !== 0) {
+        throw new RuleEvalError(`abs() expects no arguments`);
+      }
+      return Math.abs(targetVal);
+    }
+  }
+
+  // Map.diff(otherMap) -> MapDiff(before=otherMap, after=targetVal)
+  if (isRulesMap(targetVal) && expr.method === 'diff') {
+    if (argVals.length !== 1 || !isRulesMap(argVals[0])) {
+      throw new RuleEvalError(`diff() expects a single map argument`);
+    }
+    return new MapDiff(argVals[0], targetVal);
+  }
+
+  // CEL String methods: lower(), upper(), trim(), replace(old, new), toUtf8()
+  if (typeof targetVal === 'string') {
+    switch (expr.method) {
+      case 'lower':
+        if (argVals.length !== 0) throw new RuleEvalError(`lower() expects no arguments`);
+        return targetVal.toLowerCase();
+      case 'upper':
+        if (argVals.length !== 0) throw new RuleEvalError(`upper() expects no arguments`);
+        return targetVal.toUpperCase();
+      case 'trim':
+        if (argVals.length !== 0) throw new RuleEvalError(`trim() expects no arguments`);
+        return targetVal.trim();
+      case 'toUtf8':
+        if (argVals.length !== 0) throw new RuleEvalError(`toUtf8() expects no arguments`);
+        return Bytes.fromUtf8(targetVal);
+      case 'replace': {
+        if (argVals.length !== 2 || typeof argVals[0] !== 'string' || typeof argVals[1] !== 'string') {
+          throw new RuleEvalError(`replace() expects (old: string, new: string)`);
+        }
+        const re = compileRe2Pattern(argVals[0], 'replace', { flags: 'g' });
+        return targetVal.replace(re, argVals[1]);
+      }
+    }
   }
 
   // An unknown method name is either unmodeled here or rejected by
@@ -225,10 +408,23 @@ const DURATION_UNIT_MILLIS: Record<string, number> = {
  *   request.time < resource.timeCreated + duration.value(1, 'h')
  */
 function evalDurationBuiltin(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): number {
+  const args = expr.args.map((a) => evalExpr(a, ctx));
+  if (expr.method === 'time') {
+    if (args.length !== 4 || !args.every((a) => typeof a === 'number')) {
+      throw new RuleEvalError(`duration.time() expects (hours, mins, secs, nanos) numbers`);
+    }
+    const [h, m, s, ns] = args as [number, number, number, number];
+    return Duration.fromTime(h, m, s, ns).valueOf();
+  }
+  if (expr.method === 'abs') {
+    if (args.length !== 1 || typeof args[0] !== 'number') {
+      throw new RuleEvalError(`duration.abs() expects a single duration argument`);
+    }
+    return Math.abs(args[0]);
+  }
   if (expr.method !== 'value') {
     throw new RuleEvalError(`unsupported duration.${expr.method}()`);
   }
-  const args = expr.args.map((a) => evalExpr(a, ctx));
   if (args.length !== 2 || typeof args[0] !== 'number' || typeof args[1] !== 'string') {
     throw new RuleEvalError(`duration.value() expects (magnitude: number, unit: string)`);
   }
@@ -277,11 +473,28 @@ function evalTimestampBuiltin(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: 
  * also deny. A non-string target (e.g. a missing metadata key → undefined)
  * denies too — production would error, and an error denies.
  */
+function compileRe2Pattern(
+  pattern: string,
+  methodName: string,
+  opts?: { anchored?: boolean; flags?: string },
+): RegExp {
+  const backref = /\\[1-9]/.test(pattern);
+  const lookaround = /\(\?<?[=!]/.test(pattern);
+  if (backref || lookaround) {
+    throw new RuleEvalError(
+      `${methodName}() pattern uses an RE2-unsupported construct (${backref ? 'backreference' : 'lookaround'}) that production would reject`,
+    );
+  }
+  try {
+    const source = opts?.anchored ? `^(?:${pattern})$` : pattern;
+    return new RegExp(source, opts?.flags);
+  } catch (err) {
+    throw new RuleEvalError(`${methodName}() invalid regex pattern: ${(err as Error).message}`);
+  }
+}
+
 function evalMatches(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
   const subject = evalExpr(expr.target, ctx);
-  // `resource.name.matches(…)` on an object whose `name` is absent: the target
-  // is already production's absent-property error. Propagate it (→ deny)
-  // rather than recasting it as a matches()-specific failure.
   if (isErr(subject)) return subject;
   if (typeof subject !== 'string') {
     throw new RuleEvalError(`matches() requires a string target, got ${describeType(subject)}`);
@@ -293,22 +506,7 @@ function evalMatches(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx):
   if (typeof pattern !== 'string') {
     throw new RuleEvalError(`matches() pattern must be a string`);
   }
-  // Detect RE2-unsupported constructs JS would happily (mis)compile.
-  const backref = /\\[1-9]/.test(pattern);
-  const lookaround = /\(\?<?[=!]/.test(pattern);
-  if (backref || lookaround) {
-    throw new RuleEvalError(
-      `matches() pattern uses an RE2-unsupported construct (${backref ? 'backreference' : 'lookaround'}) that production would reject`,
-    );
-  }
-  let re: RegExp;
-  try {
-    // Anchor to the whole string. `(?:...)` keeps the caller's alternations
-    // from binding past the anchors.
-    re = new RegExp(`^(?:${pattern})$`);
-  } catch (err) {
-    throw new RuleEvalError(`matches() invalid regex pattern: ${(err as Error).message}`);
-  }
+  const re = compileRe2Pattern(pattern, 'matches', { anchored: true });
   return re.test(subject);
 }
 
@@ -331,25 +529,13 @@ function evalSplit(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): u
   if (typeof pattern !== 'string') {
     throw new RuleEvalError(`split() pattern must be a string`);
   }
-  const backref = /\\[1-9]/.test(pattern);
-  const lookaround = /\(\?<?[=!]/.test(pattern);
-  if (backref || lookaround) {
-    throw new RuleEvalError(
-      `split() pattern uses an RE2-unsupported construct (${backref ? 'backreference' : 'lookaround'}) that production would reject`,
-    );
-  }
-  let re: RegExp;
-  try {
-    re = new RegExp(pattern);
-  } catch (err) {
-    throw new RuleEvalError(`split() invalid regex pattern: ${(err as Error).message}`);
-  }
+  const re = compileRe2Pattern(pattern, 'split');
   return subject.split(re);
 }
 
 /**
- * Evaluate `.size()` on the three sized types (string → length, list →
- * element count, map → own-key count). Anything else denies with a reason.
+ * Evaluate `.size()` on sized types (string → length, list → element count,
+ * map → own-key count, Bytes/Set → element count). Anything else denies with a reason.
  */
 function evalSize(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
   const subject = evalExpr(expr.target, ctx);
@@ -357,6 +543,7 @@ function evalSize(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): un
   if (expr.args.length !== 0) {
     throw new RuleEvalError(`size() expects no arguments`);
   }
+  if (subject instanceof Bytes || subject instanceof FirestoreSet) return subject.size();
   if (typeof subject === 'string' || Array.isArray(subject)) return subject.length;
   if (isRulesMap(subject)) return Object.keys(subject).length;
   throw new RuleEvalError(`size() requires a string, list, or map target, got ${describeType(subject)}`);
@@ -379,6 +566,17 @@ function evalMapKeys(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx):
 function evalHasAll(expr: Extract<Expr, { kind: 'methodcall' }>, ctx: EvalCtx): unknown {
   const subject = evalExpr(expr.target, ctx);
   if (isErr(subject)) return subject;
+  if (subject instanceof FirestoreSet) {
+    if (expr.args.length !== 1) {
+      throw new RuleEvalError(`hasAll() expects one list or set argument`);
+    }
+    const required = evalExpr(expr.args[0], ctx);
+    if (isErr(required)) return required;
+    if (!Array.isArray(required) && !(required instanceof FirestoreSet)) {
+      throw new RuleEvalError(`hasAll() argument must be a list or set`);
+    }
+    return subject.hasAll(required);
+  }
   if (!Array.isArray(subject)) {
     throw new RuleEvalError(`hasAll() requires a list or set target, got ${describeType(subject)}`);
   }

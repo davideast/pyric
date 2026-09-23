@@ -25,6 +25,8 @@ export type FirestoreMethod = (typeof FIRESTORE_METHODS)[number];
  */
 export const TestIdentitySchema = z.object({
   uid: z.string(),
+  tenant: z.string().optional(),
+  provider: z.string().optional(),
   token: z.record(z.unknown()).optional(),
 });
 export type TestIdentity = z.infer<typeof TestIdentitySchema>;

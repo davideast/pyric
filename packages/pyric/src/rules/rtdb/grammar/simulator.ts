@@ -6,6 +6,8 @@ import {
 
 export interface SimulatedAuth {
   uid: string;
+  provider?: string;
+  tenant?: string;
   token: Record<string, unknown>;
 }
 
@@ -80,11 +82,38 @@ export class DataSnapshot {
   private _value: unknown;
   private _path: string;
   private _root: unknown;
+  private _priority: string | number | null;
 
-  constructor(value: unknown, path: string = '/', root?: unknown) {
-    this._value = value ?? null;
+  constructor(value: unknown, path: string = '/', root?: unknown, priority?: string | number | null) {
+    let rawValue = value ?? null;
+    let resolvedPriority: string | number | null = priority !== undefined ? priority : null;
+
+    if (
+      rawValue !== null &&
+      typeof rawValue === 'object' &&
+      !Array.isArray(rawValue) &&
+      Object.hasOwn(rawValue as object, '.priority')
+    ) {
+      const obj = rawValue as Record<string, unknown>;
+      const p = obj['.priority'];
+      if (typeof p === 'string' || typeof p === 'number') {
+        resolvedPriority = p;
+      }
+      if (Object.hasOwn(obj, '.value')) {
+        rawValue = obj['.value'] ?? null;
+      } else {
+        const rest: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (k !== '.priority') rest[k] = v;
+        }
+        rawValue = rest;
+      }
+    }
+
+    this._value = rawValue;
     this._path = path;
     this._root = root !== undefined ? root : value;
+    this._priority = resolvedPriority;
   }
 
   val(): unknown {
@@ -129,6 +158,20 @@ export class DataSnapshot {
     const parts = path.split('/').filter(p => p.length > 0);
     if (parts.length === 0) return this;
 
+    if (parts.some(p => p === '.' || p === '..')) {
+      const resolved = this._path.split('/').filter(p => p.length > 0);
+      for (const seg of parts) {
+        if (seg === '.') continue;
+        if (seg === '..') {
+          resolved.pop();
+        } else {
+          resolved.push(seg);
+        }
+      }
+      const rootSnap = new DataSnapshot(this._root, '/');
+      return resolved.length === 0 ? rootSnap : rootSnap.child(resolved.join('/'));
+    }
+
     let current: unknown = this._value;
     for (const part of parts) {
       if (current !== null && current !== undefined && typeof current === 'object') {
@@ -156,8 +199,8 @@ export class DataSnapshot {
     return rootSnap.child(parts.join('/'));
   }
 
-  getPriority(): null {
-    return null;
+  getPriority(): string | number | null {
+    return this._priority;
   }
 }
 
@@ -165,8 +208,16 @@ class RtdbString {
   constructor(private value: string) {}
 
   matches(pattern: RegExp | string): boolean {
-    const r = pattern instanceof RegExp ? pattern : new RegExp(pattern);
-    return r.test(this.value);
+    try {
+      if (pattern instanceof RegExp) {
+        return pattern.test(this.value);
+      }
+      const slashMatch = /^\/(.+)\/([gimsuy]*)$/.exec(pattern);
+      const r = slashMatch ? new RegExp(slashMatch[1]!, slashMatch[2]) : new RegExp(pattern);
+      return r.test(this.value);
+    } catch {
+      return false;
+    }
   }
 
   contains(other: string): boolean {
@@ -193,6 +244,16 @@ class RtdbString {
       return this.value.replace(new RegExp(from.source, flags), to);
     }
     if (from === '') return this.value;
+    const slashMatch = /^\/(.+)\/([gimsuy]*)$/.exec(from);
+    if (slashMatch) {
+      try {
+        const rawFlags = slashMatch[2] ?? '';
+        const flags = rawFlags.includes('g') ? rawFlags : `${rawFlags}g`;
+        return this.value.replace(new RegExp(slashMatch[1]!, flags), to);
+      } catch {
+        // Fall through to literal string replacement if regex is malformed
+      }
+    }
     return this.value.split(from).join(to);
   }
 

@@ -19,6 +19,7 @@ export const SimulationInputSchema = z.object({
     z.object({
       uid: z.string(),
       tenant: z.string().optional(),
+      provider: z.string().optional(),
       token: z.record(z.unknown()).optional(),
     }),
     z.null(),
