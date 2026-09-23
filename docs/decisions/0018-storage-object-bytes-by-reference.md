@@ -98,7 +98,8 @@ entry becomes `{ path, sha256, size, metadata }`. The bytes live in an
 - Checkpoints and branches on the Node host record the hashes they keep in
   SQLite, so the sweep's roots are one query, capturing one copies no bytes,
   and restoring one is a metadata write. Checkpoints of an in-process sandbox
-  keep their current files.
+  keep their current files. Checkpoints moved in phase 1; branches are
+  deferred and still carry their bytes inline.
 - Seeds accept both forms: the current inline form for small fixtures, and the
   directory form.
 
@@ -106,20 +107,33 @@ This removes the aggregate export ceiling and makes a checkpoint as cheap as
 its metadata.
 
 **3. On the wire: an HTTP byte route on the Node host.** Rules and identity
-stay on the existing RPC; only bytes move to HTTP.
+stay on the existing RPC; only bytes move to HTTP. The route shares the page's
+origin, because the host is mounted on the dev server, and its paths follow
+Firebase's: `/__pyric/storage/v0/b/<bucket>/o/<path>`.
 
-- Tokens are bound to one operation, never to the session: an `<audio src>`
-  request cannot carry headers, so a URL must carry its own authority.
+- An `<audio src>` request cannot carry headers, so a URL must carry its own
+  authority. Uploads and downloads get it differently.
 - `storage.beginUpload` returns, besides its upload id, a URL carrying a
   capability token bound to that upload. The client streams the object to it
-  with `PUT`. `storage.finishUpload` commits over RPC as it does now.
-- `getDownloadURL` evaluates read rules over RPC and returns an HTTP URL with a
-  token bound to that object's generation and an expiry, as production returns
-  a token-signed URL. `GET` on it supports `Range`, so media streams and seeks.
-- The route is advertised in the session handshake. A SharedWorker sandbox has
-  no HTTP host and keeps the current protocol. MCP keeps JSON, and moves large
-  objects as project file paths, as `uploadBytes` already does with
-  `sourcePath`.
+  with `PUT`, and can continue an interrupted upload from the offset the host
+  reports with `Content-Range`, since staging already appends in order. That
+  makes pause, resume, and progress real. Finishing commits over RPC.
+- `getDownloadURL` evaluates read rules over RPC and returns
+  `/__pyric/storage/v0/b/<bucket>/o/<path>?alt=media&token=<token>`, as
+  production does: the token is kept in the object's metadata
+  (`downloadTokens`), does not expire, and is revoked by removing it from the
+  metadata. `GET` on the path supports `Range`, so media streams and seeks.
+- A `GET` is authorized by a download token or by the session token, so the
+  SDKs' own reads (`getBytes`, `getBlob`, and Studio's previews through them)
+  mint no tokens.
+- The route is advertised as a capability in the WebSocket `attach-ack`. Every
+  hosted client uses it whenever it is advertised: the web SDK, `pyric-admin`,
+  and the Node remote client. The hosted base64 transfer operations are
+  deleted. With HTTP underneath, `pyric-admin` downloads honour `start` and
+  `end`, and `createReadStream` and `createWriteStream` work.
+- A SharedWorker sandbox has no HTTP host and keeps its frames. MCP stays
+  in-process: it keeps JSON, and moves large objects as project file paths, as
+  `uploadBytes` already does with `sourcePath`.
 
 **4. One write path.** Every upload, whether one frame, parts, or the byte
 route, is committed by the engine's `uploadBytes` from a staged blob reference:
@@ -195,10 +209,24 @@ settled on 2026-09-23:
 | In-process and browser stores | Stay inline under a named limit. |
 | File store and documents by reference | Land together, as phase 1. |
 
+The questions phase 2 raised, settled on 2026-09-23. The first amends the
+byte-route ruling above for downloads.
+
+| Question | Ruling |
+| --- | --- |
+| Download URL lifetime | As production: a persistent token in the object's metadata, revoked by removing it. Upload tokens stay bound to one upload. |
+| Route paths | `/__pyric/storage/v0/b/<bucket>/o/<path>`, Firebase's segments under the pyric namespace. |
+| Upload protocol | `PUT`, continuable from an offset with `Content-Range`. |
+| Who may read bytes | A download token, or the session token. |
+| How clients learn of the route | A capability in `attach-ack`. |
+| Which clients switch | Every hosted client, always; the hosted base64 transfer operations are deleted. |
+| `pyric-admin` ranges and streams | Included. |
+| Branches by reference | Deferred; branches still carry their bytes inline. |
+
 ## Order of work
 
 | Phase | Work |
 | --- | --- |
-| 1 | Schema version 3 and the blob store with its migration; chunked staging to one file; the sweep and salvage quarantine; documents by reference. Each lands and is green before the next. |
-| 2 | The byte route and HTTP download URLs. |
+| 1 | Schema version 3 and the blob store with its migration; chunked staging to one file; the sweep and salvage quarantine; documents by reference, and the Node host's checkpoints in SQLite. Each lands and is green before the next. |
+| 2 | The loopback guard compares ports as documented; the byte route and its tokens; the web SDK on the route; the Node clients on it, deleting the hosted base64 transfer operations; `getDownloadURL` conformance. Each lands and is green before the next. |
 | 3 | Named limits for the in-process and browser stores. |
