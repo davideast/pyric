@@ -21,6 +21,7 @@ import {
   MAX_STORAGE_PART_BYTES,
   MAX_STORAGE_PART_B64_LENGTH,
 } from '../../../src/serve/worker/protocol.js';
+import { uploadTokenOf } from '../../../src/serve/worker/host/storage.js';
 import { OPEN_STORAGE_RULES } from './permissive-services.js';
 
 const SIZE_RESTRICTED_RULES = `
@@ -74,6 +75,28 @@ async function opFail(
   if (res.ok) throw new Error(`expected failure, got ok: ${JSON.stringify(res.value)}`);
   return res.error;
 }
+
+describe('storage worker ops — the byte route for one upload', () => {
+  it('returns a URL carrying a token bound to that one upload, which aborting revokes', async () => {
+    const ctx = makeCtx();
+    const first = await opOk(ctx, {
+      method: 'storage.beginUpload', path: 'media/take one.wav', size: 10, contentType: 'audio/wav',
+    }) as { uploadId: string; uploadUrl: string };
+    const second = await opOk(ctx, {
+      method: 'storage.beginUpload', path: 'media/take two.wav', size: 10, contentType: 'audio/wav',
+    }) as { uploadId: string; uploadUrl: string };
+    const url = new URL(first.uploadUrl, 'http://localhost');
+    expect(url.pathname).toMatch(/^\/__pyric\/storage\/v0\/b\/[^/]+\/o$/);
+    expect(url.searchParams.get('name')).toBe('media/take one.wav');
+    expect(url.searchParams.get('upload_id')).toBe(first.uploadId);
+    const token = url.searchParams.get('upload_token');
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(uploadTokenOf(ctx, first.uploadId)).toBe(token!);
+    expect(new URL(second.uploadUrl, 'http://localhost').searchParams.get('upload_token')).not.toBe(token);
+    await opOk(ctx, { method: 'storage.abortUpload', uploadId: first.uploadId });
+    expect(uploadTokenOf(ctx, first.uploadId)).toBeUndefined();
+  });
+});
 
 describe('storage worker ops — chunked transfer protocol (ADR 0015)', () => {
   it('stages chunked parts and finalizes upload into storage', async () => {

@@ -64,6 +64,15 @@ test('a hosted checkpoint records its objects by hash in SQLite, and the sweep k
   expect(await runNodeFixture('checkpoints', 60_000)).toBe('Checkpoints passed');
 }, 90_000);
 
+// Serves a 300 MiB object and receives a 256 MiB upload.
+test('the byte route serves object ranges to either token and takes an upload with its own token', async () => {
+  expect(await runNodeFixture('byte-route', 90_000)).toBe('Byte route passed');
+}, 120_000);
+
+test('the hosted host serves its objects on the byte route and advertises it at attach', async () => {
+  expect(await runNodeFixture('byte-route-mount', 30_000)).toBe('Byte route mount passed');
+}, 60_000);
+
 // Stages and finishes a 256 MiB upload.
 test('a chunked upload stages in one file, finishes by moving it, and keeps host memory flat', async () => {
   expect(await runNodeFixture('upload-staging', 90_000)).toBe('Upload staging passed');
