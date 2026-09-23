@@ -56,6 +56,10 @@ test('Storage bytes live in files named by their hash, written before their row 
   expect(await runNodeFixture('blob-store', 60_000)).toBe('Blob store passed');
 }, 90_000);
 
+test('a background sweep removes object files no row names, and salvage quarantines files that fail their hash', async () => {
+  expect(await runNodeFixture('object-sweep', 60_000)).toBe('Object sweep passed');
+}, 90_000);
+
 // Stages and finishes a 256 MiB upload.
 test('a chunked upload stages in one file, finishes by moving it, and keeps host memory flat', async () => {
   expect(await runNodeFixture('upload-staging', 90_000)).toBe('Upload staging passed');

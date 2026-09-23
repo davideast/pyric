@@ -153,6 +153,11 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
       objects,
       /** The version of the schema as it is now; an upgrade changes it. */
       schemaVersion: (): number => schemaVersion,
+      /** Every object file hash a row names: the files a sweep keeps. */
+      referencedObjects(): Set<string> {
+        const rows = connection.prepare('SELECT DISTINCT sha256 FROM storage_objects').all();
+        return new Set(rows.map(row => sqlText(row, 'sha256')));
+      },
       /**
        * Bring an older writable schema up to date and discard uploads a stopped
        * host left staged. Call once, after the store's contents validate, so a

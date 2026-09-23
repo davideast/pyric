@@ -4,6 +4,7 @@ import { openHostedDatabase } from './persistence/database.js';
 import { createHostedStateView } from './persistence/state-view.js';
 import { validateHostedDatabase, type StorageMetadataRepair } from './persistence/validate.js';
 import { archiveHostedDirectory } from './persistence/archive.js';
+import type { SweepReport, SweepSignal } from './persistence/blob-store.js';
 
 export const HOSTED_NAMESPACE = 'hosted';
 export const hostedStateDirectory = (projectDir: string): string => join(projectDir, '.pyric', 'state', 'hosted');
@@ -23,8 +24,15 @@ export async function createHostedPersistence(projectDir: string, options: { fre
     const savedArchive = archive;
     const hasArchive = savedArchive !== undefined;
     if (hasArchive) state.backupPath = savedArchive;
+    const signal: SweepSignal = { cancelled: false };
     return {
-      backend: database.records, storage: database.storage, state, repairedObjects, close: database.close,
+      backend: database.records, storage: database.storage, state, repairedObjects,
+      /** Removal of object files no row names, begun after startup; closing stops it. */
+      sweep: sweepInBackground(database, signal),
+      close(): void {
+        signal.cancelled = true;
+        database.close();
+      },
       status: database.status, onFailure: database.onFailure, markUnhealthy: database.markUnhealthy,
       seed: state.seed,
     };
@@ -35,6 +43,23 @@ export async function createHostedPersistence(projectDir: string, options: { fre
 }
 
 export type HostedPersistence = Awaited<ReturnType<typeof createHostedPersistence>>;
+
+/**
+ * Sweep after the current turn, so startup and the first requests never wait
+ * for it. It reads the hashes to keep once, then touches only files.
+ */
+function sweepInBackground(database: Awaited<ReturnType<typeof openHostedDatabase>>, signal: SweepSignal): Promise<SweepReport> {
+  return new Promise<void>(resolve => setImmediate(resolve)).then(() => {
+    const stopped = signal.cancelled;
+    if (stopped) return { removed: 0, bytesRemoved: 0 };
+    const startedAt = Date.now();
+    return database.objects.sweep(database.referencedObjects(), startedAt, signal);
+  }).catch((error: unknown) => {
+    // Unreferenced files cost disk space, never correctness; the next start retries.
+    console.warn(`[pyric] Sweeping unreferenced Storage object files failed: ${error instanceof Error ? error.message : String(error)}`);
+    return { removed: 0, bytesRemoved: 0 };
+  });
+}
 
 /** Consistent offline export; read-only opening never creates a missing database. */
 export async function loadHostedSnapshot(projectDir: string) {
