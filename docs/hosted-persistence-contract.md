@@ -12,7 +12,10 @@ transfer occurs automatically. Old JSON files are neither inspected nor removed.
 SQLite schema version is `PRAGMA user_version`; service payload versions are
 independent. Structured records retain existing portable value codecs. Storage
 objects use raw bytes plus metadata, keyed by bucket and object path. No Node
-object serialization is persisted. Newer/unknown versions fail closed.
+object serialization is persisted. Newer/unknown versions fail closed. An
+older version is upgraded in place on the first writable open, and only after
+its contents validate, so a store that is refused is left unchanged. Read-only
+opens, the offline export and salvage, read an older version as it is.
 
 Hosted mode requires Node >=22.15 and is unavailable in the Bun standalone
 binary until a Bun adapter ships. SharedWorker remains supported.

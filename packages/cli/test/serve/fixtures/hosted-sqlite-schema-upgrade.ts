@@ -27,7 +27,7 @@ async function previousRelease(name: string, staging: 'none' | 'nine-column'): P
   installStorageBackend(sandbox, persistence.storage);
   await sandbox.enablePersistence({ key: 'hosted', injectedBackend: persistence.backend });
   await uploadBytes(ref(getAdminStorageSandbox(sandbox), 'notes/before.txt'), new TextEncoder().encode(body));
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  await sandbox.flush();
   sandbox.dispose();
   persistence.close();
   const database = new DatabaseSync(join(hostedStateDirectory(project), 'state.sqlite'));
@@ -84,6 +84,20 @@ for (const staging of ['none', 'nine-column'] as const) {
   // Opening again is a no-op for the schema.
   (await openHostedDatabase(hostedStateDirectory(project))).close();
   assert.equal(inspect(project).version, HOSTED_SCHEMA_VERSION);
+}
+
+// A previous-release store that fails validation is refused and left byte-identical.
+{
+  const project = await previousRelease('refused', 'none');
+  const path = join(hostedStateDirectory(project), 'state.sqlite');
+  const database = new DatabaseSync(path);
+  database.exec("INSERT INTO records VALUES ('unknown-namespace', 'x', '{}')");
+  database.close();
+  const bytesBefore = readFileSync(path);
+  await assert.rejects(createHostedPersistence(project), /Hosted state could not be restored/);
+  assert.deepEqual(readFileSync(path), bytesBefore);
+  assert.equal(inspect(project).version, 1);
+  assert.deepEqual(inspect(project).columns, []);
 }
 
 // A read-only export of a previous-release database reads it without changing the file.

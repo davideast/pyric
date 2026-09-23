@@ -1,10 +1,49 @@
 import { createCommitController } from './commits.js';
 import { mkdirSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { inTransaction, openNodeSqlite, requireNodePersistence, sqlText } from './sqlite.js';
+import { inTransaction, openNodeSqlite, requireNodePersistence, sqlText, type SqlConnection } from './sqlite.js';
 import { createSqliteStorage } from './storage.js';
 
-export const HOSTED_SCHEMA_VERSION = 1;
+export const HOSTED_SCHEMA_VERSION = 2;
+
+/**
+ * Every schema version this build can read. A writable open upgrades an older
+ * one in place; a read-only open reads it as it is.
+ */
+export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, HOSTED_SCHEMA_VERSION]);
+
+/** Chunked-upload staging: one header row (`part_index` -1) and one row per part. */
+const STORAGE_UPLOADS_TABLE = `
+  CREATE TABLE storage_uploads (
+    upload_id TEXT NOT NULL,
+    connection_id TEXT,
+    bucket TEXT NOT NULL,
+    path TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    content_type TEXT,
+    custom_metadata TEXT,
+    part_index INTEGER NOT NULL,
+    bytes BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (upload_id, part_index)
+  ) STRICT;
+`;
+
+/**
+ * Version 1 had no staging table. A version-1 database opened by a build that
+ * created the table without `part_index` holds that shape instead, and no
+ * staged upload in it can be finished, so it is replaced.
+ */
+function upgradeFromVersion1(connection: SqlConnection): void {
+  const columns = connection.prepare('PRAGMA table_info(storage_uploads)').all().map(row => sqlText(row, 'name'));
+  const hasStagingTable = columns.length > 0;
+  const hasPartIndex = columns.includes('part_index');
+  const hasUnusableStaging = hasStagingTable && !hasPartIndex;
+  if (hasUnusableStaging) connection.exec('DROP TABLE storage_uploads');
+  const needsStagingTable = !hasStagingTable || hasUnusableStaging;
+  if (needsStagingTable) connection.exec(STORAGE_UPLOADS_TABLE);
+  connection.exec(`PRAGMA user_version=${HOSTED_SCHEMA_VERSION}`);
+}
 
 /** One database per hosted directory; callers own its lifetime. */
 export async function openHostedDatabase(directory: string, options: { readOnly?: boolean } = {}) {
@@ -19,7 +58,7 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
   try {
     const version = connection.prepare('PRAGMA user_version').get()?.user_version;
     const emptyReadOnly = readOnly && version === 0;
-    const unknownVersion = version !== 0 && version !== HOSTED_SCHEMA_VERSION;
+    const unknownVersion = version !== 0 && !READABLE_HOSTED_SCHEMA_VERSIONS.has(Number(version));
     const unsupported = emptyReadOnly || unknownVersion;
     if (unsupported) throw new Error(`Unsupported hosted database version ${String(version)}.`);
     const checks = connection.prepare('PRAGMA quick_check').all();
@@ -49,40 +88,27 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
             bytes BLOB NOT NULL,
             PRIMARY KEY (bucket, path)
           ) STRICT;
-          CREATE TABLE IF NOT EXISTS storage_uploads (
-            upload_id TEXT NOT NULL,
-            connection_id TEXT,
-            bucket TEXT NOT NULL,
-            path TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            content_type TEXT,
-            custom_metadata TEXT,
-            part_index INTEGER NOT NULL,
-            bytes BLOB NOT NULL,
-            created_at INTEGER NOT NULL,
-            PRIMARY KEY (upload_id, part_index)
-          ) STRICT;
-          PRAGMA user_version=1;
+          ${STORAGE_UPLOADS_TABLE}
+          PRAGMA user_version=${HOSTED_SCHEMA_VERSION};
         `);
       });
-    } else {
-      connection.exec(`
-        CREATE TABLE IF NOT EXISTS storage_uploads (
-          upload_id TEXT PRIMARY KEY,
-          connection_id TEXT,
-          bucket TEXT NOT NULL,
-          path TEXT NOT NULL,
-          size INTEGER NOT NULL,
-          content_type TEXT,
-          custom_metadata TEXT,
-          bytes BLOB NOT NULL,
-          created_at INTEGER NOT NULL
-        ) STRICT;
-      `);
     }
-    if (!readOnly) {
+    // An older schema is upgraded only after its contents validate, so a store
+    // that is refused is left exactly as it was found.
+    let upgradePending = !readOnly && version === 1;
+    const clearStaleUploads = (): void => {
+      // Staged parts older than an hour belong to uploads no client will finish.
       connection.prepare('DELETE FROM storage_uploads WHERE created_at < ?').run(Date.now() - 3600_000);
-    }
+    };
+    const clearsStaleUploadsNow = !readOnly && !upgradePending;
+    if (clearsStaleUploadsNow) clearStaleUploads();
+    const upgradeSchema = (): void => {
+      const upToDate = !upgradePending;
+      if (upToDate) return;
+      inTransaction(connection, () => upgradeFromVersion1(connection));
+      upgradePending = false;
+      clearStaleUploads();
+    };
     const commits = createCommitController(connection);
     const read = connection.prepare('SELECT payload FROM records WHERE namespace=? AND id=?');
     const list = connection.prepare('SELECT id FROM records WHERE namespace=? ORDER BY id');
@@ -108,6 +134,8 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
     let closed = false;
     return {
       storage: createSqliteStorage(connection, commits.commit),
+      /** Bring an older writable schema up to date; call after its contents validate. */
+      upgradeSchema,
       ...commits,
       connection,
       readOnly,

@@ -18,6 +18,7 @@ export async function createHostedPersistence(projectDir: string, options: { fre
   const database = await openHostedDatabase(directory).catch(error => { throw restorationFailure(directory, error); });
   try {
     const repairedObjects = validateHostedDatabase(database);
+    database.upgradeSchema();
     const state = createHostedStateView(projectDir, directory, database, HOSTED_NAMESPACE);
     const savedArchive = archive;
     const hasArchive = savedArchive !== undefined;
