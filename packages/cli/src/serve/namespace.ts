@@ -468,7 +468,8 @@ function guardLoopback(
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
     return false;
   }
-  if (originHeader && !isAllowedOrigin(originHeader, boundHost, allowedHosts)) {
+  // A /__pyric request comes from a page on this same server, so the Origin names this port.
+  if (originHeader && !isAllowedOrigin(originHeader, boundHost, allowedHosts, req.socket.localPort)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
     return false;
   }

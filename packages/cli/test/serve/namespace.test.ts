@@ -400,6 +400,37 @@ describe('namespace over the real server', () => {
     expect(await authedCapture.text()).toBe('sensitive-capture');
   });
 
+  it('refuses a request whose Origin is another local port', async () => {
+    const { site, sdk } = fixture();
+    const state: StateStore = {
+      projectDir: site,
+      path: join(site, 'state.json'),
+      backupPath: join(site, 'state.json.bak'),
+      exists: () => true,
+      load: () => ({ version: 1, firestore: null, auth: null }),
+      readSection: () => null,
+      writeSection: () => {},
+    };
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      state,
+      sessionToken: 'origin-token',
+      boundHost: '127.0.0.1',
+    });
+    const h = await startStaticServer({
+      publicDir: site, port: 0, host: '127.0.0.1', logger: silentServeLogger(), namespaceHandler: ns,
+    });
+    handles.push(h);
+    const headers = { 'x-pyric-session-token': 'origin-token' };
+    const sameOrigin = await fetch(`${h.url}/__pyric/state`, { headers: { ...headers, origin: new URL(h.url).origin } });
+    expect(sameOrigin.status).toBe(200);
+    const otherPort = h.port === 3000 ? 3001 : 3000;
+    const crossPort = await fetch(`${h.url}/__pyric/state`, { headers: { ...headers, origin: `http://127.0.0.1:${otherPort}` } });
+    expect(crossPort.status).toBe(403);
+    expect(await crossPort.text()).toContain('origin');
+  });
+
   it('serves the bytes a state export refers to by hash, to the session only', async () => {
     const { site, sdk } = fixture();
     const sha256 = 'c'.repeat(64);
