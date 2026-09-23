@@ -6,8 +6,9 @@ import { z } from 'zod';
 import { join } from 'node:path';
 import type { StateStore, PyricStateFile, StateSection } from '../../state-store.js';
 import type { openHostedDatabase } from './database.js';
-import { inTransaction, sqlText } from './sqlite.js';
+import { inTransaction } from './sqlite.js';
 import type { PutStorageBytes } from './storage.js';
+import { storedObjects } from './stored-objects.js';
 import { validateHostedDatabase } from './validate.js';
 
 type Database = Awaited<ReturnType<typeof openHostedDatabase>>;
@@ -31,17 +32,16 @@ export function createHostedStateView(projectDir: string, directory: string, dat
     return null;
   }
   function storage() {
-    // length() comes from the row header, so this total reads no object bytes.
-    const total = Number(connection.prepare('SELECT COALESCE(SUM(length(bytes)), 0) AS total FROM storage_objects').get()?.total ?? 0);
+    const stored = storedObjects(connection, database.objects, database.schemaVersion());
+    // The total reads no object bytes.
+    const total = stored.totalSize();
     const exceedsExport = total > MAX_INLINE_EXPORT_STORAGE_BYTES;
     if (exceedsExport) throw new StateExportTooLargeError(total);
-    return connection.prepare('SELECT metadata, mime, bytes FROM storage_objects ORDER BY bucket, path').all().map(row => {
-      const bytes = row.bytes;
-      const binary = bytes instanceof Uint8Array;
-      const invalidBytes = !binary;
-      if (invalidBytes) throw new Error('Invalid stored object bytes.');
-      return { metadata: storedMetadataSchema.parse(JSON.parse(sqlText(row, 'metadata'))), blobType: sqlText(row, 'mime'), dataBase64: Buffer.from(bytes).toString('base64') };
-    });
+    return stored.rows().map(row => ({
+      metadata: storedMetadataSchema.parse(JSON.parse(row.metadata)),
+      blobType: row.mime,
+      dataBase64: Buffer.from(stored.bytes(row)).toString('base64'),
+    }));
   }
   function exists() {
     const hasRecords = database.hasRecords(namespace);

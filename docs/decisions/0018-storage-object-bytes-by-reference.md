@@ -83,8 +83,9 @@ output, and named in the recovery report, so the result is consistent and
 nothing readable is destroyed.
 
 The schema moves to version 3. The first writable open migrates version 2 by
-writing each row's bytes to its file, one row per transaction, and then drops
-the column. As with every hosted migration, it runs only after the store
+writing each row's bytes to its file, one object in memory at a time, and then
+replacing the table in one transaction, so an interruption leaves an intact
+version-2 store. As with every hosted migration, it runs only after the store
 validates, and a test opens a database from every earlier version.
 
 **2. In documents: references, not payloads.** A state document's Storage

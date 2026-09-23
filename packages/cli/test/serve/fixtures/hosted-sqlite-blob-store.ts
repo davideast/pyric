@@ -7,6 +7,13 @@ import { createHostedPersistence, hostedStateDirectory } from '../../../src/serv
 import { HOSTED_SCHEMA_VERSION } from '../../../src/serve/hosted/persistence/database.js';
 
 const root = process.argv[2];
+
+/** Compares bytes without asking assert to render a diff of megabytes on failure. */
+function assertSameBytes(actual: Uint8Array | undefined, expected: Uint8Array, message: string): void {
+  const same = actual !== undefined && Buffer.from(actual.buffer, actual.byteOffset, actual.byteLength).equals(Buffer.from(expected.buffer, expected.byteOffset, expected.byteLength));
+  assert.ok(same, `${message}: ${actual?.byteLength ?? 'no'} bytes differ from the expected ${expected.byteLength}`);
+}
+
 const MiB = 1024 * 1024;
 const bucket = 'pyric-default';
 const metadata = (fullPath: string, size: number) => ({
@@ -53,7 +60,7 @@ const bytes = new Uint8Array(3 * MiB).map((_, index) => (index * 31) % 251);
   } finally { persistence.close(); }
   const hash = sha256(bytes);
   assert.deepEqual(row(project, 'media/a.bin'), { sha256: hash, size: bytes.byteLength });
-  assert.deepEqual(new Uint8Array(readFileSync(objectFile(project, hash))), bytes);
+  assertSameBytes(readFileSync(objectFile(project, hash)), bytes, 'object file');
   // Identical bytes are stored once.
   assert.deepEqual(row(project, 'media/copy.bin'), { sha256: hash, size: bytes.byteLength });
   assert.deepEqual(readdirSync(join(hostedStateDirectory(project), 'objects', hash.slice(0, 2))), [hash]);
@@ -67,7 +74,7 @@ const bytes = new Uint8Array(3 * MiB).map((_, index) => (index * 31) % 251);
   const persistence = await createHostedPersistence(project);
   try {
     const blob = await persistence.storage.getBlob('media/a.bin', bucket);
-    assert.deepEqual(new Uint8Array(await blob!.arrayBuffer()), bytes);
+    assertSameBytes(new Uint8Array(await blob!.arrayBuffer()), bytes, 'whole object');
     const range = await persistence.storage.readRange(bucket, 'media/a.bin', MiB + 7, 4096);
     assert.deepEqual(range, bytes.slice(MiB + 7, MiB + 7 + 4096));
     const tail = await persistence.storage.readRange(bucket, 'media/a.bin', bytes.byteLength - 10, 4096);
@@ -134,14 +141,17 @@ const bytes = new Uint8Array(3 * MiB).map((_, index) => (index * 31) % 251);
   await assert.rejects(createHostedPersistence(missing), /Hosted state could not be restored/);
 }
 
-// A hash that is not a SHA-256 hex digest never becomes a file path.
+// A hash that is not a SHA-256 hex digest never becomes a file path, even when
+// the path it spells holds a file of the right size outside the store.
 {
   const escaping = join(root, 'escaping');
   const persistence = await createHostedPersistence(escaping);
   await persistence.storage.put('media/a.bin', new Blob([bytes]), metadata('media/a.bin', bytes.byteLength));
   persistence.close();
+  writeFileSync(join(hostedStateDirectory(escaping), '..', 'decoy'), bytes);
   const database = new DatabaseSync(join(hostedStateDirectory(escaping), 'state.sqlite'));
-  database.prepare('UPDATE storage_objects SET sha256=? WHERE bucket=? AND path=?').run('../../../state.sqlite', bucket, 'media/a.bin');
+  // objects/ + '..' + '../decoy' resolves beside the hosted directory.
+  database.prepare('UPDATE storage_objects SET sha256=? WHERE bucket=? AND path=?').run('../decoy', bucket, 'media/a.bin');
   database.close();
   await assert.rejects(createHostedPersistence(escaping), /Hosted state could not be restored/);
 }

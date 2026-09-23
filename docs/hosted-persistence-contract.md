@@ -4,18 +4,24 @@ Implementation target; validation evidence is tracked in the implementation plan
 
 ## Ownership and format
 
-The Node host owns `.pyric/state/hosted/state.sqlite`. The existing project lock
+The Node host owns `.pyric/state/hosted/`: `state.sqlite` and the object files
+under `objects/`. The existing project lock
 admits one writer. Clients mutate state through the host, never direct SQL.
 SharedWorker and the in-process MCP host keep their existing stores; no data
 transfer occurs automatically. Old JSON files are neither inspected nor removed.
 
 SQLite schema version is `PRAGMA user_version`; service payload versions are
-independent. Structured records retain existing portable value codecs. Storage
-objects use raw bytes plus metadata, keyed by bucket and object path. No Node
-object serialization is persisted. Newer/unknown versions fail closed. An
+independent. Structured records retain existing portable value codecs. A
+Storage object is a row of metadata keyed by bucket and object path, naming its
+bytes by SHA-256; the bytes are one immutable file, `objects/<ab>/<sha256>`, so
+identical objects share a file (ADR 0018). No Node object serialization is
+persisted. Newer/unknown versions fail closed. An
 older version is upgraded in place on the first writable open, and only after
 its contents validate, so a store that is refused is left unchanged. Read-only
 opens, the offline export and salvage, read an older version as it is.
+Upgrading version 2 writes every object's bytes to its file first, then replaces
+the table in one transaction and reclaims the database pages the bytes held; an
+interruption before that commit leaves the version-2 store intact.
 
 Hosted mode requires Node >=22.15 and is unavailable in the Bun standalone
 binary until a Bun adapter ships. SharedWorker remains supported.
@@ -23,7 +29,11 @@ binary until a Bun adapter ships. SharedWorker remains supported.
 ## Commit and failure
 
 One structured flush commits changed records and deletions in one transaction.
-One Storage operation commits bytes and metadata together. Separate Firebase
+One Storage operation writes its bytes to a temporary file, `fsync`s it, renames
+it to its hash, `fsync`s the directory, and only then commits the row that names
+it, so no committed row names bytes that are missing. An interruption leaves at
+most an unreferenced file. A deleted or replaced object's file stays on disk
+until a sweep removes files no row names. Separate Firebase
 operations have no new cross-service transaction guarantee. A successful mutation
 acknowledgment follows its required persistence commit. A lost acknowledgment
 does not prove the operation was absent; do not promise exactly-once requests.
@@ -47,11 +57,12 @@ a transaction's previous or committed state, not partially written rows.
 
 Normal startup validates the database and application payloads before admitting
 clients. It refuses corrupt, malformed and unsupported data rather than silently
-dropping records. Full validation has a measured startup cost.
+dropping records. For each Storage row it checks that the file exists at the
+recorded size, without reading it. Full validation has a measured startup cost.
 
 `pyric sandbox salvage --source <hosted-directory> --out <new-directory>` is an
-offline, explicit recovery operation. It works on a copy, never changes the
-original, reports excluded records, and validates its output with normal startup
+offline, explicit recovery operation. It works on a copy of the database, reads
+object files in place, never changes the original, reports excluded records, and validates its output with normal startup
 rules. It refuses existing output directories and unsupported formats. It never
 automatically activates a repaired database. The user must review the report;
 recovered data may be incomplete. It cannot promise recovery from arbitrary

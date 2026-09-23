@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, truncateSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHostedPersistence, hostedStateDirectory } from '../../../src/serve/hosted/persistence.js';
 import { openHostedDatabase } from '../../../src/serve/hosted/persistence/database.js';
@@ -60,7 +60,7 @@ try {
 // The repair survives the process that made it, and leaves the versions alone.
 const inspect = await openHostedDatabase(directory);
 try {
-  const row = inspect.connection.prepare('SELECT metadata, length(bytes) AS size FROM storage_objects WHERE bucket=? AND path=?').get(bucket, path);
+  const row = inspect.connection.prepare('SELECT metadata, size FROM storage_objects WHERE bucket=? AND path=?').get(bucket, path);
   assert.ok(row);
   assert.equal(row.size, body.length);
   assert.deepEqual(JSON.parse(String(row.metadata)), metadata(body.length));
@@ -151,13 +151,18 @@ try {
   largeRecovered.close();
 }
 
-// The size limit judges the bytes a row holds, whatever size it records, against MAX_STORAGE_OBJECT_BYTES.
+// The size limit judges the bytes stored, whatever size the metadata records, against MAX_STORAGE_OBJECT_BYTES.
 const oversize = join(root, 'oversize');
 const small = await createHostedPersistence(oversize);
 await small.storage.put(path, new Blob([body], { type: 'application/json' }), metadata(body.length));
 small.close();
+const oversizeHash = 'd'.repeat(64);
+const oversizeShard = join(hostedStateDirectory(oversize), 'objects', 'dd');
+mkdirSync(oversizeShard, { recursive: true });
+writeFileSync(join(oversizeShard, oversizeHash), '');
+truncateSync(join(oversizeShard, oversizeHash), MAX_STORAGE_OBJECT_BYTES + 1);
 const enlarge = await openHostedDatabase(hostedStateDirectory(oversize));
-enlarge.connection.prepare('UPDATE storage_objects SET bytes=? WHERE bucket=? AND path=?').run(oversizeBytes, bucket, path);
+enlarge.connection.prepare('UPDATE storage_objects SET sha256=?, size=? WHERE bucket=? AND path=?').run(oversizeHash, MAX_STORAGE_OBJECT_BYTES + 1, bucket, path);
 enlarge.close();
 await assert.rejects(createHostedPersistence(oversize), /Hosted state could not be restored/);
 

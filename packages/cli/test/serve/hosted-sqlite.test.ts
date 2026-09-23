@@ -56,8 +56,7 @@ test('Storage bytes live in files named by their hash, written before their row 
   expect(await runNodeFixture('blob-store', 60_000)).toBe('Blob store passed');
 }, 90_000);
 
-// Writes about 360 MiB of zeroblob rows to reach the real limit, so on a slow
-// disk it runs well past the default test timeout.
+// Reaches the real limit with about 360 MiB of sparse object files.
 test('a Storage export past the inline limit is refused by name before any object is read', async () => {
   expect(await runNodeFixture('export-ceiling', 90_000)).toBe('Export ceiling passed');
 }, 120_000);

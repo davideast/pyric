@@ -1,16 +1,31 @@
+import { createBlobStore, type BlobStore, type StoredBytes } from './blob-store.js';
 import { createCommitController } from './commits.js';
 import { mkdirSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { inTransaction, openNodeSqlite, requireNodePersistence, sqlText, type SqlConnection } from './sqlite.js';
 import { createSqliteStorage } from './storage.js';
+import { FILE_BYTES_SCHEMA_VERSION, storedObjects } from './stored-objects.js';
 
-export const HOSTED_SCHEMA_VERSION = 2;
+export const HOSTED_SCHEMA_VERSION = FILE_BYTES_SCHEMA_VERSION;
 
 /**
  * Every schema version this build can read. A writable open upgrades an older
  * one in place; a read-only open reads it as it is.
  */
-export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, HOSTED_SCHEMA_VERSION]);
+export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, 2, HOSTED_SCHEMA_VERSION]);
+
+/** Object metadata; the bytes are the file `objects/<ab>/<sha256>`. */
+const storageObjectsTable = (name: string): string => `
+  CREATE TABLE ${name} (
+    bucket TEXT NOT NULL,
+    path TEXT NOT NULL,
+    metadata TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    PRIMARY KEY (bucket, path)
+  ) STRICT;
+`;
 
 /** Chunked-upload staging: one header row (`part_index` -1) and one row per part. */
 const STORAGE_UPLOADS_TABLE = `
@@ -42,7 +57,37 @@ function upgradeFromVersion1(connection: SqlConnection): void {
   if (hasUnusableStaging) connection.exec('DROP TABLE storage_uploads');
   const needsStagingTable = !hasStagingTable || hasUnusableStaging;
   if (needsStagingTable) connection.exec(STORAGE_UPLOADS_TABLE);
-  connection.exec(`PRAGMA user_version=${HOSTED_SCHEMA_VERSION}`);
+  connection.exec('PRAGMA user_version=2');
+}
+
+/**
+ * Version 2 kept each object's bytes in a column. Every object's bytes are
+ * written to its file first, one object in memory at a time; one transaction
+ * then replaces the table. An interruption before that commit leaves an intact
+ * version-2 store and some unreferenced files.
+ */
+function upgradeFromVersion2(connection: SqlConnection, objects: BlobStore): void {
+  const inline = storedObjects(connection, objects, 2);
+  const rows = inline.rows();
+  const files = rows.map((row): StoredBytes => objects.write(inline.bytes(row)));
+  inTransaction(connection, () => {
+    connection.exec(storageObjectsTable('storage_objects_by_hash'));
+    const copy = connection.prepare(`INSERT INTO storage_objects_by_hash (bucket, path, metadata, mime, sha256, size)
+      SELECT bucket, path, metadata, mime, ?, ? FROM storage_objects WHERE bucket=? AND path=?`);
+    rows.forEach((row, index) => copy.run(files[index].sha256, files[index].size, row.bucket, row.path));
+    const copied = Number(connection.prepare('SELECT count(*) AS n FROM storage_objects_by_hash').get()?.n);
+    const lostRows = copied !== rows.length;
+    if (lostRows) throw new Error('Storage objects changed while their bytes moved to files.');
+    connection.exec(`
+      DROP TABLE storage_objects;
+      ALTER TABLE storage_objects_by_hash RENAME TO storage_objects;
+      PRAGMA user_version=3;
+    `);
+  });
+  // Without the bytes the live data is small, so rebuilding the file to give
+  // their pages back is quick and needs little space.
+  connection.exec('VACUUM');
+  connection.exec('PRAGMA wal_checkpoint(TRUNCATE)');
 }
 
 /** One database per hosted directory; callers own its lifetime. */
@@ -80,22 +125,17 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
             payload TEXT NOT NULL,
             PRIMARY KEY (namespace, id)
           ) STRICT;
-          CREATE TABLE storage_objects (
-            bucket TEXT NOT NULL,
-            path TEXT NOT NULL,
-            metadata TEXT NOT NULL,
-            mime TEXT NOT NULL,
-            bytes BLOB NOT NULL,
-            PRIMARY KEY (bucket, path)
-          ) STRICT;
+          ${storageObjectsTable('storage_objects')}
           ${STORAGE_UPLOADS_TABLE}
           PRAGMA user_version=${HOSTED_SCHEMA_VERSION};
         `);
       });
     }
+    let schemaVersion = isNew ? HOSTED_SCHEMA_VERSION : Number(version);
+    const objects = createBlobStore(join(directory, 'objects'));
     // An older schema is upgraded only after its contents validate, so a store
     // that is refused is left exactly as it was found.
-    let upgradePending = !readOnly && version === 1;
+    let upgradePending = !readOnly && schemaVersion < HOSTED_SCHEMA_VERSION;
     const clearStaleUploads = (): void => {
       // Staged parts older than an hour belong to uploads no client will finish.
       connection.prepare('DELETE FROM storage_uploads WHERE created_at < ?').run(Date.now() - 3600_000);
@@ -105,7 +145,16 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
     const upgradeSchema = (): void => {
       const upToDate = !upgradePending;
       if (upToDate) return;
-      inTransaction(connection, () => upgradeFromVersion1(connection));
+      const lacksStaging = schemaVersion === 1;
+      if (lacksStaging) {
+        inTransaction(connection, () => upgradeFromVersion1(connection));
+        schemaVersion = 2;
+      }
+      const holdsInlineBytes = schemaVersion === 2;
+      if (holdsInlineBytes) {
+        upgradeFromVersion2(connection, objects);
+        schemaVersion = 3;
+      }
       upgradePending = false;
       clearStaleUploads();
     };
@@ -133,7 +182,10 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
 
     let closed = false;
     return {
-      storage: createSqliteStorage(connection, commits.commit),
+      storage: createSqliteStorage(connection, commits.commit, objects),
+      objects,
+      /** The version of the schema as it is now; an upgrade changes it. */
+      schemaVersion: (): number => schemaVersion,
       /** Bring an older writable schema up to date; call after its contents validate. */
       upgradeSchema,
       ...commits,

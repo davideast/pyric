@@ -8,6 +8,13 @@ import { HOSTED_SCHEMA_VERSION, openHostedDatabase } from '../../../src/serve/ho
 import { salvageHostedState } from '../../../src/serve/hosted/persistence/salvage.js';
 
 const root = process.argv[2];
+
+/** Compares bytes without asking assert to render a diff of megabytes on failure. */
+function assertSameBytes(actual: Uint8Array | undefined, expected: Uint8Array, message: string): void {
+  const same = actual !== undefined && Buffer.from(actual.buffer, actual.byteOffset, actual.byteLength).equals(Buffer.from(expected.buffer, expected.byteOffset, expected.byteLength));
+  assert.ok(same, `${message}: ${actual?.byteLength ?? 'no'} bytes differ from the expected ${expected.byteLength}`);
+}
+
 const MiB = 1024 * 1024;
 const bucket = 'pyric-default';
 const body = new TextEncoder().encode('stored before the upgrade');
@@ -92,7 +99,7 @@ const objectFile = (project: string, bytes: Uint8Array): string => {
 async function assertObjectsReadable(storage: Awaited<ReturnType<typeof createHostedPersistence>>['storage']): Promise<void> {
   for (const object of objects) {
     const blob = await storage.getBlob(object.path, bucket);
-    assert.deepEqual(new Uint8Array(await blob!.arrayBuffer()), object.bytes, object.path);
+    assertSameBytes(new Uint8Array(await blob!.arrayBuffer()), object.bytes, object.path);
     assert.equal(blob!.type, object.mime);
   }
 }
@@ -130,7 +137,7 @@ for (const schema of EARLIER_SCHEMAS) {
   assert.ok(after.staging.includes('part_index'), `${schema}: staging shape after upgrade`);
   assert.deepEqual(after.columns, ['bucket', 'path', 'metadata', 'mime', 'sha256', 'size'], `${schema}: object columns after upgrade`);
   assert.equal(after.records, before.records);
-  for (const object of objects) assert.deepEqual(new Uint8Array(readFileSync(objectFile(project, object.bytes))), object.bytes);
+  for (const object of objects) assertSameBytes(readFileSync(objectFile(project, object.bytes)), object.bytes, `${schema}: ${object.path} file`);
   // The database no longer holds the bytes, and gives their space back.
   const databaseSize = statSync(join(hostedStateDirectory(project), 'state.sqlite')).size;
   assert.ok(databaseSize < MiB, `${schema}: state.sqlite is ${databaseSize} bytes after upgrade`);
@@ -149,7 +156,7 @@ for (const schema of EARLIER_SCHEMAS) {
   database.close();
   const bytesBefore = readFileSync(path);
   await assert.rejects(createHostedPersistence(project), /Hosted state could not be restored/);
-  assert.deepEqual(readFileSync(path), bytesBefore, `${schema}: database unchanged`);
+  assertSameBytes(readFileSync(path), bytesBefore, `${schema}: database unchanged`);
   assert.equal(existsSync(objectsDirectory(project)), false, `${schema}: no object files written`);
   assert.ok(inspect(project).columns.includes('bytes'));
 }
@@ -176,8 +183,8 @@ for (const schema of EARLIER_SCHEMAS) {
   const snapshot = await loadHostedSnapshot(project);
   assert.equal(snapshot?.storage?.length, objects.length);
   const exported = snapshot!.storage!.find(object => object.metadata.fullPath === 'notes/before.txt');
-  assert.deepEqual(new Uint8Array(Buffer.from(exported!.dataBase64, 'base64')), body);
-  assert.deepEqual(readFileSync(path), bytesBefore);
+  assertSameBytes(Buffer.from(exported!.dataBase64, 'base64'), body, `${schema}: exported object`);
+  assertSameBytes(readFileSync(path), bytesBefore, `${schema}: database unchanged by export`);
   assert.equal(inspect(project).version, schema === 'version-2' ? 2 : 1);
   assert.equal(existsSync(objectsDirectory(project)), false);
 }
@@ -188,7 +195,7 @@ for (const schema of EARLIER_SCHEMAS) {
   (await createHostedPersistence(project)).close();
   const snapshot = await loadHostedSnapshot(project);
   const exported = snapshot!.storage!.find(object => object.metadata.fullPath === 'media/large.bin');
-  assert.deepEqual(new Uint8Array(Buffer.from(exported!.dataBase64, 'base64')), large);
+  assertSameBytes(Buffer.from(exported!.dataBase64, 'base64'), large, 'exported object');
 }
 
 // Salvage accepts a source from every schema and writes a current-version output with its objects.
