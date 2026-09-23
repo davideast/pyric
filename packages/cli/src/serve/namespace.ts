@@ -1,5 +1,4 @@
 import { createDiagnostics } from './diagnostics.js';
-import { StateExportTooLargeError } from './hosted/persistence/export-limit.js';
 import { DIAGNOSTICS_PATH } from './runtime/diagnostics-report.js';
 import { handleRateCaptures } from './rate-capture-route.js';
 import { handleThresholdConfig } from './threshold-config-route.js';
@@ -20,7 +19,7 @@ import { handleThresholdConfig } from './threshold-config-route.js';
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
@@ -173,6 +172,39 @@ export interface NamespaceOptions {
  *  Writes carry `x-pyric-writer: <id>`; the first writer wins, others get 423
  *  and drop to read-only (pre-mortem #3). The firestore body is the sandbox
  *  persistence controller's own blob — stored verbatim, never interpreted. */
+const STATE_OBJECTS_PREFIX = '/__pyric/state/objects/';
+
+/**
+ * GET /__pyric/state/objects/<sha256> → the bytes a Storage reference in the
+ * state document names. Only a store that keeps object bytes in files serves them.
+ */
+function handleStateObject(state: StateStore, req: IncomingMessage, res: ServerResponse, url: URL): void {
+  const isRead = req.method === 'GET';
+  const unsupportedMethod = !isRead;
+  if (unsupportedMethod) {
+    res.writeHead(405, { allow: 'GET' }).end('method not allowed');
+    return;
+  }
+  const sha256 = url.pathname.slice(STATE_OBJECTS_PREFIX.length);
+  const invalidHash = !/^[0-9a-f]{64}$/.test(sha256);
+  if (invalidHash) {
+    res.writeHead(400, { 'content-type': 'text/plain' }).end('An object is named by its SHA-256, as 64 lowercase hex characters.');
+    return;
+  }
+  const file = state.objectFile?.(sha256);
+  const missing = file === undefined;
+  if (missing) {
+    res.writeHead(404, { 'content-type': 'text/plain' }).end('No object has that hash.');
+    return;
+  }
+  res.writeHead(200, {
+    'content-type': 'application/octet-stream',
+    'content-length': String(statSync(file).size),
+    'cache-control': 'no-store',
+  });
+  createReadStream(file).pipe(res);
+}
+
 async function handleState(
   state: StateStore,
   lock: WriterLock,
@@ -230,11 +262,6 @@ async function handleState(
     }
     res.writeHead(405, { allow: 'GET, POST, DELETE' }).end('method not allowed');
   } catch (e) {
-    const exportTooLarge = e instanceof StateExportTooLargeError;
-    if (exportTooLarge) {
-      res.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' }).end(e.message);
-      return;
-    }
     // StateFileError (corrupt/version) or bad body — surface, don't clobber.
     res.writeHead(e instanceof StateFileError ? 409 : 400, { 'content-type': 'text/plain' });
     res.end(e instanceof Error ? e.message : String(e));
@@ -525,6 +552,18 @@ export function createPyricNamespace(opts: NamespaceOptions) {
       }
     }
     const state = opts.state;
+    const isObjectRequest = state !== undefined && url.pathname.startsWith(STATE_OBJECTS_PREFIX);
+    if (isObjectRequest) {
+      const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);
+      if (hostRefused) return true;
+      const sessionRefused = !isAllowedSessionToken(req, url, sessionToken);
+      if (sessionRefused) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+        return true;
+      }
+      handleStateObject(state, req, res, url);
+      return true;
+    }
     const isStateRequest = state !== undefined && url.pathname === '/__pyric/state';
     if (isStateRequest) {
       const hostRefused = !guardLoopback(req, res, opts.boundHost ?? 'localhost', opts.allowedHosts);

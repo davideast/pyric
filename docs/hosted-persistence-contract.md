@@ -87,12 +87,16 @@ databases checkpoint first; damaged ones remain archivable without checkpointing
 Never copy only the main file while a host is writing. Logical JSON exports use
 a consistent read transaction, without stopping the host.
 
-A logical export carries every Storage object inline as base64 in one JSON
-document, and V8 caps a string near 512 MiB, so an export holds at most about
-360 MiB of object bytes (`MAX_INLINE_EXPORT_STORAGE_BYTES`). Past that the
-export is refused by name, with a 413 from `GET /__pyric/state` and a message
-from `pyric snapshot`, before any object is read. The host keeps running and
-its data is unaffected. Host startup never reads object bytes.
+A logical export refers to each Storage object as `{ path, sha256, size,
+blobType, metadata }` and reads none of its bytes, so its size does not grow
+with the objects. `GET /__pyric/state/objects/<sha256>` serves the bytes of one
+object, to the same session as `GET /__pyric/state`. `pyric snapshot` writes a
+directory: `state.json` and `objects/<ab>/<sha256>`, each object checked against
+its hash as it is written. `pyric sandbox --seed` accepts that directory, or its
+`state.json`, and still accepts inline base64 entries; a referenced file that
+does not hash to its name refuses the seed before anything is written. A store
+an earlier release wrote, exported read-only before its first upgrade, still
+exports its bytes inline. Host startup never reads object bytes.
 
 ## Transport backlog and recovery
 

@@ -54,6 +54,12 @@ export interface StateStore {
    *  and commit before their returned promise resolves. */
   writeSection(section: StateSection, value: unknown): void | Promise<void>;
   exists(): boolean;
+  /**
+   * The file holding the bytes a Storage reference in this store's documents
+   * names by `sha256`, or undefined when there is none. Only a store that keeps
+   * object bytes in files has one.
+   */
+  objectFile?(sha256: string): string | undefined;
 }
 
 export const STATE_RELATIVE_PATH = join('.pyric', 'state', 'state.json');

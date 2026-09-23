@@ -1,5 +1,5 @@
 import { createHash, randomUUID, type Hash } from 'node:crypto';
-import { closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, rmSync, statSync, utimesSync, writeSync } from 'node:fs';
+import { closeSync, copyFileSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, rmSync, statSync, utimesSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;
@@ -10,6 +10,23 @@ const SHARD = /^[0-9a-f]{2}$/;
  * candidate. It covers file systems that record modification times to the second.
  */
 const SWEEP_MARGIN_MS = 2_000;
+
+const HASH_CHUNK_BYTES = 4 * 1024 * 1024;
+
+/** SHA-256 of a file, read a chunk at a time so a large object is never whole in memory. */
+export function hashFile(path: string): string {
+  const hash = createHash('sha256');
+  const chunk = new Uint8Array(HASH_CHUNK_BYTES);
+  const descriptor = openSync(path, 'r');
+  try {
+    let read = readSync(descriptor, chunk, 0, chunk.byteLength, null);
+    while (read > 0) {
+      hash.update(chunk.subarray(0, read));
+      read = readSync(descriptor, chunk, 0, chunk.byteLength, null);
+    }
+  } finally { closeSync(descriptor); }
+  return hash.digest('hex');
+}
 
 /** What one sweep removed. */
 export interface SweepReport {
@@ -58,6 +75,11 @@ export interface BlobStore {
    * yields between shard directories so a host keeps serving while it runs.
    */
   sweep(keep: ReadonlySet<string>, startedAt: number, signal?: SweepSignal): Promise<SweepReport>;
+  /**
+   * Copy a file in as the object `expected` names, after checking the copy
+   * hashes to it. The source is only read.
+   */
+  importFile(source: string, expected: StoredBytes): StoredBytes;
   /** Start a staged file named `objects/.staging/<name>`. */
   stage(name: string): StagedFile;
   /** Make a sealed staged file durable and rename it to its hash; its bytes are not read. */
@@ -191,6 +213,23 @@ export function createBlobStore(directory: string): BlobStore {
       return { sha256, size: bytes.byteLength };
     },
     stage,
+    importFile(source, expected) {
+      const temporary = stagingPath(randomUUID());
+      try {
+        copyFileSync(source, temporary);
+        const copied = statSync(temporary).size === expected.size && hashFile(temporary) === expected.sha256;
+        const mismatched = !copied;
+        if (mismatched) throw new Error(`${source} does not hold the bytes whose hash is ${expected.sha256}.`);
+        const now = new Date();
+        utimesSync(temporary, now, now);
+        fsyncFile(temporary);
+        publish(temporary, expected.sha256);
+      } catch (error) {
+        rmSync(temporary, { force: true });
+        throw error;
+      }
+      return expected;
+    },
     adopt(file) {
       const stored = file.seal();
       // A sweep judges a file by when it was modified. Parts written long ago
