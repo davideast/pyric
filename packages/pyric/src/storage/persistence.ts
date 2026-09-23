@@ -212,9 +212,11 @@ export interface StorageBackend {
   putPart?(uploadId: string, partIndex: number, bytes: Uint8Array): Promise<{ bytesReceived: number } | void>;
 
   /**
-   * Commit an active upload session, verifying that staged bytes match declared size.
+   * Return an upload's staged bytes in part order, verifying they add up to the
+   * declared size. The upload stays staged: the caller writes the object through
+   * the engine and then discards the staging with {@link abortUpload}.
    */
-  finishUpload?(uploadId: string): Promise<StoredMetadata>;
+  readUpload?(uploadId: string): Promise<Uint8Array>;
 
   /**
    * Abort an active upload session and purge staged parts.
@@ -307,7 +309,7 @@ class InMemoryUploadStaging {
     return { bytesReceived };
   }
 
-  finishUpload(uploadId: string): { upload: StagedPartUpload; fullBytes: Uint8Array } {
+  readUpload(uploadId: string): Uint8Array {
     const upload = this.uploads.get(uploadId);
     if (!upload) {
       const err = new Error(`storage/object-not-found: Upload '${uploadId}' not found.`) as Error & { code: string };
@@ -331,8 +333,7 @@ class InMemoryUploadStaging {
       fullBytes.set(part, offset);
       offset += part.byteLength;
     }
-    this.uploads.delete(uploadId);
-    return { upload, fullBytes };
+    return fullBytes;
   }
 
   abortUpload(uploadId: string): void {
@@ -464,25 +465,8 @@ export class InMemoryStorageBackend implements StorageBackend {
     return this.staging.putPart(uploadId, partIndex, bytes);
   }
 
-  async finishUpload(uploadId: string): Promise<StoredMetadata> {
-    const { upload, fullBytes } = this.staging.finishUpload(uploadId);
-    const now = new Date().toISOString();
-    const generation = String(Date.now());
-    const stored: StoredMetadata = {
-      bucket: upload.bucket,
-      fullPath: upload.path,
-      name: upload.path.split('/').pop() ?? upload.path,
-      size: upload.size,
-      generation,
-      metageneration: '1',
-      timeCreated: now,
-      updated: now,
-      contentType: upload.contentType,
-      customMetadata: upload.customMetadata,
-    };
-    const blob = new Blob([fullBytes as unknown as BlobPart], { type: upload.contentType });
-    await this.put(upload.path, blob, stored);
-    return stored;
+  async readUpload(uploadId: string): Promise<Uint8Array> {
+    return this.staging.readUpload(uploadId);
   }
 
   async abortUpload(uploadId: string): Promise<void> {
@@ -670,25 +654,8 @@ export class IndexedDbStorageBackend implements StorageBackend {
     return this.staging.putPart(uploadId, partIndex, bytes);
   }
 
-  async finishUpload(uploadId: string): Promise<StoredMetadata> {
-    const { upload, fullBytes } = this.staging.finishUpload(uploadId);
-    const now = new Date().toISOString();
-    const generation = String(Date.now());
-    const stored: StoredMetadata = {
-      bucket: upload.bucket,
-      fullPath: upload.path,
-      name: upload.path.split('/').pop() ?? upload.path,
-      size: upload.size,
-      generation,
-      metageneration: '1',
-      timeCreated: now,
-      updated: now,
-      contentType: upload.contentType,
-      customMetadata: upload.customMetadata,
-    };
-    const blob = new Blob([fullBytes as unknown as BlobPart], { type: upload.contentType });
-    await this.put(upload.path, blob, stored);
-    return stored;
+  async readUpload(uploadId: string): Promise<Uint8Array> {
+    return this.staging.readUpload(uploadId);
   }
 
   async abortUpload(uploadId: string): Promise<void> {
@@ -779,8 +746,8 @@ export class ScopedStorageBackend implements StorageBackend {
     throw new Error('Chunked upload not supported by underlying storage backend');
   }
 
-  finishUpload(uploadId: string): Promise<StoredMetadata> {
-    if (this.underlying.finishUpload) return this.underlying.finishUpload(uploadId);
+  readUpload(uploadId: string): Promise<Uint8Array> {
+    if (this.underlying.readUpload) return this.underlying.readUpload(uploadId);
     throw new Error('Chunked upload not supported by underlying storage backend');
   }
 

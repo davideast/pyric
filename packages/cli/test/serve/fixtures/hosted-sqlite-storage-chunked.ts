@@ -29,13 +29,18 @@ try {
   // Object still must NOT exist
   assert.equal(await storage.getBlob(path), undefined);
 
-  // 3. Finish upload
-  const metadata = await storage.finishUpload(uploadId);
-  assert.equal(metadata.bucket, 'test-bucket');
-  assert.equal(metadata.fullPath, path);
-  assert.equal(metadata.size, totalSize);
-  assert.equal(metadata.contentType, 'audio/wav');
-  assert.deepEqual(metadata.customMetadata, { custom: 'tag' });
+  // 3. The staged bytes come back whole and in part order; reading them does
+  //    not create the object, which the engine writes with its own metadata.
+  const staged = await storage.readUpload(uploadId);
+  assert.deepEqual(staged, new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9]));
+  assert.equal(await storage.getBlob(path), undefined);
+  const metadata = {
+    bucket: 'test-bucket', fullPath: path, name: 'audio.wav', size: totalSize, generation: '1', metageneration: '1',
+    timeCreated: '2026-01-01T00:00:00Z', updated: '2026-01-01T00:00:00Z', contentType: 'audio/wav',
+  };
+  await storage.put(path, new Blob([staged], { type: 'audio/wav' }), metadata);
+  await storage.abortUpload(uploadId);
+  await assert.rejects(storage.readUpload(uploadId), /not found/);
 
   // 4. Stored object is now visible and complete
   const finishedBlob = await storage.getBlob(path);
@@ -67,14 +72,8 @@ try {
   await storage.putPart(abortUploadId, 0, new Uint8Array([10, 20]));
   await storage.abortUpload(abortUploadId);
 
-  // Attempting to finish an aborted upload must fail
-  let abortFinishError: unknown = null;
-  try {
-    await storage.finishUpload(abortUploadId);
-  } catch (err) {
-    abortFinishError = err;
-  }
-  assert.ok(abortFinishError);
+  // An aborted upload has nothing left to read
+  await assert.rejects(storage.readUpload(abortUploadId), /not found/);
 } finally {
   database.close();
 }
