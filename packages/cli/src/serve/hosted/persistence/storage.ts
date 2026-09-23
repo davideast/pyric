@@ -19,6 +19,16 @@ export interface ScopedStorageBackend extends StorageBackend {
   readRange(bucket: string, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined>;
 }
 
+/** A statement prepared on first use; a read-only open of an older schema never needs it. */
+function lazyStatement(connection: SqlConnection, sql: string): () => ReturnType<SqlConnection['prepare']> {
+  let statement: ReturnType<SqlConnection['prepare']> | undefined;
+  return () => {
+    const unprepared = statement === undefined;
+    if (unprepared) statement = connection.prepare(sql);
+    return statement!;
+  };
+}
+
 function metadataOf(row: SqlRow): StoredMetadata {
   return storedMetadataSchema.parse(JSON.parse(sqlText(row, 'metadata')));
 }
@@ -34,12 +44,12 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
   const clearBucket = connection.prepare('DELETE FROM storage_objects WHERE bucket=?');
 
   // ADR 0015 Chunked storage staging and ranged reads
-  const beginUploadStmt = connection.prepare('INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, -1, ?, ?)');
-  const readHeaderStmt = connection.prepare('SELECT * FROM storage_uploads WHERE upload_id=? AND part_index=-1');
-  const insertPartStmt = connection.prepare('INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(upload_id, part_index) DO UPDATE SET bytes=excluded.bytes');
-  const readPartsStmt = connection.prepare('SELECT bytes FROM storage_uploads WHERE upload_id=? AND part_index >= 0 ORDER BY part_index');
-  const sumPartsStmt = connection.prepare('SELECT COALESCE(SUM(length(bytes)), 0) AS bytesReceived FROM storage_uploads WHERE upload_id=? AND part_index >= 0');
-  const deleteUploadStmt = connection.prepare('DELETE FROM storage_uploads WHERE upload_id=?');
+  const beginUploadStmt = lazyStatement(connection, 'INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, -1, ?, ?)');
+  const readHeaderStmt = lazyStatement(connection, 'SELECT * FROM storage_uploads WHERE upload_id=? AND part_index=-1');
+  const insertPartStmt = lazyStatement(connection, 'INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(upload_id, part_index) DO UPDATE SET bytes=excluded.bytes');
+  const readPartsStmt = lazyStatement(connection, 'SELECT bytes FROM storage_uploads WHERE upload_id=? AND part_index >= 0 ORDER BY part_index');
+  const sumPartsStmt = lazyStatement(connection, 'SELECT COALESCE(SUM(length(bytes)), 0) AS bytesReceived FROM storage_uploads WHERE upload_id=? AND part_index >= 0');
+  const deleteUploadStmt = lazyStatement(connection, 'DELETE FROM storage_uploads WHERE upload_id=?');
   const readRangeStmt = connection.prepare('SELECT substr(bytes, ? + 1, ?) AS slice, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
   // Reserve order before binary conversion yields. Reset and later uploads must
@@ -126,17 +136,17 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
           const contentType = mime ?? 'application/octet-stream';
           const metaJson = customMetadata ? JSON.stringify(customMetadata) : null;
           commit(() => {
-            beginUploadStmt.run(uploadId, connectionId ?? null, bucket, path, size, contentType, metaJson, new Uint8Array(0), Date.now());
+            beginUploadStmt().run(uploadId, connectionId ?? null, bucket, path, size, contentType, metaJson, new Uint8Array(0), Date.now());
           });
           return uploadId;
         });
       },
       async putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }> {
         return enqueue(() => {
-          const header = readHeaderStmt.get(uploadId);
+          const header = readHeaderStmt().get(uploadId);
           if (header === undefined) throw new Error(`Upload '${uploadId}' not found or already completed.`);
           commit(() => {
-            insertPartStmt.run(
+            insertPartStmt().run(
               uploadId,
               header.connection_id,
               header.bucket,
@@ -149,19 +159,19 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
               Date.now(),
             );
           });
-          const sumRow = sumPartsStmt.get(uploadId);
+          const sumRow = sumPartsStmt().get(uploadId);
           const bytesReceived = Number(sumRow?.bytesReceived ?? 0);
           return { bytesReceived };
         });
       },
       async finishUpload(uploadId: string): Promise<StoredMetadata> {
         return enqueue(() => {
-          const header = readHeaderStmt.get(uploadId);
+          const header = readHeaderStmt().get(uploadId);
           if (header === undefined) throw new Error(`Upload '${uploadId}' not found or already completed.`);
           const bucket = sqlText(header, 'bucket');
           const path = sqlText(header, 'path');
           const declaredSize = Number(header.size);
-          const parts = readPartsStmt.all(uploadId);
+          const parts = readPartsStmt().all(uploadId);
           const totalLength = parts.reduce((sum, p) => sum + (p.bytes instanceof Uint8Array ? p.bytes.byteLength : 0), 0);
           if (totalLength !== declaredSize) {
             throw new Error(`Staged bytes (${totalLength}) do not match declared size (${declaredSize}).`);
@@ -199,7 +209,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
           const validated = storedMetadataSchema.parse(stored);
           commit(() => {
             put.run(bucket, path, JSON.stringify(validated), contentType, fullBytes);
-            deleteUploadStmt.run(uploadId);
+            deleteUploadStmt().run(uploadId);
           });
           return validated;
         });
@@ -207,7 +217,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
       async abortUpload(uploadId: string): Promise<void> {
         return enqueue(() => {
           commit(() => {
-            deleteUploadStmt.run(uploadId);
+            deleteUploadStmt().run(uploadId);
           });
         });
       },

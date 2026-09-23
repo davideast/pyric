@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { bundleRecords, serializeToBuckets } from 'pyric/sandbox';
 import { decodeImportBundle, validatePersistenceEncoding, storedMetadataSchema, validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from 'pyric/sandbox/internal';
 import { claimProjectState } from '../project-ownership.js';
-import { openHostedDatabase, HOSTED_SCHEMA_VERSION } from './database.js';
+import { openHostedDatabase, READABLE_HOSTED_SCHEMA_VERSIONS } from './database.js';
 import { openNodeSqlite, sqlText } from './sqlite.js';
 import { repairedStorageMetadata, validateHostedDatabase, type StorageMetadataRepair } from './validate.js';
 
@@ -53,7 +53,7 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
     const input = await openNodeSqlite(join(copy, 'state.sqlite'), true);
     try {
       const version = input.prepare('PRAGMA user_version').get()?.user_version;
-      const unsupported = version !== HOSTED_SCHEMA_VERSION;
+      const unsupported = !READABLE_HOSTED_SCHEMA_VERSIONS.has(Number(version));
       if (unsupported) throw new Error(`Unsupported hosted database version ${String(version)}; recovery was not attempted.`);
       const corrupt = input.prepare('PRAGMA quick_check').all().some(row => row.quick_check !== 'ok');
       if (corrupt) throw new Error('Physical SQLite corruption prevents this recovery. The original directory is unchanged.');

@@ -48,6 +48,10 @@ test('unsupported database versions refuse startup without replacing data', asyn
   expect(await runNodeFixture('version')).toBe('Version refusal passed');
 });
 
+test('a database written by the previous release opens, upgrades in place, and keeps its data', async () => {
+  expect(await runNodeFixture('schema-upgrade')).toBe('Schema upgrade passed');
+});
+
 test('the Node host recovers acknowledged writes without modifying existing JSON', async () => {
   expect(await runNodeFixture('runtime')).toBe('Hosted restart passed');
 });
