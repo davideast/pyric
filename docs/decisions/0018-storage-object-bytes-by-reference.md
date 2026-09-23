@@ -1,8 +1,12 @@
 # 0018: Storage object bytes travel and rest by reference
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-09-23
+
+Supersedes the unmerged proposal to keep hosted Storage bytes in sidecar files
+beside the database. Its layout, write order, sweep, and reasoning about
+`better-sqlite3` are carried into part 1 below.
 
 ## Context
 
@@ -65,7 +69,18 @@ read is a positional read of the file.
 Unreferenced files are removed by a sweep. The sweep keeps every hash named by
 a live row, a checkpoint, a branch, or an upload in progress, and skips any file
 modified after the sweep began, so it cannot delete a file whose row is about
-to commit. It takes no lock on the database and needs no free space.
+to commit. It takes no lock on the database and needs no free space. It runs in
+the background once startup has validated the store, and never delays a
+request.
+
+Every object is a file, whatever its size; there is no inline path for small
+objects. One read path and one write path are worth more here than the speed
+SQLite would give objects under about 100 KiB.
+
+Salvage checks each file against its hash. A file that does not match is left
+out of the recovered state, copied to a `quarantine/` directory in the salvage
+output, and named in the recovery report, so the result is consistent and
+nothing readable is destroyed.
 
 The schema moves to version 3. The first writable open migrates version 2 by
 writing each row's bytes to its file, one row per transaction, and then drops
@@ -76,11 +91,13 @@ validates, and a test opens a database from every earlier version.
 entry becomes `{ path, sha256, size, metadata }`. The bytes live in an
 `objects/` directory beside the document, laid out as the store's.
 
-- `pyric snapshot` writes a directory holding `state.json` and `objects/`.
+- `pyric snapshot` writes a directory holding `state.json` and `objects/`, not
+  an archive, so its contents can be read and small fixtures committed.
 - `GET /__pyric/state` returns references; bytes are fetched by hash.
-- Checkpoints and branches on the Node host record hashes and pin those files
-  in the same store, so capturing one copies no bytes, and restoring one is a
-  metadata write.
+- Checkpoints and branches on the Node host record the hashes they keep in
+  SQLite, so the sweep's roots are one query, capturing one copies no bytes,
+  and restoring one is a metadata write. Checkpoints of an in-process sandbox
+  keep their current files.
 - Seeds accept both forms: the current inline form for small fixtures, and the
   directory form.
 
@@ -90,6 +107,8 @@ its metadata.
 **3. On the wire: an HTTP byte route on the Node host.** Rules and identity
 stay on the existing RPC; only bytes move to HTTP.
 
+- Tokens are bound to one operation, never to the session: an `<audio src>`
+  request cannot carry headers, so a URL must carry its own authority.
 - `storage.beginUpload` returns, besides its upload id, a URL carrying a
   capability token bound to that upload. The client streams the object to it
   with `PUT`. `storage.finishUpload` commits over RPC as it does now.
@@ -111,7 +130,11 @@ way; the byte route must too.
 **Limits.** `MAX_STORAGE_OBJECT_BYTES` becomes a policy number about disk, no
 longer tied to SQLite's value length or to one buffer. Host memory per transfer
 is bounded by the stream buffer, and a test asserts it for an object many times
-that size. The in-browser store keeps its export limit and names it.
+that size. The in-browser store, the in-process MCP `storage.json`, and a
+browser `--persist` state file keep their inline form: they are single-user
+development stores that rarely hold large media. Each gets a named limit and a
+refusal that says what was exceeded, as the Node host's export has. They move to
+references only if that limit is reached in practice.
 
 ## Consequences
 
@@ -155,32 +178,26 @@ unchanged.
 **Raise the limits, or `VACUUM` on a schedule.** Moves thresholds and makes the
 stranded-space and ranged-read costs grow with them.
 
-## Open questions
+## Rulings
 
-1. Is `pyric snapshot` output a directory, or one archive file such as a tar
-   holding the same layout?
-2. When does the sweep run: at startup after validation, which delays the first
-   request of a large project, or when the host is idle, which needs a
-   definition of idle?
-3. Does salvage quarantine a file that does not hash to its name, keeping a
-   partly readable object, or exclude it, keeping the result provably
-   consistent?
-4. Should objects under a size threshold stay inline in SQLite? That buys small
-   objects speed at the cost of two read and two write paths.
-5. Are the byte route's tokens bound to one operation, as proposed, or does the
-   route take the session token plus the caller's lens on each request?
-6. Do checkpoints and branches keep their manifests in SQLite, which makes the
-   sweep's roots one query, or as files, as checkpoints are today?
-7. Do the in-process MCP `storage.json` and the browser `--persist` state file
-   move to the same by-reference form, or keep their inline form under a named
-   limit?
-8. Should parts 1 and 2 land together? They depend on each other: a hash in a
-   checkpoint is only a reference if the store is content-addressed.
+The questions left open when this record was proposed, and how they were
+settled on 2026-09-23:
+
+| Question | Ruling |
+| --- | --- |
+| `pyric snapshot` output | A directory holding `state.json` and `objects/`. |
+| When the sweep runs | In the background after startup validation, never blocking a request. |
+| A file that does not match its hash, in salvage | Left out of the recovered state, copied to `quarantine/`, and named in the report. |
+| Small objects inline in SQLite | No. Every object is a file. |
+| Byte route authority | Tokens bound to one operation. |
+| Where checkpoint and branch manifests live | In SQLite for the Node host; in-process checkpoints keep their files. |
+| In-process and browser stores | Stay inline under a named limit. |
+| File store and documents by reference | Land together, as phase 1. |
 
 ## Order of work
 
 | Phase | Work |
 | --- | --- |
-| 1 | Schema version 3, the blob store, its migration, the sweep, and documents by reference, together. |
+| 1 | Schema version 3 and the blob store with its migration; chunked staging to one file; the sweep and salvage quarantine; documents by reference. Each lands and is green before the next. |
 | 2 | The byte route and HTTP download URLs. |
-| 3 | The in-process and browser stores, per question 7. |
+| 3 | Named limits for the in-process and browser stores. |
