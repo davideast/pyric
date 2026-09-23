@@ -45,7 +45,8 @@ const project = join(root, 'project');
     const database = new DatabaseSync(join(hostedStateDirectory(project), 'state.sqlite'), { readOnly: true });
     try {
       const tables = database.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(row => String(row.name));
-      assert.deepEqual(tables, ['records', 'storage_objects']);
+      assert.equal(tables.includes('storage_uploads'), false);
+      assert.equal(Number(database.prepare('SELECT count(*) AS n FROM storage_objects').get()?.n), 0);
     } finally { database.close(); }
 
     // Finishing moves the staging file into place: the object file is the same file.

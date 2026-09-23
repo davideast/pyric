@@ -1,4 +1,5 @@
 import { createBlobStore, type BlobStore, type StoredBytes } from './blob-store.js';
+import { addCheckpointTables, CHECKPOINT_TABLES, createHostedCheckpointBackend } from './checkpoints.js';
 import { createCommitController } from './commits.js';
 import { mkdirSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
@@ -7,13 +8,16 @@ import { createSqliteStorage } from './storage.js';
 import { FILE_BYTES_SCHEMA_VERSION, storedObjects } from './stored-objects.js';
 
 /** Version 4 stages uploads in files and has no staging table. */
-export const HOSTED_SCHEMA_VERSION = 4;
+const FILE_STAGING_SCHEMA_VERSION = 4;
+
+/** Version 5 keeps the host's checkpoints, and the object hashes they name. */
+export const HOSTED_SCHEMA_VERSION = 5;
 
 /**
  * Every schema version this build can read. A writable open upgrades an older
  * one in place; a read-only open reads it as it is.
  */
-export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, 2, FILE_BYTES_SCHEMA_VERSION, HOSTED_SCHEMA_VERSION]);
+export const READABLE_HOSTED_SCHEMA_VERSIONS: ReadonlySet<number> = new Set([1, 2, FILE_BYTES_SCHEMA_VERSION, FILE_STAGING_SCHEMA_VERSION, HOSTED_SCHEMA_VERSION]);
 
 /** Object metadata; the bytes are the file `objects/<ab>/<sha256>`. */
 const storageObjectsTable = (name: string): string => `
@@ -50,7 +54,7 @@ function moveBytesToFiles(connection: SqlConnection, objects: BlobStore, version
       DROP TABLE storage_objects;
       ALTER TABLE storage_objects_by_hash RENAME TO storage_objects;
       DROP TABLE IF EXISTS storage_uploads;
-      PRAGMA user_version=${HOSTED_SCHEMA_VERSION};
+      PRAGMA user_version=${FILE_STAGING_SCHEMA_VERSION};
     `);
   });
 }
@@ -58,7 +62,7 @@ function moveBytesToFiles(connection: SqlConnection, objects: BlobStore, version
 /** Version 3 staged uploads as rows. No host that staged them is running, so they are dropped. */
 function dropStagingTable(connection: SqlConnection): void {
   inTransaction(connection, () => {
-    connection.exec(`DROP TABLE IF EXISTS storage_uploads; PRAGMA user_version=${HOSTED_SCHEMA_VERSION};`);
+    connection.exec(`DROP TABLE IF EXISTS storage_uploads; PRAGMA user_version=${FILE_STAGING_SCHEMA_VERSION};`);
   });
 }
 
@@ -98,6 +102,7 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
             PRIMARY KEY (namespace, id)
           ) STRICT;
           ${storageObjectsTable('storage_objects')}
+          ${CHECKPOINT_TABLES}
           PRAGMA user_version=${HOSTED_SCHEMA_VERSION};
         `);
       });
@@ -108,14 +113,16 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
     // that is refused is left exactly as it was found.
     const upgradePending = schemaVersion < HOSTED_SCHEMA_VERSION;
     let activated = false;
-    const activate = (): void => {
+    const activate = (options: { checkpointFiles?: string } = {}): void => {
       const skip = readOnly || activated;
       if (skip) return;
       activated = true;
       if (upgradePending) {
         const holdsInlineBytes = schemaVersion < FILE_BYTES_SCHEMA_VERSION;
         if (holdsInlineBytes) moveBytesToFiles(connection, objects, schemaVersion);
-        else dropStagingTable(connection);
+        const stagesInTable = schemaVersion === FILE_BYTES_SCHEMA_VERSION;
+        if (stagesInTable) dropStagingTable(connection);
+        addCheckpointTables(connection, objects, options.checkpointFiles, HOSTED_SCHEMA_VERSION);
         schemaVersion = HOSTED_SCHEMA_VERSION;
         // Without the bytes and the staged parts the live data is small, so
         // rebuilding the file to give their pages back is quick.
@@ -153,15 +160,18 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
       objects,
       /** The version of the schema as it is now; an upgrade changes it. */
       schemaVersion: (): number => schemaVersion,
-      /** Every object file hash a row names: the files a sweep keeps. */
+      /** Checkpoints of the hosted sandbox, kept in this store. */
+      checkpoints: createHostedCheckpointBackend(connection, commits.commit, objects),
+      /** Every object file hash a row or a checkpoint names: the files a sweep keeps. */
       referencedObjects(): Set<string> {
-        const rows = connection.prepare('SELECT DISTINCT sha256 FROM storage_objects').all();
+        const rows = connection.prepare('SELECT sha256 FROM storage_objects UNION SELECT sha256 FROM checkpoint_objects').all();
         return new Set(rows.map(row => sqlText(row, 'sha256')));
       },
       /**
        * Bring an older writable schema up to date and discard uploads a stopped
        * host left staged. Call once, after the store's contents validate, so a
-       * store that is refused is left exactly as it was found.
+       * store that is refused is left exactly as it was found. Upgrading to
+       * version 5 imports the checkpoint files in `checkpointFiles`.
        */
       activate,
       ...commits,

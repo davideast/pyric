@@ -41,7 +41,9 @@ import {
   getAdminStorageSandbox,
   getStorageRulesResolution,
   replaceStorageRules,
+  referenceStorageState,
   resetStorageState,
+  restoreStorageReferences,
   restoreStorageState,
   snapshotStorageState,
   type StorageStateRecord,
@@ -56,12 +58,39 @@ export interface DatabaseRuleset {
   rules: Record<string, unknown>;
 }
 
-/** One Storage object, with everything a reader of it can observe. */
-export interface StorageObjectState {
+/**
+ * One Storage object, with everything a reader of it can observe. Its bytes are
+ * either inline as base64, or named by SHA-256 in the backend that holds them:
+ * a capture by reference writes the second form, and only a backend that keeps
+ * content-addressed files can apply it.
+ */
+export type StorageObjectState = StorageObjectFields & (
+  | {
+    /** The object's bytes, base64 encoded so the state stays JSON. */
+    contentBase64: string;
+  }
+  | {
+    /** The SHA-256 of the object's bytes, which the backend holds. */
+    sha256: string;
+    /** The number of bytes. */
+    size: number;
+  }
+);
+
+/** Whether a Storage entry carries its bytes inline. */
+export function holdsBytesInline(object: StorageObjectState): object is StorageObjectState & { contentBase64: string } {
+  return 'contentBase64' in object;
+}
+
+/** How a capture records Storage bytes. */
+export interface FullStateCaptureOptions {
+  /** `inline` (the default) carries every object's bytes; `reference` names them by hash. */
+  storage?: 'inline' | 'reference';
+}
+
+interface StorageObjectFields {
   /** Full path within the bucket, for example `docs/hello.txt`. */
   path: string;
-  /** The object's bytes, base64 encoded so the state stays JSON. */
-  contentBase64: string;
   /** Content type the object reports, absent when it carries none. */
   contentType?: string;
   /** The object's custom metadata. Always present, empty when it carries none. */
@@ -168,8 +197,10 @@ function databaseStateWithoutRules(backend: RtdbBackend): JsonValue {
   return envelope as unknown as JsonValue;
 }
 
-/** Read every Storage object out of the bucket, bytes included. */
-async function captureStorage(storage: FirebaseStorage): Promise<StorageObjectState[]> {
+/** Read every Storage object out of the bucket, with its bytes or with its hash. */
+async function captureStorage(storage: FirebaseStorage, mode: 'inline' | 'reference'): Promise<StorageObjectState[]> {
+  const byReference = mode === 'reference';
+  if (byReference) return captureStorageReferences(storage);
   const objects: StorageObjectState[] = [];
   const records = await snapshotStorageState(storage);
   records.sort((left, right) => {
@@ -194,13 +225,33 @@ async function captureStorage(storage: FirebaseStorage): Promise<StorageObjectSt
   return objects;
 }
 
+/** Read every Storage object as a reference to the bytes its backend holds. */
+async function captureStorageReferences(storage: FirebaseStorage): Promise<StorageObjectState[]> {
+  const records = await referenceStorageState(storage);
+  records.sort((left, right) => (left.metadata.fullPath < right.metadata.fullPath ? -1 : left.metadata.fullPath > right.metadata.fullPath ? 1 : 0));
+  return records.map((record): StorageObjectState => {
+    const { fullPath, contentType, customMetadata, ...metadata } = record.metadata;
+    const object: StorageObjectState = {
+      path: fullPath,
+      sha256: record.sha256,
+      size: record.size,
+      customMetadata: customMetadata ?? {},
+      metadata,
+      blobType: record.blobType,
+    };
+    const hasContentType = contentType !== undefined;
+    if (hasContentType) object.contentType = contentType;
+    return object;
+  });
+}
+
 /**
  * Read one sandbox's entire state.
  *
  * A pure read: every service is reached through its own export seam, nothing
  * is written, and two captures with no intervening write are identical values.
  */
-export async function captureFullState(sandbox: LocalSandbox): Promise<FullSandboxState> {
+export async function captureFullState(sandbox: LocalSandbox, options: FullStateCaptureOptions = {}): Promise<FullSandboxState> {
   const env = getInternalEnv(sandbox);
   const database = databaseBackendFor(sandbox);
   const auth = authFor(sandbox);
@@ -216,7 +267,7 @@ export async function captureFullState(sandbox: LocalSandbox): Promise<FullSandb
     firestore: Object.fromEntries(Object.entries(env.snapshot()).map(([path, data]) => [path, encodeStateDocument(data)])),
     firestoreEncoding: DOC_VALUE_ENCODING,
     database: databaseStateWithoutRules(database),
-    storage: await captureStorage(storage),
+    storage: await captureStorage(storage, options.storage ?? 'inline'),
     auth: {
       users: authSandbox.exportUsers(auth),
       providers: authSandbox.exportProviderConfig(auth),
@@ -281,6 +332,19 @@ async function applyStorage(
   await resetStorageState(storage);
   for (const object of objects) {
     const metadata = object.metadata;
+    const referenced = !holdsBytesInline(object);
+    if (referenced) {
+      const missingMetadata = metadata === undefined;
+      if (missingMetadata) throw new Error(`Storage object '${object.path}' is a reference without its metadata.`);
+      await restoreStorageReferences(storage, [{
+        sha256: object.sha256,
+        size: object.size,
+        blobType: object.blobType ?? object.contentType ?? '',
+        metadata: { ...metadata, fullPath: object.path, contentType: object.contentType,
+          customMetadata: { ...object.customMetadata } },
+      }]);
+      continue;
+    }
     const hasStoredMetadata = metadata !== undefined;
     if (hasStoredMetadata) {
       await restoreStorageState(storage, [{

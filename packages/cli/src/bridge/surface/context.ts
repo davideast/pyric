@@ -10,6 +10,7 @@
  */
 import type { ToolHandler } from '@inbrowser/agent';
 import type { LocalSandbox } from 'pyric/sandbox';
+import type { CheckpointBackend } from 'pyric/sandbox/checkpoints';
 import { buildSandboxDispatcher, type SandboxDispatch } from '../client/dispatch.js';
 import { getInProcessToolHandlers } from '../server/tool-metadata.js';
 import { SurfaceIdentity } from './identity.js';
@@ -38,11 +39,14 @@ function buildSurfaceDispatch(sandbox: LocalSandbox): SandboxDispatch {
  * Build the context for one sandbox. `projectDir` names the directory the
  * session's `.pyric/` files live under; it defaults to the process working
  * directory, which is what a caller that never leaves its own project gets.
+ * `checkpoints` is where the host keeps checkpoints when it is not that
+ * directory.
  */
 export function createSurfaceContext(
   sandbox: LocalSandbox,
   projectDir: string = process.cwd(),
   targetRouter?: import('./types.js').SurfaceTargetRouter,
+  checkpoints?: CheckpointBackend,
 ): SurfaceContext {
   return {
     sandbox,
@@ -50,6 +54,7 @@ export function createSurfaceContext(
     identity: new SurfaceIdentity(),
     projectDir,
     targetRouter,
+    checkpoints,
   };
 }
 

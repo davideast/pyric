@@ -35,10 +35,18 @@ it to its hash, `fsync`s the directory, and only then commits the row that names
 it, so no committed row names bytes that are missing. An interruption leaves at
 most an unreferenced file. A deleted or replaced object's file stays on disk
 until the next start: once the store validates, a sweep runs in the background
-and removes object files that no row names and that were modified more than two
-seconds before it began, so it never races a write whose row has yet to commit.
+and removes object files that no row or checkpoint names and that were modified
+more than two seconds before it began, so it never races a write whose row has yet to commit.
 It never waits on the database and never delays a request; closing the host
 stops it between shard directories.
+
+The host keeps its checkpoints in SQLite: each one's state is JSON whose Storage
+entries name their bytes by hash, and `checkpoint_objects` lists those hashes,
+so taking a checkpoint copies no bytes, restoring one writes only rows, and the
+sweep keeps every file a checkpoint names until the checkpoint is removed.
+Upgrading to version 5 imports the checkpoints an earlier release kept as files
+in `.pyric/state/checkpoints/`, and leaves those files for an in-process sandbox,
+which still keeps its checkpoints there. Branches still carry their bytes inline.
 
 A chunked upload appends its parts, in order, to one file under
 `objects/.staging/` and hashes them as they arrive. Finishing it is the engine's

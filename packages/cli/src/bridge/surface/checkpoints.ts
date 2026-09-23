@@ -17,6 +17,7 @@ import {
   restoreNamedCheckpoint as restoreOf,
   saveCheckpoint as saveOf,
   type Checkpoint,
+  type CheckpointBackend,
   type CheckpointCounts,
   type CheckpointListing,
   type SavedCheckpoint,
@@ -27,33 +28,41 @@ import type { LocalSandbox } from 'pyric/sandbox';
 export { CHECKPOINT_NAME_PATTERN } from 'pyric/sandbox/checkpoints';
 export type { Checkpoint, CheckpointCounts, CheckpointListing };
 
-/** Where one project keeps its checkpoints. */
-function backendFor(projectDir: string) {
-  return directoryCheckpointBackend(projectDir);
+/**
+ * Where checkpoints are kept: the host's own backend when it has one (the Node
+ * host keeps them in its SQLite store), else the project's directory.
+ */
+export interface CheckpointPlace {
+  projectDir: string;
+  checkpoints?: CheckpointBackend;
+}
+
+function backendFor(place: CheckpointPlace): CheckpointBackend {
+  return place.checkpoints ?? directoryCheckpointBackend(place.projectDir);
 }
 
 /** Capture the sandbox under `name`, replacing whatever that name held. */
 export function writeCheckpoint(
   sandbox: LocalSandbox,
-  projectDir: string,
+  place: CheckpointPlace,
   name: string,
 ): Promise<SavedCheckpoint> {
-  return saveOf(backendFor(projectDir), name, sandbox);
+  return saveOf(backendFor(place), name, sandbox);
 }
 
 /** The checkpoint saved under `name`, or null when the project holds none. */
-export function readCheckpoint(projectDir: string, name: string): Promise<Checkpoint | null> {
-  return readOf(backendFor(projectDir), name);
+export function readCheckpoint(place: CheckpointPlace, name: string): Promise<Checkpoint | null> {
+  return readOf(backendFor(place), name);
 }
 
 /** Every checkpoint name the project holds, ordered. */
-export function checkpointNames(projectDir: string): Promise<string[]> {
-  return namesOf(backendFor(projectDir));
+export function checkpointNames(place: CheckpointPlace): Promise<string[]> {
+  return namesOf(backendFor(place));
 }
 
 /** Every checkpoint the project holds, with its save time and counts. */
-export function listProjectCheckpoints(projectDir: string): Promise<CheckpointListing[]> {
-  return listOf(backendFor(projectDir));
+export function listProjectCheckpoints(place: CheckpointPlace): Promise<CheckpointListing[]> {
+  return listOf(backendFor(place));
 }
 
 /**
@@ -63,13 +72,13 @@ export function listProjectCheckpoints(projectDir: string): Promise<CheckpointLi
  */
 export function restoreCheckpoint(
   sandbox: LocalSandbox,
-  projectDir: string,
+  place: CheckpointPlace,
   name: string,
 ): Promise<Checkpoint | null> {
-  return restoreOf(backendFor(projectDir), name, sandbox);
+  return restoreOf(backendFor(place), name, sandbox);
 }
 
 /** Remove one checkpoint. Reports whether there was one to remove. */
-export function removeCheckpoint(projectDir: string, name: string): Promise<boolean> {
-  return removeOf(backendFor(projectDir), name);
+export function removeCheckpoint(place: CheckpointPlace, name: string): Promise<boolean> {
+  return removeOf(backendFor(place), name);
 }

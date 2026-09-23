@@ -22,9 +22,9 @@ export default {
   example: { name: 'before-migration', confirm: true },
   async handler(args, ctx) {
     const name = String(args.name);
-    const restored = await restoreCheckpoint(ctx.sandbox, ctx.projectDir, name);
+    const restored = await restoreCheckpoint(ctx.sandbox, ctx, name);
     if (restored === null) {
-      const known = await checkpointNames(ctx.projectDir);
+      const known = await checkpointNames(ctx);
       const list = known.length === 0 ? 'none' : known.join(', ');
       return operationFailure(`No checkpoint named '${name}'. Known checkpoints: ${list}.`);
     }

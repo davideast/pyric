@@ -14,7 +14,7 @@ export default {
   operation: 'list_sandbox_checkpoints',
   example: {},
   async handler(_args, ctx) {
-    const listed = await listProjectCheckpoints(ctx.projectDir);
+    const listed = await listProjectCheckpoints(ctx);
     const checkpoints = [...listed].sort((a, b) => b.at - a.at);
     return {
       ok: true,
