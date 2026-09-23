@@ -400,6 +400,8 @@ export async function handleStorageOp(
         if (!service.backend.readUpload) {
           throw new FirebaseError('storage/unsupported', 'Current storage backend does not support chunked uploads.');
         }
+        // A Blob of the staged bytes; a backend that staged them in a file keeps
+        // that file as the object instead of reading it.
         const staged = await service.backend.readUpload(msg.uploadId);
         const result = await storageUploadBytes(storageRef(storage, pending!.path), staged, pending!.settable);
         pendingUploads(ctx).delete(msg.uploadId);

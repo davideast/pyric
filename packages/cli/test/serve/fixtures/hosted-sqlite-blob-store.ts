@@ -4,7 +4,6 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, 
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHostedPersistence, hostedStateDirectory } from '../../../src/serve/hosted/persistence.js';
-import { HOSTED_SCHEMA_VERSION } from '../../../src/serve/hosted/persistence/database.js';
 
 const root = process.argv[2];
 
@@ -42,7 +41,6 @@ const project = join(root, 'project');
 {
   const persistence = await createHostedPersistence(project);
   persistence.close();
-  assert.equal(HOSTED_SCHEMA_VERSION, 3);
   const names = columns(project);
   assert.ok(names.includes('sha256') && names.includes('size'), `columns: ${names.join(', ')}`);
   assert.equal(names.includes('bytes'), false);

@@ -19,9 +19,10 @@ persisted. Newer/unknown versions fail closed. An
 older version is upgraded in place on the first writable open, and only after
 its contents validate, so a store that is refused is left unchanged. Read-only
 opens, the offline export and salvage, read an older version as it is.
-Upgrading version 2 writes every object's bytes to its file first, then replaces
-the table in one transaction and reclaims the database pages the bytes held; an
-interruption before that commit leaves the version-2 store intact.
+Upgrading version 1 or 2 writes every object's bytes to its file first, then
+replaces the table in one transaction and reclaims the database pages the bytes
+held; an interruption before that commit leaves the store as it was. Upgrading
+version 3 drops its table of staged upload parts.
 
 Hosted mode requires Node >=22.15 and is unavailable in the Bun standalone
 binary until a Bun adapter ships. SharedWorker remains supported.
@@ -33,7 +34,14 @@ One Storage operation writes its bytes to a temporary file, `fsync`s it, renames
 it to its hash, `fsync`s the directory, and only then commits the row that names
 it, so no committed row names bytes that are missing. An interruption leaves at
 most an unreferenced file. A deleted or replaced object's file stays on disk
-until a sweep removes files no row names. Separate Firebase
+until a sweep removes files no row names.
+
+A chunked upload appends its parts, in order, to one file under
+`objects/.staging/` and hashes them as they arrive. Finishing it is the engine's
+upload of that file: the file is `fsync`ed and renamed to its hash, and no byte
+of it is read, so host memory does not grow with the object. An upload lives
+only as long as the host that began it; the next host discards what it left
+staged. Separate Firebase
 operations have no new cross-service transaction guarantee. A successful mutation
 acknowledgment follows its required persistence commit. A lost acknowledgment
 does not prove the operation was absent; do not promise exactly-once requests.

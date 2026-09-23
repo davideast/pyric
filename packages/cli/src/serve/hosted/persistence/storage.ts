@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { openAsBlob } from 'node:fs';
 import { FirebaseError } from 'pyric/app';
 import type { StorageBackend, StoredMetadata } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
 import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
-import type { BlobStore, StoredBytes } from './blob-store.js';
+import type { BlobStore, StagedFile, StoredBytes } from './blob-store.js';
 import type { Commit } from './commits.js';
 import { sqlText, type SqlConnection, type SqlRow } from './sqlite.js';
 
@@ -13,9 +14,9 @@ export interface ScopedStorageBackend extends StorageBackend {
   scoped(bucket: string): ScopedStorageBackend;
   /** Run a synchronous seed transaction after earlier Storage mutations. */
   mutate<T>(work: (putBytes: PutStorageBytes) => T): Promise<T>;
-  beginUpload(bucket: string, path: string, size: number, mime?: string, customMetadata?: Record<string, string>, connectionId?: string): Promise<string>;
+  beginUpload(bucket: string, path: string, size: number, mime?: string): Promise<string>;
   putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }>;
-  readUpload(uploadId: string): Promise<Uint8Array>;
+  readUpload(uploadId: string): Promise<Blob>;
   abortUpload(uploadId: string): Promise<void>;
   readRange(bucket: string, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined>;
 }
@@ -39,6 +40,18 @@ function storedBytesOf(row: SqlRow): StoredBytes {
 }
 
 /**
+ * A chunked upload in progress. It lives only as long as the host that began
+ * it; a new host discards what an earlier one left staged.
+ */
+interface Upload {
+  path: string;
+  size: number;
+  contentType: string;
+  file: StagedFile;
+  nextIndex: number;
+}
+
+/**
  * Metadata lives in a row that names the object's bytes by hash. The bytes are
  * durable in their file before the row that names them commits.
  */
@@ -52,13 +65,6 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
   const list = connection.prepare('SELECT metadata FROM storage_objects WHERE bucket=? AND substr(path, 1, length(?))=? ORDER BY path');
   const clearBucket = connection.prepare('DELETE FROM storage_objects WHERE bucket=?');
 
-  // ADR 0015 Chunked storage staging and ranged reads
-  const beginUploadStmt = lazyStatement(connection, 'INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, -1, ?, ?)');
-  const readHeaderStmt = lazyStatement(connection, 'SELECT * FROM storage_uploads WHERE upload_id=? AND part_index=-1');
-  const insertPartStmt = lazyStatement(connection, 'INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(upload_id, part_index) DO UPDATE SET bytes=excluded.bytes');
-  const readPartsStmt = lazyStatement(connection, 'SELECT bytes FROM storage_uploads WHERE upload_id=? AND part_index >= 0 ORDER BY part_index');
-  const sumPartsStmt = lazyStatement(connection, 'SELECT COALESCE(SUM(length(bytes)), 0) AS bytesReceived FROM storage_uploads WHERE upload_id=? AND part_index >= 0');
-  const deleteUploadStmt = lazyStatement(connection, 'DELETE FROM storage_uploads WHERE upload_id=?');
   const readRangeStmt = lazyStatement(connection, 'SELECT sha256, size, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
   // Reserve order before binary conversion yields. Reset and later uploads must
@@ -68,6 +74,26 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
     const result = mutations.then(work);
     mutations = result.catch(() => {});
     return result;
+  }
+
+  const uploads = new Map<string, Upload>();
+  // The Blob `readUpload` returned for each finished upload. The engine hands
+  // it back to `put`, which moves the staged file into place instead of reading it.
+  const finishedUploads = new WeakMap<Blob, Upload>();
+
+  function uploadOf(uploadId: string): Upload {
+    const upload = uploads.get(uploadId);
+    const missingUpload = upload === undefined;
+    if (missingUpload) throw new Error(`Upload '${uploadId}' not found or already completed.`);
+    return upload;
+  }
+
+  function adoptUpload(path: string, upload: Upload, mime: string, value: StoredMetadata): void {
+    const metadata = storedMetadataSchema.parse(value);
+    const mismatchedObject = metadata.fullPath !== path || metadata.size !== upload.size;
+    if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
+    const stored = objects.adopt(upload.file);
+    commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
   }
 
   function putBytes(path: string, bytes: Uint8Array, mime: string, value: StoredMetadata): void {
@@ -86,6 +112,12 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
       async put(path, blob, value) {
         const tooLarge = blob.size > MAX_STORAGE_OBJECT_BYTES;
         if (tooLarge) throw storageQuotaExceeded(blob.size, 'Storage object');
+        const upload = finishedUploads.get(blob);
+        const finishesUpload = upload !== undefined;
+        if (finishesUpload) {
+          await enqueue(() => adoptUpload(path, upload, blob.type, value));
+          return;
+        }
         await enqueue(async () => {
           const bytes = new Uint8Array(await blob.arrayBuffer());
           putBytes(path, bytes, blob.type, value);
@@ -136,65 +168,45 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           else clearBucket.run(bucket);
         }));
       },
-      async beginUpload(bucket = defaultBucket, path: string, size: number, mime?: string, customMetadata?: Record<string, string>, connectionId?: string): Promise<string> {
+      // The object's bucket comes from the metadata the engine writes it with.
+      async beginUpload(_bucket: string, path: string, size: number, mime?: string): Promise<string> {
         return enqueue(() => {
           const uploadId = randomUUID();
-          const contentType = mime ?? 'application/octet-stream';
-          const metaJson = customMetadata ? JSON.stringify(customMetadata) : null;
-          commit(() => {
-            beginUploadStmt().run(uploadId, connectionId ?? null, bucket, path, size, contentType, metaJson, new Uint8Array(0), Date.now());
-          });
+          const file = objects.stage(uploadId);
+          uploads.set(uploadId, { path, size, contentType: mime ?? 'application/octet-stream', file, nextIndex: 0 });
           return uploadId;
         });
       },
       async putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }> {
         return enqueue(() => {
-          const header = readHeaderStmt().get(uploadId);
-          if (header === undefined) throw new Error(`Upload '${uploadId}' not found or already completed.`);
-          commit(() => {
-            insertPartStmt().run(
-              uploadId,
-              header.connection_id,
-              header.bucket,
-              header.path,
-              header.size,
-              header.content_type,
-              header.custom_metadata,
-              index,
-              part,
-              Date.now(),
-            );
-          });
-          const sumRow = sumPartsStmt().get(uploadId);
-          const bytesReceived = Number(sumRow?.bytesReceived ?? 0);
-          return { bytesReceived };
+          const upload = uploadOf(uploadId);
+          // Parts append to one file and one running hash, so each must be the next.
+          const outOfOrder = index !== upload.nextIndex;
+          if (outOfOrder) throw new Error(`Part ${index} of upload '${uploadId}' arrived out of order; part ${upload.nextIndex} is next.`);
+          const overflows = upload.file.received + part.byteLength > upload.size;
+          if (overflows) throw new Error(`Part ${index} of upload '${uploadId}' would pass its declared size of ${upload.size} bytes.`);
+          upload.file.append(part);
+          upload.nextIndex++;
+          return { bytesReceived: upload.file.received };
         });
       },
-      async readUpload(uploadId: string): Promise<Uint8Array> {
-        return enqueue(() => {
-          const header = readHeaderStmt().get(uploadId);
-          if (header === undefined) throw new Error(`Upload '${uploadId}' not found or already completed.`);
-          const declaredSize = Number(header.size);
-          const parts = readPartsStmt().all(uploadId);
-          const totalLength = parts.reduce((sum, part) => sum + (part.bytes instanceof Uint8Array ? part.bytes.byteLength : 0), 0);
-          const incomplete = totalLength !== declaredSize;
-          if (incomplete) throw new Error(`Staged bytes (${totalLength}) do not match declared size (${declaredSize}).`);
-          const bytes = new Uint8Array(declaredSize);
-          let offset = 0;
-          for (const part of parts) {
-            const hasBytes = part.bytes instanceof Uint8Array;
-            if (!hasBytes) continue;
-            bytes.set(part.bytes as Uint8Array, offset);
-            offset += (part.bytes as Uint8Array).byteLength;
-          }
-          return bytes;
+      async readUpload(uploadId: string): Promise<Blob> {
+        return enqueue(async () => {
+          const upload = uploadOf(uploadId);
+          const received = upload.file.received;
+          const incomplete = received !== upload.size;
+          if (incomplete) throw new Error(`Staged bytes (${received}) do not match declared size (${upload.size}).`);
+          upload.file.seal();
+          const blob = await openAsBlob(upload.file.path, { type: upload.contentType });
+          finishedUploads.set(blob, upload);
+          return blob;
         });
       },
       async abortUpload(uploadId: string): Promise<void> {
         return enqueue(() => {
-          commit(() => {
-            deleteUploadStmt().run(uploadId);
-          });
+          const upload = uploads.get(uploadId);
+          uploads.delete(uploadId);
+          upload?.file.discard();
         });
       },
       async readRange(bucket = defaultBucket, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined> {

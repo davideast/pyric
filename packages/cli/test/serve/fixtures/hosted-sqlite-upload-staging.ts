@@ -112,7 +112,7 @@ const project = join(root, 'project');
     peak = Math.max(peak, process.memoryUsage().rss);
     assert.equal(result.metadata.size, size);
     const growth = peak - rssBefore;
-    assert.ok(growth < 96 * MiB, `a ${size / MiB} MiB upload grew rss by ${(growth / MiB).toFixed(1)} MiB`);
+    assert.ok(growth < 32 * MiB, `a ${size / MiB} MiB upload grew rss by ${(growth / MiB).toFixed(1)} MiB`);
     const slice = await host.persistence.storage.readRange(bucket, 'media/long.wav', 37 * PART, 16);
     assert.deepEqual(slice, new Uint8Array(16).fill(37));
   } finally { host.close(); }
