@@ -102,7 +102,7 @@ const project = join(root, 'project');
     await persistence.sweep;
     const bytes = bytesOf('staged a while ago');
     const uploadId = await persistence.storage.beginUpload(bucket, 'notes/slow.txt', bytes.byteLength, 'text/plain');
-    await persistence.storage.putPart(uploadId, 0, bytes);
+    await persistence.storage.appendUpload(uploadId, 0, bytes);
     const staged = join(objects(project), '.staging', uploadId);
     const past = new Date(Date.now() - HOUR);
     utimesSync(staged, past, past);

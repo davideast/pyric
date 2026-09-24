@@ -33,6 +33,7 @@ import { WebSocket } from 'ws';
 import { Socket } from 'node:net';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
 import type { FullMetadata } from 'pyric/storage';
+import { fetchFromByteRoute, uploadOverByteRoute, type RemoteByteRoute } from 'pyric/storage/internal';
 import {
   REMOTE_SANDBOX,
   SandboxContextImpl,
@@ -45,7 +46,7 @@ import type {
   WorkerOpPayload,
   WorkerSubPayload,
 } from '../bridge/protocol.js';
-import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, NO_SANDBOX_ERROR_MESSAGE } from '../bridge/protocol.js';
+import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, NO_SANDBOX_ERROR_MESSAGE, STORAGE_BYTE_ROUTE_CAPABILITY } from '../bridge/protocol.js';
 import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { createOperationBudget } from '../bridge/operation-budget.js';
 import { cliVersion } from '../pkg-version.js';
@@ -115,6 +116,11 @@ export interface RemoteSandboxChannel {
     onSnap: (value: unknown) => void,
     onError?: (err: Error & { code: string }) => void,
   ): () => void;
+  /**
+   * The host's HTTP byte route for Storage bytes, once attached, or undefined
+   * when the host takes bytes as frames (a browser tab's SharedWorker).
+   */
+  byteRoute?(): Promise<RemoteByteRoute | undefined>;
 }
 
 /** Wire shape of an RTDB snapshot as the worker host serializes it. */
@@ -150,12 +156,12 @@ export interface RemoteRtdb {
 }
 
 /**
- * Thin Storage conveniences over the channel — the byte-carrying base64 ops
- * plus browse/metadata. Every call pins `actAs: { mode: 'admin' }`
- * (firebase-admin's rules-bypass semantics, matching {@link RemoteRtdb});
- * use the raw `channel` for lensed (rules-evaluated) access. Bytes are
- * capped at 8 MiB raw ({@link MAX_STORAGE_OP_BYTES}) on both ends —
- * streaming transfers are not supported on the sandbox backend.
+ * Thin Storage conveniences over the channel: bytes plus browse/metadata.
+ * Every call pins `actAs: { mode: 'admin' }` (firebase-admin's rules-bypass
+ * semantics, matching {@link RemoteRtdb}); use the raw `channel` for lensed
+ * (rules-evaluated) access. A host with an HTTP byte route moves bytes there
+ * with no size cap; a host without one takes base64 frames capped at 8 MiB
+ * raw ({@link MAX_STORAGE_OP_BYTES}) on both ends.
  */
 export interface RemoteStorage {
   /** Upload `data` at `path` (replaces any existing object). Resolves with
@@ -208,7 +214,7 @@ export interface RemoteSandbox extends RemoteSandboxBase {
   readonly channel: RemoteSandboxChannel;
   /** RTDB conveniences (admin lens pinned). */
   readonly rtdb: RemoteRtdb;
-  /** Storage conveniences (admin lens pinned; 8 MiB per-op byte cap). */
+  /** Storage conveniences (admin lens pinned). */
   readonly storage: RemoteStorage;
   /** Admin auth user CRUD. */
   readonly auth: RemoteAuthAdmin;
@@ -239,6 +245,8 @@ export interface RemoteSandboxCore {
   handleMessage(msg: BridgeMessage): void;
   /** Send the attach handshake. `ready` settles on the ack. */
   start(): void;
+  /** The capabilities the attach acknowledgement advertised. */
+  capabilities(): readonly string[];
   /** Resolves on `attach-ack`; rejects when no browser tab is connected. */
   ready: Promise<void>;
   channel: RemoteSandboxChannel;
@@ -265,6 +273,7 @@ export function createRemoteSandboxCore(
   let opCounter = 0;
   let subCounter = 0;
   let disposed: string | null = null;
+  let advertised: readonly string[] = [];
 
   const pending = new Map<
     string,
@@ -410,6 +419,7 @@ export function createRemoteSandboxCore(
             `${cliVersion()}. Restart pyric sandbox and reload the browser tab.`;
           process.stderr.write(`pyric: ${versionSkewGuidance}\n`);
         }
+        advertised = Array.isArray(msg.capabilities) ? msg.capabilities.filter(item => typeof item === 'string') : [];
         const hasPeer = msg.peerConnected;
         if (hasPeer) readyResolve();
         else readyReject(noTabError(serveUrl));
@@ -524,6 +534,7 @@ export function createRemoteSandboxCore(
     handleMessage,
     fail,
     start: () => send({ type: 'attach', protocol: 1 }),
+    capabilities: () => advertised,
     ready,
     channel: { op, subscribe },
     dispose,
@@ -574,12 +585,38 @@ export function buildRemoteRtdb(channel: RemoteSandboxChannel): RemoteRtdb {
   };
 }
 
+/** Read the session token from the host's init.json, as a page does; kept once read, asked again after a failure. */
+function sessionTokenFrom(base: string): () => Promise<string | null> {
+  let token: Promise<string | null> | undefined;
+  return async () => {
+    token ??= fetch(`${base}/__pyric/init.json`)
+      .then(response => (response.ok ? response.json() : null))
+      .then((body: { sessionToken?: unknown } | null) => (typeof body?.sessionToken === 'string' ? body.sessionToken : null))
+      .catch(() => null);
+    const value = await token;
+    if (value === null) token = undefined;
+    return value;
+  };
+}
+
 export function buildRemoteStorage(channel: RemoteSandboxChannel): RemoteStorage {
   return {
     async putBytes(path, data, options) {
-      // Client-side cap: reject BEFORE encoding/sending so an oversized
-      // payload never hits the wire (the host enforces the same cap on
-      // decode — belt and braces across the relay).
+      const route = await channel.byteRoute?.();
+      const routed = route !== undefined;
+      if (routed) {
+        const operations = { op: (payload: { method: string }) => channel.op(payload as WorkerOpPayload) };
+        return (await uploadOverByteRoute(operations, route, {
+          path,
+          data: new Blob([data as Uint8Array<ArrayBuffer>]),
+          contentType: options?.contentType,
+          metadata: options?.metadata as Record<string, unknown> | undefined,
+          actAs: ADMIN_LENS,
+        })) as FullMetadata;
+      }
+      // A host without a byte route takes bytes as frames, capped per
+      // operation: reject before encoding so an oversized payload never
+      // reaches the wire (the host enforces the same cap on decode).
       if (data.byteLength > MAX_STORAGE_OP_BYTES) {
         throw storagePayloadTooLarge(data.byteLength, `storage payload for '${path}'`);
       }
@@ -593,6 +630,13 @@ export function buildRemoteStorage(channel: RemoteSandboxChannel): RemoteStorage
       })) as FullMetadata;
     },
     async getBytes(path) {
+      const route = await channel.byteRoute?.();
+      const routed = route !== undefined;
+      if (routed) {
+        const metadata = await this.getMetadata(path);
+        const response = await fetchFromByteRoute(route, { bucket: metadata.bucket, path });
+        return Buffer.from(await response.arrayBuffer());
+      }
       const res = (await channel.op({
         method: 'storage.getBytes',
         path,
@@ -949,9 +993,15 @@ export async function connectRemoteSandbox(
     throw err;
   }
 
+  // A host with a byte route takes Storage bytes over HTTP, authorized by the
+  // session token its init.json hands a local process.
+  const offersByteRoute = core.capabilities().includes(STORAGE_BYTE_ROUTE_CAPABILITY);
+  const byteRoute: RemoteByteRoute | undefined = offersByteRoute
+    ? { baseUrl: wsBase, sessionToken: sessionTokenFrom(wsBase) }
+    : undefined;
   return createRemoteSandboxHandle({
     serveUrl,
-    channel: core.channel,
+    channel: { ...core.channel, byteRoute: async () => byteRoute },
     close() {
       core.dispose('remote sandbox connection closed by the client');
       try {
@@ -1030,6 +1080,7 @@ export function createLazyRemoteSandbox(
 
   const channel: RemoteSandboxChannel = {
     op: (payload) => ensure().then((h) => h.channel.op(payload)),
+    byteRoute: () => ensure().then((h) => h.channel.byteRoute?.()),
     subscribe(sub, onSnap, onError) {
       let cancelled = false;
       let innerUnsub: (() => void) | null = null;

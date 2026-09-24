@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createSandboxRoot } from 'pyric/sandbox/internal';
 import { getAdminStorageSandbox, installStorageBackend } from 'pyric/storage/internal';
 import { ref, uploadBytes } from 'pyric/storage';
 import { createHostedPersistence, hostedStateDirectory } from '../../../src/serve/hosted/persistence.js';
+import { UploadOffsetError } from '../../../src/serve/hosted/persistence/storage.js';
 
 const root = process.argv[2];
 const MiB = 1024 * 1024;
@@ -31,7 +32,7 @@ async function open(project: string) {
   return { persistence, finish, close() { sandbox.dispose(); persistence.close(); } };
 }
 
-// Parts append to one staging file; nothing about the upload is written to SQLite.
+// Bytes append to one staging file; nothing about the upload is written to SQLite.
 const project = join(root, 'project');
 {
   const host = await open(project);
@@ -39,7 +40,8 @@ const project = join(root, 'project');
     const parts = [new Uint8Array(PART).fill(1), new Uint8Array(PART).fill(2), new Uint8Array(1000).fill(3)];
     const size = parts.reduce((sum, part) => sum + part.byteLength, 0);
     const uploadId = await host.persistence.storage.beginUpload(bucket, 'media/take.wav', size, 'audio/wav');
-    for (const [index, part] of parts.entries()) await host.persistence.storage.putPart(uploadId, index, part);
+    let offset = 0;
+    for (const part of parts) offset = (await host.persistence.storage.appendUpload(uploadId, offset, part)).received;
     const file = join(staging(project), uploadId);
     assert.equal(statSync(file).size, size);
     const database = new DatabaseSync(join(hostedStateDirectory(project), 'state.sqlite'), { readOnly: true });
@@ -61,20 +63,21 @@ const project = join(root, 'project');
     const blob = await host.persistence.storage.getBlob('media/take.wav', bucket);
     assert.equal(blob?.size, size);
     assert.equal(blob?.type, 'audio/wav');
-    const tail = await host.persistence.storage.readRange(bucket, 'media/take.wav', 2 * PART, 1000);
-    assert.deepEqual(tail, parts[2]);
+    const stored = await host.persistence.storage.objectFile(bucket, 'media/take.wav');
+    assert.equal(stored?.file, objectFile(project, sha256));
+    assert.equal(stored?.size, size);
   } finally { host.close(); }
 }
 
-// Parts are accepted only in order and only up to the declared size.
+// Bytes are accepted only from the offset the upload has reached, and only up to the declared size.
 {
   const host = await open(project);
   try {
     const uploadId = await host.persistence.storage.beginUpload(bucket, 'media/order.bin', 10, 'application/octet-stream');
-    await assert.rejects(host.persistence.storage.putPart(uploadId, 1, new Uint8Array(5)), /order/);
-    await host.persistence.storage.putPart(uploadId, 0, new Uint8Array(5));
-    await assert.rejects(host.persistence.storage.putPart(uploadId, 0, new Uint8Array(5)), /order/);
-    await assert.rejects(host.persistence.storage.putPart(uploadId, 1, new Uint8Array(6)), /declared size/);
+    await assert.rejects(host.persistence.storage.appendUpload(uploadId, 5, new Uint8Array(5)), UploadOffsetError);
+    await host.persistence.storage.appendUpload(uploadId, 0, new Uint8Array(5));
+    await assert.rejects(host.persistence.storage.appendUpload(uploadId, 0, new Uint8Array(5)), UploadOffsetError);
+    await assert.rejects(host.persistence.storage.appendUpload(uploadId, 5, new Uint8Array(6)), /declared size/);
     await assert.rejects(host.persistence.storage.readUpload(uploadId), /declared size/);
     await host.persistence.storage.abortUpload(uploadId);
     assert.equal(existsSync(join(staging(project), uploadId)), false);
@@ -91,8 +94,8 @@ const project = join(root, 'project');
   assert.deepEqual(readdirSync(staging(project)), []);
 }
 
-// Host memory stays flat for an object many parts long: staging writes each
-// part to disk, and finishing reads nothing.
+// Host memory stays flat for an object many slices long: staging writes each
+// slice to disk, and finishing reads nothing.
 {
   const large = join(root, 'large');
   const host = await open(large);
@@ -106,7 +109,7 @@ const project = join(root, 'project');
     let peak = rssBefore;
     for (let index = 0; index < parts; index++) {
       part.fill(index);
-      await host.persistence.storage.putPart(uploadId, index, part);
+      await host.persistence.storage.appendUpload(uploadId, index * PART, part);
       peak = Math.max(peak, process.memoryUsage().rss);
     }
     const result = await host.finish(uploadId, 'media/long.wav', 'audio/wav');
@@ -114,7 +117,10 @@ const project = join(root, 'project');
     assert.equal(result.metadata.size, size);
     const growth = peak - rssBefore;
     assert.ok(growth < 32 * MiB, `a ${size / MiB} MiB upload grew rss by ${(growth / MiB).toFixed(1)} MiB`);
-    const slice = await host.persistence.storage.readRange(bucket, 'media/long.wav', 37 * PART, 16);
+    const stored = await host.persistence.storage.objectFile(bucket, 'media/long.wav');
+    const descriptor = openSync(stored!.file, 'r');
+    const slice = new Uint8Array(16);
+    try { readSync(descriptor, slice, 0, 16, 37 * PART); } finally { closeSync(descriptor); }
     assert.deepEqual(slice, new Uint8Array(16).fill(37));
   } finally { host.close(); }
 }

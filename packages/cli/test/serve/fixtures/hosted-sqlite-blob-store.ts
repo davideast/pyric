@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, truncateSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, rmSync, truncateSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHostedPersistence, hostedStateDirectory } from '../../../src/serve/hosted/persistence.js';
@@ -67,23 +67,20 @@ const bytes = new Uint8Array(3 * MiB).map((_, index) => (index * 31) % 251);
   assert.deepEqual(existsSync(staging) ? readdirSync(staging) : [], []);
 }
 
-// Reads come from the file: a whole object, and a range at an offset.
+// Reads come from the file: a whole object, and the file itself for the byte route.
 {
   const persistence = await createHostedPersistence(project);
   try {
     const blob = await persistence.storage.getBlob('media/a.bin', bucket);
     assertSameBytes(new Uint8Array(await blob!.arrayBuffer()), bytes, 'whole object');
-    const range = await persistence.storage.readRange(bucket, 'media/a.bin', MiB + 7, 4096);
-    assert.deepEqual(range, bytes.slice(MiB + 7, MiB + 7 + 4096));
-    const tail = await persistence.storage.readRange(bucket, 'media/a.bin', bytes.byteLength - 10, 4096);
-    assert.deepEqual(tail, bytes.slice(bytes.byteLength - 10));
-    const past = await persistence.storage.readRange(bucket, 'media/a.bin', bytes.byteLength + 10, 4096);
-    assert.equal(past?.byteLength, 0);
+    const stored = await persistence.storage.objectFile(bucket, 'media/a.bin');
+    assert.equal(stored?.file, objectFile(project, sha256(bytes)));
+    assert.equal(stored?.size, bytes.byteLength);
   } finally { persistence.close(); }
 }
 
-// A ranged read costs the range, not the object. The object here is a 400 MiB
-// sparse file, so reading it whole would add hundreds of MiB of resident memory.
+// Finding an object's file costs nothing of the object. The object here is a
+// 400 MiB sparse file, so reading it whole would add hundreds of MiB of resident memory.
 {
   const large = join(root, 'large');
   const persistence = await createHostedPersistence(large);
@@ -106,11 +103,15 @@ const bytes = new Uint8Array(3 * MiB).map((_, index) => (index * 31) % 251);
   try {
     const rssBefore = process.memoryUsage().rss;
     for (let read = 0; read < 8; read++) {
-      const range = await opened.storage.readRange(bucket, 'media/seed.bin', 300 * MiB, MiB);
-      assert.deepEqual(range?.slice(0, marker.byteLength), marker);
+      const stored = await opened.storage.objectFile(bucket, 'media/seed.bin');
+      assert.equal(stored?.size, size);
+      const found = openSync(stored!.file, 'r');
+      const range = new Uint8Array(marker.byteLength);
+      try { readSync(found, range, 0, range.byteLength, 300 * MiB); } finally { closeSync(found); }
+      assert.deepEqual(range, marker);
     }
     const growth = process.memoryUsage().rss - rssBefore;
-    assert.ok(growth < 64 * MiB, `ranged reads grew rss by ${(growth / MiB).toFixed(1)} MiB`);
+    assert.ok(growth < 64 * MiB, `reads from the object's file grew rss by ${(growth / MiB).toFixed(1)} MiB`);
   } finally { opened.close(); }
 }
 

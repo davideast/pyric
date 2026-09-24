@@ -17,7 +17,7 @@
  *   - exists / delete / idempotent re-delete; `No such object` parity
  *   - cross-visibility with an independent direct worker port (one store)
  *   - 8 MiB cap: client-side rejection before send + host-side rejection
- *   - non-default bucket / resumable / stream remediating throws
+ *   - non-default bucket and resumable remediating throws; streams as frames
  *   - getSignedUrl stub byte-identical to the local arm
  *   - deny-all page rules bypassed by the pinned admin lens
  *   - no-peer fail-fast through the storage API
@@ -27,6 +27,8 @@
 
 import 'fake-indexeddb/auto';
 import { afterEach, describe, it, expect } from 'bun:test';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
@@ -364,18 +366,19 @@ describe('pyric-admin remote dispatch — Storage remediating throws', () => {
     expect(back.byteLength).toBe(MAX_STORAGE_OP_BYTES + 1);
   });
 
-  it('resumable saves and streams throw with remote-flavored remediation', async () => {
+  it('resumable saves throw; streams move bytes as frames on a SharedWorker host', async () => {
     const { app } = makeStack();
     const file = getStorage(app).bucket().file('x/y');
     await expect(file.save(Buffer.from('x'), { resumable: true })).rejects.toThrow(
       /resumable uploads/,
     );
-    const asStreams = file as unknown as {
-      createWriteStream(): never;
-      createReadStream(): never;
-    };
-    expect(() => asStreams.createWriteStream()).toThrow(/createWriteStream.*save/s);
-    expect(() => asStreams.createReadStream()).toThrow(/createReadStream.*download/s);
+    const bytes = Buffer.from(Array.from({ length: 5 * 1024 * 1024 + 9 }, (_, index) => index % 251));
+    await pipeline(Readable.from([bytes.subarray(0, 1000), bytes.subarray(1000)]), file.createWriteStream({ contentType: 'audio/wav' }));
+    const chunks: Buffer[] = [];
+    for await (const chunk of file.createReadStream({ start: 4 * 1024 * 1024 - 5, end: 4 * 1024 * 1024 + 4 })) chunks.push(chunk as Buffer);
+    expect(Buffer.concat(chunks).equals(bytes.subarray(4 * 1024 * 1024 - 5, 4 * 1024 * 1024 + 5))).toBe(true);
+    const [whole] = await file.download();
+    expect(whole.equals(bytes)).toBe(true);
   });
 });
 

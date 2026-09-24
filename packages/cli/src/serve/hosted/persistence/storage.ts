@@ -24,10 +24,8 @@ export interface ScopedStorageBackend extends StorageBackend {
   /** Run a synchronous seed transaction after earlier Storage mutations. */
   mutate<T>(work: (writes: StorageWrites) => T): Promise<T>;
   beginUpload(bucket: string, path: string, size: number, mime?: string): Promise<string>;
-  putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }>;
   readUpload(uploadId: string): Promise<Blob>;
   abortUpload(uploadId: string): Promise<void>;
-  readRange(bucket: string, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined>;
   references(bucket?: string): Promise<StorageReferenceRecord[]>;
   putReference(path: string, reference: StoredBytes, mime: string, metadata: StoredMetadata): Promise<void>;
   /** The file holding an object's bytes, with what a response needs to describe them. */
@@ -84,7 +82,6 @@ interface Upload {
   size: number;
   contentType: string;
   file: StagedFile;
-  nextIndex: number;
 }
 
 /**
@@ -100,8 +97,6 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
   const remove = connection.prepare('DELETE FROM storage_objects WHERE bucket=? AND path=?');
   const list = connection.prepare('SELECT metadata FROM storage_objects WHERE bucket=? AND substr(path, 1, length(?))=? ORDER BY path');
   const clearBucket = connection.prepare('DELETE FROM storage_objects WHERE bucket=?');
-
-  const readRangeStmt = lazyStatement(connection, 'SELECT sha256, size, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
   // Reserve order before binary conversion yields. Reset and later uploads must
   // not overtake a pending upload and then be undone when its bytes arrive.
@@ -223,21 +218,8 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
         return enqueue(() => {
           const uploadId = randomUUID();
           const file = objects.stage(uploadId);
-          uploads.set(uploadId, { path, size, contentType: mime ?? 'application/octet-stream', file, nextIndex: 0 });
+          uploads.set(uploadId, { path, size, contentType: mime ?? 'application/octet-stream', file });
           return uploadId;
-        });
-      },
-      async putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }> {
-        return enqueue(() => {
-          const upload = uploadOf(uploadId);
-          // Parts append to one file and one running hash, so each must be the next.
-          const outOfOrder = index !== upload.nextIndex;
-          if (outOfOrder) throw new Error(`Part ${index} of upload '${uploadId}' arrived out of order; part ${upload.nextIndex} is next.`);
-          const overflows = upload.file.received + part.byteLength > upload.size;
-          if (overflows) throw new Error(`Part ${index} of upload '${uploadId}' would pass its declared size of ${upload.size} bytes.`);
-          upload.file.append(part);
-          upload.nextIndex++;
-          return { bytesReceived: upload.file.received };
         });
       },
       async readUpload(uploadId: string): Promise<Blob> {
@@ -258,16 +240,6 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           uploads.delete(uploadId);
           upload?.file.discard();
         });
-      },
-      async readRange(bucket = defaultBucket, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined> {
-        await mutations;
-        const row = readRangeStmt().get(bucket, path);
-        if (row === undefined) return undefined;
-        const meta = metadataOf(row);
-        if (expectedGeneration !== undefined && meta.generation !== expectedGeneration) {
-          throw new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
-        }
-        return objects.readRange(storedBytesOf(row), offset, length);
       },
       async objectFile(bucket, path) {
         await mutations;

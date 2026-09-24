@@ -98,6 +98,27 @@ describe('storage worker ops — the byte route for one upload', () => {
   });
 });
 
+describe('storage worker ops — a host with a byte route', () => {
+  it('refuses Storage bytes sent as frames, and still begins and finishes uploads', async () => {
+    const ctx: HostCtx = { ...makeCtx(), storageByteRoute: true };
+    for (const payload of [
+      { method: 'storage.putBytes', path: 'media/a.bin', dataB64: 'AAAA' },
+      { method: 'storage.getBytes', path: 'media/a.bin' },
+      { method: 'storage.getBytes', path: 'media/a.bin', offset: 0, length: 4 },
+      { method: 'storage.getBlob', path: 'media/a.bin' },
+      { method: 'storage.putPart', uploadId: 'any', partIndex: 0, dataB64: 'AAAA' },
+    ]) {
+      const refused = await opFail(ctx, payload);
+      expect(refused.code).toBe('failed-precondition');
+      expect(refused.message).toContain('byte route');
+    }
+    const begun = await opOk(ctx, { method: 'storage.beginUpload', path: 'media/a.bin', size: 0 }) as { uploadId: string; uploadUrl: string };
+    expect(begun.uploadUrl).toContain('upload_token=');
+    const finished = await opOk(ctx, { method: 'storage.finishUpload', uploadId: begun.uploadId }) as { size: number };
+    expect(finished.size).toBe(0);
+  });
+});
+
 describe('storage worker ops — chunked transfer protocol (ADR 0015)', () => {
   it('stages chunked parts and finalizes upload into storage', async () => {
     const ctx = makeCtx();
