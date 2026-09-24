@@ -30,7 +30,7 @@ export {
 } from './service.js';
 export { enforceRules, storageFirestoreLookup } from './enforce.js';
 export { requestResourceFor, resourceFromStored } from './sandbox/rules-resources.js';
-export { toFullMetadata } from './metadata.js';
+export { patchObjectMetadata, toFullMetadata, type AdminMetadataPatch } from './metadata.js';
 export {
   decodeString,
   defaultRawContentType,

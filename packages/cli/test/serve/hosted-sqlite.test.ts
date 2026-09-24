@@ -74,6 +74,10 @@ test('the web client moves Storage bytes over the byte route, with real progress
   expect(await runNodeFixture('web-byte-route', 60_000)).toBe('Web byte route passed');
 }, 90_000);
 
+test('pyric-admin on the Node host replays the production admin metadata and download URL observation', async () => {
+  expect(await runNodeFixture('admin-metadata-oracle', 30_000)).toBe('Admin metadata oracle replay passed');
+}, 60_000);
+
 test('the Node host replays the production download URL observations', async () => {
   expect(await runNodeFixture('download-url-oracle', 30_000)).toBe('Download URL oracle replay passed');
 }, 60_000);

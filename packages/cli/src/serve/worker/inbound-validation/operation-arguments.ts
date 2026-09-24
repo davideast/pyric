@@ -17,7 +17,7 @@ function assertRequiredPath(message: Record<string, unknown>): void {
     case 'rtdb.get': case 'rtdb.set': case 'rtdb.setPriority': case 'rtdb.setWithPriority':
     case 'rtdb.update': case 'rtdb.remove': case 'rtdb.push': case 'rtdb.transactionCommit':
     case 'rtdb.onDisconnectSet': case 'rtdb.onDisconnectUpdate': case 'rtdb.onDisconnectRemove': case 'rtdb.onDisconnectCancel':
-    case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob': case 'storage.getDownloadURL':
+    case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob': case 'storage.getDownloadURL': case 'storage.setMetadata':
     case 'storage.getBytes': case 'storage.deleteObject': case 'storage.putBytes':
     case 'storage.beginUpload':
       requireString(message.path, 'path');
@@ -118,6 +118,17 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       requireString(message.providerId, 'providerId');
       const hasEnabledFlag = typeof message.enabled === 'boolean';
       requireShape(hasEnabledFlag, 'enabled');
+      return;
+    }
+    case 'storage.setMetadata': {
+      const patch = message.patch;
+      requireRecord(patch, 'patch');
+      const { settable, customMetadata, downloadTokens } = patch;
+      requireOptionalRecord(settable, 'patch.settable');
+      requireShape(settable === undefined || Object.values(settable as object).every(value => typeof value === 'string'), 'patch.settable');
+      requireOptionalRecord(customMetadata, 'patch.customMetadata');
+      requireShape(customMetadata === undefined || Object.values(customMetadata as object).every(value => value === null || typeof value === 'string'), 'patch.customMetadata');
+      requireShape(downloadTokens === undefined || downloadTokens === null || typeof downloadTokens === 'string', 'patch.downloadTokens');
       return;
     }
     case 'storage.putBytes':
@@ -389,6 +400,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'storage.getMetadata':
     case 'storage.getDownloadURL':
     case 'storage.getBlob':
+    case 'storage.setMetadata':
     case 'storage.getBytes':
     case 'storage.beginUpload':
     case 'storage.putPart':

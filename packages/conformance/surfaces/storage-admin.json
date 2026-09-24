@@ -1,0 +1,19 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "registry-only",
+  "developerSurface": "storage-admin",
+  "evidenceImports": [
+    "pyric-admin/storage"
+  ],
+  "observationPrefixes": [
+    "admin-storage-"
+  ],
+  "coverage": false,
+  "scopeNote": "The admin plane of Storage mirrors firebase-admin/storage File metadata and download URLs; its behavior is tracked by the storage registry and the pyric-admin conformance suite without a client runtime census.",
+  "conformanceSuite": "packages/pyric-admin/test/storage/oracle-conformance.test.ts",
+  "captureRigs": [
+    "storage-admin"
+  ],
+  "climb": true,
+  "registry": "storage"
+}
