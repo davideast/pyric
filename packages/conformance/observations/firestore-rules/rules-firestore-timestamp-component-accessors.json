@@ -1,0 +1,22 @@
+{
+  "name": "rules-firestore-timestamp-component-accessors",
+  "matrixRow": "firestore-rules#192",
+  "rowIds": [
+    "firestore-rules#192"
+  ],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"timestamp-component-accessors\" (Timestamp accessors). Timestamp seconds() and nanos() are the seconds-of-minute and nanoseconds-of-second components, not epoch values; toMillis() is the epoch accessor.",
+  "observedAt": "2026-09-24T11:51:28.769Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "4615571d9d5368c7fbba7031553a1f4d78b73eec0babb00496b2ce850b5a20fc"
+  },
+  "behavior": {
+    "seconds() is the seconds of the minute": "ALLOW",
+    "seconds() is not the epoch seconds": "DENY",
+    "nanos() is the nanoseconds of the second": "ALLOW",
+    "toMillis() is the epoch milliseconds": "ALLOW",
+    "pre-epoch timestamp components": "ALLOW"
+  }
+}

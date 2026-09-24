@@ -1,0 +1,322 @@
+{
+  "name": "rules-storage-stdlib-string-bytes-hashing",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#storage.stdlib.string-methods",
+    "storage-rules#storage.stdlib.bytes-hashing"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-string-bytes-hashing\" (STORAGE-STDLIB-STRING). String case, trim, regular-expression replace-all, and toUtf8, plus Bytes encodings and equality and the md5/sha256/crc32/crc32c digests, with int receivers, int hash input, and an invalid pattern as negative controls.",
+  "observedAt": "2026-09-24T11:54:08.014Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "lower, upper, and trim": "ALLOW",
+    "lower over custom metadata": "ALLOW",
+    "replace replaces every match": "ALLOW",
+    "replace treats the pattern as a regular expression": "ALLOW",
+    "replace does not treat the pattern as a literal": "DENY",
+    "replace with a character class": "ALLOW",
+    "replace expands a numbered group reference": "ALLOW",
+    "replace inserts an escaped dollar sign literally": "ALLOW",
+    "replace with an invalid pattern is an error": "DENY",
+    "toUtf8 size counts UTF-8 bytes": "ALLOW",
+    "bytes toBase64 and toHexString": "ALLOW",
+    "bytes compare by value": "ALLOW",
+    "md5 digest": "ALLOW",
+    "sha256 digest": "ALLOW",
+    "crc32 and crc32c digests": "ALLOW",
+    "hashing a string equals hashing its UTF-8 bytes": "ALLOW",
+    "sha256 of the caller uid against metadata": "ALLOW",
+    "int receiver has no lower() method": "DENY",
+    "hashing an int is an error": "DENY"
+  },
+  "diagnostics": {
+    "lower, upper, and trim": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 21,
+              "currentOffset": 115,
+              "endOffset": 119
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "lower over custom metadata": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 21,
+              "currentOffset": 260,
+              "endOffset": 267
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "replace replaces every match": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 12,
+              "column": 21,
+              "currentOffset": 364,
+              "endOffset": 368
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "replace treats the pattern as a regular expression": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 21,
+              "currentOffset": 458,
+              "endOffset": 462
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "replace does not treat the pattern as a literal": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 18,
+              "column": 21,
+              "currentOffset": 552,
+              "endOffset": 556
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "replace with a character class": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 21,
+              "column": 21,
+              "currentOffset": 644,
+              "endOffset": 650
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "replace expands a numbered group reference": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 24,
+              "column": 21,
+              "currentOffset": 754,
+              "endOffset": 757
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "replace inserts an escaped dollar sign literally": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 27,
+              "column": 21,
+              "currentOffset": 859,
+              "endOffset": 862
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "replace with an invalid pattern is an error": {
+      "notes": [
+        "Error: storage.rules line [30], column [27]. Invalid regular expression pattern. Pattern: (."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 30,
+          "column": 27,
+          "currentOffset": 967,
+          "endOffset": 973
+        }
+      }
+    },
+    "toUtf8 size counts UTF-8 bytes": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 33,
+              "column": 21,
+              "currentOffset": 1049,
+              "endOffset": 1051
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "bytes toBase64 and toHexString": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 21,
+              "currentOffset": 1165,
+              "endOffset": 1168
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "bytes compare by value": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 40,
+              "column": 21,
+              "currentOffset": 1309,
+              "endOffset": 1312
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "md5 digest": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 43,
+              "column": 21,
+              "currentOffset": 1423,
+              "endOffset": 1429
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "sha256 digest": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 46,
+              "column": 21,
+              "currentOffset": 1546,
+              "endOffset": 1552
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "crc32 and crc32c digests": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 21,
+              "currentOffset": 1709,
+              "endOffset": 1715
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "hashing a string equals hashing its UTF-8 bytes": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 54,
+              "column": 21,
+              "currentOffset": 1881,
+              "endOffset": 1887
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "sha256 of the caller uid against metadata": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 57,
+              "column": 21,
+              "currentOffset": 1993,
+              "endOffset": 1999
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int receiver has no lower() method": {
+      "notes": [
+        "Error: storage.rules line [61], column [21]. Function not found error: Name: [lower]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 61,
+          "column": 21,
+          "currentOffset": 2150,
+          "endOffset": 2157
+        },
+        "functionCalls": [
+          {
+            "function": "lower"
+          }
+        ]
+      }
+    },
+    "hashing an int is an error": {
+      "notes": [
+        "Error: storage.rules line [64], column [29]. Unsupported operation error. Received: hashing.md5(int). Expected: hashing.md5(bytes), hashing.md5(string)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 64,
+          "column": 29,
+          "currentOffset": 2242,
+          "endOffset": 2244
+        }
+      }
+    }
+  }
+}
