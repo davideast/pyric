@@ -166,37 +166,84 @@ export async function updateMetadata(
   patch: SettableMetadata,
   provenance?: EventProvenance,
 ): Promise<FullMetadata> {
-  guardNonRoot(ref, 'updateMetadata');
+  return rewriteMetadata(ref, 'updateMetadata', (existing, now) => applyMetadataPatch(existing, patch, now), provenance);
+}
+
+/**
+ * What the admin plane changes in one metadata write, as firebase-admin's
+ * `File.setMetadata` does.
+ */
+export interface AdminMetadataPatch {
+  /** Settable fields to replace. Custom metadata is merged through `customMetadata`. */
+  settable?: Omit<SettableMetadata, 'customMetadata'>;
+  /** Custom keys to set; `null` removes a key. Keys not named stay. */
+  customMetadata?: { [key: string]: string | null };
+  /** The object's download tokens, or `null` to remove them, which revokes their URLs. */
+  downloadTokens?: string | null;
+}
+
+/**
+ * Merge `patch` into an object's metadata in one write. Rules apply as for
+ * `updateMetadata`; the admin plane's handle bypasses them.
+ */
+export async function patchObjectMetadata(
+  ref: StorageReference,
+  patch: AdminMetadataPatch,
+  provenance?: EventProvenance,
+): Promise<FullMetadata> {
+  return rewriteMetadata(ref, 'setMetadata', (existing, now) => {
+    const next = applyMetadataPatch(existing, patch.settable ?? {}, now);
+    const custom = { ...(existing.customMetadata ?? {}) };
+    for (const [key, value] of Object.entries(patch.customMetadata ?? {})) {
+      if (value === null) delete custom[key];
+      else custom[key] = value;
+    }
+    const hasCustom = Object.keys(custom).length > 0;
+    if (hasCustom) next.customMetadata = custom;
+    else delete next.customMetadata;
+    // `null` removes the tokens, which revokes their URLs.
+    const tokens = patch.downloadTokens;
+    if (tokens === null) delete next.downloadTokens;
+    else if (tokens !== undefined) next.downloadTokens = tokens;
+    return next;
+  }, provenance);
+}
+
+/**
+ * Replace an object's metadata with `change(existing)`: `update` rules see the
+ * changed view, the backend writes it, and one `metadata_update` event records
+ * it. Throws `storage/object-not-found` when the object is absent.
+ */
+async function rewriteMetadata(
+  ref: StorageReference,
+  operation: string,
+  change: (existing: StoredMetadata, now: Date) => StoredMetadata,
+  provenance?: EventProvenance,
+): Promise<FullMetadata> {
+  guardNonRoot(ref, operation);
   const target = targetOf(ref.storage);
   const operationProvenance = storageOperationProvenance(target, provenance);
   const service = await getStorageService(ref.storage);
   const existing = await service.backend.getMetadata(ref.fullPath);
+  const next = existing ? change(existing, getClock(target.sandbox).date()) : undefined;
   enforceRules(service, {
     request: {
       auth: storageAuth(target),
-      // updateMetadata always targets an existing object (it throws
+      // The operation always targets an existing object (it throws
       // object-not-found below when absent), so the verb is `update`.
       method: 'update',
       path: ref.fullPath,
-      // The patched view drives `request.resource` for size /
-      // contentType / metadata rule checks. Custom metadata is
-      // REPLACED wholesale on a patch (see `applyMetadataPatch`), so
-      // the about-to-write `request.resource.metadata` is the patch's
-      // custom metadata when supplied, else the existing value.
-      resource: existing
-        ? requestResourceFor({
-            size: existing.size,
-            contentType: patch.contentType ?? existing.contentType,
-            customMetadata: patch.customMetadata ?? existing.customMetadata,
-          })
+      // The changed view drives `request.resource` for size / contentType /
+      // metadata rule checks.
+      resource: next
+        ? requestResourceFor({ size: next.size, contentType: next.contentType, customMetadata: next.customMetadata })
         : undefined,
     },
     resource: resourceFromStored(existing),
   }, target, operationProvenance);
-  if (!existing) {
+  if (!existing || !next) {
     throw objectNotFound(ref.fullPath);
   }
-  const next = applyMetadataPatch(existing, patch, getClock(target.sandbox).date());
   await service.backend.putMetadata(ref.fullPath, next);
   try {
     emitSandboxEvent(

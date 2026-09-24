@@ -33,6 +33,7 @@ import {
   bindStorageOperationContext,
   getAdminStorageSandbox,
   getStorageService,
+  patchObjectMetadata,
   storageAuth,
   storageOperationProvenance,
   targetOf,
@@ -207,6 +208,7 @@ const STORAGE_METHODS = new Set<string>([
   'storage.getMetadata',
   'storage.getDownloadURL',
   'storage.getBlob',
+  'storage.setMetadata',
   'storage.putBytes',
   'storage.getBytes',
   'storage.beginUpload',
@@ -303,6 +305,22 @@ export async function handleStorageOp(
           }, target.bucket);
         }
         ok(port, msg.id, { path: storageObjectPath(target.bucket, r.fullPath, token) });
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.setMetadata': {
+      // firebase-admin's File.setMetadata. It can change the download tokens,
+      // which no client SDK can, so it runs on the admin lens only.
+      try {
+        const adminPlane = msg.actAs?.mode === 'admin';
+        if (!adminPlane) {
+          throw new FirebaseError('storage/unauthorized', 'storage.setMetadata is the admin plane (firebase-admin File.setMetadata) and runs only on the admin lens.');
+        }
+        const storage = bindStorageOperationContext(lensStorage(ctx, msg.actAs, port), opProvenance(msg));
+        const result = await patchObjectMetadata(storageRef(storage, msg.path), msg.patch);
+        await bestEffortFlush(ctx, msg.method);
+        ok(port, msg.id, result);
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
