@@ -1,4 +1,7 @@
 import { createDenialThrottle } from '../namespace.js';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createStorageByteRoute } from './storage-byte-route.js';
+import { uploadTokenOf } from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
 import { handleRulesOp } from '../worker/host/rules.js';
@@ -314,7 +317,17 @@ export async function createHostedRuntime(
     });
   }
 
+  const storageBytes = createStorageByteRoute({
+    storage: persistence.storage,
+    sessionToken: payload.sessionToken,
+    uploadToken: uploadId => uploadTokenOf(ctx, uploadId),
+  });
+
   return {
+    /** The HTTP byte route; resolves false for any other path. */
+    storageHttp(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+      return storageBytes(req, res, url);
+    },
     deployRules(service: 'firestore' | 'database', source: string): void {
       if (closed) throw new Error('The hosted sandbox is closed.');
       const isFirestore = service === 'firestore';

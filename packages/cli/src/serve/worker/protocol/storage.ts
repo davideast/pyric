@@ -34,6 +34,35 @@ export const MAX_STORAGE_PART_B64_LENGTH = Math.ceil(MAX_STORAGE_PART_BYTES / 3)
  */
 export const MAX_STORAGE_OBJECT_BYTES = 512 * 1024 * 1024;
 
+/**
+ * The Node host's HTTP byte route. Its paths follow Firebase's download paths
+ * under the pyric namespace: `<prefix><bucket>/o/<encoded path>` for an object,
+ * `<prefix><bucket>/o?name=…` for an upload.
+ */
+export const STORAGE_ROUTE_PREFIX = '/__pyric/storage/v0/b/';
+
+/** An object's path on the byte route, with a token when the URL must carry its own authority. */
+export function storageObjectPath(bucket: string, path: string, token?: string): string {
+  const query = new URLSearchParams({ alt: 'media' });
+  const hasToken = token !== undefined;
+  if (hasToken) query.set('token', token);
+  return `${STORAGE_ROUTE_PREFIX}${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}?${query}`;
+}
+
+/** Where one upload's bytes are sent, carrying the token bound to that upload. */
+export function storageUploadPath(bucket: string, path: string, uploadId: string, token: string): string {
+  const query = new URLSearchParams({ name: path, upload_id: uploadId, upload_token: token });
+  return `${STORAGE_ROUTE_PREFIX}${encodeURIComponent(bucket)}/o?${query}`;
+}
+
+/** A capability token: 32 random bytes, base64url without padding. */
+export function mintCapabilityToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 /** Build the canonical over-cap error (`code: 'payload-too-large'`). */
 export function storagePayloadTooLarge(
   sizeBytes: number,

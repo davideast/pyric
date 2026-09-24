@@ -30,6 +30,31 @@ export interface ScopedStorageBackend extends StorageBackend {
   readRange(bucket: string, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined>;
   references(bucket?: string): Promise<StorageReferenceRecord[]>;
   putReference(path: string, reference: StoredBytes, mime: string, metadata: StoredMetadata): Promise<void>;
+  /** The file holding an object's bytes, with what a response needs to describe them. */
+  objectFile(bucket: string, path: string): Promise<StoredObjectFile | undefined>;
+  /** Append bytes that start at `offset`, which must be exactly what the upload has received. */
+  appendUpload(uploadId: string, offset: number, bytes: Uint8Array): Promise<UploadProgress>;
+  uploadProgress(uploadId: string): Promise<UploadProgress | undefined>;
+}
+
+export interface StoredObjectFile {
+  file: string;
+  size: number;
+  mime: string;
+  metadata: StoredMetadata;
+}
+
+export interface UploadProgress {
+  received: number;
+  size: number;
+}
+
+/** Bytes sent for an upload from an offset other than the one it has reached. */
+export class UploadOffsetError extends Error {
+  constructor(readonly received: number) {
+    super(`The upload has received ${received} bytes; the next bytes must start there.`);
+    this.name = 'UploadOffsetError';
+  }
 }
 
 /** A statement prepared on first use; a read-only open of an older schema never needs it. */
@@ -129,6 +154,7 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
 
   const writes: StorageWrites = { bytes: putBytes, file: putFile };
   const referencesStmt = lazyStatement(connection, 'SELECT sha256, size, mime, metadata FROM storage_objects WHERE bucket=? ORDER BY path');
+  const objectFileStmt = lazyStatement(connection, 'SELECT sha256, size, mime, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
   function view(scope?: string): ScopedStorageBackend {
     const defaultBucket = scope ?? 'pyric-default';
@@ -242,6 +268,33 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
           throw new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
         }
         return objects.readRange(storedBytesOf(row), offset, length);
+      },
+      async objectFile(bucket, path) {
+        await mutations;
+        const row = objectFileStmt().get(bucket, path);
+        const missingObject = row === undefined;
+        if (missingObject) return undefined;
+        const stored = storedBytesOf(row);
+        return { file: objects.path(stored.sha256), size: stored.size, mime: sqlText(row, 'mime'), metadata: metadataOf(row) };
+      },
+      async appendUpload(uploadId, offset, bytes) {
+        return enqueue(() => {
+          const upload = uploadOf(uploadId);
+          const received = upload.file.received;
+          const misplaced = offset !== received;
+          if (misplaced) throw new UploadOffsetError(received);
+          const overflows = received + bytes.byteLength > upload.size;
+          if (overflows) throw new Error(`Upload '${uploadId}' would pass its declared size of ${upload.size} bytes.`);
+          upload.file.append(bytes);
+          return { received: upload.file.received, size: upload.size };
+        });
+      },
+      async uploadProgress(uploadId) {
+        await mutations;
+        const upload = uploads.get(uploadId);
+        const missingUpload = upload === undefined;
+        if (missingUpload) return undefined;
+        return { received: upload.file.received, size: upload.size };
       },
       async references(bucket = defaultBucket) {
         await mutations;
