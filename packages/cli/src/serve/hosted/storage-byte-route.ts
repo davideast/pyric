@@ -89,6 +89,10 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
     const byDownloadToken = downloadTokens.some(token => timingSafeTokenMatch(presented, token));
     const authorized = presentsSession(req, url) || byDownloadToken;
     if (!authorized) return refuse(res, 403, 'This URL carries no token that grants this object.');
+    // A client that checked read rules on one generation asks for exactly that one.
+    const pinned = url.searchParams.get('generation');
+    const changed = pinned !== null && pinned !== object.metadata.generation;
+    if (changed) return refuse(res, 412, 'The object changed since its rules were checked. Read its metadata and retry.');
     const headers: Record<string, string> = {
       'content-type': object.mime || 'application/octet-stream',
       'accept-ranges': 'bytes',

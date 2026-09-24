@@ -1,13 +1,20 @@
 import type { DiagnosticEvent } from '../../runtime/diagnostics-report.js';
 import { recordDiagnostic } from '../../runtime/diagnostics-client.js';
 import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
-import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
+import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
 import { nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
 import type { ClientDb, ClientPort } from './handles.js';
+
+/** The HTTP origin that serves a WebSocket endpoint. */
+function httpOriginOf(socketUrl: string): string {
+  const url = new URL(socketUrl);
+  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+  return url.origin;
+}
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -17,7 +24,15 @@ const utf8 = new TextEncoder();
 export type HostedConnectionState = 'connecting' | 'restoring' | 'attached' | 'interrupted' | 'closed';
 
 /** Own one app's physical connections while retaining its logical SDK port. */
-export function getHostedFirestore(target: { url: string; projectKey: string; retryInitialConnection?: boolean; onConnection?: (state: HostedConnectionState) => void; onError?: (error: FirebaseError) => void }, existingPort?: ClientPort): ClientDb {
+export function getHostedFirestore(target: {
+  url: string;
+  projectKey: string;
+  retryInitialConnection?: boolean;
+  onConnection?: (state: HostedConnectionState) => void;
+  onError?: (error: FirebaseError) => void;
+  /** The page's session token, which authorizes its own reads on the host's byte route. */
+  sessionToken?: () => Promise<string | null>;
+}, existingPort?: ClientPort): ClientDb {
   const connectionId = `socket-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const report = (phase: DiagnosticEvent['phase'], code?: number) => {
     recordDiagnostic({ phase, connectionId, endpoint: target.url, code });
@@ -286,6 +301,12 @@ export function getHostedFirestore(target: { url: string; projectKey: string; re
             failConnection('The selected host does not support browser worker ports. Upgrade @pyric/cli, restart with --hosted, and reload this page.');
             return;
           }
+          // Storage bytes move over the host's HTTP byte route when it offers one.
+          const offersByteRoute = capabilities.includes(STORAGE_BYTE_ROUTE_CAPABILITY);
+          const sessionToken = target.sessionToken;
+          const usesByteRoute = offersByteRoute && sessionToken !== undefined;
+          if (usesByteRoute) port.byteRoute = { baseUrl: httpOriginOf(target.url), sessionToken };
+          else delete port.byteRoute;
           const isDifferentProject = message.projectKey !== target.projectKey;
           if (isDifferentProject) {
             failConnection('The selected hosted sandbox belongs to a different project.');

@@ -17,7 +17,7 @@ const appJs = `
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getBytes } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getBytes, getDownloadURL } from 'firebase/storage';
 
 const app = initializeApp({ projectId: 'hosted-smoke' });
 const auth = getAuth(app);
@@ -39,6 +39,21 @@ window.__smoke = {
   uploadStorageBytes: async (path, text) => {
     const bytes = new TextEncoder().encode(text);
     return uploadBytes(ref(storage, path), bytes);
+  },
+  // A WAV of silence: 44.1 kHz, 16-bit stereo, long enough that a seek near its end needs a range request.
+  uploadWav: async (path, seconds) => {
+    const rate = 44100, channels = 2, bytesPerSample = 2;
+    const dataSize = seconds * rate * channels * bytesPerSample;
+    const wav = new Uint8Array(44 + dataSize);
+    const view = new DataView(wav.buffer);
+    const ascii = (offset, text) => { for (let i = 0; i < text.length; i++) wav[offset + i] = text.charCodeAt(i); };
+    ascii(0, 'RIFF'); view.setUint32(4, 36 + dataSize, true); ascii(8, 'WAVE');
+    ascii(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, channels, true);
+    view.setUint32(24, rate, true); view.setUint32(28, rate * channels * bytesPerSample, true);
+    view.setUint16(32, channels * bytesPerSample, true); view.setUint16(34, 16, true);
+    ascii(36, 'data'); view.setUint32(40, dataSize, true);
+    await uploadBytes(ref(storage, path), wav, { contentType: 'audio/wav' });
+    return getDownloadURL(ref(storage, path));
   },
   downloadStorageText: async (path) => {
     try {
@@ -423,6 +438,50 @@ setInterval(() => {}, 1000);
     } finally {
       await newPage.close();
       await host2.stop();
+    }
+  });
+
+  test('8. an <audio> element streams and seeks a hosted object by its download URL', async ({ page }) => {
+    const host = startHost(project.dir, { passthrough: ['node', '-e', 'setInterval(() => {}, 1000)'] });
+    try {
+      const ready = await host.startup;
+      expect(ready.kind).toBe('ready');
+      if (ready.kind !== 'ready') return;
+      const objectResponses: Array<{ status: number; contentRange: string | null }> = [];
+      page.on('response', response => {
+        const onRoute = response.url().includes('/__pyric/storage/v0/b/') && response.request().method() === 'GET';
+        if (onRoute) objectResponses.push({ status: response.status(), contentRange: response.headers()['content-range'] ?? null });
+      });
+      await page.goto(ready.url);
+      await expect(page.locator('#status')).toHaveText('Ready');
+      await page.evaluate(() => window.__smoke.signInAnonymously());
+      const url = await page.evaluate(() => window.__smoke.uploadWav('media/take.wav', 60));
+      expect(new URL(url).pathname).toBe('/__pyric/storage/v0/b/pyric-default/o/media%2Ftake.wav');
+      expect(new URL(url).searchParams.get('token')).toMatch(/^[0-9a-f-]{36}$/);
+
+      // The element loads the object by URL alone, then seeks near its end.
+      const played = await page.evaluate(async (source) => {
+        const audio = document.createElement('audio');
+        audio.preload = 'metadata';
+        audio.src = source;
+        document.body.append(audio);
+        await new Promise((resolve, reject) => {
+          audio.addEventListener('loadedmetadata', resolve, { once: true });
+          audio.addEventListener('error', () => reject(new Error(`audio error ${audio.error?.code}`)), { once: true });
+        });
+        const duration = audio.duration;
+        await new Promise(resolve => { audio.addEventListener('seeked', resolve, { once: true }); audio.currentTime = 55; });
+        return { duration, currentTime: audio.currentTime };
+      }, url);
+      expect(played.duration).toBeCloseTo(60, 0);
+      expect(played.currentTime).toBeCloseTo(55, 0);
+      // The seek was served as a range from well into the object.
+      const partial = objectResponses.filter(entry => entry.status === 206);
+      expect(partial.length).toBeGreaterThan(0);
+      const lateStart = partial.some(entry => Number(/^bytes (\d+)-/.exec(entry.contentRange ?? '')?.[1] ?? 0) > 1_000_000);
+      expect(lateStart, JSON.stringify(objectResponses)).toBe(true);
+    } finally {
+      await host.stop();
     }
   });
 });

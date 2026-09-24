@@ -2,13 +2,18 @@ import { storageTaskProgress, storageTaskResult } from 'pyric/storage/internal';
 /**
  * Worker-mode resumable upload operations: `uploadBytesResumable` and observer tasks.
  *
- * Emits synthetic/mock progress events before invoking the worker client's base64
- * `uploadBytes` RPC to commit the file to the shared storage backend.
+ * On a host with a byte route, the task sends the object a slice at a time and
+ * reports progress as each slice lands; pausing stops between slices, and
+ * resuming asks the host how much it holds before continuing. Elsewhere it
+ * emits one intermediate progress event before a single `uploadBytes` call.
  */
 import type { FullMetadata } from 'pyric/storage';
 import { sandboxNow } from './clock.js';
-import type { ClientStorageReference, ClientSettableMetadata } from './storage.js';
-import { uploadBytes, deleteObject } from './storage.js';
+import type { ClientStorageReference, ClientSettableMetadata, RouteUpload } from './storage.js';
+import {
+  abortRouteUpload, beginRouteUpload, byteRouteOf, deleteObject, finishRouteUpload, routeUploadOffset,
+  sendRouteSlice, uploadBlobOf, uploadBytes,
+} from './storage.js';
 
 export type ClientTaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
 
@@ -80,6 +85,13 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   private readonly _ref: ClientStorageReference;
   private readonly _data: Blob | Uint8Array | ArrayBuffer;
   private readonly _metadata: ClientSettableMetadata | undefined;
+  /** The upload on the host's byte route, once it has begun. */
+  private _upload: RouteUpload | undefined;
+  /** The slice request in flight, aborted by a pause or a cancel. */
+  private _inFlight: AbortController | undefined;
+  private _sending = false;
+  /** After a pause the host may hold part of the aborted slice; ask before sending. */
+  private _resyncs = false;
 
   constructor(
     ref: ClientStorageReference,
@@ -172,6 +184,8 @@ class ClientUploadTaskImpl implements ClientUploadTask {
   pause(): boolean {
     const isRunning = this._snapshot.state === 'running';
     if (isRunning) {
+      this._resyncs = true;
+      this._inFlight?.abort();
       this._updateSnapshot('paused', this._snapshot.bytesTransferred);
       this._notifyObservers('next');
       return true;
@@ -207,6 +221,9 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     if (canCancel) {
       this._error = createCanceledError();
       this._updateSnapshot('canceled', this._snapshot.bytesTransferred);
+      this._inFlight?.abort();
+      const upload = this._upload;
+      if (upload !== undefined) void abortRouteUpload(upload);
       this._notifyObservers('error');
       this._reject(this._error);
       return true;
@@ -440,9 +457,73 @@ class ClientUploadTaskImpl implements ClientUploadTask {
     }
   }
 
+  /**
+   * Send the object over the byte route a slice at a time, reporting progress
+   * as each lands, then commit it over the RPC. A pause or a cancel aborts the
+   * slice in flight and ends this loop; resuming starts another.
+   */
+  private async _sendOverRoute(): Promise<void> {
+    if (this._sending) return;
+    this._sending = true;
+    const data = uploadBlobOf(this._data);
+    const running = () => this._snapshot.state === 'running';
+    try {
+      const route = byteRouteOf(this._ref)!;
+      let upload = this._upload;
+      if (upload === undefined) {
+        const contentType = this._metadata?.contentType ?? (data.type !== '' ? data.type : undefined);
+        upload = await beginRouteUpload(this._ref, route, data.size, contentType, this._metadata);
+        this._upload = upload;
+        const canceled = this._snapshot.state === 'canceled';
+        if (canceled) await abortRouteUpload(upload);
+        if (!running()) return;
+      }
+      let offset = this._snapshot.bytesTransferred;
+      if (this._resyncs) {
+        offset = await routeUploadOffset(upload);
+        this._resyncs = false;
+      }
+      while (running() && offset < upload.size) {
+        const controller = new AbortController();
+        this._inFlight = controller;
+        offset = await sendRouteSlice(upload, data, offset, controller.signal);
+        this._inFlight = undefined;
+        if (!running()) return;
+        this._updateSnapshot('running', offset);
+        this._notifyObservers('next');
+      }
+      if (!running()) return;
+      const metadata = await finishRouteUpload(upload);
+      if (!running()) return;
+      this._updateSnapshot('success', upload.size, metadata);
+      this._notifyObservers('next');
+      this._notifyObservers('complete');
+      this._resolve(this._snapshot);
+    } catch (error: unknown) {
+      this._inFlight = undefined;
+      // A pause or a cancel aborts the slice in flight; neither is a failure.
+      if (!running()) return;
+      this._error = error instanceof Error ? error : new Error(String(error));
+      this._updateSnapshot('error', this._snapshot.bytesTransferred);
+      const upload = this._upload;
+      if (upload !== undefined) await abortRouteUpload(upload);
+      this._notifyObservers('error');
+      this._reject(this._error);
+    } finally {
+      this._sending = false;
+      // Resumed while the last request was settling: continue now.
+      if (running()) queueMicrotask(() => this._runStep());
+    }
+  }
+
   private _runStep(): void {
     const isNotRunning = this._snapshot.state !== 'running';
     if (isNotRunning) {
+      return;
+    }
+    const routed = byteRouteOf(this._ref) !== undefined;
+    if (routed) {
+      void this._sendOverRoute();
       return;
     }
 

@@ -69,6 +69,10 @@ try {
   assert.equal((await fetch(objectUrl('media/take one.wav', 'alt=media&token=token-c'))).status, 403);
   assert.equal((await fetch(objectUrl('media/missing.wav', `alt=media&token=${SESSION}`))).status, 404);
 
+  // A read pinned to the generation its rules check saw refuses a newer object.
+  assert.equal((await fetch(objectUrl('media/take one.wav', `alt=media&token=${SESSION}&generation=1`))).status, 200);
+  assert.equal((await fetch(objectUrl('media/take one.wav', `alt=media&token=${SESSION}&generation=2`))).status, 412);
+
   // Ranges: a span, a suffix, and one past the end.
   const span = await fetch(objectUrl('media/take one.wav', 'alt=media&token=token-a'), { headers: { range: 'bytes=100-199' } });
   assert.equal(span.status, 206);

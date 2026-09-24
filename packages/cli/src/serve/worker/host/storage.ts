@@ -40,7 +40,7 @@ import {
 } from 'pyric/storage/internal';
 import { FirebaseError } from 'pyric/app';
 import type { AuthLens } from 'pyric/sandbox';
-import { bindOperationContext } from 'pyric/sandbox/internal';
+import { bindOperationContext, getClock } from 'pyric/sandbox/internal';
 
 import type { OpMessage } from '../protocol.js';
 import {
@@ -55,6 +55,7 @@ import {
   MAX_STORAGE_PART_B64_LENGTH,
   MAX_STORAGE_OBJECT_BYTES,
   mintCapabilityToken,
+  storageObjectPath,
   storageUploadPath,
 } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
@@ -202,6 +203,7 @@ function toSettableMetadata(msg: {
 const STORAGE_METHODS = new Set<string>([
   'storage.listAll',
   'storage.getMetadata',
+  'storage.getDownloadURL',
   'storage.getBlob',
   'storage.putBytes',
   'storage.getBytes',
@@ -251,6 +253,37 @@ export async function handleStorageOp(
           msg.id,
           await storageGetMetadata(storageRef(storage, msg.path)),
         );
+      } catch (e) { fail(port, msg.id, e); }
+      break;
+    }
+
+    case 'storage.getDownloadURL': {
+      // Read rules decide, as for getMetadata. The token persists in the
+      // object's metadata, as production keeps it, and is minted on first use.
+      try {
+        const storage = bindStorageOperationContext(
+          lensStorage(ctx, msg.actAs, port),
+          opProvenance(msg),
+        );
+        const r = storageRef(storage, msg.path);
+        await storageGetMetadata(r);
+        const target = targetOf(r.storage);
+        const service = await getStorageService(r.storage);
+        const stored = await service.backend.getMetadata(r.fullPath, target.bucket);
+        const missing = stored === undefined;
+        if (missing) throw new FirebaseError('storage/object-not-found', `Object '${msg.path}' does not exist.`);
+        let token = (stored.downloadTokens ?? '').split(',').find(existing => existing !== '');
+        const unminted = token === undefined;
+        if (unminted) {
+          token = crypto.randomUUID();
+          await service.backend.putMetadata(r.fullPath, {
+            ...stored,
+            downloadTokens: token,
+            metageneration: String(Number(stored.metageneration) + 1),
+            updated: new Date(getClock(ctx.sandbox).now()).toISOString(),
+          }, target.bucket);
+        }
+        ok(port, msg.id, { path: storageObjectPath(target.bucket, r.fullPath, token) });
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

@@ -1,4 +1,5 @@
 import { getHostedFirestore } from '@pyric/cli/serve/worker';
+import { resolveSessionToken } from './http-workspace.js';
 import type { StudioWorkerRuntime, StudioWorkerRuntimeSnapshot } from './worker-runtime.js';
 
 /** Reuse Studio's status surface and the browser transport; hosted builds update on restart. */
@@ -14,6 +15,8 @@ export function connectHostedStudio(target: { url: string; projectKey: string })
   }
   const db = getHostedFirestore({
     ...target,
+    // Studio reads object bytes for previews over the host's byte route.
+    sessionToken: () => resolveSessionToken(location.origin),
     onConnection(state) {
       switch (state) {
         case 'attached': publish(null); return;
