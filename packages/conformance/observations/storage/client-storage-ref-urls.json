@@ -1,0 +1,129 @@
+{
+  "name": "client-storage-ref-urls",
+  "matrixRow": "storage #110-#116",
+  "rowIds": [
+    "storage#110",
+    "storage#111",
+    "storage#112",
+    "storage#113",
+    "storage#114",
+    "storage#115",
+    "storage#116"
+  ],
+  "description": "firebase/storage ref(storage, url) parses a URL client-side, with no request: gs://<bucket>/<path>, the https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<path> download URL, and the https://storage.googleapis.com/<bucket>/<path> URL give a reference on the URL's bucket, the download URL's path percent-decoded and the gs:// path not; a URL on any other host, or with no bucket or object, throws storage/invalid-url; a string without '://', such as a data: URI, is an object path; and ref(reference, url) throws storage/invalid-argument. The app is initialized with storageBucket 'b'.",
+  "observedAt": "2026-09-24T11:28:22.450Z",
+  "fbSdkVersion": "12.13.0",
+  "behavior": {
+    "plainPath": {
+      "input": "media/take.wav",
+      "threw": false,
+      "bucket": "b",
+      "fullPath": "media/take.wav",
+      "name": "take.wav"
+    },
+    "gsDefaultBucket": {
+      "input": "gs://b/media/take.wav",
+      "threw": false,
+      "bucket": "b",
+      "fullPath": "media/take.wav",
+      "name": "take.wav"
+    },
+    "gsOtherBucket": {
+      "input": "gs://other-bucket/media/take.wav",
+      "threw": false,
+      "bucket": "other-bucket",
+      "fullPath": "media/take.wav",
+      "name": "take.wav"
+    },
+    "gsBucketRoot": {
+      "input": "gs://b",
+      "threw": false,
+      "bucket": "b",
+      "fullPath": "",
+      "name": ""
+    },
+    "gsPathNotDecoded": {
+      "input": "gs://b/media/take%20one.wav",
+      "threw": false,
+      "bucket": "b",
+      "fullPath": "media/take%20one.wav",
+      "name": "take%20one.wav"
+    },
+    "gsNoBucket": {
+      "input": "gs://",
+      "threw": true,
+      "code": "storage/invalid-url",
+      "errorName": "StorageError",
+      "isError": true,
+      "message": "Firebase Storage: Invalid URL 'gs://'. (storage/invalid-url)"
+    },
+    "firebaseDownloadUrl": {
+      "input": "https://firebasestorage.googleapis.com/v0/b/b/o/media%2Ftake.wav?alt=media&token=t",
+      "threw": false,
+      "bucket": "b",
+      "fullPath": "media/take.wav",
+      "name": "take.wav"
+    },
+    "firebaseDownloadUrlEncoded": {
+      "input": "https://firebasestorage.googleapis.com/v0/b/b/o/my%20media%2Ftake%201.wav?alt=media&token=t",
+      "threw": false,
+      "bucket": "b",
+      "fullPath": "my media/take 1.wav",
+      "name": "take 1.wav"
+    },
+    "firebaseDownloadUrlOtherBucket": {
+      "input": "https://firebasestorage.googleapis.com/v0/b/other-bucket/o/media%2Ftake.wav?alt=media&token=t",
+      "threw": false,
+      "bucket": "other-bucket",
+      "fullPath": "media/take.wav",
+      "name": "take.wav"
+    },
+    "firebaseUrlNoObject": {
+      "input": "https://firebasestorage.googleapis.com/v0/b/b/o?alt=media",
+      "threw": true,
+      "code": "storage/invalid-url",
+      "errorName": "StorageError",
+      "isError": true,
+      "message": "Firebase Storage: Invalid URL 'https://firebasestorage.googleapis.com/v0/b/b/o?alt=media'. (storage/invalid-url)"
+    },
+    "cloudStorageUrl": {
+      "input": "https://storage.googleapis.com/b/media/take.wav",
+      "threw": false,
+      "bucket": "b",
+      "fullPath": "media/take.wav",
+      "name": "take.wav"
+    },
+    "pyricHostUrl": {
+      "input": "http://localhost:3473/__pyric/storage/v0/b/b/o/media%2Ftake.wav?alt=media&token=x",
+      "threw": true,
+      "code": "storage/invalid-url",
+      "errorName": "StorageError",
+      "isError": true,
+      "message": "Firebase Storage: Invalid URL 'http://localhost:3473/__pyric/storage/v0/b/b/o/media%2Ftake.wav?alt=media&token=x'. (storage/invalid-url)"
+    },
+    "otherHostUrl": {
+      "input": "https://example.com/media/take.wav",
+      "threw": true,
+      "code": "storage/invalid-url",
+      "errorName": "StorageError",
+      "isError": true,
+      "message": "Firebase Storage: Invalid URL 'https://example.com/media/take.wav'. (storage/invalid-url)"
+    },
+    "dataUri": {
+      "input": "data:audio/wav;base64,UklGRg==",
+      "threw": false,
+      "bucket": "b",
+      "fullPath": "data:audio/wav;base64,UklGRg==",
+      "name": "wav;base64,UklGRg=="
+    },
+    "childRefWithUrl": {
+      "input": "gs://b/media/take.wav",
+      "parent": "media",
+      "threw": true,
+      "code": "storage/invalid-argument",
+      "errorName": "StorageError",
+      "isError": true,
+      "message": "Firebase Storage: To use ref(service, url), the first argument must be a Storage instance. (storage/invalid-argument)"
+    }
+  }
+}

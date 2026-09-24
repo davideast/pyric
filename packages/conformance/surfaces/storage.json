@@ -19,11 +19,13 @@
     "_invalidRootOperation"
   ],
   "observationPrefixes": [
-    "storage-"
+    "storage-",
+    "client-storage-"
   ],
   "coverage": true,
   "captureRigs": [
-    "oracle-run"
+    "oracle-run",
+    "client-storage"
   ],
   "registry": "storage",
   "dispositions": [
