@@ -36,6 +36,7 @@ export {
   defaultRawContentType,
 } from './upload.js';
 export { arrayBufferToBase64, base64ToBytes } from './base64.js';
+export { isStorageUrl, parseStorageUrl, refPathOf, type StorageLocation } from './url.js';
 export type { StorageRulesResolution } from './rules-resolution.js';
 export {
   snapshotStorageState, restoreStorageState, resetStorageState, referenceStorageState, restoreStorageReferences,

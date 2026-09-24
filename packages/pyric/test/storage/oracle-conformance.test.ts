@@ -36,6 +36,7 @@ import {
   updateMetadata,
   listAll,
 } from '../../src/storage/index.js';
+import { parseStorageUrl } from '../../src/storage/url.js';
 
 // storage-* and client-storage-* observations live under the 'storage' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'storage');
@@ -320,23 +321,60 @@ describe('oracle conformance (storage)', () => {
     expectRefCase(freshStorage('ref-url-other-host'), obs.otherHostUrl as RefCase);
   });
 
-  it("storage#113: the Node host's download URL", () => {
+  it("storage#113: the Node host's download URL (KNOWN DIVERGENCE)", () => {
+    // Production throws storage/invalid-url for the Node host's URL form, as
+    // for any host it does not serve from. The sandbox issues that form from
+    // getDownloadURL on the Node host, so its ref() reads the object path from
+    // it, as production does from its own download URL.
     const obs = load('client-storage-ref-urls.json');
-    expectRefCase(freshStorage('ref-url-pyric-host'), obs.pyricHostUrl as RefCase);
+    const hosted = obs.pyricHostUrl as RefCase;
+    expect(hosted.threw).toBe(true);
+    expect(hosted.code).toBe('storage/invalid-url');
+
+    const made = ref(freshStorage('ref-url-pyric-host'), hosted.input);
+    const production = obs.firebaseDownloadUrl as RefCase;
+    expect({ fullPath: made.fullPath, name: made.name }).toEqual({ fullPath: production.fullPath!, name: production.name! });
   });
 
-  it("storage#114: the reference's bucket is the URL's bucket", () => {
+  it("storage#114: the reference's bucket (KNOWN DIVERGENCE)", () => {
+    // Production gives a reference on the URL's bucket, including another
+    // bucket. The sandbox serves one bucket (storage#11), so the reference is
+    // on it, at the URL's path.
     const obs = load('client-storage-ref-urls.json');
     const storage = freshStorage('ref-url-bucket');
-    const other = obs.gsOtherBucket as RefCase;
-    expect(ref(storage, other.input).bucket).toBe(other.bucket as string);
-    const otherDownload = obs.firebaseDownloadUrlOtherBucket as RefCase;
-    expect(ref(storage, otherDownload.input).bucket).toBe(otherDownload.bucket as string);
+    for (const recorded of [obs.gsOtherBucket as RefCase, obs.firebaseDownloadUrlOtherBucket as RefCase]) {
+      expect(recorded.bucket).toBe('other-bucket');
+      // The parser reads the URL's bucket as production does; ref() places
+      // the reference on the sandbox's bucket.
+      expect(parseStorageUrl(recorded.input).bucket).toBe(recorded.bucket!);
+      const made = ref(storage, recorded.input);
+      expect(made.bucket).toBe(ref(storage).bucket);
+      expect(made.fullPath).toBe(recorded.fullPath!);
+    }
   });
 
-  it('storage#115: a data: URI', () => {
+  it('storage#115: a data: URI (KNOWN DIVERGENCE)', () => {
+    // Production reads a data: URI as an object path. The sandbox's
+    // getDownloadURL returns a data: URI in process and on a SharedWorker
+    // host, and no object exists at that literal path, so ref() throws
+    // storage/invalid-url instead of naming one.
     const obs = load('client-storage-ref-urls.json');
-    expectRefCase(freshStorage('ref-url-data'), obs.dataUri as RefCase);
+    const dataUri = obs.dataUri as RefCase;
+    expect(dataUri.threw).toBe(false);
+    expect(dataUri.fullPath).toBe(dataUri.input);
+
+    const storage = freshStorage('ref-url-data');
+    expect(() => ref(storage, dataUri.input)).toThrow(expect.objectContaining({ code: 'storage/invalid-url' }));
+  });
+
+  it('storage#115: a reference to a data: download URL throws instead of naming no object', async () => {
+    const storage = freshStorage('ref-url-data-delete');
+    const object = ref(storage, 'media/take.wav');
+    await uploadBytes(object, new Uint8Array([1, 2, 3]), { contentType: 'audio/wav' });
+    const url = await getDownloadURL(object);
+    expect(url.startsWith('data:audio/wav;base64,')).toBe(true);
+    expect(() => ref(storage, url)).toThrow(expect.objectContaining({ code: 'storage/invalid-url' }));
+    expect((await getMetadata(object)).size).toBe(3);
   });
 
   it('storage#116: ref(reference, url) throws storage/invalid-argument', () => {

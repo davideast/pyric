@@ -61,17 +61,31 @@ describe('served client ref(storage, url)', () => {
     expectRefCase(storage, cases.otherHostUrl!);
   });
 
-  test("storage#113: the Node host's download URL", () => {
-    expectRefCase(storage, cases.pyricHostUrl!);
+  test("storage#113: the Node host's download URL (KNOWN DIVERGENCE)", () => {
+    // Production throws storage/invalid-url; the client reads the object path
+    // from the URL the Node host issues, as production does from its own.
+    expect(cases.pyricHostUrl!.code).toBe('storage/invalid-url');
+    const made = ref(storage, cases.pyricHostUrl!.input);
+    expect({ fullPath: made.fullPath, name: made.name })
+      .toEqual({ fullPath: cases.firebaseDownloadUrl!.fullPath!, name: cases.firebaseDownloadUrl!.name! });
   });
 
-  test("storage#114: the reference's bucket is the URL's bucket", () => {
-    expect(ref(storage, cases.gsOtherBucket!.input).bucket).toBe(cases.gsOtherBucket!.bucket!);
-    expect(ref(storage, cases.firebaseDownloadUrlOtherBucket!.input).bucket).toBe(cases.firebaseDownloadUrlOtherBucket!.bucket!);
+  test("storage#114: the reference's bucket (KNOWN DIVERGENCE)", () => {
+    // Production gives a reference on the URL's bucket; the host serves one
+    // bucket, so the reference is on it, at the URL's path.
+    for (const recorded of [cases.gsOtherBucket!, cases.firebaseDownloadUrlOtherBucket!]) {
+      expect(recorded.bucket).toBe('other-bucket');
+      const made = ref(storage, recorded.input);
+      expect(made.bucket).toBe(storage.bucket);
+      expect(made.fullPath).toBe(recorded.fullPath!);
+    }
   });
 
-  test('storage#115: a data: URI', () => {
-    expectRefCase(storage, cases.dataUri!);
+  test('storage#115: a data: URI (KNOWN DIVERGENCE)', () => {
+    // Production reads a data: URI as an object path; a SharedWorker host's
+    // getDownloadURL returns one, so the client throws storage/invalid-url.
+    expect(cases.dataUri!.fullPath).toBe(cases.dataUri!.input);
+    expect(() => ref(storage, cases.dataUri!.input)).toThrow(expect.objectContaining({ code: 'storage/invalid-url' }));
   });
 
   test('storage#116: ref(reference, url) throws storage/invalid-argument', () => {
