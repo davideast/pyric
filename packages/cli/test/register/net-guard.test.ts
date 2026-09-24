@@ -16,8 +16,12 @@
  *    `Symbol.for('undici.globalDispatcher.1')`), so the end-to-end facts are
  *    proven in `node --import` subprocesses: installing the guard does not
  *    break an ordinary child, block mode fails a fetch with the GUARD's
- *    cause rather than DNS's, and a plain `http.request` is refused before
- *    it connects even when `node:http` loaded first.
+ *    cause rather than DNS's, a plain `http.request` is refused before
+ *    it connects even when `node:http` loaded first, and a real socket is
+ *    refused however the caller reached `connect`: a `net.connect` reference
+ *    taken before the guard installed, a hand-built `net.Socket`, or
+ *    `tls.connect`. Those children replace the resolver, so a connection the
+ *    guard lets through stops there instead of reaching DNS.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { spawnSync } from 'node:child_process';
@@ -318,12 +322,22 @@ const UNDICI = Symbol.for('undici.globalDispatcher.1');
 describe('installNetGuard', () => {
   const noNet = { connect: () => ({}), createConnection: () => ({}) };
   const noTls = { connect: () => ({}) };
+  // The prototype seams default to Node's real built-ins. Every unit test hands
+  // in stand-ins (or none) so the test process's own sockets stay unpatched.
+  const noPrototypes = { agentPrototypes: [], socketPrototypes: [] };
 
   it('is inert and silent when PYRIC_SANDBOX is absent', () => {
     const real = mockDispatcher();
     const scope = fakeScope(real);
     const log = collector();
-    const guard = installNetGuard({ scope, env: {}, write: log.write, net: noNet, tls: noTls });
+    const guard = installNetGuard({
+      scope,
+      env: {},
+      write: log.write,
+      net: noNet,
+      tls: noTls,
+      ...noPrototypes,
+    });
     expect(guard).toBeNull();
     expect(scope[UNDICI]).toBe(real);
     expect(log.lines).toEqual([]);
@@ -339,6 +353,7 @@ describe('installNetGuard', () => {
       write: log.write,
       net: noNet,
       tls: noTls,
+      ...noPrototypes,
     });
     expect(guard).toBeNull();
     expect(scope[UNDICI]).toBe(real);
@@ -358,6 +373,7 @@ describe('installNetGuard', () => {
       write: log.write,
       net: noNet,
       tls: noTls,
+      ...noPrototypes,
       argv: ['/usr/bin/node', '/app/node_modules/.bin/next'],
     });
     expect(guard).not.toBeNull();
@@ -380,6 +396,7 @@ describe('installNetGuard', () => {
       write: log.write,
       net: noNet,
       tls: noTls,
+      ...noPrototypes,
     })!;
     const installed = scope[UNDICI];
     // Next (or anyone) overwrites us with a fresh agent.
@@ -428,6 +445,7 @@ describe('installNetGuard', () => {
       write: log.write,
       net,
       tls,
+      ...noPrototypes,
     });
 
     // untouched host → passthrough
@@ -483,6 +501,7 @@ describe('installNetGuard', () => {
       net,
       tls: { connect: () => ({}) },
       agentPrototypes: [httpAgentPrototype],
+      socketPrototypes: [],
     });
 
     // The prototype's own copy now refuses a catalog host.
@@ -501,6 +520,52 @@ describe('installNetGuard', () => {
       }),
     ).toEqual({ sock: true });
     expect(netCalls).toHaveLength(1);
+  });
+
+  it('guards a Socket prototype, reading the host from every connect argument form', () => {
+    const scope = fakeScope(mockDispatcher());
+    const log = collector();
+    const connectCalls: unknown[][] = [];
+    const socketPrototype = {
+      connect: (...args: unknown[]): unknown => {
+        connectCalls.push(args);
+        return { connected: true };
+      },
+    };
+
+    installNetGuard({
+      scope,
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
+      write: log.write,
+      net: noNet,
+      tls: noTls,
+      agentPrototypes: [],
+      socketPrototypes: [socketPrototype],
+    });
+    const connect = socketPrototype.connect as (...args: unknown[]) => unknown;
+
+    // `net.connect` and `net.createConnection` call the prototype with their
+    // arguments already normalized into one `[options, callback]` array.
+    expect(() => connect([{ port: 443, host: 'firestore.googleapis.com' }, null])).toThrow(
+      /firestore\.googleapis\.com/,
+    );
+    // `new net.Socket().connect(port, host)`
+    expect(() => connect(443, 'identitytoolkit.googleapis.com')).toThrow(
+      /identitytoolkit\.googleapis\.com/,
+    );
+    // `tls.connect` passes an options object
+    expect(() => connect({ host: 'firebaseio.com', port: 443 })).toThrow(/firebaseio\.com/);
+    expect(connectCalls).toHaveLength(0);
+
+    // Loopback in each form, and an IPC path, go straight through with their
+    // arguments untouched.
+    const normalizedLoopback = [{ port: 5000, host: '127.0.0.1' }, null];
+    expect(connect(normalizedLoopback)).toEqual({ connected: true });
+    expect(connectCalls[0]![0]).toBe(normalizedLoopback);
+    expect(connect(5000, '127.0.0.1')).toEqual({ connected: true });
+    expect(connect({ host: 'localhost', port: 5000 })).toEqual({ connected: true });
+    expect(connect([{ path: '/tmp/pyric.sock' }, null])).toEqual({ connected: true });
+    expect(connectCalls).toHaveLength(4);
   });
 });
 
@@ -633,6 +698,104 @@ console.log(JSON.stringify(err === undefined ? { rejected: false, causeCode: nul
 }));
 `,
     );
+    // 5. A preload that runs BEFORE register: it takes its own references to
+    //    the connect functions, the way a library does at load time, and
+    //    replaces the resolver so no remote hostname reaches DNS. A catalog host
+    //    the guard lets through fails at that resolver with FIXTURE_NO_DNS,
+    //    which is distinguishable from the guard's own refusal.
+    writeFileSync(
+      join(fixtureDir, 'preload-sockets.mjs'),
+      `import dns from 'node:dns';
+import net from 'node:net';
+import tls from 'node:tls';
+globalThis.capturedConnect = {
+  netConnect: net.connect,
+  netCreateConnection: net.createConnection,
+  tlsConnect: tls.connect,
+};
+const realLookup = dns.lookup;
+dns.lookup = function (hostname, options, callback) {
+  const isLocal = hostname === 'localhost' || net.isIP(hostname) !== 0;
+  if (isLocal) return realLookup.call(this, hostname, options, callback);
+  const done = typeof options === 'function' ? options : callback;
+  process.nextTick(() =>
+    done(Object.assign(new Error('fixture resolver: ' + hostname), { code: 'FIXTURE_NO_DNS' })),
+  );
+  return {};
+};
+`,
+    );
+
+    // 6. Real sockets: the captured references, a hand-built net.Socket, and
+    //    a captured tls.connect against catalog hosts, then loopback TCP, a
+    //    Unix socket, and an HTTP request to a local /__pyric/* route.
+    writeFileSync(
+      join(fixtureDir, 'sockets.mjs'),
+      `import { mkdtempSync } from 'node:fs';
+import http from 'node:http';
+import net from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const { netConnect, netCreateConnection, tlsConnect } = globalThis.capturedConnect;
+
+// The first thing a connection attempt does: a synchronous refusal, a
+// resolver failure, or a completed connect.
+function attempt(open) {
+  let socket;
+  try {
+    socket = open();
+  } catch (e) {
+    return Promise.resolve(e.code ?? e.message);
+  }
+  return new Promise((resolve) => {
+    socket.once('error', (e) => resolve(e.code ?? e.message));
+    socket.once('connect', () => {
+      socket.destroy();
+      resolve('connected');
+    });
+  });
+}
+
+function listen(server, ...args) {
+  return new Promise((resolve) => server.listen(...args, () => resolve(server.address())));
+}
+
+const tcp = net.createServer((s) => s.end());
+const { port: tcpPort } = await listen(tcp, 0, '127.0.0.1');
+const ipcPath = join(mkdtempSync(join(tmpdir(), 'pyric-ipc-')), 'guard.sock');
+const ipc = net.createServer((s) => s.end());
+await listen(ipc, ipcPath);
+const pyricHost = http.createServer((req, res) => res.end(req.url));
+const { port: pyricPort } = await listen(pyricHost, 0);
+
+const outcomes = {
+  capturedNetConnect: await attempt(() => netConnect(443, 'firestore.googleapis.com')),
+  capturedCreateConnection: await attempt(() =>
+    netCreateConnection({ host: 'firebaseio.com', port: 443 }),
+  ),
+  socketConnect: await attempt(() => new net.Socket().connect(443, 'identitytoolkit.googleapis.com')),
+  capturedTlsConnect: await attempt(() =>
+    tlsConnect({ host: 'firebasestorage.googleapis.com', port: 443 }),
+  ),
+  loopbackCaptured: await attempt(() => netConnect(tcpPort, '127.0.0.1')),
+  loopbackSocket: await attempt(() => new net.Socket().connect(tcpPort, '127.0.0.1')),
+  ipcCaptured: await attempt(() => netConnect(ipcPath)),
+  ipcSocket: await attempt(() => new net.Socket().connect(ipcPath)),
+  pyricRoute: await new Promise((resolve) => {
+    http
+      .get('http://localhost:' + pyricPort + '/__pyric/init.json', (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => resolve(body));
+      })
+      .on('error', (e) => resolve(e.code ?? e.message));
+  }),
+};
+await Promise.all([tcp, ipc, pyricHost].map((s) => new Promise((r) => s.close(r))));
+console.log(JSON.stringify(outcomes));
+`,
+    );
   });
 
   afterAll(() => {
@@ -712,6 +875,65 @@ console.log(JSON.stringify(err === undefined ? { rejected: false, causeCode: nul
     expect(seen.code).toBe(GUARD_BLOCKED_CODE);
     expect(seen.elapsed as number).toBeLessThan(2_000);
     expect(res.stderr).toContain('net-guard BLOCK 169.254.169.254');
+  }, 30_000);
+
+  /** The catalog hosts `sockets.mjs` dials, keyed by the attempt that dials each. */
+  const socketCatalogAttempts = {
+    capturedNetConnect: 'firestore.googleapis.com',
+    capturedCreateConnection: 'firebaseio.com',
+    socketConnect: 'identitytoolkit.googleapis.com',
+    capturedTlsConnect: 'firebasestorage.googleapis.com',
+  } as const;
+
+  /** Loopback TCP, the Unix socket and the local /__pyric/* route, in every mode. */
+  function expectLocalTrafficUntouched(seen: Record<string, unknown>): void {
+    expect(seen.loopbackCaptured).toBe('connected');
+    expect(seen.loopbackSocket).toBe('connected');
+    expect(seen.ipcCaptured).toBe('connected');
+    expect(seen.ipcSocket).toBe('connected');
+    expect(seen.pyricRoute).toBe('/__pyric/init.json');
+  }
+
+  for (const [label, guardMode] of [
+    ['PYRIC_GUARD=block', 'block'],
+  ] as const) {
+    it(`${label} refuses real sockets to catalog hosts, however the caller reached connect`, () => {
+      const res = runNode(
+        'sockets.mjs',
+        { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', PYRIC_GUARD: guardMode },
+        'preload-sockets.mjs',
+      );
+      expect(res.status).toBe(0);
+      const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
+      for (const [attemptName, host] of Object.entries(socketCatalogAttempts)) {
+        expect({ attemptName, outcome: seen[attemptName] }).toEqual({
+          attemptName,
+          outcome: GUARD_BLOCKED_CODE,
+        });
+        expect(res.stderr).toContain(`net-guard BLOCK ${host}`);
+      }
+      expectLocalTrafficUntouched(seen);
+    }, 30_000);
+  }
+
+  it('PYRIC_GUARD=warn reports real sockets to catalog hosts and lets them through', () => {
+    const res = runNode(
+      'sockets.mjs',
+      { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', PYRIC_GUARD: 'warn' },
+      'preload-sockets.mjs',
+    );
+    expect(res.status).toBe(0);
+    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
+    for (const [attemptName, host] of Object.entries(socketCatalogAttempts)) {
+      // Past the guard, the attempt reaches the fixture's resolver and stops.
+      expect({ attemptName, outcome: seen[attemptName] }).toEqual({
+        attemptName,
+        outcome: 'FIXTURE_NO_DNS',
+      });
+      expect(res.stderr).toContain(`net-guard WARN ${host}`);
+    }
+    expect(res.stderr).not.toContain('net-guard BLOCK');
+    expectLocalTrafficUntouched(seen);
   }, 30_000);
 
   it('stays inert without PYRIC_SANDBOX', () => {
