@@ -208,6 +208,8 @@ export type OpMessage = (
   // Storage ops
   | { t: 'op'; id: string; method: 'storage.listAll'; path: string }
   | { t: 'op'; id: string; method: 'storage.getMetadata'; path: string }
+  /** The object's download path on the byte route, carrying its persistent download token. */
+  | { t: 'op'; id: string; method: 'storage.getDownloadURL'; path: string }
   | { t: 'op'; id: string; method: 'storage.getBlob'; path: string }
   | { t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string }

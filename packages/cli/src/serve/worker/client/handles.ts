@@ -25,6 +25,17 @@ export interface ClientPort {
   messagingVisibility?: Extract<OpMessage, { method: 'messaging.setVisibility' }>;
   /** Restore this app's Auth state before a replacement host receives data operations. */
   restoreAuth?(request: (message: OpMessage) => Promise<unknown>): Promise<void>;
+  /**
+   * Present when the host moves Storage bytes over its HTTP byte route: the
+   * origin that serves it, and the page's session token for its own reads.
+   */
+  byteRoute?: ByteRouteAccess;
+}
+
+/** How a client reaches the host's HTTP byte route. */
+export interface ByteRouteAccess {
+  baseUrl: string;
+  sessionToken(): Promise<string | null>;
 }
 
 /** Opaque client-side Firestore handle. Holds the MessagePort to the worker. */

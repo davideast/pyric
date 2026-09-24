@@ -27,8 +27,9 @@ installStorageBackend(sandbox, persistence.storage);
 await replaceStorageRules(sandbox, `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /private/{rest=**} { allow read, write: if false; }
-    match /{path=**} { allow read, write: if true; }
+    // Rules grant when any match allows, so private/ is simply never matched.
+    match /media/{rest=**} { allow read, write: if true; }
+    match /notes/{rest=**} { allow read, write: if true; }
   }
 }`);
 const ctx: HostCtx = { sandbox, db: getFirestore(sandbox), instanceId: 'web-byte-route', subs: new Map() };

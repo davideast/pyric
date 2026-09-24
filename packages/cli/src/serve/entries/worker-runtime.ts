@@ -39,14 +39,19 @@ export let useWorker = isServiceWorker && typeof BroadcastChannel !== 'undefined
 export let workerDb: ClientDb | null = null;
 export let presenceSession: ReturnType<typeof startPresence> | null = null;
 
-function hostedTarget(): { url: string; projectKey: string } {
+function hostedTarget(): { url: string; projectKey: string; sessionToken: () => Promise<string | null> } {
   const bridgeUrl = payload?.bridgeUrl;
   const isEndpointMissing = typeof bridgeUrl !== 'string';
   if (isEndpointMissing) throw new Error('The hosted sandbox has no bridge endpoint.');
   const projectKey = payload?.projectKey;
   const isProjectMissing = typeof projectKey !== 'string' || projectKey.length === 0;
   if (isProjectMissing) throw new Error('The hosted sandbox has no project identity.');
-  return { url: toPageOriginWsUrl(bridgeUrl, location, 'page-origin'), projectKey };
+  return {
+    url: toPageOriginWsUrl(bridgeUrl, location, 'page-origin'),
+    projectKey,
+    // The worker selection stamped into the page carries no session token; init.json does.
+    sessionToken: async () => (await initPayload)?.sessionToken ?? null,
+  };
 }
 
 export const WORKER_URL = PYRIC_WORKER_URL;

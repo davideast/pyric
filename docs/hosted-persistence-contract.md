@@ -125,6 +125,16 @@ when the bytes start elsewhere, and `200` when every byte has arrived. The
 session token does not authorize a `PUT`. Finishing still commits over the RPC,
 through the engine's upload.
 
+The web client uses the route whenever the host advertises it. An upload sends
+4 MiB slices, so `uploadBytesResumable` reports progress as each lands, pauses
+between slices, and resumes by asking the host for its offset. A read first
+checks rules with `getMetadata` over the RPC, then asks for exactly that
+generation; a newer one answers 412 and the read starts over.
+`getDownloadURL` checks read rules and returns the route's URL with the
+object's download token, minting one into `downloadTokens` the first time;
+removing the token from the metadata revokes every URL that carries it. A
+SharedWorker sandbox has no route and keeps its base64 frames.
+
 ## Transport backlog and recovery
 
 Each WebSocket has one 24 MiB output backlog shared by all frames. When sending

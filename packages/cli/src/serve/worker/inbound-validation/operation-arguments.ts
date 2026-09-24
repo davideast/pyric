@@ -17,7 +17,7 @@ function assertRequiredPath(message: Record<string, unknown>): void {
     case 'rtdb.get': case 'rtdb.set': case 'rtdb.setPriority': case 'rtdb.setWithPriority':
     case 'rtdb.update': case 'rtdb.remove': case 'rtdb.push': case 'rtdb.transactionCommit':
     case 'rtdb.onDisconnectSet': case 'rtdb.onDisconnectUpdate': case 'rtdb.onDisconnectRemove': case 'rtdb.onDisconnectCancel':
-    case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob':
+    case 'storage.listAll': case 'storage.getMetadata': case 'storage.getBlob': case 'storage.getDownloadURL':
     case 'storage.getBytes': case 'storage.deleteObject': case 'storage.putBytes':
     case 'storage.beginUpload':
       requireString(message.path, 'path');
@@ -387,6 +387,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'auth.getProviderConfig':
     case 'storage.listAll':
     case 'storage.getMetadata':
+    case 'storage.getDownloadURL':
     case 'storage.getBlob':
     case 'storage.getBytes':
     case 'storage.beginUpload':
