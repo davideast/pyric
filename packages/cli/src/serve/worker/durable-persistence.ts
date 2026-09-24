@@ -44,19 +44,29 @@ export function createWorkerDurableBackend(
   };
 
   let primed = false;
+  let primeInFlight: Promise<void> | null = null;
   const primeOnce = async (key: string): Promise<void> => {
     if (primed) return;
-    primed = true;
-    if ((await idb.listRecords(key)).length > 0) return;
-    if (persist) {
-      const res = await env.fetch(stateSection('firestore'), { headers: authHeaders });
-      if (res.status === 200) {
-        const records = parseBundle(await res.text());
-        if (records.size > 0) await idb.putRecords(key, records);
-      }
-    } else if (fixtureRecords !== null) {
-      await idb.putRecords(key, fixtureRecords);
+    if (primeInFlight === null) {
+      primeInFlight = (async () => {
+        if ((await idb.listRecords(key)).length === 0) {
+          if (persist) {
+            const res = await env.fetch(stateSection('firestore'), { headers: authHeaders });
+            if (res.status === 200) {
+              const records = parseBundle(await res.text());
+              if (records.size > 0) await idb.putRecords(key, records);
+            }
+          } else if (fixtureRecords !== null) {
+            await idb.putRecords(key, fixtureRecords);
+          }
+        }
+        primed = true;
+      })().catch((error: unknown) => {
+        primeInFlight = null;
+        throw error;
+      });
     }
+    await primeInFlight;
   };
 
   const mirror = async (key: string): Promise<void> => {

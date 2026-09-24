@@ -2,13 +2,14 @@
  * Turbopack configuration augmentation for Next.js client SDK aliases.
  */
 import type { NextConfigObject } from './types.js';
-import { getClientAliases } from './client-aliases.js';
+import { getClientAliases, getTurbopackBuiltinFallbacks } from './client-aliases.js';
 
 function assembleTurbopackAliases(existingTurbo: Record<string, any> | undefined): Record<string, any> {
   const turboSection = existingTurbo !== undefined ? Object.assign({}, existingTurbo) : {};
   const currentAliases = turboSection.resolveAlias !== undefined ? Object.assign({}, turboSection.resolveAlias) : {};
+  const builtinFallbacks = getTurbopackBuiltinFallbacks();
   const pyricAliases = getClientAliases();
-  turboSection.resolveAlias = Object.assign(currentAliases, pyricAliases);
+  turboSection.resolveAlias = Object.assign({}, builtinFallbacks, currentAliases, pyricAliases);
   return turboSection;
 }
 

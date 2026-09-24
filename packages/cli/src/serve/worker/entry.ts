@@ -150,6 +150,18 @@ workerScope.onconnect = (e: MessageEvent) => {
         await handleMessage(ctx, port, message);
       } catch (error) {
         console.error('[pyric worker] message handler error:', error, 'msg:', message);
+        if (!portLifecycle.isPortClosed(port) && 'id' in message) {
+          port.postMessage({
+            t: 'res',
+            id: message.id,
+            clientSessionId: message.clientSessionId,
+            ok: false,
+            error: {
+              code: 'pyric/worker-error',
+              message: error instanceof Error ? error.message : String(error),
+            },
+          });
+        }
       }
     },
     refuse(message, error) {

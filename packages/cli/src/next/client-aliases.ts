@@ -14,10 +14,18 @@ export function getClientAliases(): Record<string, string> {
     'firebase/app': entries.app,
     'firebase/auth': entries.auth,
     'firebase/firestore': entries.firestore,
+    'firebase/firestore/lite': entries.firestore,
     'firebase/database': entries.database,
     'firebase/messaging': entries.messaging,
     'firebase/messaging/sw': entries['messaging-sw'],
     'firebase/storage': entries.storage,
+    '@firebase/app': entries.app,
+    '@firebase/auth': entries.auth,
+    '@firebase/firestore': entries.firestore,
+    '@firebase/firestore/lite': entries.firestore,
+    '@firebase/database': entries.database,
+    '@firebase/messaging': entries.messaging,
+    '@firebase/storage': entries.storage,
   };
   return aliases;
 }
@@ -36,4 +44,19 @@ export function getNodeBuiltinFallbacks(): Record<string, boolean> {
     'node:url': false,
   };
   return fallbacks;
+}
+
+/**
+ * Retrieve string-based empty module fallback replacements for Node built-in
+ * modules compatible with Turbopack resolveAlias.
+ */
+export function getTurbopackBuiltinFallbacks(): Record<string, string> {
+  return {
+    fs: '',
+    path: '',
+    url: '',
+    'node:fs': '',
+    'node:path': '',
+    'node:url': '',
+  };
 }

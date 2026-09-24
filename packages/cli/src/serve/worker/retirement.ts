@@ -114,6 +114,8 @@ export function createWorkerRetirement(options: WorkerRetirementOptions): Worker
           schedule(options.closeWorker);
         })()).catch((error: unknown) => {
           attempt.cancelled = true;
+          workByPort.clear();
+          detachedWork.clear();
           retiring = false;
           retirement = null;
           failRequests(error instanceof Error ? error : new Error(String(error)));

@@ -152,4 +152,40 @@ describe('SharedWorker retirement', () => {
     expect(messages).toEqual([]);
     expect(closes).toBe(0);
   });
+
+  it('evicts stalled port and detached operations on drain timeout so a subsequent retire() succeeds', async () => {
+    const messages: unknown[] = [];
+    const requester = { postMessage: (message: unknown) => messages.push(message) };
+    const stalledPortWork = deferred();
+    const stalledDetachedWork = deferred();
+    let closes = 0;
+    const retirement = createWorkerRetirement({
+      closeWorker() { closes += 1; },
+      drainTimeoutMs: 5,
+      schedule: (run) => { run(); },
+    });
+    retirement.connect(requester);
+    retirement.track(requester, stalledPortWork.promise);
+    retirement.trackDetached(stalledDetachedWork.promise);
+
+    await retirement.retire(requester, 'replace-timeout-1', '0123456789abcdef');
+    expect(messages).toContainEqual({
+      t: 'res', id: 'replace-timeout-1', ok: false,
+      error: {
+        code: 'pyric/worker-retirement-timeout',
+        message: 'Worker retirement drain timed out after 5ms.',
+      },
+    });
+    expect(closes).toBe(0);
+
+    messages.length = 0;
+    // Note: stalledPortWork and stalledDetachedWork are still unresolved!
+    await retirement.retire(requester, 'replace-retry-2', 'fedcba9876543210');
+
+    expect(messages).toEqual([
+      { t: 'res', id: 'replace-retry-2', ok: true, value: { retiring: true } },
+      { t: 'runtime-reload', epoch: 'fedcba9876543210' },
+    ]);
+    expect(closes).toBe(1);
+  });
 });

@@ -192,6 +192,83 @@ describe('createWorkerDurableBackend', () => {
     });
     expect(fetchFn.calls).toEqual([]);
   });
+
+  it('gates concurrent getRecord and listRecords calls on single-flight priming completion', async () => {
+    const idb = createMemoryBackend();
+    const serverRecords = serializeToBuckets({ 'todos/c1': { title: 'concurrent' } }, {}, 0);
+    const serverBundle = bundleRecords(serverRecords);
+    const firstRecordId = [...serverRecords.keys()][0]!;
+
+    let releaseFetch!: () => void;
+    const fetchGate = new Promise<void>((resolve) => { releaseFetch = resolve; });
+    let fetchCount = 0;
+
+    const slowFetch = (async (url: string) => {
+      fetchCount += 1;
+      await fetchGate;
+      return {
+        status: String(url).includes('section=firestore') ? 200 : 404,
+        ok: String(url).includes('section=firestore'),
+        text: async () => serverBundle,
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const durable = createWorkerDurableBackend(
+      idb,
+      { ...basePayload, persist: true },
+      { fetch: slowFetch },
+    );
+
+    const listPromise = durable.listRecords(PERSIST_KEY);
+    let getSettled = false;
+    const getPromise = durable.getRecord(PERSIST_KEY, firstRecordId).then((record) => {
+      getSettled = true;
+      return record;
+    });
+
+    await tick(10);
+    expect(fetchCount).toBe(1);
+    expect(getSettled).toBe(false);
+
+    releaseFetch();
+    const [listedIds, fetchedRecord] = await Promise.all([listPromise, getPromise]);
+
+    expect(listedIds).toContain(firstRecordId);
+    expect(fetchedRecord).not.toBeNull();
+    expect(fetchCount).toBe(1);
+  });
+
+  it('resets priming gate after a transient fetch rejection so subsequent reads retry and succeed', async () => {
+    const idb = createMemoryBackend();
+    const serverBundle = bundleRecords(
+      serializeToBuckets({ 'todos/r1': { title: 'recovered' } }, {}, 0),
+    );
+    let attempts = 0;
+    const flakyFetch = (async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error('transient network failure');
+      }
+      return {
+        status: 200,
+        ok: true,
+        text: async () => serverBundle,
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const durable = createWorkerDurableBackend(
+      idb,
+      { ...basePayload, persist: true },
+      { fetch: flakyFetch },
+    );
+
+    await expect(durable.listRecords(PERSIST_KEY)).rejects.toThrow('transient network failure');
+    expect(attempts).toBe(1);
+
+    const firestore = await readBackendFirestore(durable, PERSIST_KEY);
+    expect(firestore['todos/r1']).toEqual({ title: 'recovered' });
+    expect(attempts).toBe(2);
+  });
 });
 
 describe('setupServerAuthFlush', () => {

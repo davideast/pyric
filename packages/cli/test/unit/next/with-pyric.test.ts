@@ -88,26 +88,48 @@ describe('withPyric Next.js configuration wrapper', () => {
     const res = withPyric({ webpack: customWebpack }) as Record<string, any>;
     expect(typeof res.webpack).toBe('function');
 
-    // Server build: should NOT alias or add fallbacks
-    const serverConfig: any = {};
+    // Server build: should NOT alias or add fallbacks, but SHOULD attach pyricWebpackExternals
+    const serverConfig: any = { externals: ['existing-external'] };
     const serverResult = res.webpack(serverConfig, { isServer: true });
     expect(serverResult.customProperty).toBe('server-build');
     expect(serverResult.resolve?.alias?.['firebase/app']).toBeUndefined();
     expect(serverResult.resolve?.fallback?.fs).toBeUndefined();
+    expect(Array.isArray(serverResult.externals)).toBe(true);
+    expect(serverResult.externals).toContain('existing-external');
+    expect(
+      serverResult.externals.some((ext: unknown) => ext instanceof RegExp && ext.test('firebase-admin/firestore')),
+    ).toBe(true);
+    expect(
+      serverResult.externals.some((ext: unknown) => ext instanceof RegExp && ext.test('@firebase/firestore')),
+    ).toBe(true);
+    expect(
+      serverResult.externals.some((ext: unknown) => ext instanceof RegExp && ext.test('google-auth-library')),
+    ).toBe(true);
+    expect(
+      serverResult.externals.some((ext: unknown) => ext instanceof RegExp && ext.test('@google-cloud/firestore')),
+    ).toBe(true);
 
-    // Client build: SHOULD alias and add built-in fallbacks
+    // Client build: SHOULD alias (including firebase/firestore/lite and @firebase/*) and add built-in fallbacks
     const clientConfig: any = {};
     const clientResult = res.webpack(clientConfig, { isServer: false });
     expect(clientResult.customProperty).toBe('client-build');
     expect(clientResult.resolve.alias['firebase/app']).toContain('/entries/app.');
     expect(clientResult.resolve.alias['firebase/firestore']).toContain('/entries/firestore.');
+    expect(clientResult.resolve.alias['firebase/firestore/lite']).toContain('/entries/firestore.');
+    expect(clientResult.resolve.alias['@firebase/app']).toContain('/entries/app.');
+    expect(clientResult.resolve.alias['@firebase/auth']).toContain('/entries/auth.');
+    expect(clientResult.resolve.alias['@firebase/firestore']).toContain('/entries/firestore.');
+    expect(clientResult.resolve.alias['@firebase/firestore/lite']).toContain('/entries/firestore.');
+    expect(clientResult.resolve.alias['@firebase/database']).toContain('/entries/database.');
+    expect(clientResult.resolve.alias['@firebase/messaging']).toContain('/entries/messaging.');
+    expect(clientResult.resolve.alias['@firebase/storage']).toContain('/entries/storage.');
     expect(clientResult.resolve.fallback.fs).toBe(false);
     expect(clientResult.resolve.fallback.path).toBe(false);
     expect(clientResult.experiments.topLevelAwait).toBe(true);
     expect(clientResult.output.environment.asyncFunction).toBe(true);
   });
 
-  it('configures Turbopack aliases for client SDKs', () => {
+  it('configures Turbopack aliases for client SDKs, deep subpaths, and Node built-in fallbacks', () => {
     const res = withPyric({
       turbopack: { resolveAlias: { modern: 'alias' } },
       turbo: { resolveAlias: { existing: 'alias' } },
@@ -116,6 +138,15 @@ describe('withPyric Next.js configuration wrapper', () => {
 
     expect(res.turbopack.resolveAlias.modern).toBe('alias');
     expect(res.turbopack.resolveAlias['firebase/app']).toContain('/entries/app.');
+    expect(res.turbopack.resolveAlias['firebase/firestore/lite']).toContain('/entries/firestore.');
+    expect(res.turbopack.resolveAlias['@firebase/app']).toContain('/entries/app.');
+    expect(res.turbopack.resolveAlias['@firebase/firestore']).toContain('/entries/firestore.');
+    expect(typeof res.turbopack.resolveAlias.fs).toBe('string');
+    expect(typeof res.turbopack.resolveAlias.path).toBe('string');
+    expect(typeof res.turbopack.resolveAlias.url).toBe('string');
+    expect(typeof res.turbopack.resolveAlias['node:fs']).toBe('string');
+    expect(typeof res.turbopack.resolveAlias['node:path']).toBe('string');
+    expect(typeof res.turbopack.resolveAlias['node:url']).toBe('string');
     expect(res.turbo.resolveAlias.existing).toBe('alias');
     expect(res.turbo.resolveAlias['firebase/app']).toContain('/entries/app.');
     expect(res.experimental.turbo.resolveAlias.legacy).toBe('alias');

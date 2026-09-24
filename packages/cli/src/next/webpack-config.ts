@@ -2,7 +2,14 @@
  * Webpack configuration augmentation for Next.js client component builds.
  */
 import type { NextConfigObject } from './types.js';
+import { pyricRollupExternals } from '../bundler/externals.js';
 import { getClientAliases, getNodeBuiltinFallbacks } from './client-aliases.js';
+
+export const pyricWebpackExternals: readonly RegExp[] = Object.freeze([
+  ...pyricRollupExternals,
+  /^google-auth-library(\/.*)?$/,
+  /^@google-cloud(\/.*)?$/,
+]);
 
 interface WebpackOptions {
   isServer: boolean;
@@ -11,6 +18,16 @@ interface WebpackOptions {
 
 function isClientSideBuild(options: WebpackOptions): boolean {
   return options.isServer === false;
+}
+
+function assembleServerExternals(existingExternals: unknown): unknown[] {
+  if (Array.isArray(existingExternals)) {
+    return [...existingExternals, ...pyricWebpackExternals];
+  }
+  if (existingExternals !== undefined && existingExternals !== null) {
+    return [existingExternals, ...pyricWebpackExternals];
+  }
+  return [...pyricWebpackExternals];
 }
 
 function assembleClientResolveSection(existingResolve: Record<string, any> | undefined): Record<string, any> {
@@ -44,7 +61,8 @@ function assembleClientOutputSection(existingOutput: Record<string, any> | undef
 /**
  * Wrap the existing Next.js Webpack configuration builder to inject client-side
  * Firebase module aliases and modern async runtime compatibility settings when
- * bundling for browser execution.
+ * bundling for browser execution, and server-side externalization rules when
+ * bundling for SSR / Node execution.
  */
 export function augmentWebpackConfig(config: NextConfigObject): NextConfigObject {
   const updatedConfig: NextConfigObject = Object.assign({}, config);
@@ -60,6 +78,8 @@ export function augmentWebpackConfig(config: NextConfigObject): NextConfigObject
 
       const currentOutput = webpackConfig.output;
       webpackConfig.output = assembleClientOutputSection(currentOutput);
+    } else {
+      webpackConfig.externals = assembleServerExternals(webpackConfig.externals);
     }
     if (typeof originalWebpack === 'function') {
       return originalWebpack(webpackConfig, webpackOptions);
