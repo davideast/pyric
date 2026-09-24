@@ -88,25 +88,27 @@ export default defineConfig({
 });
 ```
 
-### If you use Vite for Node backend builds (`vite.config.ts`)
+### If you use Vite for SSR or Node backend builds (`vite.config.ts`)
 
-In Vite, external dependencies for SSR / Node backend builds are configured under `build.rollupOptions.external`:
+Add the `pyricViteExternals()` plugin. It adds `firebase` and `firebase-admin` to `ssr.external`, which Vite applies to SSR output only:
 
 ```ts
 import { defineConfig } from 'vite';
-import { pyricExternals } from '@pyric/cli/bundler';
+import { pyricViteExternals } from '@pyric/cli/bundler';
 
 export default defineConfig({
-  build: {
-    rollupOptions: {
-      external: pyricExternals.vite,
-    },
-  },
+  plugins: [pyricViteExternals()],
 });
 ```
 
+The plugin runs in `vite build` and never in the dev server. Your client bundle is unaffected, so browser code keeps the Firebase packages it imports. An SSR build keeps `import 'firebase-admin/...'` and `import 'firebase/...'` statements even when `ssr.noExternal: true` bundles every other dependency, because Vite ranks an `ssr.external` list above `ssr.noExternal`. If your config sets `ssr.external: true`, every dependency is already external and the plugin adds nothing.
+
+`build.rollupOptions.external` applies to client and SSR builds alike, so set `pyricExternals.vite` there only in a config that builds nothing but Node output.
+
+To configure a tool that takes package names rather than patterns, use `pyricExternalPackages`, which lists `firebase-admin` and `firebase`.
+
 > [!NOTE]
-> For standard frontend Vite applications, use the dedicated [`@pyric/cli/vite`](/docs/get-started/vite) plugin instead, which handles dev-server interception automatically.
+> For standard frontend Vite applications, use the dedicated [`@pyric/cli/vite`](/docs/get-started/vite) plugin instead, which handles dev-server interception automatically. You can list both plugins in one config: `pyric()` does not run in a production `vite build`, and in a sandbox build (`vite build --mode development`) it resolves `firebase/*` to the sandbox entries before Vite's SSR externalization applies.
 
 ### If you use Webpack (`webpack.config.js`)
 

@@ -7,8 +7,9 @@
  *   import { pyricExternals } from '@pyric/cli/bundler';
  *   export default { external: pyricExternals.rolldown };
  *
- *   // vite.config.ts (SSR / Node backend builds)
- *   export default { build: { rollupOptions: { external: pyricExternals.vite } } };
+ *   // vite.config.ts: SSR output only; client builds are unaffected
+ *   import { pyricViteExternals } from '@pyric/cli/bundler';
+ *   export default { plugins: [pyricViteExternals()] };
  *
  *   // tsup.config.ts / esbuild.config.mjs
  *   export default { external: pyricExternals.esbuild };
@@ -16,6 +17,8 @@
 export {
   pyricRollupExternals,
   pyricEsbuildExternals,
+  pyricExternalPackages,
   isPyricExternal,
+  pyricViteExternals,
   pyricExternals,
 } from './externals.js';
