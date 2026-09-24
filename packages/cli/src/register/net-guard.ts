@@ -96,6 +96,7 @@ import {
   normalizeHostname,
   type GoogleEndpoint,
 } from '../google-endpoints.js';
+import { nodeAgentPrototypes } from './connect-prototypes.js';
 
 /** undici's global-dispatcher slot. Version-suffixed by undici itself. */
 const UNDICI_GLOBAL_DISPATCHER = Symbol.for('undici.globalDispatcher.1');
@@ -423,30 +424,6 @@ function materializeGlobalDispatcher(): void {
     // No WHATWG Headers, or a runtime that never had undici. The socket
     // backstop still applies.
   }
-}
-
-/**
- * The `http.Agent` and `https.Agent` prototypes, or an empty list on a runtime
- * without them. Each carries its own `createConnection`: `http`'s is a copied
- * reference to `net.createConnection` snapshotted at `_http_agent` load time,
- * so patching `net` alone leaves it unguarded whenever `node:http` loaded
- * first.
- */
-function nodeAgentPrototypes(): AgentPrototype[] {
-  const require = createRequire(import.meta.url);
-  const prototypes: AgentPrototype[] = [];
-  for (const id of ['node:http', 'node:https']) {
-    try {
-      const mod = require(id) as { Agent?: { prototype?: unknown } };
-      const prototype = mod.Agent?.prototype;
-      if (typeof prototype === 'object' && prototype !== null) {
-        prototypes.push(prototype as AgentPrototype);
-      }
-    } catch {
-      // Runtime without that module: the other seams still apply.
-    }
-  }
-  return prototypes;
 }
 
 /**
