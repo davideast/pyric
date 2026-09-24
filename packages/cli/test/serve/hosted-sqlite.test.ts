@@ -69,6 +69,11 @@ test('the byte route serves object ranges to either token and takes an upload wi
   expect(await runNodeFixture('byte-route', 90_000)).toBe('Byte route passed');
 }, 120_000);
 
+// Uploads and reads 10 and 12 MiB objects through the web client.
+test('the web client moves Storage bytes over the byte route, with real progress, pause, and download URLs', async () => {
+  expect(await runNodeFixture('web-byte-route', 60_000)).toBe('Web byte route passed');
+}, 90_000);
+
 test('the hosted host serves its objects on the byte route and advertises it at attach', async () => {
   expect(await runNodeFixture('byte-route-mount', 30_000)).toBe('Byte route mount passed');
 }, 60_000);
