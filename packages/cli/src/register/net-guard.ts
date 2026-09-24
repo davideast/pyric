@@ -33,13 +33,20 @@
  *        v7 Agent and that cross-version handoff only survives untouched. We
  *        read `opts.origin` and nothing else.
  *
- * 2. `net.connect` / `net.createConnection` / `tls.connect`, plus the
- *    `createConnection` on the `http.Agent` and `https.Agent` prototypes: the
- *    backstop for traffic that never goes through undici, such as
- *    `http.request`, gRPC, database drivers, anything holding a raw socket.
- *    Same catalog, same policy. (undici itself connects through `net.connect`,
- *    so a warn-mode fetch would report twice; the once-per-host dedupe below
- *    collapses that.)
+ * 2. `net.connect` / `net.createConnection` / `tls.connect`, the
+ *    `createConnection` on the `http.Agent` and `https.Agent` prototypes, and
+ *    `net.Socket.prototype.connect`: the backstop for traffic that never goes
+ *    through undici, such as `http.request`, gRPC, database drivers, anything
+ *    holding a raw socket. Same catalog, same policy. (undici itself connects
+ *    through `net.connect`, so a warn-mode fetch would report twice; the
+ *    once-per-host dedupe below collapses that.)
+ *
+ *    `Socket.prototype.connect` is the seam every client connection reaches:
+ *    `net.connect` and `net.createConnection` build a socket and call it with
+ *    their arguments normalized into one `[options, callback]` array, and
+ *    `tls.connect` calls it on the `TLSSocket` it builds. Patching the module
+ *    functions alone leaves two routes open: a reference to `net.connect` a
+ *    library took before this module ran, and `new net.Socket().connect(...)`.
  *
  *    The Agent prototypes need their own patch because
  *    `http.Agent.prototype.createConnection` is a copied reference to
@@ -96,7 +103,7 @@ import {
   normalizeHostname,
   type GoogleEndpoint,
 } from '../google-endpoints.js';
-import { nodeAgentPrototypes } from './connect-prototypes.js';
+import { nodeAgentPrototypes, nodeSocketPrototypes } from './connect-prototypes.js';
 
 /** undici's global-dispatcher slot. Version-suffixed by undici itself. */
 const UNDICI_GLOBAL_DISPATCHER = Symbol.for('undici.globalDispatcher.1');
@@ -379,6 +386,10 @@ type ConnectFn = (...args: unknown[]) => unknown;
  *  prototype in production, a stand-in under test. */
 type AgentPrototype = { createConnection?: unknown };
 
+/** A `connect`-bearing object: `net.Socket.prototype` in production, a
+ *  stand-in under test. */
+type SocketPrototype = { connect?: unknown };
+
 export interface NetGuardHooks {
   /** Object carrying the undici dispatcher symbol. Defaults to `globalThis`. */
   scope?: Record<symbol, unknown>;
@@ -390,6 +401,9 @@ export interface NetGuardHooks {
   /** Prototypes whose `createConnection` is patched. Defaults to the
    *  `http.Agent` and `https.Agent` prototypes. */
   agentPrototypes?: readonly AgentPrototype[];
+  /** Prototypes whose `connect` is patched. Defaults to the `net.Socket`
+   *  prototype. */
+  socketPrototypes?: readonly SocketPrototype[];
 }
 
 export interface NetGuard {
@@ -485,6 +499,13 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   for (const prototype of hooks.agentPrototypes ?? nodeAgentPrototypes()) {
     guardConnect(prototype as { [k: string]: unknown }, 'createConnection');
   }
+  // And the Socket prototype, which every client connection reaches, so a
+  // captured `net.connect` or a hand-built socket is checked too. A call
+  // through the patched `net.connect` is checked twice; the dedupe keeps that
+  // to one line.
+  for (const prototype of hooks.socketPrototypes ?? nodeSocketPrototypes()) {
+    guardConnect(prototype as { [k: string]: unknown }, 'connect');
+  }
 
   let installed: unknown;
   const wrapGlobalDispatcher = (): void => {
@@ -519,13 +540,16 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 }
 
 /**
- * Extract the destination host from `net.connect` / `tls.connect` arguments,
- * across all of their overloads: `(options[, cb])`, `(port[, host][, cb])`,
- * `(path[, cb])`. An IPC path or a portless local socket has no host, which is
- * exactly the "nothing to say" answer.
+ * Extract the destination host from `net.connect` / `tls.connect` /
+ * `Socket.prototype.connect` arguments, across all of their overloads:
+ * `(options[, cb])`, `(port[, host][, cb])`, `(path[, cb])`, and the
+ * `[options, cb]` array `net.connect` hands the socket once it has normalized
+ * its own arguments. An IPC path or a portless local socket has no host, which
+ * is exactly the "nothing to say" answer.
  */
 function connectHost(args: readonly unknown[]): string | undefined {
   const first = args[0];
+  if (Array.isArray(first)) return connectHost(first);
   if (typeof first === 'object' && first !== null) {
     const host = (first as { host?: unknown; hostname?: unknown }).host ??
       (first as { hostname?: unknown }).hostname;

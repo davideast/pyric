@@ -44,3 +44,16 @@ export function nodeAgentPrototypes(): object[] {
   ]);
 }
 
+/**
+ * The `net.Socket` prototype. Every TCP and TLS client connection in Node
+ * reaches `Socket.prototype.connect`: `net.connect` and `net.createConnection`
+ * construct a socket and call it, `tls.connect` calls it on the `TLSSocket` it
+ * builds, and `new net.Socket().connect(...)` calls it directly. A reference to
+ * `net.connect` taken before the guard installed, or a socket constructed by
+ * hand, never passes through the patched module functions, so this prototype
+ * is the seam no client connection can route around.
+ */
+export function nodeSocketPrototypes(): object[] {
+  return builtinPrototypes([['node:net', 'Socket']]);
+}
+
