@@ -3,8 +3,8 @@
   "generatedNote": "Exact Storage Rules conformance ratchet. Update only with reviewed evidence or implementation changes.",
   "universe": {
     "hashAlgorithm": "sha256",
-    "hash": "9dec876b0e942ce28dfecb708cf9d8192702e307b4943bf1d5ad6927267901e7",
-    "denominator": 69,
+    "hash": "c5ba70d674704b91814c9205dd5ecf9db914c1a2e519341df6a0697a50dfc026",
+    "denominator": 71,
     "constructIds": [
       "storage.binding.request",
       "storage.binding.request.auth",
@@ -31,6 +31,8 @@
       "storage.function.timestamp.date",
       "storage.function.timestamp.value",
       "storage.function.duration.value",
+      "storage.function.duration.time",
+      "storage.function.duration.abs",
       "storage.function.firestore.get",
       "storage.function.firestore.exists",
       "storage.method.string.matches",
@@ -78,38 +80,38 @@
     ]
   },
   "score": {
-    "numerator": 67,
-    "denominator": 69,
-    "ratio": 0.9710144927536232,
-    "percent": 97.1
+    "numerator": 69,
+    "denominator": 71,
+    "ratio": 0.971830985915493,
+    "percent": 97.2
   },
   "axes": {
     "productionAcceptance": {
       "unprobed": 0,
-      "accepted": 69,
+      "accepted": 71,
       "rejected": 0,
       "unprobeable": 0
     },
     "localAcceptance": {
-      "accepted": 69,
+      "accepted": 71,
       "rejected": 0,
       "unsupported": 0,
       "unprobeable": 0
     },
     "localCapability": {
-      "implemented": 69,
+      "implemented": 71,
       "unsupported": 0,
       "error": 0,
       "unprobeable": 0
     },
     "productionEvidence": {
-      "verified": 67,
+      "verified": 69,
       "diverged": 2,
       "unverified": 0
     }
   },
   "counts": {
-    "conformant": 67,
+    "conformant": 69,
     "diverged": 2,
     "unknown": 0,
     "acceptance-mismatch": 0,
@@ -141,7 +143,10 @@
         "metadata-verbs-and-arithmetic",
         "request-time-timestamp",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [],
@@ -164,7 +169,8 @@
         "function-scopes-and-shadowing",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
-        "stdlib-storage-modules"
+        "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing"
       ],
       "verifiedByRows": [
         "storage-rules#125",
@@ -189,7 +195,8 @@
         "firestore-lookup",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
-        "stdlib-storage-modules"
+        "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing"
       ],
       "verifiedByRows": [
         "storage-rules#125"
@@ -234,6 +241,7 @@
         "in-membership-and-proto-keys",
         "matches-regex",
         "metadata-verbs-and-arithmetic",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "upload-primitives-boundaries"
       ],
@@ -305,12 +313,14 @@
       "verifiedBy": [
         "in-membership-and-proto-keys",
         "metadata-verbs-and-arithmetic",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [
         "storage-rules#126",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.map-diff"
       ],
       "divergedByRows": []
     },
@@ -329,11 +339,13 @@
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-storage-modules",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [
         "storage-rules#126",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.timestamp-duration"
       ],
       "divergedByRows": []
     },
@@ -389,7 +401,10 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries",
         "verbs-umbrella-granular"
       ],
@@ -411,6 +426,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "metadata-verbs-and-arithmetic",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [],
@@ -446,12 +463,15 @@
       "classification": "conformant",
       "verifiedBy": [
         "metadata-access",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [
         "storage-rules#126",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.map-diff"
       ],
       "divergedByRows": []
     },
@@ -481,7 +501,10 @@
         "metadata-verbs-and-arithmetic",
         "request-time-timestamp",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries",
@@ -525,12 +548,14 @@
       "verifiedBy": [
         "resource-object-identity",
         "stdlib-storage-modules",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [
         "storage-rules#116",
         "storage-rules#126",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.timestamp-duration"
       ],
       "divergedByRows": []
     },
@@ -547,11 +572,13 @@
       "classification": "conformant",
       "verifiedBy": [
         "resource-object-identity",
-        "stdlib-storage-modules"
+        "stdlib-storage-modules",
+        "stdlib-timestamp-duration"
       ],
       "verifiedByRows": [
         "storage-rules#116",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.timestamp-duration"
       ],
       "divergedByRows": []
     },
@@ -626,9 +653,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "request-time-timestamp"
+        "request-time-timestamp",
+        "stdlib-timestamp-duration"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#storage.stdlib.timestamp-duration"
+      ],
       "divergedByRows": []
     },
     "storage.function.timestamp.value": {
@@ -643,9 +673,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "request-time-timestamp"
+        "request-time-timestamp",
+        "stdlib-timestamp-duration"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#storage.stdlib.timestamp-duration"
+      ],
       "divergedByRows": []
     },
     "storage.function.duration.value": {
@@ -662,13 +695,49 @@
       "verifiedBy": [
         "resource-object-identity",
         "stdlib-storage-modules",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [
         "storage-rules#116",
         "storage-rules#126",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.timestamp-duration"
       ],
+      "divergedByRows": []
+    },
+    "storage.function.duration.time": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "ead85595c4dde9a89bd9fd268b1f859b02c52e263592bb1fc82ca58d8fa96257",
+      "currentProbeDigest": "ead85595c4dde9a89bd9fd268b1f859b02c52e263592bb1fc82ca58d8fa96257",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "stdlib-timestamp-duration"
+      ],
+      "verifiedByRows": [],
+      "divergedByRows": []
+    },
+    "storage.function.duration.abs": {
+      "productionAcceptance": "accepted",
+      "localAcceptance": "accepted",
+      "localCapability": "implemented",
+      "productionProbeDigest": "bf861133ab41d00339431fc60d29ee4c4e4f1f3b69853efc0a4f25cbd0b434d3",
+      "currentProbeDigest": "bf861133ab41d00339431fc60d29ee4c4e4f1f3b69853efc0a4f25cbd0b434d3",
+      "acceptanceProbeBound": true,
+      "productionEvaluationAgreement": true,
+      "localEvaluationAgreement": true,
+      "productionEvidence": "verified",
+      "classification": "conformant",
+      "verifiedBy": [
+        "stdlib-timestamp-duration"
+      ],
+      "verifiedByRows": [],
       "divergedByRows": []
     },
     "storage.function.firestore.get": {
@@ -737,7 +806,8 @@
       ],
       "verifiedByRows": [
         "storage-rules#126",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.string-methods"
       ],
       "divergedByRows": []
     },
@@ -754,7 +824,10 @@
       "classification": "conformant",
       "verifiedBy": [],
       "verifiedByRows": [
-        "storage-rules#122"
+        "storage-rules#122",
+        "storage-rules#storage.stdlib.string-methods",
+        "storage-rules#storage.stdlib.bytes-hashing",
+        "storage-rules#storage.stdlib.sets"
       ],
       "divergedByRows": []
     },
@@ -824,7 +897,8 @@
       "verifiedBy": [],
       "verifiedByRows": [
         "storage-rules#127",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.sets"
       ],
       "divergedByRows": []
     },
@@ -852,12 +926,17 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries",
         "verbs-umbrella-granular"
       ],
       "verifiedByRows": [
-        "storage-rules#122"
+        "storage-rules#122",
+        "storage-rules#storage.stdlib.bytes-hashing",
+        "storage-rules#storage.stdlib.sets"
       ],
       "divergedByRows": []
     },
@@ -878,6 +957,7 @@
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
         "verbs-umbrella-granular"
       ],
       "verifiedByRows": [],
@@ -901,6 +981,7 @@
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-storage-modules",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [],
@@ -919,7 +1000,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "functions-let-scope",
-        "request-time-timestamp"
+        "request-time-timestamp",
+        "stdlib-timestamp-duration"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -977,6 +1059,7 @@
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
         "stdlib-storage-modules",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [],
@@ -994,7 +1077,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "metadata-verbs-and-arithmetic"
+        "metadata-verbs-and-arithmetic",
+        "stdlib-timestamp-duration"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1063,7 +1147,10 @@
         "in-membership-and-proto-keys",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "type-checks-is",
         "upload-primitives-boundaries"
       ],
@@ -1088,6 +1175,7 @@
         "error-absorption-and-direction",
         "firestore-lookup-budget",
         "metadata-verbs-and-arithmetic",
+        "stdlib-timestamp-duration",
         "ternary-and-error-absorption"
       ],
       "verifiedByRows": [
@@ -1113,6 +1201,8 @@
         "float-modulo-unary-minus",
         "functions-let-scope",
         "in-membership-and-proto-keys",
+        "stdlib-sets-and-mapdiff",
+        "stdlib-timestamp-duration",
         "type-checks-is"
       ],
       "verifiedByRows": [],
@@ -1142,7 +1232,10 @@
         "metadata-verbs-and-arithmetic",
         "request-time-timestamp",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries"
       ],
       "verifiedByRows": [],
@@ -1199,7 +1292,8 @@
       "verifiedByRows": [
         "storage-rules#121",
         "storage-rules#126",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.timestamp-duration"
       ],
       "divergedByRows": []
     },
@@ -1218,7 +1312,8 @@
       "verifiedByRows": [
         "storage-rules#120",
         "storage-rules#125",
-        "storage-rules#132"
+        "storage-rules#132",
+        "storage-rules#storage.stdlib.sets"
       ],
       "divergedByRows": []
     },
@@ -1334,6 +1429,9 @@
         "firestore-lookup",
         "metadata-access",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "upload-primitives-boundaries",
         "verbs-umbrella-granular"
       ],
@@ -1410,6 +1508,7 @@
         "list-map-literals-and-slice",
         "metadata-verbs-and-arithmetic",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "ternary-and-error-absorption",
         "type-checks-is",
@@ -1473,7 +1572,10 @@
         "metadata-verbs-and-arithmetic",
         "request-time-timestamp",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries",
@@ -1497,6 +1599,7 @@
         "common-auth-membership",
         "function-scopes-and-shadowing",
         "functions-let-scope",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "upload-primitives-boundaries"
       ],
@@ -1549,7 +1652,10 @@
         "metadata-verbs-and-arithmetic",
         "request-time-timestamp",
         "resource-object-identity",
+        "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
+        "stdlib-string-bytes-hashing",
+        "stdlib-timestamp-duration",
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries",

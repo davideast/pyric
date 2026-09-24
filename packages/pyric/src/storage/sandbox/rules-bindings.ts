@@ -1,12 +1,14 @@
+import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
 import type { EvaluationInput, StorageResource } from './rules.js';
 import { RuleError } from './rules-values.js';
 import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
 
 /**
  * Build the `resource.*` binding from the existing-object record, converting
- * the ISO-8601 time fields to epoch millis so they compare numerically against
- * `request.time` (which {@link buildRequestObject} models the same way) and
- * against each other (`resource.timeCreated == resource.updated`).
+ * the ISO-8601 time fields to timestamps so they compare against
+ * `request.time` (which {@link buildRequestObject} models the same way),
+ * against each other (`resource.timeCreated == resource.updated`), and take
+ * durations (`resource.timeCreated + duration.value(1, 'h')`).
  *
  * A field the record does not carry is left `undefined`, which the
  * evaluator's property read reports as production's absent-property ERROR.
@@ -20,19 +22,21 @@ export function buildResourceObject(resource: StorageResource): Record<string, u
     bucket: resource.bucket,
     generation: resource.generation,
     metageneration: resource.metageneration,
-    timeCreated: isoToMillis(resource.timeCreated),
-    updated: isoToMillis(resource.updated),
+    timeCreated: isoToTimestamp(resource.timeCreated),
+    updated: isoToTimestamp(resource.updated),
   };
 }
 
-/** ISO-8601 → epoch millis. An unparseable or absent value stays `undefined`
- *  (→ absent-property error → deny) rather than becoming `NaN`. */
-function isoToMillis(iso: string | undefined): number | undefined {
+/** ISO-8601 → timestamp. An unparseable or absent value stays `undefined`
+ *  (→ absent-property error → deny) rather than becoming a NaN timestamp. */
+function isoToTimestamp(iso: string | undefined): Timestamp | undefined {
   if (iso === undefined) return undefined;
   const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? undefined : ms;
+  if (Number.isNaN(ms)) return undefined;
+  return Timestamp.fromMillis(ms);
 }
 
+/** Build the `request.*` binding; `now` is the evaluation instant in epoch millis. */
 export function buildRequestObject(input: EvaluationInput, now: number): Record<string, unknown> {
   const auth = input.request.auth;
   let requestAuth: unknown;
@@ -56,10 +60,10 @@ export function buildRequestObject(input: EvaluationInput, now: number): Record<
     resource: input.request.resource ?? new RuleError('Property resource is undefined on object.'),
     method: input.request.method,
     path: input.request.path,
-    // `request.time` as epoch millis — see the timestamp constructors in
-    // `evalMethodCall`, which produce the same representation so comparisons
-    // like `request.time < timestamp.date(2030, 1, 1)` are plain numerics.
-    time: now,
+    // The same Timestamp value `timestamp.date(...)` and `timestamp.value(...)`
+    // build, so `request.time < timestamp.date(2030, 1, 1)` compares
+    // timestamps and `request.time.year()` reads a component.
+    time: Timestamp.fromMillis(now),
   };
   return request;
 }

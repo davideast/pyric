@@ -7,6 +7,8 @@
  * Semantics derived from production Firestore behavior:
  * - Only compares top-level keys (nested map diff is unreliable in production)
  * - Values are compared with Firestore Rules value equality
+ * - Keys are own keys only, so a key named `constructor` or `toString` is
+ *   added or removed like any other (production maps expose no prototype)
  * - Returns Set-like objects with hasOnly(), hasAll(), hasAny(), size()
  */
 
@@ -28,7 +30,7 @@ export class MapDiff {
   addedKeys(): FirestoreSet {
     const added: string[] = [];
     for (const key of Object.keys(this.after)) {
-      if (!(key in this.before)) added.push(key);
+      if (!Object.hasOwn(this.before, key)) added.push(key);
     }
     return new FirestoreSet(added);
   }
@@ -37,7 +39,7 @@ export class MapDiff {
   removedKeys(): FirestoreSet {
     const removed: string[] = [];
     for (const key of Object.keys(this.before)) {
-      if (!(key in this.after)) removed.push(key);
+      if (!Object.hasOwn(this.after, key)) removed.push(key);
     }
     return new FirestoreSet(removed);
   }
@@ -46,7 +48,7 @@ export class MapDiff {
   changedKeys(): FirestoreSet {
     const changed: string[] = [];
     for (const key of Object.keys(this.after)) {
-      if (key in this.before && !rulesValuesEqual(this.before[key], this.after[key])) {
+      if (Object.hasOwn(this.before, key) && !rulesValuesEqual(this.before[key], this.after[key])) {
         changed.push(key);
       }
     }
@@ -58,7 +60,7 @@ export class MapDiff {
     const affected: string[] = [];
     const allKeys = new Set([...Object.keys(this.before), ...Object.keys(this.after)]);
     for (const key of allKeys) {
-      if (!(key in this.before) || !(key in this.after) || !rulesValuesEqual(this.before[key], this.after[key])) {
+      if (!Object.hasOwn(this.before, key) || !Object.hasOwn(this.after, key) || !rulesValuesEqual(this.before[key], this.after[key])) {
         affected.push(key);
       }
     }
@@ -69,7 +71,7 @@ export class MapDiff {
   unchangedKeys(): FirestoreSet {
     const unchanged: string[] = [];
     for (const key of Object.keys(this.before)) {
-      if (key in this.after && rulesValuesEqual(this.before[key], this.after[key])) {
+      if (Object.hasOwn(this.after, key) && rulesValuesEqual(this.before[key], this.after[key])) {
         unchanged.push(key);
       }
     }

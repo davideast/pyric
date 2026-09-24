@@ -1,3 +1,4 @@
+import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import {
   expandVerb,
@@ -12,7 +13,14 @@ import {
 } from './rules.js';
 import { buildRequestObject, buildResourceObject } from './rules-bindings.js';
 import { evalMethodCall } from './rules-methods.js';
-import { cmp, isFloatNum, numOp, typeMatches } from './rules-operators.js';
+import {
+  cmp,
+  evalValueOperator,
+  isFloatNum,
+  isValueTypeOperand,
+  numOp,
+  typeMatches,
+} from './rules-operators.js';
 import { formatPath, matchSegments, splitPath } from './rules-path-match.js';
 import {
   RuleEvalError,
@@ -35,10 +43,10 @@ export function evaluateStorageRules(
   now: Date = new Date(),
   firestoreLookup?: FirestoreLookup,
 ): EvaluationResult {
-  // `request.time` is the request's evaluation moment, modeled internally
-  // as epoch milliseconds so it compares numerically against the
-  // `timestamp.date(...)` / `timestamp.value(...)` constructors. The caller
-  // injects it (deterministic in tests); it defaults to now.
+  // `request.time` is the request's evaluation moment. The caller injects it
+  // (deterministic in tests); it defaults to now. The request binding turns
+  // it into the Timestamp value `timestamp.date(...)` and
+  // `timestamp.value(...)` also build.
   const nowMillis = now.getTime();
   const pathSegments = splitPath(input.request.path);
   const reasons: string[] = [];
@@ -179,8 +187,8 @@ const MAX_CALL_DEPTH = 20;
 /** Everything an expression needs to evaluate. */
 export interface EvalCtx {
   input: EvaluationInput;
-  /** `request.time` as epoch milliseconds (injected by the caller,
-   *  defaulting to evaluation-time now). */
+  /** The evaluation instant in epoch milliseconds (injected by the caller,
+   *  defaulting to evaluation-time now); `request.time` is its Timestamp. */
   now: number;
   /** Path wildcards from the enclosing match. Empty inside a function
    *  body: caller wildcards do not leak in except via arguments. */
@@ -303,8 +311,9 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // live-pinned by rules-firestore-prototype-chain-keys), so JS `in`
       // (which walks the prototype chain) would false-ALLOW here.
       if (Array.isArray(coll)) return coll.some((v) => rulesEquals(v, el));
+      if (coll instanceof FirestoreSet) return coll.hasAll([el]);
       if (isRulesMap(coll)) return typeof el === 'string' && Object.prototype.hasOwnProperty.call(coll, el);
-      return new RuleError(`'in' applied to ${describeType(coll)} (expected a list or map).`);
+      return new RuleError(`'in' applied to ${describeType(coll)} (expected a list, set, or map).`);
     }
     case 'is': {
       const v = evalExpr(expr.value, ctx);
@@ -364,6 +373,11 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (isErr(l)) return l;
       const r = evalExpr(expr.right, ctx);
       if (isErr(r)) return r;
+      // Timestamp, Duration, and Bytes operands own their comparison and
+      // arithmetic operators; equality stays with rulesEquals below.
+      if (expr.op !== '==' && expr.op !== '!=' && (isValueTypeOperand(l) || isValueTypeOperand(r))) {
+        return evalValueOperator(expr.op, l, r);
+      }
       switch (expr.op) {
         // Lists and maps compare STRUCTURALLY (production `[a] == [a]` is true;
         // JS reference identity would make every literal comparison
