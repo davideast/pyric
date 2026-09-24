@@ -85,6 +85,18 @@ const row8 = defineRows({
 
 const row9 = defineRows({ surface: "storage" });
 
+// The admin plane: born unverified, flipped only by its conformance suite.
+const adminRow = defineRows({
+  surface: "storage-admin",
+  defaults: {
+    section: "`pyric-admin/storage`: `File` metadata and download URLs",
+    status: "unverified",
+    automation: "unverified",
+    oracleObservations: ["admin-storage-metadata-download-url"],
+    conformanceTests: ["packages/pyric-admin/test/storage/oracle-conformance.test.ts", "packages/cli/test/serve/hosted-sqlite.test.ts"],
+  },
+});
+
 const row10 = defineRows({
   surface: "storage",
   defaults: {
@@ -618,11 +630,11 @@ export const storageRegistry = {
           rowRef: "51",
           behavior: "Exported by `firebase/storage`; returns a token-signed HTTPS URL that fetches the blob",
           status: "diverged-documented",
-          evidence: "Production observation `storage-upload-bytes-roundtrip` records `urlIsHttps: true` and a byte-identical fetch. The URL form depends on where the sandbox runs. On the Node host, `getDownloadURL` returns `http://<host>/__pyric/storage/v0/b/<bucket>/o/<path>?alt=media&token=<token>`: production's `/v0/b/<bucket>/o/<path>` path and `alt=media` query, under the host's own origin. The token is kept in the object's `downloadTokens` metadata, later calls return the same URL, it does not expire, and removing it from the metadata revokes the URL. A `GET` on the URL needs no header and serves `Range`. The hosted replay of the observation calls `getDownloadURL` and `fetch` through the web client against the host and its byte route, and matches `downloadOk`, `bodyLen`, and `bytesMatch`. The web byte route fixture pins token persistence and revocation, and hosted smoke test 8 streams and seeks an `<audio>` element by the URL in Chromium. In process and in a SharedWorker there is no HTTP origin to serve from, so `getDownloadURL` returns a `data:<contentType>;base64,...` URI that carries the object's bytes. The oracle replay proves its byte-identical fetch and asserts the `data:` prefix, and the client↔host integration proves SharedWorker mode returns the same form. The divergence is URL identity. The hosted URL is `http` on the local host's origin, under `/__pyric/storage`, where production's is `https` on Google Cloud Storage's host, so it is fetchable only where that host is reachable. The `data:` form has no token, no revocation, and no stable short string. The observation does not record production's token field; the host follows Firebase's documented `downloadTokens` metadata.",
+          evidence: "Production observation `storage-upload-bytes-roundtrip` records `urlIsHttps: true` and a byte-identical fetch. The URL form depends on where the sandbox runs. On the Node host, `getDownloadURL` returns `http://<host>/__pyric/storage/v0/b/<bucket>/o/<path>?alt=media&token=<token>`: production's `/v0/b/<bucket>/o/<path>` path and `alt=media` query, under the host's own origin. The token is kept in the object's `downloadTokens` metadata, later calls return the same URL, it does not expire, and removing it from the metadata revokes the URL. A `GET` on the URL needs no header and serves `Range`. The hosted replay of the observation calls `getDownloadURL` and `fetch` through the web client against the host and its byte route, and matches `downloadOk`, `bodyLen`, and `bytesMatch`. The web byte route fixture pins token persistence and revocation, and hosted smoke test 8 streams and seeks an `<audio>` element by the URL in Chromium. In process and in a SharedWorker there is no HTTP origin to serve from, so `getDownloadURL` returns a `data:<contentType>;base64,...` URI that carries the object's bytes. The oracle replay proves its byte-identical fetch and asserts the `data:` prefix, and the client↔host integration proves SharedWorker mode returns the same form. The divergence is URL identity. The hosted URL is `http` on the local host's origin, under `/__pyric/storage`, where production's is `https` on Google Cloud Storage's host, so it is fetchable only where that host is reachable. The `data:` form has no token, no revocation, and no stable short string. Production observation `admin-storage-metadata-download-url` records the token itself: the Firebase metadata endpoint reports it as `downloadTokens`, firebase-admin sees it as the `firebaseStorageDownloadTokens` custom key, removing it makes the URL answer 403, and the URL answers `Range` with 206.",
           risk: ["specific-value"],
           riskScore: 2,
           riskReasons: ["asserts 2 specific value(s)"],
-          oracleObservations: ["storage-upload-bytes-roundtrip"],
+          oracleObservations: ["storage-upload-bytes-roundtrip","admin-storage-metadata-download-url"],
           conformanceTests: ["packages/pyric/test/storage/oracle-conformance.test.ts","packages/cli/test/serve/worker/integration.test.ts","packages/cli/test/serve/hosted-sqlite.test.ts","packages/cli/test/e2e/hosted/smoke.pw.ts"],
         }),
         row6({
@@ -1179,6 +1191,72 @@ export const storageRegistry = {
           riskReasons: ["asserts 1 specific value(s)","asserts rules allow/deny routing behavior","asserts metadata shape"],
           automation: "unit-backed",
           conformanceTests: ["packages/pyric/test/storage/enforce.test.ts"],
+        }),
+      ],
+    },
+    {
+      kind: 'table',
+      prefix: "## `pyric-admin/storage`: `File` metadata and download URLs\n\nThe admin plane (surface `storage-admin`), climbing under CDD. Each row cites the production capture `admin-storage-metadata-download-url` (firebase-admin 13.10.0) and is replayed by the pyric-admin conformance suite on the in-process arm and on a SharedWorker host, and by the hosted replay on the Node host.\n",
+      rows: [
+        adminRow({
+          rowRef: "1",
+          featureKeys: ["File.setMetadata", "File.getMetadata"],
+          api: "file.setMetadata(metadata) / file.getMetadata()",
+          behavior: "`setMetadata({ metadata: { key: value } })` stores custom metadata and advances `metageneration`; `getMetadata()` returns the keys under `metadata`, and a file saved without any has no `metadata` field",
+          evidence: "Production observation `admin-storage-metadata-download-url` (`afterSave.customMetadata: null`, `afterSet.customMetadata.note: 'first'`, `metagenerationAdvanced: true`, `setMetadataResolvesWithMetadata: true`). Not yet replayed against the sandbox.",
+          risk: ["specific-field", "metadata"],
+          riskScore: 2,
+          riskReasons: ["asserts a specific field/property value", "asserts metadata shape"],
+        }),
+        adminRow({
+          rowRef: "2",
+          featureKeys: ["File.setMetadata"],
+          api: "file.setMetadata({ metadata: { key: null } })",
+          behavior: "A custom metadata key set to `null` is removed; the other keys, including `firebaseStorageDownloadTokens`, stay",
+          evidence: "Production observation `admin-storage-metadata-download-url` (`nullRemovesKey.noteRemoved: true`, `nullRemovesKey.tokenKept: true`). Not yet replayed against the sandbox.",
+          risk: ["specific-field", "metadata"],
+          riskScore: 2,
+          riskReasons: ["asserts a specific field/property value", "asserts metadata shape"],
+        }),
+        adminRow({
+          rowRef: "3",
+          featureKeys: ["getDownloadURL"],
+          api: "getDownloadURL(file)",
+          behavior: "Returns `https://firebasestorage.googleapis.com/v0/b/<bucket>/o/<encoded path>?alt=media&token=<token>`, whose token is the file's `firebaseStorageDownloadTokens` custom metadata. The Firebase metadata endpoint, which client SDKs read, reports the same token as `downloadTokens` and leaves it out of `metadata`",
+          evidence: "Production observation `admin-storage-metadata-download-url` (`downloadURL`: origin, `/v0/b/<bucket>/o/<encoded path>`, `alt: 'media'`, query keys `alt` and `token`, `tokenEqualsStored: true`; `firebaseMetadataEndpoint.downloadTokensEqualsSet: true`, `metadataHasTokenKey: false`). Not yet replayed against the sandbox.",
+          risk: ["specific-value", "specific-field"],
+          riskScore: 3,
+          riskReasons: ["asserts 2 specific value(s)", "asserts a specific field/property value"],
+        }),
+        adminRow({
+          rowRef: "4",
+          featureKeys: ["getDownloadURL"],
+          api: "getDownloadURL(file)",
+          behavior: "For a file without a download token, `getDownloadURL` mints a UUID into `firebaseStorageDownloadTokens`, and later calls keep it",
+          evidence: "Production observation `admin-storage-metadata-download-url` (`afterSave.hasDownloadTokens: false`; `getDownloadURLWithoutToken`: `threw: false`, `mintsTokenIntoMetadata: true`, `urlCarriesMintedToken: true`, `mintedTokenIsUuid: true`). Not yet replayed against the sandbox.",
+          risk: ["specific-value", "metadata"],
+          riskScore: 3,
+          riskReasons: ["asserts 1 specific value(s)", "asserts metadata shape"],
+        }),
+        adminRow({
+          rowRef: "5",
+          featureKeys: ["File.setMetadata", "getDownloadURL"],
+          api: "file.setMetadata({ metadata: { firebaseStorageDownloadTokens: null } })",
+          behavior: "Removing `firebaseStorageDownloadTokens` revokes the download URL: a `GET` of it answers 403, and the next `getDownloadURL` mints a new token whose URL answers 200",
+          evidence: "Production observation `admin-storage-metadata-download-url` (`revocation`: `tokenRemoved: true`, `revokedUrlStatus: 403`, `getDownloadURLAfterRevoke.mintsNewToken: true`, `newUrlStatus: 200`). Not yet replayed against the sandbox.",
+          risk: ["specific-value", "error-code"],
+          riskScore: 4,
+          riskReasons: ["asserts 2 specific value(s)", "asserts an HTTP status"],
+        }),
+        adminRow({
+          rowRef: "6",
+          featureKeys: ["getDownloadURL"],
+          api: "GET <download URL>",
+          behavior: "The download URL answers a `GET` with no credentials with the object's bytes and content type, and a `Range` request with 206 and `Content-Range`",
+          evidence: "Production observation `admin-storage-metadata-download-url` (`unauthenticatedGet`: 200, `audio/wav`, `bytesMatch: true`; `rangeGet`: 206, `bytes 2-5/64`, `bytesMatch: true`). Not yet replayed against the sandbox.",
+          risk: ["specific-value"],
+          riskScore: 2,
+          riskReasons: ["asserts 2 specific value(s)"],
         }),
       ],
     },
