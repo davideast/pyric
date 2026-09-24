@@ -63,8 +63,6 @@ export interface StagedFile {
 export interface BlobStore {
   write(bytes: Uint8Array): StoredBytes;
   read(stored: StoredBytes): Uint8Array<ArrayBuffer>;
-  /** At most `length` bytes from `offset`, read from the file at that position. */
-  readRange(stored: StoredBytes, offset: number, length: number): Uint8Array<ArrayBuffer>;
   /** The file's size, or undefined when it is missing. */
   size(sha256: string): number | undefined;
   /** Where the file named by `sha256` is, whether or not it exists. */
@@ -119,18 +117,17 @@ export function createBlobStore(directory: string): BlobStore {
     return join(directory, sha256.slice(0, 2), sha256);
   }
 
-  function readAt(stored: StoredBytes, offset: number, length: number): Uint8Array<ArrayBuffer> {
+  function readWhole(stored: StoredBytes): Uint8Array<ArrayBuffer> {
     const descriptor = openSync(pathOf(stored.sha256), 'r');
     try {
       const actualSize = fstatSync(descriptor).size;
       const mismatchedFile = actualSize !== stored.size;
       if (mismatchedFile) throw new Error('Persisted Storage bytes do not match their recorded size.');
-      const start = Math.min(offset, stored.size);
       // Its own buffer, never a slice of Node's shared pool, so it can be transferred.
-      const bytes = new Uint8Array(Math.min(length, stored.size - start));
+      const bytes = new Uint8Array(stored.size);
       let filled = 0;
       while (filled < bytes.byteLength) {
-        const read = readSync(descriptor, bytes, filled, bytes.byteLength - filled, start + filled);
+        const read = readSync(descriptor, bytes, filled, bytes.byteLength - filled, filled);
         const truncated = read === 0;
         if (truncated) throw new Error('Persisted Storage bytes ended before their recorded size.');
         filled += read;
@@ -287,10 +284,7 @@ export function createBlobStore(directory: string): BlobStore {
       for (const name of names) rmSync(join(staging, name), { force: true, recursive: true });
     },
     read(stored) {
-      return readAt(stored, 0, stored.size);
-    },
-    readRange(stored, offset, length) {
-      return readAt(stored, offset, length);
+      return readWhole(stored);
     },
     size(sha256) {
       try { return statSync(pathOf(sha256)).size; }

@@ -137,7 +137,7 @@ async function chunkedRoundTrip(project: string): Promise<void> {
   try {
     const bytes = new TextEncoder().encode('staged after the upgrade');
     const uploadId = await persistence.storage.beginUpload(bucket, 'notes/after.txt', bytes.byteLength, 'text/plain');
-    await persistence.storage.putPart(uploadId, 0, bytes);
+    await persistence.storage.appendUpload(uploadId, 0, bytes);
     assert.deepEqual(new Uint8Array(await (await persistence.storage.readUpload(uploadId)).arrayBuffer()), bytes);
     await persistence.storage.abortUpload(uploadId);
     await assertObjectsReadable(persistence.storage);

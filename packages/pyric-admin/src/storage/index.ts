@@ -7,10 +7,10 @@
  *
  *   - **Remote sandbox path** — a handle branded by `@pyric/cli`'
  *     `connectRemoteSandbox()`/`remoteSandbox()` relays every data
- *     operation over the bridge to the browser-hosted SharedWorker's
- *     object store (admin lens pinned — rules bypass). Single bucket;
- *     8 MiB per-op byte cap; `getSignedUrl` stays the local stub. See
- *     the remote arm section below.
+ *     operation to the sandbox's host (admin lens pinned — rules bypass).
+ *     Bytes move over the host's HTTP byte route when it has one, and as
+ *     frames when it does not (a browser tab's SharedWorker). Single bucket;
+ *     `getSignedUrl` stays the local stub. See the remote arm section below.
  *
  *   - **Sandbox path** — returns an in-process {@link Storage} backed
  *     by an in-memory `Map<bucketName, Map<path, FileEntry>>`. State
@@ -23,23 +23,31 @@
  *       - `storage.bucket(name?)` → {@link Bucket}-shaped handle
  *       - `bucket.file(path)` → {@link File}-shaped handle
  *       - `file.save(data, options?)` — `Buffer | string | Uint8Array`
- *       - `file.download(options?)` → `[Buffer]`
+ *       - `file.download(options?)` → `[Buffer]`, whole or `start..end`
+ *       - `file.createReadStream(options?)`, whole or `start..end`
+ *       - `file.createWriteStream(options?)`
  *       - `file.delete()` — idempotent
  *       - `file.exists()` → `[boolean]`
  *       - `file.getSignedUrl(options)` → `['pyric-sandbox-storage://…']`
  *
  *     **Deferred in the sandbox backend** (throws `"not implemented in
- *     pyric-admin/storage sandbox backend"`): streaming uploads
- *     (`createWriteStream`), resumable uploads, signed cookies, IAM
- *     policies, lifecycle rules, ACLs, copy/move, notifications.
+ *     pyric-admin/storage sandbox backend"`): resumable uploads, signed
+ *     cookies, IAM policies, lifecycle rules, ACLs, copy/move,
+ *     notifications.
  */
 
+import { createWriteStream as createFileWriteStream, openAsBlob, type WriteStream } from 'node:fs';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Readable, Writable } from 'node:stream';
 import {
   isRemoteSandbox,
   type RemoteSandbox,
   type RemoteSandboxChannel,
   type Sandbox,
 } from 'pyric/sandbox';
+import { fetchFromByteRoute, uploadOverByteRoute } from 'pyric/storage/internal';
 
 import {
   ADMIN_APP_TARGET,
@@ -83,9 +91,9 @@ export interface Bucket {
  * / getSignedUrl, etc.) so common consumer code retains the familiar shape.
  *
  * The sandbox backend implements the methods documented here. Any
- * other `File` method from `@google-cloud/storage` (`createWriteStream`,
- * `createReadStream`, `copy`, `move`, `setMetadata` beyond the basic
- * `save` options, etc.) throws on the sandbox path — see module header.
+ * other `File` method from `@google-cloud/storage` (`copy`, `move`,
+ * `setMetadata` beyond the basic `save` options, etc.) is not implemented
+ * on the sandbox path — see module header.
  */
 export interface File {
   /** Name (path) of the file within its bucket. */
@@ -101,11 +109,22 @@ export interface File {
    */
   save(data: Buffer | string | Uint8Array, options?: SaveOptions): Promise<void>;
   /**
-   * Read the file's bytes. Returns a `[Buffer]` tuple to mirror
-   * `@google-cloud/storage`'s `File.download` (which returns
-   * `[Buffer, ...]`). Throws if the file does not exist.
+   * Read the file's bytes, or the inclusive range `start..end` of them.
+   * Returns a `[Buffer]` tuple to mirror `@google-cloud/storage`'s
+   * `File.download` (which returns `[Buffer, ...]`). Throws if the file
+   * does not exist.
    */
   download(options?: DownloadOptions): Promise<[Buffer]>;
+  /**
+   * A readable stream of the file's bytes, or of the inclusive range
+   * `start..end`. A missing file surfaces as the stream's error.
+   */
+  createReadStream(options?: CreateReadStreamOptions): Readable;
+  /**
+   * A writable stream whose bytes replace the file's content once the
+   * stream finishes, as {@link File.save} does.
+   */
+  createWriteStream(options?: CreateWriteStreamOptions): Writable;
   /**
    * Remove the file from its bucket. Idempotent — deleting a missing
    * file is a no-op (matches `@google-cloud/storage`'s
@@ -148,8 +167,23 @@ export interface SaveOptions {
 
 /** Options bag for {@link File.download}. Subset of `@google-cloud/storage`'s `DownloadOptions`. */
 export interface DownloadOptions {
+  /** First byte to read, inclusive. */
+  start?: number;
+  /** Last byte to read, inclusive. */
+  end?: number;
   /** The sandbox accepts but ignores `validation`. */
   validation?: 'md5' | 'crc32c' | boolean;
+}
+
+/** Options bag for {@link File.createReadStream}. Subset of `@google-cloud/storage`'s `CreateReadStreamOptions`. */
+export type CreateReadStreamOptions = DownloadOptions;
+
+/** Options bag for {@link File.createWriteStream}. Subset of `@google-cloud/storage`'s `CreateWriteStreamOptions`. */
+export interface CreateWriteStreamOptions {
+  /** Stored alongside the file, as {@link SaveOptions.metadata} is. */
+  metadata?: Record<string, unknown>;
+  /** Content type stored on the file. */
+  contentType?: string;
 }
 
 /** Options bag for {@link File.getSignedUrl}. Mirrors `@google-cloud/storage`'s shape. */
@@ -332,7 +366,7 @@ class SandboxFile implements File {
     this.files.set(this.name, entry);
   }
 
-  async download(_options: DownloadOptions = {}): Promise<[Buffer]> {
+  async download(options: DownloadOptions = {}): Promise<[Buffer]> {
     const entry = this.files.get(this.name);
     if (!entry) {
       // Mirror the gcs/firebase-admin error message shape so consumer
@@ -341,7 +375,19 @@ class SandboxFile implements File {
         `No such object: ${this.bucket.name}/${this.name}`,
       );
     }
-    return [Buffer.from(entry.data)];
+    return [Buffer.from(byteRange(entry.data, options))];
+  }
+
+  createReadStream(options: CreateReadStreamOptions = {}): Readable {
+    const read = async function* (file: SandboxFile): AsyncGenerator<Uint8Array> {
+      const [bytes] = await file.download(options);
+      yield bytes;
+    };
+    return Readable.from(read(this), { objectMode: false });
+  }
+
+  createWriteStream(options: CreateWriteStreamOptions = {}): Writable {
+    return spooledWriteStream(async spooled => this.save(await readFile(spooled), options));
   }
 
   async delete(): Promise<void> {
@@ -356,28 +402,13 @@ class SandboxFile implements File {
     return [stubSignedUrl(this.bucket.name, this.name, options)];
   }
 
-  // ─── Deferred surface (declared so TS callers see a clear error) ────
-
-  /** @deprecated Streaming writes are deferred — see module header. */
-  createWriteStream(): never {
-    throw new Error(
-      'not implemented in pyric-admin/storage sandbox backend: createWriteStream',
-    );
-  }
-
-  /** @deprecated Streaming reads are deferred — see module header. */
-  createReadStream(): never {
-    throw new Error(
-      'not implemented in pyric-admin/storage sandbox backend: createReadStream',
-    );
-  }
 }
 
 // ─── Remote sandbox arm (remote sandbox, slice 2) ───────────────────────
 //
-// The app's `Sandbox` is a Node-side handle onto the browser-hosted
-// SharedWorker sandbox. Every data operation relays over the handle's
-// worker channel with `actAs: { mode: 'admin' }` pinned — firebase-admin's
+// The app's `Sandbox` is a Node-side handle onto a hosted sandbox or a
+// browser tab's SharedWorker sandbox. Every data operation relays over the
+// handle's worker channel with `actAs: { mode: 'admin' }` pinned — firebase-admin's
 // rules-bypass semantics against the ONE object store the app + Studio +
 // agents share (the host resolves the lens to `pyric/storage/internal`'s
 // admin plane). There is deliberately NO local state here: a `WeakMap`
@@ -390,23 +421,20 @@ class SandboxFile implements File {
 //     ("the data store is shared" — bucket names only round-trip in
 //     metadata), so `bucket('non-default')` throws instead of silently
 //     merging buckets. The default bucket name matches the local arm.
-//   - byte payloads are capped at 8 MiB per op (whole-object buffering
-//     over four relay hops; streaming stays unsupported on both sandbox arms).
+//   - a host with an HTTP byte route takes and serves bytes there; a
+//     SharedWorker host has none and takes frames, in 4 MiB parts past that.
 // `getSignedUrl` does NOT relay: it stays the byte-identical local stub.
 
 /** firebase-admin's rules-bypass lens, pinned on every relayed operation. */
 const STORAGE_REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
 
 /**
- * Raw per-op byte cap for relayed storage payloads. MUST mirror
- * `@pyric/cli`' `MAX_STORAGE_OP_BYTES` (serve/worker/protocol.ts) — the
+ * Raw per-part byte cap for storage payloads sent as frames. MUST mirror
+ * `@pyric/cli`' `MAX_STORAGE_PART_BYTES` (serve/worker/protocol.ts) — the
  * worker host enforces the same cap on its end. Inlined (like the RTDB
  * push-id generator) because `pyric-admin` deliberately does not depend on
  * `@pyric/cli`.
  */
-const MAX_REMOTE_STORAGE_OP_BYTES = 8 * 1024 * 1024;
-
-/** Maximum part size for chunked transfers (4 MiB). Matches MAX_STORAGE_PART_BYTES in CLI protocol. */
 const MAX_STORAGE_PART_BYTES = 4 * 1024 * 1024;
 
 /** Maximum whole-object size supported by the sandbox backend (512 MiB). Matches MAX_STORAGE_OBJECT_BYTES. */
@@ -481,60 +509,74 @@ class RemoteFile implements File {
     if (rawLength > MAX_STORAGE_OBJECT_BYTES) {
       throw quotaExceeded(rawLength, `save() payload for '${this.name}'`);
     }
+    await this.upload(new Blob([toBytes(data) as Uint8Array<ArrayBuffer>]), options);
+  }
 
-    const bytes = toBytes(data);
+  async download(options: DownloadOptions = {}): Promise<[Buffer]> {
+    const parts: Uint8Array[] = [];
+    for await (const part of this.read(options)) parts.push(part);
+    return [Buffer.concat(parts)];
+  }
+
+  createReadStream(options: CreateReadStreamOptions = {}): Readable {
+    return Readable.from(this.read(options), { objectMode: false });
+  }
+
+  createWriteStream(options: CreateWriteStreamOptions = {}): Writable {
+    return spooledWriteStream(async spooled => {
+      const data = await openAsBlob(spooled);
+      if (data.size > MAX_STORAGE_OBJECT_BYTES) {
+        throw quotaExceeded(data.size, `createWriteStream() payload for '${this.name}'`);
+      }
+      await this.upload(data, options);
+    });
+  }
+
+  /** Store `data` over the host's byte route, or as one frame when the host has none. */
+  private async upload(data: Blob, options: CreateWriteStreamOptions): Promise<void> {
+    const request = {
+      ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
+      ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
+    };
+    const route = await this.channel.byteRoute?.();
+    const routed = route !== undefined;
+    if (routed) {
+      await uploadOverByteRoute(this.channel, route, { path: this.name, data, ...request, actAs: STORAGE_REMOTE_ADMIN_LENS });
+      return;
+    }
+    const bytes = new Uint8Array(await data.arrayBuffer());
     if (bytes.byteLength <= MAX_STORAGE_PART_BYTES) {
       await this.channel.op({
         method: 'storage.putBytes',
         path: this.name,
-        dataB64: Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64'),
-        ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
-        ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
+        dataB64: base64Of(bytes),
+        ...request,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
       });
       return;
     }
-
-    // Chunked upload for objects > 4 MiB (ADR 0015)
-    const beginRes = (await this.channel.op({
+    // A SharedWorker host takes a larger object in parts (ADR 0015).
+    const { uploadId } = (await this.channel.op({
       method: 'storage.beginUpload',
       path: this.name,
       size: bytes.byteLength,
-      ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
-      ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
+      ...request,
       actAs: STORAGE_REMOTE_ADMIN_LENS,
     })) as { uploadId: string };
-
-    const uploadId = beginRes.uploadId;
     try {
-      let index = 0;
-      let offset = 0;
-      while (offset < bytes.byteLength) {
-        const nextOffset = Math.min(offset + MAX_STORAGE_PART_BYTES, bytes.byteLength);
-        const partSlice = bytes.subarray(offset, nextOffset);
-        const partB64 = Buffer.from(partSlice.buffer, partSlice.byteOffset, partSlice.byteLength).toString('base64');
+      for (let offset = 0, index = 0; offset < bytes.byteLength; offset += MAX_STORAGE_PART_BYTES, index++) {
         await this.channel.op({
           method: 'storage.putPart',
           uploadId,
           partIndex: index,
-          dataB64: partB64,
+          dataB64: base64Of(bytes.subarray(offset, offset + MAX_STORAGE_PART_BYTES)),
           actAs: STORAGE_REMOTE_ADMIN_LENS,
         });
-        index++;
-        offset = nextOffset;
       }
-      await this.channel.op({
-        method: 'storage.finishUpload',
-        uploadId,
-        actAs: STORAGE_REMOTE_ADMIN_LENS,
-      });
+      await this.channel.op({ method: 'storage.finishUpload', uploadId, actAs: STORAGE_REMOTE_ADMIN_LENS });
     } catch (err) {
       try {
-        await this.channel.op({
-          method: 'storage.abortUpload',
-          uploadId,
-          actAs: STORAGE_REMOTE_ADMIN_LENS,
-        });
+        await this.channel.op({ method: 'storage.abortUpload', uploadId, actAs: STORAGE_REMOTE_ADMIN_LENS });
       } catch {
         // secondary abort best effort
       }
@@ -542,66 +584,72 @@ class RemoteFile implements File {
     }
   }
 
-  async download(_options: DownloadOptions = {}): Promise<[Buffer]> {
-    let meta: { size: number; generation: number; contentType?: string };
+  /** The object's bytes, or the inclusive range `start..end`, as they arrive. */
+  private async *read(options: DownloadOptions): AsyncGenerator<Uint8Array> {
+    const metadata = await this.missingAsNoSuchObject(this.channel.op({
+      method: 'storage.getMetadata',
+      path: this.name,
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as { bucket: string; size: number; generation: string };
+    const route = await this.channel.byteRoute?.();
+    const routed = route !== undefined;
+    if (!routed) {
+      yield* this.readFrames(metadata, options);
+      return;
+    }
+    const response = await this.missingAsNoSuchObject(fetchFromByteRoute(route, {
+      bucket: metadata.bucket,
+      path: this.name,
+      start: options.start,
+      end: options.end,
+    }));
+    const body = response.body;
+    if (body === null) return;
+    const reader = body.getReader();
     try {
-      meta = (await this.channel.op({
-        method: 'storage.getMetadata',
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        yield value;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /** Read from a SharedWorker host, which sends bytes as frames: whole, or in ranged parts (ADR 0015). */
+  private async *readFrames(metadata: { size: number; generation: string }, options: DownloadOptions): AsyncGenerator<Uint8Array> {
+    if (metadata.size <= MAX_STORAGE_PART_BYTES) {
+      const wire = await this.missingAsNoSuchObject(this.channel.op({
+        method: 'storage.getBytes',
         path: this.name,
         actAs: STORAGE_REMOTE_ADMIN_LENS,
-      })) as { size: number; generation: number; contentType?: string };
+      })) as RemoteGetBytesResult;
+      yield byteRange(Buffer.from(wire.dataB64, 'base64'), options);
+      return;
+    }
+    const last = Math.min(metadata.size, options.end === undefined ? metadata.size : options.end + 1);
+    for (let offset = options.start ?? 0; offset < last; offset += MAX_STORAGE_PART_BYTES) {
+      const wire = await this.missingAsNoSuchObject(this.channel.op({
+        method: 'storage.getBytes',
+        path: this.name,
+        offset,
+        length: Math.min(MAX_STORAGE_PART_BYTES, last - offset),
+        expectedGeneration: metadata.generation,
+        actAs: STORAGE_REMOTE_ADMIN_LENS,
+      })) as RemoteGetBytesResult;
+      yield Buffer.from(wire.dataB64, 'base64');
+    }
+  }
+
+  /** Mirror the gcs/firebase-admin (and local arm) `No such object` message for a missing file. */
+  private async missingAsNoSuchObject<T>(pending: Promise<T>): Promise<T> {
+    try {
+      return await pending;
     } catch (err) {
-      if (isObjectNotFound(err)) {
-        // Mirror the gcs/firebase-admin (and local arm) message shape so
-        // consumer catch-blocks that string-match `No such object` work
-        // identically across arms.
-        throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
-      }
+      if (isObjectNotFound(err)) throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
       throw err;
     }
-
-    if (meta.size <= MAX_STORAGE_PART_BYTES) {
-      let wire: RemoteGetBytesResult;
-      try {
-        wire = (await this.channel.op({
-          method: 'storage.getBytes',
-          path: this.name,
-          actAs: STORAGE_REMOTE_ADMIN_LENS,
-        })) as RemoteGetBytesResult;
-      } catch (err) {
-        if (isObjectNotFound(err)) {
-          throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
-        }
-        throw err;
-      }
-      return [Buffer.from(wire.dataB64, 'base64')];
-    }
-
-    // Chunked download for objects > 4 MiB (ADR 0015)
-    const chunks: Buffer[] = [];
-    let offset = 0;
-    while (offset < meta.size) {
-      const length = Math.min(MAX_STORAGE_PART_BYTES, meta.size - offset);
-      let wire: RemoteGetBytesResult;
-      try {
-        wire = (await this.channel.op({
-          method: 'storage.getBytes',
-          path: this.name,
-          offset,
-          length,
-          expectedGeneration: meta.generation,
-          actAs: STORAGE_REMOTE_ADMIN_LENS,
-        })) as RemoteGetBytesResult;
-      } catch (err) {
-        if (isObjectNotFound(err)) {
-          throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
-        }
-        throw err;
-      }
-      chunks.push(Buffer.from(wire.dataB64, 'base64'));
-      offset += length;
-    }
-    return [Buffer.concat(chunks)];
   }
 
   async delete(): Promise<void> {
@@ -639,22 +687,6 @@ class RemoteFile implements File {
   async getSignedUrl(options: GetSignedUrlOptions): Promise<[string]> {
     return [stubSignedUrl(this.bucket.name, this.name, options)];
   }
-
-  // ─── Deferred surface (remediating throws, remote-flavored) ─────────
-
-  createWriteStream(): never {
-    throw new Error(
-      'not implemented in pyric-admin/storage remote sandbox backend: createWriteStream — ' +
-        'streams cannot span the bridge relay; use file.save(buffer) (≤ 512 MiB) instead.',
-    );
-  }
-
-  createReadStream(): never {
-    throw new Error(
-      'not implemented in pyric-admin/storage remote sandbox backend: createReadStream — ' +
-        'streams cannot span the bridge relay; use file.download() (≤ 512 MiB) instead.',
-    );
-  }
 }
 
 /** Is this relayed error the worker's `storage/object-not-found`? */
@@ -673,6 +705,52 @@ function quotaExceeded(sizeBytes: number, what: string): Error & { code: string 
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────
+
+/** `bytes` as base64, for a frame. */
+function base64Of(bytes: Uint8Array): string {
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
+}
+
+/** The inclusive range `start..end` of `bytes`, as `@google-cloud/storage` reads it. */
+function byteRange(bytes: Uint8Array, options: DownloadOptions): Uint8Array {
+  const end = options.end === undefined ? undefined : options.end + 1;
+  return bytes.subarray(options.start ?? 0, end);
+}
+
+/**
+ * A writable stream that spools its bytes to a temporary file and, once it
+ * finishes, hands that file to `commit`. The file is removed either way.
+ */
+function spooledWriteStream(commit: (spooled: string) => Promise<void>): Writable {
+  let directory: string | undefined;
+  let sink: WriteStream | undefined;
+  return new Writable({
+    construct(callback) {
+      mkdtemp(join(tmpdir(), 'pyric-admin-upload-')).then(created => {
+        directory = created;
+        sink = createFileWriteStream(join(created, 'object'));
+        callback();
+      }, callback);
+    },
+    write(chunk: Buffer, _encoding, callback) {
+      sink!.write(chunk, callback);
+    },
+    final(callback) {
+      sink!.end(() => {
+        commit(join(directory!, 'object')).then(() => callback(), callback);
+      });
+    },
+    destroy(error, callback) {
+      sink?.destroy();
+      const created = directory;
+      if (created === undefined) {
+        callback(error);
+        return;
+      }
+      rm(created, { recursive: true, force: true }).finally(() => callback(error));
+    },
+  });
+}
 
 /**
  * The deterministic sandbox signed-URL stub, shared by the local and remote

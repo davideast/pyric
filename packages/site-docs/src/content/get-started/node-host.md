@@ -165,8 +165,9 @@ The script's `firebase-admin` imports are intercepted and connect to the local s
 
 ## Storage capabilities & limits
 
-- **Chunked Transfer**: Large Storage objects are transferred in 4 MiB sequential chunks, supporting file sizes up to **512 MiB** without websocket frame overflow or memory spikes.
-- **Single Raw Operations**: Standard unchunked uploads retain an 8 MiB per-frame threshold.
+- **HTTP byte route**: Storage bytes move over HTTP at `/__pyric/storage/v0/b/<bucket>/o/<path>`, never over the WebSocket. The web SDK, `pyric-admin`, and the Node remote client all use it. Objects can be up to **512 MiB**.
+- **Ranges and streams**: A `GET` supports `Range`, so an `<audio>` or `<video>` element streams and seeks an object by its download URL. `pyric-admin` downloads honor `start` and `end`, and `createReadStream` and `createWriteStream` work.
+- **Resumable uploads**: An upload is a `PUT` that continues from an offset with `Content-Range`, so `uploadBytesResumable` reports real progress and can pause and resume.
 
 ### Storage metadata repair warning
 

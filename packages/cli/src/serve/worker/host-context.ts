@@ -81,6 +81,9 @@ export interface HostCtx {
   rtdb?: Database;
   /** Cached admin (rules-bypass) RTDB handle for Studio/Playground data inspection. */
   adminRtdb?: Database;
+  /** The host serves Storage bytes over its HTTP byte route, and refuses
+   *  them as frames. A SharedWorker host has no route and takes frames. */
+  storageByteRoute?: boolean;
   /** Cached admin (rules-bypass) Storage handle for the `{ mode: 'admin' }`
    *  lens — `pyric/storage/internal`'s `getAdminStorageSandbox`, the handle
    *  the pyric-admin remote arm's storage ops resolve to. */

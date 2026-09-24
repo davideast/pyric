@@ -42,5 +42,6 @@ export {
   type StorageStateRecord, type StorageReferenceRecord,
 } from './sandbox/persistence-state.js';
 export type { StorageBackend, StoredMetadata } from './persistence.js';
+export { fetchFromByteRoute, uploadOverByteRoute, type RemoteByteRoute, type RemoteReadRequest, type RemoteUploadRequest } from './remote-bytes.js';
 
 export { observeStorageOperation, storageTaskProgress, storageTaskResult } from '../sandbox/internal/storage-activity.js';

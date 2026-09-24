@@ -3,7 +3,9 @@
  *
  * Object browse (`storage.listAll`/`getMetadata`), the MessagePort-only
  * `getBlob`, and the relay-safe base64 byte transfer (`putBytes`/`getBytes`)
- * plus idempotent `deleteObject`. Owns the storage lens resolver
+ * plus idempotent `deleteObject`. A host with an HTTP byte route refuses
+ * the byte-carrying frames (see `HostCtx.storageByteRoute`); its uploads
+ * begin and finish here. Owns the storage lens resolver
  * (`lensStorage` — the storage mirror of the firestore/rtdb lens resolvers),
  * the lazily-created shared handle, and the wire → `SettableMetadata` mapper.
  *
@@ -214,6 +216,14 @@ const STORAGE_METHODS = new Set<string>([
   'storage.deleteObject',
 ]);
 
+/** The operations that carry an object's bytes in frames. */
+const BYTE_FRAME_METHODS: ReadonlySet<OpMessage['method']> = new Set<OpMessage['method']>([
+  'storage.getBlob',
+  'storage.putBytes',
+  'storage.getBytes',
+  'storage.putPart',
+]);
+
 export function isStorageOp(method: OpMessage['method']): boolean {
   return STORAGE_METHODS.has(method);
 }
@@ -223,6 +233,15 @@ export async function handleStorageOp(
   port: PortLike,
   msg: OpMessage,
 ): Promise<void> {
+  const refusesFrames = ctx.storageByteRoute === true && BYTE_FRAME_METHODS.has(msg.method);
+  if (refusesFrames) {
+    fail(port, msg.id, new FirebaseError(
+      'failed-precondition',
+      'This host moves Storage bytes over its HTTP byte route (/__pyric/storage/v0/…) and does not take them as frames. ' +
+        'Update @pyric/cli and pyric-admin, and reload the page.',
+    ));
+    return;
+  }
   switch (msg.method) {
     case 'storage.listAll': {
       // Object browse. `listAll` enforces `read` rules on the scanned prefix

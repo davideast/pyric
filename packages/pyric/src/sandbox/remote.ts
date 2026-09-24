@@ -27,6 +27,7 @@
  */
 
 import type { Sandbox } from './types/service.js';
+import type { RemoteByteRoute } from '../storage/remote-bytes.js';
 
 /**
  * Brand stamped (value `true`) on every remote sandbox handle.
@@ -66,6 +67,12 @@ export interface RemoteSandboxChannel {
     onSnap: (value: unknown) => void,
     onError?: (err: Error & { code: string }) => void,
   ): () => void;
+
+  /**
+   * The host's HTTP byte route for Storage bytes, once the channel is
+   * attached, or undefined when the host has none and takes bytes as frames.
+   */
+  byteRoute?(): Promise<RemoteByteRoute | undefined>;
 }
 
 /**

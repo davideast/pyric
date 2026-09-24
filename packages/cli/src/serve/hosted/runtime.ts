@@ -139,6 +139,7 @@ export async function createHostedRuntime(
     sessionMode: 'NONE',
     aiEngine: payload.ai?.engine,
     aiUpstream: { baseUrl: resolveAiProxyUpstream(ai.proxyUpstream).target, fetch: aiFetch },
+    storageByteRoute: true,
   };
   const hostedFetch: typeof fetch = Object.assign(
     (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
