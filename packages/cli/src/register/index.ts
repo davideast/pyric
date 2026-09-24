@@ -19,8 +19,8 @@
  * rewritten.
  *
  * On activation it also installs the NETWORK GUARD (`./net-guard.js`), which
- * reports egress from this process to live Google/Firebase endpoints, or
- * refuses it under `PYRIC_GUARD=block`. See that module for the policy and the
+ * refuses egress from this process to live Google/Firebase endpoints, or only
+ * reports it under `PYRIC_GUARD=warn`. See that module for the policy and the
  * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs.
  *
  * Finally it emits the HANDSHAKE BEACON (`./beacon.js`): a fire-and-forget
@@ -110,7 +110,8 @@ function activate(): void {
   // a socket. Installing the guard first leaves no window in which
   // sandbox-substituted code runs unguarded. The reverse ordering buys
   // nothing: the guard mutates globals only (`undici.globalDispatcher.1`,
-  // `net`/`tls` connect) and depends on nothing the hooks establish.
+  // `net`/`tls` connect, the Agent and Socket prototypes) and depends on
+  // nothing the hooks establish.
   //
   // It stays BELOW the NODE_ENV=production refusal, deliberately. A refused
   // process is a real production run that we declined to touch, and warning

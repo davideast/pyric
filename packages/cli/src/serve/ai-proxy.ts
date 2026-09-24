@@ -182,6 +182,20 @@ export function resolveAiProxyUpstream(
   return { target: raw.replace(/\/$/, ''), source };
 }
 
+/**
+ * The AI upstream as a network-guard allowance for the processes `pyric
+ * sandbox` launches. A configured upstream is a destination the developer
+ * chose, such as a Vertex AI endpoint, so the guard's default `block` mode
+ * must not refuse it. The local Ollama default is loopback, which the guard
+ * never flags, so it yields no allowance.
+ */
+export function aiUpstreamGuardAllowance(configured: string | undefined): string[] {
+  const upstream = resolveAiProxyUpstream(configured);
+  const isDefaultUpstream = upstream.source === 'default';
+  if (isDefaultUpstream) return [];
+  return [upstream.target];
+}
+
 /** Shared upstream I/O for the browser proxy and the direct Node engine.
  * Responses remain incremental; cancellation stops reading without a warning.
  */

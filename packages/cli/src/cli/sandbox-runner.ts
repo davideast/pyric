@@ -163,13 +163,17 @@ export interface ChildActivation {
    *  Absent when the launcher runs no beacon receiver, as the Vite plugin's
    *  Functions runtime does; the child then reports on stderr only. */
   readonly beaconToken?: string | undefined;
+  /** Hosts or URLs the child's network guard permits in addition to the
+   *  developer's own `PYRIC_GUARD_ALLOW`, such as the configured AI upstream. */
+  readonly guardAllow?: readonly string[];
 }
 
 /**
  * Child env: sets the activator and the beacon secret, and APPENDS the loader
  * to NODE_OPTIONS rather than replacing it (the user's own --inspect /
  * --max-old-space-size and so on must survive). `file:` URLs are
- * percent-encoded, so no quoting is needed even for paths with spaces.
+ * percent-encoded, so no quoting is needed even for paths with spaces. The
+ * launcher's guard allowance is appended to `PYRIC_GUARD_ALLOW` the same way.
  */
 export function buildChildEnv(
   base: NodeJS.ProcessEnv,
@@ -182,7 +186,23 @@ export function buildChildEnv(
     NODE_OPTIONS: base.NODE_OPTIONS ? `${base.NODE_OPTIONS} ${importFlag}` : importFlag,
   };
   if (opts.beaconToken !== undefined) env.PYRIC_BEACON_TOKEN = opts.beaconToken;
+  const guardAllow = childGuardAllow(base.PYRIC_GUARD_ALLOW, opts.guardAllow ?? []);
+  if (guardAllow !== undefined) env.PYRIC_GUARD_ALLOW = guardAllow;
   return env;
+}
+
+/** The child's `PYRIC_GUARD_ALLOW`: the developer's entries first, then the
+ *  launcher's, comma-separated. `undefined` when neither has any. */
+function childGuardAllow(
+  developerAllow: string | undefined,
+  launcherAllow: readonly string[],
+): string | undefined {
+  const entries: string[] = [];
+  const hasDeveloperEntries = developerAllow !== undefined && developerAllow.trim() !== '';
+  if (hasDeveloperEntries) entries.push(developerAllow);
+  entries.push(...launcherAllow);
+  if (entries.length === 0) return undefined;
+  return entries.join(',');
 }
 
 /**
