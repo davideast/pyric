@@ -42,10 +42,10 @@ import {
 // ─── mode + allowlist parsing ───────────────────────────────────────────────
 
 describe('parseGuardMode', () => {
-  it('defaults to warn when unset or empty', () => {
-    expect(parseGuardMode(undefined)).toBe('warn');
-    expect(parseGuardMode('')).toBe('warn');
-    expect(parseGuardMode('   ')).toBe('warn');
+  it('defaults to block when unset or empty', () => {
+    expect(parseGuardMode(undefined)).toBe('block');
+    expect(parseGuardMode('')).toBe('block');
+    expect(parseGuardMode('   ')).toBe('block');
   });
 
   it('accepts the three knob values case/space-insensitively', () => {
@@ -56,9 +56,9 @@ describe('parseGuardMode', () => {
     expect(parseGuardMode('warn')).toBe('warn');
   });
 
-  it('falls back to the safe default on an unknown value', () => {
-    expect(parseGuardMode('nope')).toBe('warn');
-    expect(parseGuardMode('true')).toBe('warn');
+  it('falls back to block on an unknown value', () => {
+    expect(parseGuardMode('nope')).toBe('block');
+    expect(parseGuardMode('true')).toBe('block');
   });
 });
 
@@ -98,7 +98,7 @@ describe('evaluateEgress', () => {
     expect(evaluateEgress('evilfirebaseio.com', block)).toBeNull();
   });
 
-  it('warns (but permits) a catalog host in the default warn mode', () => {
+  it('warns (but permits) a catalog host in warn mode', () => {
     const v = evaluateEgress('firestore.googleapis.com', warn);
     expect(v).toMatchObject({
       verdict: 'warn',
@@ -249,6 +249,38 @@ describe('wrapDispatcher', () => {
     expect(log.lines[0]).toContain('net-guard BLOCK firestore.googleapis.com');
   });
 
+  it('BLOCK: the log line and the error both name the two ways to let the host through', () => {
+    const real = mockDispatcher();
+    const log = collector();
+    const wrapped = wrapDispatcher(real, { mode: 'block', allow: [], write: log.write });
+    let thrown: unknown;
+    try {
+      wrapped.dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1/x' }, {});
+    } catch (e) {
+      thrown = e;
+    }
+    for (const text of [log.lines[0]!, (thrown as Error).message]) {
+      expect(text).toContain('PYRIC_GUARD_ALLOW=firestore.googleapis.com');
+      expect(text).toContain('PYRIC_GUARD=warn');
+    }
+  });
+
+  it('BLOCK: the metadata server refusal offers no allowlist or warn remedy', () => {
+    const real = mockDispatcher();
+    const log = collector();
+    const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write });
+    let thrown: unknown;
+    try {
+      wrapped.dispatch({ origin: 'http://169.254.169.254', path: '/x' }, {});
+    } catch (e) {
+      thrown = e;
+    }
+    for (const text of [log.lines[0]!, (thrown as Error).message]) {
+      expect(text).not.toContain('PYRIC_GUARD_ALLOW');
+      expect(text).not.toContain('PYRIC_GUARD=warn');
+    }
+  });
+
   it('BLOCK: the metadata IP is refused even under warn mode', () => {
     const real = mockDispatcher();
     const log = collector();
@@ -369,7 +401,7 @@ describe('installNetGuard', () => {
     const log = collector();
     const guard = installNetGuard({
       scope,
-      env: { PYRIC_SANDBOX: '1' },
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'warn' },
       write: log.write,
       net: noNet,
       tls: noTls,
@@ -392,7 +424,7 @@ describe('installNetGuard', () => {
     const log = collector();
     const guard = installNetGuard({
       scope,
-      env: { PYRIC_SANDBOX: '1' },
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'warn' },
       write: log.write,
       net: noNet,
       tls: noTls,
@@ -520,6 +552,28 @@ describe('installNetGuard', () => {
       }),
     ).toEqual({ sock: true });
     expect(netCalls).toHaveLength(1);
+  });
+
+  it('blocks a catalog host when PYRIC_GUARD is unset', () => {
+    const real = mockDispatcher();
+    const scope = fakeScope(real);
+    const log = collector();
+    const guard = installNetGuard({
+      scope,
+      env: { PYRIC_SANDBOX: '1' },
+      write: log.write,
+      net: noNet,
+      tls: noTls,
+      ...noPrototypes,
+    });
+    expect(guard?.mode).toBe('block');
+    expect(() =>
+      (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch(
+        { origin: 'https://firestore.googleapis.com', path: '/v1' },
+        {},
+      ),
+    ).toThrow(/firestore\.googleapis\.com/);
+    expect(real.calls).toHaveLength(0);
   });
 
   it('guards a Socket prototype, reading the host from every connect argument form', () => {
@@ -896,6 +950,7 @@ console.log(JSON.stringify(outcomes));
 
   for (const [label, guardMode] of [
     ['PYRIC_GUARD=block', 'block'],
+    ['an unset PYRIC_GUARD', undefined],
   ] as const) {
     it(`${label} refuses real sockets to catalog hosts, however the caller reached connect`, () => {
       const res = runNode(

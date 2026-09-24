@@ -16,7 +16,7 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
-import { formatAiProxyWarning } from '../../src/serve/ai-proxy.js';
+import { aiUpstreamGuardAllowance, formatAiProxyWarning } from '../../src/serve/ai-proxy.js';
 import { silentServeLogger, startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 
 function fixture() {
@@ -516,5 +516,39 @@ describe('formatAiProxyWarning', () => {
     // Non-secret params and the host/path stay readable.
     expect(block).toContain('model=x');
     expect(block).toContain('up.example/v1/chat');
+  });
+});
+
+describe('aiUpstreamGuardAllowance', () => {
+  const vertexUpstream =
+    'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi';
+
+  function withEnvUpstream<T>(value: string | undefined, run: () => T): T {
+    const priorEnv = process.env.PYRIC_AI_PROXY_UPSTREAM;
+    if (value === undefined) delete process.env.PYRIC_AI_PROXY_UPSTREAM;
+    else process.env.PYRIC_AI_PROXY_UPSTREAM = value;
+    try {
+      return run();
+    } finally {
+      if (priorEnv === undefined) delete process.env.PYRIC_AI_PROXY_UPSTREAM;
+      else process.env.PYRIC_AI_PROXY_UPSTREAM = priorEnv;
+    }
+  }
+
+  it('allows the upstream PYRIC_AI_PROXY_UPSTREAM names', () => {
+    const allowance = withEnvUpstream(`${vertexUpstream}/`, () => aiUpstreamGuardAllowance(undefined));
+    expect(allowance).toEqual([vertexUpstream]);
+  });
+
+  it('allows the upstream the ai.proxyUpstream option names, over the env', () => {
+    const allowance = withEnvUpstream('http://localhost:8080/v1', () =>
+      aiUpstreamGuardAllowance(vertexUpstream),
+    );
+    expect(allowance).toEqual([vertexUpstream]);
+  });
+
+  it('allows nothing for the local Ollama default', () => {
+    const allowance = withEnvUpstream(undefined, () => aiUpstreamGuardAllowance(undefined));
+    expect(allowance).toEqual([]);
   });
 });
