@@ -37,7 +37,7 @@ import {
   listAll,
 } from '../../src/storage/index.js';
 
-// storage-* observations live under the 'storage' surface subdirectory.
+// storage-* and client-storage-* observations live under the 'storage' surface subdirectory.
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'storage');
 
 /** Observations that cannot be replayed against the sandbox, with the reason. */
@@ -49,7 +49,7 @@ const NOT_APPLICABLE: Record<string, string> = {};
 // `packages/conformance/src/observation-gate.ts` for the mechanism and its limits.
 const obsGate = createObservationGate({
   dir: OBS_DIR,
-  match: (f) => f.startsWith('storage-'),
+  match: (f) => f.startsWith('storage-') || f.startsWith('client-storage-'),
   notApplicable: NOT_APPLICABLE,
 });
 
@@ -83,6 +83,28 @@ async function caught(fn: () => Promise<unknown>): Promise<{ code?: unknown; mes
     return e as { code?: unknown; message?: string };
   }
   throw new Error('expected the operation to throw, but it resolved');
+}
+
+/** One `ref()` call recorded in `client-storage-ref-urls`. */
+interface RefCase {
+  input: string;
+  parent?: string;
+  threw: boolean;
+  bucket?: string;
+  fullPath?: string;
+  name?: string;
+  code?: string;
+}
+
+/** Replay one recorded `ref()` call and assert its path fields or its error code. */
+function expectRefCase(storage: ReturnType<typeof freshStorage>, recorded: RefCase): void {
+  const call = () => (recorded.parent === undefined ? ref(storage, recorded.input) : ref(ref(storage, recorded.parent), recorded.input));
+  if (recorded.threw) {
+    expect(call).toThrow(expect.objectContaining({ code: recorded.code }));
+    return;
+  }
+  const made = call();
+  expect({ fullPath: made.fullPath, name: made.name }).toEqual({ fullPath: recorded.fullPath!, name: recorded.name! });
 }
 
 const DENY_ALL = `
@@ -267,11 +289,66 @@ describe('oracle conformance (storage)', () => {
     expect(result.prefixes.map((p) => p.name)).toEqual(['sub']);
   });
 
+  // ── ref(storage, url) ────────────────────────────────────────────────
+  // Each case in `client-storage-ref-urls` is one ref() call: its `input`
+  // is replayed as given, against a sandbox handle in place of production's.
+
+  it('storage#110: a gs:// URL gives the reference at its path', () => {
+    const obs = load('client-storage-ref-urls.json');
+    const storage = freshStorage('ref-url-gs');
+    const plain = obs.plainPath as RefCase;
+    expectRefCase(storage, obs.gsDefaultBucket as RefCase);
+    expectRefCase(storage, obs.gsPathNotDecoded as RefCase);
+    expectRefCase(storage, obs.gsBucketRoot as RefCase);
+    expectRefCase(storage, obs.gsNoBucket as RefCase);
+    // A gs:// URL on the default bucket is the same reference as its path.
+    expect((obs.gsDefaultBucket as RefCase).bucket).toBe(plain.bucket as string);
+    expect(ref(storage, (obs.gsDefaultBucket as RefCase).input).bucket).toBe(ref(storage, plain.input).bucket);
+  });
+
+  it('storage#111: a download URL gives the reference at its decoded path', () => {
+    const obs = load('client-storage-ref-urls.json');
+    const storage = freshStorage('ref-url-download');
+    expectRefCase(storage, obs.firebaseDownloadUrl as RefCase);
+    expectRefCase(storage, obs.firebaseDownloadUrlEncoded as RefCase);
+    expectRefCase(storage, obs.cloudStorageUrl as RefCase);
+    expectRefCase(storage, obs.firebaseUrlNoObject as RefCase);
+  });
+
+  it('storage#112: a URL on another host throws storage/invalid-url', () => {
+    const obs = load('client-storage-ref-urls.json');
+    expectRefCase(freshStorage('ref-url-other-host'), obs.otherHostUrl as RefCase);
+  });
+
+  it("storage#113: the Node host's download URL", () => {
+    const obs = load('client-storage-ref-urls.json');
+    expectRefCase(freshStorage('ref-url-pyric-host'), obs.pyricHostUrl as RefCase);
+  });
+
+  it("storage#114: the reference's bucket is the URL's bucket", () => {
+    const obs = load('client-storage-ref-urls.json');
+    const storage = freshStorage('ref-url-bucket');
+    const other = obs.gsOtherBucket as RefCase;
+    expect(ref(storage, other.input).bucket).toBe(other.bucket as string);
+    const otherDownload = obs.firebaseDownloadUrlOtherBucket as RefCase;
+    expect(ref(storage, otherDownload.input).bucket).toBe(otherDownload.bucket as string);
+  });
+
+  it('storage#115: a data: URI', () => {
+    const obs = load('client-storage-ref-urls.json');
+    expectRefCase(freshStorage('ref-url-data'), obs.dataUri as RefCase);
+  });
+
+  it('storage#116: ref(reference, url) throws storage/invalid-argument', () => {
+    const obs = load('client-storage-ref-urls.json');
+    expectRefCase(freshStorage('ref-url-child'), obs.childRefWithUrl as RefCase);
+  });
+
   // ── completeness: every observation is asserted or explicitly N/A ─────
 
   it('every storage observation is covered (no silent gaps)', () => {
     const r = obsGate.report();
-    expect(r.committed.length).toBeGreaterThanOrEqual(9);
+    expect(r.committed.length).toBeGreaterThanOrEqual(10);
     expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
     expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });

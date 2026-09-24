@@ -13,7 +13,7 @@ import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 import { wirePort } from '../../../src/serve/worker/client/core.js';
 import type { ClientPort } from '../../../src/serve/worker/client/handles.js';
 import {
-  getBlob, getBytes, getDownloadURL, getMetadata, getStorage, ref, uploadBytes, uploadBytesResumable,
+  deleteObject, getBlob, getBytes, getDownloadURL, getMetadata, getStorage, ref, uploadBytes, uploadBytesResumable,
 } from '../../../src/serve/worker/client/storage.js';
 
 const root = process.argv[2];
@@ -186,6 +186,16 @@ try {
     await new Promise(resolve => setTimeout(resolve, 50));
     assert.ok(ops.includes('storage.abortUpload'), `ops: ${ops.join(', ')}`);
     assert.equal(await persistence.storage.getMetadata('media/canceled.wav', bucket), undefined);
+  }
+
+  // An app that kept a download URL deletes the object by a reference to it.
+  {
+    const url = await getDownloadURL(ref(storage, 'notes/note.txt'));
+    const kept = ref(storage, url);
+    assert.equal(kept.fullPath, 'notes/note.txt');
+    await deleteObject(kept);
+    assert.equal(await persistence.storage.getMetadata('notes/note.txt', bucket), undefined, 'the object is gone');
+    assert.equal((await fetch(url)).status, 404);
   }
 } finally {
   server.close();
