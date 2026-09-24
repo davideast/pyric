@@ -4447,7 +4447,7 @@ const probes: Probe[] = [
   {
     name: 'storage-upload-bytes-roundtrip',
     matrixRow: 'storage #36',
-    rowIds: ['storage#36'],
+    rowIds: ['storage#36', 'storage#51'],
     description:
       'uploadBytes a small ArrayBuffer, getDownloadURL + fetch, verify byte-for-byte equality with what was uploaded.',
     async observe() {
@@ -4610,7 +4610,7 @@ const probes: Probe[] = [
   {
     name: 'storage-delete-then-get-throws',
     matrixRow: 'storage #66',
-    rowIds: ['storage#66', 'storage#54'],
+    rowIds: ['storage#66', 'storage#54', 'storage#52'],
     description:
       'Upload, deleteObject, then getDownloadURL on the deleted ref — observe the error code (expected: storage/object-not-found).',
     async observe() {
