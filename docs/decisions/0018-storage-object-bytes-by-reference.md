@@ -222,6 +222,7 @@ byte-route ruling above for downloads.
 | Which clients switch | Every hosted client, always; the hosted base64 transfer operations are deleted. |
 | `pyric-admin` ranges and streams | Included. |
 | Branches by reference | Deferred; branches still carry their bytes inline. |
+| Who parses the route's URLs | Only pyric. The real Firebase SDK never sees a `/__pyric/storage/v0/` URL: under `pyric sandbox`, the page's import map serves pyric's client for `firebase/storage`, and the Node register maps `firebase/storage` to `pyric/storage` and `firebase-admin` to `pyric-admin`, so every `ref(storage, url)` in app code runs pyric's own `ref()`. |
 
 ## Order of work
 

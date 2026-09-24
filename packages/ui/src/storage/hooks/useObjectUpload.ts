@@ -142,10 +142,11 @@ export function useObjectUpload(
   storage: FirebaseStorage | null | undefined,
   options: UseObjectUploadOptions = {},
 ): UseObjectUploadResult {
-  // Injected backend (in-process `pyric/storage` by default, the
-  // SharedWorker client bundle in Studio served mode) — uploads follow
-  // the same seam the browse hooks read through. The worker leg caps a
-  // payload at 8 MiB (base64 `storage.putBytes`); in-process writes are
+  // Uploads follow the injected backend the browse hooks read through:
+  // in-process `pyric/storage` by default, the SharedWorker client bundle
+  // in Studio served mode. The worker leg caps an object at 512 MiB: a
+  // SharedWorker host takes an object over 4 MiB in parts, and the Node
+  // host takes bytes over its HTTP byte route. In-process writes are
   // uncapped. An over-cap file fails as a normal per-file task error.
   const { ref: refFn, uploadBytes } = useStorageApi();
   const base = normalizeStoragePath(options.path ?? '');

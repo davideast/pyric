@@ -12,10 +12,14 @@ import { ref, listAll, getMetadata, getBlob, uploadBytes, uploadBytesResumable, 
  * runtime-compatible at the surface the hooks use (`.fullPath` / `.name`).
  *
  * `uploadBytes` rides the same seam so `useObjectUpload` follows the injected
- * backend: in-process writes are uncapped; the worker client's `uploadBytes`
- * (base64 `storage.putBytes` over the MessagePort) enforces an 8 MiB payload
- * cap on both ends — an over-cap upload fails that file's task with the typed
- * `storage/...` too-large error and the rest of the batch proceeds.
+ * backend. In-process writes are uncapped. The worker client caps an object at
+ * 512 MiB (`MAX_STORAGE_OBJECT_BYTES`) and moves its bytes one of two ways:
+ * on a SharedWorker host, an object up to 4 MiB goes in one `storage.putBytes`
+ * and a larger one in 4 MiB parts (`storage.beginUpload`, `storage.putPart`,
+ * `storage.finishUpload`); on the Node host (`pyric sandbox --hosted`), bytes
+ * go over the HTTP byte route (`/__pyric/storage/v0/b/<bucket>/o/<path>`) as
+ * a resumable PUT. An over-cap upload fails that file's task with the typed
+ * `storage/quota-exceeded` error and the rest of the batch proceeds.
  *
  * NOTE the rules gate (`useStorageRulesGate`) is NOT here: it reads in-process
  * rules internals and no-ops on a handle without them (worker handles), which is
