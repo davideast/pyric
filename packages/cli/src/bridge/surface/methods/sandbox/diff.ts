@@ -18,7 +18,7 @@ import { loadBranch } from 'pyric/sandbox/branches/store';
 import { z } from 'zod';
 
 import { AGAINST_LIVE, branchName, refuseUnknownBranch } from '../../arguments/sandbox.js';
-import { checkpointNames, readCheckpoint } from '../../checkpoints.js';
+import { checkpointNames, readCheckpoint, type CheckpointPlace } from '../../checkpoints.js';
 import { operationFailure } from '../../context.js';
 import { failFor } from '../../method-validation.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -54,10 +54,10 @@ export default {
       return report(name, AGAINST_LIVE, divergences);
     }
 
-    const checkpoint = await readCheckpoint(ctx.projectDir, against);
+    const checkpoint = await readCheckpoint(ctx, against);
     if (checkpoint === null) {
       loaded.branch.sandbox.dispose();
-      return refuseMissingCheckpoint(ctx.projectDir, against);
+      return refuseMissingCheckpoint(ctx, against);
     }
     const divergences = await diff(loaded.branch, checkpoint.state);
     loaded.branch.sandbox.dispose();
@@ -117,10 +117,10 @@ function report(
 
 /** Refuse a checkpoint name nothing answers to, naming the ones that exist. */
 async function refuseMissingCheckpoint(
-  projectDir: string,
+  place: CheckpointPlace,
   against: string,
 ): Promise<OperationResult> {
-  const known = await checkpointNames(projectDir);
+  const known = await checkpointNames(place);
   if (known.length === 0) {
     return operationFailure(
       `No checkpoint named '${against}'. The project holds no checkpoints, so the only reference is ${AGAINST_LIVE}.`,

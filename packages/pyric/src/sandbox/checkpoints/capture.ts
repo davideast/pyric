@@ -11,7 +11,7 @@
  * second time, so a listing can never disagree with the state beside it.
  */
 
-import { applyFullState, captureFullState, type FullSandboxState } from '../full-state.js';
+import { applyFullState, captureFullState, type FullSandboxState, type FullStateCaptureOptions } from '../full-state.js';
 import type { LocalSandbox } from '../types/service.js';
 import { getClock } from '../clock.js';
 import { CHECKPOINT_FORMAT, type Checkpoint, type CheckpointCounts } from './types.js';
@@ -49,8 +49,8 @@ export function countsOf(state: FullSandboxState): CheckpointCounts {
  * A pure read: nothing in the sandbox changes, and two captures with no
  * intervening write are the same value apart from `at`.
  */
-export async function captureCheckpoint(sandbox: LocalSandbox): Promise<Checkpoint> {
-  const state = await captureFullState(sandbox);
+export async function captureCheckpoint(sandbox: LocalSandbox, options: FullStateCaptureOptions = {}): Promise<Checkpoint> {
+  const state = await captureFullState(sandbox, options);
   return { format: CHECKPOINT_FORMAT, at: getClock(sandbox).now(), counts: countsOf(state), state };
 }
 

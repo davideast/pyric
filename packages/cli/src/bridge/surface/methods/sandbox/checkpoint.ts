@@ -19,7 +19,7 @@ export default {
   example: { name: 'before-migration' },
   async handler(args, ctx) {
     const name = String(args.name);
-    const { overwrote, checkpoint } = await writeCheckpoint(ctx.sandbox, ctx.projectDir, name);
+    const { overwrote, checkpoint } = await writeCheckpoint(ctx.sandbox, ctx, name);
     const verb = overwrote ? 'Overwrote' : 'Saved';
     const counts = checkpoint.counts;
     return {

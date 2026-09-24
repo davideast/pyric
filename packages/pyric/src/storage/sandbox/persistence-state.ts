@@ -26,6 +26,34 @@ export async function snapshotStorageState(storage: FirebaseStorage): Promise<St
   return records;
 }
 
+/** An object whose bytes its backend holds in a file named by their SHA-256. */
+export interface StorageReferenceRecord {
+  sha256: string;
+  size: number;
+  blobType: string;
+  metadata: StoredMetadata;
+}
+
+/** Every object in the handle's bucket as a reference; reads no object bytes. */
+export async function referenceStorageState(storage: FirebaseStorage): Promise<StorageReferenceRecord[]> {
+  const service = await getStorageService(storage);
+  const references = service.backend.references;
+  const unsupported = references === undefined;
+  if (unsupported) throw new Error('This Storage backend keeps no object files to refer to.');
+  return references.call(service.backend);
+}
+
+/** Restore objects whose bytes the backend already holds, writing only their metadata. */
+export async function restoreStorageReferences(storage: FirebaseStorage, records: readonly StorageReferenceRecord[]): Promise<void> {
+  const service = await getStorageService(storage);
+  const putReference = service.backend.putReference;
+  const unsupported = putReference === undefined;
+  if (unsupported) throw new Error('This Storage backend keeps no object files to refer to.');
+  for (const record of records) {
+    await putReference.call(service.backend, record.metadata.fullPath, { sha256: record.sha256, size: record.size }, record.blobType, structuredClone(record.metadata));
+  }
+}
+
 /** Restore stored metadata directly, retaining generations and timestamps. */
 export async function restoreStorageState(storage: FirebaseStorage, records: readonly StorageStateRecord[]): Promise<void> {
   const service = await getStorageService(storage);

@@ -7,7 +7,6 @@ import { createPyricNamespace, createEventHub } from '../../src/serve/namespace.
 import { injectServeTags } from '../../src/serve/html-injection.js';
 import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
 import { createStateStore, type StateStore } from '../../src/serve/state-store.js';
-import { StateExportTooLargeError } from '../../src/serve/hosted/persistence/export-limit.js';
 import { diskWorkspace } from '../../src/serve/studio/index.js';
 
 function fixture() {
@@ -401,17 +400,52 @@ describe('namespace over the real server', () => {
     expect(await authedCapture.text()).toBe('sensitive-capture');
   });
 
-  it('answers a state export too large to serialize with 413 and the named limit', async () => {
+  it('refuses a request whose Origin is another local port', async () => {
     const { site, sdk } = fixture();
-    const tooLarge = () => { throw new StateExportTooLargeError(900 * 1024 * 1024); };
+    const state: StateStore = {
+      projectDir: site,
+      path: join(site, 'state.json'),
+      backupPath: join(site, 'state.json.bak'),
+      exists: () => true,
+      load: () => ({ version: 1, firestore: null, auth: null }),
+      readSection: () => null,
+      writeSection: () => {},
+    };
+    const ns = createPyricNamespace({
+      sdkDir: sdk,
+      initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+      state,
+      sessionToken: 'origin-token',
+      boundHost: '127.0.0.1',
+    });
+    const h = await startStaticServer({
+      publicDir: site, port: 0, host: '127.0.0.1', logger: silentServeLogger(), namespaceHandler: ns,
+    });
+    handles.push(h);
+    const headers = { 'x-pyric-session-token': 'origin-token' };
+    const sameOrigin = await fetch(`${h.url}/__pyric/state`, { headers: { ...headers, origin: new URL(h.url).origin } });
+    expect(sameOrigin.status).toBe(200);
+    const otherPort = h.port === 3000 ? 3001 : 3000;
+    const crossPort = await fetch(`${h.url}/__pyric/state`, { headers: { ...headers, origin: `http://127.0.0.1:${otherPort}` } });
+    expect(crossPort.status).toBe(403);
+    expect(await crossPort.text()).toContain('origin');
+  });
+
+  it('serves the bytes a state export refers to by hash, to the session only', async () => {
+    const { site, sdk } = fixture();
+    const sha256 = 'c'.repeat(64);
+    const file = join(site, 'object.bin');
+    writeFileSync(file, 'object bytes');
+    const reference = { path: 'media/take.wav', sha256, size: 12, blobType: 'audio/wav', metadata: {} };
     const state: StateStore = {
       projectDir: site,
       path: join(site, 'state.sqlite'),
       backupPath: join(site, 'state.archive'),
       exists: () => true,
-      load: tooLarge,
-      readSection: (section) => (section === 'storage' ? tooLarge() : null),
+      load: () => ({ version: 1, firestore: null, auth: null, storage: [reference] as never }),
+      readSection: (section) => (section === 'storage' ? [reference] : null),
       writeSection: () => {},
+      objectFile: (hash) => (hash === sha256 ? file : undefined),
     };
     const ns = createPyricNamespace({
       sdkDir: sdk,
@@ -425,12 +459,16 @@ describe('namespace over the real server', () => {
     });
     handles.push(h);
     const headers = { 'x-pyric-session-token': 'export-token' };
-    for (const query of ['', '?section=storage']) {
-      const response = await fetch(`${h.url}/__pyric/state${query}`, { headers });
-      expect(response.status).toBe(413);
-      const text = await response.text();
-      expect(text).toContain('Storage objects total 900.0 MiB');
-      expect(text).toContain('state export');
-    }
+    const exported = await fetch(`${h.url}/__pyric/state?section=storage`, { headers });
+    expect(await exported.json()).toEqual([reference]);
+
+    const object = await fetch(`${h.url}/__pyric/state/objects/${sha256}`, { headers });
+    expect(object.status).toBe(200);
+    expect(object.headers.get('content-length')).toBe('12');
+    expect(await object.text()).toBe('object bytes');
+
+    expect((await fetch(`${h.url}/__pyric/state/objects/${sha256}`)).status).toBe(401);
+    expect((await fetch(`${h.url}/__pyric/state/objects/${'d'.repeat(64)}`, { headers })).status).toBe(404);
+    expect((await fetch(`${h.url}/__pyric/state/objects/..%2Fstate.sqlite`, { headers })).status).toBe(400);
   });
 });

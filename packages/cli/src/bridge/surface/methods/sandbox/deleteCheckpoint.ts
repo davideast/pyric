@@ -35,9 +35,9 @@ export default {
   example: { name: 'before-migration', confirm: true },
   async handler(args, ctx) {
     const name = String(args.name);
-    const removed = await removeCheckpoint(ctx.projectDir, name);
+    const removed = await removeCheckpoint(ctx, name);
     if (!removed) {
-      const known = await checkpointNames(ctx.projectDir);
+      const known = await checkpointNames(ctx);
       const list = known.length === 0 ? 'none' : known.join(', ');
       return operationFailure(`No checkpoint named '${name}'. Known checkpoints: ${list}.`);
     }

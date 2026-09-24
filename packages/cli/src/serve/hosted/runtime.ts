@@ -1,4 +1,7 @@
 import { createDenialThrottle } from '../namespace.js';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createStorageByteRoute } from './storage-byte-route.js';
+import { uploadTokenOf } from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
 import { handleRulesOp } from '../worker/host/rules.js';
@@ -7,7 +10,6 @@ import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
-import { directoryCheckpointBackend } from 'pyric/sandbox/checkpoints/directory';
 import { createSandboxRoot, emitSandboxEvent, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { FirebaseError } from 'pyric/app';
@@ -133,7 +135,7 @@ export async function createHostedRuntime(
     db: getFirestore(sandbox),
     instanceId,
     subs: new Map(),
-    checkpointBackend: directoryCheckpointBackend(ownedProjectDir),
+    checkpointBackend: persistence.checkpoints,
     sessionMode: 'NONE',
     aiEngine: payload.ai?.engine,
     aiUpstream: { baseUrl: resolveAiProxyUpstream(ai.proxyUpstream).target, fetch: aiFetch },
@@ -165,7 +167,7 @@ export async function createHostedRuntime(
       error: { code: 'persistence-unhealthy', message: 'Hosted persistence failed. Mutations are blocked; reads may include unsaved changes. Repair the store and restart the host.' },
     }));
   });
-  const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir);
+  const surfaceContext = createSurfaceContext(sandbox, ownedProjectDir, undefined, persistence.checkpoints);
   const ports = new Map<string, HostedPort>();
   const closingPorts = new Set<Promise<void>>();
   const methodWork = new Map<object, OperationQueue>();
@@ -315,7 +317,17 @@ export async function createHostedRuntime(
     });
   }
 
+  const storageBytes = createStorageByteRoute({
+    storage: persistence.storage,
+    sessionToken: payload.sessionToken,
+    uploadToken: uploadId => uploadTokenOf(ctx, uploadId),
+  });
+
   return {
+    /** The HTTP byte route; resolves false for any other path. */
+    storageHttp(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+      return storageBytes(req, res, url);
+    },
     deployRules(service: 'firestore' | 'database', source: string): void {
       if (closed) throw new Error('The hosted sandbox is closed.');
       const isFirestore = service === 'firestore';

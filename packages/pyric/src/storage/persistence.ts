@@ -15,9 +15,7 @@
  *   Slice 5 builds `getStorage` / `ref` / `uploadBytes` / `getBytes` on
  *   top of this layer.
  * - The `StoredMetadata` shape mirrors Firebase's `FullMetadata`
- *   minus the `ref` field (computed at consumption time) and
- *   `downloadTokens` (sandbox `getDownloadURL` encodes the blob into a `data:`
- *   URI instead of minting Firebase download tokens).
+ *   minus the `ref` field (computed at consumption time).
  * - Database name is overridable so tests can isolate state per
  *   case via fake-indexeddb without colliding on the production
  *   default `pyric-storage`.
@@ -26,6 +24,8 @@
  * objects — translation into Firebase-shaped `StorageError`s happens
  * in Slice 8 inside `errors.ts`. Keep this layer mechanical.
  */
+
+import type { StorageReferenceRecord } from './sandbox/persistence-state.js';
 
 /**
  * Legacy shared database name — used only when NO project identity is
@@ -121,6 +121,11 @@ export interface StoredMetadata {
   contentLanguage?: string;
   /** Free-form key/value annotations the client attached at upload. */
   customMetadata?: Record<string, string>;
+  /**
+   * Comma-separated download tokens, as Firebase keeps them. A download URL
+   * carries one; removing it from this list revokes that URL.
+   */
+  downloadTokens?: string;
   /** Hex-encoded MD5 hash of the content. Populated when computable. */
   md5Hash?: string;
 }
@@ -212,16 +217,32 @@ export interface StorageBackend {
   putPart?(uploadId: string, partIndex: number, bytes: Uint8Array): Promise<{ bytesReceived: number } | void>;
 
   /**
-   * Return an upload's staged bytes in part order, verifying they add up to the
-   * declared size. The upload stays staged: the caller writes the object through
-   * the engine and then discards the staging with {@link abortUpload}.
+   * Return an upload's staged bytes in part order as a Blob typed with the
+   * upload's content type, verifying they add up to the declared size. The
+   * upload stays staged: the caller writes the object through the engine, which
+   * passes this Blob to {@link put} unchanged when the content type agrees, and
+   * then discards the staging with {@link abortUpload}. A backend may recognize
+   * the Blob in `put` and keep the staged bytes rather than copying them.
    */
-  readUpload?(uploadId: string): Promise<Uint8Array>;
+  readUpload?(uploadId: string): Promise<Blob>;
 
   /**
    * Abort an active upload session and purge staged parts.
    */
   abortUpload?(uploadId: string): Promise<void>;
+
+  /**
+   * Every object in `bucket`, naming its bytes by SHA-256 instead of carrying
+   * them. Only a backend that keeps each object's bytes in a content-addressed
+   * file has this; a capture by reference needs it.
+   */
+  references?(bucket?: string): Promise<StorageReferenceRecord[]>;
+
+  /**
+   * Store an object whose bytes this backend already holds under
+   * `reference.sha256`, writing only its metadata.
+   */
+  putReference?(path: string, reference: { sha256: string; size: number }, mime: string, metadata: StoredMetadata): Promise<void>;
 
   /**
    * Read a slice of an object's bytes without loading the entire payload into memory.
@@ -309,7 +330,7 @@ class InMemoryUploadStaging {
     return { bytesReceived };
   }
 
-  readUpload(uploadId: string): Uint8Array {
+  readUpload(uploadId: string): Blob {
     const upload = this.uploads.get(uploadId);
     if (!upload) {
       const err = new Error(`storage/object-not-found: Upload '${uploadId}' not found.`) as Error & { code: string };
@@ -326,14 +347,7 @@ class InMemoryUploadStaging {
       err.code = 'storage/invalid-argument';
       throw err;
     }
-    const fullBytes = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const idx of sortedIndices) {
-      const part = upload.parts.get(idx)!;
-      fullBytes.set(part, offset);
-      offset += part.byteLength;
-    }
-    return fullBytes;
+    return new Blob(sortedIndices.map((idx) => upload.parts.get(idx)! as Uint8Array<ArrayBuffer>), { type: upload.contentType });
   }
 
   abortUpload(uploadId: string): void {
@@ -465,7 +479,7 @@ export class InMemoryStorageBackend implements StorageBackend {
     return this.staging.putPart(uploadId, partIndex, bytes);
   }
 
-  async readUpload(uploadId: string): Promise<Uint8Array> {
+  async readUpload(uploadId: string): Promise<Blob> {
     return this.staging.readUpload(uploadId);
   }
 
@@ -654,7 +668,7 @@ export class IndexedDbStorageBackend implements StorageBackend {
     return this.staging.putPart(uploadId, partIndex, bytes);
   }
 
-  async readUpload(uploadId: string): Promise<Uint8Array> {
+  async readUpload(uploadId: string): Promise<Blob> {
     return this.staging.readUpload(uploadId);
   }
 
@@ -704,6 +718,17 @@ export class ScopedStorageBackend implements StorageBackend {
     return this.underlying.put(path, blob, meta);
   }
 
+  references(bucket?: string): Promise<StorageReferenceRecord[]> {
+    if (this.underlying.references) return this.underlying.references(bucket ?? this.bucket);
+    throw new Error('The underlying storage backend keeps no object files to refer to.');
+  }
+
+  putReference(path: string, reference: { sha256: string; size: number }, mime: string, metadata: StoredMetadata): Promise<void> {
+    const meta = metadata.bucket ? metadata : { ...metadata, bucket: this.bucket };
+    if (this.underlying.putReference) return this.underlying.putReference(path, reference, mime, meta);
+    throw new Error('The underlying storage backend keeps no object files to refer to.');
+  }
+
   getBlob(path: string, bucket?: string): Promise<Blob | undefined> {
     return this.underlying.getBlob(path, bucket ?? this.bucket);
   }
@@ -746,7 +771,7 @@ export class ScopedStorageBackend implements StorageBackend {
     throw new Error('Chunked upload not supported by underlying storage backend');
   }
 
-  readUpload(uploadId: string): Promise<Uint8Array> {
+  readUpload(uploadId: string): Promise<Blob> {
     if (this.underlying.readUpload) return this.underlying.readUpload(uploadId);
     throw new Error('Chunked upload not supported by underlying storage backend');
   }

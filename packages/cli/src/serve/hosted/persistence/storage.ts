@@ -1,22 +1,60 @@
 import { randomUUID } from 'node:crypto';
+import { openAsBlob } from 'node:fs';
 import { FirebaseError } from 'pyric/app';
-import type { StorageBackend, StoredMetadata } from 'pyric/storage/internal';
+import type { StorageBackend, StorageReferenceRecord, StoredMetadata } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
 import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
+import type { BlobStore, StagedFile, StoredBytes } from './blob-store.js';
 import type { Commit } from './commits.js';
 import { sqlText, type SqlConnection, type SqlRow } from './sqlite.js';
 
 export type PutStorageBytes = (path: string, bytes: Uint8Array, mime: string, metadata: StoredMetadata) => void;
 
+/** Store an object whose bytes are the file `source`, which must hash to `stored.sha256`. */
+export type PutStorageFile = (path: string, source: string, stored: StoredBytes, mime: string, metadata: StoredMetadata) => void;
+
+/** The writes a seed transaction can make. */
+export interface StorageWrites {
+  bytes: PutStorageBytes;
+  file: PutStorageFile;
+}
+
 export interface ScopedStorageBackend extends StorageBackend {
   scoped(bucket: string): ScopedStorageBackend;
   /** Run a synchronous seed transaction after earlier Storage mutations. */
-  mutate<T>(work: (putBytes: PutStorageBytes) => T): Promise<T>;
-  beginUpload(bucket: string, path: string, size: number, mime?: string, customMetadata?: Record<string, string>, connectionId?: string): Promise<string>;
+  mutate<T>(work: (writes: StorageWrites) => T): Promise<T>;
+  beginUpload(bucket: string, path: string, size: number, mime?: string): Promise<string>;
   putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }>;
-  readUpload(uploadId: string): Promise<Uint8Array>;
+  readUpload(uploadId: string): Promise<Blob>;
   abortUpload(uploadId: string): Promise<void>;
   readRange(bucket: string, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined>;
+  references(bucket?: string): Promise<StorageReferenceRecord[]>;
+  putReference(path: string, reference: StoredBytes, mime: string, metadata: StoredMetadata): Promise<void>;
+  /** The file holding an object's bytes, with what a response needs to describe them. */
+  objectFile(bucket: string, path: string): Promise<StoredObjectFile | undefined>;
+  /** Append bytes that start at `offset`, which must be exactly what the upload has received. */
+  appendUpload(uploadId: string, offset: number, bytes: Uint8Array): Promise<UploadProgress>;
+  uploadProgress(uploadId: string): Promise<UploadProgress | undefined>;
+}
+
+export interface StoredObjectFile {
+  file: string;
+  size: number;
+  mime: string;
+  metadata: StoredMetadata;
+}
+
+export interface UploadProgress {
+  received: number;
+  size: number;
+}
+
+/** Bytes sent for an upload from an offset other than the one it has reached. */
+export class UploadOffsetError extends Error {
+  constructor(readonly received: number) {
+    super(`The upload has received ${received} bytes; the next bytes must start there.`);
+    this.name = 'UploadOffsetError';
+  }
 }
 
 /** A statement prepared on first use; a read-only open of an older schema never needs it. */
@@ -33,24 +71,37 @@ function metadataOf(row: SqlRow): StoredMetadata {
   return storedMetadataSchema.parse(JSON.parse(sqlText(row, 'metadata')));
 }
 
-/** Bytes and metadata share a row and a transaction, including replacements. */
-export function createSqliteStorage(connection: SqlConnection, commit: Commit): ScopedStorageBackend {
-  const read = connection.prepare('SELECT bytes, mime FROM storage_objects WHERE bucket=? AND path=?');
+function storedBytesOf(row: SqlRow): StoredBytes {
+  return { sha256: sqlText(row, 'sha256'), size: Number(row.size) };
+}
+
+/**
+ * A chunked upload in progress. It lives only as long as the host that began
+ * it; a new host discards what an earlier one left staged.
+ */
+interface Upload {
+  path: string;
+  size: number;
+  contentType: string;
+  file: StagedFile;
+  nextIndex: number;
+}
+
+/**
+ * Metadata lives in a row that names the object's bytes by hash. The bytes are
+ * durable in their file before the row that names them commits.
+ */
+export function createSqliteStorage(connection: SqlConnection, commit: Commit, objects: BlobStore): ScopedStorageBackend {
+  const read = lazyStatement(connection, 'SELECT sha256, size, mime FROM storage_objects WHERE bucket=? AND path=?');
   const metadata = connection.prepare('SELECT metadata FROM storage_objects WHERE bucket=? AND path=?');
-  const put = connection.prepare('INSERT INTO storage_objects VALUES (?, ?, ?, ?, ?) ON CONFLICT(bucket, path) DO UPDATE SET metadata=excluded.metadata, mime=excluded.mime, bytes=excluded.bytes');
+  const put = lazyStatement(connection, `INSERT INTO storage_objects (bucket, path, metadata, mime, sha256, size) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(bucket, path) DO UPDATE SET metadata=excluded.metadata, mime=excluded.mime, sha256=excluded.sha256, size=excluded.size`);
   const update = connection.prepare('UPDATE storage_objects SET metadata=? WHERE bucket=? AND path=?');
   const remove = connection.prepare('DELETE FROM storage_objects WHERE bucket=? AND path=?');
   const list = connection.prepare('SELECT metadata FROM storage_objects WHERE bucket=? AND substr(path, 1, length(?))=? ORDER BY path');
   const clearBucket = connection.prepare('DELETE FROM storage_objects WHERE bucket=?');
 
-  // ADR 0015 Chunked storage staging and ranged reads
-  const beginUploadStmt = lazyStatement(connection, 'INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, -1, ?, ?)');
-  const readHeaderStmt = lazyStatement(connection, 'SELECT * FROM storage_uploads WHERE upload_id=? AND part_index=-1');
-  const insertPartStmt = lazyStatement(connection, 'INSERT INTO storage_uploads VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(upload_id, part_index) DO UPDATE SET bytes=excluded.bytes');
-  const readPartsStmt = lazyStatement(connection, 'SELECT bytes FROM storage_uploads WHERE upload_id=? AND part_index >= 0 ORDER BY part_index');
-  const sumPartsStmt = lazyStatement(connection, 'SELECT COALESCE(SUM(length(bytes)), 0) AS bytesReceived FROM storage_uploads WHERE upload_id=? AND part_index >= 0');
-  const deleteUploadStmt = lazyStatement(connection, 'DELETE FROM storage_uploads WHERE upload_id=?');
-  const readRangeStmt = connection.prepare('SELECT substr(bytes, ? + 1, ?) AS slice, metadata FROM storage_objects WHERE bucket=? AND path=?');
+  const readRangeStmt = lazyStatement(connection, 'SELECT sha256, size, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
   // Reserve order before binary conversion yields. Reset and later uploads must
   // not overtake a pending upload and then be undone when its bytes arrive.
@@ -61,14 +112,49 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
     return result;
   }
 
+  const uploads = new Map<string, Upload>();
+  // The Blob `readUpload` returned for each finished upload. The engine hands
+  // it back to `put`, which moves the staged file into place instead of reading it.
+  const finishedUploads = new WeakMap<Blob, Upload>();
+
+  function uploadOf(uploadId: string): Upload {
+    const upload = uploads.get(uploadId);
+    const missingUpload = upload === undefined;
+    if (missingUpload) throw new Error(`Upload '${uploadId}' not found or already completed.`);
+    return upload;
+  }
+
+  function adoptUpload(path: string, upload: Upload, mime: string, value: StoredMetadata): void {
+    const metadata = storedMetadataSchema.parse(value);
+    const mismatchedObject = metadata.fullPath !== path || metadata.size !== upload.size;
+    if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
+    const stored = objects.adopt(upload.file);
+    commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
+  }
+
   function putBytes(path: string, bytes: Uint8Array, mime: string, value: StoredMetadata): void {
     const tooLarge = bytes.byteLength > MAX_STORAGE_OBJECT_BYTES;
     if (tooLarge) throw storageQuotaExceeded(bytes.byteLength, 'Storage object');
     const metadata = storedMetadataSchema.parse(value);
     const mismatchedObject = metadata.fullPath !== path || metadata.size !== bytes.byteLength;
     if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
-    commit(() => { put.run(metadata.bucket, path, JSON.stringify(metadata), mime, bytes); });
+    const stored = objects.write(bytes);
+    commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
   }
+
+  function putFile(path: string, source: string, stored: StoredBytes, mime: string, value: StoredMetadata): void {
+    const tooLarge = stored.size > MAX_STORAGE_OBJECT_BYTES;
+    if (tooLarge) throw storageQuotaExceeded(stored.size, 'Storage object');
+    const metadata = storedMetadataSchema.parse(value);
+    const mismatchedObject = metadata.fullPath !== path || metadata.size !== stored.size;
+    if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
+    objects.importFile(source, stored);
+    commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, stored.sha256, stored.size); });
+  }
+
+  const writes: StorageWrites = { bytes: putBytes, file: putFile };
+  const referencesStmt = lazyStatement(connection, 'SELECT sha256, size, mime, metadata FROM storage_objects WHERE bucket=? ORDER BY path');
+  const objectFileStmt = lazyStatement(connection, 'SELECT sha256, size, mime, metadata FROM storage_objects WHERE bucket=? AND path=?');
 
   function view(scope?: string): ScopedStorageBackend {
     const defaultBucket = scope ?? 'pyric-default';
@@ -76,22 +162,24 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
       async put(path, blob, value) {
         const tooLarge = blob.size > MAX_STORAGE_OBJECT_BYTES;
         if (tooLarge) throw storageQuotaExceeded(blob.size, 'Storage object');
+        const upload = finishedUploads.get(blob);
+        const finishesUpload = upload !== undefined;
+        if (finishesUpload) {
+          await enqueue(() => adoptUpload(path, upload, blob.type, value));
+          return;
+        }
         await enqueue(async () => {
           const bytes = new Uint8Array(await blob.arrayBuffer());
           putBytes(path, bytes, blob.type, value);
         });
       },
-      mutate: work => enqueue(() => commit(() => work(putBytes))),
+      mutate: work => enqueue(() => commit(() => work(writes))),
       async getBlob(path, bucket = defaultBucket) {
         await mutations;
-        const row = read.get(bucket, path);
+        const row = read().get(bucket, path);
         const missingObject = row === undefined;
         if (missingObject) return undefined;
-        const bytes = row.bytes;
-        const isBinary = bytes instanceof Uint8Array;
-        const invalidBytes = !isBinary;
-        if (invalidBytes) throw new Error('Invalid persisted Storage bytes.');
-        return new Blob([Uint8Array.from(bytes)], { type: sqlText(row, 'mime') });
+        return new Blob([objects.read(storedBytesOf(row))], { type: sqlText(row, 'mime') });
       },
       async getMetadata(path, bucket = defaultBucket) {
         await mutations;
@@ -130,78 +218,99 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit): 
           else clearBucket.run(bucket);
         }));
       },
-      async beginUpload(bucket = defaultBucket, path: string, size: number, mime?: string, customMetadata?: Record<string, string>, connectionId?: string): Promise<string> {
+      // The object's bucket comes from the metadata the engine writes it with.
+      async beginUpload(_bucket: string, path: string, size: number, mime?: string): Promise<string> {
         return enqueue(() => {
           const uploadId = randomUUID();
-          const contentType = mime ?? 'application/octet-stream';
-          const metaJson = customMetadata ? JSON.stringify(customMetadata) : null;
-          commit(() => {
-            beginUploadStmt().run(uploadId, connectionId ?? null, bucket, path, size, contentType, metaJson, new Uint8Array(0), Date.now());
-          });
+          const file = objects.stage(uploadId);
+          uploads.set(uploadId, { path, size, contentType: mime ?? 'application/octet-stream', file, nextIndex: 0 });
           return uploadId;
         });
       },
       async putPart(uploadId: string, index: number, part: Uint8Array): Promise<{ bytesReceived: number }> {
         return enqueue(() => {
-          const header = readHeaderStmt().get(uploadId);
-          if (header === undefined) throw new Error(`Upload '${uploadId}' not found or already completed.`);
-          commit(() => {
-            insertPartStmt().run(
-              uploadId,
-              header.connection_id,
-              header.bucket,
-              header.path,
-              header.size,
-              header.content_type,
-              header.custom_metadata,
-              index,
-              part,
-              Date.now(),
-            );
-          });
-          const sumRow = sumPartsStmt().get(uploadId);
-          const bytesReceived = Number(sumRow?.bytesReceived ?? 0);
-          return { bytesReceived };
+          const upload = uploadOf(uploadId);
+          // Parts append to one file and one running hash, so each must be the next.
+          const outOfOrder = index !== upload.nextIndex;
+          if (outOfOrder) throw new Error(`Part ${index} of upload '${uploadId}' arrived out of order; part ${upload.nextIndex} is next.`);
+          const overflows = upload.file.received + part.byteLength > upload.size;
+          if (overflows) throw new Error(`Part ${index} of upload '${uploadId}' would pass its declared size of ${upload.size} bytes.`);
+          upload.file.append(part);
+          upload.nextIndex++;
+          return { bytesReceived: upload.file.received };
         });
       },
-      async readUpload(uploadId: string): Promise<Uint8Array> {
-        return enqueue(() => {
-          const header = readHeaderStmt().get(uploadId);
-          if (header === undefined) throw new Error(`Upload '${uploadId}' not found or already completed.`);
-          const declaredSize = Number(header.size);
-          const parts = readPartsStmt().all(uploadId);
-          const totalLength = parts.reduce((sum, part) => sum + (part.bytes instanceof Uint8Array ? part.bytes.byteLength : 0), 0);
-          const incomplete = totalLength !== declaredSize;
-          if (incomplete) throw new Error(`Staged bytes (${totalLength}) do not match declared size (${declaredSize}).`);
-          const bytes = new Uint8Array(declaredSize);
-          let offset = 0;
-          for (const part of parts) {
-            const hasBytes = part.bytes instanceof Uint8Array;
-            if (!hasBytes) continue;
-            bytes.set(part.bytes as Uint8Array, offset);
-            offset += (part.bytes as Uint8Array).byteLength;
-          }
-          return bytes;
+      async readUpload(uploadId: string): Promise<Blob> {
+        return enqueue(async () => {
+          const upload = uploadOf(uploadId);
+          const received = upload.file.received;
+          const incomplete = received !== upload.size;
+          if (incomplete) throw new Error(`Staged bytes (${received}) do not match declared size (${upload.size}).`);
+          upload.file.seal();
+          const blob = await openAsBlob(upload.file.path, { type: upload.contentType });
+          finishedUploads.set(blob, upload);
+          return blob;
         });
       },
       async abortUpload(uploadId: string): Promise<void> {
         return enqueue(() => {
-          commit(() => {
-            deleteUploadStmt().run(uploadId);
-          });
+          const upload = uploads.get(uploadId);
+          uploads.delete(uploadId);
+          upload?.file.discard();
         });
       },
       async readRange(bucket = defaultBucket, path: string, offset: number, length: number, expectedGeneration?: string): Promise<Uint8Array | undefined> {
         await mutations;
-        const row = readRangeStmt.get(offset, length, bucket, path);
+        const row = readRangeStmt().get(bucket, path);
         if (row === undefined) return undefined;
         const meta = metadataOf(row);
         if (expectedGeneration !== undefined && meta.generation !== expectedGeneration) {
           throw new FirebaseError('storage/object-changed', 'The object changed while reading. Re-read metadata and retry.');
         }
-        const slice = row.slice;
-        if (!(slice instanceof Uint8Array)) throw new Error('Invalid ranged slice bytes.');
-        return Uint8Array.from(slice);
+        return objects.readRange(storedBytesOf(row), offset, length);
+      },
+      async objectFile(bucket, path) {
+        await mutations;
+        const row = objectFileStmt().get(bucket, path);
+        const missingObject = row === undefined;
+        if (missingObject) return undefined;
+        const stored = storedBytesOf(row);
+        return { file: objects.path(stored.sha256), size: stored.size, mime: sqlText(row, 'mime'), metadata: metadataOf(row) };
+      },
+      async appendUpload(uploadId, offset, bytes) {
+        return enqueue(() => {
+          const upload = uploadOf(uploadId);
+          const received = upload.file.received;
+          const misplaced = offset !== received;
+          if (misplaced) throw new UploadOffsetError(received);
+          const overflows = received + bytes.byteLength > upload.size;
+          if (overflows) throw new Error(`Upload '${uploadId}' would pass its declared size of ${upload.size} bytes.`);
+          upload.file.append(bytes);
+          return { received: upload.file.received, size: upload.size };
+        });
+      },
+      async uploadProgress(uploadId) {
+        await mutations;
+        const upload = uploads.get(uploadId);
+        const missingUpload = upload === undefined;
+        if (missingUpload) return undefined;
+        return { received: upload.file.received, size: upload.size };
+      },
+      async references(bucket = defaultBucket) {
+        await mutations;
+        return referencesStmt().all(bucket).map(row => ({ ...storedBytesOf(row), blobType: sqlText(row, 'mime'), metadata: metadataOf(row) }));
+      },
+      async putReference(path, reference, mime, value) {
+        await enqueue(() => {
+          const metadata = storedMetadataSchema.parse(value);
+          const mismatchedObject = metadata.fullPath !== path || metadata.size !== reference.size;
+          if (mismatchedObject) throw new Error('Storage metadata does not match its object.');
+          // Only a row is written; its file must already hold the bytes.
+          const held = objects.size(reference.sha256) === reference.size;
+          const missing = !held;
+          if (missing) throw new Error(`Storage object '${path}' names bytes this store does not hold.`);
+          commit(() => { put().run(metadata.bucket, path, JSON.stringify(metadata), mime, reference.sha256, reference.size); });
+        });
       },
       // The owning hosted database closes the shared connection after draining.
       close() {},

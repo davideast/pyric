@@ -4,18 +4,25 @@ Implementation target; validation evidence is tracked in the implementation plan
 
 ## Ownership and format
 
-The Node host owns `.pyric/state/hosted/state.sqlite`. The existing project lock
+The Node host owns `.pyric/state/hosted/`: `state.sqlite` and the object files
+under `objects/`. The existing project lock
 admits one writer. Clients mutate state through the host, never direct SQL.
 SharedWorker and the in-process MCP host keep their existing stores; no data
 transfer occurs automatically. Old JSON files are neither inspected nor removed.
 
 SQLite schema version is `PRAGMA user_version`; service payload versions are
-independent. Structured records retain existing portable value codecs. Storage
-objects use raw bytes plus metadata, keyed by bucket and object path. No Node
-object serialization is persisted. Newer/unknown versions fail closed. An
+independent. Structured records retain existing portable value codecs. A
+Storage object is a row of metadata keyed by bucket and object path, naming its
+bytes by SHA-256; the bytes are one immutable file, `objects/<ab>/<sha256>`, so
+identical objects share a file (ADR 0018). No Node object serialization is
+persisted. Newer/unknown versions fail closed. An
 older version is upgraded in place on the first writable open, and only after
 its contents validate, so a store that is refused is left unchanged. Read-only
 opens, the offline export and salvage, read an older version as it is.
+Upgrading version 1 or 2 writes every object's bytes to its file first, then
+replaces the table in one transaction and reclaims the database pages the bytes
+held; an interruption before that commit leaves the store as it was. Upgrading
+version 3 drops its table of staged upload parts.
 
 Hosted mode requires Node >=22.15 and is unavailable in the Bun standalone
 binary until a Bun adapter ships. SharedWorker remains supported.
@@ -23,7 +30,30 @@ binary until a Bun adapter ships. SharedWorker remains supported.
 ## Commit and failure
 
 One structured flush commits changed records and deletions in one transaction.
-One Storage operation commits bytes and metadata together. Separate Firebase
+One Storage operation writes its bytes to a temporary file, `fsync`s it, renames
+it to its hash, `fsync`s the directory, and only then commits the row that names
+it, so no committed row names bytes that are missing. An interruption leaves at
+most an unreferenced file. A deleted or replaced object's file stays on disk
+until the next start: once the store validates, a sweep runs in the background
+and removes object files that no row or checkpoint names and that were modified
+more than two seconds before it began, so it never races a write whose row has yet to commit.
+It never waits on the database and never delays a request; closing the host
+stops it between shard directories.
+
+The host keeps its checkpoints in SQLite: each one's state is JSON whose Storage
+entries name their bytes by hash, and `checkpoint_objects` lists those hashes,
+so taking a checkpoint copies no bytes, restoring one writes only rows, and the
+sweep keeps every file a checkpoint names until the checkpoint is removed.
+Upgrading to version 5 imports the checkpoints an earlier release kept as files
+in `.pyric/state/checkpoints/`, and leaves those files for an in-process sandbox,
+which still keeps its checkpoints there. Branches still carry their bytes inline.
+
+A chunked upload appends its parts, in order, to one file under
+`objects/.staging/` and hashes them as they arrive. Finishing it is the engine's
+upload of that file: the file is `fsync`ed and renamed to its hash, and no byte
+of it is read, so host memory does not grow with the object. An upload lives
+only as long as the host that began it; the next host discards what it left
+staged. Separate Firebase
 operations have no new cross-service transaction guarantee. A successful mutation
 acknowledgment follows its required persistence commit. A lost acknowledgment
 does not prove the operation was absent; do not promise exactly-once requests.
@@ -47,11 +77,14 @@ a transaction's previous or committed state, not partially written rows.
 
 Normal startup validates the database and application payloads before admitting
 clients. It refuses corrupt, malformed and unsupported data rather than silently
-dropping records. Full validation has a measured startup cost.
+dropping records. For each Storage row it checks that the file exists at the
+recorded size, without reading it. Full validation has a measured startup cost.
 
 `pyric sandbox salvage --source <hosted-directory> --out <new-directory>` is an
-offline, explicit recovery operation. It works on a copy, never changes the
-original, reports excluded records, and validates its output with normal startup
+offline, explicit recovery operation. It works on a copy of the database, reads
+object files in place, never changes the original, reports excluded records,
+copies an object file whose content does not hash to its name to `quarantine/`
+in the output and names it in the report, and validates its output with normal startup
 rules. It refuses existing output directories and unsupported formats. It never
 automatically activates a repaired database. The user must review the report;
 recovered data may be incomplete. It cannot promise recovery from arbitrary
@@ -62,12 +95,35 @@ databases checkpoint first; damaged ones remain archivable without checkpointing
 Never copy only the main file while a host is writing. Logical JSON exports use
 a consistent read transaction, without stopping the host.
 
-A logical export carries every Storage object inline as base64 in one JSON
-document, and V8 caps a string near 512 MiB, so an export holds at most about
-360 MiB of object bytes (`MAX_INLINE_EXPORT_STORAGE_BYTES`). Past that the
-export is refused by name, with a 413 from `GET /__pyric/state` and a message
-from `pyric snapshot`, before any object is read. The host keeps running and
-its data is unaffected. Host startup never reads object bytes.
+A logical export refers to each Storage object as `{ path, sha256, size,
+blobType, metadata }` and reads none of its bytes, so its size does not grow
+with the objects. `GET /__pyric/state/objects/<sha256>` serves the bytes of one
+object, to the same session as `GET /__pyric/state`. `pyric snapshot` writes a
+directory: `state.json` and `objects/<ab>/<sha256>`, each object checked against
+its hash as it is written. `pyric sandbox --seed` accepts that directory, or its
+`state.json`, and still accepts inline base64 entries; a referenced file that
+does not hash to its name refuses the seed before anything is written. A store
+an earlier release wrote, exported read-only before its first upgrade, still
+exports its bytes inline. Host startup never reads object bytes.
+
+## The byte route
+
+The Node host serves object bytes over HTTP at
+`/__pyric/storage/v0/b/<bucket>/o/<path>?alt=media` and advertises the
+`storage-byte-route` capability in `attach-ack`. A `GET` or `HEAD` answers with
+the object's content type and honours one `Range` (206 with `content-range`, or
+416 past the end), streaming from the object's file. It is authorized by the
+session token, in the `x-pyric-session-token` header or the `token` query
+parameter, or by a `token` listed in the object's `downloadTokens`. Only a page
+this server serves, or a process that sends no `Origin`, reaches it.
+
+`storage.beginUpload` returns an `uploadUrl` carrying a token bound to that one
+upload. A `PUT` to it appends at the offset the host holds, given as
+`Content-Range: bytes a-b/total`; `bytes */total` asks for that offset. The host
+answers `308` with `Range: bytes=0-<last>` until the upload is complete, `409`
+when the bytes start elsewhere, and `200` when every byte has arrived. The
+session token does not authorize a `PUT`. Finishing still commits over the RPC,
+through the engine's upload.
 
 ## Transport backlog and recovery
 

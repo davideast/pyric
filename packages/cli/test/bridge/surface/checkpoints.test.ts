@@ -47,15 +47,15 @@ describe('the project checkpoint operations', () => {
     const db = getAdminFirestore(sandbox);
     await setDoc(doc(db, 'rooms/lobby'), { open: true });
 
-    const first = await writeCheckpoint(sandbox, projectDir, 'first');
+    const first = await writeCheckpoint(sandbox, { projectDir }, 'first');
     expect(first.overwrote).toBe(false);
     expect(first.checkpoint.counts.firestore).toBe(1);
 
     await setDoc(doc(db, 'rooms/annex'), { open: false });
-    const before = await readCheckpoint(projectDir, 'first');
+    const before = await readCheckpoint({ projectDir }, 'first');
     expect(before).not.toBeNull();
 
-    const restored = await restoreCheckpoint(sandbox, projectDir, 'first');
+    const restored = await restoreCheckpoint(sandbox, { projectDir }, 'first');
     expect(restored).not.toBeNull();
     const annex = await getDoc(doc(getAdminFirestore(sandbox), 'rooms/annex'));
     expect(annex.exists()).toBe(false);
@@ -66,7 +66,7 @@ describe('the project checkpoint operations', () => {
   it('writes each checkpoint under the project state directory', async () => {
     const sandbox = initializeSandbox();
     const projectDir = tmpProjectDir();
-    await writeCheckpoint(sandbox, projectDir, 'nightly');
+    await writeCheckpoint(sandbox, { projectDir }, 'nightly');
     expect(existsSync(join(projectDir, '.pyric', 'state', 'checkpoints', 'nightly.json'))).toBe(
       true,
     );
@@ -75,9 +75,9 @@ describe('the project checkpoint operations', () => {
   it('replaces an existing checkpoint of the same name', async () => {
     const sandbox = initializeSandbox();
     const projectDir = tmpProjectDir();
-    const first = await writeCheckpoint(sandbox, projectDir, 'again');
+    const first = await writeCheckpoint(sandbox, { projectDir }, 'again');
     expect(first.overwrote).toBe(false);
-    const second = await writeCheckpoint(sandbox, projectDir, 'again');
+    const second = await writeCheckpoint(sandbox, { projectDir }, 'again');
     expect(second.overwrote).toBe(true);
   });
 
@@ -91,38 +91,38 @@ service cloud.firestore {
   }
 }`;
     setRules(sandbox, rules);
-    const { checkpoint } = await writeCheckpoint(sandbox, projectDir, 'ruled');
+    const { checkpoint } = await writeCheckpoint(sandbox, { projectDir }, 'ruled');
     expect(checkpoint.state.rules.firestore).toBe(rules);
   });
 
   it('lists every saved checkpoint by name, sorted, with its counts', async () => {
     const sandbox = initializeSandbox();
     const projectDir = tmpProjectDir();
-    expect(await checkpointNames(projectDir)).toEqual([]);
-    await writeCheckpoint(sandbox, projectDir, 'b');
-    await writeCheckpoint(sandbox, projectDir, 'a');
+    expect(await checkpointNames({ projectDir })).toEqual([]);
+    await writeCheckpoint(sandbox, { projectDir }, 'b');
+    await writeCheckpoint(sandbox, { projectDir }, 'a');
 
-    expect(await checkpointNames(projectDir)).toEqual(['a', 'b']);
-    const listed = await listProjectCheckpoints(projectDir);
+    expect(await checkpointNames({ projectDir })).toEqual(['a', 'b']);
+    const listed = await listProjectCheckpoints({ projectDir });
     expect(listed.map((entry) => entry.name)).toEqual(['a', 'b']);
     expect(typeof listed[0]!.at).toBe('number');
   });
 
   it('reads back null for a checkpoint that was never saved', async () => {
-    expect(await readCheckpoint(tmpProjectDir(), 'never-saved')).toBeNull();
+    expect(await readCheckpoint({ projectDir: tmpProjectDir() }, 'never-saved')).toBeNull();
   });
 
   it('reports nothing when restoring a checkpoint the project does not hold', async () => {
     const sandbox = initializeSandbox();
-    expect(await restoreCheckpoint(sandbox, tmpProjectDir(), 'absent')).toBeNull();
+    expect(await restoreCheckpoint(sandbox, { projectDir: tmpProjectDir() }, 'absent')).toBeNull();
   });
 
   it('removes one checkpoint and reports whether there was one', async () => {
     const sandbox = initializeSandbox();
     const projectDir = tmpProjectDir();
-    await writeCheckpoint(sandbox, projectDir, 'nightly');
-    expect(await removeCheckpoint(projectDir, 'nightly')).toBe(true);
-    expect(await checkpointNames(projectDir)).toEqual([]);
-    expect(await removeCheckpoint(projectDir, 'nightly')).toBe(false);
+    await writeCheckpoint(sandbox, { projectDir }, 'nightly');
+    expect(await removeCheckpoint({ projectDir }, 'nightly')).toBe(true);
+    expect(await checkpointNames({ projectDir })).toEqual([]);
+    expect(await removeCheckpoint({ projectDir }, 'nightly')).toBe(false);
   });
 });

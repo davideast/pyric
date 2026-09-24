@@ -1,12 +1,15 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep, isAbsolute } from 'node:path';
 import { tmpdir } from 'node:os';
 import { z } from 'zod';
 import { bundleRecords, serializeToBuckets } from 'pyric/sandbox';
 import { decodeImportBundle, validatePersistenceEncoding, storedMetadataSchema, validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from 'pyric/sandbox/internal';
 import { claimProjectState } from '../project-ownership.js';
+import { createBlobStore } from './blob-store.js';
 import { openHostedDatabase, READABLE_HOSTED_SCHEMA_VERSIONS } from './database.js';
 import { openNodeSqlite, sqlText } from './sqlite.js';
+import { storedObjects } from './stored-objects.js';
 import { repairedStorageMetadata, validateHostedDatabase, type StorageMetadataRepair } from './validate.js';
 
 export interface RecoveryReport {
@@ -15,7 +18,11 @@ export interface RecoveryReport {
   recoveredObjects: number;
   repairedObjects: StorageMetadataRepair[];
   excluded: Array<{ namespace: string; id: string; reason: string }>;
+  /** Object files whose content does not match their hash, copied to `file` in the output. */
+  quarantined: Array<{ bucket: string; path: string; sha256: string; file: string }>;
 }
+
+const QUARANTINE_REASON = 'Object bytes do not match their hash; the file was copied to quarantine';
 
 const metadataShape = z.object({ version: z.literal(3), services: z.record(z.unknown()) });
 const bucketShape = z.object({ docs: z.record(z.unknown()), encoding: z.string().optional(), checksum: z.number().optional() });
@@ -28,7 +35,22 @@ function contains(parent: string, child: string): boolean {
   return same || !outside;
 }
 
-/** Explicit partial recovery on a disposable copy; never writes to the source. */
+/** The object directory may nest directories, and nothing in it may be a link. */
+function assertRegularTree(directory: string): void {
+  for (const name of readdirSync(directory)) {
+    const entry = lstatSync(join(directory, name));
+    const nested = entry.isDirectory();
+    if (nested) { assertRegularTree(join(directory, name)); continue; }
+    const regular = entry.isFile();
+    const unsafeEntry = !regular;
+    if (unsafeEntry) throw new Error('Recovery source objects must be regular files, not symlinks.');
+  }
+}
+
+/**
+ * Explicit partial recovery on a disposable copy of the database; never writes
+ * to the source. Object files are read in place, since they are never modified.
+ */
 export async function salvageHostedState(sourceInput: string, outputInput: string): Promise<RecoveryReport> {
   const source = realpathSync(sourceInput);
   const output = resolve(realpathSync(dirname(outputInput)), basename(outputInput));
@@ -36,10 +58,14 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
   if (outputExists) throw new Error('Recovery output already exists; choose a new directory.');
   const overlaps = contains(source, output) || contains(output, source);
   if (overlaps) throw new Error('Recovery output must be separate from the source directory.');
+  const objectsDirectory = join(source, 'objects');
   for (const name of readdirSync(source)) {
-    const regular = lstatSync(join(source, name)).isFile();
+    const entry = lstatSync(join(source, name));
+    const holdsObjects = name === 'objects' && entry.isDirectory();
+    if (holdsObjects) { assertRegularTree(objectsDirectory); continue; }
+    const regular = entry.isFile();
     const unsafeEntry = !regular;
-    if (unsafeEntry) throw new Error('Recovery source must contain regular files, not symlinks or directories.');
+    if (unsafeEntry) throw new Error('Recovery source must contain regular files and an objects directory, not symlinks or other directories.');
   }
   // Standard active/archived directories hold the Node host's state files.
   const inProjectState = basename(dirname(source)) === 'state' && basename(dirname(dirname(source))) === '.pyric';
@@ -49,7 +75,7 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
   try {
     scratch = mkdtempSync(join(tmpdir(), 'pyric-salvage-'));
     const copy = join(scratch, 'source');
-    cpSync(source, copy, { recursive: true });
+    cpSync(source, copy, { recursive: true, filter: path => path !== objectsDirectory });
     const input = await openNodeSqlite(join(copy, 'state.sqlite'), true);
     try {
       const version = input.prepare('PRAGMA user_version').get()?.user_version;
@@ -57,7 +83,7 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
       if (unsupported) throw new Error(`Unsupported hosted database version ${String(version)}; recovery was not attempted.`);
       const corrupt = input.prepare('PRAGMA quick_check').all().some(row => row.quick_check !== 'ok');
       if (corrupt) throw new Error('Physical SQLite corruption prevents this recovery. The original directory is unchanged.');
-      const report: RecoveryReport = { recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, repairedObjects: [], excluded: [] };
+      const report: RecoveryReport = { recoveredDocuments: 0, recoveredServices: 0, recoveredObjects: 0, repairedObjects: [], excluded: [], quarantined: [] };
       const documents: Record<string, Record<string, unknown>> = {};
       const services: Record<string, unknown> = {};
       const duplicatePaths = new Set<string>();
@@ -131,25 +157,40 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
       outputCreated = true;
       const recovered = await openHostedDatabase(output);
       try {
-        const objects = input.prepare('SELECT bucket, path, metadata, mime, bytes FROM storage_objects ORDER BY bucket, path').all();
-        for (const row of objects) {
-          const id = `${sqlText(row, 'bucket')}/${sqlText(row, 'path')}`;
+        const sourceObjects = createBlobStore(objectsDirectory);
+        const objects = storedObjects(input, sourceObjects, Number(version));
+        for (const row of objects.rows()) {
+          const id = `${row.bucket}/${row.path}`;
           try {
-            const metadata = storedMetadataSchema.parse(JSON.parse(sqlText(row, 'metadata')));
-            const bytes = row.bytes;
-            const binary = bytes instanceof Uint8Array;
-            const invalidBytes = !binary;
-            if (invalidBytes) throw new Error('Invalid bytes');
+            const metadata = storedMetadataSchema.parse(JSON.parse(row.metadata));
             const mismatchedBucket = metadata.bucket !== row.bucket;
             if (mismatchedBucket) throw new Error('Invalid bucket');
-            const content = Uint8Array.from(bytes);
+            const sha256 = row.sha256;
+            const inFile = sha256 !== undefined;
+            let content: Uint8Array<ArrayBuffer>;
+            if (inFile) {
+              // A file is read whole whatever size its row records, and trusted
+              // only if it still hashes to its name.
+              const file = sourceObjects.path(sha256);
+              content = readFileSync(file) as Uint8Array<ArrayBuffer>;
+              const rotted = createHash('sha256').update(content).digest('hex') !== sha256;
+              if (rotted) {
+                mkdirSync(join(output, 'quarantine'), { recursive: true });
+                copyFileSync(file, join(output, 'quarantine', sha256));
+                report.quarantined.push({ bucket: row.bucket, path: row.path, sha256, file: `quarantine/${sha256}` });
+                report.excluded.push({ namespace: 'storage', id, reason: QUARANTINE_REASON });
+                continue;
+              }
+            } else {
+              content = objects.bytes(row);
+            }
             // The bytes are the object; a size they disagree with is repaired
             // rather than costing the object its place in the recovery.
             const wrongSize = metadata.size !== content.byteLength;
             const stored = wrongSize ? repairedStorageMetadata(metadata, content) : metadata;
-            await recovered.storage.put(sqlText(row, 'path'), new Blob([content], { type: sqlText(row, 'mime') }), stored);
+            await recovered.storage.put(row.path, new Blob([content], { type: row.mime }), stored);
             report.recoveredObjects++;
-            if (wrongSize) report.repairedObjects.push({ bucket: sqlText(row, 'bucket'), path: sqlText(row, 'path'), recordedSize: metadata.size, actualSize: content.byteLength });
+            if (wrongSize) report.repairedObjects.push({ bucket: row.bucket, path: row.path, recordedSize: metadata.size, actualSize: content.byteLength });
           } catch { report.excluded.push({ namespace: 'storage', id, reason: 'Object validation failed' }); }
         }
         const emptyRecovery = report.recoveredDocuments + report.recoveredServices + report.recoveredObjects === 0;

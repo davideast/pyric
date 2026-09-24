@@ -12,13 +12,13 @@ const records = serializeToBuckets({ 'notes/one': { value: 42 } }, {
 }, 0);
 await persistence.backend.putRecords('hosted', records);
 persistence.close();
-const output = join(project, 'export.json');
+const output = join(project, 'export');
 const messages: string[] = [];
 const result = await runSnapshot({ subcommand: 'snapshot', positional: [], flags: new Map([['out', output]]) }, {
   cwd: project, stdout: { write: value => { messages.push(value); } }, stderr: { write: value => { messages.push(value); } }, fetchLive: async () => null,
 });
 assert.equal(result, 0, messages.join('\n'));
-const exported = readFileSync(output, 'utf8');
+const exported = readFileSync(join(output, 'state.json'), 'utf8');
 assert.doesNotMatch(exported, /secret-password/);
 assert.match(exported, /__pyric_no_password__/);
 assert.match(exported, /notes\/one/);

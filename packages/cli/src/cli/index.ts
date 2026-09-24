@@ -7,7 +7,7 @@
  *   pyric sandbox [flags] [--] [command...]
  *   pyric init [dir] [--template web|node] [--name N] [--force] [--json]
  *   pyric vendor [dir] [--json]
- *   pyric snapshot [--out FILE] [--port N] [--force] [--json] [--include-passwords]
+ *   pyric snapshot [--out DIR] [--port N] [--force] [--json] [--include-passwords]
  *   pyric mcp
  *   pyric firestore rules validate <path>
  *   pyric firestore rules resolve <path> [--out <path>]
@@ -59,7 +59,7 @@ USAGE
   pyric sandbox [flags] [--] [command...]
   pyric init [dir] [--template=web|node]
   pyric sandbox salvage --source=DIR --out=NEW_DIR
-  pyric snapshot [--out=FILE]
+  pyric snapshot [--out=DIR]
   pyric verify [fixture|dir] [--engine sandbox|rules-test-api|both]
   pyric can-i-use <feature> [--json]
   pyric verify cases [fixture] [--service firestore] [--out FILE]
@@ -96,9 +96,9 @@ COMMANDS
                              Antigravity). Hosts an in-process in-process sandbox,
                              or attaches to a running \`pyric sandbox --bridge\`
                              (found via .pyric/serve.json) for shared-live Studio.
-  snapshot [--out=FILE]      Promote lived sandbox state (live sandbox --persist, else
-                             .pyric/state/state.json) to a committable fixture that
-                             \`pyric sandbox --seed FILE\` re-serves. Passwords are redacted
+  snapshot [--out=DIR]       Promote lived sandbox state (live sandbox --persist, else
+                             hosted or .pyric/state/state.json) to a committable directory,
+                             state.json plus objects/, that \`pyric sandbox --seed DIR\` re-serves. Passwords are redacted
                              by default (--include-passwords keeps them). --port, --force, --json.
   verify [fixture|dir]       Replay a captured sandbox session against candidate rules
                              for the Firestore/RTDB services present in the fixture.

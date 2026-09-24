@@ -1,7 +1,8 @@
 import type { sandbox as authSandbox } from 'pyric/auth';
+import { join } from 'node:path';
 import { z } from 'zod';
 import { seedUserSchema, storedMetadataSchema } from 'pyric/sandbox/internal';
-import type { StorageStateRecord } from 'pyric/storage/internal';
+import type { StoredMetadata, StorageStateRecord } from 'pyric/storage/internal';
 
 export type ExportedUsers = ReturnType<typeof authSandbox.exportUsers>;
 export const STATE_FILE_VERSION = 1 as const;
@@ -15,7 +16,32 @@ export interface PyricStateFile {
   firestore: unknown;
   auth: { users: ExportedUsers } | null;
   /** Hosted Storage has asynchronous snapshots, separate from controller records. */
-  storage?: StorageStateRecord[];
+  storage?: StorageStateEntry[];
+}
+
+/**
+ * A Storage object in a state document whose bytes are the file
+ * `objects/<ab>/<sha256>` beside the document, not a string inside it.
+ */
+export interface StorageObjectReference {
+  /** The object's path in its bucket. */
+  path: string;
+  sha256: string;
+  size: number;
+  blobType: string;
+  metadata: StoredMetadata;
+}
+
+/** A Storage entry as a document carries it: bytes inline, or a reference to a file. */
+export type StorageStateEntry = StorageStateRecord | StorageObjectReference;
+
+export function isStorageReference(entry: StorageStateEntry): entry is StorageObjectReference {
+  return 'sha256' in entry;
+}
+
+/** Where a document in `directory` keeps the bytes of the object with this hash. */
+export function objectFileIn(directory: string, sha256: string): string {
+  return join(directory, 'objects', sha256.slice(0, 2), sha256);
 }
 
 export class StateFileError extends Error {
@@ -30,11 +56,20 @@ const stateFileSchema = z.object({
   firestore: z.unknown().default(null),
   auth: z.object({ users: z.array(seedUserSchema) })
     .passthrough().nullable().default(null),
-  storage: z.array(z.object({
-    dataBase64: z.string(),
-    blobType: z.string(),
-    metadata: storedMetadataSchema,
-  })).optional(),
+  storage: z.array(z.union([
+    z.object({
+      dataBase64: z.string(),
+      blobType: z.string(),
+      metadata: storedMetadataSchema,
+    }),
+    z.object({
+      path: z.string(),
+      sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      size: z.number().int().nonnegative(),
+      blobType: z.string(),
+      metadata: storedMetadataSchema,
+    }).refine(entry => entry.path === entry.metadata.fullPath && entry.size === entry.metadata.size),
+  ])).optional(),
 }).passthrough();
 
 function diagnosticVersion(value: unknown): string {

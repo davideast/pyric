@@ -24,6 +24,7 @@ import {
   replaceStorageRules,
 } from '../../storage/internal.js';
 import {
+  holdsBytesInline,
   installsStorageRules,
   type FullSandboxState,
   type SandboxService,
@@ -123,6 +124,9 @@ async function promoteStorage(
       await deleteObject(ref(storage, path));
       continue;
     }
+    // A branch is captured with its bytes inline; a reference names bytes only its own store holds.
+    const inline = holdsBytesInline(object);
+    if (!inline) throw new Error(`Storage object '${path}' in a branch carries no bytes to promote.`);
     await uploadBytes(ref(storage, path), base64ToBytes(object.contentBase64), settableOf(object));
   }
 }

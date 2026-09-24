@@ -27,7 +27,7 @@ export async function saveCheckpoint(
   sandbox: LocalSandbox,
 ): Promise<SavedCheckpoint> {
   const overwrote = (await backend.read(name)) !== null;
-  const checkpoint = await captureCheckpoint(sandbox);
+  const checkpoint = await captureCheckpoint(sandbox, { storage: backend.storage ?? 'inline' });
   await backend.write(name, checkpoint);
   return { name, overwrote, checkpoint };
 }

@@ -4,9 +4,9 @@ import { createThresholdConfigStore } from './threshold-config-store.js';
 import { createFlowTreatmentHost } from './flow-treatment-host.js';
 import { createIndexConfigStore } from './index-config-store.js';
 import type { FlowConfig } from './flow-config.js';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { defaultAvatarSvg } from 'pyric/auth/internal';
@@ -32,6 +32,7 @@ import {
 } from './state-store.js';
 import { restoredStateCounts, stateForSummary } from './state-summary.js';
 import { parseStateFile } from './state-file.js';
+import { inlineStorage } from './state-objects.js';
 import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
 
 export interface SandboxSessionOptions {
@@ -225,7 +226,11 @@ export async function createSandboxSession(
     const seedFile = options.seedFile;
     const hasSeedFile = !!seedFile;
     if (hasSeedFile) {
-      const seedPath = resolve(options.projectDir, seedFile);
+      // A snapshot directory holds its document as state.json, with objects/ beside it.
+      const seedTarget = resolve(options.projectDir, seedFile);
+      const seedsDirectory = existsSync(seedTarget) && statSync(seedTarget).isDirectory();
+      const seedPath = seedsDirectory ? join(seedTarget, 'state.json') : seedTarget;
+      const objectsFrom = dirname(seedPath);
       let parsed: unknown;
       try {
         parsed = JSON.parse(readFileSync(seedPath, 'utf8')) as unknown;
@@ -253,14 +258,16 @@ export async function createSandboxSession(
         if (initializesStateStore) {
           const seedOwner = hostedPersistence;
           const hasHostedPersistence = seedOwner !== undefined;
-          if (hasHostedPersistence) await seedOwner.seed(fixture);
+          if (hasHostedPersistence) await seedOwner.seed(fixture, objectsFrom);
           else {
+            // Checked before any section is written, so a bad reference writes nothing.
+            const storage = fixture.storage === undefined ? undefined : inlineStorage(fixture.storage, objectsFrom);
             const hasFirestoreState = fixture.firestore != null;
             if (hasFirestoreState) await state.writeSection('firestore', fixture.firestore);
             const hasAuthState = fixture.auth != null;
             if (hasAuthState) await state.writeSection('auth', fixture.auth);
-            const hasStorageState = fixture.storage !== undefined;
-            if (hasStorageState) await state.writeSection('storage', fixture.storage);
+            const hasStorageState = storage !== undefined;
+            if (hasStorageState) await state.writeSection('storage', storage);
           }
           seedApplied = true;
           persisted = stateForSummary(state, { hosted: options.hosted === true });

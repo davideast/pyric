@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-async function runNodeFixture(name: string): Promise<string> {
+async function runNodeFixture(name: string, timeoutMs = 15_000): Promise<string> {
   const directory = mkdtempSync(join(tmpdir(), 'pyric-node-sqlite-test-'));
   try {
     symlinkSync(new URL('../../../../node_modules', import.meta.url).pathname, join(directory, 'node_modules'), 'dir');
@@ -22,7 +22,7 @@ async function runNodeFixture(name: string): Promise<string> {
     });
     expect(build.success).toBe(true);
     const result = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [join(directory, 'scenario.mjs'), directory], {
-      encoding: 'utf8', timeout: 15_000,
+      encoding: 'utf8', timeout: timeoutMs,
     });
     const failed = result.status !== 0;
     if (failed) throw new Error(`Node fixture failed (${result.status}): ${result.stderr}`);
@@ -48,13 +48,40 @@ test('unsupported database versions refuse startup without replacing data', asyn
   expect(await runNodeFixture('version')).toBe('Version refusal passed');
 });
 
-test('a database written by the previous release opens, upgrades in place, and keeps its data', async () => {
-  expect(await runNodeFixture('schema-upgrade')).toBe('Schema upgrade passed');
-});
+test('a database written by every earlier release opens, moves its bytes to files, and keeps its data', async () => {
+  expect(await runNodeFixture('schema-upgrade', 60_000)).toBe('Schema upgrade passed');
+}, 90_000);
 
-test('a Storage export past the inline limit is refused by name before any object is read', async () => {
-  expect(await runNodeFixture('export-ceiling')).toBe('Export ceiling passed');
-});
+test('Storage bytes live in files named by their hash, written before their row commits', async () => {
+  expect(await runNodeFixture('blob-store', 60_000)).toBe('Blob store passed');
+}, 90_000);
+
+test('a background sweep removes object files no row names, and salvage quarantines files that fail their hash', async () => {
+  expect(await runNodeFixture('object-sweep', 60_000)).toBe('Object sweep passed');
+}, 90_000);
+
+test('a hosted checkpoint records its objects by hash in SQLite, and the sweep keeps what it names', async () => {
+  expect(await runNodeFixture('checkpoints', 60_000)).toBe('Checkpoints passed');
+}, 90_000);
+
+// Serves a 300 MiB object and receives a 256 MiB upload.
+test('the byte route serves object ranges to either token and takes an upload with its own token', async () => {
+  expect(await runNodeFixture('byte-route', 90_000)).toBe('Byte route passed');
+}, 120_000);
+
+test('the hosted host serves its objects on the byte route and advertises it at attach', async () => {
+  expect(await runNodeFixture('byte-route-mount', 30_000)).toBe('Byte route mount passed');
+}, 60_000);
+
+// Stages and finishes a 256 MiB upload.
+test('a chunked upload stages in one file, finishes by moving it, and keeps host memory flat', async () => {
+  expect(await runNodeFixture('upload-staging', 90_000)).toBe('Upload staging passed');
+}, 120_000);
+
+// Exports 400 MiB of sparse object files by reference.
+test('a state export refers to Storage bytes by hash, and snapshots and seeds carry them as files', async () => {
+  expect(await runNodeFixture('state-references', 90_000)).toBe('State references passed');
+}, 120_000);
 
 test('the Node host recovers acknowledged writes without modifying existing JSON', async () => {
   expect(await runNodeFixture('runtime')).toBe('Hosted restart passed');
