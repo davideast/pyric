@@ -99,8 +99,8 @@ describe('withPyric Next.js configuration wrapper', () => {
     const clientConfig: any = {};
     const clientResult = res.webpack(clientConfig, { isServer: false });
     expect(clientResult.customProperty).toBe('client-build');
-    expect(clientResult.resolve.alias['firebase/app']).toContain('/entries/app.');
-    expect(clientResult.resolve.alias['firebase/firestore']).toContain('/entries/firestore.');
+    expect(clientResult.resolve.alias['firebase/app']).toBe('@pyric/cli/next/sdk/app');
+    expect(clientResult.resolve.alias['firebase/firestore']).toBe('@pyric/cli/next/sdk/firestore');
     expect(clientResult.resolve.fallback.fs).toBe(false);
     expect(clientResult.resolve.fallback.path).toBe(false);
     expect(clientResult.experiments.topLevelAwait).toBe(true);
@@ -115,11 +115,11 @@ describe('withPyric Next.js configuration wrapper', () => {
     }) as Record<string, any>;
 
     expect(res.turbopack.resolveAlias.modern).toBe('alias');
-    expect(res.turbopack.resolveAlias['firebase/app']).toContain('/entries/app.');
+    expect(res.turbopack.resolveAlias['firebase/app']).toBe('@pyric/cli/next/sdk/app');
     expect(res.turbo.resolveAlias.existing).toBe('alias');
-    expect(res.turbo.resolveAlias['firebase/app']).toContain('/entries/app.');
+    expect(res.turbo.resolveAlias['firebase/app']).toBe('@pyric/cli/next/sdk/app');
     expect(res.experimental.turbo.resolveAlias.legacy).toBe('alias');
-    expect(res.experimental.turbo.resolveAlias['firebase/firestore']).toContain('/entries/firestore.');
+    expect(res.experimental.turbo.resolveAlias['firebase/firestore']).toBe('@pyric/cli/next/sdk/firestore');
   });
 
   it('configures dev-time rewrites to proxy /__pyric/:path* to sandbox target url', async () => {
