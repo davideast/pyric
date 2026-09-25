@@ -99,8 +99,12 @@ describe('withPyric Next.js configuration wrapper', () => {
     const clientConfig: any = {};
     const clientResult = res.webpack(clientConfig, { isServer: false });
     expect(clientResult.customProperty).toBe('client-build');
-    expect(clientResult.resolve.alias['firebase/app']).toBe('@pyric/cli/next/sdk/app');
-    expect(clientResult.resolve.alias['firebase/firestore']).toBe('@pyric/cli/next/sdk/firestore');
+    expect(clientResult.resolve.alias['firebase/app$']).toBe('@pyric/cli/next/sdk/app');
+    expect(clientResult.resolve.alias['firebase/firestore$']).toBe('@pyric/cli/next/sdk/firestore');
+    // Webpack matches an alias key as a prefix unless it ends in `$`, so a
+    // plain `firebase/firestore` key would also capture `firebase/firestore/lite`.
+    expect(clientResult.resolve.alias['firebase/firestore/lite$']).toBe('@pyric/cli/next/sdk/firestore-lite');
+    expect(Object.keys(clientResult.resolve.alias).filter((key) => key.startsWith('firebase/') && !key.endsWith('$'))).toEqual([]);
     expect(clientResult.resolve.fallback.fs).toBe(false);
     expect(clientResult.resolve.fallback.path).toBe(false);
     expect(clientResult.experiments.topLevelAwait).toBe(true);
