@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useDialogKeyboard } from './hooks/useDialogKeyboard.js';
 
 export interface ConfirmDialogProps {
   /** Controlled open state. */
@@ -35,6 +36,7 @@ export interface ConfirmDialogProps {
  *   - Escape-to-close
  *   - Overlay click to close
  *   - ARIA `role="dialog" aria-modal="true"` wiring
+ *   - Tab and Shift+Tab kept inside the dialog, as `Modal` keeps them
  *   - Focus restoration to the previously-focused element on close
  *   - Initial focus on the confirm button when opening
  *
@@ -52,21 +54,12 @@ export function ConfirmDialog({
   onConfirm,
   className,
 }: ConfirmDialogProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const previouslyFocused = useRef<Element | null>(null);
 
-  // Escape-to-close.
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onOpenChange(false);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [open, onOpenChange]);
+  // Escape-to-close; Tab and Shift+Tab stay inside the dialog.
+  useDialogKeyboard(dialogRef, open, () => onOpenChange(false));
 
   // Focus management: capture the previously-focused element on
   // open, restore it on close. Initial focus goes to the confirm
@@ -96,6 +89,7 @@ export function ConfirmDialog({
     >
       <div data-pyric-ui="confirm-overlay" aria-hidden="true" />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="pyric-confirm-title"

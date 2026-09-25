@@ -76,4 +76,49 @@ describe('<SegmentedControl>', () => {
     fireEvent.click(allowBtn);
     expect(picked).toBe('allow');
   });
+
+  it('keeps one segment in the tab order: the active one', () => {
+    const { container } = render(
+      <SegmentedControl options={OPTIONS} value="deny" onChange={() => {}} />,
+    );
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('[data-pyric-segment]'));
+    expect(buttons.map((button) => button.tabIndex)).toEqual([-1, 0, -1]);
+  });
+
+  it('keeps the first segment in the tab order when the value matches no option', () => {
+    const { container } = render(
+      <SegmentedControl options={OPTIONS} value={'none' as 'all'} onChange={() => {}} />,
+    );
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('[data-pyric-segment]'));
+    expect(buttons.map((button) => button.tabIndex)).toEqual([0, -1, -1]);
+  });
+
+  it('moves the selection and focus with arrow keys, Home and End, wrapping at the ends', () => {
+    const picked: string[] = [];
+    const { container } = render(
+      <SegmentedControl options={OPTIONS} value="all" onChange={(value) => picked.push(value)} />,
+    );
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('[data-pyric-segment]'));
+
+    fireEvent.keyDown(buttons[0]!, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(buttons[1]!);
+    fireEvent.keyDown(buttons[0]!, { key: 'ArrowDown' });
+    fireEvent.keyDown(buttons[0]!, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(buttons[2]!);
+    fireEvent.keyDown(buttons[1]!, { key: 'ArrowUp' });
+    fireEvent.keyDown(buttons[1]!, { key: 'End' });
+    fireEvent.keyDown(buttons[2]!, { key: 'Home' });
+    expect(document.activeElement).toBe(buttons[0]!);
+    expect(picked).toEqual(['deny', 'deny', 'allow', 'all', 'allow', 'all']);
+  });
+
+  it('leaves other keys alone', () => {
+    const picked: string[] = [];
+    const { container } = render(
+      <SegmentedControl options={OPTIONS} value="all" onChange={(value) => picked.push(value)} />,
+    );
+    const first = container.querySelector<HTMLButtonElement>('[data-pyric-segment]')!;
+    fireEvent.keyDown(first, { key: 'a' });
+    expect(picked).toEqual([]);
+  });
 });
