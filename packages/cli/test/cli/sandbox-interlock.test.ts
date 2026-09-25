@@ -24,23 +24,23 @@ const REGISTER_URL = 'file:///usr/local/pyric/dist/register/index.js';
 describe('describeInterlock', () => {
   it('reads the guard mode, the register import and the beacon off the child env', () => {
     const env = buildChildEnv(
-      { PYRIC_GUARD: 'block' } as NodeJS.ProcessEnv,
+      { PYRIC_GUARD: 'warn' } as NodeJS.ProcessEnv,
       { serveUrl: 'http://localhost:3473', registerUrl: REGISTER_URL, beaconToken: 't' },
     );
     expect(describeInterlock(env, REGISTER_URL)).toEqual({
-      guard: 'block',
+      guard: 'warn',
       registerImported: true,
       beacon: 'http://localhost:3473/__pyric/beacon',
     });
   });
 
-  it('defaults the guard to warn and survives a user NODE_OPTIONS prefix', () => {
+  it('defaults the guard to block and survives a user NODE_OPTIONS prefix', () => {
     const env = buildChildEnv(
       { NODE_OPTIONS: '--max-old-space-size=4096' } as NodeJS.ProcessEnv,
       { serveUrl: 'http://localhost:3473', registerUrl: REGISTER_URL, beaconToken: 't' },
     );
     const status = describeInterlock(env, REGISTER_URL);
-    expect(status.guard).toBe('warn');
+    expect(status.guard).toBe('block');
     expect(status.registerImported).toBe(true);
   });
 

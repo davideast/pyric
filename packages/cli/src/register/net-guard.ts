@@ -33,13 +33,20 @@
  *        v7 Agent and that cross-version handoff only survives untouched. We
  *        read `opts.origin` and nothing else.
  *
- * 2. `net.connect` / `net.createConnection` / `tls.connect`, plus the
- *    `createConnection` on the `http.Agent` and `https.Agent` prototypes: the
- *    backstop for traffic that never goes through undici, such as
- *    `http.request`, gRPC, database drivers, anything holding a raw socket.
- *    Same catalog, same policy. (undici itself connects through `net.connect`,
- *    so a warn-mode fetch would report twice; the once-per-host dedupe below
- *    collapses that.)
+ * 2. `net.connect` / `net.createConnection` / `tls.connect`, the
+ *    `createConnection` on the `http.Agent` and `https.Agent` prototypes, and
+ *    `net.Socket.prototype.connect`: the backstop for traffic that never goes
+ *    through undici, such as `http.request`, gRPC, database drivers, anything
+ *    holding a raw socket. Same catalog, same policy. (undici itself connects
+ *    through `net.connect`, so a warn-mode fetch would report twice; the
+ *    once-per-host dedupe below collapses that.)
+ *
+ *    `Socket.prototype.connect` is the seam every client connection reaches:
+ *    `net.connect` and `net.createConnection` build a socket and call it with
+ *    their arguments normalized into one `[options, callback]` array, and
+ *    `tls.connect` calls it on the `TLSSocket` it builds. Patching the module
+ *    functions alone leaves two routes open: a reference to `net.connect` a
+ *    library took before this module ran, and `new net.Socket().connect(...)`.
  *
  *    The Agent prototypes need their own patch because
  *    `http.Agent.prototype.createConnection` is a copied reference to
@@ -52,18 +59,23 @@
  *
  * Policy
  * ------
- * One knob, `PYRIC_GUARD=warn|block|off`, default `warn`:
- *   warn   report the egress, let it through
- *   block  report it and fail the request
+ * One knob, `PYRIC_GUARD=block|warn|off`, default `block`:
+ *   block  report the egress and fail the request
+ *   warn   report it, let it through
  *   off    no hooks at all, one notice line at install time
- * The GCE metadata IP (`169.254.169.254`, `alwaysBlock` in the catalog) is
- * refused in warn mode and cannot be allowlisted, since its only use from a
- * dev process is credential theft. `off` is genuinely off, metadata IP
- * included; the off notice says so out loud.
+ * Unset, empty and unrecognized values all mean `block`: a process that
+ * reaches live production while its developer believes it is sandboxed is the
+ * failure this module exists to prevent, so only an explicit `warn` or `off`
+ * lets that traffic through. The GCE metadata IP (`169.254.169.254`,
+ * `alwaysBlock` in the catalog) is refused in warn mode too and cannot be
+ * allowlisted, since its only use from a dev process is credential theft.
+ * `off` is genuinely off, metadata IP included; the off notice says so out
+ * loud.
  *
  * A blocked fetch surfaces to app code as a bare `TypeError: fetch failed`
  * (the reason is buried on `error.cause`), so the guard must log its own
- * denial: the app's error will never explain itself.
+ * denial, naming the two ways to let the host through: the app's error will
+ * never explain itself.
  *
  * The allowlist seam
  * ------------------
@@ -79,10 +91,13 @@
  *     synchronous config-file read has no business being.
  * `cli/sandbox-runner.ts:buildChildEnv` spreads the parent env into the child,
  * so anything the pyric process exports reaches every descendant for free
- * (`NODE_OPTIONS` already propagates the register import the same way). To
- * wire a `pyric.json` `guardAllow` through, the whole change is: add the field
- * to `PyricConfig`, and have `buildChildEnv` set `PYRIC_GUARD_ALLOW` from it
- * at the `cli/serve.ts` call site, where `pyricConfig` is already in scope.
+ * (`NODE_OPTIONS` already propagates the register import the same way).
+ * `pyric sandbox` uses that seam for the AI upstream it resolves
+ * (`serve/ai-proxy.ts:aiUpstreamGuardAllowance`): `buildChildEnv` appends it to
+ * the child's `PYRIC_GUARD_ALLOW`, so a Vertex AI upstream keeps working under
+ * `block`. A `pyric.json` `guardAllow` would take the same route: add the field
+ * to `PyricConfig` and pass it to `buildChildEnv` at the `cli/serve.ts` call
+ * site, where `pyricConfig` is already in scope.
  *
  * Bun and Deno are out of scope: neither evaluates Node loader hooks (the
  * register module never loads there) and neither routes `fetch` through
@@ -96,6 +111,7 @@ import {
   normalizeHostname,
   type GoogleEndpoint,
 } from '../google-endpoints.js';
+import { nodeAgentPrototypes, nodeSocketPrototypes } from './connect-prototypes.js';
 
 /** undici's global-dispatcher slot. Version-suffixed by undici itself. */
 const UNDICI_GLOBAL_DISPATCHER = Symbol.for('undici.globalDispatcher.1');
@@ -131,13 +147,13 @@ export interface EgressVerdict {
   readonly alwaysBlock?: true;
 }
 
-/** `PYRIC_GUARD` → mode. Unset, empty or unrecognised all mean the safe
- *  default: report, do not break the developer's app. */
+/** `PYRIC_GUARD` → mode. Unset, empty or unrecognised all mean `block`;
+ *  `warn` and `off` take effect only when named. */
 export function parseGuardMode(raw: string | undefined): GuardMode {
   const value = (raw ?? '').trim().toLowerCase();
-  if (value === 'block') return 'block';
+  if (value === 'warn') return 'warn';
   if (value === 'off') return 'off';
-  return 'warn';
+  return 'block';
 }
 
 /** `PYRIC_GUARD_ALLOW` → hostnames. Accepts bare hosts and full URLs, because
@@ -244,14 +260,16 @@ export function formatGuardLine(
   if (verdict.verdict === 'warn') {
     return (
       `${head} LIVE production egress. A sandboxed app routes Firebase traffic to /__pyric/*, ` +
-      `so this is reaching real data. Set PYRIC_GUARD=block to fail these requests instead. ${tail}\n`
+      `so this is reaching real data. Unset PYRIC_GUARD to fail these requests instead. ${tail}\n`
     );
   }
   let why: string;
+  let remedy = '';
   if (verdict.alwaysBlock === true) {
     why = 'the credential metadata server is refused in every mode except PYRIC_GUARD=off';
   } else {
-    why = 'live production egress refused (PYRIC_GUARD=block)';
+    why = 'live production egress refused';
+    remedy = ` To reach it deliberately, ${guardRemedy(verdict)}.`;
   }
   // What the app actually observes differs by seam: undici swallows our throw
   // into the opaque `TypeError: fetch failed`, while a raw socket caller gets
@@ -262,15 +280,29 @@ export function formatGuardLine(
   } else {
     surfaces = `the caller sees an error with code ${GUARD_BLOCKED_CODE}`;
   }
-  return `${head} ${why}; ${surfaces}. ${tail}\n`;
+  return `${head} ${why}; ${surfaces}.${remedy} ${tail}\n`;
+}
+
+/** The two ways to let a refused catalog host through, for the log line and
+ *  the error alike. The metadata server has neither. */
+function guardRemedy(verdict: EgressVerdict): string {
+  return (
+    `set PYRIC_GUARD_ALLOW=${verdict.host} to permit this host, ` +
+    `or PYRIC_GUARD=warn to report live egress without refusing it`
+  );
 }
 
 function blockedError(verdict: EgressVerdict, transport: 'fetch' | 'socket'): Error {
+  let remedy: string;
+  if (verdict.alwaysBlock === true) {
+    remedy = 'The credential metadata server is refused in every mode except PYRIC_GUARD=off.';
+  } else {
+    remedy = `To reach it deliberately, ${guardRemedy(verdict)}.`;
+  }
   return Object.assign(
     new Error(
       `pyric net-guard blocked ${transport} egress to ${verdict.host} (${verdict.service}): ` +
-        `this is LIVE production, not the pyric sandbox. ` +
-        `Set PYRIC_GUARD=warn to allow it, or PYRIC_GUARD_ALLOW to permit this host.`,
+        `this is LIVE production, not the pyric sandbox. ${remedy}`,
     ),
     { code: GUARD_BLOCKED_CODE, host: verdict.host, service: verdict.service },
   );
@@ -378,6 +410,10 @@ type ConnectFn = (...args: unknown[]) => unknown;
  *  prototype in production, a stand-in under test. */
 type AgentPrototype = { createConnection?: unknown };
 
+/** A `connect`-bearing object: `net.Socket.prototype` in production, a
+ *  stand-in under test. */
+type SocketPrototype = { connect?: unknown };
+
 export interface NetGuardHooks {
   /** Object carrying the undici dispatcher symbol. Defaults to `globalThis`. */
   scope?: Record<symbol, unknown>;
@@ -389,16 +425,41 @@ export interface NetGuardHooks {
   /** Prototypes whose `createConnection` is patched. Defaults to the
    *  `http.Agent` and `https.Agent` prototypes. */
   agentPrototypes?: readonly AgentPrototype[];
+  /** Prototypes whose `connect` is patched. Defaults to the `net.Socket`
+   *  prototype. */
+  socketPrototypes?: readonly SocketPrototype[];
 }
 
 export interface NetGuard {
   readonly mode: GuardMode;
   readonly allow: readonly string[];
+  /** Permit one more host, given bare or as a URL, for the rest of this
+   *  process. A launcher that learns a destination after install, such as the
+   *  Vite plugin's configured AI upstream, names it here. */
+  permit(hostOrUrl: string): void;
   /** Re-wrap the global dispatcher if something replaced it (a future Next
    *  calling `setGlobalDispatcher` would otherwise silently unhook us). */
   reassert(): void;
   /** Stop the periodic re-assert. Used by the CLI's own tests. */
   stop(): void;
+}
+
+/**
+ * Where the register publishes the installed guard. A symbol on `globalThis`
+ * rather than a module variable, because the Vite plugin can load its own copy
+ * of this module from the app's `node_modules` while the register loaded
+ * another from the CLI that launched the process.
+ */
+export const NET_GUARD_GLOBAL = Symbol.for('pyric.netGuard');
+
+/**
+ * Permit `hostOrUrl` on the guard installed in this process, if there is one.
+ * A process with no guard (no `PYRIC_SANDBOX`, or `PYRIC_GUARD=off`) has
+ * nothing to permit.
+ */
+export function permitGuardHost(hostOrUrl: string): void {
+  const guard = (globalThis as unknown as Record<symbol, Pick<NetGuard, 'permit'> | undefined>)[NET_GUARD_GLOBAL];
+  guard?.permit(hostOrUrl);
 }
 
 /** `basename(argv[1])`, the cheapest honest attribution available. */
@@ -423,30 +484,6 @@ function materializeGlobalDispatcher(): void {
     // No WHATWG Headers, or a runtime that never had undici. The socket
     // backstop still applies.
   }
-}
-
-/**
- * The `http.Agent` and `https.Agent` prototypes, or an empty list on a runtime
- * without them. Each carries its own `createConnection`: `http`'s is a copied
- * reference to `net.createConnection` snapshotted at `_http_agent` load time,
- * so patching `net` alone leaves it unguarded whenever `node:http` loaded
- * first.
- */
-function nodeAgentPrototypes(): AgentPrototype[] {
-  const require = createRequire(import.meta.url);
-  const prototypes: AgentPrototype[] = [];
-  for (const id of ['node:http', 'node:https']) {
-    try {
-      const mod = require(id) as { Agent?: { prototype?: unknown } };
-      const prototype = mod.Agent?.prototype;
-      if (typeof prototype === 'object' && prototype !== null) {
-        prototypes.push(prototype as AgentPrototype);
-      }
-    } catch {
-      // Runtime without that module: the other seams still apply.
-    }
-  }
-  return prototypes;
 }
 
 /**
@@ -508,6 +545,13 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   for (const prototype of hooks.agentPrototypes ?? nodeAgentPrototypes()) {
     guardConnect(prototype as { [k: string]: unknown }, 'createConnection');
   }
+  // And the Socket prototype, which every client connection reaches, so a
+  // captured `net.connect` or a hand-built socket is checked too. A call
+  // through the patched `net.connect` is checked twice; the dedupe keeps that
+  // to one line.
+  for (const prototype of hooks.socketPrototypes ?? nodeSocketPrototypes()) {
+    guardConnect(prototype as { [k: string]: unknown }, 'connect');
+  }
 
   let installed: unknown;
   const wrapGlobalDispatcher = (): void => {
@@ -534,6 +578,11 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   return {
     mode,
     allow,
+    permit(hostOrUrl: string): void {
+      for (const host of parseAllowHosts(hostOrUrl)) {
+        if (!allow.includes(host)) allow.push(host);
+      }
+    },
     reassert: wrapGlobalDispatcher,
     stop(): void {
       if (timer !== undefined) clearInterval(timer);
@@ -542,13 +591,16 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
 }
 
 /**
- * Extract the destination host from `net.connect` / `tls.connect` arguments,
- * across all of their overloads: `(options[, cb])`, `(port[, host][, cb])`,
- * `(path[, cb])`. An IPC path or a portless local socket has no host, which is
- * exactly the "nothing to say" answer.
+ * Extract the destination host from `net.connect` / `tls.connect` /
+ * `Socket.prototype.connect` arguments, across all of their overloads:
+ * `(options[, cb])`, `(port[, host][, cb])`, `(path[, cb])`, and the
+ * `[options, cb]` array `net.connect` hands the socket once it has normalized
+ * its own arguments. An IPC path or a portless local socket has no host, which
+ * is exactly the "nothing to say" answer.
  */
 function connectHost(args: readonly unknown[]): string | undefined {
   const first = args[0];
+  if (Array.isArray(first)) return connectHost(first);
   if (typeof first === 'object' && first !== null) {
     const host = (first as { host?: unknown; hostname?: unknown }).host ??
       (first as { hostname?: unknown }).hostname;

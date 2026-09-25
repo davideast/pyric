@@ -19,8 +19,8 @@
  * rewritten.
  *
  * On activation it also installs the NETWORK GUARD (`./net-guard.js`), which
- * reports egress from this process to live Google/Firebase endpoints, or
- * refuses it under `PYRIC_GUARD=block`. See that module for the policy and the
+ * refuses egress from this process to live Google/Firebase endpoints, or only
+ * reports it under `PYRIC_GUARD=warn`. See that module for the policy and the
  * `PYRIC_GUARD` and `PYRIC_GUARD_ALLOW` knobs.
  *
  * Finally it emits the HANDSHAKE BEACON (`./beacon.js`): a fire-and-forget
@@ -35,7 +35,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mapFirebaseSpecifier } from './mapping.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
-import { installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
+import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
 import { emitBeacon } from './beacon.js';
 import { remoteSandbox } from '../remote/index.js';
 
@@ -110,7 +110,8 @@ function activate(): void {
   // a socket. Installing the guard first leaves no window in which
   // sandbox-substituted code runs unguarded. The reverse ordering buys
   // nothing: the guard mutates globals only (`undici.globalDispatcher.1`,
-  // `net`/`tls` connect) and depends on nothing the hooks establish.
+  // `net`/`tls` connect, the Agent and Socket prototypes) and depends on
+  // nothing the hooks establish.
   //
   // It stays BELOW the NODE_ENV=production refusal, deliberately. A refused
   // process is a real production run that we declined to touch, and warning
@@ -118,6 +119,9 @@ function activate(): void {
   // would be actively harmful. `PYRIC_SANDBOX` plus no refusal is the only
   // state in which "traffic to live Google is a bug" is a true statement.
   const guard = installNetGuard();
+  // Published so code that learns a destination later, such as the Vite
+  // plugin's configured AI upstream, can permit it (`permitGuardHost`).
+  if (guard !== null) (globalThis as unknown as Record<symbol, unknown>)[NET_GUARD_GLOBAL] = guard;
 
   // Whether module resolution is actually being intercepted. Both branches
   // below install SOMETHING, but a runtime with neither API installs nothing,

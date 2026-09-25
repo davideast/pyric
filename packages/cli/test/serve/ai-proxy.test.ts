@@ -16,7 +16,8 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
-import { formatAiProxyWarning } from '../../src/serve/ai-proxy.js';
+import { aiUpstreamGuardAllowance, formatAiProxyWarning, permitAiUpstreams } from '../../src/serve/ai-proxy.js';
+import { NET_GUARD_GLOBAL } from '../../src/register/net-guard.js';
 import { silentServeLogger, startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 
 function fixture() {
@@ -516,5 +517,72 @@ describe('formatAiProxyWarning', () => {
     // Non-secret params and the host/path stay readable.
     expect(block).toContain('model=x');
     expect(block).toContain('up.example/v1/chat');
+  });
+});
+
+describe('permitAiUpstreams', () => {
+  function permittedBy(run: () => void): string[] {
+    const permitted: string[] = [];
+    const slot = globalThis as unknown as Record<symbol, unknown>;
+    const prior = slot[NET_GUARD_GLOBAL];
+    slot[NET_GUARD_GLOBAL] = { permit: (host: string) => permitted.push(host) };
+    try {
+      run();
+    } finally {
+      slot[NET_GUARD_GLOBAL] = prior;
+    }
+    return permitted;
+  }
+
+  it('permits the proxy upstream and an engine base URL set in the Vite plugin options', () => {
+    const vertex = 'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi';
+    const permitted = permittedBy(() =>
+      permitAiUpstreams({
+        proxyUpstream: vertex,
+        engineWire: { kind: 'gemini', baseUrl: 'https://firebasevertexai.googleapis.com/v1beta' } as never,
+      }),
+    );
+    expect(permitted).toEqual([vertex, 'https://firebasevertexai.googleapis.com/v1beta']);
+  });
+
+  it('permits nothing for the local default and the same-origin proxy path', () => {
+    const permitted = permittedBy(() =>
+      permitAiUpstreams({ proxyUpstream: undefined, engineWire: { kind: 'openai', baseUrl: '/__pyric/ai/v1' } as never }),
+    );
+    expect(permitted).toEqual([]);
+  });
+});
+
+describe('aiUpstreamGuardAllowance', () => {
+  const vertexUpstream =
+    'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi';
+
+  function withEnvUpstream<T>(value: string | undefined, run: () => T): T {
+    const priorEnv = process.env.PYRIC_AI_PROXY_UPSTREAM;
+    if (value === undefined) delete process.env.PYRIC_AI_PROXY_UPSTREAM;
+    else process.env.PYRIC_AI_PROXY_UPSTREAM = value;
+    try {
+      return run();
+    } finally {
+      if (priorEnv === undefined) delete process.env.PYRIC_AI_PROXY_UPSTREAM;
+      else process.env.PYRIC_AI_PROXY_UPSTREAM = priorEnv;
+    }
+  }
+
+  it('allows the upstream PYRIC_AI_PROXY_UPSTREAM names', () => {
+    const allowance = withEnvUpstream(`${vertexUpstream}/`, () => aiUpstreamGuardAllowance(undefined));
+    expect(allowance).toEqual([vertexUpstream]);
+  });
+
+  it('allows the upstream the ai.proxyUpstream option names, over the env', () => {
+    const allowance = withEnvUpstream('http://localhost:8080/v1', () =>
+      aiUpstreamGuardAllowance(vertexUpstream),
+    );
+    expect(allowance).toEqual([vertexUpstream]);
+  });
+
+  it('allows nothing for the local Ollama default', () => {
+    const allowance = withEnvUpstream(undefined, () => aiUpstreamGuardAllowance(undefined));
+    expect(allowance).toEqual([]);
   });
 });

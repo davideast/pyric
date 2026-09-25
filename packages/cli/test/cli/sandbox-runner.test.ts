@@ -176,6 +176,38 @@ describe('buildChildEnv', () => {
     const env = buildChildEnv({}, { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' });
     expect('PYRIC_BEACON_TOKEN' in env).toBe(false);
   });
+
+  it("appends the launcher's guard allowance after the developer's PYRIC_GUARD_ALLOW", () => {
+    const env = buildChildEnv(
+      { PYRIC_GUARD_ALLOW: 'cloudfunctions.net' },
+      {
+        serveUrl: 'http://h:1',
+        registerUrl: 'file:///r.js',
+        guardAllow: ['https://us-central1-aiplatform.googleapis.com/v1beta1/openapi'],
+      },
+    );
+    expect(env.PYRIC_GUARD_ALLOW).toBe(
+      'cloudfunctions.net,https://us-central1-aiplatform.googleapis.com/v1beta1/openapi',
+    );
+  });
+
+  it('sets PYRIC_GUARD_ALLOW from the launcher alone when the developer set none', () => {
+    const env = buildChildEnv(
+      {},
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', guardAllow: ['aiplatform.googleapis.com'] },
+    );
+    expect(env.PYRIC_GUARD_ALLOW).toBe('aiplatform.googleapis.com');
+  });
+
+  it("leaves the developer's PYRIC_GUARD_ALLOW alone when the launcher adds nothing", () => {
+    const withDeveloperAllow = buildChildEnv(
+      { PYRIC_GUARD_ALLOW: 'cloudfunctions.net' },
+      { serveUrl: 'http://h:1', registerUrl: 'file:///r.js', guardAllow: [] },
+    );
+    expect(withDeveloperAllow.PYRIC_GUARD_ALLOW).toBe('cloudfunctions.net');
+    const withNone = buildChildEnv({}, { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' });
+    expect('PYRIC_GUARD_ALLOW' in withNone).toBe(false);
+  });
 });
 
 describe('registerModuleUrl', () => {

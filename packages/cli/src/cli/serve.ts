@@ -26,6 +26,7 @@ import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { formatBeaconReceipt } from '../serve/beacon-route.js';
 import type { InitPayload } from '../serve/namespace.js';
 import { formatAiStatusLine } from '../serve/ai-status.js';
+import { aiUpstreamGuardAllowance } from '../serve/ai-proxy.js';
 import { injectServeTags } from '../serve/html-injection.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import { consoleServeLogger, startStaticServer, stderrServeLogger, type ServeHandle } from '../serve/server.js';
@@ -1133,10 +1134,16 @@ export async function runServe(parsed: ParsedArgs): Promise<number> {
     info.write(
       `✔ run      \`${plan.label}\` — firebase-admin/firebase imports are routed to the sandbox at ${runtime.handle.url}\n`,
     );
+    // `pyric sandbox` has no AI option, so the upstream comes from
+    // `PYRIC_AI_PROXY_UPSTREAM`. The child inherits that variable, and
+    // anything in it that forwards AI traffic (a Vite dev server running the
+    // pyric plugin, for one) dials that host, so the child's guard permits it.
+    const aiGuardAllow = aiUpstreamGuardAllowance(undefined);
     const childEnv = buildChildEnv(process.env, {
       serveUrl: runtime.handle.url,
       registerUrl: registerModuleUrl(),
       beaconToken: runtime.beaconToken,
+      guardAllow: aiGuardAllow,
     });
     // What we are handing the child, stated before it starts: the interlock
     // line and the unsupported-runtime check.

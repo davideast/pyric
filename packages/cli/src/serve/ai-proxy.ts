@@ -12,6 +12,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ServeLogger } from './server.js';
 import { redactUrl } from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
+import type { AiEngineConfigWire } from './worker/protocol.js';
+import { permitGuardHost } from '../register/net-guard.js';
 
 /** The dev server's diagnostics throttle, as this module needs it: the
  *  denials route owns the instance, and the proxy shares it so a failing
@@ -180,6 +182,36 @@ export function resolveAiProxyUpstream(
     source = 'env';
   }
   return { target: raw.replace(/\/$/, ''), source };
+}
+
+/**
+ * The AI upstream as a network-guard allowance for the processes `pyric
+ * sandbox` launches. A configured upstream is a destination the developer
+ * chose, such as a Vertex AI endpoint, so the guard's default `block` mode
+ * must not refuse it. The local Ollama default is loopback, which the guard
+ * never flags, so it yields no allowance.
+ */
+export function aiUpstreamGuardAllowance(configured: string | undefined): string[] {
+  const upstream = resolveAiProxyUpstream(configured);
+  const isDefaultUpstream = upstream.source === 'default';
+  if (isDefaultUpstream) return [];
+  return [upstream.target];
+}
+
+/**
+ * Permit the Vite plugin's AI destinations on this process's network guard.
+ * The plugin resolves them after the guard installed, from its options or the
+ * Vite env: the proxy upstream it forwards to, and an engine base URL on
+ * another origin. Same-origin paths such as the AI proxy route are not
+ * destinations the guard sees.
+ */
+export function permitAiUpstreams(ai: { proxyUpstream?: string | undefined; engineWire?: AiEngineConfigWire | undefined }): void {
+  const destinations: string[] = [];
+  if (ai.proxyUpstream !== undefined) destinations.push(ai.proxyUpstream);
+  const engineBaseUrl = (ai.engineWire as { baseUrl?: unknown } | undefined)?.baseUrl;
+  const engineOnAnotherOrigin = typeof engineBaseUrl === 'string' && /^https?:\/\//i.test(engineBaseUrl);
+  if (engineOnAnotherOrigin) destinations.push(engineBaseUrl);
+  for (const destination of destinations) permitGuardHost(destination);
 }
 
 /** Shared upstream I/O for the browser proxy and the direct Node engine.

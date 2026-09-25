@@ -264,3 +264,71 @@ describe('pyric sandbox unsupported-runtime warning', () => {
     expect(code).toBe(0);
   }, 60_000);
 });
+
+/**
+ * The child runs under the net guard's default `block` mode. The AI upstream
+ * `pyric sandbox` resolves is a destination the developer chose, so the
+ * launcher adds it to the child's allow list while every other catalog host
+ * stays refused. The child dials both with a resolver of its own, so the
+ * permitted connection stops there instead of reaching DNS.
+ */
+describe('pyric sandbox and the AI upstream', () => {
+  it("permits the configured AI upstream in the child's guard and refuses other catalog hosts", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-ai-upstream-'));
+    try {
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ type: 'module' }));
+      // The child script names catalog hosts, so it stays out of the served
+      // directory, which `pyric sandbox` checks for bundled Firebase SDKs.
+      writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ hosting: { public: 'public' } }));
+      mkdirSync(join(dir, 'public'));
+      writeFileSync(join(dir, 'public', 'index.html'), '<!doctype html><title>ai upstream</title>');
+      writeFileSync(
+        join(dir, 'dial.mjs'),
+        `import net from 'node:net';
+const lookup = (hostname, _options, done) =>
+  process.nextTick(() => done(Object.assign(new Error('fixture resolver'), { code: 'FIXTURE_NO_DNS' })));
+function dial(host) {
+  let socket;
+  try {
+    socket = net.connect({ host, port: 443, lookup });
+  } catch (e) {
+    return Promise.resolve(e.code);
+  }
+  return new Promise((resolve) => socket.once('error', (e) => resolve(e.code)));
+}
+const upstream = await dial('aiplatform.googleapis.com');
+const firestore = await dial('firestore.googleapis.com');
+console.log('DIAL ' + JSON.stringify({ upstream, firestore }));
+`,
+      );
+      const result = spawnSync(
+        'bun',
+        [CLI_ENTRY, 'sandbox', '--no-open', '--port', '4947', 'node', 'dial.mjs'],
+        {
+          cwd: dir,
+          encoding: 'utf8',
+          timeout: 30_000,
+          env: {
+            ...process.env,
+            PYRIC_GUARD: undefined,
+            PYRIC_GUARD_ALLOW: undefined,
+            PYRIC_AI_PROXY_UPSTREAM:
+              'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi',
+          },
+        },
+      );
+      const all = (result.stdout ?? '') + (result.stderr ?? '');
+      const dialLine = /DIAL (\{.*\})/.exec(result.stdout ?? '');
+      expect(dialLine).not.toBeNull();
+      expect(JSON.parse(dialLine![1]!)).toEqual({
+        upstream: 'FIXTURE_NO_DNS',
+        firestore: 'PYRIC_GUARD_BLOCKED',
+      });
+      expect(all).toContain('net-guard ALLOW aiplatform.googleapis.com');
+      expect(all).toContain('net-guard BLOCK firestore.googleapis.com');
+      expect(result.status).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
