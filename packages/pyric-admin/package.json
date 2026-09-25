@@ -43,6 +43,54 @@
     "./messaging": {
       "types": "./dist/messaging/index.d.ts",
       "import": "./dist/messaging/index.js"
+    },
+    "./app-check": {
+      "types": "./dist/app-check/index.d.ts",
+      "import": "./dist/app-check/index.js"
+    },
+    "./data-connect": {
+      "types": "./dist/data-connect/index.d.ts",
+      "import": "./dist/data-connect/index.js"
+    },
+    "./eventarc": {
+      "types": "./dist/eventarc/index.d.ts",
+      "import": "./dist/eventarc/index.js"
+    },
+    "./extensions": {
+      "types": "./dist/extensions/index.d.ts",
+      "import": "./dist/extensions/index.js"
+    },
+    "./functions": {
+      "types": "./dist/functions/index.d.ts",
+      "import": "./dist/functions/index.js"
+    },
+    "./installations": {
+      "types": "./dist/installations/index.d.ts",
+      "import": "./dist/installations/index.js"
+    },
+    "./instance-id": {
+      "types": "./dist/instance-id/index.d.ts",
+      "import": "./dist/instance-id/index.js"
+    },
+    "./machine-learning": {
+      "types": "./dist/machine-learning/index.d.ts",
+      "import": "./dist/machine-learning/index.js"
+    },
+    "./phone-number-verification": {
+      "types": "./dist/phone-number-verification/index.d.ts",
+      "import": "./dist/phone-number-verification/index.js"
+    },
+    "./project-management": {
+      "types": "./dist/project-management/index.d.ts",
+      "import": "./dist/project-management/index.js"
+    },
+    "./remote-config": {
+      "types": "./dist/remote-config/index.d.ts",
+      "import": "./dist/remote-config/index.js"
+    },
+    "./security-rules": {
+      "types": "./dist/security-rules/index.d.ts",
+      "import": "./dist/security-rules/index.js"
     }
   },
   "files": [

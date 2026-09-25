@@ -118,9 +118,18 @@ function valueFor(
   raw: string | boolean | Array<string | boolean>,
 ): { value: unknown } | { error: string } {
   const kind = argumentKind(method.args.shape[name] as z.ZodTypeAny);
-  if (kind === 'boolean') return { value: raw !== 'false' };
   if (Array.isArray(raw)) {
     return { error: `--${name} was passed more than once; pass it once.` };
+  }
+  // The parser does not know a record's schema, so a bare boolean flag takes
+  // the next word as its value. Only `true` and `false` are values; any other
+  // word is an argument the flag swallowed.
+  if (kind === 'boolean') {
+    if (raw === true || raw === 'true') return { value: true };
+    if (raw === 'false') return { value: false };
+    return {
+      error: `--${name} is true or false, and '${raw}' is neither. Pass --${name} alone, or --${name} false.`,
+    };
   }
   if (typeof raw !== 'string') {
     return { error: `--${name} needs a value. Pass --${name} <value>.` };

@@ -10,6 +10,7 @@ import {
 export { bindAppRegistrySandbox } from './registry.js';
 export { firebaseOptionsEqual } from './options.js';
 export { isSandboxAppDeleted };
+export { deferredEntry, PyricDeferredApiError, type DeferredApi } from '../deferred/entry.js';
 
 /** Host-only lifecycle seam for resources owned by one FirebaseApp. */
 export function registerAppCleanup(

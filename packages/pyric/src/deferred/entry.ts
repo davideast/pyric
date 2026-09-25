@@ -31,7 +31,7 @@
  */
 
 /**
- * Compose the single user-facing message every deferred entry raises.
+ * Compose the single user-facing message every deferred Web SDK entry raises.
  *
  * @param subpath - The Firebase subpath *without* the `firebase/` prefix, e.g.
  *   `functions` or `firestore/lite`.
@@ -58,8 +58,8 @@ export class PyricDeferredApiError extends Error {
   /** The exported symbol whose use triggered this error (e.g. `getFunctions`). */
   readonly symbol: string;
 
-  constructor(subpath: string, symbol: string) {
-    super(deferredApiMessage(subpath));
+  constructor(subpath: string, symbol: string, message: string = deferredApiMessage(subpath)) {
+    super(message);
     this.subpath = subpath;
     this.symbol = symbol;
   }
@@ -111,9 +111,9 @@ const INERT_PROPERTIES: ReadonlySet<string> = new Set([
  * constructed, wrapped in a proxy so member reads (the enum-constant shape)
  * throw the same error.
  */
-function deferredSymbol(subpath: string, symbol: string): DeferredApi {
+function deferredSymbol(subpath: string, symbol: string, message: string): DeferredApi {
   const throwing = function deferred(): never {
-    throw new PyricDeferredApiError(subpath, symbol);
+    throw new PyricDeferredApiError(subpath, symbol, message);
   };
   Object.defineProperty(throwing, 'name', { value: symbol, configurable: true });
 
@@ -125,10 +125,10 @@ function deferredSymbol(subpath: string, symbol: string): DeferredApi {
       if (typeof property === 'symbol' || INERT_PROPERTIES.has(property)) {
         return Reflect.get(target, property, receiver);
       }
-      throw new PyricDeferredApiError(subpath, `${symbol}.${property}`);
+      throw new PyricDeferredApiError(subpath, `${symbol}.${property}`, message);
     },
     construct() {
-      throw new PyricDeferredApiError(subpath, symbol);
+      throw new PyricDeferredApiError(subpath, symbol, message);
     },
   }) as unknown as DeferredApi;
 }
@@ -146,16 +146,22 @@ function deferredSymbol(subpath: string, symbol: string): DeferredApi {
  * generated `.d.ts` honest); the proxy just mints a correctly-attributed stub
  * for whichever name is read.
  *
- * @param subpath - The Firebase subpath, without the `firebase/` prefix.
+ * @param subpath - The Firebase subpath, without the package prefix.
+ * @param message - The message every export of this entry throws. Defaults
+ *   to the Web SDK message; `pyric-admin` passes its own for
+ *   `firebase-admin` subpaths.
  */
-export function deferredEntry(subpath: string): Record<string, DeferredApi> {
+export function deferredEntry(
+  subpath: string,
+  message: string = deferredApiMessage(subpath),
+): Record<string, DeferredApi> {
   const minted = new Map<string, DeferredApi>();
   return new Proxy(Object.create(null) as Record<string, DeferredApi>, {
     get(_target, property) {
       if (typeof property === 'symbol') return undefined as unknown as DeferredApi;
       let api = minted.get(property);
       if (!api) {
-        api = deferredSymbol(subpath, property);
+        api = deferredSymbol(subpath, property, message);
         minted.set(property, api);
       }
       return api;
