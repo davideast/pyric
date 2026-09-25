@@ -10,7 +10,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/database';
 import { getDatabase, ref, set } from 'pyric/database';
 import { doc, getFirestore, setDoc } from 'pyric/firestore';
-import { getAuth, signInAnonymously } from '../../src/auth/index.js';
+import { getAuth, signInAnonymously, sandbox as authSandbox } from '../../src/auth/index.js';
 
 const RTDB_RULES = {
   rules: {
@@ -55,9 +55,17 @@ describe('rules see the sign-in provider after a sign-in', () => {
     expect(await outcome(() => setDoc(doc(getFirestore(sandbox), 'anon/a'), { ok: true }))).toBe('allowed');
   });
 
-  it('a per-connection session carries the same claims', () => {
+  it('a forced token refresh keeps the claim rules read', async () => {
     const sandbox = initializeSandbox();
-    const { state } = sandbox.mintSession({ kind: 'anonymous' });
+    setRules(sandbox, RTDB_RULES);
+    const { user } = await signInAnonymously(getAuth(sandbox));
+    await user.getIdTokenResult(true);
+    expect(await outcome(() => set(ref(getDatabase(sandbox), 'provider/v'), 1))).toBe('allowed');
+  });
+
+  it('a per-connection session carries the same claims', () => {
+    const auth = getAuth(initializeSandbox());
+    const { state } = authSandbox.mintSession(auth, { kind: 'anonymous' });
     const firebase = (state?.token as { firebase?: { sign_in_provider?: string } } | undefined)?.firebase;
     expect(firebase?.sign_in_provider).toBe('anonymous');
   });

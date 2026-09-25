@@ -100,6 +100,17 @@ export type {
  * sibling app backends share account/provider maps but not currentUser,
  * listeners, tokens, flow staging, or persistence mode.
  */
+
+/**
+ * The claims rules see on `auth.token` for a signed-in data context: the
+ * custom claims, plus the `firebase` namespace the minted ID token carries
+ * (`sign_in_provider`, and `tenant` for a tenant sign-in), as production's
+ * decoded ID token does.
+ */
+function rulesTokenClaims(claims: Record<string, unknown>, minted: IdTokenResult): Record<string, unknown> {
+  return { ...claims, firebase: minted.claims.firebase };
+}
+
 export class SandboxBackend {
   /** Email → stored user. Lowercase keys so lookups are case-
    *  insensitive (matches upstream). */
@@ -1421,12 +1432,12 @@ export class SandboxBackend {
     // is unchanged (AUTH-B8: a same-uid re-sign-in still rotates the
     // token, which `onIdTokenChanged` then observes). Matches prod's
     // "new session = new token".
-    this.mintToken(user.uid, claims, user.tenantId ?? null);
+    const minted = this.mintToken(user.uid, claims, user.tenantId ?? null);
 
     // Push to the sandbox under the guard so the synchronous subscriber
     // doesn't notify — we drive the fan-out below with the correct
     // id-token / auth-state split.
-    const signedInState: NonNullable<AuthState> = { uid: user.uid, token: claims };
+    const signedInState: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(claims, minted.result) };
     const hasTenant = typeof user.tenantId === 'string';
     if (hasTenant) signedInState.tenant = user.tenantId;
     const nextState: AuthState = signedInState;
@@ -1975,8 +1986,8 @@ export class SandboxBackend {
     // independent sessions over one user pool, so two ports can hold the same
     // identity under different tenants and neither may overwrite the other.
     (user as Mutable<User>).tenantId = tenantId;
-    this.mintToken(user.uid, claims, tenantId);
-    const state: NonNullable<AuthState> = { uid: user.uid, token: claims };
+    const minted = this.mintToken(user.uid, claims, tenantId);
+    const state: NonNullable<AuthState> = { uid: user.uid, token: rulesTokenClaims(claims, minted.result) };
     const hasTenant = tenantId !== null;
     if (hasTenant) state.tenant = tenantId;
     this.emitAuthEvent('sign_in', {
@@ -2107,7 +2118,7 @@ export class SandboxBackend {
         // Rules follow refreshed claims without turning a token refresh into a sign-in.
         this.applyingTransition = true;
         try {
-          this.session.currentUser = { ...current, token: claims };
+          this.session.currentUser = { ...current, token: rulesTokenClaims(claims, fresh.result) };
         } finally {
           this.applyingTransition = false;
         }
