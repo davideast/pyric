@@ -18,6 +18,7 @@
  * collapsed. Empty path is legal — it's the root reference.
  */
 import { TARGET_SYMBOL, targetOf, type FirebaseStorage } from './service.js';
+import { refPathOf } from './url.js';
 
 /**
  * Public reference shape. Methods are inherited from the impl
@@ -37,7 +38,9 @@ export interface StorageReference {
 /**
  * Construct a reference. Two overloads matching Firebase:
  *
- *   `ref(storage, path?)`   — `path` is bucket-rooted. Omit for root.
+ *   `ref(storage, path?)`   — `path` is bucket-rooted. Omit for root. A
+ *                             `gs://` or download URL names its object, as
+ *                             `./url.ts` describes.
  *   `ref(parent, path)`     — `path` is relative to `parent.fullPath`.
  */
 export function ref(storage: FirebaseStorage, path?: string): StorageReference;
@@ -49,11 +52,11 @@ export function ref(
   if (isStorageReference(target)) {
     // Relative-to-parent overload.
     targetOf(target.storage);
-    return new SandboxStorageReference(target.storage, joinPaths(target.fullPath, path ?? ''));
+    return new SandboxStorageReference(target.storage, joinPaths(target.fullPath, refPathOf(path, false)));
   }
   // Storage-rooted overload.
   targetOf(target);
-  return new SandboxStorageReference(target, normalizePath(path ?? ''));
+  return new SandboxStorageReference(target, normalizePath(refPathOf(path, true)));
 }
 
 // ─── Sandbox impl ──────────────────────────────────────────────────

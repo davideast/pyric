@@ -168,6 +168,7 @@ The script's `firebase-admin` imports are intercepted and connect to the local s
 - **HTTP byte route**: Storage bytes move over HTTP at `/__pyric/storage/v0/b/<bucket>/o/<path>`, never over the WebSocket. The web SDK, `pyric-admin`, and the Node remote client all use it. Objects can be up to **512 MiB**.
 - **Ranges and streams**: A `GET` supports `Range`, so an `<audio>` or `<video>` element streams and seeks an object by its download URL. `pyric-admin` downloads honor `start` and `end`, and `createReadStream` and `createWriteStream` work.
 - **Download URLs**: `getDownloadURL` from `firebase-admin/storage` returns the host's URL for a file, minting a token into its `firebaseStorageDownloadTokens` metadata when it has none. `file.setMetadata({ metadata: { firebaseStorageDownloadTokens: null } })` revokes the URL, as it does in production.
+- **References from URLs**: `ref(storage, url)` takes the host's download URL, a `gs://` URL, or a production download URL and gives the reference at the URL's path, so `deleteObject(ref(storage, url))` deletes the object an app kept the URL for. The host serves one bucket, so the reference is on that bucket whichever bucket the URL names.
 - **Resumable uploads**: An upload is a `PUT` that continues from an offset with `Content-Range`, so `uploadBytesResumable` reports real progress and can pause and resume.
 
 ### Storage metadata repair warning

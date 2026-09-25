@@ -16,7 +16,7 @@ import {
 } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
 import type { FullMetadata, StringFormat } from 'pyric/storage';
-import { arrayBufferToBase64, decodeString, defaultRawContentType } from 'pyric/storage/internal';
+import { arrayBufferToBase64, decodeString, defaultRawContentType, refPathOf } from 'pyric/storage/internal';
 import { dataRpc, nextId, wirePort } from './core.js';
 import { lastSegment } from './handles.js';
 import type { ByteRouteAccess, ClientDb, ClientPort } from './handles.js';
@@ -113,12 +113,13 @@ export function getStorage(source: ClientDb | string | URL, name?: string, bucke
 }
 
 /** Build a Storage reference. Mirrors `pyric/storage`'s `ref(storage, path?)` /
- *  `ref(parentRef, path)`. Client-side path math; no RPC. */
+ *  `ref(parentRef, path)`, including `ref(storage, url)`. Client-side path
+ *  math; no RPC. */
 export function ref(
   parent: ClientFirebaseStorage | ClientStorageReference,
   path?: string,
 ): ClientStorageReference {
-  const rel = normalizeStorageRefPath(path ?? '');
+  const rel = normalizeStorageRefPath(refPathOf(path, parent.__kind === 'client-storage'));
   let fullPath: string;
   let port: ClientPort;
   let bucket = 'pyric-default';

@@ -17,7 +17,7 @@ const appJs = `
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getBytes, getDownloadURL } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getBytes, getDownloadURL, getMetadata, deleteObject } from 'firebase/storage';
 
 const app = initializeApp({ projectId: 'hosted-smoke' });
 const auth = getAuth(app);
@@ -54,6 +54,22 @@ window.__smoke = {
     ascii(36, 'data'); view.setUint32(40, dataSize, true);
     await uploadBytes(ref(storage, path), wav, { contentType: 'audio/wav' });
     return getDownloadURL(ref(storage, path));
+  },
+  storageDownloadURL: (path) => getDownloadURL(ref(storage, path)),
+  // An app keeps a download URL, then deletes the object by a reference to it.
+  deleteByUrl: async (url) => {
+    const kept = ref(storage, url);
+    await deleteObject(kept);
+    return kept.fullPath;
+  },
+  storageObjectExists: async (path) => {
+    try {
+      await getMetadata(ref(storage, path));
+      return true;
+    } catch (error) {
+      if (error.code === 'storage/object-not-found') return false;
+      throw error;
+    }
   },
   downloadStorageText: async (path) => {
     try {
@@ -480,6 +496,29 @@ setInterval(() => {}, 1000);
       expect(partial.length).toBeGreaterThan(0);
       const lateStart = partial.some(entry => Number(/^bytes (\d+)-/.exec(entry.contentRange ?? '')?.[1] ?? 0) > 1_000_000);
       expect(lateStart, JSON.stringify(objectResponses)).toBe(true);
+    } finally {
+      await host.stop();
+    }
+  });
+
+  test('9. deleteObject(ref(storage, downloadURL)) deletes the hosted object', async ({ page }) => {
+    const host = startHost(project.dir, { passthrough: ['node', '-e', 'setInterval(() => {}, 1000)'] });
+    try {
+      const ready = await host.startup;
+      expect(ready.kind).toBe('ready');
+      if (ready.kind !== 'ready') return;
+      await page.goto(ready.url);
+      await expect(page.locator('#status')).toHaveText('Ready');
+      await page.evaluate(() => window.__smoke.signInAnonymously());
+      await page.evaluate(() => window.__smoke.uploadStorageBytes('media/kept.txt', 'kept by its URL'));
+      const url = await page.evaluate(() => window.__smoke.storageDownloadURL('media/kept.txt'));
+      expect(new URL(url).pathname).toBe('/__pyric/storage/v0/b/pyric-default/o/media%2Fkept.txt');
+      expect((await page.request.get(url)).status()).toBe(200);
+
+      const deletedPath = await page.evaluate((kept) => window.__smoke.deleteByUrl(kept), url);
+      expect(deletedPath).toBe('media/kept.txt');
+      expect(await page.evaluate(() => window.__smoke.storageObjectExists('media/kept.txt'))).toBe(false);
+      expect((await page.request.get(url)).status()).toBe(404);
     } finally {
       await host.stop();
     }
