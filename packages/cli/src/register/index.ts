@@ -35,7 +35,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { mapFirebaseSpecifier } from './mapping.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
-import { installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
+import { NET_GUARD_GLOBAL, installNetGuard, parseGuardMode, type GuardMode } from './net-guard.js';
 import { emitBeacon } from './beacon.js';
 import { remoteSandbox } from '../remote/index.js';
 
@@ -119,6 +119,9 @@ function activate(): void {
   // would be actively harmful. `PYRIC_SANDBOX` plus no refusal is the only
   // state in which "traffic to live Google is a bug" is a true statement.
   const guard = installNetGuard();
+  // Published so code that learns a destination later, such as the Vite
+  // plugin's configured AI upstream, can permit it (`permitGuardHost`).
+  if (guard !== null) (globalThis as unknown as Record<symbol, unknown>)[NET_GUARD_GLOBAL] = guard;
 
   // Whether module resolution is actually being intercepted. Both branches
   // below install SOMETHING, but a runtime with neither API installs nothing,

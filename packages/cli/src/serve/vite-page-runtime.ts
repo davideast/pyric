@@ -8,6 +8,7 @@ import {
   type ResolvedViteAiConfig,
 } from './vite-ai-config.js';
 import type { ViteWorkerRuntime } from './vite-worker-runtime.js';
+import { permitAiUpstreams } from './ai-proxy.js';
 import {
   PYRIC_RUNTIME_CHIP_META,
   runtimeChipMetaValue,
@@ -72,6 +73,9 @@ export function createVitePageRuntime(input: {
       sandboxBuild = env.command === 'build';
       const loadedEnv = loadViteAiEnv(env.mode, config.root, config.envDir);
       resolvedAi = resolveViteAiConfig(options.ai, loadedEnv);
+      // The Vite dev server is the process `pyric sandbox` guards, and it
+      // dials these destinations itself, so its guard must permit them.
+      permitAiUpstreams(resolvedAi);
       return sandboxBuild ? { build: { target: 'esnext' } } : {};
     },
     ai() {

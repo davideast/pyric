@@ -433,11 +433,33 @@ export interface NetGuardHooks {
 export interface NetGuard {
   readonly mode: GuardMode;
   readonly allow: readonly string[];
+  /** Permit one more host, given bare or as a URL, for the rest of this
+   *  process. A launcher that learns a destination after install, such as the
+   *  Vite plugin's configured AI upstream, names it here. */
+  permit(hostOrUrl: string): void;
   /** Re-wrap the global dispatcher if something replaced it (a future Next
    *  calling `setGlobalDispatcher` would otherwise silently unhook us). */
   reassert(): void;
   /** Stop the periodic re-assert. Used by the CLI's own tests. */
   stop(): void;
+}
+
+/**
+ * Where the register publishes the installed guard. A symbol on `globalThis`
+ * rather than a module variable, because the Vite plugin can load its own copy
+ * of this module from the app's `node_modules` while the register loaded
+ * another from the CLI that launched the process.
+ */
+export const NET_GUARD_GLOBAL = Symbol.for('pyric.netGuard');
+
+/**
+ * Permit `hostOrUrl` on the guard installed in this process, if there is one.
+ * A process with no guard (no `PYRIC_SANDBOX`, or `PYRIC_GUARD=off`) has
+ * nothing to permit.
+ */
+export function permitGuardHost(hostOrUrl: string): void {
+  const guard = (globalThis as unknown as Record<symbol, Pick<NetGuard, 'permit'> | undefined>)[NET_GUARD_GLOBAL];
+  guard?.permit(hostOrUrl);
 }
 
 /** `basename(argv[1])`, the cheapest honest attribution available. */
@@ -556,6 +578,11 @@ export function installNetGuard(hooks: NetGuardHooks = {}): NetGuard | null {
   return {
     mode,
     allow,
+    permit(hostOrUrl: string): void {
+      for (const host of parseAllowHosts(hostOrUrl)) {
+        if (!allow.includes(host)) allow.push(host);
+      }
+    },
     reassert: wrapGlobalDispatcher,
     stop(): void {
       if (timer !== undefined) clearInterval(timer);
