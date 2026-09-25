@@ -115,7 +115,7 @@
     },
     "packages/cli": {
       "name": "@pyric/cli",
-      "version": "0.1.0-alpha.23",
+      "version": "0.1.0-alpha.24",
       "bin": {
         "pyric": "./dist/cli/index.js",
       },
@@ -170,7 +170,7 @@
     },
     "packages/create-pyric": {
       "name": "create-pyric",
-      "version": "0.1.0-alpha.23",
+      "version": "0.1.0-alpha.24",
       "bin": {
         "create-pyric": "./dist/bin.js",
       },
@@ -291,7 +291,7 @@
     },
     "packages/pyric": {
       "name": "pyric",
-      "version": "0.1.0-alpha.23",
+      "version": "0.1.0-alpha.24",
       "dependencies": {
         "@inbrowser/agent": "0.4.2",
         "fake-indexeddb": "^6.0.0",
@@ -309,7 +309,7 @@
     },
     "packages/pyric-admin": {
       "name": "pyric-admin",
-      "version": "0.1.0-alpha.23",
+      "version": "0.1.0-alpha.24",
       "dependencies": {
         "pyric": "workspace:*",
       },
@@ -378,7 +378,7 @@
     },
     "packages/ui": {
       "name": "@pyric/ui",
-      "version": "0.1.0-alpha.23",
+      "version": "0.1.0-alpha.24",
       "dependencies": {
         "@tanstack/react-virtual": "3.13.24",
       },
