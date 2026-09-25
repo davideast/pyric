@@ -115,3 +115,27 @@ describe('--<arg>-file', () => {
     expect((read as { error: string }).error).toContain('--document-file');
   });
 });
+
+describe('a boolean argument', () => {
+  it('reads a bare flag as true', () => {
+    const read = argsFor('auth.updateUser', ['auth', 'updateUser', '--uid', 'u1', '--disabled']);
+    expect(read).toEqual({ args: { uid: 'u1', disabled: true } });
+  });
+
+  it('reads an explicit false as false', () => {
+    const read = argsFor('auth.updateUser', ['auth', 'updateUser', '--uid', 'u1', '--disabled', 'false']);
+    expect(read).toEqual({ args: { uid: 'u1', disabled: false } });
+  });
+
+  it('reads an explicit true as true', () => {
+    const read = argsFor('auth.updateUser', ['auth', 'updateUser', '--disabled', 'true', '--uid', 'u1']);
+    expect(read).toEqual({ args: { disabled: true, uid: 'u1' } });
+  });
+
+  it('refuses a word that is neither true nor false, naming it', () => {
+    const read = argsFor('sandbox.exportFixture', ['sandbox', 'exportFixture', '--excludePasswords', 'out.json']);
+    expect(read).toEqual({
+      error: "--excludePasswords is true or false, and 'out.json' is neither. Pass --excludePasswords alone, or --excludePasswords false.",
+    });
+  });
+});

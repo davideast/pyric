@@ -55,6 +55,14 @@ A SharedWorker can outlive a Vite module update, so a refreshed page may otherwi
 
 For a Node child process, `pyric sandbox` sets `PYRIC_SANDBOX` and preloads `@pyric/cli/register`, which maps `firebase/*` to `pyric/*` and `firebase-admin/*` to `pyric-admin/*` for that process. The rule is the same as the browser. With activation present, it uses the sandbox. Without activation, it uses Firebase.
 
+Every `firebase-admin/*` subpath maps into `pyric-admin`, including the services the sandbox does not model, such as `firebase-admin/remote-config` and `firebase-admin/security-rules`. Those subpaths resolve and their exports link, so a process that imports them still starts. Calling one throws `PyricDeferredApiError`, which names the subpath:
+
+```text
+pyric: 'firebase-admin/remote-config' is not mirrored by the local sandbox, so its calls fail here. Imports resolve so module graphs load. Code that needs this service runs against Firebase outside the sandbox: start it without `pyric sandbox`, or keep the call off the code path the sandbox runs.
+```
+
+The sandbox never hands these imports to the real `firebase-admin`, so code under `pyric sandbox` does not reach a production service.
+
 ## Prove which one you're on
 
 Don't take the page's word for it. In development, kill your network and run a write — it succeeds, because nothing left the machine. Open [Pyric Studio](../agent/watch-and-review.md) and the write is sitting in the local backend. A production build with the network killed fails the same call. The swap is observable, not declared.

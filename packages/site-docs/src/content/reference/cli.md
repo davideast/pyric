@@ -33,7 +33,7 @@ Pyric selects what to run in this order:
 
 A Functions source declared in `firebase.json` can still run when the child application command is skipped.
 
-The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/register`. This routes supported `firebase/*` and `firebase-admin/*` imports to the local sandbox.
+The child receives `PYRIC_SANDBOX` and a `NODE_OPTIONS` import for `@pyric/cli/register`. This routes supported `firebase/*` and `firebase-admin/*` imports to the local sandbox. A `firebase-admin/*` subpath the sandbox does not mirror, such as `firebase-admin/remote-config`, still resolves, so the child loads, and calling any of its exports throws `PyricDeferredApiError`. The import never reaches the real `firebase-admin`.
 
 ## Flags
 
@@ -70,6 +70,8 @@ pyric auth useAppSession [--json]
 pyric auth whoami [--json]
 pyric auth sessions [--json]
 ```
+
+A boolean argument is written alone, `--disabled`, or with `true` or `false`, `--disabled false`. Any other word after it is refused by name, so a word the flag would otherwise take as its value is never read as `true`.
 
 `impersonate` runs every later call as the named user. `--tenantId` sets the Identity Platform tenant, and `--customClaims` takes a JSON object of custom claims that rules read as `request.auth.token.<name>`. `actAsAdmin` runs every later call with rules bypassed; `actAsAnonymous` runs every later call unauthenticated; `useAppSession` runs every later call as the application's own signed-in user, with its tenant and claims.
 
