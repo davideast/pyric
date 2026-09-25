@@ -1,0 +1,21 @@
+{
+  "name": "rules-rtdb-r20-priority-values",
+  "matrixRow": "rtdb-rules#20",
+  "rowIds": [
+    "rtdb-rules#20"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r20-priority-values\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). rules that read a node's priority, or compare the value of a prioritized node, must evaluate the same in the simulator as in production.",
+  "observedAt": "2026-09-25T08:03:19.135Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "a seeded number priority": "ALLOW",
+    "the value of a node seeded with a priority": "ALLOW",
+    "a seeded string priority": "ALLOW",
+    "a seeded priority is non-null": "ALLOW",
+    "a node without a priority": "ALLOW",
+    "the value of a prioritized child": "ALLOW",
+    "the priority of a prioritized child": "ALLOW",
+    "a write that carries a priority": "ALLOW"
+  }
+}

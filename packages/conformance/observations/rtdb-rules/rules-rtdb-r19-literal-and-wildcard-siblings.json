@@ -1,0 +1,23 @@
+{
+  "name": "rules-rtdb-r19-literal-and-wildcard-siblings",
+  "matrixRow": "rtdb-rules#19",
+  "rowIds": [
+    "rtdb-rules#19"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r19-literal-and-wildcard-siblings\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the simulator decides which sibling rules apply to a literal key; a wrong choice grants reads or writes that production denies, or denies writes production allows.",
+  "observedAt": "2026-09-25T08:02:09.137Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "literal first: read of the literal key": "DENY",
+    "literal first: write of the literal key": "DENY",
+    "literal first: read of another key": "ALLOW",
+    "wildcard first: read of the literal key": "DENY",
+    "wildcard first: write of the literal key": "DENY",
+    "wildcard first: write of another key": "ALLOW",
+    "literal grants: read of the literal key": "ALLOW",
+    "literal grants: read of another key": "DENY",
+    "wildcard validate does not run for the literal key": "ALLOW",
+    "wildcard validate runs for another key": "DENY"
+  }
+}

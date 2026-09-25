@@ -168,6 +168,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r20-priority-values",
         "r3-data-exists",
         "r9-quota-arithmetic"
       ],
@@ -188,6 +189,7 @@
         "r15-validate-ancestor-scope",
         "r17-validate-runtime-error",
         "r18-child-dot-segments",
+        "r20-priority-values",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -242,6 +244,7 @@
         "r11-string-validation",
         "r12-server-time-and-token",
         "r17-validate-runtime-error",
+        "r20-priority-values",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -257,6 +260,7 @@
       "verifiedBy": [
         "r14-root-lookup",
         "r18-child-dot-segments",
+        "r20-priority-values",
         "r8-combined-check"
       ],
       "verifiedByRows": [
@@ -323,7 +327,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r13-priority-and-index-directive"
+        "r13-priority-and-index-directive",
+        "r20-priority-values"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -500,6 +505,7 @@
         "r16-auth-provider-and-tenant",
         "r17-validate-runtime-error",
         "r2-own-uid",
+        "r20-priority-values",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -524,6 +530,7 @@
         "r16-auth-provider-and-tenant",
         "r17-validate-runtime-error",
         "r18-child-dot-segments",
+        "r20-priority-values",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -657,6 +664,7 @@
         "r11-string-validation",
         "r12-server-time-and-token",
         "r17-validate-runtime-error",
+        "r20-priority-values",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -758,7 +766,9 @@
         "r16-auth-provider-and-tenant",
         "r17-validate-runtime-error",
         "r18-child-dot-segments",
+        "r19-literal-and-wildcard-siblings",
         "r2-own-uid",
+        "r20-priority-values",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -787,7 +797,9 @@
         "r16-auth-provider-and-tenant",
         "r17-validate-runtime-error",
         "r18-child-dot-segments",
+        "r19-literal-and-wildcard-siblings",
         "r2-own-uid",
+        "r20-priority-values",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -814,6 +826,8 @@
         "r15-validate-ancestor-scope",
         "r17-validate-runtime-error",
         "r18-child-dot-segments",
+        "r19-literal-and-wildcard-siblings",
+        "r20-priority-values",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
@@ -843,6 +857,7 @@
       "verifiedBy": [
         "r13-priority-and-index-directive",
         "r15-validate-ancestor-scope",
+        "r19-literal-and-wildcard-siblings",
         "r2-own-uid",
         "r7-pathvar-binding"
       ],
