@@ -1006,11 +1006,29 @@ console.log(JSON.stringify(outcomes));
     expect(seen.pyricRoute).toBe('/__pyric/init.json');
   }
 
+  it('PYRIC_GUARD=block refuses real sockets to catalog hosts, however the caller reached connect', () => {
+    const res = runNode(
+      'sockets.mjs',
+      { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', PYRIC_GUARD: 'block' },
+      'preload-sockets.mjs',
+    );
+    expect(res.status).toBe(0);
+    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
+    for (const [attemptName, host] of Object.entries(socketCatalogAttempts)) {
+      expect({ attemptName, outcome: seen[attemptName] }).toEqual({
+        attemptName,
+        outcome: GUARD_BLOCKED_CODE,
+      });
+      expect(res.stderr).toContain(`net-guard BLOCK ${host}`);
+    }
+    expectLocalTrafficUntouched(seen);
+  }, 30_000);
+
   for (const [label, guardMode] of [
-    ['PYRIC_GUARD=block', 'block'],
+    ['PYRIC_GUARD=warn', 'warn'],
     ['an unset PYRIC_GUARD', undefined],
   ] as const) {
-    it(`${label} refuses real sockets to catalog hosts, however the caller reached connect`, () => {
+    it(`${label} reports real sockets to catalog hosts and lets them through`, () => {
       const res = runNode(
         'sockets.mjs',
         { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', PYRIC_GUARD: guardMode },
@@ -1019,40 +1037,22 @@ console.log(JSON.stringify(outcomes));
       expect(res.status).toBe(0);
       const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
       for (const [attemptName, host] of Object.entries(socketCatalogAttempts)) {
+        // Past the guard, the attempt reaches the fixture's resolver and stops.
         expect({ attemptName, outcome: seen[attemptName] }).toEqual({
           attemptName,
-          outcome: GUARD_BLOCKED_CODE,
+          outcome: 'FIXTURE_NO_DNS',
         });
-        expect(res.stderr).toContain(`net-guard BLOCK ${host}`);
+        expect(res.stderr).toContain(`net-guard WARN ${host}`);
       }
+      expect(res.stderr).not.toContain('net-guard BLOCK');
       expectLocalTrafficUntouched(seen);
     }, 30_000);
   }
 
-  it('PYRIC_GUARD=warn reports real sockets to catalog hosts and lets them through', () => {
-    const res = runNode(
-      'sockets.mjs',
-      { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000', PYRIC_GUARD: 'warn' },
-      'preload-sockets.mjs',
-    );
-    expect(res.status).toBe(0);
-    const seen = JSON.parse(res.stdout.trim()) as Record<string, unknown>;
-    for (const [attemptName, host] of Object.entries(socketCatalogAttempts)) {
-      // Past the guard, the attempt reaches the fixture's resolver and stops.
-      expect({ attemptName, outcome: seen[attemptName] }).toEqual({
-        attemptName,
-        outcome: 'FIXTURE_NO_DNS',
-      });
-      expect(res.stderr).toContain(`net-guard WARN ${host}`);
-    }
-    expect(res.stderr).not.toContain('net-guard BLOCK');
-    expectLocalTrafficUntouched(seen);
-  }, 30_000);
-
   it('publishes the installed guard, so a later destination can be permitted', () => {
     const res = runNode('published.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
     expect(res.status).toBe(0);
-    expect(JSON.parse(res.stdout.trim())).toEqual({ mode: 'block', permit: 'function' });
+    expect(JSON.parse(res.stdout.trim())).toEqual({ mode: 'warn', permit: 'function' });
   });
 
   it('stays inert without PYRIC_SANDBOX', () => {

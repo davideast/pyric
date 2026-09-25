@@ -266,10 +266,10 @@ describe('pyric sandbox unsupported-runtime warning', () => {
 });
 
 /**
- * The child runs under the net guard's default `block` mode. The AI upstream
- * `pyric sandbox` resolves is a destination the developer chose, so the
- * launcher adds it to the child's allow list while every other catalog host
- * stays refused. The child dials both with a resolver of its own, so the
+ * With blocking turned on (`PYRIC_GUARD=block`), the AI upstream `pyric
+ * sandbox` resolves is a destination the developer chose, so the launcher
+ * adds it to the child's allow list while every other catalog host stays
+ * refused. The child dials both with a resolver of its own, so the
  * permitted connection stops there instead of reaching DNS.
  */
 describe('pyric sandbox and the AI upstream', () => {
@@ -310,7 +310,7 @@ console.log('DIAL ' + JSON.stringify({ upstream, firestore }));
           timeout: 30_000,
           env: {
             ...process.env,
-            PYRIC_GUARD: undefined,
+            PYRIC_GUARD: 'block',
             PYRIC_GUARD_ALLOW: undefined,
             PYRIC_AI_PROXY_UPSTREAM:
               'https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi',
