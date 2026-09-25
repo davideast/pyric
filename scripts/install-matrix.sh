@@ -132,14 +132,30 @@ esac
 # 4. Resolve EVERY advertised subpath of all five packages, derived from the INSTALLED
 #    manifests (drift-free — no hardcoded list to fall out of sync).
 cat > "$CONSUMER/__matrix-resolve.mjs" <<'NODECHECK'
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 const PKGS = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui'];
+// The browser modules `withPyric` aliases client `firebase/*` imports to. They
+// start the browser runtime on import, which keeps a Node process alive, so
+// each one is resolved to an installed file without running it.
+const BROWSER_ENTRY_PREFIX = '@pyric/cli/next/internal/';
 let failed = false, total = 0;
 for (const pkg of PKGS) {
   const manifest = JSON.parse(readFileSync(`node_modules/${pkg}/package.json`, 'utf8'));
   const subpaths = Object.keys(manifest.exports ?? {});
   for (const sub of subpaths) {
     const spec = pkg + sub.slice(1); // "." -> "", "./x" -> "/x"
+    if (spec.startsWith(BROWSER_ENTRY_PREFIX)) {
+      try {
+        const file = fileURLToPath(import.meta.resolve(spec));
+        if (existsSync(file)) total++;
+        else { console.error(`  ✗ ${spec} — resolves to a missing file: ${file}`); failed = true; }
+      } catch (e) {
+        console.error(`  ✗ ${spec} — ${e?.code ?? ''} ${e?.message ?? e}`);
+        failed = true;
+      }
+      continue;
+    }
     try {
       const mod = await import(spec);
       // Flow deliberately exports types only. Compile a consuming module below
