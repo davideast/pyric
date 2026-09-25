@@ -154,7 +154,7 @@ export function createTreatmentController(options: TreatmentControllerOptions) {
         const custom = manifest.treatments.find((entry) => entry.id === id);
         const loaded = builtin
           ? await builtin()
-          : await (options.load ?? ((url) => import(/* @vite-ignore */ url)))(
+          : await (options.load ?? ((url) => import(/* @vite-ignore */ /* webpackIgnore: true */ /* turbopackIgnore: true */ url)))(
               `${custom!.url}?attempt=${request}`,
             );
         value = loaded.default;

@@ -149,7 +149,16 @@
     "./serve/worker",
     "./remote",
     "./register",
-    "./register/app-bridge"
+    "./register/app-bridge",
+    "./next/sdk/ai",
+    "./next/sdk/app",
+    "./next/sdk/auth",
+    "./next/sdk/firestore",
+    "./next/sdk/firestore-lite",
+    "./next/sdk/database",
+    "./next/sdk/messaging",
+    "./next/sdk/messaging-sw",
+    "./next/sdk/storage"
   ],
   "allowedFirebaseSdkImportEdges": [
     "dist/register/app-bridge.js -> firebase/app",

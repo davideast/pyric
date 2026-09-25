@@ -111,6 +111,33 @@
     "./flow": {
       "types": "./dist/serve/runtime/flow-treatments/types.d.ts",
       "import": "./dist/serve/runtime/flow-treatments/types.js"
+    },
+    "./next/sdk/ai": {
+      "import": "./dist/serve/entries/ai.js"
+    },
+    "./next/sdk/app": {
+      "import": "./dist/serve/entries/app.js"
+    },
+    "./next/sdk/auth": {
+      "import": "./dist/serve/entries/auth.js"
+    },
+    "./next/sdk/firestore": {
+      "import": "./dist/serve/entries/firestore.js"
+    },
+    "./next/sdk/firestore-lite": {
+      "import": "./dist/serve/entries/firestore-lite.js"
+    },
+    "./next/sdk/database": {
+      "import": "./dist/serve/entries/database.js"
+    },
+    "./next/sdk/messaging": {
+      "import": "./dist/serve/entries/messaging.js"
+    },
+    "./next/sdk/messaging-sw": {
+      "import": "./dist/serve/entries/messaging-sw.js"
+    },
+    "./next/sdk/storage": {
+      "import": "./dist/serve/entries/storage.js"
     }
   },
   "bin": {
