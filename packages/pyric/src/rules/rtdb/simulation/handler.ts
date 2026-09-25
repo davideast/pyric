@@ -2,6 +2,7 @@ import { DataSnapshot, evaluateRtdbExpression } from '../grammar/simulator.js';
 import type { EvalContext, SimulatedAuth } from '../grammar/simulator.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { SimulationInputSchema, type SimulationInput } from './spec.js';
+import { normalizeAuthState } from '../../../sandbox/sandbox-context.js';
 import type { SimulateResult } from './spec.js';
 
 interface AncestorMatch {
@@ -38,6 +39,23 @@ function snapshotChildKeys(snap: DataSnapshot): string[] {
   const value = snap.val();
   if (value === null || typeof value !== 'object') return [];
   return Object.keys(value as object);
+}
+
+/**
+ * The rules `auth` variable for a signed-in request: the uid, the ID token
+ * claims with the tenant folded in by the shared normalizer, and `provider`,
+ * which production reads as the token's `firebase.sign_in_provider`. There is
+ * no top-level `auth.tenant`; production reads it as null.
+ */
+function simulatedAuthOf(auth: NonNullable<SimulationInput['auth']>): SimulatedAuth {
+  const normalized = normalizeAuthState(auth);
+  const token = normalized?.token ?? {};
+  const simulated: SimulatedAuth = { uid: auth.uid, token };
+  const firebase = token.firebase;
+  const claims = typeof firebase === 'object' && firebase !== null ? (firebase as Record<string, unknown>) : {};
+  const signInProvider = claims.sign_in_provider;
+  if (typeof signInProvider === 'string') simulated.provider = signInProvider;
+  return simulated;
 }
 
 /**
@@ -412,33 +430,7 @@ export class SimulateHandler {
       const mergedRootData = new DataSnapshot(mergedRoot, '/');
 
       let contextAuth: SimulatedAuth | null = null;
-      if (auth) {
-        const token: Record<string, unknown> = auth.token ? structuredClone(auth.token) : {};
-        if (auth.tenant !== undefined) {
-          const existingFirebase = token.firebase;
-          if (
-            typeof existingFirebase === 'object' &&
-            existingFirebase !== null &&
-            !Array.isArray(existingFirebase)
-          ) {
-            const fbObj = existingFirebase as Record<string, unknown>;
-            let tenantValue = auth.tenant;
-            if (fbObj.tenant !== undefined) {
-              tenantValue = fbObj.tenant as string;
-            }
-            token.firebase = {
-              ...fbObj,
-              tenant: tenantValue,
-            };
-          } else {
-            token.firebase = { tenant: auth.tenant };
-          }
-        }
-        contextAuth = {
-          uid: auth.uid,
-          token,
-        };
-      }
+      if (auth) contextAuth = simulatedAuthOf(auth);
 
       const contextQuery = buildSimulatedQueryContext(operation, query);
 

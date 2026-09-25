@@ -129,7 +129,9 @@
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#16"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.auth.uid": {
