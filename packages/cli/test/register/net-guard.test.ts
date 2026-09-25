@@ -720,6 +720,14 @@ describe('net-guard under `node --import @pyric/cli/register`', () => {
       JSON.stringify({ name: 'net-guard-fixture', type: 'module' }),
     );
 
+    // A child that reports whether the register published its guard.
+    writeFileSync(
+      join(fixtureDir, 'published.mjs'),
+      `const guard = globalThis[Symbol.for('pyric.netGuard')];
+console.log(JSON.stringify({ mode: guard?.mode ?? null, permit: typeof guard?.permit }));
+`,
+    );
+
     // 1. An ordinary child: boot, talk to localhost over fetch, exit clean.
     writeFileSync(
       join(fixtureDir, 'local.mjs'),
@@ -1042,6 +1050,12 @@ console.log(JSON.stringify(outcomes));
     expect(res.stderr).not.toContain('net-guard BLOCK');
     expectLocalTrafficUntouched(seen);
   }, 30_000);
+
+  it('publishes the installed guard, so a later destination can be permitted', () => {
+    const res = runNode('published.mjs', { PYRIC_SANDBOX: 'remote:http://127.0.0.1:5000' });
+    expect(res.status).toBe(0);
+    expect(JSON.parse(res.stdout.trim())).toEqual({ mode: 'block', permit: 'function' });
+  });
 
   it('stays inert without PYRIC_SANDBOX', () => {
     const res = runNode('local.mjs', { PYRIC_GUARD: 'block' });
