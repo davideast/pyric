@@ -235,3 +235,52 @@ describe('setupServerAuthFlush', () => {
     dispose();
   });
 });
+
+describe('createWorkerDurableBackend priming', () => {
+  /** A fetch whose server-file response waits until `release` is called. */
+  function heldFetch(body: string): typeof fetch & { gets: number; release(): void } {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const fn = (async (_url: string, init?: { method?: string }) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET') fn.gets += 1;
+      await held;
+      return { status: 200, text: async () => body } as unknown as Response;
+    }) as unknown as typeof fetch & { gets: number; release(): void };
+    fn.gets = 0;
+    fn.release = release;
+    return fn;
+  }
+
+  it('makes concurrent first reads wait for one priming pass', async () => {
+    const idb = createMemoryBackend();
+    const serverBundle = bundleRecords(
+      serializeToBuckets({ 'todos/s1': { title: 'from-server' } }, {}, 0),
+    );
+    const fetchFn = heldFetch(serverBundle);
+    const durable = createWorkerDurableBackend(idb, { ...basePayload, persist: true }, { fetch: fetchFn });
+
+    const first = durable.listRecords(PERSIST_KEY);
+    const second = durable.listRecords(PERSIST_KEY);
+    fetchFn.release();
+    const [firstIds, secondIds] = await Promise.all([first, second]);
+
+    expect(firstIds.length).toBeGreaterThan(0);
+    expect(secondIds).toEqual(firstIds);
+    expect(fetchFn.gets).toBe(1);
+  });
+
+  it('reads IndexedDB when the server cannot be reached, without fetching again', async () => {
+    const idb = createMemoryBackend();
+    let gets = 0;
+    const unreachable = (async () => {
+      gets += 1;
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch;
+    const durable = createWorkerDurableBackend(idb, { ...basePayload, persist: true }, { fetch: unreachable });
+
+    expect(await durable.listRecords(PERSIST_KEY)).toEqual([]);
+    expect(await durable.getRecord(PERSIST_KEY, 'missing')).toBeNull();
+    expect(gets).toBe(1);
+  });
+});

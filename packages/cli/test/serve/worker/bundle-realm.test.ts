@@ -76,7 +76,8 @@ interface Realm {
  * Evaluate the REAL worker bundle in a harness realm and connect one port
  * through its `onconnect`, exactly as a browser does on `new SharedWorker(...)`.
  */
-async function bootBundledWorker(): Promise<Realm> {
+async function bootBundledWorker(options: { withoutIndexedDB?: boolean } = {}): Promise<Realm> {
+  const realmIndexedDB = options.withoutIndexedDB === true ? undefined : globalThis.indexedDB;
   const dir = mkdtempSync(join(tmpdir(), 'pyric-bundle-realm-'));
   const { outFile: file } = await bundleWorker({ outDir: dir, noCache: true, minify: false });
   const src = readFileSync(file, 'utf8');
@@ -102,7 +103,7 @@ async function bootBundledWorker(): Promise<Realm> {
     src,
   );
   evaluate(
-    workerSelf, globalThis.indexedDB, fetchStub,
+    workerSelf, realmIndexedDB, fetchStub,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
   );
 
@@ -247,4 +248,23 @@ describe('bundle realm — the shipped SharedWorker artifact executes', () => {
     });
     expect(realm.closed()).toBe(true);
   }, 30_000);
+});
+
+// A worker whose sandbox cannot start: no IndexedDB in the realm, so building
+// the shared context throws. Every request must still get a reply, carrying
+// the startup error, rather than waiting out the page's own timeout.
+describe('bundle realm — a worker whose sandbox fails to start', () => {
+  it('answers a request with the startup error', async () => {
+    const failing = await bootBundledWorker({ withoutIndexedDB: true });
+    try {
+      const res = await sendOp(failing, {
+        id: 'no-idb-read', method: 'getDocs',
+        source: { __ref: 'collection', path: 'realm-items' },
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error.message).toContain('IndexedDB is not available');
+    } finally {
+      failing.close();
+    }
+  }, 60_000);
 });
