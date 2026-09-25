@@ -367,7 +367,14 @@ Today's sideways edges, enumerated:
    consumer when it adopted the
    RULES-B5 float model (`wrappers/float.js`, PR #333) — same ruling, and a
    second vote for the shared-leaf move: when the leaf lands, both edges
-   dissolve together.
+   dissolve together. The Storage engine's Timestamp, Duration, Bytes, Set,
+   and MapDiff values use the same shared primitives
+   (`wrappers/{base,timestamp,duration,bytes}.js`,
+   `rules/simulator/firestore-set.js`, `rules/simulator/mapdiff.js`), as do
+   its hashing digests (`rules/simulator/hashing-builtins.js`). These are
+   value classes and pure functions with no evaluator dependency, so each
+   Rules value has one definition that both engines evaluate, and they move
+   with the wrapper leaf.
 
 3. **storage -> rules grammar and module compiler, no foreign evaluator.** Firebase Security
    Rules is one language (#150); `storage/sandbox/rules.ts` parses via the shared Ohm
@@ -379,7 +386,7 @@ Today's sideways edges, enumerated:
    permitted, because grammar and module lowering are engine-neutral compiler
    capabilities and the alternative is service-specific parser/compiler drift.
    Storage imports no Firestore simulator, linter, or evaluation code from
-   `rules/` (the float wrapper edge above is tracked separately). Encode
+   `rules/` (the shared value edges above are tracked separately). Encode
    narrowly (8.7 check 2).
 
 4. **app/dispatch.test.ts -> firestore/auth/database barrels.** An app-registry
@@ -499,10 +506,11 @@ every rule in this section mechanically.
    listed explicitly
    so it is visible and removable; (c) `storage/sandbox/rules.ts` importing the shared
    syntax layer `rules/grammar/{FirestoreParser,FirestoreAST}.js` (8.3 case 3,
-   parse-only); (d) `storage/sandbox/rules.ts` and
-   `storage/sandbox/rules-{evaluator,methods,values}.ts` importing
-   `rules/simulator/wrappers/float.js` (8.3 case 2's misfiled shared primitive,
-   second consumer — dissolves with the shared-leaf move); (e)
+   parse-only); (d) `storage/sandbox/rules*.ts` importing the shared value
+   primitives `rules/simulator/wrappers/{base,bytes,duration,float,timestamp}.js`,
+   `rules/simulator/{firestore-set,mapdiff,hashing-builtins}.js` (8.3 case 2's
+   misfiled shared primitives, second consumer; the edge dissolves with the
+   shared-leaf move); (e)
    `storage/service.ts` importing the browser-safe module compiler
    `rules/modules/resolver-browser.js` (8.3 case 3, compile-only); (f) the
    cross-surface state modules `sandbox/full-state.ts`,

@@ -69,6 +69,21 @@ describe('MapDiff', () => {
     });
   });
 
+  describe('own keys only', () => {
+    // Production maps expose own keys only (rules-firestore-prototype-chain-keys),
+    // and rules-storage-stdlib-sets-and-mapdiff captures a metadata diff that
+    // adds `constructor` and removes `toString`.
+    test('a key named like a prototype member is added, removed, and affected', () => {
+      const diff = new MapDiff({ owner: 'a', toString: 'y' }, { owner: 'a', constructor: 'x' });
+      expect(diff.addedKeys().toArray()).toEqual(['constructor']);
+      expect(diff.removedKeys().toArray()).toEqual(['toString']);
+      expect(diff.affectedKeys().hasOnly(['constructor', 'toString'])).toBe(true);
+      expect(diff.affectedKeys().size()).toBe(2);
+      expect(diff.unchangedKeys().toArray()).toEqual(['owner']);
+      expect(diff.changedKeys().size()).toBe(0);
+    });
+  });
+
   describe('removedKeys', () => {
     test('key in before but not after', () => {
       const diff = new MapDiff({ a: 1, b: 2 }, { a: 1 });

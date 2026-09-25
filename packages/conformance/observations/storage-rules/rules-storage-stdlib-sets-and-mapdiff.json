@@ -1,0 +1,232 @@
+{
+  "name": "rules-storage-stdlib-sets-and-mapdiff",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#storage.stdlib.sets",
+    "storage-rules#storage.stdlib.map-diff"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-sets-and-mapdiff\" (STORAGE-STDLIB-SET). List.toSet(), Set membership and algebra, Set equality, in over a Set, and Map.diff() over custom metadata with every MapDiff accessor, with a List argument to Set algebra and a List receiver as negative controls.",
+  "observedAt": "2026-09-24T11:54:15.892Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "toSet removes duplicates and set equality ignores order": "ALLOW",
+    "set hasAll, hasAny, and hasOnly": "ALLOW",
+    "list hasAny and hasOnly": "ALLOW",
+    "set difference, union, and intersection": "ALLOW",
+    "set algebra with a list argument is an error": "DENY",
+    "list receiver has no set algebra": "DENY",
+    "in over a set": "ALLOW",
+    "metadata keys as a set": "ALLOW",
+    "metadata diff accessors": "ALLOW",
+    "metadata diff adds and removes keys named like prototype members": "ALLOW",
+    "metadata diff guard allows a label-only change": "ALLOW",
+    "metadata diff guard denies an owner change": "DENY",
+    "in over metadata diff changedKeys": "ALLOW"
+  },
+  "diagnostics": {
+    "toSet removes duplicates and set equality ignores order": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 21,
+              "currentOffset": 217,
+              "endOffset": 217
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set hasAll, hasAny, and hasOnly": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 12,
+              "column": 21,
+              "currentOffset": 361,
+              "endOffset": 361
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "list hasAny and hasOnly": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 18,
+              "column": 21,
+              "currentOffset": 601,
+              "endOffset": 601
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set difference, union, and intersection": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 22,
+              "column": 21,
+              "currentOffset": 756,
+              "endOffset": 756
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "set algebra with a list argument is an error": {
+      "notes": [
+        "Error: storage.rules line [27], column [40]. Unsupported operation error. Received: set.difference(list). Expected: set.difference(set)."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 27,
+          "column": 40,
+          "currentOffset": 1042,
+          "endOffset": 1051
+        }
+      }
+    },
+    "list receiver has no set algebra": {
+      "notes": [
+        "Error: storage.rules line [30], column [21]. Function not found error: Name: [difference]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 30,
+          "column": 21,
+          "currentOffset": 1139,
+          "endOffset": 1139
+        },
+        "functionCalls": [
+          {
+            "function": "difference",
+            "args": [
+              [
+                "a"
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    "in over a set": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 33,
+              "column": 21,
+              "currentOffset": 1240,
+              "endOffset": 1242
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "metadata keys as a set": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 21,
+              "currentOffset": 1361,
+              "endOffset": 1368
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "metadata diff accessors": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 39,
+              "column": 24,
+              "currentOffset": 1475,
+              "endOffset": 1486
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "metadata diff adds and removes keys named like prototype members": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 46,
+              "column": 24,
+              "currentOffset": 1849,
+              "endOffset": 1860
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "metadata diff guard allows a label-only change": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 24,
+              "currentOffset": 2026,
+              "endOffset": 2037
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "metadata diff guard denies an owner change": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 50,
+              "column": 24,
+              "currentOffset": 2026,
+              "endOffset": 2037
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "in over metadata diff changedKeys": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 53,
+              "column": 24,
+              "currentOffset": 2131,
+              "endOffset": 2137
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

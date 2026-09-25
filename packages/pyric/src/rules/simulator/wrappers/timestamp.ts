@@ -30,6 +30,7 @@ import { Duration } from './duration.js';
 const NANOS_PER_SECOND = 1_000_000_000;
 const MS_PER_DAY = 86_400_000;
 const SECONDS_PER_DAY = 86_400;
+const SECONDS_PER_MINUTE = 60;
 
 /**
  * Roll over-/under-flow nanos into seconds and force nanos non-negative.
@@ -127,11 +128,17 @@ export class Timestamp extends RulesValue {
    * field already encodes whole-seconds, so date math is exact even
    * when sub-ms nanos are present. `dayOfWeek` follows ISO 8601:
    * Monday = 1, Sunday = 7.
+   *
+   * `seconds()` and `nanos()` are time-of-day components like `hours()`
+   * and `minutes()`: the seconds of the minute and the nanoseconds of the
+   * second. The `seconds` field is epoch seconds; `toMillis()` is the epoch
+   * accessor rules see. Captured by rules-firestore-timestamp-component-accessors
+   * and rules-storage-stdlib-timestamp-duration.
    */
   callMethod(method: string, _args: unknown[]): unknown | NoOp {
     switch (method) {
       case 'seconds':
-        return this.seconds;
+        return ((this.seconds % SECONDS_PER_MINUTE) + SECONDS_PER_MINUTE) % SECONDS_PER_MINUTE;
       case 'nanos':
         return this.nanos;
       case 'toMillis':

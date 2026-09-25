@@ -77,8 +77,20 @@ describe('Timestamp — instance methods (12 total)', () => {
   // 2030-01-15T13:45:30.500000000Z — picked to exercise every component.
   const t = new Timestamp(Math.floor(Date.UTC(2030, 0, 15, 13, 45, 30) / 1000), 500_000_000);
 
-  test('seconds() — epoch-seconds', () => {
-    expect(t.callMethod('seconds', [])).toBe(Math.floor(Date.UTC(2030, 0, 15, 13, 45, 30) / 1000));
+  // Production reads seconds() as the seconds of the minute, like hours()
+  // and minutes(): rules-firestore-timestamp-component-accessors and
+  // rules-storage-stdlib-timestamp-duration both capture 30 at 13:45:30.250.
+  test('seconds() is the seconds of the minute, not the epoch seconds', () => {
+    expect(t.callMethod('seconds', [])).toBe(30);
+  });
+
+  test('seconds() and nanos() of a pre-epoch timestamp are non-negative components', () => {
+    // timestamp.value(-1500) is 1969-12-31T23:59:58.500Z.
+    const preEpoch = Timestamp.fromMillis(-1500);
+    expect(preEpoch.callMethod('seconds', [])).toBe(58);
+    expect(preEpoch.callMethod('nanos', [])).toBe(500_000_000);
+    expect(preEpoch.callMethod('year', [])).toBe(1969);
+    expect(preEpoch.callMethod('toMillis', [])).toBe(-1500);
   });
 
   test('nanos() — sub-second nanos', () => {

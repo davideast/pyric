@@ -1,3 +1,4 @@
+import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
 import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
 import {
   expandVerb,
@@ -10,7 +11,16 @@ import {
   type StorageResource,
   type StorageRules,
 } from './rules.js';
+import { buildRequestObject, buildResourceObject } from './rules-bindings.js';
 import { evalMethodCall } from './rules-methods.js';
+import {
+  cmp,
+  evalValueOperator,
+  isFloatNum,
+  isValueTypeOperand,
+  numOp,
+  typeMatches,
+} from './rules-operators.js';
 import { formatPath, matchSegments, splitPath } from './rules-path-match.js';
 import {
   RuleEvalError,
@@ -26,7 +36,6 @@ import {
   numericValue as numVal,
   rulesEquals,
 } from './rules-values.js';
-import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
 
 export function evaluateStorageRules(
   rules: StorageRules,
@@ -34,10 +43,10 @@ export function evaluateStorageRules(
   now: Date = new Date(),
   firestoreLookup?: FirestoreLookup,
 ): EvaluationResult {
-  // `request.time` is the request's evaluation moment, modeled internally
-  // as epoch milliseconds so it compares numerically against the
-  // `timestamp.date(...)` / `timestamp.value(...)` constructors. The caller
-  // injects it (deterministic in tests); it defaults to now.
+  // `request.time` is the request's evaluation moment. The caller injects it
+  // (deterministic in tests); it defaults to now. The request binding turns
+  // it into the Timestamp value `timestamp.date(...)` and
+  // `timestamp.value(...)` also build.
   const nowMillis = now.getTime();
   const pathSegments = splitPath(input.request.path);
   const reasons: string[] = [];
@@ -178,8 +187,8 @@ const MAX_CALL_DEPTH = 20;
 /** Everything an expression needs to evaluate. */
 export interface EvalCtx {
   input: EvaluationInput;
-  /** `request.time` as epoch milliseconds (injected by the caller,
-   *  defaulting to evaluation-time now). */
+  /** The evaluation instant in epoch milliseconds (injected by the caller,
+   *  defaulting to evaluation-time now); `request.time` is its Timestamp. */
   now: number;
   /** Path wildcards from the enclosing match. Empty inside a function
    *  body: caller wildcards do not leak in except via arguments. */
@@ -302,8 +311,9 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       // live-pinned by rules-firestore-prototype-chain-keys), so JS `in`
       // (which walks the prototype chain) would false-ALLOW here.
       if (Array.isArray(coll)) return coll.some((v) => rulesEquals(v, el));
+      if (coll instanceof FirestoreSet) return coll.hasAll([el]);
       if (isRulesMap(coll)) return typeof el === 'string' && Object.prototype.hasOwnProperty.call(coll, el);
-      return new RuleError(`'in' applied to ${describeType(coll)} (expected a list or map).`);
+      return new RuleError(`'in' applied to ${describeType(coll)} (expected a list, set, or map).`);
     }
     case 'is': {
       const v = evalExpr(expr.value, ctx);
@@ -363,6 +373,11 @@ export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
       if (isErr(l)) return l;
       const r = evalExpr(expr.right, ctx);
       if (isErr(r)) return r;
+      // Timestamp, Duration, and Bytes operands own their comparison and
+      // arithmetic operators; equality stays with rulesEquals below.
+      if (expr.op !== '==' && expr.op !== '!=' && (isValueTypeOperand(l) || isValueTypeOperand(r))) {
+        return evalValueOperator(expr.op, l, r);
+      }
       switch (expr.op) {
         // Lists and maps compare STRUCTURALLY (production `[a] == [a]` is true;
         // JS reference identity would make every literal comparison
@@ -509,116 +524,4 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
     locals[b.name] = evalExpr(b.value, bodyCtx);
   }
   return evalExpr(fn.body, bodyCtx);
-}
-
-/**
- * `value is <type>` check. Numbers use the RULES-B5 model: a `RulesFloat`
- * wrapper is a FLOAT, a bare number is an INT — so `1.0 is float` and
- * `!(1.0 is int)` type by literal form exactly as production does. A bare
- * NON-integral number (a fractional value that arrived from data rather than
- * a literal, e.g. a Firestore-lookup double) still reads as float. `number`
- * accepts either.
- */
-function typeMatches(v: unknown, typeName: string): boolean | RuleError {
-  switch (typeName) {
-    case 'string': return typeof v === 'string';
-    case 'bool': return typeof v === 'boolean';
-    case 'int': return typeof v === 'number' && Number.isInteger(v);
-    case 'float': return v instanceof RulesFloat || (typeof v === 'number' && !Number.isInteger(v));
-    case 'number': return v instanceof RulesFloat || typeof v === 'number';
-    case 'list': return Array.isArray(v);
-    case 'map': return isRulesMap(v);
-    default:
-      // timestamp/duration/path/latlng are modeled as plain millis/strings
-      // here — a type test against them cannot answer honestly, so deny
-      // with a reason rather than false-allow.
-      return new RuleError(`'is ${typeName}' is not supported by the storage evaluator.`);
-  }
-}
-
-/** Raw numeric value of an int (bare number) or float (RulesFloat); undefined
- *  for anything else. */
-function isFloatNum(v: unknown): boolean {
-  return v instanceof RulesFloat;
-}
-
-function cmp(a: unknown, b: unknown): number {
-  const an = numVal(a);
-  const bn = numVal(b);
-  // CEL compares int and float by numeric value (`1 < 1.5` is well-typed).
-  if (an !== undefined && bn !== undefined) return an - bn;
-  if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
-  return Number.NaN; // mismatched types → NaN → all comparisons return false
-}
-
-/** Arithmetic over ints and floats: unwraps, computes, and RE-TAGS the result
- *  as a float when either operand was one (int op float promotes to float). */
-function numOp(a: unknown, b: unknown, fn: (x: number, y: number) => number): unknown {
-  const an = numVal(a);
-  const bn = numVal(b);
-  if (an === undefined || bn === undefined) return undefined;
-  const result = fn(an, bn);
-  return isFloatNum(a) || isFloatNum(b) ? new RulesFloat(result) : result;
-}
-
-/**
- * Build the `resource.*` binding from the existing-object record, converting
- * the ISO-8601 time fields to epoch millis so they compare numerically against
- * `request.time` (which {@link buildRequestObject} models the same way) and
- * against each other (`resource.timeCreated == resource.updated`).
- *
- * A field the record does not carry is left `undefined`, which
- * {@link readProperty} reports as production's absent-property ERROR.
- */
-function buildResourceObject(resource: StorageResource): Record<string, unknown> {
-  return {
-    size: resource.size,
-    contentType: resource.contentType,
-    metadata: resource.metadata,
-    name: resource.name,
-    bucket: resource.bucket,
-    generation: resource.generation,
-    metageneration: resource.metageneration,
-    timeCreated: isoToMillis(resource.timeCreated),
-    updated: isoToMillis(resource.updated),
-  };
-}
-
-/** ISO-8601 → epoch millis. An unparseable or absent value stays `undefined`
- *  (→ absent-property error → deny) rather than becoming `NaN`. */
-function isoToMillis(iso: string | undefined): number | undefined {
-  if (iso === undefined) return undefined;
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? undefined : ms;
-}
-
-function buildRequestObject(input: EvaluationInput, now: number): Record<string, unknown> {
-  const auth = input.request.auth;
-  let requestAuth: unknown;
-  if (auth === null || auth === undefined) {
-    // The production Storage engine represents anonymous auth as an absent
-    // property, not a usable null value. Ordinary `request.auth != null`
-    // gates still deny, while conditionals cannot incorrectly select a
-    // fallback branch from the synthetic null.
-    requestAuth = new RuleError('Property auth is undefined on object.');
-  } else {
-    // Projecting a top-level `tenant` into `token.firebase.tenant` is one
-    // cross-surface rule about an identity, not a Storage rules concern, so
-    // the sandbox context owns it and every surface reads the same shape.
-    requestAuth = normalizeAuthState(auth);
-  }
-  const request: Record<string, unknown> = {
-    auth: requestAuth,
-    // Production treats an operation without an incoming object (notably
-    // delete/read) as an absent binding. A direct null comparison errors just
-    // like a property read; neither may turn the missing value into an allow.
-    resource: input.request.resource ?? new RuleError('Property resource is undefined on object.'),
-    method: input.request.method,
-    path: input.request.path,
-    // `request.time` as epoch millis — see the timestamp constructors in
-    // `evalMethodCall`, which produce the same representation so comparisons
-    // like `request.time < timestamp.date(2030, 1, 1)` are plain numerics.
-    time: now,
-  };
-  return request;
 }

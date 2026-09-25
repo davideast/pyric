@@ -218,7 +218,7 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/resource#timeCreated",
       "status": "accepted",
-      "note": "resource.timeCreated is a timestamp (ISO-8601 in the persisted record; the evaluator compares it as epoch millis against request.time). Production rejects an int in a timestamp comparison; an absent timeCreated denies.",
+      "note": "resource.timeCreated is a timestamp (ISO-8601 in the persisted record; the evaluator reads it as a Timestamp value that compares with request.time). Production rejects an int in a timestamp comparison; an absent timeCreated denies.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "0a0d40429b7714c6cef976068bf6d3e926aa3df816121e9689c4837129f5be41"
@@ -307,10 +307,36 @@
       "engine": "storage",
       "reference": "https://firebase.google.com/docs/reference/security/storage/duration#value",
       "status": "accepted",
-      "note": "duration.value(magnitude, unit) — a duration the evaluator returns as milliseconds so it adds to / subtracts from the millis-modeled timestamps, enabling the freshness idiom `request.time < resource.timeCreated + duration.value(1, 'h')`.",
+      "note": "duration.value(magnitude, unit): a Duration value. A timestamp plus a duration is a timestamp, which makes the freshness idiom `request.time < resource.timeCreated + duration.value(1, 'h')` work.",
       "probeDigest": {
         "algorithm": "sha256",
         "value": "2fb4fabc38a0428dcd3933a062a62a8db16ffec01772a147101f43418287b8e4"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.function.duration.time",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/duration#time",
+      "status": "accepted",
+      "note": "duration.time(hours, minutes, seconds, nanos): a Duration value.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "ead85595c4dde9a89bd9fd268b1f859b02c52e263592bb1fc82ca58d8fa96257"
+      },
+      "probeEvaluationAgreement": true
+    },
+    {
+      "id": "storage.function.duration.abs",
+      "kind": "function",
+      "engine": "storage",
+      "reference": "https://firebase.google.com/docs/reference/security/storage/duration#abs",
+      "status": "accepted",
+      "note": "duration.abs(duration): the absolute value of a Duration.",
+      "probeDigest": {
+        "algorithm": "sha256",
+        "value": "bf861133ab41d00339431fc60d29ee4c4e4f1f3b69853efc0a4f25cbd0b434d3"
       },
       "probeEvaluationAgreement": true
     },

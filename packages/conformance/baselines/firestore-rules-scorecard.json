@@ -228,6 +228,7 @@
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
+        "timestamp-component-accessors",
         "undefined-field-access",
         "unsupported-feature-witness"
       ],
@@ -401,7 +402,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "time-math-and-casts"
+        "time-math-and-casts",
+        "timestamp-component-accessors"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -613,6 +615,7 @@
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
+        "timestamp-component-accessors",
         "undefined-field-access",
         "unsupported-feature-witness"
       ],
@@ -885,7 +888,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "cross-type-operator-overloads"
+        "cross-type-operator-overloads",
+        "timestamp-component-accessors"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1856,7 +1860,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "time-math-and-casts"
+        "time-math-and-casts",
+        "timestamp-component-accessors"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -1941,9 +1946,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "time-math-and-casts"
+        "time-math-and-casts",
+        "timestamp-component-accessors"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#192"
+      ],
       "divergedByRows": []
     },
     "firestore.method.timestamp.nanos": {
@@ -1958,9 +1966,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "time-math-and-casts"
+        "time-math-and-casts",
+        "timestamp-component-accessors"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#192"
+      ],
       "divergedByRows": []
     },
     "firestore.method.timestamp.dayOfWeek": {
@@ -2043,9 +2054,12 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "time-math-and-casts"
+        "time-math-and-casts",
+        "timestamp-component-accessors"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "firestore-rules#192"
+      ],
       "divergedByRows": []
     },
     "firestore.method.duration.seconds": {
@@ -2169,6 +2183,7 @@
         "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
         "time-math-and-casts",
+        "timestamp-component-accessors",
         "undefined-field-access"
       ],
       "verifiedByRows": [],
@@ -2411,7 +2426,8 @@
         "resource-document-identity",
         "set-algebra-difference-union-intersection",
         "strict-boolean-control-flow",
-        "time-math-and-casts"
+        "time-math-and-casts",
+        "timestamp-component-accessors"
       ],
       "verifiedByRows": [
         "firestore-rules#163",
@@ -2544,7 +2560,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "duration-and-latlng",
-        "int-float-and-division"
+        "int-float-and-division",
+        "timestamp-component-accessors"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2590,6 +2607,7 @@
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
+        "timestamp-component-accessors",
         "undefined-field-access",
         "unsupported-feature-witness"
       ],
@@ -2691,7 +2709,8 @@
         "functions-verbs-and-recursive",
         "hierarchical-match-cascade",
         "resource-document-identity",
-        "resource-missing-document"
+        "resource-missing-document",
+        "timestamp-component-accessors"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -2837,6 +2856,7 @@
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
+        "timestamp-component-accessors",
         "undefined-field-access",
         "unsupported-feature-witness"
       ],
@@ -2924,6 +2944,7 @@
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
+        "timestamp-component-accessors",
         "undefined-field-access",
         "unsupported-feature-witness"
       ],
@@ -2985,6 +3006,7 @@
         "strict-boolean-control-flow",
         "string-literals-and-regex",
         "time-math-and-casts",
+        "timestamp-component-accessors",
         "undefined-field-access",
         "unsupported-feature-witness"
       ],

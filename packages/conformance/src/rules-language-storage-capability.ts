@@ -161,6 +161,8 @@ const ST_EXPR: Record<string, StProbe> = {
   'storage.function.timestamp.date': { expr: 'request.time < timestamp.date(2999, 1, 1)' },
   'storage.function.timestamp.value': { expr: 'request.time < timestamp.value(99999999999999)' },
   'storage.function.duration.value': { expr: "request.time < resource.timeCreated + duration.value(99999, 'd')" },
+  'storage.function.duration.time': { expr: "duration.time(0, 0, 1, 0) == duration.value(1, 's')" },
+  'storage.function.duration.abs': { expr: "duration.abs(duration.value(-1, 's')) == duration.value(1, 's')" },
   'storage.function.firestore.get': { expr: "firestore.get(/databases/(default)/documents/u/x).data.k == 'v'" },
   'storage.function.firestore.exists': { expr: 'firestore.exists(/databases/(default)/documents/u/x)' },
   'storage.method.string.matches': { expr: "request.resource.contentType.matches('text/.*')" },

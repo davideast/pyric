@@ -70,7 +70,7 @@ export const STORAGE_METHOD_RECEIVER_TYPES = {
   "split": ["string"] as const,
 } as const;
 export const STORAGE_NAMESPACE_METHODS = {
-  duration: ["value"] as const,
+  duration: ["abs", "time", "value"] as const,
   firestore: ["exists", "get"] as const,
   timestamp: ["date", "value"] as const,
 } as const;

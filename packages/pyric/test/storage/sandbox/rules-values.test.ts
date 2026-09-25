@@ -182,11 +182,11 @@ service firebase.storage {
 service firebase.storage {
   match /b/{bucket}/o {
     match /x/{fileId} {
-      allow read: if fileId.upper() == 'F.PNG';
+      allow read: if fileId.split('[.]').join('') == 'fpng';
     }
   }
 }`),
-    ).toMatch(/unsupported method \.upper\(\)/);
+    ).toMatch(/unsupported method \.join\(\)/);
   });
 
   it('an unmodeled `is` type names the type', () => {
@@ -195,10 +195,10 @@ service firebase.storage {
 service firebase.storage {
   match /b/{bucket}/o {
     match /x/{fileId} {
-      allow read: if request.time is timestamp;
+      allow read: if request.path is path;
     }
   }
 }`),
-    ).toMatch(/'is timestamp' is not supported by the storage evaluator/);
+    ).toMatch(/'is path' is not supported by the storage evaluator/);
   });
 });

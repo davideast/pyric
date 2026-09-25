@@ -1,0 +1,263 @@
+{
+  "name": "rules-storage-stdlib-timestamp-duration",
+  "matrixRow": "",
+  "rowIds": [
+    "storage-rules#storage.stdlib.timestamp-duration"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"stdlib-timestamp-duration\" (STORAGE-STDLIB-TIME). Timestamp and Duration are typed values in production Storage rules: accessors, date()/time(), pre-epoch seconds and nanos, arithmetic, constructors, and type tests, with int receivers and int comparisons as negative controls.",
+  "observedAt": "2026-09-24T11:51:28.252Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "timestamp accessors on request.time": "ALLOW",
+    "seconds() is the seconds of the minute": "ALLOW",
+    "seconds() is not the epoch seconds": "DENY",
+    "nanos() is the nanoseconds of the second": "ALLOW",
+    "toMillis() is the epoch milliseconds": "ALLOW",
+    "date() and time() return a timestamp and a duration": "ALLOW",
+    "pre-epoch timestamp components": "ALLOW",
+    "timestamp minus timestamp is a duration": "ALLOW",
+    "timestamp plus and minus duration compare as timestamps": "ALLOW",
+    "resource.updated and resource.timeCreated are timestamps": "ALLOW",
+    "duration constructors, accessors, arithmetic, and comparison": "ALLOW",
+    "is timestamp and is duration type tests": "ALLOW",
+    "int receiver has no hours() method": "DENY",
+    "int receiver year() error under || true": "ALLOW",
+    "timestamp compared with int is an error": "DENY"
+  },
+  "diagnostics": {
+    "timestamp accessors on request.time": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 21,
+              "currentOffset": 120,
+              "endOffset": 126
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "seconds() is the seconds of the minute": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 21,
+              "currentOffset": 422,
+              "endOffset": 428
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "seconds() is not the epoch seconds": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 21,
+              "currentOffset": 510,
+              "endOffset": 516
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "nanos() is the nanoseconds of the second": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 17,
+              "column": 21,
+              "currentOffset": 608,
+              "endOffset": 614
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "toMillis() is the epoch milliseconds": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 20,
+              "column": 21,
+              "currentOffset": 697,
+              "endOffset": 703
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "date() and time() return a timestamp and a duration": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 23,
+              "column": 21,
+              "currentOffset": 797,
+              "endOffset": 803
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "pre-epoch timestamp components": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 27,
+              "column": 21,
+              "currentOffset": 980,
+              "endOffset": 988
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "timestamp minus timestamp is a duration": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 33,
+              "column": 21,
+              "currentOffset": 1233,
+              "endOffset": 1239
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "timestamp plus and minus duration compare as timestamps": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 36,
+              "column": 21,
+              "currentOffset": 1354,
+              "endOffset": 1360
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "resource.updated and resource.timeCreated are timestamps": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 41,
+              "column": 21,
+              "currentOffset": 1612,
+              "endOffset": 1619
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "duration constructors, accessors, arithmetic, and comparison": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 45,
+              "column": 21,
+              "currentOffset": 1764,
+              "endOffset": 1771
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "is timestamp and is duration type tests": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 53,
+              "column": 21,
+              "currentOffset": 2189,
+              "endOffset": 2195
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "int receiver has no hours() method": {
+      "notes": [
+        "Error: storage.rules line [58], column [21]. Function not found error: Name: [hours]."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 58,
+          "column": 21,
+          "currentOffset": 2353,
+          "endOffset": 2360
+        },
+        "functionCalls": [
+          {
+            "function": "hours"
+          }
+        ]
+      }
+    },
+    "int receiver year() error under || true": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "year"
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 61,
+              "column": 21,
+              "currentOffset": 2447,
+              "endOffset": 2454
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "timestamp compared with int is an error": {
+      "notes": [
+        "Error: storage.rules line [64], column [36]. Unsupported operation error. Received: timestamp < int. Expected: string < string, bytes < bytes, int < int, float < float, duration < duration, timestamp < timestamp, constraint < any, any < constraint."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 64,
+          "column": 36,
+          "currentOffset": 2565,
+          "endOffset": 2565
+        }
+      }
+    }
+  }
+}

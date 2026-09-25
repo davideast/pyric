@@ -30,18 +30,26 @@
  *       member access (`a.b`), index access (`a['b']`), slice (`a[x:y]`)
  *       unary: `!`, `-`
  *       binary: `&& || == != < > <= >= + - * / %`
- *       ternary `?:`, `in` (list membership / map keys), `is` (type test)
+ *       ternary `?:`, `in` (list and set membership, map keys), `is` (type test)
  *       parens
  *       user-defined function calls (`isOwner(uid)`)
- *       `request.time` compared against the timestamp constructors
- *         `timestamp.date(y, m, d)` (UTC midnight) and
- *         `timestamp.value(epochMillis)`. The caller injects the time
- *         (3rd arg to `evaluateStorageRules`), defaulting to now.
- *       `duration.value(n, unit)` — a duration in millis, so the freshness
- *         idiom `request.time < resource.timeCreated + duration.value(1, 'h')`
+ *       `request.time` and the resource time fields as Timestamp values,
+ *         built also by `timestamp.date(y, m, d)` (UTC midnight) and
+ *         `timestamp.value(epochMillis)`, with the timestamp accessors. The
+ *         caller injects the time (3rd arg to `evaluateStorageRules`),
+ *         defaulting to now.
+ *       `duration.value(n, unit)`, `duration.time(h, m, s, ns)`, and
+ *         `duration.abs(d)` as Duration values, so the freshness idiom
+ *         `request.time < resource.timeCreated + duration.value(1, 'h')`
  *         evaluates.
- *       `string.matches(re)` — whole-string RE2-style regex match
- *         (see `evalMatches` for the RE2-vs-JS divergence handling)
+ *       string methods: `matches(re)` (whole-string RE2-style match),
+ *         `split(re)`, `lower()`, `upper()`, `trim()`, `replace(re, sub)`,
+ *         and `toUtf8()` (see rules-string-methods.ts for the RE2-vs-JS
+ *         handling)
+ *       `hashing.md5/sha256/crc32/crc32c` and Bytes values
+ *       List and Set methods (`toSet()`, `hasAll/hasAny/hasOnly`,
+ *         `difference/union/intersection`) and `Map.diff()` with the
+ *         MapDiff key sets
  *       custom-metadata access in both dotted (`resource.metadata.owner`)
  *         and bracket (`resource.metadata['owner']`) form — the metadata
  *         map is a plain string→string object, so both resolve identically
@@ -164,10 +172,10 @@ export interface StorageRequest {
  *     (`resourceFromStored`) therefore sources `name` from the persisted
  *     record's `fullPath`, NOT its `name`.
  *   - `timeCreated` / `updated` are ISO-8601 strings here (the persisted
- *     shape); the evaluator converts them to epoch millis when it builds the
- *     binding, so they compare numerically against `request.time` and against
- *     each other. Production types them as `timestamp` and rejects an int in
- *     their place ("Received: int < timestamp").
+ *     shape); the evaluator converts them to Timestamp values when it builds
+ *     the binding, so they compare against `request.time` and against each
+ *     other. Production types them as `timestamp` and rejects an int in their
+ *     place ("Received: int < timestamp").
  *   - The update-time field is `updated`. There is NO `resource.timeUpdated`
  *     in the Storage rules language.
  *
