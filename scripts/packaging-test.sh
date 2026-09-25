@@ -336,7 +336,8 @@ run_subpath_check() {
   # walks up into consumer/node_modules to find the packages.
   printf '%s\n' "$@" > "$WORK/consumer/__subpaths.txt"
   cat > "$WORK/consumer/__subpath-check.mjs" <<'CHECKJS'
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 const subpaths = readFileSync('__subpaths.txt', 'utf8').split('\n').filter(Boolean);
 // These entry points intentionally export zero runtime symbols. The Flow
 // contract's declarations are compiled from the installed package below.
@@ -345,8 +346,29 @@ const EMPTY_EXPORTS = new Map([
   ['@pyric/cli/register', 'side-effect-only register loader'],
   ['@pyric/cli/flow', 'types-only treatment contract; checked by TypeScript below'],
 ]);
+// The browser modules `withPyric` aliases client `firebase/*` imports to.
+// They start the browser runtime on import, which keeps a Node process alive,
+// so the gate resolves each one to a shipped file without running it.
+const BROWSER_ENTRY_PREFIX = '@pyric/cli/next/internal/';
 let failed = false;
 for (const subpath of subpaths) {
+  if (subpath.startsWith(BROWSER_ENTRY_PREFIX)) {
+    let file = null;
+    try {
+      file = fileURLToPath(import.meta.resolve(subpath));
+    } catch (err) {
+      console.error('  ✗ ' + subpath + ' — ' + (err && err.message ? err.message : String(err)));
+      failed = true;
+      continue;
+    }
+    if (existsSync(file)) {
+      console.log('  ✓ ' + subpath + ' (browser entry, resolved)');
+    } else {
+      console.error('  ✗ ' + subpath + ' — resolves to a missing file: ' + file);
+      failed = true;
+    }
+    continue;
+  }
   try {
     const mod = await import(subpath);
     const keys = Object.keys(mod).sort();
