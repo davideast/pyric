@@ -78,7 +78,7 @@ The two settings have different jobs:
 - `PYRIC_AI_MODEL` selects the model and activates the OpenAI-compatible engine.
 - `PYRIC_AI_PROXY_UPSTREAM` selects the server to which Pyric forwards requests. It is an OpenAI-compatible server base URL, not a Firebase endpoint and not a browser URL. Include `/v1` when that server expects it.
 
-`pyric sandbox` runs your command under a network guard that refuses connections to live Google endpoints. It permits the AI upstream you configure, from `PYRIC_AI_PROXY_UPSTREAM` or the Vite plugin's `ai` options (`proxyUpstream`, or an engine `baseUrl` on another origin), so an upstream such as a Vertex AI OpenAI-compatible endpoint stays reachable. To permit other hosts, see `PYRIC_GUARD_ALLOW` in the [CLI reference](../reference/cli.md).
+`pyric sandbox` runs your command under a network guard that reports connections to live Google endpoints, and refuses them only when you set `PYRIC_GUARD=block`. It permits the AI upstream you configure, from `PYRIC_AI_PROXY_UPSTREAM` or the Vite plugin's `ai` options (`proxyUpstream`, or an engine `baseUrl` on another origin), so an upstream such as a Vertex AI OpenAI-compatible endpoint stays reachable under `block` too. To permit other hosts, see `PYRIC_GUARD_ALLOW` in the [CLI reference](../reference/cli.md).
 
 Your browser still calls Pyric on the same origin at `/__pyric/ai-proxy`. The Vite server forwards that request to the upstream server's `/chat/completions` endpoint. This server-side hop avoids browser CORS configuration. An upstream URL alone does not select a model or replace the scripted engine, which is why `PYRIC_AI_MODEL` is still required.
 
