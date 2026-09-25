@@ -324,6 +324,24 @@ function childFor(node: RtdbNode, key: string): { child: RtdbNode; variable?: st
   return wildcard;
 }
 
+/** The denial result for a failing `.validate` rule. */
+function toValidateFailureResult(failure: ValidateFailure): SimulateResult {
+  const reason = failure.unsupported
+    ? `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw} — not evaluated; production may reject this write.`
+    : 'Validation rule evaluated to false';
+  return {
+    success: true,
+    data: {
+      allowed: false,
+      unsupported: failure.unsupported === true,
+      matchedPath: failure.node.path,
+      matchedRule: failure.rule.raw,
+      reason,
+      pathVariableBindings: failure.bindings,
+    },
+  };
+}
+
 /**
  * Return a new tree equal to `root` but with the value at `segments`
  * replaced by `value` (a `null`/`undefined` value deletes the node, same
@@ -477,6 +495,32 @@ export class SimulateHandler {
         };
       };
 
+      // The validate operation runs only the `.validate` phase: every
+      // `.validate` rule from the root through the write location and its
+      // written descendants must pass, whatever `.write` grants.
+      if (operation === 'validate') {
+        const deepestValidate = [...ancestors].reverse().find((a) => a.node.validate !== undefined)
+          ?? ancestors.find((a) => hasValidateRule(a.node));
+        if (deepestValidate === undefined) {
+          return {
+            success: false,
+            error: { code: 'NO_MATCHING_RULE', message: `No 'validate' rule found for path '${path}'`, recoverable: true },
+          };
+        }
+        const failure = findFailingValidate(rootNode, rootData, mergedRootData, {}, buildContext, pathSegments, updates);
+        if (failure) return toValidateFailureResult(failure);
+        return {
+          success: true,
+          data: {
+            allowed: true,
+            matchedPath: deepestValidate.node.path,
+            matchedRule: deepestValidate.node.validate?.raw ?? 'true',
+            reason: 'Validation rules evaluated to true',
+            pathVariableBindings: deepestValidate.pathVariableBindings,
+          },
+        };
+      }
+
       // Tracks the first ancestor whose `.write`/`.read` rule the grammar
       // couldn't parse. Unlike `.validate`, `.write`/`.read` rules cascade
       // (any ancestor granting `true` wins), so an unparseable rule is not
@@ -520,21 +564,7 @@ export class SimulateHandler {
               pathSegments,
               updates,
             );
-            if (failure) {
-              return {
-                success: true,
-                data: {
-                  allowed: false,
-                  unsupported: failure.unsupported === true,
-                  matchedPath: failure.node.path,
-                  matchedRule: failure.rule.raw,
-                  reason: failure.unsupported
-                    ? `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw} — not evaluated; production may reject this write.`
-                    : 'Validation rule evaluated to false',
-                  pathVariableBindings: failure.bindings,
-                },
-              };
-            }
+            if (failure) return toValidateFailureResult(failure);
           }
           return {
             success: true,

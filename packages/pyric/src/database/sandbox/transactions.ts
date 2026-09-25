@@ -83,7 +83,7 @@ export class Transactions {
       const currentPriority = this.state.priorities.get(path);
       const childPriors = this.children.snapshotParents();
       this.state.tree.write(path, resolved);
-      this.state.priorities.replace(path, currentPriority);
+      this.state.priorities.replace(path, resolved === null ? null : currentPriority);
       this.values.fanOut([path]);
       this.children.fanOut(childPriors);
       this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation);
@@ -99,7 +99,7 @@ export class Transactions {
     const priority = this.state.priorities.get(path);
     const childPriors = this.children.snapshotParents();
     this.state.tree.write(path, resolved);
-    this.state.priorities.replace(path, priority);
+    this.state.priorities.replace(path, resolved === null ? null : priority);
     this.state.mutations.mark(path);
     this.values.fanOut([path]);
     this.children.fanOut(childPriors);

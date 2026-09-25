@@ -4,7 +4,7 @@
  * bypasses rules, is left alone.
  */
 import { describe, expect, test } from 'bun:test';
-import { getAdminDatabase, getDatabase, onValue, orderByChild, query, ref, set } from 'pyric/database';
+import { getAdminDatabase, getDatabase, onChildAdded, onValue, orderByChild, query, ref, set } from 'pyric/database';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setData, setRules } from 'pyric/sandbox/database';
 
@@ -23,6 +23,18 @@ describe('a rules change re-checks listeners', () => {
     const seen: unknown[] = [];
     onValue(query(ref(getDatabase(sandbox), 'scores'), orderByChild('score')), (snap) => seen.push(snap.val()), (error) => errors.push(error));
     expect(seen).toHaveLength(1);
+    setRules(sandbox, QUERY_GATED);
+    expect(errors).toEqual([]);
+  });
+
+  test('a query child listener is checked with its own query and survives', () => {
+    const sandbox = initializeSandbox();
+    setData(sandbox, { '/scores/a': { score: 1 } });
+    setRules(sandbox, QUERY_GATED);
+    const errors: unknown[] = [];
+    const keys: unknown[] = [];
+    onChildAdded(query(ref(getDatabase(sandbox), 'scores'), orderByChild('score')), (snap) => keys.push(snap.key), (error) => errors.push(error));
+    expect(keys).toEqual(['a']);
     setRules(sandbox, QUERY_GATED);
     expect(errors).toEqual([]);
   });
