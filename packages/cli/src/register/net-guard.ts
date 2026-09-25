@@ -59,18 +59,16 @@
  *
  * Policy
  * ------
- * One knob, `PYRIC_GUARD=block|warn|off`, default `block`:
- *   block  report the egress and fail the request
- *   warn   report it, let it through
+ * One knob, `PYRIC_GUARD=warn|block|off`, default `warn`:
+ *   warn   report the egress, naming the service it reached, and let it through
+ *   block  report it and fail the request; only when the developer asks for it
  *   off    no hooks at all, one notice line at install time
- * Unset, empty and unrecognized values all mean `block`: a process that
- * reaches live production while its developer believes it is sandboxed is the
- * failure this module exists to prevent, so only an explicit `warn` or `off`
- * lets that traffic through. The GCE metadata IP (`169.254.169.254`,
- * `alwaysBlock` in the catalog) is refused in warn mode too and cannot be
- * allowlisted, since its only use from a dev process is credential theft.
- * `off` is genuinely off, metadata IP included; the off notice says so out
- * loud.
+ * Unset, empty and unrecognized values all mean `warn`. A process may talk to
+ * the sandbox and to live production at once on purpose, so the guard's
+ * default job is to say which system each request reached, never to refuse
+ * it. Under `block`, the GCE metadata IP (`169.254.169.254`, `alwaysBlock` in
+ * the catalog) is refused and cannot be allowlisted; under `warn` it is
+ * reported like any other catalog host.
  *
  * A blocked fetch surfaces to app code as a bare `TypeError: fetch failed`
  * (the reason is buried on `error.cause`), so the guard must log its own
@@ -147,13 +145,13 @@ export interface EgressVerdict {
   readonly alwaysBlock?: true;
 }
 
-/** `PYRIC_GUARD` → mode. Unset, empty or unrecognised all mean `block`;
- *  `warn` and `off` take effect only when named. */
+/** `PYRIC_GUARD` → mode. Unset, empty or unrecognised all mean `warn`;
+ *  `block` and `off` take effect only when named. */
 export function parseGuardMode(raw: string | undefined): GuardMode {
   const value = (raw ?? '').trim().toLowerCase();
-  if (value === 'warn') return 'warn';
+  if (value === 'block') return 'block';
   if (value === 'off') return 'off';
-  return 'block';
+  return 'warn';
 }
 
 /** `PYRIC_GUARD_ALLOW` → hostnames. Accepts bare hosts and full URLs, because
@@ -212,10 +210,11 @@ export function evaluateEgress(
   const entry: GoogleEndpoint | undefined = lookupGoogleEndpoint(host);
   if (entry === undefined) return null;
 
-  // `alwaysBlock` outranks both the mode and the allowlist: the metadata
-  // server is never a legitimate destination for a sandboxed dev process, so
-  // there is no configuration that should be able to permit it.
-  if (entry.alwaysBlock === true) {
+  // Under `block`, `alwaysBlock` outranks the allowlist: the metadata server
+  // is refused whatever PYRIC_GUARD_ALLOW says. Under `warn` it is reported
+  // like any other catalog host.
+  const refusesAlways = entry.alwaysBlock === true && policy.mode === 'block';
+  if (refusesAlways) {
     return {
       verdict: 'block',
       permitted: false,
@@ -260,13 +259,13 @@ export function formatGuardLine(
   if (verdict.verdict === 'warn') {
     return (
       `${head} LIVE production egress. A sandboxed app routes Firebase traffic to /__pyric/*, ` +
-      `so this is reaching real data. Unset PYRIC_GUARD to fail these requests instead. ${tail}\n`
+      `so this is reaching real data. Set PYRIC_GUARD=block to fail these requests instead. ${tail}\n`
     );
   }
   let why: string;
   let remedy = '';
   if (verdict.alwaysBlock === true) {
-    why = 'the credential metadata server is refused in every mode except PYRIC_GUARD=off';
+    why = 'the credential metadata server is refused under PYRIC_GUARD=block, and no allowlist entry permits it';
   } else {
     why = 'live production egress refused';
     remedy = ` To reach it deliberately, ${guardRemedy(verdict)}.`;
@@ -295,7 +294,7 @@ function guardRemedy(verdict: EgressVerdict): string {
 function blockedError(verdict: EgressVerdict, transport: 'fetch' | 'socket'): Error {
   let remedy: string;
   if (verdict.alwaysBlock === true) {
-    remedy = 'The credential metadata server is refused in every mode except PYRIC_GUARD=off.';
+    remedy = 'The credential metadata server is refused under PYRIC_GUARD=block, and no allowlist entry permits it.';
   } else {
     remedy = `To reach it deliberately, ${guardRemedy(verdict)}.`;
   }

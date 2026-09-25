@@ -582,7 +582,7 @@ describe('installNetGuard', () => {
     const log = collector();
     const guard = installNetGuard({
       scope,
-      env: { PYRIC_SANDBOX: '1' },
+      env: { PYRIC_SANDBOX: '1', PYRIC_GUARD: 'block' },
       write: log.write,
       net: noNet,
       tls: noTls,

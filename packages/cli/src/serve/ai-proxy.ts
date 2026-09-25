@@ -187,8 +187,8 @@ export function resolveAiProxyUpstream(
 /**
  * The AI upstream as a network-guard allowance for the processes `pyric
  * sandbox` launches. A configured upstream is a destination the developer
- * chose, such as a Vertex AI endpoint, so the guard's default `block` mode
- * must not refuse it. The local Ollama default is loopback, which the guard
+ * chose, such as a Vertex AI endpoint, so the guard reports it as permitted,
+ * and `block` mode, when the developer turns it on, does not refuse it. The local Ollama default is loopback, which the guard
  * never flags, so it yields no allowance.
  */
 export function aiUpstreamGuardAllowance(configured: string | undefined): string[] {
