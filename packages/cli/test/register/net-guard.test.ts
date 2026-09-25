@@ -31,8 +31,10 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   GUARD_BLOCKED_CODE,
+  NET_GUARD_GLOBAL,
   evaluateEgress,
   installNetGuard,
+  permitGuardHost,
   parseAllowHosts,
   parseGuardMode,
   wrapDispatcher,
@@ -576,6 +578,30 @@ describe('installNetGuard', () => {
     expect(real.calls).toHaveLength(0);
   });
 
+  it('permits a host named after install, as the Vite plugin does for its AI upstream', () => {
+    const real = mockDispatcher();
+    const scope = fakeScope(real);
+    const log = collector();
+    const guard = installNetGuard({
+      scope,
+      env: { PYRIC_SANDBOX: '1' },
+      write: log.write,
+      net: noNet,
+      tls: noTls,
+      ...noPrototypes,
+    });
+    const dispatch = (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch;
+    const vertex = { origin: 'https://aiplatform.googleapis.com', path: '/v1/projects/demo' };
+    expect(() => dispatch(vertex, {})).toThrow(/aiplatform\.googleapis\.com/);
+    guard!.permit('https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi');
+    dispatch(vertex, {});
+    expect(real.calls).toHaveLength(1);
+    // Only the named host: other catalog hosts stay refused.
+    expect(() => dispatch({ origin: 'https://firestore.googleapis.com', path: '/v1' }, {})).toThrow(
+      /firestore\.googleapis\.com/,
+    );
+  });
+
   it('guards a Socket prototype, reading the host from every connect argument form', () => {
     const scope = fakeScope(mockDispatcher());
     const log = collector();
@@ -620,6 +646,32 @@ describe('installNetGuard', () => {
     expect(connect({ host: 'localhost', port: 5000 })).toEqual({ connected: true });
     expect(connect([{ path: '/tmp/pyric.sock' }, null])).toEqual({ connected: true });
     expect(connectCalls).toHaveLength(4);
+  });
+});
+
+describe('permitGuardHost', () => {
+  it('reaches the guard the register published, whichever copy of the module calls it', () => {
+    const permitted: string[] = [];
+    const slot = globalThis as unknown as Record<symbol, unknown>;
+    const prior = slot[NET_GUARD_GLOBAL];
+    slot[NET_GUARD_GLOBAL] = { permit: (host: string) => permitted.push(host) };
+    try {
+      permitGuardHost('https://aiplatform.googleapis.com/v1');
+    } finally {
+      slot[NET_GUARD_GLOBAL] = prior;
+    }
+    expect(permitted).toEqual(['https://aiplatform.googleapis.com/v1']);
+  });
+
+  it('does nothing in a process with no guard', () => {
+    const slot = globalThis as unknown as Record<symbol, unknown>;
+    const prior = slot[NET_GUARD_GLOBAL];
+    delete slot[NET_GUARD_GLOBAL];
+    try {
+      expect(() => permitGuardHost('https://aiplatform.googleapis.com/v1')).not.toThrow();
+    } finally {
+      slot[NET_GUARD_GLOBAL] = prior;
+    }
   });
 });
 
