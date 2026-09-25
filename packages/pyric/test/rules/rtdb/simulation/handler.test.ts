@@ -1113,5 +1113,148 @@ describe('SimulateHandler — atomic multi-path update projection', () => {
       expect((originalAuth.token as any).firebase).toBeUndefined();
     });
   });
+
+  describe('standalone operation: validate (non-cascading)', () => {
+    const rules = compileRtdbRules({
+      rules: {
+        '.validate': 'true',
+        items: {
+          $itemId: {
+            '.validate': 'newData.isString() && newData.val().length > 0',
+          },
+        },
+        room: {
+          name: {
+            '.validate': 'newData.isString()',
+          },
+        },
+      },
+    });
+
+    test('denies operation=validate when an ancestor .validate is true but target .validate is false', () => {
+      const result = handler.execute(rules, {
+        operation: 'validate',
+        path: '/items/item1',
+        auth: authed,
+        mockData: {},
+        newData: 123,
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.allowed).toBe(false);
+        expect(result.data.matchedPath).toBe('/items/$itemId');
+      }
+    });
+
+    test('allows operation=validate when all ancestor and target .validate rules pass', () => {
+      const result = handler.execute(rules, {
+        operation: 'validate',
+        path: '/items/item1',
+        auth: authed,
+        mockData: {},
+        newData: 'valid-item',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.allowed).toBe(true);
+        expect(result.data.matchedPath).toBe('/items/$itemId');
+        expect(result.data.pathVariableBindings).toEqual({ $itemId: 'item1' });
+      }
+    });
+
+    test('evaluates descendant .validate rules on operation=validate', () => {
+      const denied = handler.execute(rules, {
+        operation: 'validate',
+        path: '/room',
+        auth: authed,
+        mockData: {},
+        newData: { name: 999 },
+      });
+      expect(denied.success).toBe(true);
+      if (denied.success) {
+        expect(denied.data.allowed).toBe(false);
+        expect(denied.data.matchedPath).toBe('/room/name');
+      }
+
+      const allowed = handler.execute(rules, {
+        operation: 'validate',
+        path: '/room',
+        auth: authed,
+        mockData: {},
+        newData: { name: 'lobby' },
+      });
+      expect(allowed.success).toBe(true);
+      if (allowed.success) {
+        expect(allowed.data.allowed).toBe(true);
+      }
+    });
+
+    test('returns NO_MATCHING_RULE when no .validate rule exists on ancestors or descendants', () => {
+      const noValidateRules = compileRtdbRules({
+        rules: {
+          posts: {
+            '.read': 'true',
+            '.write': 'true',
+          },
+        },
+      });
+      const result = handler.execute(noValidateRules, {
+        operation: 'validate',
+        path: '/posts',
+        auth: authed,
+        mockData: {},
+        newData: { title: 'hello' },
+      });
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error.code).toBe('NO_MATCHING_RULE');
+      }
+    });
+  });
+
+  describe('collectAncestors with sibling $wildcard and literal child branches', () => {
+    const wildcardFirstRules = compileRtdbRules({
+      rules: {
+        items: {
+          $itemId: {
+            '.read': 'false',
+            '.write': 'false',
+          },
+          special: {
+            '.read': 'true',
+            '.write': 'auth != null',
+          },
+        },
+      },
+    });
+
+    test('evaluates literal child rule even when sibling $wildcard precedes it in node.children', () => {
+      const readResult = handler.execute(wildcardFirstRules, {
+        operation: 'read',
+        path: '/items/special',
+        auth: null,
+        mockData: {},
+      });
+      expect(readResult.success).toBe(true);
+      if (readResult.success) {
+        expect(readResult.data.allowed).toBe(true);
+        expect(readResult.data.matchedPath).toBe('/items/special');
+      }
+
+      const deepWriteResult = handler.execute(wildcardFirstRules, {
+        operation: 'write',
+        path: '/items/special/nested',
+        auth: authed,
+        mockData: {},
+        newData: 'ok',
+      });
+      expect(deepWriteResult.success).toBe(true);
+      if (deepWriteResult.success) {
+        expect(deepWriteResult.data.allowed).toBe(true);
+        expect(deepWriteResult.data.matchedPath).toBe('/items/special');
+      }
+    });
+  });
 });
+
 

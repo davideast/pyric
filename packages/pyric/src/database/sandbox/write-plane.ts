@@ -351,16 +351,22 @@ export class WritePlane {
 
   private changed(paths: string[], priors: ReturnType<ChildListeners['snapshotParents']>, priorityPath?: string): void {
     this.state.mutations.mark(paths);
+    if (this.state.rules.hasRules()) {
+      this.cancelDeniedListeners();
+    }
     this.values.fanOut(paths);
     this.children.fanOut(priors, priorityPath);
   }
 
-  private cancelDeniedListeners(): void {
+  cancelDeniedListeners(): void {
     const mockData = this.state.tree.snapshot() as Record<string, unknown>;
     const deniedValues: ValueListener[] = [];
     for (const listener of [...this.state.valueListeners]) {
+      if (listener.admin) continue;
       const evaluation = this.state.rules.evaluate('read', listener.path, {
-        auth: listener.auth, mockData,
+        auth: listener.auth,
+        mockData,
+        querySpec: listener.query,
       });
       if (evaluation.check === 'allow') continue;
       this.state.valueListeners.delete(listener);
@@ -386,7 +392,9 @@ export class WritePlane {
     const deniedChildren: ChildListener[] = [];
     for (const listener of [...this.state.childListeners]) {
       const evaluation = this.state.rules.evaluate('read', listener.path, {
-        auth: listener.auth, mockData,
+        auth: listener.auth,
+        mockData,
+        querySpec: listener.spec,
       });
       if (evaluation.check === 'allow') continue;
       this.state.childListeners.delete(listener);

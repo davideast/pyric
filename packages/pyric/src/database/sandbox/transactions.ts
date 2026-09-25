@@ -80,12 +80,7 @@ export class Transactions {
       throw transactionPermissionDenied();
     }
     if (applyLocally) {
-      const currentPriority = this.state.priorities.get(path);
-      const childPriors = this.children.snapshotParents();
-      this.state.tree.write(path, resolved);
-      this.state.priorities.replace(path, currentPriority);
-      this.values.fanOut([path]);
-      this.children.fanOut(childPriors);
+      this.applyCommittedWrite(path, resolved, false);
       this.recordCommit(auth, path, proposed, current, resolved, groupId, now, at, true, evaluation);
       return { committed: true, val: resolved, key };
     }
@@ -96,16 +91,26 @@ export class Transactions {
       resourceAfter: { data: resolved, exists: resolved !== null },
       groupId, groupKind: 'transaction',
     });
-    const priority = this.state.priorities.get(path);
-    const childPriors = this.children.snapshotParents();
-    this.state.tree.write(path, resolved);
-    this.state.priorities.replace(path, priority);
-    this.state.mutations.mark(path);
-    this.values.fanOut([path]);
-    this.children.fanOut(childPriors);
+    this.applyCommittedWrite(path, resolved, true);
     this.finishEvents(auth, path, proposed, current, resolved, groupId, now, false);
     this.state.notifyWrite();
     return { committed: true, val: resolved, key };
+  }
+
+  private applyCommittedWrite(path: string, resolved: JsonValue, markBeforeFanOut: boolean): void {
+    const currentPriority = this.state.priorities.get(path);
+    const childPriors = this.children.snapshotParents();
+    const nextPriority = resolved === null ? null : currentPriority;
+    this.state.tree.write(path, resolved);
+    this.state.priorities.replace(path, nextPriority);
+    if (markBeforeFanOut) {
+      this.state.mutations.mark(path);
+    }
+    if (this.state.rules.hasRules()) {
+      this.state.cancelDeniedListeners();
+    }
+    this.values.fanOut([path]);
+    this.children.fanOut(childPriors);
   }
 
   private recordCommit(

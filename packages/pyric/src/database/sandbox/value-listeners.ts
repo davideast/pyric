@@ -118,8 +118,9 @@ export class ValueListeners {
       at: provenance.at, durationMs: this.state.clock.now() - provenance.at,
       request: query ? { query } : undefined, origin: provenance.origin,
     });
+    const isAdminOrigin = provenance.origin === 'admin';
     const listener: ValueListener = {
-      id, auth, cb, path, query, cancelCallback, onCanceled, owners: attachOwners,
+      id, auth, cb, path, query, cancelCallback, onCanceled, admin: isAdminOrigin, owners: attachOwners,
     };
     this.state.valueListeners.add(listener);
     this.state.events.listener('attach', listener, auth, {

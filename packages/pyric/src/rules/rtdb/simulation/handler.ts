@@ -273,11 +273,25 @@ function collectAncestors(
         : { ...bindings };
       const deeper = collectAncestors(child, pathSegments.slice(1), newBindings, depth + 1);
       ancestors.push(...deeper);
-      return ancestors;
     }
   }
 
   return ancestors;
+}
+
+function toValidateFailureResult(failure: ValidateFailure): SimulateResult {
+  let reason = 'Validation rule evaluated to false';
+  if (failure.unsupported) {
+    reason = `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw} — not evaluated; production may reject this write.`;
+  }
+  return {
+    success: true,
+    data: {
+      allowed: false, unsupported: failure.unsupported === true,
+      matchedPath: failure.node.path, matchedRule: failure.rule.raw,
+      reason, pathVariableBindings: failure.bindings,
+    },
+  };
 }
 
 /**
@@ -369,11 +383,7 @@ export class SimulateHandler {
     if (!parsed.success) {
       return {
         success: false,
-        error: {
-          code: 'INVALID_INPUT',
-          message: parsed.error.message,
-          recoverable: true,
-        },
+        error: { code: 'INVALID_INPUT', message: parsed.error.message, recoverable: true },
       };
     }
 
@@ -426,18 +436,12 @@ export class SimulateHandler {
             if (fbObj.tenant !== undefined) {
               tenantValue = fbObj.tenant as string;
             }
-            token.firebase = {
-              ...fbObj,
-              tenant: tenantValue,
-            };
+            token.firebase = { ...fbObj, tenant: tenantValue };
           } else {
             token.firebase = { tenant: auth.tenant };
           }
         }
-        contextAuth = {
-          uid: auth.uid,
-          token,
-        };
+        contextAuth = { uid: auth.uid, token };
       }
 
       const contextQuery = buildSimulatedQueryContext(operation, query);
@@ -449,15 +453,38 @@ export class SimulateHandler {
           pvBindings[k.slice(1)] = v;
         }
         return {
-          auth: contextAuth,
-          data,
-          newData: newDataArg,
-          root: rootData,
-          now: evaluationNow,
-          pathVariableBindings: pvBindings,
-          query: contextQuery,
+          auth: contextAuth, data, newData: newDataArg, root: rootData,
+          now: evaluationNow, pathVariableBindings: pvBindings, query: contextQuery,
         };
       };
+
+      if (operation === 'validate') {
+        let matchingValidateAncestor = [...ancestors].reverse().find((a) => a.node.validate !== undefined);
+        if (matchingValidateAncestor === undefined) {
+          matchingValidateAncestor = ancestors.find((a) => hasValidateRule(a.node));
+        }
+        if (matchingValidateAncestor === undefined) {
+          return {
+            success: false,
+            error: { code: 'NO_MATCHING_RULE', message: `No 'validate' rule found for path '${path}'`, recoverable: true },
+          };
+        }
+        const failure = findFailingValidate(rootNode, rootData, mergedRootData, {}, buildContext, pathSegments, updates);
+        if (failure) return toValidateFailureResult(failure);
+        const matchedValidateRule = matchingValidateAncestor.node.validate
+          ? matchingValidateAncestor.node.validate.raw
+          : 'true';
+        return {
+          success: true,
+          data: {
+            allowed: true,
+            matchedPath: matchingValidateAncestor.node.path,
+            matchedRule: matchedValidateRule,
+            reason: 'Validation rules evaluated to true',
+            pathVariableBindings: matchingValidateAncestor.pathVariableBindings,
+          },
+        };
+      }
 
       // Tracks the first ancestor whose `.write`/`.read` rule the grammar
       // couldn't parse. Unlike `.validate`, `.write`/`.read` rules cascade
@@ -492,31 +519,10 @@ export class SimulateHandler {
           // Unlike `.read`/`.write`, `.validate` does NOT cascade — all must
           // pass (a single failure denies the write). Read ops have no
           // validate phase.
-          if (operation === 'write') {
-            const failure = findFailingValidate(
-              rootNode,
-              rootData,
-              mergedRootData,
-              {},
-              buildContext,
-              pathSegments,
-              updates,
-            );
-            if (failure) {
-              return {
-                success: true,
-                data: {
-                  allowed: false,
-                  unsupported: failure.unsupported === true,
-                  matchedPath: failure.node.path,
-                  matchedRule: failure.rule.raw,
-                  reason: failure.unsupported
-                    ? `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw} — not evaluated; production may reject this write.`
-                    : 'Validation rule evaluated to false',
-                  pathVariableBindings: failure.bindings,
-                },
-              };
-            }
+          const isWriteOperation = operation === 'write';
+          if (isWriteOperation) {
+            const failure = findFailingValidate(rootNode, rootData, mergedRootData, {}, buildContext, pathSegments, updates);
+            if (failure) return toValidateFailureResult(failure);
           }
           return {
             success: true,

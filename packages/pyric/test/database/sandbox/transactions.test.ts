@@ -78,3 +78,61 @@ it('marks a locally applied transaction commit so an enclosing transaction detec
   expect(result).toEqual({ committed: true, val: 11, key: 'count' });
 });
 
+it('clears node priority when a transaction deletes a node by returning null', () => {
+  const state = new BackendState();
+  state.rules.setDefaultPolicy('allow');
+  const values = new ValueListeners(state);
+  const children = new ChildListeners(state);
+  const transactions = new Transactions(state, values, children);
+
+  state.tree.write('/item', 'hello');
+  state.priorities.replace('/item', 42);
+  expect(state.priorities.get('/item')).toBe(42);
+
+  const res = transactions.run(null, '/item', () => null);
+  expect(res.committed).toBe(true);
+  expect(res.val).toBeNull();
+  expect(state.priorities.get('/item')).toBeNull();
+
+  // Also verify applyLocally: false path
+  state.tree.write('/item2', 'world');
+  state.priorities.replace('/item2', 99);
+  const res2 = transactions.run(null, '/item2', () => null, { applyLocally: false });
+  expect(res2.committed).toBe(true);
+  expect(state.priorities.get('/item2')).toBeNull();
+});
+
+it('revokes newly denied listeners before fanning out when a transaction mutates data', () => {
+  const state = new BackendState();
+  const values = new ValueListeners(state);
+  const children = new ChildListeners(state);
+  state.tree.write('/doc', { public: true, secret: 'initial' });
+  state.rules.setRules({
+    rules: {
+      doc: {
+        '.read': "data.child('public').val() == true",
+        '.write': "auth != null && auth.uid == 'owner'",
+      },
+    },
+  });
+
+  const transactions = new Transactions(state, values, children);
+
+  const seen: unknown[] = [];
+  const errors: Error[] = [];
+  values.onValue(
+    { uid: 'guest' },
+    '/doc',
+    (snap) => seen.push(snap.val),
+    undefined,
+    (err) => errors.push(err),
+  );
+  expect(seen).toEqual([{ public: true, secret: 'initial' }]);
+
+  transactions.run({ uid: 'owner' }, '/doc', () => ({ public: false, secret: 'classified' }));
+  expect(seen).toEqual([{ public: true, secret: 'initial' }]);
+  expect(state.valueListeners.size).toBe(0);
+  expect(errors).toHaveLength(1);
+  expect(errors[0]?.message).toContain('permission_denied');
+});
+

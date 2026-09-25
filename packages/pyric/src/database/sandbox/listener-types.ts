@@ -21,6 +21,7 @@ export interface ValueListener {
   lastWindow?: QueryRow[];
   lastValue?: JsonValue;
   lastPriorityState?: string;
+  admin?: boolean;
   /** Owners recorded on this listener's `attach` event. */
   owners?: ListenerOwner[];
 }
