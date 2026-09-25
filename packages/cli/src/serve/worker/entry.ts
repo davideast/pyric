@@ -57,6 +57,7 @@ import {
   handleMessage,
   type HostCtx,
 } from './host.js';
+import { fail } from './host-context.js';
 import { buildWorkerCtx, type EventSourceLike } from './serve-init.js';
 import type { InboundMessage } from './protocol.js';
 import { refuseInvalidInboundMessage } from './inbound-validation.js';
@@ -150,6 +151,10 @@ workerScope.onconnect = (e: MessageEvent) => {
         await handleMessage(ctx, port, message);
       } catch (error) {
         console.error('[pyric worker] message handler error:', error, 'msg:', message);
+        // A request whose handler threw, including a sandbox that failed to
+        // start, still gets its reply, so the page does not wait on it.
+        const canReply = 'id' in message && !portLifecycle.isPortClosed(port);
+        if (canReply) fail(port, message.id, error);
       }
     },
     refuse(message, error) {
