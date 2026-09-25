@@ -122,6 +122,7 @@
         "r17-validate-runtime-error",
         "r18-child-dot-segments",
         "r2-own-uid",
+        "r21-validate-on-delete",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -190,6 +191,7 @@
         "r17-validate-runtime-error",
         "r18-child-dot-segments",
         "r20-priority-values",
+        "r21-validate-on-delete",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -302,6 +304,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r15-validate-ancestor-scope",
+        "r21-validate-on-delete",
         "r4-validate-structure",
         "r8-combined-check"
       ],
@@ -346,6 +349,7 @@
       "verifiedBy": [
         "r10-snapshot-type-guards",
         "r12-server-time-and-token",
+        "r21-validate-on-delete",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -360,7 +364,8 @@
       "verifiedBy": [
         "r10-snapshot-type-guards",
         "r11-string-validation",
-        "r17-validate-runtime-error"
+        "r17-validate-runtime-error",
+        "r21-validate-on-delete"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -535,6 +540,7 @@
         "r17-validate-runtime-error",
         "r18-child-dot-segments",
         "r20-priority-values",
+        "r21-validate-on-delete",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -804,6 +810,7 @@
         "r19-literal-and-wildcard-siblings",
         "r2-own-uid",
         "r20-priority-values",
+        "r21-validate-on-delete",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -832,11 +839,13 @@
         "r18-child-dot-segments",
         "r19-literal-and-wildcard-siblings",
         "r20-priority-values",
+        "r21-validate-on-delete",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [
-        "rtdb-rules#17"
+        "rtdb-rules#17",
+        "rtdb-rules#21"
       ],
       "divergedByRows": []
     },
@@ -863,6 +872,7 @@
         "r15-validate-ancestor-scope",
         "r19-literal-and-wildcard-siblings",
         "r2-own-uid",
+        "r21-validate-on-delete",
         "r7-pathvar-binding"
       ],
       "verifiedByRows": [
@@ -909,7 +919,8 @@
       "verifiedByRows": [
         "rtdb-rules#4",
         "rtdb-rules#10",
-        "rtdb-rules#15"
+        "rtdb-rules#15",
+        "rtdb-rules#21"
       ],
       "divergedByRows": []
     },
