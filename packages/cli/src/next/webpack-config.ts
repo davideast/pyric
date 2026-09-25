@@ -17,7 +17,12 @@ function assembleClientResolveSection(existingResolve: Record<string, any> | und
   const resolveSection = existingResolve !== undefined ? Object.assign({}, existingResolve) : {};
 
   const currentAliases = resolveSection.alias !== undefined ? Object.assign({}, resolveSection.alias) : {};
-  const newAliases = getClientAliases();
+  // Webpack matches a key as a prefix unless it ends in `$`. Exact keys keep
+  // `firebase/firestore` from capturing `firebase/firestore/lite`.
+  const newAliases: Record<string, string> = {};
+  for (const [source, target] of Object.entries(getClientAliases())) {
+    newAliases[`${source}$`] = target;
+  }
   resolveSection.alias = Object.assign(currentAliases, newAliases);
 
   const currentFallbacks = resolveSection.fallback !== undefined ? Object.assign({}, resolveSection.fallback) : {};

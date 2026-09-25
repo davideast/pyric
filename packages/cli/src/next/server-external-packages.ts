@@ -2,8 +2,10 @@
  * Server module externalization logic for Next.js runtime loader interception.
  */
 import type { NextConfigObject } from './types.js';
+import { pyricExternalPackages } from '../bundler/externals.js';
 
-const TARGET_SERVER_PACKAGES = ['firebase', 'firebase-admin'];
+/** The packages every backend bundler keeps external, from the bundler presets. */
+const TARGET_SERVER_PACKAGES = pyricExternalPackages;
 
 function appendExternalPackages(existingPackages?: unknown): string[] {
   const packageSet = new Set<string>();
