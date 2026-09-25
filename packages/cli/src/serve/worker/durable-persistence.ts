@@ -43,13 +43,16 @@ export function createWorkerDurableBackend(
     ...authHeaders,
   };
 
-  let primed = false;
-  const primeOnce = async (key: string): Promise<void> => {
-    if (primed) return;
-    primed = true;
+  const prime = async (key: string): Promise<void> => {
     if ((await idb.listRecords(key)).length > 0) return;
     if (persist) {
-      const res = await env.fetch(stateSection('firestore'), { headers: authHeaders });
+      let res: Response;
+      try {
+        res = await env.fetch(stateSection('firestore'), { headers: authHeaders });
+      } catch (error) {
+        console.warn('[pyric worker] --persist: the server file could not be read; reading local IndexedDB.', error);
+        return;
+      }
       if (res.status === 200) {
         const records = parseBundle(await res.text());
         if (records.size > 0) await idb.putRecords(key, records);
@@ -57,6 +60,17 @@ export function createWorkerDurableBackend(
     } else if (fixtureRecords !== null) {
       await idb.putRecords(key, fixtureRecords);
     }
+  };
+
+  // One priming pass per worker. Reads that arrive while it runs wait for it,
+  // so none reads IndexedDB before the server file or fixture lands. After a
+  // pass that failed, reads go to IndexedDB.
+  let priming: Promise<void> | null = null;
+  const primeOnce = (key: string): Promise<void> => {
+    if (priming !== null) return priming;
+    const pass = prime(key);
+    priming = pass.catch(() => undefined);
+    return pass;
   };
 
   const mirror = async (key: string): Promise<void> => {

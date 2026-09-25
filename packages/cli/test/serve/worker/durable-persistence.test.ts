@@ -270,6 +270,22 @@ describe('createWorkerDurableBackend priming', () => {
     expect(fetchFn.gets).toBe(1);
   });
 
+  it('rejects the read whose priming pass fails, and reads IndexedDB after it', async () => {
+    const memory = createMemoryBackend();
+    const idb: PersistenceBackend = {
+      ...memory,
+      putRecords: async () => { throw new Error('quota exceeded'); },
+    };
+    const serverBundle = bundleRecords(
+      serializeToBuckets({ 'todos/s1': { title: 'from-server' } }, {}, 0),
+    );
+    const fetchFn = fakeFetch(() => ({ status: 200, body: serverBundle }));
+    const durable = createWorkerDurableBackend(idb, { ...basePayload, persist: true }, { fetch: fetchFn });
+
+    await expect(durable.listRecords(PERSIST_KEY)).rejects.toThrow('quota exceeded');
+    expect(await durable.listRecords(PERSIST_KEY)).toEqual([]);
+  });
+
   it('reads IndexedDB when the server cannot be reached, without fetching again', async () => {
     const idb = createMemoryBackend();
     let gets = 0;
