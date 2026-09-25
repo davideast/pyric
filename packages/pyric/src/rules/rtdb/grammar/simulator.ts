@@ -239,6 +239,36 @@ class RtdbString {
   }
 }
 
+function requireStringArg(val: unknown, methodName: string): string {
+  const isStringArg = typeof val === 'string';
+  if (!isStringArg) {
+    throw new Error(`Method '${methodName}' requires a string argument`);
+  }
+  return val;
+}
+
+function requirePatternArg(val: unknown, methodName: string): string | RegExp {
+  const isValidPattern = typeof val === 'string' || val instanceof RegExp;
+  if (!isValidPattern) {
+    throw new Error(`Method '${methodName}' requires a string or RegExp argument`);
+  }
+  return val;
+}
+
+function assertNotDataSnapshot(left: unknown, right: unknown): void {
+  const hasRawDataSnapshot = left instanceof DataSnapshot || right instanceof DataSnapshot;
+  if (hasRawDataSnapshot) {
+    throw new Error('DataSnapshot operand must be unwrapped with .val()');
+  }
+}
+
+function evalBinaryPair(left: any, right: any, ctx: unknown): [any, any] {
+  const l = left.eval(ctx);
+  const r = right.eval(ctx);
+  assertNotDataSnapshot(l, r);
+  return [l, r];
+}
+
 let evalSemantics: Semantics | undefined;
 
 function getEvalSemantics(): Semantics {
@@ -256,21 +286,21 @@ function getEvalSemantics(): Semantics {
     Logical_or(left, _op, right) { return (left as any).eval(this.args.ctx) || (right as any).eval(this.args.ctx); },
     Logical(node) { return (node as any).eval(this.args.ctx); },
 
-    Comparison_gte(left, _op, right) { return (left as any).eval(this.args.ctx) >= (right as any).eval(this.args.ctx); },
-    Comparison_lte(left, _op, right) { return (left as any).eval(this.args.ctx) <= (right as any).eval(this.args.ctx); },
-    Comparison_gt(left, _op, right) { return (left as any).eval(this.args.ctx) > (right as any).eval(this.args.ctx); },
-    Comparison_lt(left, _op, right) { return (left as any).eval(this.args.ctx) < (right as any).eval(this.args.ctx); },
-    Comparison_looseEq(left, _op, right) { return (left as any).eval(this.args.ctx) == (right as any).eval(this.args.ctx); },
-    Comparison_looseNeq(left, _op, right) { return (left as any).eval(this.args.ctx) != (right as any).eval(this.args.ctx); },
+    Comparison_gte(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return l >= r; },
+    Comparison_lte(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return l <= r; },
+    Comparison_gt(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return l > r; },
+    Comparison_lt(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return l < r; },
+    Comparison_looseEq(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return l == r; },
+    Comparison_looseNeq(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return l != r; },
     Comparison(node) { return (node as any).eval(this.args.ctx); },
 
-    Additive_add(left, _op, right) { return (left as any).eval(this.args.ctx) as number + ((right as any).eval(this.args.ctx) as number); },
-    Additive_sub(left, _op, right) { return (left as any).eval(this.args.ctx) as number - ((right as any).eval(this.args.ctx) as number); },
+    Additive_add(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return (l as number) + (r as number); },
+    Additive_sub(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return (l as number) - (r as number); },
     Additive(node) { return (node as any).eval(this.args.ctx); },
 
-    Multiplicative_mul(left, _op, right) { return (left as any).eval(this.args.ctx) as number * ((right as any).eval(this.args.ctx) as number); },
-    Multiplicative_div(left, _op, right) { return (left as any).eval(this.args.ctx) as number / ((right as any).eval(this.args.ctx) as number); },
-    Multiplicative_mod(left, _op, right) { return (left as any).eval(this.args.ctx) as number % ((right as any).eval(this.args.ctx) as number); },
+    Multiplicative_mul(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return (l as number) * (r as number); },
+    Multiplicative_div(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return (l as number) / (r as number); },
+    Multiplicative_mod(left, _op, right) { const [l, r] = evalBinaryPair(left, right, this.args.ctx); return (l as number) % (r as number); },
     Multiplicative(node) { return (node as any).eval(this.args.ctx); },
 
     UnaryExpr_not(_op, expr) {
@@ -292,12 +322,12 @@ function getEvalSemantics(): Semantics {
         switch (method) {
           case 'val': return recv.val();
           case 'exists': return recv.exists();
-          case 'hasChild': return recv.hasChild(String(argValues[0]));
+          case 'hasChild': return recv.hasChild(requireStringArg(argValues[0], 'hasChild'));
           case 'hasChildren': return recv.hasChildren(argValues.length > 0 ? (argValues[0] as unknown[]) : undefined);
           case 'isString': return recv.isString();
           case 'isNumber': return recv.isNumber();
           case 'isBoolean': return recv.isBoolean();
-          case 'child': return recv.child(String(argValues[0]));
+          case 'child': return recv.child(requireStringArg(argValues[0], 'child'));
           case 'parent': return recv.parent();
           case 'getPriority': return recv.getPriority();
           default: throw new Error(`Unknown DataSnapshot method: ${method}`);
@@ -308,10 +338,14 @@ function getEvalSemantics(): Semantics {
         const str = new RtdbString(recv);
         switch (method) {
           case 'matches': return str.matches(argValues[0] as RegExp | string);
-          case 'contains': return str.contains(String(argValues[0]));
-          case 'beginsWith': return str.beginsWith(String(argValues[0]));
-          case 'endsWith': return str.endsWith(String(argValues[0]));
-          case 'replace': return str.replace(argValues[0] as string | RegExp, String(argValues[1]));
+          case 'contains': return str.contains(requireStringArg(argValues[0], 'contains'));
+          case 'beginsWith': return str.beginsWith(requireStringArg(argValues[0], 'beginsWith'));
+          case 'endsWith': return str.endsWith(requireStringArg(argValues[0], 'endsWith'));
+          case 'replace':
+            return str.replace(
+              requirePatternArg(argValues[0], 'replace'),
+              requireStringArg(argValues[1], 'replace'),
+            );
           case 'toLowerCase': return str.toLowerCase();
           case 'toUpperCase': return str.toUpperCase();
           default: throw new Error(`Unknown string method: ${method}`);

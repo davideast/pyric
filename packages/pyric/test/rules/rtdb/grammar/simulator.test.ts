@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'bun:test';
+import { compileRtdbRules, simulateRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
 import { DataSnapshot, evaluateRtdbExpression } from '../../../../src/rules/rtdb/grammar/simulator.js';
 
 function evalExpr(raw: string, ctx: Parameters<typeof evaluateRtdbExpression>[1]) {
@@ -232,3 +233,72 @@ describe('evaluateRtdbExpression', () => {
     });
   });
 });
+
+describe('05-rtdb-method-call-strict-string-arguments', () => {
+  const methodCtx = {
+    auth: null,
+    data: new DataSnapshot({ null: 'secret', name: 'null_admin' }),
+    newData: new DataSnapshot('null_admin'),
+    root: new DataSnapshot({ users: { null: true } }),
+    now: Date.now(),
+    pathVariableBindings: {},
+  };
+
+  test('DataSnapshot.child and hasChild reject non-string arguments instead of coercing null to "null"', () => {
+    expect(() =>
+      evaluateRtdbExpression("root.child('users').child(auth.uid).val() == true", methodCtx),
+    ).toThrow();
+    expect(() => evaluateRtdbExpression('data.child(null).val() == "secret"', methodCtx)).toThrow();
+    expect(() => evaluateRtdbExpression('data.hasChild(null)', methodCtx)).toThrow();
+    expect(() => evaluateRtdbExpression('data.hasChild(123)', methodCtx)).toThrow();
+  });
+
+  test('RtdbString methods reject non-string arguments instead of coercing null to "null"', () => {
+    expect(() => evaluateRtdbExpression('newData.val().contains(null)', methodCtx)).toThrow();
+    expect(() => evaluateRtdbExpression('newData.val().beginsWith(null)', methodCtx)).toThrow();
+    expect(() => evaluateRtdbExpression('newData.val().endsWith(null)', methodCtx)).toThrow();
+    expect(() => evaluateRtdbExpression("newData.val().replace(null, 'x')", methodCtx)).toThrow();
+    expect(() => evaluateRtdbExpression("newData.val().replace('null', null)", methodCtx)).toThrow();
+  });
+});
+
+describe('06-rtdb-reject-raw-datasnapshot-operands', () => {
+  const operandCtx = {
+    auth: { uid: 'u1', token: {} },
+    data: new DataSnapshot('admin'),
+    newData: new DataSnapshot(10),
+    root: new DataSnapshot({}),
+    now: Date.now(),
+    pathVariableBindings: {},
+  };
+
+  test('comparison and arithmetic operators reject un-unwrapped DataSnapshot operands', () => {
+    expect(() => evaluateRtdbExpression("data != 'admin'", operandCtx)).toThrow();
+    expect(() => evaluateRtdbExpression("data == 'admin'", operandCtx)).toThrow();
+    expect(() => evaluateRtdbExpression('newData < 20', operandCtx)).toThrow();
+    expect(() => evaluateRtdbExpression('newData + 5 == 15', operandCtx)).toThrow();
+    expect(() => evaluateRtdbExpression('newData - 5 == 5', operandCtx)).toThrow();
+
+    // Properly unwrapped .val() continues to work
+    expect(evaluateRtdbExpression("data.val() == 'admin'", operandCtx)).toBe(true);
+    expect(evaluateRtdbExpression('newData.val() + 5 == 15', operandCtx)).toBe(true);
+
+    // End-to-end simulation fails closed when a rule compares raw data without .val()
+    const compiled = compileRtdbRules({
+      rules: {
+        items: {
+          '.write': "data != 'locked'",
+        },
+      },
+    });
+    const sim = simulateRtdbRules(compiled, {
+      operation: 'write',
+      path: '/items',
+      auth: { uid: 'u1' },
+      mockData: { items: 'locked' },
+      newData: 'unlocked',
+    });
+    expect(sim.success).toBe(false);
+  });
+});
+
