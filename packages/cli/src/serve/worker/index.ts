@@ -256,3 +256,7 @@ export type {
 export { getHostedFirestore } from './client/websocket-connection.js';
 export { readHostedTarget } from '../runtime/hosted-target.js';
 export { takeAuthMail } from './client/auth-action-codes.js';
+// A port an app opens to the worker itself, such as one it hands to a worker
+// of its own, is wired and released with these, and carries the AI calls.
+export { wirePort, disconnectPort } from './client/core.js';
+export { aiGenerateContent, aiStreamGenerateContent, aiCountTokens } from './client/ai.js';
