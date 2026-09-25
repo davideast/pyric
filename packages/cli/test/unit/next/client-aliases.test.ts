@@ -9,7 +9,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getClientAliases } from '../../../src/next/client-aliases.js';
 
-const SPECIFIER = /^@pyric\/cli\/next\/sdk\/[a-z-]+$/;
+const SPECIFIER = /^@pyric\/cli\/next\/internal\/[a-z-]+$/;
 
 describe('client aliases', () => {
   it('names a package specifier for every client module', () => {
@@ -28,7 +28,7 @@ describe('client aliases', () => {
 
   it('sends firebase/firestore/lite to the deferred lite entry, not the full Firestore entry', async () => {
     const aliases = getClientAliases();
-    expect(aliases['firebase/firestore/lite']).toBe('@pyric/cli/next/sdk/firestore-lite');
+    expect(aliases['firebase/firestore/lite']).toBe('@pyric/cli/next/internal/firestore-lite');
     const lite = (await import(aliases['firebase/firestore/lite']!)) as Record<string, () => unknown>;
     expect(() => lite.getFirestore!()).toThrow("pyric: 'firebase/firestore/lite' is not yet mirrored by the local sandbox.");
   });

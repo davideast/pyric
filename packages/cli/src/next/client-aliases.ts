@@ -5,7 +5,7 @@
 /**
  * Each client `firebase/*` specifier and the `serve/entries` wrapper that
  * replaces it. Every wrapper is exported by `@pyric/cli` as
- * `@pyric/cli/next/sdk/<entry>`.
+ * `@pyric/cli/next/internal/<entry>`.
  */
 const CLIENT_MODULES: Readonly<Record<string, string>> = {
   'firebase/ai': 'ai',
@@ -29,7 +29,7 @@ const CLIENT_MODULES: Readonly<Record<string, string>> = {
 export function getClientAliases(): Record<string, string> {
   const aliases: Record<string, string> = {};
   for (const [source, entry] of Object.entries(CLIENT_MODULES)) {
-    aliases[source] = `@pyric/cli/next/sdk/${entry}`;
+    aliases[source] = `@pyric/cli/next/internal/${entry}`;
   }
   return aliases;
 }

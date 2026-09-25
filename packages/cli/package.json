@@ -112,31 +112,31 @@
       "types": "./dist/serve/runtime/flow-treatments/types.d.ts",
       "import": "./dist/serve/runtime/flow-treatments/types.js"
     },
-    "./next/sdk/ai": {
+    "./next/internal/ai": {
       "import": "./dist/serve/entries/ai.js"
     },
-    "./next/sdk/app": {
+    "./next/internal/app": {
       "import": "./dist/serve/entries/app.js"
     },
-    "./next/sdk/auth": {
+    "./next/internal/auth": {
       "import": "./dist/serve/entries/auth.js"
     },
-    "./next/sdk/firestore": {
+    "./next/internal/firestore": {
       "import": "./dist/serve/entries/firestore.js"
     },
-    "./next/sdk/firestore-lite": {
+    "./next/internal/firestore-lite": {
       "import": "./dist/serve/entries/firestore-lite.js"
     },
-    "./next/sdk/database": {
+    "./next/internal/database": {
       "import": "./dist/serve/entries/database.js"
     },
-    "./next/sdk/messaging": {
+    "./next/internal/messaging": {
       "import": "./dist/serve/entries/messaging.js"
     },
-    "./next/sdk/messaging-sw": {
+    "./next/internal/messaging-sw": {
       "import": "./dist/serve/entries/messaging-sw.js"
     },
-    "./next/sdk/storage": {
+    "./next/internal/storage": {
       "import": "./dist/serve/entries/storage.js"
     }
   },

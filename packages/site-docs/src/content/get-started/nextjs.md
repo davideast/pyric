@@ -36,7 +36,7 @@ export default withPyric(nextConfig);
 | Node built-ins in client code | `resolve.fallback` sets `fs`, `path` and `url` to empty modules | unchanged |
 | Server imports of `firebase` and `firebase-admin` | `serverExternalPackages` | `serverExternalPackages` |
 
-Each alias names a module `@pyric/cli` exports, such as `firebase/firestore` to `@pyric/cli/next/sdk/firestore`, so both bundlers resolve it from your project's dependencies. The aliased specifiers are `firebase/ai`, `firebase/app`, `firebase/auth`, `firebase/database`, `firebase/firestore`, `firebase/firestore/lite`, `firebase/messaging`, `firebase/messaging/sw` and `firebase/storage`. `@firebase/*` packages are never aliased, so Firebase services Pyric does not mirror load from the real SDK.
+Each alias names a module `@pyric/cli` exports, such as `firebase/firestore` to `@pyric/cli/next/internal/firestore`, so both bundlers resolve it from your project's dependencies. The aliased specifiers are `firebase/ai`, `firebase/app`, `firebase/auth`, `firebase/database`, `firebase/firestore`, `firebase/firestore/lite`, `firebase/messaging`, `firebase/messaging/sw` and `firebase/storage`. `@firebase/*` packages are never aliased, so Firebase services Pyric does not mirror load from the real SDK.
 
 `firebase/firestore/lite` goes to Pyric's deferred lite entry. Imports resolve, and a call such as `getFirestore()` throws `PyricDeferredApiError` naming `firebase/firestore/lite`, instead of reaching production Firestore. Use `firebase/firestore` to run against the sandbox.
 
