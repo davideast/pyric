@@ -78,3 +78,21 @@ it('marks a locally applied transaction commit so an enclosing transaction detec
   expect(result).toEqual({ committed: true, val: 11, key: 'count' });
 });
 
+
+it('clears node priority when a transaction deletes a node by returning null', () => {
+  const state = new BackendState();
+  state.rules.setDefaultPolicy('allow');
+  const values = new ValueListeners(state);
+  const children = new ChildListeners(state);
+  const transactions = new Transactions(state, values, children);
+
+  state.tree.write('/item', 'hello');
+  state.priorities.replace('/item', 42);
+  expect(transactions.run(null, '/item', () => null)).toMatchObject({ committed: true, val: null });
+  expect(state.priorities.get('/item')).toBeNull();
+
+  state.tree.write('/item2', 'world');
+  state.priorities.replace('/item2', 99);
+  expect(transactions.run(null, '/item2', () => null, { applyLocally: false })).toMatchObject({ committed: true });
+  expect(state.priorities.get('/item2')).toBeNull();
+});
