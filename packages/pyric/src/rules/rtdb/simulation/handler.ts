@@ -140,6 +140,7 @@ function findFailingValidate(
     );
 
     const hasLocalDeletion = snapshotChildKeys(data).some((k) => !newData.child(k).exists());
+    const literalKeys = literalChildKeys(node);
 
     for (const child of node.children) {
       const childSegments = child.path.split('/').filter(Boolean);
@@ -151,6 +152,7 @@ function findFailingValidate(
       if (isAtOrBelowWriteTarget || isUnderModifiedSubtree) {
         if (isPathVar) {
           for (const key of snapshotChildKeys(newData)) {
+            if (literalKeys.has(key)) continue;
             const failure = walk(
               child,
               data.child(key),
@@ -187,6 +189,7 @@ function findFailingValidate(
             }
           }
           for (const key of writeKeys) {
+            if (literalKeys.has(key)) continue;
             const failure = walk(
               child,
               data.child(key),
@@ -203,7 +206,7 @@ function findFailingValidate(
             shouldValidateSiblingSubtree(currentSegments, hasLocalDeletion, allWritePaths)
           ) {
             for (const key of snapshotChildKeys(newData)) {
-              if (writeKeys.has(key)) continue;
+              if (writeKeys.has(key) || literalKeys.has(key)) continue;
               const failure = walk(
                 child,
                 data.child(key),
@@ -278,24 +281,47 @@ function collectAncestors(
 
   if (pathSegments.length === 0) return ancestors;
 
-  for (const child of node.children) {
-    const childSegments = child.path.split('/').filter(Boolean);
-    if (childSegments.length === 0) continue;
-
-    const lastSegment = childSegments[childSegments.length - 1];
-    const isPathVar = lastSegment.startsWith('$');
-
-    if (isPathVar || pathSegments[0] === lastSegment) {
-      const newBindings = isPathVar
-        ? { ...bindings, [lastSegment]: pathSegments[0] }
-        : { ...bindings };
-      const deeper = collectAncestors(child, pathSegments.slice(1), newBindings, depth + 1);
-      ancestors.push(...deeper);
-      return ancestors;
-    }
-  }
-
+  const matched = childFor(node, pathSegments[0]);
+  if (matched === undefined) return ancestors;
+  const newBindings = matched.variable === undefined
+    ? { ...bindings }
+    : { ...bindings, [matched.variable]: pathSegments[0] };
+  ancestors.push(...collectAncestors(matched.child, pathSegments.slice(1), newBindings, depth + 1));
   return ancestors;
+}
+
+/** The last segment of a rule node's path: its key, or `$name` for a wildcard. */
+function keyOf(node: RtdbNode): string | undefined {
+  const segments = node.path.split('/').filter(Boolean);
+  return segments[segments.length - 1];
+}
+
+/** The keys a node's literal children name. A `$wildcard` sibling never matches them. */
+function literalChildKeys(node: RtdbNode): Set<string> {
+  const keys = new Set<string>();
+  for (const child of node.children) {
+    const key = keyOf(child);
+    const isLiteral = key !== undefined && !key.startsWith('$');
+    if (isLiteral) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * The child rule node that applies to `key`: the literal child that names it,
+ * else the `$wildcard` child, bound to it. Production applies a wildcard only
+ * to keys no literal sibling names, whichever is declared first.
+ */
+function childFor(node: RtdbNode, key: string): { child: RtdbNode; variable?: string } | undefined {
+  let wildcard: { child: RtdbNode; variable: string } | undefined;
+  for (const child of node.children) {
+    const childKey = keyOf(child);
+    if (childKey === undefined) continue;
+    if (childKey === key) return { child };
+    const isWildcard = childKey.startsWith('$');
+    if (isWildcard && wildcard === undefined) wildcard = { child, variable: childKey };
+  }
+  return wildcard;
 }
 
 /**

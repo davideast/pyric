@@ -248,7 +248,9 @@
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#20"
+      ],
       "divergedByRows": []
     },
     "rtdb.method.snapshot.child": {
@@ -330,7 +332,9 @@
         "r13-priority-and-index-directive",
         "r20-priority-values"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#20"
+      ],
       "divergedByRows": []
     },
     "rtdb.method.snapshot.isNumber": {
@@ -861,7 +865,9 @@
         "r2-own-uid",
         "r7-pathvar-binding"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#19"
+      ],
       "divergedByRows": []
     },
     "rtdb.semantic.read-cascade": {
