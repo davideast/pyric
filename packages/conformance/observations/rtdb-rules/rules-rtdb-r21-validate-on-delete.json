@@ -1,0 +1,19 @@
+{
+  "name": "rules-rtdb-r21-validate-on-delete",
+  "matrixRow": "rtdb-rules#21",
+  "rowIds": [
+    "rtdb-rules#21"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r21-validate-on-delete\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). a delete that production allows must not be denied by a `.validate` rule the simulator runs on a null value, and a partial delete production denies must stay denied.",
+  "observedAt": "2026-09-25T08:25:46.596Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "writing an empty object deletes the node": "ALLOW",
+    "writing null deletes the node": "ALLOW",
+    "deleting one required child leaves the node failing its validate": "DENY",
+    "writing the node without a required child fails its validate": "DENY",
+    "deleting the only child of a parent that requires children": "ALLOW",
+    "deleting one of two children of a parent that requires children": "ALLOW"
+  }
+}

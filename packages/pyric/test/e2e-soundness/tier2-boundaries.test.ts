@@ -262,7 +262,9 @@ service firebase.storage {
   describe('F3: Multi-Path Update & Boundary Deletions', () => {
     const handler = new SimulateHandler();
 
-    test('F3.B1: simultaneous deletion of multiple required fields fails parent validate', () => {
+    // Production does not run `.validate` for a node whose new value is null
+    // (capture rules-rtdb-r21-validate-on-delete).
+    test('F3.B1: writing an empty object deletes the node, so its validate does not run', () => {
       const rules = compileRtdbRules({
         rules: {
           nodes: {
@@ -290,7 +292,7 @@ service firebase.storage {
 
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.allowed).toBe(false);
+        expect(result.data.allowed).toBe(true);
       }
     });
 
@@ -373,7 +375,7 @@ service firebase.storage {
       expect((updateError as Error).message).toContain('PERMISSION_DENIED');
     });
 
-    test('F3.B4: deleting entire container node when parent requires children fails validation', () => {
+    test('F3.B4: deleting the only child empties the parent, so the parent validate does not run', () => {
       const rules = compileRtdbRules({
         rules: {
           parent: {
@@ -400,7 +402,7 @@ service firebase.storage {
 
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.allowed).toBe(false);
+        expect(result.data.allowed).toBe(true);
       }
     });
 

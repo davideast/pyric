@@ -119,7 +119,7 @@ export class ValueListeners {
       request: query ? { query } : undefined, origin: provenance.origin,
     });
     const listener: ValueListener = {
-      id, auth, cb, path, query, cancelCallback, onCanceled, owners: attachOwners,
+      id, auth, cb, path, query, cancelCallback, onCanceled, admin: provenance.origin === 'admin', owners: attachOwners,
     };
     this.state.valueListeners.add(listener);
     this.state.events.listener('attach', listener, auth, {

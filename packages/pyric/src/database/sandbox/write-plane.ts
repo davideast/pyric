@@ -359,8 +359,9 @@ export class WritePlane {
     const mockData = this.state.tree.snapshot() as Record<string, unknown>;
     const deniedValues: ValueListener[] = [];
     for (const listener of [...this.state.valueListeners]) {
+      if (listener.admin) continue;
       const evaluation = this.state.rules.evaluate('read', listener.path, {
-        auth: listener.auth, mockData,
+        auth: listener.auth, mockData, querySpec: listener.query,
       });
       if (evaluation.check === 'allow') continue;
       this.state.valueListeners.delete(listener);
@@ -386,7 +387,7 @@ export class WritePlane {
     const deniedChildren: ChildListener[] = [];
     for (const listener of [...this.state.childListeners]) {
       const evaluation = this.state.rules.evaluate('read', listener.path, {
-        auth: listener.auth, mockData,
+        auth: listener.auth, mockData, querySpec: listener.spec,
       });
       if (evaluation.check === 'allow') continue;
       this.state.childListeners.delete(listener);

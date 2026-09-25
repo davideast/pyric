@@ -140,6 +140,7 @@ function findFailingValidate(
     );
 
     const hasLocalDeletion = snapshotChildKeys(data).some((k) => !newData.child(k).exists());
+    const literalKeys = literalChildKeys(node);
 
     for (const child of node.children) {
       const childSegments = child.path.split('/').filter(Boolean);
@@ -151,6 +152,7 @@ function findFailingValidate(
       if (isAtOrBelowWriteTarget || isUnderModifiedSubtree) {
         if (isPathVar) {
           for (const key of snapshotChildKeys(newData)) {
+            if (literalKeys.has(key)) continue;
             const failure = walk(
               child,
               data.child(key),
@@ -187,6 +189,7 @@ function findFailingValidate(
             }
           }
           for (const key of writeKeys) {
+            if (literalKeys.has(key)) continue;
             const failure = walk(
               child,
               data.child(key),
@@ -203,7 +206,7 @@ function findFailingValidate(
             shouldValidateSiblingSubtree(currentSegments, hasLocalDeletion, allWritePaths)
           ) {
             for (const key of snapshotChildKeys(newData)) {
-              if (writeKeys.has(key)) continue;
+              if (writeKeys.has(key) || literalKeys.has(key)) continue;
               const failure = walk(
                 child,
                 data.child(key),
@@ -278,24 +281,65 @@ function collectAncestors(
 
   if (pathSegments.length === 0) return ancestors;
 
-  for (const child of node.children) {
-    const childSegments = child.path.split('/').filter(Boolean);
-    if (childSegments.length === 0) continue;
-
-    const lastSegment = childSegments[childSegments.length - 1];
-    const isPathVar = lastSegment.startsWith('$');
-
-    if (isPathVar || pathSegments[0] === lastSegment) {
-      const newBindings = isPathVar
-        ? { ...bindings, [lastSegment]: pathSegments[0] }
-        : { ...bindings };
-      const deeper = collectAncestors(child, pathSegments.slice(1), newBindings, depth + 1);
-      ancestors.push(...deeper);
-      return ancestors;
-    }
-  }
-
+  const matched = childFor(node, pathSegments[0]);
+  if (matched === undefined) return ancestors;
+  const newBindings = matched.variable === undefined
+    ? { ...bindings }
+    : { ...bindings, [matched.variable]: pathSegments[0] };
+  ancestors.push(...collectAncestors(matched.child, pathSegments.slice(1), newBindings, depth + 1));
   return ancestors;
+}
+
+/** The last segment of a rule node's path: its key, or `$name` for a wildcard. */
+function keyOf(node: RtdbNode): string | undefined {
+  const segments = node.path.split('/').filter(Boolean);
+  return segments[segments.length - 1];
+}
+
+/** The keys a node's literal children name. A `$wildcard` sibling never matches them. */
+function literalChildKeys(node: RtdbNode): Set<string> {
+  const keys = new Set<string>();
+  for (const child of node.children) {
+    const key = keyOf(child);
+    const isLiteral = key !== undefined && !key.startsWith('$');
+    if (isLiteral) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * The child rule node that applies to `key`: the literal child that names it,
+ * else the `$wildcard` child, bound to it. Production applies a wildcard only
+ * to keys no literal sibling names, whichever is declared first.
+ */
+function childFor(node: RtdbNode, key: string): { child: RtdbNode; variable?: string } | undefined {
+  let wildcard: { child: RtdbNode; variable: string } | undefined;
+  for (const child of node.children) {
+    const childKey = keyOf(child);
+    if (childKey === undefined) continue;
+    if (childKey === key) return { child };
+    const isWildcard = childKey.startsWith('$');
+    if (isWildcard && wildcard === undefined) wildcard = { child, variable: childKey };
+  }
+  return wildcard;
+}
+
+/** The denial result for a failing `.validate` rule. */
+function toValidateFailureResult(failure: ValidateFailure): SimulateResult {
+  const reason = failure.unsupported
+    ? `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw} — not evaluated; production may reject this write.`
+    : 'Validation rule evaluated to false';
+  return {
+    success: true,
+    data: {
+      allowed: false,
+      unsupported: failure.unsupported === true,
+      matchedPath: failure.node.path,
+      matchedRule: failure.rule.raw,
+      reason,
+      pathVariableBindings: failure.bindings,
+    },
+  };
 }
 
 /**
@@ -451,6 +495,32 @@ export class SimulateHandler {
         };
       };
 
+      // The validate operation runs only the `.validate` phase: every
+      // `.validate` rule from the root through the write location and its
+      // written descendants must pass, whatever `.write` grants.
+      if (operation === 'validate') {
+        const deepestValidate = [...ancestors].reverse().find((a) => a.node.validate !== undefined)
+          ?? ancestors.find((a) => hasValidateRule(a.node));
+        if (deepestValidate === undefined) {
+          return {
+            success: false,
+            error: { code: 'NO_MATCHING_RULE', message: `No 'validate' rule found for path '${path}'`, recoverable: true },
+          };
+        }
+        const failure = findFailingValidate(rootNode, rootData, mergedRootData, {}, buildContext, pathSegments, updates);
+        if (failure) return toValidateFailureResult(failure);
+        return {
+          success: true,
+          data: {
+            allowed: true,
+            matchedPath: deepestValidate.node.path,
+            matchedRule: deepestValidate.node.validate?.raw ?? 'true',
+            reason: 'Validation rules evaluated to true',
+            pathVariableBindings: deepestValidate.pathVariableBindings,
+          },
+        };
+      }
+
       // Tracks the first ancestor whose `.write`/`.read` rule the grammar
       // couldn't parse. Unlike `.validate`, `.write`/`.read` rules cascade
       // (any ancestor granting `true` wins), so an unparseable rule is not
@@ -494,21 +564,7 @@ export class SimulateHandler {
               pathSegments,
               updates,
             );
-            if (failure) {
-              return {
-                success: true,
-                data: {
-                  allowed: false,
-                  unsupported: failure.unsupported === true,
-                  matchedPath: failure.node.path,
-                  matchedRule: failure.rule.raw,
-                  reason: failure.unsupported
-                    ? `Validation rule at '${failure.node.path}' contains an expression the simulator cannot evaluate: ${failure.rule.raw} — not evaluated; production may reject this write.`
-                    : 'Validation rule evaluated to false',
-                  pathVariableBindings: failure.bindings,
-                },
-              };
-            }
+            if (failure) return toValidateFailureResult(failure);
           }
           return {
             success: true,

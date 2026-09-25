@@ -79,6 +79,37 @@ export interface EvalContext {
   query?: SimulatedQuery | null;
 }
 
+/** Whether `raw` is a JSON object node, as opposed to a leaf or null. */
+function isObjectNode(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw);
+}
+
+/**
+ * A node's value as rules read it through `val()`: a `{ .value, .priority }`
+ * node reads as its `.value`, and `.priority` keys are dropped at every
+ * level, so a priority never shows up as data (capture rules-rtdb-r20). An
+ * object left with no children reads as null.
+ */
+function exportedValue(raw: unknown): unknown {
+  if (!isObjectNode(raw)) return raw ?? null;
+  if (Object.hasOwn(raw, '.value')) return exportedValue(raw['.value']);
+  const out: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(raw)) {
+    if (key === '.priority') continue;
+    const value = exportedValue(child);
+    if (value !== null) out[key] = value;
+  }
+  return Object.keys(out).length === 0 ? null : out;
+}
+
+/** A node's priority: its `.priority` number or string, else null. */
+function priorityOf(raw: unknown): number | string | null {
+  if (!isObjectNode(raw)) return null;
+  const priority = raw['.priority'];
+  const isPriority = typeof priority === 'number' || typeof priority === 'string';
+  return isPriority ? priority : null;
+}
+
 export class DataSnapshot {
   private _value: unknown;
   private _path: string;
@@ -91,11 +122,11 @@ export class DataSnapshot {
   }
 
   val(): unknown {
-    return this._value;
+    return exportedValue(this._value);
   }
 
   exists(): boolean {
-    return this._value !== null && this._value !== undefined;
+    return this.val() !== null;
   }
 
   hasChild(path: string): boolean {
@@ -109,23 +140,19 @@ export class DataSnapshot {
     if (Array.isArray(keys)) {
       return keys.every((key) => this.hasChild(String(key)));
     }
-    return (
-      typeof this._value === 'object' &&
-      this._value !== null &&
-      Object.keys(this._value as object).length > 0
-    );
+    return isObjectNode(this.val());
   }
 
   isString(): boolean {
-    return typeof this._value === 'string';
+    return typeof this.val() === 'string';
   }
 
   isNumber(): boolean {
-    return typeof this._value === 'number';
+    return typeof this.val() === 'number';
   }
 
   isBoolean(): boolean {
-    return typeof this._value === 'boolean';
+    return typeof this.val() === 'boolean';
   }
 
   child(path: string): DataSnapshot {
@@ -159,8 +186,8 @@ export class DataSnapshot {
     return rootSnap.child(parts.join('/'));
   }
 
-  getPriority(): null {
-    return null;
+  getPriority(): number | string | null {
+    return priorityOf(this._value);
   }
 }
 
