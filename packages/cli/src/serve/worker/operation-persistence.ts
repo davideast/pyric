@@ -85,6 +85,7 @@ export const operationPersistence = {
   // Mints the object's download token the first time.
   'storage.getDownloadURL': true,
   'storage.getBlob': false,
+  'storage.setMetadata': true,
   'storage.putBytes': true,
   'storage.getBytes': false,
   'storage.beginUpload': true,

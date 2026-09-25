@@ -1,0 +1,76 @@
+{
+  "name": "admin-storage-metadata-download-url",
+  "matrixRow": "storage-admin #1",
+  "rowIds": [
+    "storage-admin#1",
+    "storage-admin#2",
+    "storage-admin#3",
+    "storage-admin#4",
+    "storage-admin#5",
+    "storage-admin#6",
+    "storage#51"
+  ],
+  "description": "firebase-admin File.setMetadata/getMetadata custom metadata, including null removal, and getDownloadURL(file): minting a token for a file without one, its URL form once firebaseStorageDownloadTokens is set, the unauthenticated GET and Range GET it serves, the downloadTokens field the Firebase metadata endpoint reports, and revocation by removing the token.",
+  "observedAt": "2026-09-24T03:58:41.676Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "afterSave": {
+      "customMetadata": null,
+      "hasDownloadTokens": false
+    },
+    "getDownloadURLWithoutToken": {
+      "threw": false,
+      "mintsTokenIntoMetadata": true,
+      "urlCarriesMintedToken": true,
+      "mintedTokenIsUuid": true
+    },
+    "setMetadataResolvesWithMetadata": true,
+    "afterSet": {
+      "customMetadata": {
+        "note": "first",
+        "firebaseStorageDownloadTokensEqualsSet": true
+      },
+      "metagenerationAdvanced": true
+    },
+    "downloadURL": {
+      "origin": "https://firebasestorage.googleapis.com",
+      "pathForm": "/v0/b/<bucket>/o/<encoded path>",
+      "alt": "media",
+      "tokenEqualsStored": true,
+      "queryKeys": [
+        "alt",
+        "token"
+      ]
+    },
+    "unauthenticatedGet": {
+      "status": 200,
+      "contentType": "audio/wav",
+      "bytesMatch": true
+    },
+    "rangeGet": {
+      "status": 206,
+      "contentRange": "bytes 2-5/64",
+      "bytesMatch": true
+    },
+    "firebaseMetadataEndpoint": {
+      "downloadTokensEqualsSet": true,
+      "metadataHasTokenKey": false,
+      "customMetadataKeys": [
+        "note"
+      ]
+    },
+    "nullRemovesKey": {
+      "noteRemoved": true,
+      "tokenKept": true
+    },
+    "revocation": {
+      "tokenRemoved": true,
+      "revokedUrlStatus": 403,
+      "getDownloadURLAfterRevoke": {
+        "threw": false,
+        "mintsNewToken": true,
+        "newUrlStatus": 200
+      }
+    }
+  }
+}

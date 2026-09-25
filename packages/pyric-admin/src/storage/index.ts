@@ -26,6 +26,11 @@
  *       - `file.download(options?)` → `[Buffer]`, whole or `start..end`
  *       - `file.createReadStream(options?)`, whole or `start..end`
  *       - `file.createWriteStream(options?)`
+ *       - `file.getMetadata()` / `file.setMetadata(metadata)`: settable fields
+ *         and custom metadata; a custom key set to `null` is removed
+ *       - `getDownloadURL(file)`: mints a token into
+ *         `firebaseStorageDownloadTokens` when the file has none. The Node
+ *         host returns its HTTP URL; elsewhere the URL is a `data:` URI
  *       - `file.delete()` — idempotent
  *       - `file.exists()` → `[boolean]`
  *       - `file.getSignedUrl(options)` → `['pyric-sandbox-storage://…']`
@@ -37,6 +42,7 @@
  */
 
 import { createWriteStream as createFileWriteStream, openAsBlob, type WriteStream } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -125,6 +131,14 @@ export interface File {
    * stream finishes, as {@link File.save} does.
    */
   createWriteStream(options?: CreateWriteStreamOptions): Writable;
+  /** The file's metadata, as a `[metadata]` tuple. Throws if the file does not exist. */
+  getMetadata(): Promise<[FileMetadata]>;
+  /**
+   * Change the file's metadata: the named settable fields, and the custom
+   * keys under `metadata`, where `null` removes a key and the others stay.
+   * Removing `firebaseStorageDownloadTokens` revokes the file's download URL.
+   */
+  setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]>;
   /**
    * Remove the file from its bucket. Idempotent — deleting a missing
    * file is a no-op (matches `@google-cloud/storage`'s
@@ -186,6 +200,39 @@ export interface CreateWriteStreamOptions {
   contentType?: string;
 }
 
+/** The custom metadata key holding a file's download tokens, comma-separated. */
+const DOWNLOAD_TOKENS_KEY = 'firebaseStorageDownloadTokens';
+
+/** Settable fields the sandbox keeps, besides custom metadata. */
+const SETTABLE_FIELDS = ['contentType', 'cacheControl', 'contentDisposition', 'contentEncoding', 'contentLanguage'] as const;
+type SettableField = (typeof SETTABLE_FIELDS)[number];
+
+/** A file's metadata. Subset of `@google-cloud/storage`'s `FileMetadata`. */
+export interface FileMetadata {
+  name: string;
+  bucket: string;
+  generation: string;
+  metageneration: string;
+  /** Size in bytes, as a decimal string. */
+  size: string;
+  timeCreated: string;
+  updated: string;
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+  md5Hash?: string;
+  /** Custom metadata, including `firebaseStorageDownloadTokens` once the file has a download URL. Absent when there is none. */
+  metadata?: Record<string, string>;
+}
+
+/** What {@link File.setMetadata} takes. Subset of `@google-cloud/storage`'s `FileMetadata`. */
+export type FileMetadataUpdate = Partial<Pick<FileMetadata, SettableField>> & {
+  /** Custom keys to set; `null` removes a key. Values are stored as strings. */
+  metadata?: Record<string, string | number | boolean | null>;
+};
+
 /** Options bag for {@link File.getSignedUrl}. Mirrors `@google-cloud/storage`'s shape. */
 export interface GetSignedUrlOptions {
   /** `'read' | 'write' | 'delete' | 'resumable'`. Sandbox stamps it into the URL only as a hint. */
@@ -238,13 +285,28 @@ export function getStorage(app?: StorageApp): Storage {
   );
 }
 
+/** Each arm's own download URL. */
+const DOWNLOAD_URL = Symbol('pyric-admin/storage download URL');
+
+interface DownloadUrlSource {
+  [DOWNLOAD_URL](): Promise<string>;
+}
+
 /**
- * Link-compatible mirror of `firebase-admin/storage`'s `getDownloadURL(file)`.
- * Returns a deterministic sandbox storage stub URL from `file.getSignedUrl()`.
+ * Mirror of `firebase-admin/storage`'s `getDownloadURL(file)`. A file without
+ * a download token gets one in `firebaseStorageDownloadTokens`, as production
+ * mints it. On the Node host the URL is its HTTP byte route URL, which serves
+ * ranges and stops working when the token is removed. In process and on a
+ * SharedWorker host there is no HTTP origin, so the URL is a `data:` URI that
+ * carries the bytes.
  */
 export async function getDownloadURL(file: File): Promise<string> {
-  const [url] = await file.getSignedUrl({ action: 'read', expires: '2099-01-01' });
-  return url;
+  const source = file as File & Partial<DownloadUrlSource>;
+  const served = typeof source[DOWNLOAD_URL] === 'function';
+  if (!served) {
+    throw new Error('pyric-admin/storage: getDownloadURL expects a File from getStorage().bucket().file().');
+  }
+  return source[DOWNLOAD_URL]!();
 }
 
 // ─── Sandbox path ───────────────────────────────────────────────────────
@@ -256,11 +318,23 @@ export async function getDownloadURL(file: File): Promise<string> {
  */
 const DEFAULT_SANDBOX_BUCKET = 'pyric-default';
 
-/** A single file's bytes + opaque metadata in the in-memory store. */
+/** A single file's bytes and metadata in the in-memory store. */
 interface FileEntry {
   data: Uint8Array;
-  metadata: Record<string, unknown>;
-  contentType?: string;
+  settable: Partial<Record<SettableField, string>>;
+  custom: Record<string, string>;
+  generation: string;
+  metageneration: number;
+  timeCreated: string;
+  updated: string;
+}
+
+let generationSequence = 0;
+
+/** A generation in the form `@google-cloud/storage` reports: microseconds since the epoch. */
+function nextGeneration(): string {
+  generationSequence = (generationSequence + 1) % 1000;
+  return `${Date.now()}${String(generationSequence).padStart(3, '0')}`;
 }
 
 /** Per-sandbox state: bucket name → (file path → entry). */
@@ -357,13 +431,76 @@ class SandboxFile implements File {
       );
     }
     const bytes = toBytes(data);
-    const metadata = options.metadata ?? {};
-    const entry: FileEntry = {
+    const saved = patchOf(options.metadata ?? {}, { strict: false });
+    const contentType = options.contentType ?? saved.settable.contentType;
+    const now = new Date().toISOString();
+    const custom: Record<string, string> = {};
+    for (const [key, value] of Object.entries(saved.customMetadata)) if (value !== null) custom[key] = value;
+    const hasTokens = typeof saved.downloadTokens === 'string';
+    if (hasTokens) custom[DOWNLOAD_TOKENS_KEY] = saved.downloadTokens!;
+    this.files.set(this.name, {
       data: bytes,
-      metadata,
-      ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
+      settable: { ...saved.settable, ...(contentType !== undefined ? { contentType } : {}) },
+      custom,
+      generation: nextGeneration(),
+      metageneration: 1,
+      timeCreated: now,
+      updated: now,
+    });
+  }
+
+  async getMetadata(): Promise<[FileMetadata]> {
+    return [this.metadataOf(this.entry())];
+  }
+
+  async setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]> {
+    const entry = this.entry();
+    const patch = patchOf(metadata, { strict: true });
+    Object.assign(entry.settable, patch.settable);
+    for (const [key, value] of Object.entries(patch.customMetadata)) {
+      if (value === null) delete entry.custom[key];
+      else entry.custom[key] = value;
+    }
+    if (patch.downloadTokens === null) delete entry.custom[DOWNLOAD_TOKENS_KEY];
+    else if (patch.downloadTokens !== undefined) entry.custom[DOWNLOAD_TOKENS_KEY] = patch.downloadTokens;
+    this.touch(entry);
+    return [this.metadataOf(entry)];
+  }
+
+  async [DOWNLOAD_URL](): Promise<string> {
+    const entry = this.entry();
+    const tokenless = !entry.custom[DOWNLOAD_TOKENS_KEY];
+    if (tokenless) {
+      entry.custom[DOWNLOAD_TOKENS_KEY] = randomUUID();
+      this.touch(entry);
+    }
+    return dataUri(entry.data, entry.settable.contentType);
+  }
+
+  private entry(): FileEntry {
+    const entry = this.files.get(this.name);
+    if (!entry) throw new Error(`No such object: ${this.bucket.name}/${this.name}`);
+    return entry;
+  }
+
+  private touch(entry: FileEntry): void {
+    entry.metageneration += 1;
+    entry.updated = new Date().toISOString();
+  }
+
+  private metadataOf(entry: FileEntry): FileMetadata {
+    const hasCustom = Object.keys(entry.custom).length > 0;
+    return {
+      name: this.name,
+      bucket: this.bucket.name,
+      generation: entry.generation,
+      metageneration: String(entry.metageneration),
+      size: String(entry.data.byteLength),
+      timeCreated: entry.timeCreated,
+      updated: entry.updated,
+      ...entry.settable,
+      ...(hasCustom ? { metadata: { ...entry.custom } } : {}),
     };
-    this.files.set(this.name, entry);
   }
 
   async download(options: DownloadOptions = {}): Promise<[Buffer]> {
@@ -642,6 +779,39 @@ class RemoteFile implements File {
     }
   }
 
+  async getMetadata(): Promise<[FileMetadata]> {
+    const full = await this.missingAsNoSuchObject(this.channel.op({
+      method: 'storage.getMetadata',
+      path: this.name,
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as HostMetadata;
+    return [fileMetadataOf(full)];
+  }
+
+  async setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]> {
+    const full = await this.missingAsNoSuchObject(this.channel.op({
+      method: 'storage.setMetadata',
+      path: this.name,
+      patch: patchOf(metadata, { strict: true }),
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as HostMetadata;
+    return [fileMetadataOf(full)];
+  }
+
+  /** The host mints the token; the Node host serves the URL, a SharedWorker host has nowhere to. */
+  async [DOWNLOAD_URL](): Promise<string> {
+    const { path } = await this.missingAsNoSuchObject(this.channel.op({
+      method: 'storage.getDownloadURL',
+      path: this.name,
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    })) as { path: string };
+    const route = await this.channel.byteRoute?.();
+    const routed = route !== undefined;
+    if (routed) return new URL(path, route.baseUrl).href;
+    const [[metadata], [bytes]] = await Promise.all([this.getMetadata(), this.download()]);
+    return dataUri(bytes, metadata.contentType);
+  }
+
   /** Mirror the gcs/firebase-admin (and local arm) `No such object` message for a missing file. */
   private async missingAsNoSuchObject<T>(pending: Promise<T>): Promise<T> {
     try {
@@ -689,6 +859,49 @@ class RemoteFile implements File {
   }
 }
 
+/** Object metadata as a host reports it (`pyric/storage`'s `FullMetadata`, with its download tokens). */
+interface HostMetadata {
+  bucket: string;
+  fullPath: string;
+  generation: string;
+  metageneration: string;
+  size: number;
+  timeCreated: string;
+  updated: string;
+  md5Hash?: string;
+  contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
+  customMetadata?: Record<string, string>;
+  downloadTokens?: string;
+}
+
+/** A host's metadata in `@google-cloud/storage`'s shape: the download tokens become the custom key production uses. */
+function fileMetadataOf(host: HostMetadata): FileMetadata {
+  const custom = { ...(host.customMetadata ?? {}) };
+  if (host.downloadTokens) custom[DOWNLOAD_TOKENS_KEY] = host.downloadTokens;
+  const settable: Partial<Record<SettableField, string>> = {};
+  for (const field of SETTABLE_FIELDS) {
+    const value = host[field];
+    if (value !== undefined) settable[field] = value;
+  }
+  const hasCustom = Object.keys(custom).length > 0;
+  return {
+    name: host.fullPath,
+    bucket: host.bucket,
+    generation: host.generation,
+    metageneration: host.metageneration,
+    size: String(host.size),
+    timeCreated: host.timeCreated,
+    updated: host.updated,
+    ...settable,
+    ...(host.md5Hash !== undefined ? { md5Hash: host.md5Hash } : {}),
+    ...(hasCustom ? { metadata: custom } : {}),
+  };
+}
+
 /** Is this relayed error the worker's `storage/object-not-found`? */
 function isObjectNotFound(err: unknown): boolean {
   return (err as { code?: unknown })?.code === 'storage/object-not-found';
@@ -705,6 +918,50 @@ function quotaExceeded(sizeBytes: number, what: string): Error & { code: string 
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────
+
+/** A metadata change in the form hosts take: settable fields, custom keys, and the download tokens apart. */
+interface MetadataPatch {
+  settable: Partial<Record<SettableField, string>>;
+  customMetadata: Record<string, string | null>;
+  downloadTokens?: string | null;
+}
+
+/**
+ * Split `@google-cloud/storage`-shaped metadata into a {@link MetadataPatch}.
+ * `setMetadata` is strict and refuses fields the sandbox does not keep;
+ * `save` has always stored what it was given and ignores them.
+ */
+function patchOf(metadata: FileMetadataUpdate | Record<string, unknown>, { strict }: { strict: boolean }): MetadataPatch {
+  const source = metadata as Record<string, unknown>;
+  const unsupported = Object.keys(source).filter(key => key !== 'metadata' && !(SETTABLE_FIELDS as readonly string[]).includes(key));
+  const refused = strict && unsupported.length > 0;
+  if (refused) {
+    throw new Error(
+      `not implemented in pyric-admin/storage sandbox backend: setMetadata of ${unsupported.join(', ')}. ` +
+        `The sandbox keeps ${SETTABLE_FIELDS.join(', ')}, and custom metadata under \`metadata\`.`,
+    );
+  }
+  const patch: MetadataPatch = { settable: {}, customMetadata: {} };
+  for (const field of SETTABLE_FIELDS) {
+    const value = source[field];
+    if (typeof value === 'string') patch.settable[field] = value;
+  }
+  const custom = source.metadata;
+  const hasCustom = custom !== null && typeof custom === 'object';
+  if (!hasCustom) return patch;
+  for (const [key, value] of Object.entries(custom as Record<string, unknown>)) {
+    if (value === undefined) continue;
+    const next = value === null ? null : String(value);
+    if (key === DOWNLOAD_TOKENS_KEY) patch.downloadTokens = next;
+    else patch.customMetadata[key] = next;
+  }
+  return patch;
+}
+
+/** A `data:` URI carrying `bytes`, the download URL where no host serves them over HTTP. */
+function dataUri(bytes: Uint8Array, contentType: string | undefined): string {
+  return `data:${contentType ?? 'application/octet-stream'};base64,${base64Of(bytes)}`;
+}
 
 /** `bytes` as base64, for a frame. */
 function base64Of(bytes: Uint8Array): string {

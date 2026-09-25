@@ -76,6 +76,19 @@ export interface AiErrorEnvelopeWire {
  * All one-shot operation messages share the `t:'op'` discriminator and a
  * correlation `id` that the worker echoes back in the `res` reply.
  */
+/** A metadata change from the admin plane, as `pyric/storage/internal`'s `patchObjectMetadata` takes it. */
+export interface StorageMetadataPatchWire {
+  settable?: {
+    contentType?: string;
+    cacheControl?: string;
+    contentDisposition?: string;
+    contentEncoding?: string;
+    contentLanguage?: string;
+  };
+  customMetadata?: Record<string, string | null>;
+  downloadTokens?: string | null;
+}
+
 export type OpMessage = (
   | {
       t: 'op';
@@ -211,6 +224,8 @@ export type OpMessage = (
   /** The object's download path on the byte route, carrying its persistent download token. */
   | { t: 'op'; id: string; method: 'storage.getDownloadURL'; path: string }
   | { t: 'op'; id: string; method: 'storage.getBlob'; path: string }
+  /** firebase-admin's `File.setMetadata`, on the admin lens only: custom keys merge, `null` removes one. */
+  | { t: 'op'; id: string; method: 'storage.setMetadata'; path: string; patch: StorageMetadataPatchWire }
   | { t: 'op'; id: string; method: 'storage.putBytes'; path: string; dataB64: string; contentType?: string; metadata?: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'storage.getBytes'; path: string; offset?: number; length?: number; expectedGeneration?: string }
   | { t: 'op'; id: string; method: 'storage.beginUpload'; path: string; size: number; contentType?: string; metadata?: Record<string, unknown> }
