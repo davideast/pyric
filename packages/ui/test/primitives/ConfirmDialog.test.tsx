@@ -110,6 +110,26 @@ describe('<ConfirmDialog>', () => {
   });
 });
 
+describe('<ConfirmDialog> focus containment', () => {
+  it('keeps Tab and Shift+Tab inside the dialog', () => {
+    render(
+      <ConfirmDialog open onOpenChange={() => undefined} title="Delete?" onConfirm={() => undefined} />,
+    );
+    const cancel = getByTestSel('[data-pyric-confirm-cancel]') as HTMLButtonElement;
+    const confirm = getByTestSel('[data-pyric-confirm-confirm]') as HTMLButtonElement;
+    expect(document.activeElement).toBe(confirm);
+
+    act(() => { fireEvent.keyDown(window, { key: 'Tab' }); });
+    expect(document.activeElement).toBe(cancel);
+    act(() => { fireEvent.keyDown(window, { key: 'Tab' }); });
+    expect(document.activeElement).toBe(confirm);
+    act(() => { fireEvent.keyDown(window, { key: 'Tab', shiftKey: true }); });
+    expect(document.activeElement).toBe(cancel);
+    act(() => { fireEvent.keyDown(window, { key: 'Tab', shiftKey: true }); });
+    expect(document.activeElement).toBe(confirm);
+  });
+});
+
 describe('<ConfirmProvider> + useConfirm', () => {
   function Probe({
     onResult,
