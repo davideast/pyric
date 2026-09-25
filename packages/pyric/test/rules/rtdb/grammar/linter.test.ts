@@ -66,4 +66,14 @@ describe('lintExpression', () => {
     const warnings = lintExpression('data.exists()', 'write');
     expect(warnings.map(w => w.code)).toContain('DATA_IN_WRITE');
   });
+
+  test('isolates state across interleaved lintExpression calls', () => {
+    const first = lintExpression('data.exists()', 'write');
+    const second = lintExpression('data.exists()', 'read');
+    const third = lintExpression('data.exists()', 'write');
+
+    expect(first.map(w => w.code)).toContain('DATA_IN_WRITE');
+    expect(second).toHaveLength(0);
+    expect(third.map(w => w.code)).toContain('DATA_IN_WRITE');
+  });
 });
