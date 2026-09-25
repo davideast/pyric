@@ -7,6 +7,9 @@ import {
 export interface SimulatedAuth {
   uid: string;
   token: Record<string, unknown>;
+  /** The sign-in method, which production reads from the token's
+   *  `firebase.sign_in_provider` claim. Absent when the token names none. */
+  provider?: string;
 }
 
 /** Property names that must never be read through rule member/index

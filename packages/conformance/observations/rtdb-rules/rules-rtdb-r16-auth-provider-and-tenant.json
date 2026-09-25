@@ -1,0 +1,20 @@
+{
+  "name": "rules-rtdb-r16-auth-provider-and-tenant",
+  "matrixRow": "rtdb-rules#16",
+  "rowIds": [
+    "rtdb-rules#16"
+  ],
+  "description": "RTDB rules production verdicts for corpus scenario \"r16-auth-provider-and-tenant\" (rtdb#71). Captured by deploy-observe-restore (RTDB has no server-side rules test API). the RTDB simulator must expose the same auth properties production does, with the same values, so a provider or tenant gate evaluates the same locally and in production.",
+  "observedAt": "2026-09-25T07:32:52.959Z",
+  "fbSdkVersion": "12.13.0",
+  "projectId": "genkit-idx",
+  "behavior": {
+    "anonymous sign-in reads auth.provider as anonymous": "ALLOW",
+    "anonymous sign-in does not read auth.provider as password": "DENY",
+    "auth.provider is present for a signed-in user": "ALLOW",
+    "auth.provider equals the token sign_in_provider claim": "ALLOW",
+    "auth.tenant reads null without a tenant": "ALLOW",
+    "the token tenant claim reads null without a tenant": "ALLOW",
+    "signed out, auth.provider cannot be read": "DENY"
+  }
+}

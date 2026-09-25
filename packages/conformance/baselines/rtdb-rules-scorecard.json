@@ -118,6 +118,9 @@
         "r13-priority-and-index-directive",
         "r14-root-lookup",
         "r15-validate-ancestor-scope",
+        "r16-auth-provider-and-tenant",
+        "r17-validate-runtime-error",
+        "r18-child-dot-segments",
         "r2-own-uid",
         "r3-data-exists",
         "r4-validate-structure",
@@ -126,7 +129,9 @@
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#16"
+      ],
       "divergedByRows": []
     },
     "rtdb.binding.auth.uid": {
@@ -150,7 +155,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r12-server-time-and-token"
+        "r12-server-time-and-token",
+        "r16-auth-provider-and-tenant"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -180,6 +186,8 @@
         "r12-server-time-and-token",
         "r13-priority-and-index-directive",
         "r15-validate-ancestor-scope",
+        "r17-validate-runtime-error",
+        "r18-child-dot-segments",
         "r4-validate-structure",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -233,6 +241,7 @@
       "verifiedBy": [
         "r11-string-validation",
         "r12-server-time-and-token",
+        "r17-validate-runtime-error",
         "r8-combined-check",
         "r9-quota-arithmetic"
       ],
@@ -247,9 +256,12 @@
       "classification": "conformant",
       "verifiedBy": [
         "r14-root-lookup",
+        "r18-child-dot-segments",
         "r8-combined-check"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#18"
+      ],
       "divergedByRows": []
     },
     "rtdb.method.snapshot.parent": {
@@ -298,6 +310,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "r14-root-lookup",
+        "r18-child-dot-segments",
         "r3-data-exists"
       ],
       "verifiedByRows": [],
@@ -337,7 +350,8 @@
       "classification": "conformant",
       "verifiedBy": [
         "r10-snapshot-type-guards",
-        "r11-string-validation"
+        "r11-string-validation",
+        "r17-validate-runtime-error"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -433,7 +447,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r17-validate-runtime-error"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -445,7 +460,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
-        "r11-string-validation"
+        "r11-string-validation",
+        "r17-validate-runtime-error"
       ],
       "verifiedByRows": [],
       "divergedByRows": []
@@ -481,6 +497,8 @@
         "r12-server-time-and-token",
         "r13-priority-and-index-directive",
         "r14-root-lookup",
+        "r16-auth-provider-and-tenant",
+        "r17-validate-runtime-error",
         "r2-own-uid",
         "r7-pathvar-binding",
         "r8-combined-check",
@@ -503,6 +521,9 @@
         "r13-priority-and-index-directive",
         "r14-root-lookup",
         "r15-validate-ancestor-scope",
+        "r16-auth-provider-and-tenant",
+        "r17-validate-runtime-error",
+        "r18-child-dot-segments",
         "r3-data-exists",
         "r4-validate-structure",
         "r5-cascade-root-grant",
@@ -532,6 +553,7 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "r17-validate-runtime-error",
         "r9-quota-arithmetic"
       ],
       "verifiedByRows": [],
@@ -634,6 +656,7 @@
         "r10-snapshot-type-guards",
         "r11-string-validation",
         "r12-server-time-and-token",
+        "r17-validate-runtime-error",
         "r7-pathvar-binding",
         "r8-combined-check",
         "r9-quota-arithmetic"
@@ -698,6 +721,8 @@
       "verifiedBy": [
         "r11-string-validation",
         "r12-server-time-and-token",
+        "r16-auth-provider-and-tenant",
+        "r17-validate-runtime-error",
         "r2-own-uid",
         "r7-pathvar-binding",
         "r8-combined-check"
@@ -730,6 +755,9 @@
         "r12-server-time-and-token",
         "r13-priority-and-index-directive",
         "r14-root-lookup",
+        "r16-auth-provider-and-tenant",
+        "r17-validate-runtime-error",
+        "r18-child-dot-segments",
         "r2-own-uid",
         "r3-data-exists",
         "r4-validate-structure",
@@ -756,6 +784,9 @@
         "r13-priority-and-index-directive",
         "r14-root-lookup",
         "r15-validate-ancestor-scope",
+        "r16-auth-provider-and-tenant",
+        "r17-validate-runtime-error",
+        "r18-child-dot-segments",
         "r2-own-uid",
         "r3-data-exists",
         "r4-validate-structure",
@@ -781,10 +812,14 @@
         "r13-priority-and-index-directive",
         "r14-root-lookup",
         "r15-validate-ancestor-scope",
+        "r17-validate-runtime-error",
+        "r18-child-dot-segments",
         "r4-validate-structure",
         "r9-quota-arithmetic"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "rtdb-rules#17"
+      ],
       "divergedByRows": []
     },
     "rtdb.rule-kind.indexOn": {
