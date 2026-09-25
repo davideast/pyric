@@ -1,10 +1,10 @@
 /**
  * The runtime network guard (`src/register/net-guard.ts`).
  *
- * The production-leak invariant's ENFORCEMENT layer: once `PYRIC_SANDBOX` is
- * set, a pyric-launched Node process that still reaches a LIVE Google/Firebase
- * endpoint is a sandbox escape, and the guard has to say so (warn) or stop it
- * (block).
+ * Once `PYRIC_SANDBOX` is set, a pyric-launched Node process that reaches a
+ * LIVE Google/Firebase endpoint is talking to production, and the guard says
+ * which system it reached (warn, the default). It refuses the request only
+ * when the developer turned blocking on (`PYRIC_GUARD=block`).
  *
  * Test shape, and why:
  *  - The interception SEAM is unit-tested against MOCK dispatchers. We cannot
@@ -44,10 +44,10 @@ import {
 // ─── mode + allowlist parsing ───────────────────────────────────────────────
 
 describe('parseGuardMode', () => {
-  it('defaults to block when unset or empty', () => {
-    expect(parseGuardMode(undefined)).toBe('block');
-    expect(parseGuardMode('')).toBe('block');
-    expect(parseGuardMode('   ')).toBe('block');
+  it('defaults to warn when unset or empty', () => {
+    expect(parseGuardMode(undefined)).toBe('warn');
+    expect(parseGuardMode('')).toBe('warn');
+    expect(parseGuardMode('   ')).toBe('warn');
   });
 
   it('accepts the three knob values case/space-insensitively', () => {
@@ -58,9 +58,9 @@ describe('parseGuardMode', () => {
     expect(parseGuardMode('warn')).toBe('warn');
   });
 
-  it('falls back to block on an unknown value', () => {
-    expect(parseGuardMode('nope')).toBe('block');
-    expect(parseGuardMode('true')).toBe('block');
+  it('falls back to warn on an unknown value', () => {
+    expect(parseGuardMode('nope')).toBe('warn');
+    expect(parseGuardMode('true')).toBe('warn');
   });
 });
 
@@ -132,19 +132,20 @@ describe('evaluateEgress', () => {
     expect(evaluateEgress('169.254.169.254', off)).toBeNull();
   });
 
-  it('blocks the GCE metadata IP even in warn mode (alwaysBlock)', () => {
+  it('reports the GCE metadata IP in warn mode, and lets it through', () => {
     expect(evaluateEgress('169.254.169.254', warn)).toMatchObject({
+      verdict: 'warn',
+      permitted: true,
+      service: 'GCE metadata server',
+    });
+  });
+
+  it('blocks the GCE metadata IP in block mode, whatever the allowlist says', () => {
+    expect(evaluateEgress('169.254.169.254', { mode: 'block', allow: ['169.254.169.254'] })).toMatchObject({
       verdict: 'block',
       permitted: false,
       service: 'GCE metadata server',
       alwaysBlock: true,
-    });
-  });
-
-  it('refuses to let the allowlist unblock the metadata IP', () => {
-    expect(evaluateEgress('169.254.169.254', { mode: 'warn', allow: ['169.254.169.254'] })).toMatchObject({
-      verdict: 'block',
-      permitted: false,
     });
   });
 
@@ -267,10 +268,10 @@ describe('wrapDispatcher', () => {
     }
   });
 
-  it('BLOCK: the metadata server refusal offers no allowlist or warn remedy', () => {
+  it('BLOCK: the metadata server refusal offers no allowlist remedy', () => {
     const real = mockDispatcher();
     const log = collector();
-    const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write });
+    const wrapped = wrapDispatcher(real, { mode: 'block', allow: [], write: log.write });
     let thrown: unknown;
     try {
       wrapped.dispatch({ origin: 'http://169.254.169.254', path: '/x' }, {});
@@ -279,19 +280,16 @@ describe('wrapDispatcher', () => {
     }
     for (const text of [log.lines[0]!, (thrown as Error).message]) {
       expect(text).not.toContain('PYRIC_GUARD_ALLOW');
-      expect(text).not.toContain('PYRIC_GUARD=warn');
     }
   });
 
-  it('BLOCK: the metadata IP is refused even under warn mode', () => {
+  it('WARN: the metadata IP is reported and let through under warn mode', () => {
     const real = mockDispatcher();
     const log = collector();
     const wrapped = wrapDispatcher(real, { mode: 'warn', allow: [], write: log.write });
-    expect(() => wrapped.dispatch({ origin: 'http://169.254.169.254', path: '/x' }, {})).toThrow(
-      /169\.254\.169\.254/,
-    );
-    expect(real.calls).toHaveLength(0);
-    expect(log.lines[0]).toContain('net-guard BLOCK 169.254.169.254');
+    wrapped.dispatch({ origin: 'http://169.254.169.254', path: '/x' }, {});
+    expect(real.calls).toHaveLength(1);
+    expect(log.lines[0]).toContain('net-guard WARN 169.254.169.254 (GCE metadata server)');
   });
 
   it('ALLOW: an allowlisted catalog host passes through and is still reported once', () => {
@@ -556,7 +554,7 @@ describe('installNetGuard', () => {
     expect(netCalls).toHaveLength(1);
   });
 
-  it('blocks a catalog host when PYRIC_GUARD is unset', () => {
+  it('reports a catalog host and lets it through when PYRIC_GUARD is unset', () => {
     const real = mockDispatcher();
     const scope = fakeScope(real);
     const log = collector();
@@ -568,14 +566,14 @@ describe('installNetGuard', () => {
       tls: noTls,
       ...noPrototypes,
     });
-    expect(guard?.mode).toBe('block');
-    expect(() =>
-      (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch(
-        { origin: 'https://firestore.googleapis.com', path: '/v1' },
-        {},
-      ),
-    ).toThrow(/firestore\.googleapis\.com/);
-    expect(real.calls).toHaveLength(0);
+    expect(guard?.mode).toBe('warn');
+    (scope[UNDICI] as { dispatch: (o: unknown, h: unknown) => unknown }).dispatch(
+      { origin: 'https://firestore.googleapis.com', path: '/v1' },
+      {},
+    );
+    expect(real.calls).toHaveLength(1);
+    expect(log.lines[0]).toContain('net-guard WARN firestore.googleapis.com (Cloud Firestore)');
+    expect(log.lines[0]).toContain('Set PYRIC_GUARD=block to fail these requests instead.');
   });
 
   it('permits a host named after install, as the Vite plugin does for its AI upstream', () => {
