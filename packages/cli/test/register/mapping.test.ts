@@ -19,9 +19,22 @@ describe('mapFirebaseSpecifier', () => {
     expect(mapFirebaseSpecifier('firebase-admin/auth')).toBe('pyric-admin/auth');
     expect(mapFirebaseSpecifier('firebase-admin/database')).toBe('pyric-admin/database');
     expect(mapFirebaseSpecifier('firebase-admin/storage')).toBe('pyric-admin/storage');
+    expect(mapFirebaseSpecifier('firebase-admin/messaging')).toBe('pyric-admin/messaging');
     expect(mapFirebaseSpecifier('firebase/app')).toBe('pyric/app/register');
     expect(mapFirebaseSpecifier('firebase/firestore')).toBe('pyric/firestore');
     expect(mapFirebaseSpecifier('firebase/auth')).toBe('pyric/auth');
+  });
+
+  it('passes through unexported firebase-admin/* subpaths to upstream firebase-admin', () => {
+    expect(mapFirebaseSpecifier('firebase-admin/app-check')).toBeNull();
+    expect(mapFirebaseSpecifier('firebase-admin/remote-config')).toBeNull();
+    expect(mapFirebaseSpecifier('firebase-admin/security-rules')).toBeNull();
+    expect(mapFirebaseSpecifier('firebase-admin/machine-learning')).toBeNull();
+    expect(mapFirebaseSpecifier('firebase-admin/project-management')).toBeNull();
+    expect(mapFirebaseSpecifier('firebase-admin/installations')).toBeNull();
+    expect(mapFirebaseSpecifier('firebase-admin/instance-id')).toBeNull();
+    expect(mapFirebaseSpecifier('firebase-admin/eventarc')).toBeNull();
+    expect(mapFirebaseSpecifier('firebase-admin/functions')).toBeNull();
   });
 
   it('maps nested subpaths verbatim', () => {

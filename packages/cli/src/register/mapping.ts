@@ -19,6 +19,24 @@ const MAPPINGS: ReadonlyArray<readonly [from: string, to: string]> = [
   ['firebase', 'pyric'],
 ];
 
+interface PyricAdminSubpathDescriptor {
+  readonly subpath: string;
+  readonly target: string;
+}
+
+const PYRIC_ADMIN_SUBPATH_DESCRIPTORS: ReadonlyArray<PyricAdminSubpathDescriptor> = [
+  { subpath: '/app', target: 'pyric-admin/app' },
+  { subpath: '/firestore', target: 'pyric-admin/firestore' },
+  { subpath: '/auth', target: 'pyric-admin/auth' },
+  { subpath: '/database', target: 'pyric-admin/database' },
+  { subpath: '/storage', target: 'pyric-admin/storage' },
+  { subpath: '/messaging', target: 'pyric-admin/messaging' },
+];
+
+const PYRIC_ADMIN_SUBPATHS: ReadonlySet<string> = new Set(
+  PYRIC_ADMIN_SUBPATH_DESCRIPTORS.map((descriptor) => descriptor.subpath),
+);
+
 /**
  * Map a Firebase specifier to its pyric mirror, or return `null` when the
  * specifier is not a Firebase package (leave it for the default resolver).
@@ -72,6 +90,13 @@ export function mapFirebaseSpecifier(
     const isSubpathMatch = specifier.startsWith(`${from}/`);
     if (isSubpathMatch) {
       const subpath = specifier.slice(from.length);
+      const isAdminSpecifier = from === 'firebase-admin';
+      if (isAdminSpecifier) {
+        const isSupportedAdminSubpath = PYRIC_ADMIN_SUBPATHS.has(subpath);
+        if (!isSupportedAdminSubpath) {
+          return null;
+        }
+      }
       return to + subpath;
     }
   }

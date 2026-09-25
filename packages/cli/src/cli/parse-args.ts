@@ -19,33 +19,48 @@ export interface ParsedArgs {
 
 export type FlagValue = string | boolean | Array<string | boolean>;
 
-const BOOLEAN_FLAGS = new Set([
-  'json',
-  'bridge',
-  'hosted',
+interface BooleanFlagDescriptor {
+  readonly flag: string;
+  readonly scope: 'global' | 'auth' | 'sandbox' | 'mcp' | 'rules' | 'production';
+}
+
+const BOOLEAN_FLAG_DESCRIPTORS: ReadonlyArray<BooleanFlagDescriptor> = [
+  { flag: 'json', scope: 'global' },
+  { flag: 'bridge', scope: 'sandbox' },
+  { flag: 'hosted', scope: 'sandbox' },
   // `pyric auth impersonate` identity selectors — valueless, and each sits
   // beside a uid positional a value-taking parse would eat.
-  'admin',
-  'anonymous',
-  'ui',
-  'no-ui',
-  'no-open',
-  'no-run',
-  'no-cache',
-  'no-watch',
-  'no-capture',
-  'persist',
-  'fresh',
-  'force',
-  'permissive',
+  { flag: 'admin', scope: 'auth' },
+  { flag: 'anonymous', scope: 'auth' },
+  { flag: 'ui', scope: 'sandbox' },
+  { flag: 'no-ui', scope: 'sandbox' },
+  { flag: 'no-open', scope: 'sandbox' },
+  { flag: 'no-run', scope: 'sandbox' },
+  { flag: 'no-cache', scope: 'sandbox' },
+  { flag: 'no-watch', scope: 'sandbox' },
+  { flag: 'no-capture', scope: 'sandbox' },
+  { flag: 'persist', scope: 'sandbox' },
+  { flag: 'fresh', scope: 'sandbox' },
+  { flag: 'force', scope: 'global' },
+  { flag: 'permissive', scope: 'rules' },
   // `pyric mcp --in-process` forces the in-process sandbox; it takes no value and
   // must not swallow a following positional.
-  'in-process',
+  { flag: 'in-process', scope: 'mcp' },
   // `pyric mcp --allow-production` mounts `production` methods; valueless.
-  'allow-production',
-  'help',
-  'version',
-]);
+  { flag: 'allow-production', scope: 'mcp' },
+  { flag: 'include-passwords', scope: 'auth' },
+  { flag: 'excludePasswords', scope: 'auth' },
+  { flag: 'stdin', scope: 'rules' },
+  { flag: 'confirm', scope: 'production' },
+  { flag: 'disabled', scope: 'auth' },
+  { flag: 'emailVerified', scope: 'auth' },
+  { flag: 'help', scope: 'global' },
+  { flag: 'version', scope: 'global' },
+];
+
+const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(
+  BOOLEAN_FLAG_DESCRIPTORS.map((descriptor) => descriptor.flag),
+);
 
 function isBooleanFlag(key: string): boolean {
   return BOOLEAN_FLAGS.has(key) || key.startsWith('no-');
