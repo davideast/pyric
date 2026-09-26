@@ -4,13 +4,19 @@ import type { ChildListeners } from './child-listeners.js';
 import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
 import { normalizeWrite } from './normalize.js';
-import { canonicalPath, denyResultFor } from './operation-events.js';
+import { canonicalPath, denyResultFor, type OperationEvents } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
 import { executeQuery, type Priority, type QueryRow, type QuerySpec } from './query.js';
-import { permissionDenied } from './rules-eval.js';
+import { permissionDenied, type RuleEvaluationDetails } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import { listenerPermissionDenied, type ValueListeners } from './value-listeners.js';
+
+interface PendingUpdateAllowEvent {
+  path: string;
+  evaluation: RuleEvaluationDetails;
+  fields: Parameters<OperationEvents['operation']>[5];
+}
 
 function rowsToVal(rows: QueryRow[]): JsonValue {
   if (rows.length === 0) return null;
@@ -252,6 +258,7 @@ export class WritePlane {
       pathSegments(absolute).at(-1)!, value,
     ]));
     const groupId = this.state.events.nextGroupId('update');
+    const pendingAllowEvents: PendingUpdateAllowEvent[] = [];
     for (const update of updates) {
       const at = this.state.clock.now();
       const before = this.state.tree.read(update.path);
@@ -272,7 +279,10 @@ export class WritePlane {
         this.state.events.operation(auth, 'update', update.path, denyResultFor(evaluation.check), evaluation, fields);
         throw permissionDenied();
       }
-      this.state.events.operation(auth, 'update', update.path, 'allow', evaluation, fields);
+      pendingAllowEvents.push({ path: update.path, evaluation, fields });
+    }
+    for (const item of pendingAllowEvents) {
+      this.state.events.operation(auth, 'update', item.path, 'allow', item.evaluation, item.fields);
     }
     const before = this.state.tree.read(path);
     const priors = this.children.snapshotParents();

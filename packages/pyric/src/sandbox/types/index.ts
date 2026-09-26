@@ -14,7 +14,7 @@
  * in this package imports directly from the concept file it needs.
  */
 
-export type { AuthState } from './auth-state.js';
+export type { AuthState, AuthUserFields } from './auth-state.js';
 
 export type {
   DenialContext,
