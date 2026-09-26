@@ -50,7 +50,7 @@ export default defineConfig({
 });
 ```
 
-The plugin hot-reloads Security Rules whenever the file is saved. If omitted, Pyric checks `firestore.modules.rules`, `firebase.json`, and `firestore.rules` automatically.
+The plugin hot-reloads Security Rules whenever the file, or a rules file it imports, is saved. If omitted, Pyric checks `firestore.modules.rules`, `firebase.json`, and `firestore.rules` automatically.
 
 ## Give provider sign-ins a default photo
 

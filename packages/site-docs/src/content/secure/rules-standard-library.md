@@ -58,7 +58,19 @@ export function ticTacToeMove() {
 ```
 Import it from the main file with a relative path:
 ```rules
+// firestore.modules.rules
+rules_version = '2+modules';
+
 import { ticTacToeCreate, ticTacToeMove } from './games/tictactoe';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /tictactoe/{matchId} {
+      allow create: if ticTacToeCreate();
+      allow update: if ticTacToeMove();
+    }
+  }
+}
 ```
 A relative import inside a module resolves from that module's directory. Each module is included once, however many files import it. A module can call its own functions, the functions it imports, and the functions the main file imports; any other call to another module's function is rejected.
 

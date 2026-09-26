@@ -14,7 +14,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -325,6 +325,19 @@ expect(
     resolvedRules.stdout.includes('function isAuthenticated()'),
   'pyric firestore rules resolve must inline the referenced module',
   resolvedRules,
+);
+
+// A project split into files: the main file imports a game module, which
+// imports the stdlib and a sibling file. The same fixture the CLI tests use.
+const rulesProject = resolve(workDir, 'rules-project');
+cpSync(new URL('../packages/cli/test/fixtures/rules-project', import.meta.url), rulesProject, { recursive: true });
+const resolvedProject = run(['firestore', 'rules', 'resolve', 'rules-project/firestore.modules.rules']);
+expect(resolvedProject.code === 0, 'pyric firestore rules resolve must resolve a multi-file project', resolvedProject);
+expect(
+  ['function ticTacToeCreate()', 'function validCreate()', 'function signedIn()'].every((fn) =>
+    resolvedProject.stdout.includes(fn)),
+  'pyric firestore rules resolve must inline a module, its stdlib imports, and its sibling file',
+  resolvedProject,
 );
 
 const querySource = `import { collection, orderBy, query, where } from 'firebase/firestore';

@@ -42,6 +42,7 @@ function harness(options: { functions?: boolean; rulesFile?: string | null; data
     handle: () => { handled += 1; return false; },
     reloadFirestoreRules: async () => ({ kind: 'not-configured' }),
     reloadDatabaseRules: async () => ({ kind: 'not-configured' }),
+    firestoreRulesFiles: () => (options.rulesFile ? [options.rulesFile] : []),
     close: async () => { events.push('close:session'); },
   };
   const bridgeAttachment = { close: async () => { events.push('close:bridge-host'); } };

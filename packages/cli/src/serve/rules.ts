@@ -3,17 +3,17 @@
  * executable for the in-page sandbox, and fail FAST at startup on broken
  * rules (a clear CLI error beats a silently rule-less page).
  *
- * `2+modules` sources are resolved node-side (`resolveModulesBrowser` — pure,
- * stdlib inlined, no disk reads) before embedding, so the page runtime only
- * ever sees plain-v2 source the in-browser evaluator understands. This is the
+ * `2+modules` sources are resolved node-side before embedding, with the
+ * stdlib inlined and relative imports read from the project, so the page
+ * runtime only ever sees plain-v2 source the in-browser evaluator understands. This is the
  * same lesson the playground's write_file learned (a capable model authored
  * correct modular rules that scored 0/5 unresolved — auth-sdk work, PR #525).
  */
 import { createHash } from 'node:crypto';
-import { watch, type FSWatcher } from 'node:fs';
+import { readFileSync, watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
-import { lintFirestoreRules, resolveModulesBrowser } from 'pyric/rules/internal';
+import { dirname, isAbsolute, join } from 'node:path';
+import { lintFirestoreRules, resolveModulesWithFiles, type ResolveResult } from 'pyric/rules/internal';
 import { parseStorageRules } from 'pyric/storage';
 import type { FirebaseJson } from '../cli/firebase-json.js';
 import { parseRtdbRulesJson, stripJsonComments } from '../rtdb/rules-json.js';
@@ -25,6 +25,9 @@ export interface LoadedRules {
   rulesHash: string | null;
   /** Where it came from (diagnostics + the P3 watcher target). */
   sourcePath: string | null;
+  /** Rules files of the project's own that the source imports, directly or
+   *  through other modules. Watched alongside `sourcePath`. */
+  moduleFiles: string[];
 }
 
 export interface LoadedStorageRules {
@@ -46,20 +49,59 @@ export function rulesHashOf(source: string): string {
   return createHash('sha256').update(source).digest('hex').slice(0, 12);
 }
 
+const MODULAR_SOURCE = /^\s*rules_version\s*=\s*['"]2\+modules['"]/m;
+
+/** Read `<basePath>/<moduleName>.rules` (or an explicit `.rules` path); null when unreadable. */
+function readProjectRulesFile(basePath: string, moduleName: string): string | null {
+  const fileName = moduleName.endsWith('.rules') ? moduleName : `${moduleName}.rules`;
+  try {
+    return readFileSync(join(basePath, fileName), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve a modular source: the stdlib inlined, relative imports read from beside `sourcePath`. */
+function resolveProjectModules(raw: string, sourcePath: string, sourceFile?: string): ResolveResult {
+  const basePath = dirname(sourcePath);
+  return resolveModulesWithFiles(raw, readProjectRulesFile, sourceFile === undefined ? { basePath } : { basePath, sourceFile });
+}
+
+/** The project files among a resolution's modules, as absolute paths. */
+function projectModuleFiles(modules: readonly string[], sourcePath: string): string[] {
+  const basePath = dirname(sourcePath);
+  return modules
+    .filter((name) => name.startsWith('./') || name.startsWith('../'))
+    .map((name) => join(basePath, name.endsWith('.rules') ? name : `${name}.rules`));
+}
+
+export interface PreparedRules {
+  rules: string;
+  /** Rules files of the project's own that the source imports. */
+  moduleFiles: string[];
+}
+
 /**
  * Resolve + lint a raw rules source into sandbox-ready plain v2.
  * Throws with an actionable message on unresolvable imports or lint errors.
  */
 export function prepareRulesSource(raw: string, sourcePath: string): string {
+  return prepareProjectRules(raw, sourcePath).rules;
+}
+
+/** {@link prepareRulesSource}, also reporting the module files the source imports. */
+export function prepareProjectRules(raw: string, sourcePath: string): PreparedRules {
   let source = raw;
-  if (/^\s*rules_version\s*=\s*['"]2\+modules['"]/m.test(raw)) {
-    const resolved = resolveModulesBrowser(raw);
+  let moduleFiles: string[] = [];
+  if (MODULAR_SOURCE.test(raw)) {
+    const resolved = resolveProjectModules(raw, sourcePath);
     if (!resolved.success) {
       throw new Error(
         `pyric sandbox: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,
       );
     }
     source = resolved.data.resolved;
+    moduleFiles = projectModuleFiles(resolved.data.modules, sourcePath);
   }
   const lint = lintFirestoreRules(source);
   if (lint.parseError) {
@@ -75,7 +117,7 @@ export function prepareRulesSource(raw: string, sourcePath: string): string {
         errors.map((e) => `  - ${e.message}`).join('\n'),
     );
   }
-  return source;
+  return { rules: source, moduleFiles };
 }
 
 /**
@@ -100,12 +142,12 @@ export async function loadProjectRules(
       if (configured) {
         throw new Error(`pyric sandbox: firebase.json points firestore.rules at ${path}, but it does not exist.`);
       }
-      return { rules: null, rulesHash: null, sourcePath: null };
+      return { rules: null, rulesHash: null, sourcePath: null, moduleFiles: [] };
     }
     throw e;
   }
-  const rules = prepareRulesSource(raw, path);
-  return { rules, rulesHash: rulesHashOf(rules), sourcePath: path };
+  const { rules, moduleFiles } = prepareProjectRules(raw, path);
+  return { rules, rulesHash: rulesHashOf(rules), sourcePath: path, moduleFiles };
 }
 
 /**
@@ -115,8 +157,8 @@ export async function loadProjectRules(
  */
 export function prepareStorageRulesSource(raw: string, sourcePath: string): string {
   let source = raw;
-  if (/^\s*rules_version\s*=\s*['"]2\+modules['"]/m.test(raw)) {
-    const resolved = resolveModulesBrowser(raw, { sourceFile: sourcePath });
+  if (MODULAR_SOURCE.test(raw)) {
+    const resolved = resolveProjectModules(raw, sourcePath, sourcePath);
     if (!resolved.success) {
       throw new Error(
         `pyric sandbox: ${sourcePath} uses 2+modules but module resolution failed: ${resolved.error.message}`,

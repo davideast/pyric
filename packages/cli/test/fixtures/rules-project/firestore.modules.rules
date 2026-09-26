@@ -1,0 +1,16 @@
+rules_version = '2+modules';
+
+// A project laid out in files: each game's rules live beside the game and
+// import what they call. This file imports only each game's exports.
+import { ticTacToeCreate, ticTacToeJoin, ticTacToeMove } from './games/tictactoe';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /tictactoe/{matchId} {
+      allow read: if request.auth != null;
+      allow create: if ticTacToeCreate();
+      allow update: if resource.data.status == 'waiting' && ticTacToeJoin();
+      allow update: if resource.data.status == 'playing' && ticTacToeMove();
+    }
+  }
+}

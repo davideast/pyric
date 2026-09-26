@@ -30,11 +30,12 @@
  * (the node wrapper), whose static `fs`/`path`/`url` imports used to leak
  * into browser bundles through exactly that edge (caught by the
  * pyric-serve P0 validation). Relative-path imports (`./foo`) therefore
- * resolve only via an explicit `options.modules` entry here; the
- * disk-backed `basePath` behavior remains on the node `resolveModules`.
+ * resolve via an explicit `options.modules` entry, or via the reader a
+ * caller passes to `resolveModulesWithFiles`; this module never reads a file
+ * itself.
  */
 
-import { resolveModulesWith, type ResolveOptions, type ResolveResult } from './resolver-core.js';
+import { resolveModulesWith, type ModuleFileReader, type ResolveOptions, type ResolveResult } from './resolver-core.js';
 import { STDLIB_INLINE } from './stdlib-content.js';
 
 /**
@@ -55,7 +56,8 @@ function buildStdlibModuleMap(): Record<string, string> {
 const STDLIB_WITH_PATH_ALIASES = buildStdlibModuleMap();
 const BUNDLED_STDLIB_NAMES = new Set(Object.keys(STDLIB_WITH_PATH_ALIASES));
 
-export function resolveModulesBrowser(
+function resolveWithInlinedStdlib(
+  reader: ModuleFileReader | null,
   source: string,
   options?: ResolveOptions,
 ): ResolveResult {
@@ -65,13 +67,34 @@ export function resolveModulesBrowser(
   const bundledModules = new Set(
     [...BUNDLED_STDLIB_NAMES].filter((name) => !callerModuleNames.has(name)),
   );
-  return resolveModulesWith(null, source, {
+  return resolveModulesWith(reader, source, {
     ...options,
     modules: {
       ...STDLIB_WITH_PATH_ALIASES,
       ...callerModules,
     },
   }, bundledModules);
+}
+
+export function resolveModulesBrowser(
+  source: string,
+  options?: ResolveOptions,
+): ResolveResult {
+  return resolveWithInlinedStdlib(null, source, options);
+}
+
+/**
+ * Resolve with the inlined stdlib and a caller-supplied reader for relative
+ * imports, which resolve from `options.basePath`. The stdlib never touches
+ * the reader, so a runtime without the package's stdlib files on disk (a
+ * compiled binary, a dev server) still resolves stdlib imports.
+ */
+export function resolveModulesWithFiles(
+  source: string,
+  readRelative: ModuleFileReader['readRelative'],
+  options: ResolveOptions & { basePath: string },
+): ResolveResult {
+  return resolveWithInlinedStdlib({ readRelative, readStdlib: () => null }, source, options);
 }
 
 export {

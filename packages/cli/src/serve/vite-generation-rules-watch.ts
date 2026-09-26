@@ -2,7 +2,11 @@ import path from 'node:path';
 import type { ViteDevServer } from 'vite';
 import type { SandboxSession } from './sandbox-session.js';
 
-/** Adapt Vite's watcher to the session's last-good Firestore-rules reload operation. */
+/**
+ * Adapt Vite's watcher to the session's last-good Firestore-rules reload
+ * operation. A change to the rules source or to any module file it imports
+ * reloads; files a reload newly imports are watched from then on.
+ */
 export function watchViteGenerationRules(input: {
   server: ViteDevServer;
   session: SandboxSession;
@@ -22,8 +26,7 @@ export function watchViteGenerationRules(input: {
     const resolvedFile = path.resolve(file);
     let isFirestoreMatch = false;
     if (hasFirestoreFile) {
-      const firestoreResolved = path.resolve(firestoreFile);
-      isFirestoreMatch = resolvedFile === firestoreResolved;
+      isFirestoreMatch = session.firestoreRulesFiles().some((file) => path.resolve(file) === resolvedFile);
     }
     let isDatabaseMatch = false;
     if (hasDatabaseFile) {
@@ -43,6 +46,7 @@ export function watchViteGenerationRules(input: {
         void session.reloadFirestoreRules().then((result) => {
           const isReloaded = result.kind === 'reloaded';
           if (isReloaded) {
+            server.watcher.add([...session.firestoreRulesFiles()]);
             server.config.logger.info(`  ↻ [pyric] rules reloaded (${result.rulesHash})`);
           } else {
             const isRejected = result.kind === 'rejected';
@@ -73,7 +77,7 @@ export function watchViteGenerationRules(input: {
   };
 
   if (hasFirestoreFile) {
-    server.watcher.add(firestoreFile);
+    server.watcher.add([...session.firestoreRulesFiles()]);
   }
   if (hasDatabaseFile) {
     server.watcher.add(databaseFile);

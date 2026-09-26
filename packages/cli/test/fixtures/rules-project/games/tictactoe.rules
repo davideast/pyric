@@ -1,0 +1,23 @@
+rules_version = '2+modules';
+
+import { validCreate, validJoin } from 'lobby';
+import { isMyTurn, turnFlipped } from 'turns';
+import { moveIncremented } from 'state';
+import { signedIn } from './shared';
+
+function emptyBoard() {
+  return request.resource.data.board.size() == 9
+    && request.resource.data.board.values().hasOnly(['']);
+}
+
+export function ticTacToeCreate() {
+  return validCreate() && request.resource.data.moveCount == 0 && emptyBoard();
+}
+
+export function ticTacToeJoin() {
+  return validJoin();
+}
+
+export function ticTacToeMove() {
+  return signedIn() && isMyTurn() && turnFlipped() && moveIncremented();
+}

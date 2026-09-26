@@ -17,7 +17,7 @@ import {
   loadProjectDatabaseRules,
   loadProjectRules,
   loadProjectStorageRules,
-  prepareRulesSource,
+  prepareProjectRules,
   rulesHashOf,
 } from './rules.js';
 import { createEventHub, createPyricNamespace } from './namespace.js';
@@ -93,6 +93,9 @@ export interface SandboxSession {
   handle(req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean>;
   reloadFirestoreRules(): Promise<RulesReloadResult>;
   reloadDatabaseRules(): Promise<RulesReloadResult>;
+  /** The Firestore rules source file and the module files it imports, as of
+   *  the last successful load. Empty when the project has no Firestore rules. */
+  firestoreRulesFiles(): readonly string[];
   close(): Promise<void>;
 }
 
@@ -376,7 +379,8 @@ export async function createSandboxSession(
       if (hasNoSource) return { kind: 'not-configured' };
       try {
         const raw = await readFile(sourcePath, 'utf8');
-        const rules = prepareRulesSource(raw, sourcePath);
+        const { rules, moduleFiles } = prepareProjectRules(raw, sourcePath);
+        firestore.moduleFiles = moduleFiles;
         const rulesHash = rulesHashOf(rules);
         options.deployHostedRules?.('firestore', rules);
         live.rules = rules;
@@ -430,6 +434,8 @@ export async function createSandboxSession(
       },
       reloadFirestoreRules,
       reloadDatabaseRules,
+      firestoreRulesFiles: () =>
+        firestore.sourcePath === null ? [] : [firestore.sourcePath, ...firestore.moduleFiles],
       close,
     };
   } catch (error) {
