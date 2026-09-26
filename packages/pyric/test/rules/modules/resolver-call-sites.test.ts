@@ -79,20 +79,19 @@ service firebase.storage {
     expect(result.success).toBe(false);
   });
 
-  test('rejects unresolved nested receivers projected from a map parameter', () => {
+  test('admits unresolved nested receivers projected from a map parameter', () => {
     for (const expression of [
       "value.nested.flag.matches('x')",
       "value['nested']['flag'].matches('x')",
     ]) {
       const result = resolveModules(`rules_version = '2+modules';
-import { broken } from './policy';
+import { projected } from './policy';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /{file} { allow read: if broken({'nested': {'flag': true}}); }
+    match /{file} { allow read: if projected({'nested': {'flag': true}}); }
   }
-}`, { modules: { './policy': `export function broken(value) { return ${expression}; }` } });
-      expect(result.success, expression).toBe(false);
-      if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+}`, { modules: { './policy': `export function projected(value) { return ${expression}; }` } });
+      expect(result.success, result.success ? expression : result.error.message).toBe(true);
     }
   });
 

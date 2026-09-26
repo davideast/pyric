@@ -102,20 +102,8 @@ function ambientMethodReceiverIssue(
   // Production does not type field values when it compiles rules; a method on
   // a value of the wrong type is an evaluation error, which denies. Only a
   // receiver whose type is known is checked against the method's contract.
-  if (!receiverType || service === 'cloud.firestore' &&
-      (receiverType === 'unknown' || receiverType === 'mixed')) {
-    if (provenance === 'unknown-ambient') return "binding '<derived ambient receiver>'";
-    if (service === 'cloud.firestore') return null;
-    let projectionSource: Expression = object;
-    while (projectionSource.type === 'memberAccess' || projectionSource.type === 'bracketAccess' ||
-      projectionSource.type === 'methodCall' && projectionSource.method === 'get') {
-      projectionSource = projectionSource.object;
-    }
-    const projectedType = sourceReceiverType(projectionSource, ctx);
-    if (projectedType === 'map' || projectedType === 'list' || projectedType === 'document') {
-      return `method '.${method}()' has an unresolved projected receiver`;
-    }
-    return null;
+  if (!receiverType || receiverType === 'unknown' || receiverType === 'mixed') {
+    return provenance === 'unknown-ambient' ? "binding '<derived ambient receiver>'" : null;
   }
   const contracts = service === 'cloud.firestore'
     ? FIRESTORE_METHOD_RECEIVER_TYPES

@@ -521,33 +521,31 @@ import { hasClaim, hasClaimRole, isMemberOf, hasRole } from 'membership';`,
       expect(result.success, expression).toBe(false);
     }
   });
-  test('rejects direct and projected heterogeneous method receivers', () => {
+  test('admits direct and projected heterogeneous method receivers for evaluation to deny', () => {
     const bodies = [
       "let value = flag ? ['owner'] : 'owner'; return value.keys().hasAll(['owner']);",
       "let values = flag ? [{'owner': true}] : 'owner'; return values[0].keys().hasAll(['owner']);",
     ];
     for (const body of bodies) {
       const result = resolveModules(
-        makeStorageSource("import { broken } from './policy';", 'broken(request.auth != null)'),
-        { modules: { './policy': `export function broken(flag) { ${body} }` } },
+        makeStorageSource("import { mixed } from './policy';", 'mixed(request.auth != null)'),
+        { modules: { './policy': `export function mixed(flag) { ${body} }` } },
       );
-      expect(result.success, body).toBe(false);
-      if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+      expect(result.success, result.success ? body : result.error.message).toBe(true);
     }
   });
-  test('rejects Map.get fallbacks that hide incompatible retrieved values', () => {
+  test('admits a Map.get whose retrieved value type is unresolved', () => {
     const result = resolveModules(
-      makeStorageSource("import { broken } from './policy';", "broken({'x': 'owner'})"),
+      makeStorageSource("import { retrieved } from './policy';", "retrieved({'x': 'owner'})"),
       {
         modules: { './policy': `
-          export function broken(value) {
+          export function retrieved(value) {
             return value.get('x', {}).keys().hasAll(['owner']);
           }
         ` },
       },
     );
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('INCOMPATIBLE_FUNCTION');
+    expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
   test('enforces receiver types on direct Firestore lookup results and propagated values', () => {
     const modules = [
