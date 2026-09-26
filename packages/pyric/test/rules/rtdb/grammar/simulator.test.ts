@@ -231,4 +231,55 @@ describe('evaluateRtdbExpression', () => {
       expect(evalExpr("data.val() == '\\z'", unrecognized)).toBe(true);
     });
   });
+
+  describe('DataSnapshot.child path normalization', () => {
+    test('normalizes . and .. path segments', () => {
+      const root = new DataSnapshot(
+        {
+          users: {
+            alice: { name: 'Alice' },
+            bob: { name: 'Bob' },
+          },
+        },
+        '/',
+        null,
+      );
+
+      expect(root.child('users/./alice').val()).toEqual({ name: 'Alice' });
+      expect(root.child('users/alice/./name').val()).toBe('Alice');
+      expect(root.child('users/alice/../bob/name').val()).toBe('Bob');
+      expect(root.child('users/alice/../../users/bob/name').val()).toBe('Bob');
+
+      const aliceSnap = root.child('users/alice');
+      expect(aliceSnap.child('../bob/name').val()).toBe('Bob');
+      expect(aliceSnap.child('..').val()).toEqual({
+        alice: { name: 'Alice' },
+        bob: { name: 'Bob' },
+      });
+      expect(aliceSnap.child('../../users/bob').val()).toEqual({ name: 'Bob' });
+    });
+  });
+
+  describe('RtdbString regex safety and flags', () => {
+    test('matches returns false without throwing on malformed regex', () => {
+      const data = new DataSnapshot('some string', '/data');
+      expect(() => evaluateRtdbExpression("data.val().matches('/[a-z/')", { ...baseCtx, data })).not.toThrow();
+      expect(evaluateRtdbExpression("data.val().matches('/[a-z/')", { ...baseCtx, data })).toBe(false);
+    });
+
+    test('matches correctly applies case-insensitive flag from slash-delimited string', () => {
+      const data = new DataSnapshot('HELLO', '/data');
+      const result = evaluateRtdbExpression("data.val().matches('/^[a-z]+$/i')", { ...baseCtx, data });
+      expect(result).toBe(true);
+    });
+
+    test('replace supports slash-delimited regex literals with flags and fails safely on invalid regex', () => {
+      const data = new DataSnapshot('foo_bar_baz', '/data');
+      const result = evaluateRtdbExpression("data.val().replace('/_[a-z]/g', '-x')", { ...baseCtx, data });
+      expect(result).toBe('foo-xar-xaz');
+
+      const invalidRegex = evaluateRtdbExpression("data.val().replace('/([a-z/', '-x')", { ...baseCtx, data });
+      expect(invalidRegex).toBe('foo_bar_baz');
+    });
+  });
 });

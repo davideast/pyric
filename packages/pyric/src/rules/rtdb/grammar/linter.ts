@@ -14,6 +14,30 @@ interface LintContext {
 
 let linterSemantics: Semantics | undefined;
 
+function isLiteralSource(src: string): boolean {
+  const trimmed = src.trim();
+  const isString = (trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"));
+  const isNumber = /^-?\d+(\.\d+)?$/.test(trimmed);
+  return isString || isNumber;
+}
+
+function checkTautologicalComparison(
+  left: any,
+  right: any,
+  ctx: LintContext,
+  warningCode: 'HARDCODED_TRUE' | 'HARDCODED_FALSE',
+): void {
+  const isTautological = left.sourceString === right.sourceString && isLiteralSource(left.sourceString);
+  if (isTautological) {
+    const message = warningCode === 'HARDCODED_TRUE'
+      ? 'Rule expression is hardcoded to true'
+      : 'Rule expression is hardcoded to false';
+    ctx.warnings.push({ code: warningCode, message });
+  }
+  left.lint(ctx);
+  right.lint(ctx);
+}
+
 function getLinterSemantics(): Semantics {
   if (linterSemantics) return linterSemantics;
   const semantics = createRtdbExpressionSemantics();
@@ -54,13 +78,11 @@ function getLinterSemantics(): Semantics {
     },
 
     Comparison_looseEq(left, _op, right) {
-      (left as any).lint(this.args.ctx);
-      (right as any).lint(this.args.ctx);
+      checkTautologicalComparison(left, right, this.args.ctx as LintContext, 'HARDCODED_TRUE');
     },
 
     Comparison_looseNeq(left, _op, right) {
-      (left as any).lint(this.args.ctx);
-      (right as any).lint(this.args.ctx);
+      checkTautologicalComparison(left, right, this.args.ctx as LintContext, 'HARDCODED_FALSE');
     },
   });
   linterSemantics = semantics;

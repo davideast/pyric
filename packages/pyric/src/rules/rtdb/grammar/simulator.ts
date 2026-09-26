@@ -118,7 +118,11 @@ export class DataSnapshot {
   constructor(value: unknown, path: string = '/', root?: unknown) {
     this._value = value ?? null;
     this._path = path;
-    this._root = root !== undefined ? root : value;
+    if (root !== undefined && root !== null) {
+      this._root = root;
+    } else {
+      this._root = value ?? null;
+    }
   }
 
   val(): unknown {
@@ -156,10 +160,29 @@ export class DataSnapshot {
   }
 
   child(path: string): DataSnapshot {
-    const parts = path.split('/').filter(p => p.length > 0);
-    if (parts.length === 0) return this;
+    const rawParts = path.split('/').filter(p => p.length > 0);
+    const isAbsolute = path.startsWith('/');
+    let baseParts: string[];
+    if (isAbsolute || this._path === '/') {
+      baseParts = [];
+    } else {
+      baseParts = this._path.split('/').filter(p => p.length > 0);
+    }
 
-    let current: unknown = this._value;
+    const parts = [...baseParts];
+    for (const part of rawParts) {
+      if (part === '.') continue;
+      if (part === '..') {
+        parts.pop();
+      } else {
+        parts.push(part);
+      }
+    }
+
+    const currentPath = parts.length === 0 ? '/' : `/${parts.join('/')}`;
+    if (currentPath === this._path) return this;
+
+    let current: unknown = this._root;
     for (const part of parts) {
       if (current !== null && current !== undefined && typeof current === 'object') {
         current = Object.hasOwn(current as object, part)
@@ -170,8 +193,6 @@ export class DataSnapshot {
       }
     }
 
-    const prefix = this._path === '/' ? '' : this._path;
-    const currentPath = `${prefix}/${parts.join('/')}`;
     return new DataSnapshot(current, currentPath, this._root);
   }
 
@@ -191,12 +212,27 @@ export class DataSnapshot {
   }
 }
 
+function parseRegexPattern(pattern: RegExp | string): RegExp | null {
+  if (pattern instanceof RegExp) return pattern;
+  if (typeof pattern !== 'string') return null;
+  try {
+    const isSlashDelimited = pattern.startsWith('/') && pattern.lastIndexOf('/') > 0;
+    if (isSlashDelimited) {
+      const lastSlash = pattern.lastIndexOf('/');
+      return new RegExp(pattern.slice(1, lastSlash), pattern.slice(lastSlash + 1));
+    }
+    return new RegExp(pattern);
+  } catch {
+    return null;
+  }
+}
+
 class RtdbString {
   constructor(private value: string) {}
 
   matches(pattern: RegExp | string): boolean {
-    const r = pattern instanceof RegExp ? pattern : new RegExp(pattern);
-    return r.test(this.value);
+    const r = parseRegexPattern(pattern);
+    return r !== null ? r.test(this.value) : false;
   }
 
   contains(other: string): boolean {
@@ -221,6 +257,13 @@ class RtdbString {
     if (from instanceof RegExp) {
       const flags = from.flags.includes('g') ? from.flags : `${from.flags}g`;
       return this.value.replace(new RegExp(from.source, flags), to);
+    }
+    if (typeof from === 'string' && from.startsWith('/') && from.lastIndexOf('/') > 0) {
+      const regex = parseRegexPattern(from);
+      if (regex !== null) {
+        const flags = regex.flags.includes('g') ? regex.flags : `${regex.flags}g`;
+        return this.value.replace(new RegExp(regex.source, flags), to);
+      }
     }
     if (from === '') return this.value;
     return this.value.split(from).join(to);
