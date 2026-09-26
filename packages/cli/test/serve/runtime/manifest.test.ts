@@ -67,6 +67,31 @@ describe('Pyric runtime manifest', () => {
     }
   });
 
+  describe('a bridgeUrl resolved against the page it is stamped on', () => {
+    const page = { href: 'http://localhost:5391/', host: 'localhost:5391' };
+
+    function studioUrlFor(bridgeUrl: string): string {
+      (globalThis as any).__PYRIC_WORKER_INIT__ = { hosted: true, projectKey: 'demo', bridgeUrl };
+      try {
+        return readPyricRuntimeManifest({ querySelector: () => null }, page).studioUrl;
+      } finally {
+        delete (globalThis as any).__PYRIC_WORKER_INIT__;
+      }
+    }
+
+    it('keeps the relative Studio route when the bridge is a relative path on the page origin', () => {
+      expect(studioUrlFor('/__pyric/sandbox')).toBe(PYRIC_STUDIO_URL);
+    });
+
+    it('keeps the relative Studio route when the bridge is absolute on the page host', () => {
+      expect(studioUrlFor('ws://localhost:5391/__pyric/sandbox')).toBe(PYRIC_STUDIO_URL);
+    });
+
+    it('points at the bridge host when the bridge runs on another server', () => {
+      expect(studioUrlFor('ws://localhost:9999/__pyric/sandbox')).toBe('http://localhost:9999/__pyric/ui/studio');
+    });
+  });
+
   it('resolves studioUrl from meta[name="pyric-studio-url"] tag', () => {
     const doc = {
       querySelector(selector: string) {

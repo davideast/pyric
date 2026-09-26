@@ -46,8 +46,11 @@ function resolveStudioUrl(
 
   if (typeof init?.bridgeUrl === 'string' && init.bridgeUrl.trim().length > 0) {
     try {
-      const bridge = new URL(init.bridgeUrl, 'http://localhost');
-      const locHost = locationLike?.host || (typeof location !== 'undefined' ? location.host : '');
+      // A relative bridge URL names the page's own origin, so resolve it against the page.
+      const pageHref = locationLike?.href || (typeof location !== 'undefined' ? location.href : '');
+      const bridge = new URL(init.bridgeUrl, pageHref || 'http://localhost');
+      const locHost = locationLike?.host || (typeof location !== 'undefined' ? location.host : '')
+        || (pageHref ? new URL(pageHref).host : '');
       if (bridge.host && (!locHost || bridge.host !== locHost)) {
         const protocol = bridge.protocol === 'wss:' || bridge.protocol === 'https:' ? 'https:' : 'http:';
         return `${protocol}//${bridge.host}/__pyric/ui/studio`;
